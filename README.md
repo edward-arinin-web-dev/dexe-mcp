@@ -6,7 +6,15 @@ MCP server for Claude Code / Antigravity that wraps the [DeXe Protocol](https://
 
 ## Prerequisites
 
-- **Node.js >= 20** (with a bundled `npm` — i.e. any official installer, nvm, nvm-windows, or Homebrew build)
+- **Node.js >= 20** with a working `npm`. Verify before continuing:
+
+  ```bash
+  node --version    # should print v20.x or higher
+  npm --version     # MUST print a version, not "command not found"
+  ```
+
+  If `npm --version` fails, you have a stripped Node install (a bare `node.exe` without the rest of the toolchain — common on Windows when `C:\Program Files\nodejs\node.exe` was placed manually). Install Node from <https://nodejs.org> or via [nvm](https://github.com/nvm-sh/nvm) / [nvm-windows](https://github.com/coreybutler/nvm-windows) and retry. Without npm, `npm install -g dexe-mcp` silently does nothing.
+
 - **Git** — only needed on first run, to clone DeXe-Protocol. If you already have a local checkout, point `DEXE_PROTOCOL_PATH` at it and git is optional.
 
 ## Install
@@ -17,21 +25,28 @@ MCP server for Claude Code / Antigravity that wraps the [DeXe Protocol](https://
 npm install -g dexe-mcp
 ```
 
-This installs a `dexe-mcp` binary on your PATH. Verify:
+Verify the install landed by asking npm where it put it:
 
 ```bash
-dexe-mcp --version   # or:  where dexe-mcp   (Windows)  /  which dexe-mcp   (Mac/Linux)
+npm root -g
+# Mac/Linux:  /usr/local/lib/node_modules       (or ~/.nvm/versions/node/vXX.X.X/lib/node_modules)
+# Windows:    C:\Users\<you>\AppData\Roaming\nvm\<version>\node_modules
+#             (or C:\Users\<you>\AppData\Roaming\npm\node_modules for non-nvm)
 ```
+
+Note the output — you'll need it for the Windows install step below. The package lives at `<npm-root>/dexe-mcp/dist/index.js`.
 
 ### 2. Register the MCP server
 
 #### Mac / Linux
 
+Bare command works because Unix `exec` resolves PATH directly:
+
 ```bash
 claude mcp add dexe -- dexe-mcp
 ```
 
-Or add to your MCP client config (`.mcp.json`, `claude_desktop_config.json`, etc.):
+Or in JSON (`.mcp.json`, `claude_desktop_config.json`, etc.):
 
 ```json
 {
@@ -43,15 +58,34 @@ Or add to your MCP client config (`.mcp.json`, `claude_desktop_config.json`, etc
 }
 ```
 
-#### Windows
+#### Windows — recommended: absolute path to `node` + `dist/index.js`
 
-Windows `CreateProcess` does not resolve `.cmd` shims from a bare command name, so wrap the call with `cmd /c`:
+On Windows, `dexe-mcp` is installed as a `.cmd` shim that many MCP clients (including Claude Code as of this writing) fail to spawn cleanly over stdio. The **absolute-path** form bypasses shim resolution entirely and is the known-good recipe:
 
 ```bash
-claude mcp add dexe -- cmd /c dexe-mcp
+claude mcp add dexe -- "C:\Program Files\nodejs\node.exe" "C:\Users\<you>\AppData\Roaming\nvm\<version>\node_modules\dexe-mcp\dist\index.js"
 ```
 
-Or in JSON:
+Substitute `<you>` and `<version>` (or use whatever `npm root -g` printed above). In JSON:
+
+```json
+{
+  "mcpServers": {
+    "dexe": {
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": ["C:/Users/<you>/AppData/Roaming/nvm/<version>/node_modules/dexe-mcp/dist/index.js"]
+    }
+  }
+}
+```
+
+This works because:
+- No PATH dependency — every argument is an absolute path
+- No `.cmd` / `.ps1` shim in the chain, so `CreateProcess` semantics don't trip over missing extensions
+- `dexe-mcp` internally invokes `npm`/`hardhat` via `process.execPath`, so it uses whichever Node you pointed at and does not need npm on the spawned process PATH
+
+<details>
+<summary>Alternative: <code>cmd /c dexe-mcp</code> (not recommended — often unreliable with Claude Code)</summary>
 
 ```json
 {
@@ -64,20 +98,27 @@ Or in JSON:
 }
 ```
 
-**Absolute-path fallback** (works everywhere, zero PATH dependency):
+Use only if the absolute-path form is inconvenient. End-to-end testing showed this can pass a direct stdio check but fail to complete the MCP handshake when spawned by Claude Code.
+</details>
 
-```json
-{
-  "mcpServers": {
-    "dexe": {
-      "command": "node",
-      "args": ["C:/Users/<you>/AppData/Roaming/npm/node_modules/dexe-mcp/dist/index.js"]
-    }
-  }
-}
+### 3. Verify the install (optional but recommended)
+
+Before wiring the server into your MCP client, confirm the binary can actually speak MCP over stdio. On any OS:
+
+```bash
+# Send a minimal initialize request, expect a capabilities JSON back.
+echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}" | dexe-mcp
 ```
 
-### 3. Restart your MCP client
+On Windows if the above hangs, try instead:
+
+```bash
+echo {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}} | node "C:\Users\<you>\AppData\Roaming\nvm\<version>\node_modules\dexe-mcp\dist\index.js"
+```
+
+A healthy response starts with a single stderr line (`[dexe-mcp] connected on stdio. …`) and a stdout JSON blob containing `"serverInfo":{"name":"dexe-mcp"}`. If you see that, the server is fine and any "failed to connect" from your MCP client is purely a client-side spawn/config problem, not a bug in dexe-mcp.
+
+### 4. Restart your MCP client
 
 On the first build-tool call (e.g. `dexe_compile`), `dexe-mcp` will automatically:
 
@@ -192,13 +233,20 @@ Usually means your Node install lacks a bundled `npm` (e.g. a stripped `node.exe
 
 ### "Failed to connect" in Claude Code (Windows)
 
-Claude Code spawns MCP servers with `CreateProcess`, which can't resolve `.cmd` shims from a bare name. Wrap the command:
+Run the direct stdio test from the "Verify the install" section first. If that prints a clean `serverInfo` response, the server is fine and the problem is in how your client is spawning it.
 
-```json
-{ "command": "cmd", "args": ["/c", "dexe-mcp"] }
+The fix is almost always to switch to the **absolute-path** registration:
+
+```bash
+claude mcp remove dexe
+claude mcp add dexe -- "C:\Program Files\nodejs\node.exe" "C:\Users\<you>\AppData\Roaming\nvm\<version>\node_modules\dexe-mcp\dist\index.js"
 ```
 
-Or use the absolute-path fallback pointing at `node` + `dist/index.js` directly.
+Bare `dexe-mcp` and `cmd /c dexe-mcp` both rely on shim resolution that Claude Code's `CreateProcess`-based spawn does not always handle. The absolute-path form has zero shim resolution.
+
+### `npm install -g dexe-mcp` reported success but `dexe-mcp` is nowhere to be found
+
+You're almost certainly on a stripped Node install whose `npm` silently no-ops. Check with `npm --version` — if it fails, install Node properly (see Prerequisites). If it prints a version, check `npm root -g` and look inside that directory; the package should be at `<npm-root>/dexe-mcp`.
 
 ### "Hardhat artifacts not found — run dexe_compile first"
 
