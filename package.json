@@ -1,6 +1,6 @@
 {
   "name": "dexe-mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "MCP server wrapping DeXe Protocol for Claude Code dev tooling (build/test, contract introspection, governance-domain tools)",
   "type": "module",
   "license": "MIT",

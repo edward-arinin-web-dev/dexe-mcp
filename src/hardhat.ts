@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DexeConfig } from "./config.js";
 import { ensureBuildReady } from "./bootstrap.js";
-import { hardhatCommand, npmCommand } from "./runtime.js";
+import { envWithNodeBinDir, hardhatCommand, npmCommand } from "./runtime.js";
 
 /** Result of a shelled-out hardhat/npm invocation. */
 export interface RunResult {
@@ -52,7 +52,13 @@ export class HardhatRunner {
     const npm = npmCommand();
     const args = [...npm.prefixArgs, "run", script];
     if (extraArgs.length > 0) args.push("--", ...extraArgs);
-    return this.run(npm.command, args, `npm-run-${script}`, npm.needsShell);
+    return this.run(
+      npm.command,
+      args,
+      `npm-run-${script}`,
+      npm.needsShell,
+      envWithNodeBinDir(npm.binDir),
+    );
   }
 
   /**
@@ -69,7 +75,17 @@ export class HardhatRunner {
         `Hardhat is not installed inside ${this.config.protocolPath}. This should have been fixed by ensureBuildReady — did npm install fail?`,
       );
     }
-    return this.run(hh.command, [...hh.prefixArgs, subcommand, ...args], `hardhat-${subcommand}`, false);
+    // Hardhat is invoked via `node <cli.js>`, which has zero PATH dependency
+    // for the command itself, but the hardhat task may still spawn helpers
+    // that look for npx on PATH — keep the bin dir prepended to be safe.
+    const npm = npmCommand();
+    return this.run(
+      hh.command,
+      [...hh.prefixArgs, subcommand, ...args],
+      `hardhat-${subcommand}`,
+      false,
+      envWithNodeBinDir(npm.binDir),
+    );
   }
 
   private run(
@@ -77,6 +93,7 @@ export class HardhatRunner {
     args: string[],
     label: string,
     useShell: boolean,
+    extraEnv: NodeJS.ProcessEnv,
   ): Promise<RunResult> {
     return limit(async () => {
       const started = Date.now();
@@ -94,7 +111,7 @@ export class HardhatRunner {
         timeout: HARDHAT_TIMEOUT_MS,
         reject: false,
         all: true,
-        env: { ...process.env, FORCE_COLOR: "0", CI: "1" },
+        env: { ...extraEnv, FORCE_COLOR: "0", CI: "1" },
         shell: useShell,
       });
 

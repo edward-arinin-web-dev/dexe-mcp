@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { hasGit, npmCommand } from "./runtime.js";
+import { envWithNodeBinDir, hasGit, npmCommand } from "./runtime.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -146,6 +146,7 @@ export async function ensureBuildReady(protocolPath: string): Promise<void> {
             ? `Using npm-cli.js at ${npm.prefixArgs[0]}`
             : `Using ${npm.command} from PATH (shell-resolved)`,
         );
+        if (npm.binDir) log(`Prepending ${npm.binDir} to child PATH for npx/npm resolution`);
         try {
           await execFileAsync(
             npm.command,
@@ -157,6 +158,7 @@ export async function ensureBuildReady(protocolPath: string): Promise<void> {
               // Windows `.cmd` shims cannot be invoked via execFile without
               // shell:true as of Node's CVE-2024-27980 mitigation.
               shell: npm.needsShell,
+              env: envWithNodeBinDir(npm.binDir),
             },
           );
         } catch (err: unknown) {

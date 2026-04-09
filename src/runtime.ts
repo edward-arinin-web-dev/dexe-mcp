@@ -120,6 +120,53 @@ export function resolveHardhatCli(protocolPath: string): string | null {
   return existsSync(p) ? p : null;
 }
 
+/**
+ * Given the absolute path to `npm-cli.js`, derive the directory that holds
+ * the matching `npm.cmd`/`npx.cmd` (Windows) or `bin/npm`/`bin/npx` (Unix)
+ * shims. Returned directory should be **prepended** to the `PATH` of any
+ * child process that might invoke `npx` / `npm` internally — most notably
+ * `npm run <script>` children whose scripts reference `npx hardhat …`,
+ * which is the case for DeXe-Protocol's own `compile` / `coverage` scripts.
+ *
+ * Returns `null` if `npmCliPath` is `null` or the derived layout is
+ * unfamiliar (caller should leave `PATH` untouched).
+ */
+export function deriveNodeBinDir(npmCliPath: string | null): string | null {
+  if (!npmCliPath) return null;
+  if (platform() === "win32") {
+    // Windows layout:  <nodeRoot>\node_modules\npm\bin\npm-cli.js
+    // `.cmd` shims live at `<nodeRoot>\npm.cmd`, `<nodeRoot>\npx.cmd`.
+    // dirname x4 peels bin → npm → node_modules → nodeRoot.
+    const nodeRoot = dirname(dirname(dirname(dirname(npmCliPath))));
+    return existsSync(join(nodeRoot, "npm.cmd")) || existsSync(join(nodeRoot, "npx.cmd"))
+      ? nodeRoot
+      : null;
+  }
+  // Unix layouts (official installer / nvm / Homebrew):
+  //   <prefix>/lib/node_modules/npm/bin/npm-cli.js
+  // Binaries live at `<prefix>/bin/npm` and `<prefix>/bin/npx`.
+  // dirname x5 peels bin → npm → node_modules → lib → prefix.
+  const prefix = dirname(dirname(dirname(dirname(dirname(npmCliPath)))));
+  const binDir = join(prefix, "bin");
+  return existsSync(join(binDir, "npx")) || existsSync(join(binDir, "npm")) ? binDir : null;
+}
+
+/**
+ * Build an `env` object that extends `process.env` with the Node shim
+ * directory prepended to `PATH`, so that child processes spawned by
+ * `npm run <script>` can resolve `npx` / `npm` even when the MCP server
+ * itself was launched by a stripped Node install whose PATH lacks them.
+ *
+ * Pass the returned env to `execa` / `execFile`. Idempotent — passing
+ * a `null` binDir returns the unchanged `process.env`.
+ */
+export function envWithNodeBinDir(binDir: string | null): NodeJS.ProcessEnv {
+  if (!binDir) return { ...process.env };
+  const sep = platform() === "win32" ? ";" : ":";
+  const existing = process.env.PATH || process.env.Path || "";
+  return { ...process.env, PATH: `${binDir}${sep}${existing}` };
+}
+
 /** Detect whether `git` is available on PATH. Cached per-process. */
 let gitAvailable: boolean | null = null;
 export function hasGit(): Promise<boolean> {
@@ -148,13 +195,28 @@ export function npmCommand(): {
   command: string;
   prefixArgs: string[];
   needsShell: boolean;
+  /**
+   * Directory containing `npm.cmd`/`npx.cmd` (Windows) or `bin/npm`/`bin/npx`
+   * (Unix), paired with the `npm-cli.js` we resolved. Should be prepended
+   * to child PATH via `envWithNodeBinDir()` so npm scripts that invoke
+   * `npx foo` internally can find it.
+   */
+  binDir: string | null;
 } {
   const cli = resolveNpmCli();
-  if (cli) return { command: process.execPath, prefixArgs: [cli], needsShell: false };
+  if (cli) {
+    return {
+      command: process.execPath,
+      prefixArgs: [cli],
+      needsShell: false,
+      binDir: deriveNodeBinDir(cli),
+    };
+  }
   return {
     command: platform() === "win32" ? "npm.cmd" : "npm",
     prefixArgs: [],
     needsShell: platform() === "win32",
+    binDir: null,
   };
 }
 
