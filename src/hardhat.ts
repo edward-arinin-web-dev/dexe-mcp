@@ -4,6 +4,8 @@ import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DexeConfig } from "./config.js";
+import { ensureBuildReady } from "./bootstrap.js";
+import { hardhatCommand, npmCommand } from "./runtime.js";
 
 /** Result of a shelled-out hardhat/npm invocation. */
 export interface RunResult {
@@ -39,18 +41,35 @@ function getTmpRoot(): string {
 export class HardhatRunner {
   constructor(private readonly config: DexeConfig) {}
 
-  /** Run `npm run <script>` in the protocol directory. */
-  runNpmScript(script: string, extraArgs: string[] = []): Promise<RunResult> {
-    const args = ["run", script];
-    if (extraArgs.length > 0) {
-      args.push("--", ...extraArgs);
-    }
-    return this.run("npm", args, `npm-run-${script}`);
+  /**
+   * Run `npm run <script>` in the protocol directory.
+   *
+   * Uses `node <npm-cli.js>` under the hood so this works regardless of
+   * whether `npm` is on the MCP's spawn PATH.
+   */
+  async runNpmScript(script: string, extraArgs: string[] = []): Promise<RunResult> {
+    await ensureBuildReady(this.config.protocolPath);
+    const npm = npmCommand();
+    const args = [...npm.prefixArgs, "run", script];
+    if (extraArgs.length > 0) args.push("--", ...extraArgs);
+    return this.run(npm.command, args, `npm-run-${script}`);
   }
 
-  /** Run `npx hardhat <subcommand> <args...>` in the protocol directory. */
-  runHardhat(subcommand: string, args: string[] = []): Promise<RunResult> {
-    return this.run("npx", ["hardhat", subcommand, ...args], `hardhat-${subcommand}`);
+  /**
+   * Run `hardhat <subcommand> <args...>` in the protocol directory.
+   *
+   * Uses `node <protocol>/node_modules/hardhat/internal/cli/cli.js` so this
+   * doesn't require `npx` on PATH.
+   */
+  async runHardhat(subcommand: string, args: string[] = []): Promise<RunResult> {
+    await ensureBuildReady(this.config.protocolPath);
+    const hh = hardhatCommand(this.config.protocolPath);
+    if (!hh) {
+      throw new Error(
+        `Hardhat is not installed inside ${this.config.protocolPath}. This should have been fixed by ensureBuildReady — did npm install fail?`,
+      );
+    }
+    return this.run(hh.command, [...hh.prefixArgs, subcommand, ...args], `hardhat-${subcommand}`);
   }
 
   private run(command: string, args: string[], label: string): Promise<RunResult> {

@@ -1,9 +1,9 @@
-import { existsSync, statSync } from "node:fs";
-import { resolve, join } from "node:path";
-import { ensureProtocolCheckout } from "./bootstrap.js";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
 
 export interface DexeConfig {
-  /** Absolute, normalized path to the DeXe-Protocol checkout. */
+  /** Absolute, normalized path to the DeXe-Protocol checkout (may not exist yet). */
   protocolPath: string;
   /** Optional JSON-RPC endpoint for on-chain gov tools. */
   rpcUrl?: string;
@@ -12,27 +12,24 @@ export interface DexeConfig {
 }
 
 /**
- * Validates environment and returns a frozen config.
- *
- * If `DEXE_PROTOCOL_PATH` is set, uses it directly (power-user override).
- * Otherwise, auto-clones DeXe-Protocol into a platform cache directory.
- *
- * Exported primarily for the MCP entrypoint; tests can construct their own
- * config objects directly.
+ * Reads environment and returns a frozen config. **Fast and side-effect-free**
+ * — safe to await during MCP `initialize`. Does not clone, install, or shell
+ * out. The protocol checkout may not exist yet; `ensureBuildReady` handles
+ * that lazily from inside build/test tools.
  */
 export async function loadConfig(): Promise<DexeConfig> {
-  const raw = await ensureProtocolCheckout();
-  const protocolPath = resolve(raw);
+  const protocolPath = resolve(resolveProtocolPath());
 
-  if (!existsSync(protocolPath) || !statSync(protocolPath).isDirectory()) {
-    fatal(`DeXe-Protocol path does not exist or is not a directory: ${protocolPath}`);
-  }
-
-  const hardhatConfig = join(protocolPath, "hardhat.config.js");
-  const hardhatConfigTs = join(protocolPath, "hardhat.config.ts");
-  if (!existsSync(hardhatConfig) && !existsSync(hardhatConfigTs)) {
-    fatal(
-      `DeXe-Protocol path is not a Hardhat project — no hardhat.config.{js,ts} found at ${protocolPath}`,
+  // Soft warning only — don't block startup. The lazy bootstrap will either
+  // create the checkout (auto-managed path) or surface a clear error when a
+  // build tool is actually invoked (DEXE_PROTOCOL_PATH override).
+  if (!existsSync(protocolPath)) {
+    process.stderr.write(
+      `[dexe-mcp] DeXe-Protocol checkout not found at ${protocolPath} — will be prepared on first dexe_compile call.\n`,
+    );
+  } else if (!isBuildReady(protocolPath)) {
+    process.stderr.write(
+      `[dexe-mcp] DeXe-Protocol checkout at ${protocolPath} is incomplete (missing node_modules or hardhat.config) — will be prepared on first dexe_compile call.\n`,
     );
   }
 
