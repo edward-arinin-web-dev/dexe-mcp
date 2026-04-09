@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dexe": {
+      "command": "npx",
+      "args": ["-y", "dexe-mcp"]
+    }
+  }
+}
