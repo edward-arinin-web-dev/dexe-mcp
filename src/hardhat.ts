@@ -52,7 +52,7 @@ export class HardhatRunner {
     const npm = npmCommand();
     const args = [...npm.prefixArgs, "run", script];
     if (extraArgs.length > 0) args.push("--", ...extraArgs);
-    return this.run(npm.command, args, `npm-run-${script}`);
+    return this.run(npm.command, args, `npm-run-${script}`, npm.needsShell);
   }
 
   /**
@@ -69,10 +69,15 @@ export class HardhatRunner {
         `Hardhat is not installed inside ${this.config.protocolPath}. This should have been fixed by ensureBuildReady — did npm install fail?`,
       );
     }
-    return this.run(hh.command, [...hh.prefixArgs, subcommand, ...args], `hardhat-${subcommand}`);
+    return this.run(hh.command, [...hh.prefixArgs, subcommand, ...args], `hardhat-${subcommand}`, false);
   }
 
-  private run(command: string, args: string[], label: string): Promise<RunResult> {
+  private run(
+    command: string,
+    args: string[],
+    label: string,
+    useShell: boolean,
+  ): Promise<RunResult> {
     return limit(async () => {
       const started = Date.now();
       let timedOut = false;
@@ -83,12 +88,14 @@ export class HardhatRunner {
         reject: false;
         all: true;
         env: NodeJS.ProcessEnv;
+        shell: boolean;
       }> = execa(command, args, {
         cwd: this.config.protocolPath,
         timeout: HARDHAT_TIMEOUT_MS,
         reject: false,
         all: true,
         env: { ...process.env, FORCE_COLOR: "0", CI: "1" },
+        shell: useShell,
       });
 
       // Best-effort: mirror child stderr to ours in near-real-time so the

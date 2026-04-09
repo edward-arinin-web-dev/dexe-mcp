@@ -141,6 +141,11 @@ export async function ensureBuildReady(protocolPath: string): Promise<void> {
       if (!existsSync(join(protocolPath, "node_modules"))) {
         log("Installing DeXe-Protocol npm dependencies (first run only) — this takes a few minutes …");
         const npm = npmCommand();
+        log(
+          npm.prefixArgs.length > 0
+            ? `Using npm-cli.js at ${npm.prefixArgs[0]}`
+            : `Using ${npm.command} from PATH (shell-resolved)`,
+        );
         try {
           await execFileAsync(
             npm.command,
@@ -149,6 +154,9 @@ export async function ensureBuildReady(protocolPath: string): Promise<void> {
               cwd: protocolPath,
               windowsHide: true,
               maxBuffer: 64 * 1024 * 1024,
+              // Windows `.cmd` shims cannot be invoked via execFile without
+              // shell:true as of Node's CVE-2024-27980 mitigation.
+              shell: npm.needsShell,
             },
           );
         } catch (err: unknown) {

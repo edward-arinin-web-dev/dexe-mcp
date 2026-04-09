@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { platform } from "node:os";
+import { homedir, platform } from "node:os";
 import { execFile } from "node:child_process";
 
 /**
@@ -15,29 +15,100 @@ import { execFile } from "node:child_process";
  */
 
 /**
- * Locate the `npm-cli.js` that ships with the currently-running Node.
+ * Locate a usable `npm-cli.js` on the system.
  *
- * Layouts we handle:
- *  - Windows (official installer / nvm-windows):
- *      <execDir>\node_modules\npm\bin\npm-cli.js
- *  - Unix (nvm, homebrew, official installer):
- *      <execDir>/../lib/node_modules/npm/bin/npm-cli.js
+ * Since `npm-cli.js` is plain JavaScript, any modern `node` binary can run
+ * it — we don't need to find the npm that "ships with" the current Node.
+ * That matters on stripped Windows installs where `C:\Program Files\nodejs\`
+ * contains only `node.exe` (no bundled npm), but another Node (e.g. nvm)
+ * has a complete npm install elsewhere.
  *
- * Returns `null` if nothing is found — caller should fall back to `npm` on PATH.
+ * Search order:
+ *  1. Next to `process.execPath` (covers sane installs)
+ *  2. Platform-specific alternate locations (nvm / nvm-windows / npm prefix)
+ *
+ * Returns `null` if nothing is found — caller should fall back to shell
+ * resolution of `npm` / `npm.cmd`.
  */
 export function resolveNpmCli(): string | null {
-  const execDir = dirname(process.execPath);
-  const candidates =
-    platform() === "win32"
-      ? [join(execDir, "node_modules", "npm", "bin", "npm-cli.js")]
-      : [
-          join(execDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
-          join(execDir, "..", "libexec", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
-        ];
+  const candidates = [...primaryNpmCandidates(), ...alternateNpmCandidates()];
   for (const c of candidates) {
-    if (existsSync(c)) return c;
+    if (c && existsSync(c)) return c;
   }
   return null;
+}
+
+function primaryNpmCandidates(): string[] {
+  const execDir = dirname(process.execPath);
+  if (platform() === "win32") {
+    return [join(execDir, "node_modules", "npm", "bin", "npm-cli.js")];
+  }
+  return [
+    join(execDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+    join(execDir, "..", "libexec", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+  ];
+}
+
+function alternateNpmCandidates(): string[] {
+  const out: string[] = [];
+  const home = homedir();
+  const os = platform();
+
+  if (os === "win32") {
+    // nvm-windows: scan %APPDATA%\nvm\v* for the newest version that ships npm
+    const nvmRoots = [
+      process.env.NVM_HOME,
+      join(process.env.APPDATA || join(home, "AppData", "Roaming"), "nvm"),
+    ].filter((p): p is string => !!p && existsSync(p));
+    for (const nvmRoot of nvmRoots) {
+      try {
+        const versions = readdirSync(nvmRoot)
+          .filter((d) => d.startsWith("v"))
+          .sort()
+          .reverse();
+        for (const v of versions) {
+          out.push(join(nvmRoot, v, "node_modules", "npm", "bin", "npm-cli.js"));
+        }
+      } catch {
+        // ignore — unreadable nvm dir
+      }
+    }
+    // Per-user global prefix
+    out.push(
+      join(
+        process.env.APPDATA || join(home, "AppData", "Roaming"),
+        "npm",
+        "node_modules",
+        "npm",
+        "bin",
+        "npm-cli.js",
+      ),
+    );
+    // System-wide stock install (if user later reinstalls without nvm)
+    out.push(join("C:\\", "Program Files", "nodejs", "node_modules", "npm", "bin", "npm-cli.js"));
+  } else {
+    // nvm (Unix): scan ~/.nvm/versions/node/v*/lib/node_modules/npm/bin/npm-cli.js
+    const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
+    const versionsDir = join(nvmDir, "versions", "node");
+    if (existsSync(versionsDir)) {
+      try {
+        const versions = readdirSync(versionsDir)
+          .filter((d) => d.startsWith("v"))
+          .sort()
+          .reverse();
+        for (const v of versions) {
+          out.push(join(versionsDir, v, "lib", "node_modules", "npm", "bin", "npm-cli.js"));
+        }
+      } catch {
+        // ignore
+      }
+    }
+    // Homebrew
+    out.push("/opt/homebrew/lib/node_modules/npm/bin/npm-cli.js");
+    out.push("/usr/local/lib/node_modules/npm/bin/npm-cli.js");
+  }
+
+  return out;
 }
 
 /**
@@ -62,18 +133,29 @@ export function hasGit(): Promise<boolean> {
 }
 
 /**
- * Describe the PATH-independent command we'd use to run `npm` / `npx`.
- * Returns the `[command, prefixArgs]` tuple so callers can append script args.
+ * Describe the command we'd use to run `npm`.
  *
- * If `npm-cli.js` is found, we return `(process.execPath, [cliPath])`.
- * Otherwise we fall back to `("npm", [])` which requires PATH — and may fail
- * on machines where npm isn't on the spawn PATH, but that's strictly better
- * than crashing at startup.
+ * Preferred form: `(process.execPath, [<absolute npm-cli.js>])` — invokes
+ * npm through the currently-running Node with zero PATH dependency, and
+ * works with `execFile` directly (no `shell: true` required).
+ *
+ * Fallback: plain `npm` / `npm.cmd` on PATH. The `needsShell` flag tells
+ * the caller to set `{ shell: true }` on the spawn options — without it,
+ * Node refuses to `execFile` a `.cmd` or `.bat` (CVE-2024-27980 fix), and
+ * callers get `spawn EINVAL`.
  */
-export function npmCommand(): { command: string; prefixArgs: string[] } {
+export function npmCommand(): {
+  command: string;
+  prefixArgs: string[];
+  needsShell: boolean;
+} {
   const cli = resolveNpmCli();
-  if (cli) return { command: process.execPath, prefixArgs: [cli] };
-  return { command: platform() === "win32" ? "npm.cmd" : "npm", prefixArgs: [] };
+  if (cli) return { command: process.execPath, prefixArgs: [cli], needsShell: false };
+  return {
+    command: platform() === "win32" ? "npm.cmd" : "npm",
+    prefixArgs: [],
+    needsShell: platform() === "win32",
+  };
 }
 
 /**
