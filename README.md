@@ -70,6 +70,7 @@ Before introspection tools work, run `dexe_compile` once per session to populate
 |------|-------------|
 | `dexe_list_contracts` | List all compiled contracts (filter by name/kind) |
 | `dexe_get_abi` | Get the full ABI for a contract |
+| `dexe_get_methods` | Enumerate read (view/pure) and write (nonpayable/payable) methods with structured inputs/outputs and `internalType` — for generating TypeScript interfaces |
 | `dexe_get_selectors` | List function selectors for a contract |
 | `dexe_find_selector` | Reverse-lookup: selector hex to function signature |
 | `dexe_get_natspec` | Read NatSpec documentation for a contract |
