@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.2.0
+
+The big one — dexe-mcp expands from 15 dev-tooling tools to **83 tools** covering the full DeXe DAO lifecycle. AI agents can now create DAOs, build any of the 33 proposal types the DeXe frontend exposes, upload metadata to IPFS, stake/delegate/vote/execute/claim — all end-to-end.
+
+### Added
+
+**Foundations + reads (13 tools)** — `dexe_dao_info`, `dexe_dao_predict_addresses`, `dexe_dao_registry_lookup`, `dexe_proposal_state`, `dexe_proposal_list`, `dexe_proposal_voters`, `dexe_vote_user_power`, `dexe_vote_get_votes`, `dexe_read_multicall`, `dexe_read_treasury`, `dexe_read_validators`, `dexe_read_settings`, `dexe_read_expert_status`. Backed by an `AddressBook` that resolves contracts via `ContractsRegistry`, a Multicall3 batch helper, a canonical `TxPayload` shape, enum mirrors for `ProposalState` / `VoteType`, and a minimal subgraph GraphQL client.
+
+**IPFS (6 tools)** — `dexe_ipfs_upload_proposal_metadata`, `_upload_dao_metadata`, `_upload_file`, `_fetch`, `_cid_info`, `_cid_for_json`. Backed by a Pinata client and local CID computation via `multiformats`. Public gateways (dweb.link, ipfs.io, cf-ipfs, 4everland) are unreliable and NOT defaulted. Users must set `DEXE_IPFS_GATEWAY` to a dedicated gateway (the one Pinata provides alongside the JWT is recommended). Public gateways are opt-in via `DEXE_IPFS_GATEWAYS_FALLBACK` (comma-separated, tried sequentially — no parallel races).
+
+**Proposals — all 33 types (35 tools)**
+- `dexe_proposal_catalog` — enumerate every proposal type the DeXe UI exposes (24 external, 4 internal, 5 off-chain), with metadata shape, gating, and linked MCP builder.
+- Primitives: `dexe_proposal_build_external` (+ `createProposalAndVote`), `dexe_proposal_build_internal`, `dexe_proposal_build_custom_abi`, `dexe_proposal_build_offchain`.
+- External wrappers (each returns `{ metadata, actions: Action[] }`): `token_transfer`, `token_distribution`, `token_sale`, `token_sale_recover`, `change_voting_settings`, `manage_validators`, `add_expert`, `remove_expert`, `withdraw_treasury`, `delegate_to_expert`, `revoke_from_expert`, `create_staking_tier`, `change_math_model`, `modify_dao_profile`, `blacklist`, `reward_multiplier`, `apply_to_dao`, `new_proposal_type` (also covers *Enable Staking*).
+- Internal validator wrappers (each returns `{ metadata, proposalType, data }`): `change_validator_balances` (type 0), `change_validator_settings` (type 1), `monthly_withdraw` (type 2), `offchain_internal_proposal` (type 3).
+- Off-chain backend proposals: `offchain_single_option`, `offchain_multi_option`, `offchain_for_against`, `offchain_settings`. Plus `dexe_auth_request_nonce` + `dexe_auth_login_request` for the 2-step Bearer flow, and `dexe_offchain_build_vote` / `dexe_offchain_build_cancel_vote`.
+- **Write model is calldata-only.** No signer, no private keys. Every write tool emits a signable payload the agent's wallet submits.
+
+**Vote / stake / execute / claim writes (14 tools)** — `erc20_approve`, `deposit` (payable for native-staking DAOs), `withdraw`, `delegate`, `undelegate`, `vote`, `cancel_vote`, `validator_vote`, `validator_cancel_vote`, `move_to_validators`, `execute`, `claim_rewards`, `claim_micropool_rewards`, plus `multicall` to batch any of the above into one atomic tx. Arg-order gotchas captured in code comments (e.g. `GovPool.vote(pid, isFor, amount, nftIds)` vs `GovValidators.voteInternalProposal(pid, amount, isFor)`).
+
+**DAO deploy (1 tool)** — `dexe_dao_build_deploy` encodes `PoolFactory.deployGovPool(GovPoolDeployParams)` with the full nested struct (settings / validators / userKeeper / token / votePower / verifier / BABT flag / descriptionURL / name). Auto-resolves PoolFactory via `ContractsRegistry` if omitted. When `deployer` + RPC are available, also returns the predicted GovPool address so agents can wire follow-up txs before the DAO exists. Encodes against the compiled `PoolFactory.json` artifact when present (strict parity); falls back to a hand-rolled tuple signature derived from `IPoolFactory.sol` otherwise.
+
+### Changed
+
+- `src/config.ts` adds `DEXE_CHAIN_ID` (default 56), `DEXE_CONTRACTS_REGISTRY` override, `DEXE_PINATA_JWT`, three subgraph URL overrides, `DEXE_BACKEND_API_URL`.
+- `package.json` description rewritten to reflect full DAO-ops scope. New dep: `multiformats` (Protocol Labs, for local CID computation).
+- `README.md` reorganized around the eight tool groups; added the full env-var matrix.
+
+### Notes
+
+- **No breaking changes.** All v0.1.x tools remain. The write contract is new-world: `TxPayload` for single-tx builders, `Action[]` for proposal wrappers — never a singular `action` field.
+- **Deferred to future work** (`FUTURE.md`): Hardhat-fork simulation (`dexe_simulate_vote`), signer-aware send mode, additional IPFS pinning providers (Storacha, Lighthouse), and alternate subgraphs.
+
 ## 0.1.5
 
 ### Fixed

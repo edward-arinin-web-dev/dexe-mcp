@@ -2,51 +2,24 @@
 
 ![npm](https://img.shields.io/npm/v/dexe-mcp.svg)
 
-MCP server for Claude Code / Antigravity that wraps the [DeXe Protocol](https://github.com/dexe-network/DeXe-Protocol) Hardhat codebase with build/test, contract introspection, and governance-domain tools.
+MCP server that gives AI agents **full DeXe Protocol DAO operations coverage** — deploy DAOs, build any of the 33 proposal types the DeXe UI exposes, upload metadata to IPFS, stake/delegate/vote/execute/claim. Plus dev tooling: build/test/lint, contract introspection, ABI-aware calldata decoding.
+
+**Writes return calldata.** No signer ever lives in the MCP — every write tool emits a ready-to-sign `{ to, data, value, chainId, description }` payload that the agent's wallet (MetaMask, Safe, hardware, etc.) signs and submits. No `PRIVATE_KEY` env var, ever.
+
+**83 tools** across 8 groups. Call `dexe_proposal_catalog` at runtime for the full proposal-type map, or browse the [catalog](#tool-catalog) below.
 
 ## Prerequisites
 
-- **Node.js >= 20** with a working `npm`. Verify before continuing:
-
-  ```bash
-  node --version    # should print v20.x or higher
-  npm --version     # MUST print a version, not "command not found"
-  ```
-
-  If `npm --version` fails, you have a stripped Node install (a bare `node.exe` without the rest of the toolchain — common on Windows when `C:\Program Files\nodejs\node.exe` was placed manually). Install Node from <https://nodejs.org> or via [nvm](https://github.com/nvm-sh/nvm) / [nvm-windows](https://github.com/coreybutler/nvm-windows) and retry. Without npm, `npm install -g dexe-mcp` silently does nothing.
-
-- **Git** — only needed on first run, to clone DeXe-Protocol. If you already have a local checkout, point `DEXE_PROTOCOL_PATH` at it and git is optional.
+- **Node.js ≥ 20** with a working `npm` (`node --version` and `npm --version` must both succeed).
+- **Git** — only needed the first time a build tool runs, to clone DeXe-Protocol. Skippable if you point `DEXE_PROTOCOL_PATH` at an existing checkout.
 
 ## Install
-
-### 1. Install the package globally
 
 ```bash
 npm install -g dexe-mcp
 ```
 
-Verify the install landed by asking npm where it put it:
-
-```bash
-npm root -g
-# Mac/Linux:  /usr/local/lib/node_modules       (or ~/.nvm/versions/node/vXX.X.X/lib/node_modules)
-# Windows:    C:\Users\<you>\AppData\Roaming\nvm\<version>\node_modules
-#             (or C:\Users\<you>\AppData\Roaming\npm\node_modules for non-nvm)
-```
-
-Note the output — you'll need it for the Windows install step below. The package lives at `<npm-root>/dexe-mcp/dist/index.js`.
-
-### 2. Register the MCP server
-
-#### Mac / Linux
-
-Bare command works because Unix `exec` resolves PATH directly:
-
-```bash
-claude mcp add dexe -- dexe-mcp
-```
-
-Or in JSON (`.mcp.json`, `claude_desktop_config.json`, etc.):
+Register the server with your MCP client (`.mcp.json`, `claude_desktop_config.json`, etc.):
 
 ```json
 {
@@ -58,207 +31,123 @@ Or in JSON (`.mcp.json`, `claude_desktop_config.json`, etc.):
 }
 ```
 
-#### Windows — recommended: absolute path to `node` + `dist/index.js`
-
-On Windows, `dexe-mcp` is installed as a `.cmd` shim that many MCP clients (including Claude Code as of this writing) fail to spawn cleanly over stdio. The **absolute-path** form bypasses shim resolution entirely and is the known-good recipe:
-
-```bash
-claude mcp add dexe -- "C:\Program Files\nodejs\node.exe" "C:\Users\<you>\AppData\Roaming\nvm\<version>\node_modules\dexe-mcp\dist\index.js"
-```
-
-Substitute `<you>` and `<version>` (or use whatever `npm root -g` printed above). In JSON:
-
-```json
-{
-  "mcpServers": {
-    "dexe": {
-      "command": "C:/Program Files/nodejs/node.exe",
-      "args": ["C:/Users/<you>/AppData/Roaming/nvm/<version>/node_modules/dexe-mcp/dist/index.js"]
-    }
-  }
-}
-```
-
-This works because:
-- No PATH dependency — every argument is an absolute path
-- No `.cmd` / `.ps1` shim in the chain, so `CreateProcess` semantics don't trip over missing extensions
-- `dexe-mcp` internally invokes `npm`/`hardhat` via `process.execPath`, so it uses whichever Node you pointed at and does not need npm on the spawned process PATH
-
-<details>
-<summary>Alternative: <code>cmd /c dexe-mcp</code> (not recommended — often unreliable with Claude Code)</summary>
-
-```json
-{
-  "mcpServers": {
-    "dexe": {
-      "command": "cmd",
-      "args": ["/c", "dexe-mcp"]
-    }
-  }
-}
-```
-
-Use only if the absolute-path form is inconvenient. End-to-end testing showed this can pass a direct stdio check but fail to complete the MCP handshake when spawned by Claude Code.
-</details>
-
-### 3. Verify the install (optional but recommended)
-
-Before wiring the server into your MCP client, confirm the binary can actually speak MCP over stdio. On any OS:
-
-```bash
-# Send a minimal initialize request, expect a capabilities JSON back.
-echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}" | dexe-mcp
-```
-
-On Windows if the above hangs, try instead:
-
-```bash
-echo {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}} | node "C:\Users\<you>\AppData\Roaming\nvm\<version>\node_modules\dexe-mcp\dist\index.js"
-```
-
-A healthy response starts with a single stderr line (`[dexe-mcp] connected on stdio. …`) and a stdout JSON blob containing `"serverInfo":{"name":"dexe-mcp"}`. If you see that, the server is fine and any "failed to connect" from your MCP client is purely a client-side spawn/config problem, not a bug in dexe-mcp.
-
-### 4. Restart your MCP client
-
-On the first build-tool call (e.g. `dexe_compile`), `dexe-mcp` will automatically:
-
-1. Shallow-clone `dexe-network/DeXe-Protocol` into a platform cache directory (~200 MB)
-2. Run `npm install` in that checkout (a few minutes, one time)
-
-The MCP server itself starts instantly — the heavy work is deferred until you actually need it. Cache locations:
-
-| OS | Path |
-|----|------|
-| Windows | `%LOCALAPPDATA%\dexe-mcp\DeXe-Protocol` |
-| macOS | `~/Library/Caches/dexe-mcp/DeXe-Protocol` |
-| Linux | `$XDG_CACHE_HOME/dexe-mcp/DeXe-Protocol` (or `~/.cache/dexe-mcp/DeXe-Protocol`) |
-
-### Advanced: existing DeXe-Protocol checkout
-
-If you already have a DeXe-Protocol clone you want to reuse (and have run `npm install` there at least once), set `DEXE_PROTOCOL_PATH`:
-
-```json
-{
-  "mcpServers": {
-    "dexe": {
-      "command": "dexe-mcp",
-      "env": {
-        "DEXE_PROTOCOL_PATH": "/absolute/path/to/your/DeXe-Protocol"
-      }
-    }
-  }
-}
-```
-
-With this set, dexe-mcp will **not** clone or install anything — it trusts the path you gave it. On Windows, wrap `command` with `cmd /c` as above.
-
-### Dev mode (working on dexe-mcp itself)
-
-Clone this repo, build, and point the MCP command at the local `dist/index.js`:
-
-```bash
-git clone https://github.com/edward-arinin-web-dev/dexe-mcp.git
-cd dexe-mcp
-npm install
-npm run build
-```
+If your client can't spawn the bare `dexe-mcp` command directly (a known issue with some MCP clients on Windows when PATH-shim resolution is involved), point it at the installed script via Node:
 
 ```json
 {
   "mcpServers": {
     "dexe": {
       "command": "node",
-      "args": ["/absolute/path/to/dexe-mcp/dist/index.js"],
-      "env": {
-        "DEXE_PROTOCOL_PATH": "/absolute/path/to/DeXe-Protocol"
-      }
+      "args": ["<output of `npm root -g`>/dexe-mcp/dist/index.js"]
     }
   }
 }
 ```
 
+Run `npm root -g` to resolve the path on your machine. Restart the MCP client and the `dexe_*` tools will appear.
+
 ## First run
 
-Before introspection tools work, run `dexe_compile` once per session to populate `DeXe-Protocol/artifacts/`. You will get a clear "artifacts not found" error otherwise. On a brand-new install the first `dexe_compile` also triggers the clone + `npm install` steps described above.
+The MCP server starts instantly. On the first build-tool call (`dexe_compile` / `dexe_test` / `dexe_lint`), dexe-mcp will automatically shallow-clone DeXe-Protocol into a platform cache directory and run `npm install` there once. If you prefer to reuse an existing checkout, set `DEXE_PROTOCOL_PATH` in the MCP `env` block and nothing will be cloned.
 
-## Tool catalog
-
-### Build / test
-
-| Tool | Description |
-|------|-------------|
-| `dexe_compile` | Compile all contracts via Hardhat |
-| `dexe_test` | Run the test suite (optional grep filter) |
-| `dexe_coverage` | Run tests with solidity-coverage |
-| `dexe_lint` | Lint Solidity sources with solhint |
-
-### Contract introspection
-
-| Tool | Description |
-|------|-------------|
-| `dexe_list_contracts` | List all compiled contracts (filter by name/kind) |
-| `dexe_get_abi` | Get the full ABI for a contract |
-| `dexe_get_methods` | Enumerate read (view/pure) and write (nonpayable/payable) methods with structured inputs/outputs and `internalType` — for generating TypeScript interfaces |
-| `dexe_get_selectors` | List function selectors for a contract |
-| `dexe_find_selector` | Reverse-lookup: selector hex to function signature |
-| `dexe_get_natspec` | Read NatSpec documentation for a contract |
-| `dexe_get_source` | Read Solidity source code for a contract |
-
-### Governance domain
-
-| Tool | Description |
-|------|-------------|
-| `dexe_decode_calldata` | Decode arbitrary calldata against contract ABI |
-| `dexe_decode_proposal` | Fetch and decode a full on-chain proposal |
-| `dexe_read_gov_state` | Read governance pool state from chain |
-| `dexe_list_gov_contract_types` | List known governance contract type names |
+Most tools don't need the protocol checkout at all — read/proposal/vote/deploy builders only need an RPC URL. Only the dev-tooling group (`dexe_compile`, `dexe_test`, `dexe_coverage`, `dexe_lint`, and the introspection tools) depends on artifacts.
 
 ## Environment variables
 
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `DEXE_PROTOCOL_PATH` | no | Use an existing DeXe-Protocol checkout; disables auto clone/install |
-| `DEXE_RPC_URL` | no | JSON-RPC endpoint for `dexe_decode_proposal` and `dexe_read_gov_state` |
-| `DEXE_FORK_BLOCK` | no | Pin the fork to a specific block (Phase B) |
+All optional. Tools that need a missing variable fail with a clear message pointing at exactly what to set.
 
-## Troubleshooting
+| Variable | Required for | Purpose |
+|----------|--------------|---------|
+| `DEXE_PROTOCOL_PATH` | dev tooling (optional) | Use an existing DeXe-Protocol checkout; disables auto clone/install |
+| `DEXE_RPC_URL` | reads / predict / deploy | JSON-RPC endpoint (BSC or any EVM chain where DeXe is deployed) |
+| `DEXE_CHAIN_ID` | reads | Defaults to `56` (BSC mainnet). Override for other chains |
+| `DEXE_CONTRACTS_REGISTRY` | reads (optional) | Override the ContractsRegistry root; defaults to the known per-chain address |
+| `DEXE_PINATA_JWT` | IPFS uploads | Pinata JWT for pinning proposal/DAO metadata |
+| `DEXE_IPFS_GATEWAY` | IPFS fetch | **Dedicated** gateway URL (Pinata provides one alongside your JWT; Filebase / Quicknode / self-hosted also work). Public gateways are unreliable and NOT defaulted |
+| `DEXE_IPFS_GATEWAYS_FALLBACK` | IPFS fetch (optional) | Comma-separated public gateways tried sequentially after the primary |
+| `DEXE_SUBGRAPH_INTERACTIONS_URL` | `dexe_proposal_voters` | The Graph endpoint for the DeXe interactions subgraph |
+| `DEXE_SUBGRAPH_POOLS_URL`, `DEXE_SUBGRAPH_VALIDATORS_URL` | reserved | Additional subgraph endpoints for future tools |
+| `DEXE_BACKEND_API_URL` | off-chain proposals | DeXe backend (e.g. `https://api.dexe.io`) |
 
-### "`git` is not on PATH"
+## Tool catalog
 
-Install git from <https://git-scm.com/downloads> and restart your MCP client. Alternatively, clone DeXe-Protocol manually and set `DEXE_PROTOCOL_PATH` to skip the clone step entirely.
+### Dev tooling (compile / test / introspect / decode)
 
-### "`npm install` failed inside DeXe-Protocol"
+| Tool | Description |
+|------|-------------|
+| `dexe_compile`, `dexe_test`, `dexe_coverage`, `dexe_lint` | Hardhat wrappers |
+| `dexe_list_contracts`, `dexe_get_abi`, `dexe_get_methods`, `dexe_get_selectors`, `dexe_find_selector`, `dexe_get_natspec`, `dexe_get_source` | Contract introspection from compiled artifacts |
+| `dexe_decode_calldata`, `dexe_decode_proposal`, `dexe_list_gov_contract_types` | ABI-aware calldata / proposal decoding |
 
-Usually means your Node install lacks a bundled `npm` (e.g. a stripped `node.exe` dropped on PATH without the rest of the install). Reinstall Node from <https://nodejs.org> or via nvm / nvm-windows and retry. dexe-mcp invokes npm via `process.execPath` so it uses whichever Node is running it — it does not need `npm` on the spawn PATH.
+### DAO reads (on-chain state via multicall + subgraph)
 
-### "Failed to connect" in Claude Code (Windows)
+| Tool | Description |
+|------|-------------|
+| `dexe_dao_info` | DAO overview — helpers, NFT contracts, validator count |
+| `dexe_dao_predict_addresses` | Predict CREATE2 addresses for a future DAO |
+| `dexe_dao_registry_lookup` | Is this address a registered GovPool? |
+| `dexe_proposal_state`, `dexe_proposal_list`, `dexe_proposal_voters` | Proposal reads (voters via subgraph) |
+| `dexe_vote_user_power`, `dexe_vote_get_votes` | User staking + per-proposal vote info |
+| `dexe_read_multicall` | Generic Multicall3 batched `eth_call` |
+| `dexe_read_treasury`, `dexe_read_validators`, `dexe_read_settings`, `dexe_read_expert_status` | Canned live reads |
+| `dexe_read_gov_state` | Aggregate gov-pool state (legacy helper) |
 
-Run the direct stdio test from the "Verify the install" section first. If that prints a clean `serverInfo` response, the server is fine and the problem is in how your client is spawning it.
+### IPFS
 
-The fix is almost always to switch to the **absolute-path** registration:
+| Tool | Description |
+|------|-------------|
+| `dexe_ipfs_upload_proposal_metadata`, `dexe_ipfs_upload_dao_metadata`, `dexe_ipfs_upload_file` | Pinata uploads (requires `DEXE_PINATA_JWT`) |
+| `dexe_ipfs_fetch` | Fetch by CID via configured dedicated gateway |
+| `dexe_ipfs_cid_info` | Parse CID + v0↔v1 conversion + gateway URLs |
+| `dexe_ipfs_cid_for_json` | Compute CIDv1 locally (no network) for dry-run flows |
 
-```bash
-claude mcp remove dexe
-claude mcp add dexe -- "C:\Program Files\nodejs\node.exe" "C:\Users\<you>\AppData\Roaming\nvm\<version>\node_modules\dexe-mcp\dist\index.js"
-```
+### DAO deploy
 
-Bare `dexe-mcp` and `cmd /c dexe-mcp` both rely on shim resolution that Claude Code's `CreateProcess`-based spawn does not always handle. The absolute-path form has zero shim resolution.
+| Tool | Description |
+|------|-------------|
+| `dexe_dao_build_deploy` | Encode `PoolFactory.deployGovPool(GovPoolDeployParams)` with full nested-struct input (settings / validators / userKeeper / token / votePower / verifier / BABT flag / descriptionURL / name). Auto-resolves PoolFactory via registry; optionally returns the predicted GovPool address |
 
-### `npm install -g dexe-mcp` reported success but `dexe-mcp` is nowhere to be found
+### Proposals — primitives + catalog
 
-You're almost certainly on a stripped Node install whose `npm` silently no-ops. Check with `npm --version` — if it fails, install Node properly (see Prerequisites). If it prints a version, check `npm root -g` and look inside that directory; the package should be at `<npm-root>/dexe-mcp`.
+| Tool | Description |
+|------|-------------|
+| `dexe_proposal_catalog` | Enumerate **all 33** proposal types with schemas, gating, metadata shape, and the MCP tool that handles each |
+| `dexe_proposal_build_external` | Raw `GovPool.createProposal(url, actionsFor, actionsAgainst)` (+ `createProposalAndVote` variant) |
+| `dexe_proposal_build_internal` | Raw `GovValidators.createInternalProposal(type, url, data)` |
+| `dexe_proposal_build_custom_abi` | Encode any ABI call → one `ProposalAction` |
+| `dexe_proposal_build_offchain` | Generic DeXe backend HTTP request builder |
 
-### "Hardhat artifacts not found — run dexe_compile first"
+### Proposal wrappers — external (on-chain)
 
-Introspection tools require compiled artifacts. Run `dexe_compile` once after the initial setup to populate them.
+Each returns `{ metadata, actions[] }` — upload the metadata via `dexe_ipfs_upload_proposal_metadata`, then feed actions into `dexe_proposal_build_external`:
 
-### "DEXE_PROTOCOL_PATH=… is missing node_modules"
+`dexe_proposal_build_token_transfer`, `_token_distribution`, `_token_sale`, `_token_sale_recover`, `_change_voting_settings`, `_manage_validators`, `_add_expert`, `_remove_expert`, `_withdraw_treasury`, `_delegate_to_expert`, `_revoke_from_expert`, `_create_staking_tier`, `_change_math_model`, `_modify_dao_profile`, `_blacklist`, `_reward_multiplier`, `_apply_to_dao`, `_new_proposal_type` (also covers *Enable Staking*).
 
-You pointed `DEXE_PROTOCOL_PATH` at a checkout that hasn't been installed yet. `cd` into it and run `npm install` once, then retry.
+### Proposal wrappers — internal validator
 
-### "DEXE_RPC_URL is not set"
+Return `{ metadata, proposalType, data }` — compose with `dexe_proposal_build_internal`:
 
-The governance tools `dexe_decode_proposal` and `dexe_read_gov_state` require an Ethereum JSON-RPC endpoint. Add `DEXE_RPC_URL` to your MCP env config.
+`dexe_proposal_build_change_validator_balances` (type 0), `_change_validator_settings` (type 1), `_monthly_withdraw` (type 2), `_offchain_internal_proposal` (type 3).
+
+### Proposal wrappers — off-chain (DeXe backend)
+
+`dexe_proposal_build_offchain_single_option`, `_offchain_multi_option`, `_offchain_for_against`, `_offchain_settings`.
+
+Plus auth + vote helpers: `dexe_auth_request_nonce`, `dexe_auth_login_request`, `dexe_offchain_build_vote`, `dexe_offchain_build_cancel_vote`.
+
+### Vote / stake / execute / claim (direct EOA writes)
+
+| Tool | Description |
+|------|-------------|
+| `dexe_vote_build_erc20_approve` | ERC20 approve — prepend before `deposit` for ERC20-staking DAOs |
+| `dexe_vote_build_deposit` | `GovPool.deposit(amount, nftIds)` — payable for native-coin DAOs |
+| `dexe_vote_build_withdraw` | `GovPool.withdraw(receiver, amount, nftIds)` |
+| `dexe_vote_build_delegate`, `_undelegate` | User-level delegation on `GovPool` |
+| `dexe_vote_build_vote`, `_cancel_vote` | `GovPool.vote(pid, isFor, amount, nftIds)` / `cancelVote` |
+| `dexe_vote_build_validator_vote`, `_validator_cancel_vote` | Validator voting (internal/external scope) |
+| `dexe_vote_build_move_to_validators`, `_execute` | Proposal lifecycle |
+| `dexe_vote_build_claim_rewards`, `_claim_micropool_rewards` | Reward claiming |
+| `dexe_vote_build_multicall` | Atomic `GovPool.multicall(bytes[])` — batch any of the above into one tx |
 
 ## Contributing
 
@@ -270,10 +159,6 @@ npm run build
 npm run typecheck
 npm run dev          # watch mode
 ```
-
-## Roadmap
-
-Phase B (`dexe_simulate_vote` + Hardhat fork management) is planned for v0.2.0. See [FUTURE.md](./FUTURE.md) for all deferred features.
 
 ## License
 

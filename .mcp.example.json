@@ -1,8 +1,18 @@
 {
-  "_comment": "Mac/Linux: use `dexe-mcp` directly. Windows: replace with { command: 'cmd', args: ['/c', 'dexe-mcp'] }. See README.md for the full install matrix.",
+  "_comment": "Mac/Linux: use `dexe-mcp` directly. Windows: use the absolute-path form (node.exe + dist/index.js). See README.md. Env vars are all optional — tools that need them fail with a clear message.",
   "mcpServers": {
     "dexe": {
-      "command": "dexe-mcp"
+      "command": "dexe-mcp",
+      "env": {
+        "DEXE_PROTOCOL_PATH": "/absolute/path/to/DeXe-Protocol",
+        "DEXE_RPC_URL": "https://bsc-dataseed.binance.org",
+        "DEXE_CHAIN_ID": "56",
+        "DEXE_PINATA_JWT": "<your Pinata JWT>",
+        "DEXE_IPFS_GATEWAY": "https://<your-subdomain>.mypinata.cloud",
+        "DEXE_IPFS_GATEWAYS_FALLBACK": "https://dweb.link,https://ipfs.io",
+        "DEXE_SUBGRAPH_INTERACTIONS_URL": "https://api.studio.thegraph.com/query/.../dao-interactions/...",
+        "DEXE_BACKEND_API_URL": "https://api.dexe.io"
+      }
     }
   }
 }

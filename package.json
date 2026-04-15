@@ -1,7 +1,7 @@
 {
   "name": "dexe-mcp",
-  "version": "0.1.5",
-  "description": "MCP server wrapping DeXe Protocol for Claude Code dev tooling (build/test, contract introspection, governance-domain tools)",
+  "version": "0.2.0",
+  "description": "MCP server for the DeXe Protocol — full DAO operations coverage: deploy DAOs, build every proposal type, IPFS metadata, stake/vote/delegate/execute/claim calldata. Plus dev tooling (build/test/introspect/decode).",
   "type": "module",
   "license": "MIT",
   "author": "Edward Arinin <edward.arinin@gmail.com>",
@@ -25,7 +25,12 @@
     "dao",
     "governance",
     "smart-contracts",
-    "dev-tools"
+    "dev-tools",
+    "dao-operations",
+    "proposals",
+    "ipfs",
+    "pinata",
+    "calldata-builder"
   ],
   "bin": {
     "dexe-mcp": "dist/index.js"
@@ -36,7 +41,6 @@
     "README.md",
     "CHANGELOG.md",
     "FUTURE.md",
-    "PLAN.md",
     ".mcp.example.json"
   ],
   "scripts": {
@@ -52,6 +56,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "ethers": "^6.13.0",
     "execa": "^9.5.0",
+    "multiformats": "^13.4.2",
     "p-limit": "^6.2.0",
     "zod": "^3.23.8"
   },

@@ -7,6 +7,18 @@ import type { ToolContext } from "./context.js";
 import { registerBuildTools } from "./build.js";
 import { registerIntrospectTools } from "./introspect.js";
 import { registerGovTools } from "./gov.js";
+import { registerDaoTools } from "./dao.js";
+import { registerProposalTools } from "./proposal.js";
+import { registerVoteTools } from "./vote.js";
+import { registerReadTools } from "./read.js";
+import { registerIpfsTools } from "./ipfs.js";
+import { registerProposalBuildTools } from "./proposalBuild.js";
+import { registerProposalBuildMoreTools } from "./proposalBuildMore.js";
+import { registerProposalBuildComplexTools } from "./proposalBuildComplex.js";
+import { registerProposalBuildOffchainTools } from "./proposalBuildOffchain.js";
+import { registerProposalBuildInternalTools } from "./proposalBuildInternal.js";
+import { registerVoteBuildTools } from "./voteBuild.js";
+import { registerDaoDeployTools } from "./daoDeploy.js";
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
@@ -22,4 +34,16 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerBuildTools(server, ctx);
   registerIntrospectTools(server, ctx);
   registerGovTools(server, ctx);
+  registerDaoTools(server, ctx);
+  registerProposalTools(server, ctx);
+  registerVoteTools(server, ctx);
+  registerReadTools(server, ctx);
+  registerIpfsTools(server, ctx);
+  registerProposalBuildTools(server, ctx);
+  registerProposalBuildMoreTools(server, ctx);
+  registerProposalBuildComplexTools(server, ctx);
+  registerProposalBuildOffchainTools(server, ctx);
+  registerProposalBuildInternalTools(server, ctx);
+  registerVoteBuildTools(server, ctx);
+  registerDaoDeployTools(server, ctx);
 }
