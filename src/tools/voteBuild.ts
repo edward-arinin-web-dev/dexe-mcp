@@ -61,6 +61,13 @@ const NFT_MULTIPLIER_WRITE_ABI = [
   "function unlock()",
 ] as const;
 
+const USER_REGISTRY_WRITE_ABI = [
+  "function agreeToPrivacyPolicy(bytes signature)",
+  "function changeProfileAndAgreeToPrivacyPolicy(string profileURL, bytes signature)",
+  "function documentHash() view returns (bytes32)",
+  "function agreed(address user) view returns (bool)",
+] as const;
+
 const STAKING_WRITE_ABI = [
   "function stake(address user, uint256 amount, uint256 id)",
   "function claim(uint256 id)",
@@ -125,6 +132,9 @@ export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): voi
   registerStakingClaim(server, ctx);
   registerStakingClaimAll(server, ctx);
   registerStakingReclaim(server, ctx);
+  // Privacy policy
+  registerPrivacyPolicySign(server, ctx);
+  registerPrivacyPolicyAgree(server, ctx);
   registerMulticall(server, ctx);
 }
 
@@ -960,6 +970,90 @@ function registerStakingReclaim(server: McpServer, ctx: ToolContext): void {
           args: [BigInt(stakingId)],
           chainId: ctx.config.chainId,
           contractLabel: "StakingProposal",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+// ---------- privacy policy ----------
+
+function registerPrivacyPolicySign(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_privacy_policy_sign",
+    {
+      title: "Build EIP712 typed data for privacy policy agreement",
+      description:
+        "Returns the EIP712 typed data that must be signed before calling `agreeToPrivacyPolicy`. The agent wallet signs this with `signTypedData`, then passes the signature to `dexe_vote_build_privacy_policy_agree`. One-time global action per user (not per-DAO).",
+      inputSchema: {
+        userRegistry: z.string().describe("UserRegistry contract address"),
+        documentHash: z.string().describe("Privacy policy document hash (bytes32). Read from UserRegistry.documentHash() or use DEXE_PRIVACY_POLICY_HASH env var."),
+      },
+    },
+    async ({ userRegistry, documentHash }) => {
+      if (!isAddress(userRegistry)) return errorResult(`Invalid userRegistry: ${userRegistry}`);
+      if (!documentHash.startsWith("0x") || documentHash.length !== 66) {
+        return errorResult(`documentHash must be a bytes32 hex string (0x + 64 hex chars), got: ${documentHash}`);
+      }
+      const typedData = {
+        domain: {
+          name: "USER_REGISTRY",
+          version: "1",
+          chainId: ctx.config.chainId,
+          verifyingContract: userRegistry,
+        },
+        types: {
+          Agreement: [{ name: "documentHash", type: "bytes32" }],
+        },
+        primaryType: "Agreement" as const,
+        message: {
+          documentHash,
+        },
+      };
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `EIP712 typed data for privacy policy agreement on ${userRegistry} (chainId=${ctx.config.chainId}). Sign with wallet's signTypedData, then pass signature to dexe_vote_build_privacy_policy_agree.`,
+          },
+        ],
+        structuredContent: { typedData },
+      };
+    },
+  );
+}
+
+function registerPrivacyPolicyAgree(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_privacy_policy_agree",
+    {
+      title: "Submit privacy policy agreement signature on-chain",
+      description:
+        "Builds calldata for `UserRegistry.agreeToPrivacyPolicy(signature)`. Pass the EIP712 signature obtained from signing the typed data (from `dexe_vote_build_privacy_policy_sign`). Optionally combine with profile URL update via `profileURL` param.",
+      inputSchema: {
+        userRegistry: z.string().describe("UserRegistry contract address"),
+        signature: z.string().describe("EIP712 signature bytes (0x-prefixed hex)"),
+        profileURL: z.string().optional().describe("Optional IPFS URL for user profile — if set, calls changeProfileAndAgreeToPrivacyPolicy instead"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ userRegistry, signature, profileURL }) => {
+      if (!isAddress(userRegistry)) return errorResult(`Invalid userRegistry: ${userRegistry}`);
+      if (!signature.startsWith("0x")) return errorResult(`Signature must be 0x-prefixed hex`);
+      try {
+        const iface = new Interface(USER_REGISTRY_WRITE_ABI as unknown as string[]);
+        const method = profileURL ? "changeProfileAndAgreeToPrivacyPolicy" : "agreeToPrivacyPolicy";
+        const args = profileURL ? [profileURL, signature] : [signature];
+        const payload = buildPayload({
+          to: userRegistry,
+          iface,
+          method,
+          args,
+          chainId: ctx.config.chainId,
+          contractLabel: "UserRegistry",
         });
         return payloadResult(payload);
       } catch (err) {

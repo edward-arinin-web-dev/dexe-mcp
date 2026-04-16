@@ -52,6 +52,11 @@ const STAKING_READ_ABI = [
   "function getUserInfo(address user) view returns (tuple(uint256 staked, uint256 reward)[] tiersUserInfo)",
 ] as const;
 
+const USER_REGISTRY_READ_ABI = [
+  "function documentHash() view returns (bytes32)",
+  "function agreed(address user) view returns (bool)",
+] as const;
+
 export function registerReadTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
   registerMulticall(server, rpc);
@@ -64,6 +69,8 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
   registerTokenSaleUser(server, rpc);
   registerDistributionStatus(server, rpc);
   registerStakingInfo(server, rpc);
+  // Privacy policy
+  registerPrivacyPolicyStatus(server, rpc);
 }
 
 function errorResult(message: string) {
@@ -567,6 +574,49 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(`read_staking_info failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+}
+
+// ---------- privacy policy reads ----------
+
+function registerPrivacyPolicyStatus(server: McpServer, rpc: RpcProvider): void {
+  server.registerTool(
+    "dexe_read_privacy_policy_status",
+    {
+      title: "Check privacy policy agreement status",
+      description:
+        "Reads `UserRegistry.documentHash()` and `UserRegistry.agreed(user)`. Returns the current policy hash and whether the user has agreed.",
+      inputSchema: {
+        userRegistry: z.string().describe("UserRegistry contract address"),
+        user: z.string().describe("User address to check"),
+      },
+    },
+    async ({ userRegistry, user }) => {
+      if (!isAddress(userRegistry)) return errorResult(`Invalid userRegistry: ${userRegistry}`);
+      if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
+      try {
+        const provider = rpc.requireProvider();
+        const iface = new Interface(USER_REGISTRY_READ_ABI as unknown as string[]);
+        const [hashR, agreedR] = await multicall(provider, [
+          { target: userRegistry, iface, method: "documentHash", args: [], allowFailure: true },
+          { target: userRegistry, iface, method: "agreed", args: [user], allowFailure: true },
+        ]);
+        const documentHash = hashR?.success ? String(hashR.value) : null;
+        const hasAgreed = agreedR?.success ? Boolean(agreedR.value) : null;
+        const structured = { userRegistry, user, documentHash, hasAgreed };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Privacy policy for ${user}: agreed=${hasAgreed}, documentHash=${documentHash ?? "?"}`,
+            },
+          ],
+          structuredContent: structured,
+        };
+      } catch (err) {
+        return errorResult(`read_privacy_policy_status failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );

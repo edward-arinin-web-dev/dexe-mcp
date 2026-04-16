@@ -191,7 +191,12 @@ Output shape: `{ payload: TxPayload }` — single signable tx per tool. Compose 
 
 New file: `src/tools/subgraph.ts` (uses existing `src/lib/subgraph.ts` + 3 subgraph env vars).
 
-**v0.2.1 total: 95 tools** (73 base + 12 participation + 2 NFT multiplier + 8 subgraph [including existing proposal_voters])
+### Phase F — Privacy policy agreement [x]
+- [x] `dexe_vote_build_privacy_policy_sign` — EIP712 typed data builder (domain=USER_REGISTRY, type=Agreement{documentHash})
+- [x] `dexe_vote_build_privacy_policy_agree` — `UserRegistry.agreeToPrivacyPolicy(signature)` (+ optional `changeProfileAndAgreeToPrivacyPolicy`)
+- [x] `dexe_read_privacy_policy_status` — `UserRegistry.documentHash()` + `agreed(user)`
+
+**v0.2.1 total: 98 tools** (73 base + 12 participation + 2 NFT multiplier + 6 subgraph + 3 privacy policy)
 
 ---
 
