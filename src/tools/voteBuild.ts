@@ -56,6 +56,11 @@ const DISTRIBUTION_WRITE_ABI = [
   "function claim(address voter, uint256[] proposalIds)",
 ] as const;
 
+const NFT_MULTIPLIER_WRITE_ABI = [
+  "function lock(uint256 tokenId)",
+  "function unlock()",
+] as const;
+
 const STAKING_WRITE_ABI = [
   "function stake(address user, uint256 amount, uint256 id)",
   "function claim(uint256 id)",
@@ -107,6 +112,9 @@ export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): voi
   registerExecute(server, ctx);
   registerClaimRewards(server, ctx);
   registerClaimMicropoolRewards(server, ctx);
+  // NFT multiplier
+  registerNftMultiplierLock(server, ctx);
+  registerNftMultiplierUnlock(server, ctx);
   // Phase A — token sale + distribution participation
   registerTokenSaleBuy(server, ctx);
   registerTokenSaleClaim(server, ctx);
@@ -605,6 +613,73 @@ function registerClaimMicropoolRewards(server: McpServer, ctx: ToolContext): voi
           chainId: ctx.config.chainId,
           contractLabel: "GovPool",
           description: `GovPool.claimMicropoolRewards([${proposalIds.join(",")}], ${delegator} → ${delegatee})`,
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+// ---------- NFT multiplier ----------
+
+function registerNftMultiplierLock(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_nft_multiplier_lock",
+    {
+      title: "Lock an NFT multiplier to boost voting power",
+      description:
+        "Builds calldata for `ERC721Multiplier.lock(tokenId)`. Locks a reward-multiplier NFT to apply its bonus to the caller's voting power.",
+      inputSchema: {
+        nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info → nftMultiplier)"),
+        tokenId: z.string().describe("NFT token ID to lock"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ nftMultiplier, tokenId }) => {
+      if (!isAddress(nftMultiplier)) return errorResult(`Invalid nftMultiplier: ${nftMultiplier}`);
+      try {
+        const iface = new Interface(NFT_MULTIPLIER_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: nftMultiplier,
+          iface,
+          method: "lock",
+          args: [BigInt(tokenId)],
+          chainId: ctx.config.chainId,
+          contractLabel: "ERC721Multiplier",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+function registerNftMultiplierUnlock(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_nft_multiplier_unlock",
+    {
+      title: "Unlock the NFT multiplier to reclaim it",
+      description:
+        "Builds calldata for `ERC721Multiplier.unlock()`. Removes the locked reward-multiplier NFT, returning it to the caller and removing the voting power bonus.",
+      inputSchema: {
+        nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info → nftMultiplier)"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ nftMultiplier }) => {
+      if (!isAddress(nftMultiplier)) return errorResult(`Invalid nftMultiplier: ${nftMultiplier}`);
+      try {
+        const iface = new Interface(NFT_MULTIPLIER_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: nftMultiplier,
+          iface,
+          method: "unlock",
+          args: [],
+          chainId: ctx.config.chainId,
+          contractLabel: "ERC721Multiplier",
         });
         return payloadResult(payload);
       } catch (err) {

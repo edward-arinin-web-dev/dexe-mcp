@@ -177,6 +177,22 @@ Output shape: `{ payload: TxPayload }` — single signable tx per tool. Compose 
 - [x] `dexe_read_distribution_status` — `isClaimed()` + `getPotentialReward()` per proposal
 - [x] `dexe_read_staking_info` — `stakingsCount()` + `getActiveStakings()` + optional `getUserInfo(user)`
 
+### Phase D — NFT Multiplier lock/unlock [x]
+- [x] `dexe_vote_build_nft_multiplier_lock` — `ERC721Multiplier.lock(tokenId)`
+- [x] `dexe_vote_build_nft_multiplier_unlock` — `ERC721Multiplier.unlock()`
+
+### Phase E — Subgraph query tools [x]
+- [x] `dexe_read_dao_list` — paginated DAO discovery (name search, ordered by voters) — pools subgraph
+- [x] `dexe_read_dao_members` — member list with voting power, delegation counts, rewards, expert status — pools subgraph
+- [x] `dexe_read_delegation_map` — outgoing/incoming delegation pairs with amounts/NFTs — pools subgraph
+- [x] `dexe_read_validator_list` — validators ordered by balance — validators subgraph
+- [x] `dexe_read_user_activity` — transaction history across DAOs (proposals, votes, delegations) — interactions subgraph
+- [x] `dexe_read_dao_experts` — local experts with delegation info — pools subgraph
+
+New file: `src/tools/subgraph.ts` (uses existing `src/lib/subgraph.ts` + 3 subgraph env vars).
+
+**v0.2.1 total: 95 tools** (73 base + 12 participation + 2 NFT multiplier + 8 subgraph [including existing proposal_voters])
+
 ---
 
 ## Deferred (FUTURE.md)

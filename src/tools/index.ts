@@ -19,6 +19,7 @@ import { registerProposalBuildOffchainTools } from "./proposalBuildOffchain.js";
 import { registerProposalBuildInternalTools } from "./proposalBuildInternal.js";
 import { registerVoteBuildTools } from "./voteBuild.js";
 import { registerDaoDeployTools } from "./daoDeploy.js";
+import { registerSubgraphTools } from "./subgraph.js";
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
@@ -46,4 +47,5 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerProposalBuildInternalTools(server, ctx);
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
+  registerSubgraphTools(server, ctx);
 }
