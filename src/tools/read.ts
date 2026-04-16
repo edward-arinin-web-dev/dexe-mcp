@@ -35,6 +35,23 @@ const BABT_ABI = [
   "function balanceOf(address) view returns (uint256)",
 ] as const;
 
+const TOKEN_SALE_READ_ABI = [
+  "function latestTierId() view returns (uint256)",
+  "function getTierViews(uint256 offset, uint256 limit) view returns (tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint256 saleStartTime, uint256 saleEndTime, address saleTokenAddress, uint256 claimLockDuration, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 cliffPeriod, uint256 unlockStep, uint256 vestingDuration, uint256 vestingPercentage) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
+  "function getUserViews(address user, uint256[] tierIds) view returns (tuple(bool canParticipate, bool isWhitelisted, uint256 purchasedAmount, uint256 owedAmount, uint256 lockedAmount, uint256 claimableAmount, uint256 vestingWithdrawAmount)[] userViews)",
+] as const;
+
+const DISTRIBUTION_READ_ABI = [
+  "function isClaimed(uint256 proposalId, address voter) view returns (bool)",
+  "function getPotentialReward(uint256 proposalId, address voter) view returns (uint256)",
+] as const;
+
+const STAKING_READ_ABI = [
+  "function stakingsCount() view returns (uint256)",
+  "function getActiveStakings() view returns (tuple(address rewardToken, uint256 rewardAmount, uint256 startedAt, uint256 deadline, string metadata)[] stakings)",
+  "function getUserInfo(address user) view returns (tuple(uint256 staked, uint256 reward)[] tiersUserInfo)",
+] as const;
+
 export function registerReadTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
   registerMulticall(server, rpc);
@@ -42,6 +59,11 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
   registerValidators(server, rpc);
   registerSettings(server, rpc);
   registerExpertStatus(server, rpc);
+  // Phase C — participation reads
+  registerTokenSaleTiers(server, rpc);
+  registerTokenSaleUser(server, rpc);
+  registerDistributionStatus(server, rpc);
+  registerStakingInfo(server, rpc);
 }
 
 function errorResult(message: string) {
@@ -366,6 +388,185 @@ function registerExpertStatus(server: McpServer, rpc: RpcProvider): void {
         return errorResult(
           `read_expert_status failed: ${err instanceof Error ? err.message : String(err)}`,
         );
+      }
+    },
+  );
+}
+
+// ---------- token sale reads ----------
+
+function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
+  server.registerTool(
+    "dexe_read_token_sale_tiers",
+    {
+      title: "Read token sale tier details",
+      description:
+        "Reads tier count via `latestTierId()` and tier details via `getTierViews(offset, limit)` from a TokenSaleProposal contract.",
+      inputSchema: {
+        tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
+        offset: z.number().default(0).describe("Pagination offset"),
+        limit: z.number().default(10).describe("Max tiers to return"),
+      },
+    },
+    async ({ tokenSaleProposal, offset = 0, limit = 10 }) => {
+      if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      try {
+        const provider = rpc.requireProvider();
+        const iface = new Interface(TOKEN_SALE_READ_ABI as unknown as string[]);
+        const [countR] = await multicall(provider, [
+          { target: tokenSaleProposal, iface, method: "latestTierId", args: [], allowFailure: true },
+        ]);
+        const totalTiers = countR?.success ? Number(countR.value as bigint) : 0;
+        if (totalTiers === 0) {
+          return {
+            content: [{ type: "text" as const, text: `No tiers found on ${tokenSaleProposal}` }],
+            structuredContent: { tokenSaleProposal, totalTiers: 0, tiers: [] },
+          };
+        }
+        const [tiersR] = await multicall(provider, [
+          { target: tokenSaleProposal, iface, method: "getTierViews", args: [offset, limit], allowFailure: true },
+        ]);
+        const tiers = tiersR?.success ? jsonSafe(tiersR.value) : [];
+        const structured = { tokenSaleProposal, totalTiers, offset, limit, tiers };
+        return {
+          content: [{ type: "text" as const, text: `TokenSale ${tokenSaleProposal}: ${totalTiers} tier(s), showing offset=${offset} limit=${limit}` }],
+          structuredContent: structured,
+        };
+      } catch (err) {
+        return errorResult(`read_token_sale_tiers failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+}
+
+function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
+  server.registerTool(
+    "dexe_read_token_sale_user",
+    {
+      title: "Read user participation status in token sale tiers",
+      description:
+        "Reads `getUserViews(user, tierIds)` from a TokenSaleProposal — returns per-tier purchase status, claimable amounts, and vesting info.",
+      inputSchema: {
+        tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
+        user: z.string().describe("User address to query"),
+        tierIds: z.array(z.string()).min(1).describe("Tier IDs to check"),
+      },
+    },
+    async ({ tokenSaleProposal, user, tierIds }) => {
+      if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
+      try {
+        const provider = rpc.requireProvider();
+        const iface = new Interface(TOKEN_SALE_READ_ABI as unknown as string[]);
+        const [viewsR] = await multicall(provider, [
+          {
+            target: tokenSaleProposal,
+            iface,
+            method: "getUserViews",
+            args: [user, tierIds.map((id) => BigInt(id))],
+            allowFailure: true,
+          },
+        ]);
+        const userViews = viewsR?.success ? jsonSafe(viewsR.value) : [];
+        const structured = { tokenSaleProposal, user, tierIds, userViews };
+        return {
+          content: [{ type: "text" as const, text: `TokenSale user views for ${user}: ${tierIds.length} tier(s) queried` }],
+          structuredContent: structured,
+        };
+      } catch (err) {
+        return errorResult(`read_token_sale_user failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+}
+
+// ---------- distribution reads ----------
+
+function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
+  server.registerTool(
+    "dexe_read_distribution_status",
+    {
+      title: "Check claimable amounts for distribution proposals",
+      description:
+        "For each proposal ID, reads `isClaimed(proposalId, voter)` and `getPotentialReward(proposalId, voter)` from a DistributionProposal contract.",
+      inputSchema: {
+        distributionProposal: z.string().describe("DistributionProposal contract address"),
+        voter: z.string().describe("Voter address to check"),
+        proposalIds: z.array(z.string()).min(1).describe("Proposal IDs to check"),
+      },
+    },
+    async ({ distributionProposal, voter, proposalIds }) => {
+      if (!isAddress(distributionProposal)) return errorResult(`Invalid distributionProposal: ${distributionProposal}`);
+      if (!isAddress(voter)) return errorResult(`Invalid voter: ${voter}`);
+      try {
+        const provider = rpc.requireProvider();
+        const iface = new Interface(DISTRIBUTION_READ_ABI as unknown as string[]);
+        const calls: Call[] = [];
+        for (const pid of proposalIds) {
+          const id = BigInt(pid);
+          calls.push({ target: distributionProposal, iface, method: "isClaimed", args: [id, voter], allowFailure: true });
+          calls.push({ target: distributionProposal, iface, method: "getPotentialReward", args: [id, voter], allowFailure: true });
+        }
+        const res = await multicall(provider, calls);
+        const distributions = proposalIds.map((pid, i) => ({
+          proposalId: pid,
+          isClaimed: res[i * 2]?.success ? Boolean(res[i * 2]!.value) : null,
+          potentialReward: res[i * 2 + 1]?.success ? (res[i * 2 + 1]!.value as bigint).toString() : null,
+        }));
+        const structured = { distributionProposal, voter, distributions };
+        const text = distributions
+          .map((d) => `  proposal ${d.proposalId}: claimed=${d.isClaimed}, reward=${d.potentialReward ?? "?"}`)
+          .join("\n");
+        return {
+          content: [{ type: "text" as const, text: `Distribution status for ${voter}:\n${text}` }],
+          structuredContent: structured,
+        };
+      } catch (err) {
+        return errorResult(`read_distribution_status failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+}
+
+// ---------- staking reads ----------
+
+function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
+  server.registerTool(
+    "dexe_read_staking_info",
+    {
+      title: "Read staking tier details and user info",
+      description:
+        "Reads `stakingsCount()` and `getActiveStakings()` from a StakingProposal. Optionally reads `getUserInfo(user)` for a specific user's staked amounts and pending rewards.",
+      inputSchema: {
+        stakingProposal: z.string().describe("StakingProposal contract address"),
+        user: z.string().optional().describe("Optional user address to get their staking details"),
+      },
+    },
+    async ({ stakingProposal, user }) => {
+      if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
+      if (user && !isAddress(user)) return errorResult(`Invalid user: ${user}`);
+      try {
+        const provider = rpc.requireProvider();
+        const iface = new Interface(STAKING_READ_ABI as unknown as string[]);
+        const baseCalls: Call[] = [
+          { target: stakingProposal, iface, method: "stakingsCount", args: [], allowFailure: true },
+          { target: stakingProposal, iface, method: "getActiveStakings", args: [], allowFailure: true },
+        ];
+        if (user) {
+          baseCalls.push({ target: stakingProposal, iface, method: "getUserInfo", args: [user], allowFailure: true });
+        }
+        const res = await multicall(provider, baseCalls);
+        const count = res[0]?.success ? Number(res[0].value as bigint) : 0;
+        const activeStakings = res[1]?.success ? jsonSafe(res[1].value) : [];
+        const userInfo = user && res[2]?.success ? jsonSafe(res[2].value) : null;
+        const structured = { stakingProposal, stakingsCount: count, activeStakings, user: user ?? null, userInfo };
+        const text = `Staking ${stakingProposal}: ${count} tier(s)` + (user ? `, user ${user} info included` : "");
+        return {
+          content: [{ type: "text" as const, text }],
+          structuredContent: structured,
+        };
+      } catch (err) {
+        return errorResult(`read_staking_info failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );

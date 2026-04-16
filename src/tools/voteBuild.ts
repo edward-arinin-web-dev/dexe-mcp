@@ -46,6 +46,23 @@ const GOV_VALIDATORS_WRITE_ABI = [
 
 const ERC20_WRITE_ABI = ["function approve(address spender, uint256 amount) returns (bool)"] as const;
 
+const TOKEN_SALE_WRITE_ABI = [
+  "function buy(uint256 tierId, address tokenToBuyWith, uint256 amount, bytes32[] proof) payable",
+  "function claim(uint256[] tierIds)",
+  "function vestingWithdraw(uint256[] tierIds)",
+] as const;
+
+const DISTRIBUTION_WRITE_ABI = [
+  "function claim(address voter, uint256[] proposalIds)",
+] as const;
+
+const STAKING_WRITE_ABI = [
+  "function stake(address user, uint256 amount, uint256 id)",
+  "function claim(uint256 id)",
+  "function claimAll()",
+  "function reclaim(uint256 id)",
+] as const;
+
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
@@ -90,6 +107,16 @@ export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): voi
   registerExecute(server, ctx);
   registerClaimRewards(server, ctx);
   registerClaimMicropoolRewards(server, ctx);
+  // Phase A — token sale + distribution participation
+  registerTokenSaleBuy(server, ctx);
+  registerTokenSaleClaim(server, ctx);
+  registerTokenSaleVestingWithdraw(server, ctx);
+  registerDistributionClaim(server, ctx);
+  // Phase B — staking participation
+  registerStakingStake(server, ctx);
+  registerStakingClaim(server, ctx);
+  registerStakingClaimAll(server, ctx);
+  registerStakingReclaim(server, ctx);
   registerMulticall(server, ctx);
 }
 
@@ -578,6 +605,286 @@ function registerClaimMicropoolRewards(server: McpServer, ctx: ToolContext): voi
           chainId: ctx.config.chainId,
           contractLabel: "GovPool",
           description: `GovPool.claimMicropoolRewards([${proposalIds.join(",")}], ${delegator} → ${delegatee})`,
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+// ---------- token sale participation ----------
+
+function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_token_sale_buy",
+    {
+      title: "Buy tokens from a token sale tier",
+      description:
+        "Builds calldata for `TokenSaleProposal.buy(tierId, tokenToBuyWith, amount, proof)`. Pass `value` for native-coin purchases. Pass Merkle `proof` if the tier is whitelisted (empty array otherwise).",
+      inputSchema: {
+        tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
+        tierId: z.string().describe("Tier ID to buy from"),
+        tokenToBuyWith: z.string().describe("Payment token address (zero address for native coin)"),
+        amount: z.string().describe("Payment amount in wei"),
+        proof: z.array(z.string()).default([]).describe("Merkle proof bytes32[] (empty if no whitelist)"),
+        value: z.string().default("0").describe("Native-coin value in wei (for native purchases)"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ tokenSaleProposal, tierId, tokenToBuyWith, amount, proof = [], value = "0" }) => {
+      if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      if (!isAddress(tokenToBuyWith)) return errorResult(`Invalid tokenToBuyWith: ${tokenToBuyWith}`);
+      try {
+        const iface = new Interface(TOKEN_SALE_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: tokenSaleProposal,
+          iface,
+          method: "buy",
+          args: [BigInt(tierId), tokenToBuyWith, BigInt(amount), proof],
+          value: BigInt(value),
+          chainId: ctx.config.chainId,
+          contractLabel: "TokenSaleProposal",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+function registerTokenSaleClaim(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_token_sale_claim",
+    {
+      title: "Claim purchased tokens from token sale tiers",
+      description:
+        "Builds calldata for `TokenSaleProposal.claim(tierIds)`. Call after the tier's claim lock duration has passed.",
+      inputSchema: {
+        tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
+        tierIds: z.array(z.string()).min(1).describe("Tier IDs to claim from"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ tokenSaleProposal, tierIds }) => {
+      if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      try {
+        const iface = new Interface(TOKEN_SALE_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: tokenSaleProposal,
+          iface,
+          method: "claim",
+          args: [tierIds.map((id) => BigInt(id))],
+          chainId: ctx.config.chainId,
+          contractLabel: "TokenSaleProposal",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_token_sale_vesting_withdraw",
+    {
+      title: "Withdraw vested tokens from token sale tiers",
+      description:
+        "Builds calldata for `TokenSaleProposal.vestingWithdraw(tierIds)`. For tiers with vesting schedules — withdraws the currently unlocked portion.",
+      inputSchema: {
+        tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
+        tierIds: z.array(z.string()).min(1).describe("Tier IDs to withdraw vested tokens from"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ tokenSaleProposal, tierIds }) => {
+      if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      try {
+        const iface = new Interface(TOKEN_SALE_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: tokenSaleProposal,
+          iface,
+          method: "vestingWithdraw",
+          args: [tierIds.map((id) => BigInt(id))],
+          chainId: ctx.config.chainId,
+          contractLabel: "TokenSaleProposal",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+// ---------- distribution participation ----------
+
+function registerDistributionClaim(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_distribution_claim",
+    {
+      title: "Claim share from distribution proposals",
+      description:
+        "Builds calldata for `DistributionProposal.claim(voter, proposalIds)`. Claims the voter's proportional share from executed distribution proposals.",
+      inputSchema: {
+        distributionProposal: z.string().describe("DistributionProposal contract address"),
+        voter: z.string().describe("Address of the voter claiming their share"),
+        proposalIds: z.array(z.string()).min(1).describe("Proposal IDs to claim from"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ distributionProposal, voter, proposalIds }) => {
+      if (!isAddress(distributionProposal)) return errorResult(`Invalid distributionProposal: ${distributionProposal}`);
+      if (!isAddress(voter)) return errorResult(`Invalid voter: ${voter}`);
+      try {
+        const iface = new Interface(DISTRIBUTION_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: distributionProposal,
+          iface,
+          method: "claim",
+          args: [voter, proposalIds.map((id) => BigInt(id))],
+          chainId: ctx.config.chainId,
+          contractLabel: "DistributionProposal",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+// ---------- staking participation ----------
+
+function registerStakingStake(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_staking_stake",
+    {
+      title: "Stake tokens in a staking tier",
+      description:
+        "Builds calldata for `StakingProposal.stake(user, amount, id)`. Deposits tokens into the specified staking tier to earn rewards.",
+      inputSchema: {
+        stakingProposal: z.string().describe("StakingProposal contract address"),
+        user: z.string().describe("Address of the user staking"),
+        amount: z.string().describe("Amount to stake in wei"),
+        stakingId: z.string().describe("Staking tier ID"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ stakingProposal, user, amount, stakingId }) => {
+      if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
+      if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
+      try {
+        const iface = new Interface(STAKING_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: stakingProposal,
+          iface,
+          method: "stake",
+          args: [user, BigInt(amount), BigInt(stakingId)],
+          chainId: ctx.config.chainId,
+          contractLabel: "StakingProposal",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+function registerStakingClaim(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_staking_claim",
+    {
+      title: "Claim staking rewards from a tier",
+      description:
+        "Builds calldata for `StakingProposal.claim(id)`. Claims accumulated rewards from the specified staking tier without unstaking.",
+      inputSchema: {
+        stakingProposal: z.string().describe("StakingProposal contract address"),
+        stakingId: z.string().describe("Staking tier ID to claim rewards from"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ stakingProposal, stakingId }) => {
+      if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
+      try {
+        const iface = new Interface(STAKING_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: stakingProposal,
+          iface,
+          method: "claim",
+          args: [BigInt(stakingId)],
+          chainId: ctx.config.chainId,
+          contractLabel: "StakingProposal",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+function registerStakingClaimAll(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_staking_claim_all",
+    {
+      title: "Claim all staking rewards across all tiers",
+      description:
+        "Builds calldata for `StakingProposal.claimAll()`. Claims accumulated rewards from every active staking tier in one transaction.",
+      inputSchema: {
+        stakingProposal: z.string().describe("StakingProposal contract address"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ stakingProposal }) => {
+      if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
+      try {
+        const iface = new Interface(STAKING_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: stakingProposal,
+          iface,
+          method: "claimAll",
+          args: [],
+          chainId: ctx.config.chainId,
+          contractLabel: "StakingProposal",
+        });
+        return payloadResult(payload);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+function registerStakingReclaim(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_vote_build_staking_reclaim",
+    {
+      title: "Unstake (reclaim) tokens from a staking tier",
+      description:
+        "Builds calldata for `StakingProposal.reclaim(id)`. Withdraws staked tokens and any pending rewards from the specified tier.",
+      inputSchema: {
+        stakingProposal: z.string().describe("StakingProposal contract address"),
+        stakingId: z.string().describe("Staking tier ID to unstake from"),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({ stakingProposal, stakingId }) => {
+      if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
+      try {
+        const iface = new Interface(STAKING_WRITE_ABI as unknown as string[]);
+        const payload = buildPayload({
+          to: stakingProposal,
+          iface,
+          method: "reclaim",
+          args: [BigInt(stakingId)],
+          chainId: ctx.config.chainId,
+          contractLabel: "StakingProposal",
         });
         return payloadResult(payload);
       } catch (err) {

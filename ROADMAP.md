@@ -147,14 +147,35 @@ Output shape: `{ payload: TxPayload }` — single signable tx per tool. Compose 
 - [x] Encodes against compiled artifact (`PoolFactory.json`) when available; falls back to hand-rolled tuple ABI otherwise — fallback signature carefully matched to `IPoolFactory.sol`
 - [ ] Fixture tests against frontend-captured deploy calldata (deferred to Phase 6)
 
-### Phase 6 — Polish + release [~] (docs shipped, publish pending user review)
+### Phase 6 — Polish + release [x]
 - [x] README rewritten — 8 tool groups, full env-var matrix, points at ROADMAP.md
 - [x] CHANGELOG v0.2.0 entry (comprehensive)
 - [x] FUTURE.md updated (signer mode, fork sim, extra IPFS providers, fixture tests)
 - [x] `.mcp.example.json` — full env var example
 - [x] `package.json` bumped 0.1.5 → 0.2.0, new description, `multiformats` dep, `ROADMAP.md` in files list
-- [ ] Git commit + tag `v0.2.0` — **deferred, user reviewing first**
-- [ ] `npm publish` — **deferred, user reviewing first**
+- [x] Git commit + tag `v0.2.0` — published
+
+---
+
+## v0.2.1 — User participation tools (12 new tools, 85 total)
+
+### Phase A — Token Sale + Distribution participation writes [x]
+- [x] `dexe_vote_build_token_sale_buy` — `TokenSaleProposal.buy(tierId, tokenToBuyWith, amount, proof)` payable
+- [x] `dexe_vote_build_token_sale_claim` — `TokenSaleProposal.claim(tierIds[])`
+- [x] `dexe_vote_build_token_sale_vesting_withdraw` — `TokenSaleProposal.vestingWithdraw(tierIds[])`
+- [x] `dexe_vote_build_distribution_claim` — `DistributionProposal.claim(voter, proposalIds[])`
+
+### Phase B — Staking participation writes [x]
+- [x] `dexe_vote_build_staking_stake` — `StakingProposal.stake(user, amount, id)`
+- [x] `dexe_vote_build_staking_claim` — `StakingProposal.claim(id)`
+- [x] `dexe_vote_build_staking_claim_all` — `StakingProposal.claimAll()`
+- [x] `dexe_vote_build_staking_reclaim` — `StakingProposal.reclaim(id)`
+
+### Phase C — Participation read tools [x]
+- [x] `dexe_read_token_sale_tiers` — `latestTierId()` + `getTierViews(offset, limit)`
+- [x] `dexe_read_token_sale_user` — `getUserViews(user, tierIds)`
+- [x] `dexe_read_distribution_status` — `isClaimed()` + `getPotentialReward()` per proposal
+- [x] `dexe_read_staking_info` — `stakingsCount()` + `getActiveStakings()` + optional `getUserInfo(user)`
 
 ---
 
