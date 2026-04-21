@@ -1,0 +1,85 @@
+{
+  "id": "minimal-dao",
+  "description": "Minimal DAO with existing BEP-20 token, linear voting, no validators, no rewards",
+  "frontendUrl": "/create-fund-dao/basic-settings",
+
+  "formValues": {
+    "basicSettings": {
+      "name": "CompatTestDAO",
+      "description": "A minimal DAO for E2E compat testing",
+      "website": "https://example.com"
+    },
+    "governance": {
+      "tokenType": "bep20",
+      "tokenAddress": "0x4FaBb145d64652a948d72533023f6E7A623C7C53"
+    },
+    "votingParameters": {
+      "votingModel": 0,
+      "voteDelegation": true,
+      "earlyCompletion": true,
+      "durationOfVoting": "86400",
+      "quorum": "50",
+      "voteInProposals": "100",
+      "createProposals": "500",
+      "executionDelay": "0"
+    },
+    "validators": {
+      "enabled": false
+    }
+  },
+
+  "mcpToolCall": {
+    "tool": "dexe_dao_build_deploy",
+    "args": {
+      "deployer": "{{DEPLOYER_ADDRESS}}",
+      "params": {
+        "name": "CompatTestDAO",
+        "descriptionURL": "{{DESCRIPTION_URL}}",
+        "onlyBABTHolders": false,
+        "settingsParams": {
+          "proposalSettings": [
+            {
+              "earlyCompletion": true,
+              "delegatedVotingAllowed": true,
+              "validatorsVote": false,
+              "duration": "86400",
+              "durationValidators": "86400",
+              "executionDelay": "0",
+              "quorum": "500000000000000000000000000",
+              "quorumValidators": "0",
+              "minVotesForVoting": "100000000000000000000",
+              "minVotesForCreating": "500000000000000000000",
+              "rewardsInfo": {
+                "rewardToken": "0x0000000000000000000000000000000000000000",
+                "creationReward": "0",
+                "executionReward": "0",
+                "voteRewardsCoefficient": "0"
+              },
+              "executorDescription": ""
+            }
+          ],
+          "additionalProposalExecutors": []
+        },
+        "userKeeperParams": {
+          "tokenAddress": "0x4FaBb145d64652a948d72533023f6E7A623C7C53",
+          "nftAddress": "0x0000000000000000000000000000000000000000",
+          "individualPower": "0",
+          "nftsTotalSupply": "0"
+        },
+        "tokenParams": {
+          "name": "",
+          "symbol": "",
+          "users": [],
+          "cap": "0",
+          "mintedTotal": "0",
+          "amounts": []
+        },
+        "votePowerParams": {
+          "voteType": "LINEAR_VOTES"
+        }
+      }
+    }
+  },
+
+  "notes": "The deployer address and descriptionURL are injected at runtime. descriptionURL requires IPFS upload (Pinata JWT). quorum 50% = 50 * 10^25. minVotesForVoting 100 = 100 * 10^18."
+}

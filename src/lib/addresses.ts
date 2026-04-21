@@ -10,7 +10,7 @@ import { Contract, JsonRpcProvider, ZeroAddress } from "ethers";
  * frontend env. Add more chains as they come online.
  */
 export const CONTRACTS_REGISTRY_BY_CHAIN: Record<number, string> = {
-  56: "0xB1795e79a095c1aa40BA754d74F145Dc07B2Faf5",
+  56: "0x46B46629B674b4C0b48B111DEeB0eAfd9F84A1c0",
 };
 
 /**

@@ -1,0 +1,37 @@
+{
+  "id": "metadata-full",
+  "description": "DAO metadata IPFS upload — compare the JSON blob uploaded to Pinata by frontend vs MCP",
+  "type": "metadata",
+
+  "formValues": {
+    "name": "MetadataTestDAO",
+    "description": "# Welcome to MetadataTestDAO\n\nWe are a community-governed protocol.\n\n## Mission\nBuild **decentralized** tools for *everyone*.\n\n### Links\n- [Website](https://example.com)\n- [Docs](https://docs.example.com)",
+    "website": "https://metadata-test.example.com",
+    "socials": {
+      "twitter": "https://twitter.com/metadatatest",
+      "github": "https://github.com/metadatatest"
+    },
+    "documents": [
+      { "name": "Whitepaper", "link": "https://example.com/whitepaper.pdf" }
+    ]
+  },
+
+  "mcpToolCall": {
+    "tool": "dexe_ipfs_upload_dao_metadata",
+    "args": {
+      "name": "MetadataTestDAO",
+      "description": "# Welcome to MetadataTestDAO\n\nWe are a community-governed protocol.\n\n## Mission\nBuild **decentralized** tools for *everyone*.\n\n### Links\n- [Website](https://example.com)\n- [Docs](https://docs.example.com)",
+      "websiteUrl": "https://metadata-test.example.com",
+      "socialLinks": [
+        "https://twitter.com/metadatatest",
+        "https://github.com/metadatatest"
+      ],
+      "documents": [
+        { "name": "Whitepaper", "url": "https://example.com/whitepaper.pdf" }
+      ]
+    }
+  },
+
+  "compareMode": "ipfs-json",
+  "notes": "Metadata comparison: the MCP uploads a JSON to IPFS with Slate-formatted description. The frontend does the same. Compare the inner description Slate array structure and the outer metadata wrapper fields. Slate structure must match exactly (type names, mark names, nesting). The outer fields (avatarUrl, daoName, websiteUrl, socialLinks, documents) should match structurally."
+}

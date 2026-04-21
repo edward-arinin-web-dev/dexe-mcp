@@ -1,0 +1,130 @@
+{
+  "id": "full-dao",
+  "description": "Full DAO: create own token, validators, community rewards, linear voting",
+  "frontendUrl": "/create-fund-dao/basic-settings",
+
+  "formValues": {
+    "basicSettings": {
+      "name": "FullCompatDAO",
+      "description": "# Full DAO Test\n\nThis DAO tests **all features** including:\n- Token creation\n- Validators\n- Community rewards",
+      "website": "https://full-test.example.com",
+      "socials": {
+        "twitter": "https://twitter.com/fulltest",
+        "telegram": "https://t.me/fulltest"
+      }
+    },
+    "governance": {
+      "tokenType": "create"
+    },
+    "createToken": {
+      "name": "FullTestToken",
+      "symbol": "FTT",
+      "cap": "1000000",
+      "totalSupply": "500000",
+      "recipients": [
+        {
+          "address": "{{DEPLOYER_ADDRESS}}",
+          "amount": "250000"
+        },
+        {
+          "address": "0x000000000000000000000000000000000000dEaD",
+          "amount": "250000"
+        }
+      ]
+    },
+    "votingParameters": {
+      "votingModel": 0,
+      "voteDelegation": true,
+      "earlyCompletion": true,
+      "durationOfVoting": "172800",
+      "quorum": "30",
+      "voteInProposals": "50",
+      "createProposals": "200",
+      "executionDelay": "3600",
+      "communityRewards": true,
+      "votingRewardsPercentage": "10",
+      "approvedProposalRewards": "100",
+      "proposalExecutionReward": "50"
+    },
+    "validators": {
+      "enabled": true,
+      "tokenName": "FTTValidator",
+      "tokenSymbol": "FTTV",
+      "validators": [
+        {
+          "address": "{{DEPLOYER_ADDRESS}}",
+          "supply": "1000"
+        }
+      ],
+      "quorum": "51",
+      "duration": "86400",
+      "executionDelay": "0"
+    }
+  },
+
+  "mcpToolCall": {
+    "tool": "dexe_dao_build_deploy",
+    "args": {
+      "deployer": "{{DEPLOYER_ADDRESS}}",
+      "params": {
+        "name": "FullCompatDAO",
+        "descriptionURL": "{{DESCRIPTION_URL}}",
+        "onlyBABTHolders": false,
+        "settingsParams": {
+          "proposalSettings": [
+            {
+              "earlyCompletion": true,
+              "delegatedVotingAllowed": true,
+              "validatorsVote": true,
+              "duration": "172800",
+              "durationValidators": "86400",
+              "executionDelay": "3600",
+              "quorum": "300000000000000000000000000",
+              "quorumValidators": "510000000000000000000000000",
+              "minVotesForVoting": "50000000000000000000",
+              "minVotesForCreating": "200000000000000000000",
+              "rewardsInfo": {
+                "rewardToken": "0x0000000000000000000000000000000000000000",
+                "creationReward": "100000000000000000000",
+                "executionReward": "50000000000000000000",
+                "voteRewardsCoefficient": "100000000000000000000000000"
+              },
+              "executorDescription": ""
+            }
+          ],
+          "additionalProposalExecutors": []
+        },
+        "validatorsParams": {
+          "name": "FTTValidator",
+          "symbol": "FTTV",
+          "validators": ["{{DEPLOYER_ADDRESS}}"],
+          "balances": ["1000000000000000000000"],
+          "proposalSettings": {
+            "duration": "86400",
+            "executionDelay": "0",
+            "quorum": "510000000000000000000000000"
+          }
+        },
+        "userKeeperParams": {
+          "tokenAddress": "0x0000000000000000000000000000000000000000",
+          "nftAddress": "0x0000000000000000000000000000000000000000",
+          "individualPower": "0",
+          "nftsTotalSupply": "0"
+        },
+        "tokenParams": {
+          "name": "FullTestToken",
+          "symbol": "FTT",
+          "users": ["{{DEPLOYER_ADDRESS}}", "0x000000000000000000000000000000000000dEaD"],
+          "cap": "1000000000000000000000000",
+          "mintedTotal": "500000000000000000000000",
+          "amounts": ["250000000000000000000000", "250000000000000000000000"]
+        },
+        "votePowerParams": {
+          "voteType": "LINEAR_VOTES"
+        }
+      }
+    }
+  },
+
+  "notes": "Full DAO with token creation triggers auto-wiring: predicted govToken → userKeeperParams.tokenAddress, predicted distribution/tokenSale → additionalProposalExecutors. The MCP handles this internally. Reward token 0x0 = use governance token. quorum 30% = 30 * 10^25. Validator quorum 51% = 51 * 10^25. Validator supply 1000 = 1000 * 10^18."
+}

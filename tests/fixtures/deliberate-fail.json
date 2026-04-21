@@ -1,0 +1,17 @@
+{
+  "id": "deliberate-fail",
+  "description": "Deliberately mismatched fixture to verify the comparison engine catches diffs",
+  "type": "sanity-check",
+
+  "sampleA": {
+    "description": "Frontend calldata (simulated)",
+    "data": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+  },
+  "sampleB": {
+    "description": "MCP calldata (simulated — intentionally different)",
+    "data": "0x1234567890abcdef1234567890abcdef1234567890abcdefFFFFFFFFFFFFFFFF"
+  },
+
+  "expectedResult": "FAIL",
+  "notes": "This fixture exists solely to validate that the comparison engine correctly detects and reports differences. The last 16 hex chars differ between A and B. If the comparison engine reports PASS on this fixture, the engine itself is broken."
+}

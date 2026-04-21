@@ -8,6 +8,7 @@ import {
   parseCid,
   PinataClient,
 } from "../lib/ipfs.js";
+import { markdownToSlate } from "../lib/markdownToSlate.js";
 
 export function registerIpfsTools(server: McpServer, ctx: ToolContext): void {
   const gateways = resolveGateways(ctx);
@@ -71,7 +72,12 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
         "Pins `{ title, description }` (the shape DeXe proposals expect) to IPFS via Pinata. Returns the CID for use as `descriptionURL` in `GovPool.createProposal`.",
       inputSchema: {
         title: z.string().min(1),
-        description: z.string().default(""),
+        description: z.string().default("").describe(
+          "Proposal description — supports full Markdown: # headings, **bold**, *italic*, " +
+          "~~strikethrough~~, [links](url), `inline code`, ```code blocks```, " +
+          "- bullet lists, 1. numbered lists. Automatically converted to the Slate " +
+          "editor node format the frontend expects. Plain text also works.",
+        ),
         extra: z
           .record(z.unknown())
           .optional()
@@ -88,7 +94,8 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
       const client = requirePinata(ctx);
       if ("error" in client) return errorResult(client.error);
       try {
-        const payload = { title, description, ...(extra ?? {}) };
+        const slateDescription = markdownToSlate(description);
+        const payload = { title, description: slateDescription, ...(extra ?? {}) };
         const res = await client.pinJson(payload, { name: `proposal:${title.slice(0, 48)}` });
         const structured = {
           cid: res.cid,
@@ -114,49 +121,133 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
 
 // ---------- dexe_ipfs_upload_dao_metadata ----------
 
+/**
+ * Matches the frontend's nested IPFS upload chain for DAO descriptionURL.
+ *
+ * Frontend does 3 uploads:
+ *   1. Avatar file → CID v1 (optional)
+ *   2. Description text/JSON → CID v0 → "ipfs://<cid>"
+ *   3. Outer metadata wrapper (references #1 and #2) → CID v0 → "ipfs://<cid>"
+ *
+ * The outer CID (#3) becomes `descriptionURL` in `deployGovPool`.
+ *
+ * Outer metadata shape (must match for frontend UI compatibility):
+ * {
+ *   avatarUrl: "https://<cidV1>.ipfs.4everland.io/<filename>" | "",
+ *   avatarCID: "<cidV1>" | undefined,
+ *   avatarFileName: "<filename>.jpeg" | "",
+ *   daoName: string,
+ *   websiteUrl: string,
+ *   description: "ipfs://<cidV0>",   // nested CID pointing to description content
+ *   socialLinks: [["twitter", "https://..."], ...],
+ *   documents: [{ name: string, url: string }, ...]
+ * }
+ */
 function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_ipfs_upload_dao_metadata",
     {
-      title: "Upload DAO-level metadata JSON to IPFS (Pinata)",
+      title: "Upload DAO metadata to IPFS (frontend-compatible nested format)",
       description:
-        "Pins arbitrary DAO metadata JSON (name, description, avatar, links, tags). Returns the CID for use as `descriptionURL` in `deployGovPool`.",
+        "Uploads DAO metadata to IPFS using the exact schema the DeXe frontend expects. " +
+        "Performs a nested upload chain: (1) description content → IPFS, (2) outer metadata referencing the description CID → IPFS. " +
+        "Returns the outer CID for use as `descriptionURL` in `deployGovPool`. " +
+        "If avatarCID is provided (from a prior `dexe_ipfs_upload_file` call), it's wired into the metadata. " +
+        "Field names match the frontend exactly: `daoName`, `websiteUrl`, `socialLinks`, `documents`.",
       inputSchema: {
-        name: z.string().min(1),
-        description: z.string().default(""),
-        avatar: z.string().optional().describe("Avatar CID or full URL"),
-        links: z.array(z.object({ label: z.string(), url: z.string() })).optional(),
-        tags: z.array(z.string()).optional(),
-        extra: z.record(z.unknown()).optional(),
+        daoName: z.string().min(1).describe("DAO name (displayed in UI)"),
+        description: z.string().default("").describe(
+          "DAO description — supports full Markdown: # headings, **bold**, *italic*, " +
+          "~~strikethrough~~, [links](url), `inline code`, ```code blocks```, " +
+          "- bullet lists, 1. numbered lists. Automatically converted to the Slate " +
+          "editor node format the frontend expects. Plain text also works.",
+        ),
+        websiteUrl: z.string().default("").describe("DAO website URL"),
+        avatarCID: z.string().optional().describe(
+          "CID v1 of a previously uploaded avatar image (from dexe_ipfs_upload_file). Omit if no avatar.",
+        ),
+        avatarFileName: z.string().optional().describe(
+          "Avatar filename with extension, e.g. 'logo.jpeg'. Required if avatarCID is provided.",
+        ),
+        socialLinks: z
+          .array(z.tuple([z.string(), z.string()]))
+          .optional()
+          .describe('Social links as [platform, url] tuples, e.g. [["twitter", "https://x.com/dao"]]'),
+        documents: z
+          .array(z.object({ name: z.string(), url: z.string() }))
+          .optional()
+          .describe("External documents, e.g. [{ name: \"Whitepaper\", url: \"https://...\" }]"),
       },
       outputSchema: {
         cid: z.string(),
+        descriptionCid: z.string(),
         size: z.number(),
         pinnedAt: z.string(),
         descriptionURL: z.string(),
       },
     },
-    async ({ name, description = "", avatar, links, tags, extra }) => {
+    async ({
+      daoName,
+      description = "",
+      websiteUrl = "",
+      avatarCID,
+      avatarFileName,
+      socialLinks,
+      documents,
+    }) => {
       const client = requirePinata(ctx);
       if ("error" in client) return errorResult(client.error);
       try {
-        const payload: Record<string, unknown> = { name, description };
-        if (avatar) payload.avatar = avatar;
-        if (links) payload.links = links;
-        if (tags) payload.tags = tags;
-        if (extra) Object.assign(payload, extra);
-        const res = await client.pinJson(payload, { name: `dao:${name.slice(0, 48)}` });
+        // Step 1: Upload description content as its own IPFS pin.
+        // The frontend stores descriptions as Slate editor node arrays and
+        // renders them via SlateDescendant[]. We convert markdown/plain text
+        // to the full Slate format (headings, bold, links, lists, etc.)
+        // using remark-slate-transformer with frontend-matching overrides.
+        const descriptionPayload = markdownToSlate(description);
+        const descriptionRes = await client.pinJson(descriptionPayload, {
+          name: `dao-desc:${daoName.slice(0, 40)}`,
+        });
+        const descriptionIpfsPath = `ipfs://${descriptionRes.cid}`;
+
+        // Step 2: Build the outer metadata wrapper (matches frontend schema exactly)
+        let avatarUrl = "";
+        if (avatarCID && avatarFileName) {
+          // Frontend uses 4everland gateway: https://<cidV1>.ipfs.4everland.io/<filename>
+          avatarUrl = `https://${avatarCID}.ipfs.4everland.io/${avatarFileName}`;
+        }
+
+        const outerPayload = {
+          avatarUrl,
+          avatarCID: avatarCID ?? undefined,
+          avatarFileName: avatarFileName ?? "",
+          daoName,
+          websiteUrl,
+          description: descriptionIpfsPath,
+          socialLinks: socialLinks ?? [],
+          documents: documents ?? [],
+        };
+
+        // Step 3: Upload the outer metadata wrapper
+        const metadataRes = await client.pinJson(outerPayload, {
+          name: `dao:${daoName.slice(0, 48)}`,
+        });
+
         const structured = {
-          cid: res.cid,
-          size: res.size,
-          pinnedAt: res.pinnedAt,
-          descriptionURL: res.cid,
+          cid: metadataRes.cid,
+          descriptionCid: descriptionRes.cid,
+          size: metadataRes.size,
+          pinnedAt: metadataRes.pinnedAt,
+          descriptionURL: metadataRes.cid,
         };
         return {
           content: [
             {
               type: "text" as const,
-              text: `Pinned DAO metadata → ${res.cid} (${res.size} bytes, ${res.pinnedAt})`,
+              text:
+                `Pinned DAO metadata (frontend-compatible):\n` +
+                `  description content → ${descriptionRes.cid}\n` +
+                `  outer metadata      → ${metadataRes.cid} (${metadataRes.size} bytes)\n` +
+                `Use "${metadataRes.cid}" as descriptionURL in deployGovPool.`,
             },
           ],
           structuredContent: structured,

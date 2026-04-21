@@ -20,6 +20,9 @@ import { registerProposalBuildInternalTools } from "./proposalBuildInternal.js";
 import { registerVoteBuildTools } from "./voteBuild.js";
 import { registerDaoDeployTools } from "./daoDeploy.js";
 import { registerSubgraphTools } from "./subgraph.js";
+import { registerTxTools } from "./txSend.js";
+import { registerFlowTools } from "./flow.js";
+import { SignerManager } from "../lib/signer.js";
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
@@ -48,4 +51,8 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
   registerSubgraphTools(server, ctx);
+
+  const signer = new SignerManager(config);
+  registerTxTools(server, config, signer);
+  registerFlowTools(server, ctx, signer);
 }

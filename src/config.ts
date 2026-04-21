@@ -19,6 +19,8 @@ export interface DexeConfig {
   subgraphInteractionsUrl?: string;
   /** Optional fork block pin (Phase B). */
   forkBlock?: number;
+  /** Private key for tx signing. When set, `dexe_tx_send` can broadcast. */
+  privateKey?: string;
 }
 
 /**
@@ -60,6 +62,16 @@ export async function loadConfig(): Promise<DexeConfig> {
   const subgraphValidatorsUrl = process.env.DEXE_SUBGRAPH_VALIDATORS_URL?.trim() || undefined;
   const subgraphInteractionsUrl = process.env.DEXE_SUBGRAPH_INTERACTIONS_URL?.trim() || undefined;
 
+  const privateKey = process.env.DEXE_PRIVATE_KEY?.trim() || undefined;
+  if (privateKey && !rpcUrl) {
+    fatal("DEXE_PRIVATE_KEY requires DEXE_RPC_URL to be set (signing needs an RPC endpoint).");
+  }
+  if (privateKey) {
+    const { Wallet } = await import("ethers");
+    const addr = new Wallet(privateKey).address;
+    process.stderr.write(`[dexe-mcp] signing enabled for ${addr}\n`);
+  }
+
   let forkBlock: number | undefined;
   if (process.env.DEXE_FORK_BLOCK) {
     const n = Number(process.env.DEXE_FORK_BLOCK);
@@ -79,6 +91,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     subgraphValidatorsUrl,
     subgraphInteractionsUrl,
     forkBlock,
+    privateKey,
   });
 }
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
+import { markdownToSlate } from "../lib/markdownToSlate.js";
 
 /**
  * Phase 3d — off-chain proposals via the DeXe backend API.
@@ -204,7 +205,7 @@ function buildProposalBody(
         type: p.type ?? String(Math.floor(Date.now() / 1000)),
         title: p.title,
         chain_id: p.chainId,
-        description: p.description,
+        description: JSON.stringify(markdownToSlate(p.description)),
         pool_address: p.poolAddress,
         vote_options: p.voteOptions,
         custom_parameters: buildCustomParameters(p, votingType, quorum),
@@ -217,7 +218,11 @@ const commonInputSchema = {
   poolAddress: z.string(),
   chainId: z.number().int().positive(),
   title: z.string().min(1),
-  description: z.string().default(""),
+  description: z.string().default("").describe(
+    "Proposal description — supports Markdown: # headings, **bold**, *italic*, " +
+    "~~strikethrough~~, [links](url), `code`, - lists. Auto-converted to Slate " +
+    "editor format and JSON-stringified for the backend API.",
+  ),
   voteOptions: z.array(z.string()).min(2),
   votingDurationSeconds: z.string(),
   useDelegated: z.boolean().default(true),
@@ -350,7 +355,9 @@ function registerSettingsProposal(server: McpServer): void {
         poolAddress: z.string(),
         chainId: z.number().int().positive(),
         title: z.string().min(1),
-        description: z.string().default(""),
+        description: z.string().default("").describe(
+          "Proposal description — supports Markdown. Auto-converted to Slate format.",
+        ),
         votingType: z.enum(["one_of", "multiple_of", "for_against"]).default("one_of"),
         voteOptions: z.array(z.string()).default([]),
         votingDurationSeconds: z.string(),
@@ -376,12 +383,12 @@ function registerSettingsProposal(server: McpServer): void {
             type: input.mode, // "edit_proposal_type" or "create_proposal_type"
             title: input.title,
             chain_id: input.chainId,
-            description: input.description,
+            description: JSON.stringify(markdownToSlate(input.description)),
             pool_address: input.poolAddress,
             vote_options: input.voteOptions,
             custom_parameters: {
               title: input.title,
-              description: input.description,
+              description: JSON.stringify(markdownToSlate(input.description)),
               type: input.mode,
               use_delegated: input.useDelegated,
               voting_duration: Number(input.votingDurationSeconds),

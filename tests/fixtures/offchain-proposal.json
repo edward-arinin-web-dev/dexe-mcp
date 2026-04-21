@@ -1,0 +1,27 @@
+{
+  "id": "offchain-proposal",
+  "description": "Off-chain proposal creation — compares the API payload body (not calldata, since off-chain doesn't hit the chain)",
+  "type": "offchain",
+
+  "formValues": {
+    "title": "Compat Test Proposal",
+    "description": "## Proposal Summary\n\nThis is a **test proposal** for E2E compatibility validation.\n\n### Key Points\n1. First point\n2. Second point\n\n> Important note about governance",
+    "daoAddress": "{{DAO_ADDRESS}}"
+  },
+
+  "mcpToolCall": {
+    "tool": "dexe_proposal_build_offchain",
+    "args": {
+      "daoPoolAddress": "{{DAO_ADDRESS}}",
+      "proposals": [
+        {
+          "title": "Compat Test Proposal",
+          "description": "## Proposal Summary\n\nThis is a **test proposal** for E2E compatibility validation.\n\n### Key Points\n1. First point\n2. Second point\n\n> Important note about governance"
+        }
+      ]
+    }
+  },
+
+  "compareMode": "json-body",
+  "notes": "Off-chain proposals don't produce calldata — they POST a JSON body to the backend API. The description field is JSON.stringify(SlateDescendant[]). Compare the stringified Slate output from the MCP against what the frontend would send. Capture via network request interception instead of eth_sendTransaction hook."
+}
