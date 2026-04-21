@@ -40,12 +40,13 @@ const ERC20_GOV_ABI = [
   "function blacklist(address[] users, bool isBlacklisted)",
   "function transfer(address to, uint256 amount) returns (bool)",
   "function mint(address to, uint256 amount)",
+  "function approve(address spender, uint256 amount) returns (bool)",
 ] as const;
 
 const ERC721_MULTIPLIER_ABI = [
-  "function setURI(uint256 tokenId, string uri)",
-  "function mint(address to, uint256 multiplier)",
-  "function mint(address to, uint256 multiplier, uint256 rewardPeriod)",
+  "function setTokenURI(uint256 tokenId, string uri)",
+  "function mint(address to, uint256 multiplier, uint256 rewardPeriod, string metadataUrl)",
+  "function changeToken(uint256 tokenId, uint256 multiplier, uint256 rewardPeriod)",
 ] as const;
 
 const GOV_SETTINGS_FULL_ABI = [
@@ -116,7 +117,7 @@ function registerTokenDistribution(server: McpServer): void {
     {
       title: "Wrapper: batch token distribution via DistributionProposal",
       description:
-        "Builds a 'Token Distribution' external proposal. Encodes `DistributionProposal.execute(proposalId, token, amount)`. `proposalId` is the DAO's latest proposalId + 1 (distribution executes against the pending proposal number). Returns a single action; if the token is an ERC20, the agent may also need to prepend an ERC20.approve action — flagged in the nextStep hint.",
+        "Builds a 'Token Distribution' external proposal. Encodes `DistributionProposal.execute(proposalId, token, amount)`. For ERC20 tokens, automatically prepends an `ERC20.approve` action. For native tokens (isNative=true), sets the action value instead. `proposalId` is the DAO's latest proposalId + 1.",
       inputSchema: {
         distributionProposal: z
           .string()
@@ -126,6 +127,7 @@ function registerTokenDistribution(server: McpServer): void {
           .describe("Expected proposalId for this distribution (usually latestProposalId + 1)"),
         token: z.string(),
         amount: z.string(),
+        isNative: z.boolean().default(false).describe("True for native token (BNB/ETH) — sends value instead of approve"),
         proposalName: z.string().default("Token Distribution"),
         proposalDescription: z.string().default(""),
       },
@@ -136,19 +138,28 @@ function registerTokenDistribution(server: McpServer): void {
       proposalId,
       token,
       amount,
+      isNative = false,
       proposalName = "Token Distribution",
       proposalDescription = "",
     }) => {
       if (!isAddress(distributionProposal)) return errorResult(`Invalid distributionProposal: ${distributionProposal}`);
       if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
       try {
-        const iface = new Interface(DISTRIBUTION_PROPOSAL_ABI as unknown as string[]);
-        const data = iface.encodeFunctionData("execute", [
+        const distIface = new Interface(DISTRIBUTION_PROPOSAL_ABI as unknown as string[]);
+        const executeData = distIface.encodeFunctionData("execute", [
           BigInt(proposalId),
           token,
           BigInt(amount),
         ]);
-        const actions: Action[] = [{ executor: distributionProposal, value: "0", data }];
+        const actions: Action[] = [];
+        if (isNative) {
+          actions.push({ executor: distributionProposal, value: amount, data: executeData });
+        } else {
+          const erc20Iface = new Interface(ERC20_GOV_ABI as unknown as string[]);
+          const approveData = erc20Iface.encodeFunctionData("approve", [distributionProposal, BigInt(amount)]);
+          actions.push({ executor: token, value: "0", data: approveData });
+          actions.push({ executor: distributionProposal, value: "0", data: executeData });
+        }
         const metadata = {
           proposalName,
           proposalDescription,
@@ -161,7 +172,7 @@ function registerTokenDistribution(server: McpServer): void {
           metadata,
           actions,
           title: `Token Distribution → ${amount} of ${token} via proposal #${proposalId}`,
-          detail: `Target: DistributionProposal(${distributionProposal}).execute\nERC20 approve may need to precede this action if token is non-native.`,
+          detail: `Target: DistributionProposal(${distributionProposal}).execute (${actions.length} actions)`,
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
@@ -240,7 +251,17 @@ function registerTokenSale(server: McpServer): void {
           [], // participationDetails — empty for the common case
         ];
         const data = iface.encodeFunctionData("createTiers", [[tierTuple]]);
-        const actions: Action[] = [{ executor: tokenSaleProposal, value: "0", data }];
+        const actions: Action[] = [];
+        // Prepend ERC20.approve for the sale token (required for on-chain execution)
+        if (isAddress(tier.saleTokenAddress)) {
+          const erc20Iface = new Interface(ERC20_GOV_ABI as unknown as string[]);
+          const approveData = erc20Iface.encodeFunctionData("approve", [
+            tokenSaleProposal,
+            BigInt(tier.totalTokenProvided),
+          ]);
+          actions.push({ executor: tier.saleTokenAddress, value: "0", data: approveData });
+        }
+        actions.push({ executor: tokenSaleProposal, value: "0", data });
         const metadata = {
           proposalName,
           proposalDescription,
@@ -319,7 +340,7 @@ function registerCreateStakingTier(server: McpServer): void {
     {
       title: "Wrapper: create a staking pool/tier via StakingProposal.createStaking",
       description:
-        "Builds a 'Create Staking Tier' external proposal calling StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata).",
+        "Builds a 'Create Staking Tier' external proposal calling StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata). For ERC20 reward tokens, automatically prepends an ERC20.approve action. For native tokens (isNative=true), sets the action value instead.",
       inputSchema: {
         stakingProposal: z.string().describe("StakingProposal contract address"),
         rewardToken: z.string(),
@@ -327,6 +348,7 @@ function registerCreateStakingTier(server: McpServer): void {
         startedAt: z.string().describe("Unix seconds"),
         deadline: z.string().describe("Unix seconds"),
         stakingMetadataUrl: z.string().describe("ipfs://<cid> of staking-specific metadata"),
+        isNative: z.boolean().default(false).describe("True when reward token is native (BNB/ETH)"),
         proposalName: z.string().default("Create Staking"),
         proposalDescription: z.string().default(""),
       },
@@ -339,6 +361,7 @@ function registerCreateStakingTier(server: McpServer): void {
       startedAt,
       deadline,
       stakingMetadataUrl,
+      isNative = false,
       proposalName = "Create Staking",
       proposalDescription = "",
     }) => {
@@ -346,14 +369,22 @@ function registerCreateStakingTier(server: McpServer): void {
       if (!isAddress(rewardToken)) return errorResult(`Invalid rewardToken: ${rewardToken}`);
       try {
         const iface = new Interface(STAKING_PROPOSAL_ABI as unknown as string[]);
-        const data = iface.encodeFunctionData("createStaking", [
+        const createData = iface.encodeFunctionData("createStaking", [
           rewardToken,
           BigInt(rewardAmount),
           BigInt(startedAt),
           BigInt(deadline),
           stakingMetadataUrl,
         ]);
-        const actions: Action[] = [{ executor: stakingProposal, value: "0", data }];
+        const actions: Action[] = [];
+        if (isNative) {
+          actions.push({ executor: stakingProposal, value: rewardAmount, data: createData });
+        } else {
+          const erc20Iface = new Interface(ERC20_GOV_ABI as unknown as string[]);
+          const approveData = erc20Iface.encodeFunctionData("approve", [stakingProposal, BigInt(rewardAmount)]);
+          actions.push({ executor: rewardToken, value: "0", data: approveData });
+          actions.push({ executor: stakingProposal, value: "0", data: createData });
+        }
         const metadata = {
           proposalName,
           proposalDescription,
@@ -560,18 +591,18 @@ function registerRewardMultiplier(server: McpServer): void {
     {
       title: "Wrapper: manage the DAO's reward-multiplier NFT contract",
       description:
-        "Three modes: 'set_address' (call GovPool.setNftMultiplierAddress — pass ZERO to disable), 'set_uri' (call ERC721Multiplier.setURI on a tokenId), 'mint' (call ERC721Multiplier.mint). For DeXe's global multiplier NFT, mint uses (to, multiplier, rewardPeriod); others use (to, multiplier). Set `hasRewardPeriod: true` for the 3-arg variant.",
+        "Four modes: 'set_address' (GovPool.setNftMultiplierAddress — ZERO to disable), 'set_token_uri' (ERC721Multiplier.setTokenURI on a tokenId), 'mint' (ERC721Multiplier.mint(to, multiplier, rewardPeriod, metadataUrl)), 'change_token' (ERC721Multiplier.changeToken(tokenId, multiplier, rewardPeriod) — modify existing NFT).",
       inputSchema: {
-        mode: z.enum(["set_address", "set_uri", "mint"]),
+        mode: z.enum(["set_address", "set_token_uri", "mint", "change_token"]),
         govPool: z.string().optional(),
         nftMultiplierContract: z.string().optional(),
         newMultiplierAddress: z.string().optional().describe("For mode=set_address"),
-        tokenId: z.string().optional().describe("For mode=set_uri"),
-        uri: z.string().optional().describe("For mode=set_uri"),
+        tokenId: z.string().optional().describe("For mode=set_token_uri or change_token"),
+        uri: z.string().optional().describe("For mode=set_token_uri"),
         to: z.string().optional().describe("For mode=mint"),
-        multiplier: z.string().optional().describe("For mode=mint"),
-        rewardPeriod: z.string().optional().describe("For mode=mint (DeXeERC721Multiplier only)"),
-        hasRewardPeriod: z.boolean().default(false),
+        multiplier: z.string().optional().describe("For mode=mint or change_token"),
+        rewardPeriod: z.string().default("0").describe("For mode=mint or change_token"),
+        metadataUrl: z.string().default("").describe("For mode=mint — metadata URI string"),
         proposalName: z.string().default("Reward Multiplier"),
         proposalDescription: z.string().default(""),
       },
@@ -592,35 +623,48 @@ function registerRewardMultiplier(server: McpServer): void {
             value: "0",
             data: iface.encodeFunctionData("setNftMultiplierAddress", [addr]),
           });
-        } else if (mode === "set_uri") {
+        } else if (mode === "set_token_uri") {
           if (!input.nftMultiplierContract || !isAddress(input.nftMultiplierContract))
-            return errorResult(`set_uri requires valid nftMultiplierContract`);
-          if (!input.tokenId) return errorResult(`set_uri requires tokenId`);
-          if (input.uri === undefined) return errorResult(`set_uri requires uri`);
+            return errorResult(`set_token_uri requires valid nftMultiplierContract`);
+          if (!input.tokenId) return errorResult(`set_token_uri requires tokenId`);
+          if (input.uri === undefined) return errorResult(`set_token_uri requires uri`);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
           actions.push({
             executor: input.nftMultiplierContract,
             value: "0",
-            data: iface.encodeFunctionData("setURI", [BigInt(input.tokenId), input.uri]),
+            data: iface.encodeFunctionData("setTokenURI", [BigInt(input.tokenId), input.uri]),
+          });
+        } else if (mode === "change_token") {
+          if (!input.nftMultiplierContract || !isAddress(input.nftMultiplierContract))
+            return errorResult(`change_token requires valid nftMultiplierContract`);
+          if (!input.tokenId) return errorResult(`change_token requires tokenId`);
+          if (!input.multiplier) return errorResult(`change_token requires multiplier`);
+          const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
+          actions.push({
+            executor: input.nftMultiplierContract,
+            value: "0",
+            data: iface.encodeFunctionData("changeToken", [
+              BigInt(input.tokenId),
+              BigInt(input.multiplier),
+              BigInt(input.rewardPeriod ?? "0"),
+            ]),
           });
         } else {
-          // mint
+          // mint — 4-arg: mint(address, uint256, uint256, string)
           if (!input.nftMultiplierContract || !isAddress(input.nftMultiplierContract))
             return errorResult(`mint requires valid nftMultiplierContract`);
           if (!input.to || !isAddress(input.to)) return errorResult(`mint requires valid to`);
           if (!input.multiplier) return errorResult(`mint requires multiplier`);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
-          const args: unknown[] = [input.to, BigInt(input.multiplier)];
-          let sig = "mint(address,uint256)";
-          if (input.hasRewardPeriod) {
-            if (!input.rewardPeriod) return errorResult(`hasRewardPeriod requires rewardPeriod`);
-            args.push(BigInt(input.rewardPeriod));
-            sig = "mint(address,uint256,uint256)";
-          }
           actions.push({
             executor: input.nftMultiplierContract,
             value: "0",
-            data: iface.encodeFunctionData(sig, args),
+            data: iface.encodeFunctionData("mint", [
+              input.to,
+              BigInt(input.multiplier),
+              BigInt(input.rewardPeriod ?? "0"),
+              input.metadataUrl ?? "",
+            ]),
           });
         }
         const metadata = {

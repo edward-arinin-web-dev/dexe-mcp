@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Interface, isAddress } from "ethers";
+import { Interface, isAddress, ZeroAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
@@ -21,6 +21,7 @@ const GOV_VALIDATORS_ABI = [
 
 const ERC20_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
+  "function approve(address spender, uint256 amount) returns (bool)",
 ] as const;
 
 const ActionSchema = z.object({
@@ -340,9 +341,10 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
         "Builds a complete Token Transfer external proposal. Returns three things the agent composes: (1) the IPFS metadata JSON to upload (shape expected by the frontend indexer), (2) the ProposalAction encoded for the ERC20.transfer call, (3) a hint message explaining the next step (upload → get CID → call dexe_proposal_build_external with that CID and `actions`). Does NOT upload or send the tx itself — returns signable payload components.",
       inputSchema: {
         govPool: z.string(),
-        token: z.string().describe("ERC20 token contract (the transfer executor)"),
+        token: z.string().describe("ERC20 token contract (the transfer executor). Ignored when isNative=true."),
         recipient: z.string(),
         amount: z.string().describe("Wei / smallest-unit amount as decimal string"),
+        isNative: z.boolean().default(false).describe("True for native token (BNB/ETH) transfers — sends value instead of ERC20.transfer"),
         proposalName: z.string().default("Token Transfer"),
         proposalDescription: z.string().default(""),
       },
@@ -363,22 +365,31 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
       token,
       recipient,
       amount,
+      isNative = false,
       proposalName = "Token Transfer",
       proposalDescription = "",
     }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
-      if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
+      if (!isNative && !isAddress(token)) return errorResult(`Invalid token: ${token}`);
       if (!isAddress(recipient)) return errorResult(`Invalid recipient: ${recipient}`);
       try {
-        const iface = new Interface(ERC20_ABI as unknown as string[]);
-        const data = iface.encodeFunctionData("transfer", [recipient, BigInt(amount)]);
-        const actions = [{ executor: token, value: "0", data }];
+        let actions: { executor: string; value: string; data: string }[];
+        let actionLabel: string;
+        if (isNative) {
+          actions = [{ executor: recipient, value: amount, data: "0x" }];
+          actionLabel = `Native transfer → ${recipient} (${amount} wei)`;
+        } else {
+          const iface = new Interface(ERC20_ABI as unknown as string[]);
+          const data = iface.encodeFunctionData("transfer", [recipient, BigInt(amount)]);
+          actions = [{ executor: token, value: "0", data }];
+          actionLabel = `ERC20(${token}).transfer(${recipient}, ${amount})`;
+        }
         const metadata = {
           proposalName,
           proposalDescription,
           category: "Token Transfer",
           isMeta: false,
-          changes: { token, recipient, amount },
+          changes: { token: isNative ? ZeroAddress : token, recipient, amount, isNative },
         };
         const nextStep =
           `1) dexe_ipfs_upload_proposal_metadata with { title: "${proposalName}", description, extra: changes } → get CID\n` +
@@ -387,10 +398,7 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
           content: [
             {
               type: "text" as const,
-              text:
-                `Built token-transfer proposal scaffolding.\n\n` +
-                `Action: ERC20(${token}).transfer(${recipient}, ${amount})\n` +
-                `Calldata: ${data}\n\nNext:\n${nextStep}`,
+              text: `Built token-transfer proposal scaffolding.\n\nAction: ${actionLabel}\n\nNext:\n${nextStep}`,
             },
           ],
           structuredContent: { metadata, actions, nextStep },

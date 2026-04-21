@@ -69,10 +69,13 @@ const USER_REGISTRY_WRITE_ABI = [
 ] as const;
 
 const STAKING_WRITE_ABI = [
-  "function stake(address user, uint256 amount, uint256 id)",
   "function claim(uint256 id)",
   "function claimAll()",
   "function reclaim(uint256 id)",
+] as const;
+
+const USER_KEEPER_ABI = [
+  "function stakeTokens(uint256 tierId, uint256 amount)",
 ] as const;
 
 function errorResult(message: string) {
@@ -851,27 +854,25 @@ function registerStakingStake(server: McpServer, ctx: ToolContext): void {
     {
       title: "Stake tokens in a staking tier",
       description:
-        "Builds calldata for `StakingProposal.stake(user, amount, id)`. Deposits tokens into the specified staking tier to earn rewards.",
+        "Builds calldata for `GovUserKeeper.stakeTokens(tierId, amount)`. Deposits tokens into the specified staking tier to earn rewards. Target is the GovUserKeeper contract (not StakingProposal).",
       inputSchema: {
-        stakingProposal: z.string().describe("StakingProposal contract address"),
-        user: z.string().describe("Address of the user staking"),
+        userKeeper: z.string().describe("GovUserKeeper contract address"),
+        tierId: z.string().describe("Staking tier ID"),
         amount: z.string().describe("Amount to stake in wei"),
-        stakingId: z.string().describe("Staking tier ID"),
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ stakingProposal, user, amount, stakingId }) => {
-      if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
-      if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
+    async ({ userKeeper, tierId, amount }) => {
+      if (!isAddress(userKeeper)) return errorResult(`Invalid userKeeper: ${userKeeper}`);
       try {
-        const iface = new Interface(STAKING_WRITE_ABI as unknown as string[]);
+        const iface = new Interface(USER_KEEPER_ABI as unknown as string[]);
         const payload = buildPayload({
-          to: stakingProposal,
+          to: userKeeper,
           iface,
-          method: "stake",
-          args: [user, BigInt(amount), BigInt(stakingId)],
+          method: "stakeTokens",
+          args: [BigInt(tierId), BigInt(amount)],
           chainId: ctx.config.chainId,
-          contractLabel: "StakingProposal",
+          contractLabel: "GovUserKeeper",
         });
         return payloadResult(payload);
       } catch (err) {
