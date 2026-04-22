@@ -110,6 +110,7 @@ async function resolvePrereqs(
       iface: USER_KEEPER_ABI,
       method: "votingPower",
       args: [[user], [false], [false]],
+      allowFailure: true,
     },
   ];
   const res2 = await multicall(provider, batch2);
@@ -131,7 +132,7 @@ async function resolvePrereqs(
   // Batch 3: ERC20 balance + allowance
   const batch3: Call[] = [
     { target: tokenAddress, iface: ERC20_ABI, method: "balanceOf", args: [user] },
-    { target: tokenAddress, iface: ERC20_ABI, method: "allowance", args: [user, govPool] },
+    { target: tokenAddress, iface: ERC20_ABI, method: "allowance", args: [user, userKeeper] },
   ];
   const res3 = await multicall(provider, batch3);
 
@@ -300,9 +301,11 @@ export function registerFlowTools(
 
         proposalExtra = {
           category: "daoProfileModification",
-          isMeta: true,
-          proposedChanges: { descriptionUrl: newDescriptionURL },
-          currentChanges: { descriptionUrl: currentDescriptionURL },
+          isMeta: false,
+          changes: {
+            proposedChanges: { descriptionUrl: newDescriptionURL },
+            currentChanges: { descriptionUrl: currentDescriptionURL },
+          },
         };
       } else {
         // custom
@@ -314,10 +317,10 @@ export function registerFlowTools(
         proposalExtra = {};
       }
 
-      // Step 4: upload proposal metadata
+      // Step 4: upload proposal metadata (field names must match frontend exactly)
       const proposalMeta = {
-        title: input.title,
-        description: markdownToSlate(input.description),
+        proposalName: input.title,
+        proposalDescription: JSON.stringify(markdownToSlate(input.description)),
         ...proposalExtra,
       };
       const proposalMetaRes = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
@@ -335,8 +338,8 @@ export function registerFlowTools(
       if (needDeposit > 0n && prereqs.currentAllowance < needDeposit) {
         payloads.push(makeTxPayload(
           prereqs.tokenAddress, ERC20_ABI, "approve",
-          [govPool, MaxUint256], chainId,
-          `ERC20.approve(${govPool}, MAX_UINT256)`,
+          [prereqs.userKeeper, MaxUint256], chainId,
+          `ERC20.approve(${prereqs.userKeeper}, MAX_UINT256)`,
         ));
       } else {
         skippedSteps.push({ label: "ERC20.approve", skipped: true, reason: "Allowance sufficient" });
@@ -462,8 +465,8 @@ export function registerFlowTools(
         if (prereqs.currentAllowance < prereqs.walletBalance) {
           payloads.push(makeTxPayload(
             prereqs.tokenAddress, ERC20_ABI, "approve",
-            [govPool, MaxUint256], chainId,
-            `ERC20.approve(${govPool}, MAX_UINT256)`,
+            [prereqs.userKeeper, MaxUint256], chainId,
+            `ERC20.approve(${prereqs.userKeeper}, MAX_UINT256)`,
           ));
         }
         // Deposit

@@ -69,7 +69,7 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
     {
       title: "Upload proposal metadata JSON to IPFS (Pinata)",
       description:
-        "Pins `{ title, description }` (the shape DeXe proposals expect) to IPFS via Pinata. Returns the CID for use as `descriptionURL` in `GovPool.createProposal`.",
+        "Pins `{ proposalName, proposalDescription, ... }` (the shape DeXe proposals expect) to IPFS via Pinata. Returns the CID for use as `descriptionURL` in `GovPool.createProposal`.",
       inputSchema: {
         title: z.string().min(1),
         description: z.string().default("").describe(
@@ -95,7 +95,7 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
       if ("error" in client) return errorResult(client.error);
       try {
         const slateDescription = markdownToSlate(description);
-        const payload = { title, description: slateDescription, ...(extra ?? {}) };
+        const payload = { proposalName: title, proposalDescription: JSON.stringify(slateDescription), ...(extra ?? {}) };
         const res = await client.pinJson(payload, { name: `proposal:${title.slice(0, 48)}` });
         const structured = {
           cid: res.cid,

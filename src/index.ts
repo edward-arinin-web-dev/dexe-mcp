@@ -1,8 +1,24 @@
 #!/usr/bin/env node
+import { resolve, dirname } from "node:path";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { registerAll } from "./tools/index.js";
+
+// Load .env from project root if present — ensures env vars reach the process
+// regardless of how the MCP host launches us (Claude Code drops most env vars
+// from its settings.json "env" block on Windows).
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const dotenvPath = resolve(__dirname, "..", ".env");
+if (existsSync(dotenvPath)) {
+  try {
+    process.loadEnvFile(dotenvPath);
+  } catch {
+    // Node < 21.7 or other issue — fall through to process.env as-is
+  }
+}
 
 async function main(): Promise<void> {
   const config = await loadConfig();

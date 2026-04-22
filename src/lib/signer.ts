@@ -21,8 +21,9 @@ export class SignerManager {
 
   requireSigner(): Wallet {
     if (!this.key) {
+      const dexeEnvKeys = Object.keys(process.env).filter(k => k.startsWith("DEXE_")).join(", ");
       throw new Error(
-        "DEXE_PRIVATE_KEY not set. Configure it in MCP server env to enable transaction signing.",
+        `DEXE_PRIVATE_KEY not set. Available DEXE_* env vars: [${dexeEnvKeys}]. Configure it in MCP server env to enable transaction signing.`,
       );
     }
     if (!this.wallet) {
