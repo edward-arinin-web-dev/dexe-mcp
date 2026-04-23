@@ -125,8 +125,8 @@ async function resolvePrereqs(
 
   let depositedPower = 0n;
   if (res2[2]!.success) {
-    const [balance] = res2[2]!.value as [bigint, bigint];
-    depositedPower = balance;
+    const [balance, ownedBalance] = res2[2]!.value as [bigint, bigint];
+    depositedPower = balance - ownedBalance;
   }
 
   // Batch 3: ERC20 balance + allowance
