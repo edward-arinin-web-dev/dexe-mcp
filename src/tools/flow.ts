@@ -31,7 +31,7 @@ const GOV_POOL_ABI = new Interface([
 
 const USER_KEEPER_ABI = new Interface([
   "function tokenAddress() view returns (address)",
-  "function votingPower(address[] users, bool[] isMicropool, bool[] isVoteFor) view returns (tuple(uint256 power, uint256 rawPower, uint256 nftPower, uint256[] perNftPower, uint256 ownedBalance, uint256 ownedLength, uint256[] nftIds)[] votingPowerView)",
+  "function tokenBalance(address voter, uint8 voteType) view returns (uint256 balance, uint256 ownedBalance)",
 ]);
 
 const SETTINGS_ABI = new Interface([
@@ -108,8 +108,8 @@ async function resolvePrereqs(
     {
       target: userKeeper,
       iface: USER_KEEPER_ABI,
-      method: "votingPower",
-      args: [[user], [false], [false]],
+      method: "tokenBalance",
+      args: [user, 0],
       allowFailure: true,
     },
   ];
@@ -125,8 +125,8 @@ async function resolvePrereqs(
 
   let depositedPower = 0n;
   if (res2[2]!.success) {
-    const vpResult = res2[2]!.value as Array<{ power: bigint }>;
-    if (vpResult.length > 0) depositedPower = vpResult[0]!.power;
+    const [balance] = res2[2]!.value as [bigint, bigint];
+    depositedPower = balance;
   }
 
   // Batch 3: ERC20 balance + allowance
@@ -332,7 +332,16 @@ export function registerFlowTools(
 
       // Determine how much to deposit
       const voteAmount = input.voteAmount ? BigInt(input.voteAmount) : prereqs.depositedPower + prereqs.walletBalance;
+      if (voteAmount === 0n) {
+        return err("No voting power available (wallet + deposited = 0). Deposit tokens first.");
+      }
       const needDeposit = voteAmount > prereqs.depositedPower ? voteAmount - prereqs.depositedPower : 0n;
+
+      if (needDeposit > prereqs.walletBalance) {
+        return err(
+          `Need to deposit ${needDeposit} but wallet only has ${prereqs.walletBalance}. Missing ${needDeposit - prereqs.walletBalance}.`,
+        );
+      }
 
       // Approve (if needed)
       if (needDeposit > 0n && prereqs.currentAllowance < needDeposit) {
@@ -481,6 +490,21 @@ export function registerFlowTools(
       const voteAmt = input.voteAmount
         ? BigInt(input.voteAmount)
         : (prereqs ? prereqs.depositedPower + prereqs.walletBalance : 0n);
+
+      if (voteAmt === 0n) {
+        return err("No voting power available. Deposit tokens before voting.");
+      }
+
+      // Check minVotesForVoting threshold
+      if (!prereqs && !input.voteAmount) {
+        // Need prereqs to validate threshold — fetch them
+        prereqs = await resolvePrereqs(rpc, govPool, user);
+      }
+      if (prereqs && prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
+        return err(
+          `Insufficient voting power. Need ${prereqs.minVotesForVoting} but voting with ${voteAmt}.`,
+        );
+      }
 
       payloads.push(makeTxPayload(
         govPool, GOV_POOL_ABI, "vote",
