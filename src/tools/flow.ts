@@ -225,6 +225,8 @@ export function registerFlowTools(
         value: z.string().default("0"),
         data: z.string(),
       })).default([]).describe("Actions for custom proposals"),
+      category: z.string().optional().describe("Proposal category (e.g. 'Token Transfer', 'Change Voting Settings'). Included in IPFS metadata."),
+      proposalMetadataExtra: z.record(z.unknown()).optional().describe("Extra fields merged into IPFS metadata (e.g. changes, isMeta). From dexe_proposal_build_* output."),
 
       // voting
       voteAmount: z.string().optional().describe("Auto-vote amount (18-dec wei). Defaults to all deposited power."),
@@ -314,7 +316,11 @@ export function registerFlowTools(
           value: BigInt(a.value),
           data: a.data,
         }));
-        proposalExtra = {};
+        proposalExtra = {
+          ...(input.category ? { category: input.category } : {}),
+          isMeta: false,
+          ...(input.proposalMetadataExtra ?? {}),
+        };
       }
 
       // Step 4: upload proposal metadata (field names must match frontend exactly)
