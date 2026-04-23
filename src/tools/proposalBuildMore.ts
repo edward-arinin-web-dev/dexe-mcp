@@ -187,7 +187,10 @@ function registerChangeVotingSettings(server: McpServer): void {
           proposalDescription,
           category: "Change Voting Settings",
           isMeta: false,
-          changes: { mode: method, settingsIds, settings },
+          changes: {
+            proposedChanges: { mode: method, settingsIds, settings },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -247,7 +250,10 @@ function registerManageValidators(server: McpServer): void {
           proposalDescription,
           category: "Manage Validators",
           isMeta: false,
-          changes: { validators: changes },
+          changes: {
+            proposedChanges: { validators: changes },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -304,7 +310,10 @@ function registerAddExpert(server: McpServer): void {
           proposalDescription,
           category: scope === "global" ? "Add Global Expert" : "Add Local Expert",
           isMeta: false,
-          changes: { scope, nominatedUser, expertNftContract, uri },
+          changes: {
+            proposedChanges: { scope, nominatedUser, expertNftContract, uri },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -355,7 +364,10 @@ function registerRemoveExpert(server: McpServer): void {
           proposalDescription,
           category: scope === "global" ? "Remove Global Expert" : "Remove Local Expert",
           isMeta: false,
-          changes: { scope, nominatedUser, expertNftContract },
+          changes: {
+            proposedChanges: { scope, nominatedUser, expertNftContract },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -412,7 +424,10 @@ function registerWithdrawTreasury(server: McpServer): void {
           proposalDescription,
           category: "Withdraw from Treasury",
           isMeta: false,
-          changes: { receiver, amount, nftIds },
+          changes: {
+            proposedChanges: { receiver, amount, nftIds },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -471,7 +486,10 @@ function registerDelegateToExpert(server: McpServer): void {
           proposalDescription,
           category: "Delegate Tokens to Expert",
           isMeta: false,
-          changes: { expert, amount, nftIds, value },
+          changes: {
+            proposedChanges: { expert, amount, nftIds, value },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -528,7 +546,10 @@ function registerRevokeFromExpert(server: McpServer): void {
           proposalDescription,
           category: "Revoke Tokens from Expert",
           isMeta: false,
-          changes: { expert, amount, nftIds },
+          changes: {
+            proposedChanges: { expert, amount, nftIds },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,

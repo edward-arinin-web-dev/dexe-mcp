@@ -115,7 +115,10 @@ function registerChangeValidatorBalances(server: McpServer): void {
           proposalName,
           proposalDescription,
           category: "ValidatorBalances",
-          changes: { validators: changes },
+          changes: {
+            proposedChanges: { validators: changes },
+            currentChanges: {},
+          },
         };
         return internalResult({
           metadata,
@@ -166,7 +169,10 @@ function registerChangeValidatorSettings(server: McpServer): void {
           proposalName,
           proposalDescription,
           category: "ValidatorSettings",
-          changes: { duration, executionDelay, quorum },
+          changes: {
+            proposedChanges: { duration, executionDelay, quorum },
+            currentChanges: {},
+          },
         };
         return internalResult({
           metadata,
@@ -219,7 +225,10 @@ function registerMonthlyWithdraw(server: McpServer): void {
           proposalName,
           proposalDescription,
           category: "MonthlyWithdraw",
-          changes: { withdrawals, destination },
+          changes: {
+            proposedChanges: { withdrawals, destination },
+            currentChanges: {},
+          },
         };
         return internalResult({
           metadata,

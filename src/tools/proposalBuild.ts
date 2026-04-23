@@ -389,7 +389,10 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
           proposalDescription,
           category: "Token Transfer",
           isMeta: false,
-          changes: { token: isNative ? ZeroAddress : token, recipient, amount, isNative },
+          changes: {
+            proposedChanges: { token: isNative ? ZeroAddress : token, recipient, amount, isNative },
+            currentChanges: {},
+          },
         };
         const nextStep =
           `1) dexe_ipfs_upload_proposal_metadata with { title: "${proposalName}", description, extra: changes } → get CID\n` +

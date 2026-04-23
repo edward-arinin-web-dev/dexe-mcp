@@ -165,8 +165,10 @@ function registerTokenDistribution(server: McpServer): void {
           proposalDescription,
           category: "Token Distribution",
           isMeta: false,
-          proposedChanges: { tokenAddress: token, tokenAmount: amount, proposalId },
-          currentChanges: {},
+          changes: {
+            proposedChanges: { tokenAddress: token, tokenAmount: amount, proposalId },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -267,8 +269,10 @@ function registerTokenSale(server: McpServer): void {
           proposalDescription,
           category: "Token Sale",
           isMeta: false,
-          proposedChanges: { tier },
-          currentChanges: {},
+          changes: {
+            proposedChanges: { tier },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -316,8 +320,10 @@ function registerTokenSaleRecover(server: McpServer): void {
           proposalDescription,
           category: "Recover Token Sale",
           isMeta: false,
-          proposedChanges: { tierIds },
-          currentChanges: {},
+          changes: {
+            proposedChanges: { tierIds },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -390,14 +396,16 @@ function registerCreateStakingTier(server: McpServer): void {
           proposalDescription,
           category: "Create Staking",
           isMeta: false,
-          proposedChanges: {
-            rewardToken,
-            rewardAmount,
-            startedAt,
-            deadline,
-            metadata: stakingMetadataUrl,
+          changes: {
+            proposedChanges: {
+              rewardToken,
+              rewardAmount,
+              startedAt,
+              deadline,
+              metadata: stakingMetadataUrl,
+            },
+            currentChanges: {},
           },
-          currentChanges: {},
         };
         return wrapperResult({
           metadata,
@@ -446,8 +454,10 @@ function registerChangeMathModel(server: McpServer): void {
           proposalDescription,
           category: "Change Math Model",
           isMeta: false,
-          proposedChanges: { newVotePower },
-          currentChanges: {},
+          changes: {
+            proposedChanges: { newVotePower },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -497,8 +507,10 @@ function registerModifyDaoProfile(server: McpServer): void {
           proposalDescription,
           category: "Modify DAO Profile",
           isMeta: true,
-          proposedChanges: { descriptionUrl: newDescriptionURL },
-          currentChanges: { descriptionUrl: previousDescriptionURL ?? null },
+          changes: {
+            proposedChanges: { descriptionUrl: newDescriptionURL },
+            currentChanges: { descriptionUrl: previousDescriptionURL ?? null },
+          },
         };
         return wrapperResult({
           metadata,
@@ -567,8 +579,10 @@ function registerBlacklistManagement(server: McpServer): void {
           proposalDescription,
           category: "Blacklist Management",
           isMeta: false,
-          proposedChanges: { addBlacklist: addAddresses, removeBlacklist: removeAddresses },
-          currentChanges: {},
+          changes: {
+            proposedChanges: { addBlacklist: addAddresses, removeBlacklist: removeAddresses },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -672,8 +686,10 @@ function registerRewardMultiplier(server: McpServer): void {
           proposalDescription,
           category: "Reward Multiplier",
           isMeta: false,
-          proposedChanges: { ...input, mode },
-          currentChanges: {},
+          changes: {
+            proposedChanges: { ...input, mode },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
@@ -743,8 +759,10 @@ function registerApplyToDao(server: McpServer): void {
           proposalDescription,
           category: "Apply to DAO",
           isMeta: false,
-          proposedChanges: { receiver, tokenAmount: amount, tokenAddress: token },
-          currentChanges: { treasuryBalance },
+          changes: {
+            proposedChanges: { receiver, tokenAmount: amount, tokenAddress: token },
+            currentChanges: { treasuryBalance },
+          },
         };
         return wrapperResult({
           metadata,
@@ -847,8 +865,10 @@ function registerNewProposalType(server: McpServer): void {
           proposalDescription,
           category: "New Proposal Type",
           isMeta: false,
-          proposedChanges: { settings, executors, newSettingId },
-          currentChanges: {},
+          changes: {
+            proposedChanges: { settings, executors, newSettingId },
+            currentChanges: {},
+          },
         };
         return wrapperResult({
           metadata,
