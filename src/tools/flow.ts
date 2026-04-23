@@ -457,9 +457,26 @@ export function registerFlowTools(
       const stateRes = await multicall(provider, stateCalls);
       if (!stateRes[0]!.success) return err(`Failed to read proposal state: ${stateRes[0]!.error}`);
 
-      const STATE_NAMES = ["Voting", "WaitingForVotingTransfer", "ValidatorVoting", "SucceededFor", "SucceededAgainst", "Defeated", "ExecutedFor", "ExecutedAgainst", "Undefined"];
+      const STATE_NAMES = ["Voting", "WaitingForVotingTransfer", "ValidatorVoting", "Defeated", "SucceededFor", "SucceededAgainst", "Locked", "ExecutedFor", "ExecutedAgainst", "Undefined"];
       const stateNum = Number(stateRes[0]!.value);
       const stateName = STATE_NAMES[stateNum] ?? `Unknown(${stateNum})`;
+
+      // Already succeeded — skip voting, go straight to execute
+      if ((stateNum === 4 || stateNum === 5) && input.autoExecute) {
+        const execResult = await sendOrCollect(signer, [
+          makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
+        ]);
+        return ok({
+          mode: execResult.mode,
+          proposalId,
+          proposalStateBefore: stateName,
+          steps: [
+            { label: "GovPool.vote", skipped: true, reason: `Proposal already in "${stateName}" — no vote needed` },
+            ...execResult.steps,
+          ],
+          executed: true,
+        });
+      }
 
       if (stateNum !== 0) {
         return err(`Proposal #${proposalId} is in state "${stateName}" — voting requires "Voting" state.`);
@@ -532,7 +549,7 @@ export function registerFlowTools(
         const postState = Number(postRes[0]!.value);
         const postStateName = STATE_NAMES[postState] ?? `Unknown(${postState})`;
 
-        if (postState === 3 || postState === 4) {
+        if (postState === 4 || postState === 5) {
           // SucceededFor or SucceededAgainst — execute
           const execResult = await sendOrCollect(signer, [
             makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
