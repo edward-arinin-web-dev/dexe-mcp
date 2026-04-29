@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.3.0
+
+End-to-end testnet validation. Every proposal-builder tool is now exercised by an automated swarm scenario on BSC testnet, and the harness itself ships in-repo so external integrators can run it. **111 tools** total, **41 swarm scenarios**, full sweep green.
+
+### Added
+
+**Swarm test harness (`tests/swarm/` + `scripts/swarm/`)**
+- `scripts/swarm/orchestrator.ts` — scenario loader + dispatcher. Inline ethers dispatchers for the no-IPFS toolset (vote_user_power, read_delegation_map, build_undelegate, build_withdraw, build_withdraw_all, build_erc20_approve, build_deposit, build_delegate, build_vote). Generic MCP-stdio fallback (`mcpFallbackDispatcher`) routes anything else through the dexe-mcp child server, so adding a scenario for a new tool is JSON-only — no code changes.
+- Loop expansion (`spec.loop.over` × `appliesToSteps`), template engine (`{{dao}}`, `{{firstAllowlistedToken}}`, `{{firstAllowlistedDao}}`, `{{secondAllowlistedDao}}`, `{{dao.<helper>}}`, `{{agent:X:address}}`, `{{capture.path}}`, `{{capture.0.field}}`), `skipIf` evaluator with limited expressions, deferred-cascade for chained captures, wallet semaphore for parallel-safe broadcasts, per-scenario `prefund` hook that tops up agents from `AGENT_FUNDER_PK` before each scenario runs.
+- `scripts/swarm/preflight.ts` + `scripts/swarm/fund-pool.ts` — wallet-readiness check + token allowlist–enforced top-up. Hard-refuses to send to any non-pool address or any token not on the allowlist.
+- `scripts/swarm/nightly.sh` — Phase 5 cron scaffold (pull, preflight, sweep, tail report).
+- 41 scenario JSONs covering: reset, delegation chain, validator pass / veto / full lifecycle, expert / participation / staking / validator / catalog / cross-DAO / multi-proposal-state read snapshots, cancel-vote, decode-and-introspect, build-only sanity for every external + internal proposal type from `dexe_proposal_catalog`.
+- Role prompts: `proposer`, `voter`, `delegator`, `reporter`, `triage`, `validator`, `expert`, plus `_shared.md` and the dao-personas fixture.
+
+**Composite + signing tools**
+- `dexe_proposal_create` — full prerequisite handling: balance check, ERC20 approve, deposit, IPFS metadata upload, `createProposalAndVote`. When `DEXE_PRIVATE_KEY` is set the tool signs and broadcasts; otherwise returns the ordered `TxPayload` list. Supports `proposalType: 'modify_dao_profile' | 'custom'`.
+- `dexe_proposal_vote_and_execute` — vote-then-execute composite with `autoExecute` + `depositFirst` flags.
+- `dexe_tx_send` + `dexe_tx_status` — opt-in signer surface that uses the configured `DEXE_PRIVATE_KEY` when present. Calls remain calldata-by-default; users opt in by setting the env var.
+- `dexe_dao_build_deploy` predicted-address auto-wiring: `govToken` flowed into `userKeeperParams.tokenAddress` and `distributionProposal` + `govTokenSale` into `additionalProposalExecutors` automatically. LINEAR / POLYNOMIAL `votePower` initData auto-encoded.
+
+**Reads + introspection**
+- `dexe_read_dao_list`, `_dao_members`, `_dao_experts`, `_user_activity`, `_distribution_status`, `_token_sale_tiers`, `_token_sale_user`, `_staking_info`, `_validator_list`, `_privacy_policy_status`, `_delegation_map` — fill out the DAO read surface.
+- `dexe_get_methods` returns structured per-function metadata (4-byte selectors, mutability, full structured inputs/outputs with `internalType` preserved for tuples).
+- `dexe_proposal_voters` switched to the `pools` subgraph and the proposalInteractions composite ID format (poolAddr + uint32LE(proposalId), no separator).
+- `dexe_decode_proposal` understands every external + internal proposal action shape.
+
+### Fixed
+
+- **Proposal metadata format**: builders now emit `proposalName` / `proposalDescription` (not `name` / `description`), wrap diffs inside `changes: { proposedChanges, currentChanges }`, set `isMeta: false`, and round-trip identical to the frontend reference. 17 builders touched.
+- **Approve target for deposits** is `UserKeeper`, not `GovPool`. Both flow tools (`proposal_create`, `vote_and_execute`) now approve the right address.
+- **Personal voting power** = `tokenBalance.balance − ownedBalance` (deposited only). Without this, `withdraw` on freshly-funded agents reverts `GovUK: can't withdraw this`.
+- **VotePower initData** uses `__LinearPower_init()` selector `0x892aea1f` (not empty `0x`) so newly-deployed DAOs initialize their LINEAR vote-power proxy correctly.
+- **`STATE_NAMES` enum order** corrected (Defeated / Locked positions were swapped).
+- **Custom-proposal IPFS metadata** now includes `category`, `isMeta`, `proposedChanges`, `currentChanges`.
+- **Subgraph migration**: Studio URLs deprecated; switched to The Graph decentralized network with API key. Per-chain endpoints documented.
+
+### Changed
+
+- README updated: tool count `83 → 111`, new "Swarm test harness" section.
+- `process.loadEnvFile()` is invoked from `index.ts` so the MCP server loads `.env` itself; users no longer have to plumb env-var changes through their MCP client config (which often doesn't reload).
+- Repo now ships `.claude/skills/swarm-test/SKILL.md` for users running Claude Code; lets them invoke the swarm with `/swarm-test`.
+
+### Notes
+
+- **Validated network**: BSC testnet (chain 97). Two fixture DAOs deployed for the harness — Glacier (50% quorum, no validators) and Sentinel (5% quorum, 2 validators with 1k SVT each).
+- **Mainnet status**: a separate run pass is staged (Stage B per `tests/swarm/README.md`) but blocked on a previously-observed `PoolFactory.deployGovPool` revert. Re-validate when the protocol team confirms a fix.
+- **Off-chain backend tools** require `DEXE_BACKEND_API_URL` and only run on chains where DeXe operates a backend. The corresponding swarm scenarios declare `requiresChain: [56]` so they auto-skip on testnet.
+
 ## 0.2.0
 
 The big one — dexe-mcp expands from 15 dev-tooling tools to **83 tools** covering the full DeXe DAO lifecycle. AI agents can now create DAOs, build any of the 33 proposal types the DeXe frontend exposes, upload metadata to IPFS, stake/delegate/vote/execute/claim — all end-to-end.

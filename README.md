@@ -6,7 +6,9 @@ MCP server that gives AI agents **full DeXe Protocol DAO operations coverage** �
 
 **Writes return calldata.** No signer ever lives in the MCP — every write tool emits a ready-to-sign `{ to, data, value, chainId, description }` payload that the agent's wallet (MetaMask, Safe, hardware, etc.) signs and submits. No `PRIVATE_KEY` env var, ever.
 
-**83 tools** across 8 groups. Call `dexe_proposal_catalog` at runtime for the full proposal-type map, or browse the [catalog](#tool-catalog) below.
+**111 tools** across 9 groups. Call `dexe_proposal_catalog` at runtime for the full proposal-type map, or browse the [catalog](#tool-catalog) below.
+
+> **End-to-end coverage.** Every proposal-builder tool ships with a swarm-test scenario that exercises it on BSC testnet. Latest pass: **41/41 scenarios green**, ~200 broadcasts validated against two fixture DAOs (Glacier 50%-quorum + Sentinel 5%-quorum-with-validators). See [Swarm test harness](#swarm-test-harness) below.
 
 ## Prerequisites
 
@@ -148,6 +150,42 @@ Plus auth + vote helpers: `dexe_auth_request_nonce`, `dexe_auth_login_request`, 
 | `dexe_vote_build_move_to_validators`, `_execute` | Proposal lifecycle |
 | `dexe_vote_build_claim_rewards`, `_claim_micropool_rewards` | Reward claiming |
 | `dexe_vote_build_multicall` | Atomic `GovPool.multicall(bytes[])` — batch any of the above into one tx |
+
+## Swarm test harness
+
+`tests/swarm/` is a multi-agent DAO testing harness that exercises every dexe-mcp
+tool against real BSC-testnet DAOs. Scenarios are JSON specs; the orchestrator
+loads them, resolves agent wallets, and runs each step through either an inline
+ethers dispatcher or the dexe-mcp stdio bridge.
+
+**41 scenarios shipped** covering:
+
+- Reset + delegation chains (S00, S01, S06, S14)
+- Validator chamber pass / veto / full lifecycle (S02, S03, S07)
+- Read-only snapshots: expert state, participation, validators, cross-DAO,
+  catalog, multi-proposal state, user activity (S04, S05, S09, S10, S11, S13, S15)
+- Cancel-vote, decode-and-introspect (S08, S12)
+- Build-only sanity for every proposal type in `dexe_proposal_catalog`
+  (token transfer, blacklist, withdraw treasury, apply to dao, token
+  distribution, token sale + recover, manage validators, change validator
+  balances/settings, monthly withdraw, add/remove expert (local + global),
+  delegate/revoke from expert, reward multiplier (4 modes), change voting
+  settings, new proposal type, change math model, custom ABI, manual calldata,
+  create staking tier, off-chain validator + for/against + settings) (S16–S40)
+
+```bash
+# 1) generate 9 wallets (8 agents + funder), fund the funder from your wallet
+# 2) deploy fixture DAOs via dexe_dao_build_deploy (one 50% quorum + one with validators)
+# 3) configure SWARM_DAOS_TESTNET / SWARM_TOKENS_TESTNET / SWARM_RPC_URL_TESTNET
+npm run swarm:preflight                # red/green table per wallet
+npm run swarm:fund -- --confirm        # broadcast top-ups from funder
+npm run swarm:run                      # full sweep, all scenarios
+npm run swarm:run -- --scenarios=S00-reset,S01-delegation-chain-3hop --dry-run
+```
+
+Setup runbook: [`tests/swarm/README.md`](tests/swarm/README.md).
+Scenario schema: [`tests/swarm/scenarios/_schema.md`](tests/swarm/scenarios/_schema.md).
+Per-role agent prompts: `tests/swarm/prompts/`.
 
 ## Contributing
 
