@@ -1,0 +1,24 @@
+{
+  "id": "S38-offchain-internal-build",
+  "title": "Build internal-proposal data: off-chain validator proposal (type=3)",
+  "priority": 2,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Type 3 internal proposal — empty data bytes; payload lives in IPFS metadata.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_offchain_internal_proposal",
+      "args": {
+        "proposalName": "S38 offchain validator attestation"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "empty-data", "check": "built.data == '0x'" }]
+}

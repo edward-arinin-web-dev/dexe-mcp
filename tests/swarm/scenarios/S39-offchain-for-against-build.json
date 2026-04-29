@@ -1,0 +1,29 @@
+{
+  "id": "S39-offchain-for-against-build",
+  "title": "Build off-chain For/Against proposal — mainnet only (DeXe backend required)",
+  "priority": 3,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56],
+  "requiresBrowser": false,
+  "notes": "Off-chain builders POST to integrations/voting/proposals on the DeXe backend. Backend only exists for mainnet (per reference_bsc_testnet). Skipped on chain 97.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_offchain_for_against",
+      "args": {
+        "poolAddress": "{{dao}}",
+        "chainId": 56,
+        "title": "S39 for/against sanity",
+        "votingDurationSeconds": "86400",
+        "voteOptions": ["For", "Against"],
+        "useDelegated": true
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "backend-accepts", "check": "built has proposal id from POST /integrations/voting/proposals" }]
+}

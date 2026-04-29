@@ -1,0 +1,28 @@
+{
+  "id": "S26-monthly-withdraw-build",
+  "title": "Build internal-proposal data: monthly withdraw (type=2)",
+  "priority": 2,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Validators monthly payout — multi-token supported. Single-token sample.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_monthly_withdraw",
+      "args": {
+        "withdrawals": [
+          { "token": "0x752FD3Ef0c16bAAA8859BcB1Bc49AaDaa1E68327", "amount": "1000000000000000000" }
+        ],
+        "destination": "0xf0BF4f08AE3C101fC15bc3E26a600c6fefE67638",
+        "proposalName": "S26 monthly payout sanity"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "data-bytes", "check": "built has 0x data" }]
+}

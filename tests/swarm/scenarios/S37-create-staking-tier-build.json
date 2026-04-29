@@ -1,0 +1,30 @@
+{
+  "id": "S37-create-staking-tier-build",
+  "title": "Build Create Staking Tier proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata). stakingProposal addr is read by the tool internally.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_create_staking_tier",
+      "args": {
+        "stakingProposal": "0x0000000000000000000000000000000000000001",
+        "rewardToken": "{{firstAllowlistedToken}}",
+        "rewardAmount": "1000000000000000000000",
+        "startedAt": "1750000000",
+        "deadline": "1760000000",
+        "stakingMetadataUrl": "ipfs://QmStaking",
+        "proposalName": "S37 staking tier"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "approve+create", "check": "built has approve + createStaking actions" }]
+}

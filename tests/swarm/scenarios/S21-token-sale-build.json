@@ -1,0 +1,34 @@
+{
+  "id": "S21-token-sale-build",
+  "title": "Build a Token Sale (single tier) proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "TokenSaleProposal.createTiers single-tier path. tokenSaleProposal addr is Glacier's predicted helper.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_token_sale",
+      "args": {
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tier": {
+          "name": "S21 tier",
+          "totalTokenProvided": "1000000000000000000000",
+          "saleStartTime": "1750000000",
+          "saleEndTime": "1760000000",
+          "saleTokenAddress": "{{firstAllowlistedToken}}",
+          "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
+          "exchangeRates": ["1000000000000000000"]
+        },
+        "proposalName": "S21 token sale tier sanity"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "tier-encoded", "check": "built has createTiers action" }]
+}

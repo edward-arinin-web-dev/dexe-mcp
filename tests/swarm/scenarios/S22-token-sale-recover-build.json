@@ -1,0 +1,26 @@
+{
+  "id": "S22-token-sale-recover-build",
+  "title": "Build a Token Sale Recover proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "TokenSaleProposal.recover(tierIds[]). Tier id 0 used as a placeholder.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_token_sale_recover",
+      "args": {
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tierIds": ["0"],
+        "proposalName": "S22 sale recover sanity"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "recover-encoded", "check": "built has recover action" }]
+}

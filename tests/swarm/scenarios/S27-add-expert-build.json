@@ -1,0 +1,41 @@
+{
+  "id": "S27-add-expert-build",
+  "title": "Build Add Expert proposals (local + global modes)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Two builds: local ExpertNft.mint and global DeXeExpertNft.mint. Glacier expertNft = 0x897C…0D0B; dexeExpertNft = 0xc85a5D…7cbe7 per dao_info.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_add_expert",
+      "args": {
+        "expertNftContract": "0x897CBCFC733f6572F09398fe51D2F89c88ED0D0B",
+        "scope": "local",
+        "nominatedUser": "0x7340b46959f4598f86aA23D5d26ec289e2736e77",
+        "uri": "ipfs://QmExpertCV",
+        "proposalName": "S27 add local expert"
+      },
+      "broadcast": false,
+      "captureAs": "builtLocal"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_proposal_build_add_expert",
+      "args": {
+        "expertNftContract": "0xc85a5D41217C6bf7500d2d115dAbA3B98d17cbe7",
+        "scope": "global",
+        "nominatedUser": "0x7340b46959f4598f86aA23D5d26ec289e2736e77",
+        "proposalName": "S27 add global expert"
+      },
+      "broadcast": false,
+      "captureAs": "builtGlobal"
+    }
+  ],
+  "successCriteria": [{ "id": "two-builds", "check": "builtLocal + builtGlobal both encode mint actions" }]
+}

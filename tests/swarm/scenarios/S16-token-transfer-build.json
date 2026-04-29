@@ -1,0 +1,29 @@
+{
+  "id": "S16-token-transfer-build",
+  "title": "Build a Token Transfer external proposal (no broadcast)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Exercises dexe_proposal_build_token_transfer — encodes ERC20.transfer action and returns the IPFS metadata + signable components. No on-chain effect.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_token_transfer",
+      "args": {
+        "govPool": "{{dao}}",
+        "token": "{{firstAllowlistedToken}}",
+        "recipient": "0x0000000000000000000000000000000000000abc",
+        "amount": "1000000000000000000",
+        "proposalName": "S16 token transfer",
+        "proposalDescription": "Phase 2 — token transfer build sanity"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "returns-action", "check": "built has actions/metadata" }]
+}

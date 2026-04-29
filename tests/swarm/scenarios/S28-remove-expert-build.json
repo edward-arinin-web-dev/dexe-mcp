@@ -1,0 +1,27 @@
+{
+  "id": "S28-remove-expert-build",
+  "title": "Build Remove Expert proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "ExpertNft.burn(from). Local scope.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_remove_expert",
+      "args": {
+        "expertNftContract": "0x897CBCFC733f6572F09398fe51D2F89c88ED0D0B",
+        "scope": "local",
+        "nominatedUser": "0x7340b46959f4598f86aA23D5d26ec289e2736e77",
+        "proposalName": "S28 remove local expert"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "burn-encoded", "check": "built has burn action" }]
+}

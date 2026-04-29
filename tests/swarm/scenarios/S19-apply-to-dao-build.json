@@ -1,0 +1,28 @@
+{
+  "id": "S19-apply-to-dao-build",
+  "title": "Build an Apply to DAO proposal (treasury grant)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "ERC20.transfer (+ optional mint shortfall) wrapper. Treasury balance is 0 here so we expect transfer + mint.",
+  "agents": [{ "alias": "A", "role": "Expert/Applicant", "wallet": "AGENT_PK_8" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_apply_to_dao",
+      "args": {
+        "token": "{{firstAllowlistedToken}}",
+        "receiver": "{{agent:A:address}}",
+        "amount": "1000000000000000000000",
+        "treasuryBalance": "0",
+        "proposalName": "S19 apply 1k GLCR"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "two-actions", "check": "built has 2 actions when treasury < amount (transfer + mint)" }]
+}

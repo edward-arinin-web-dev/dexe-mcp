@@ -1,0 +1,26 @@
+{
+  "id": "S34-change-math-model-build",
+  "title": "Build Change Math Model (vote-power swap) proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "GovPool.changeVotePower(newAddr). Pass current votePower as a no-op-style sanity input.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_change_math_model",
+      "args": {
+        "govPool": "{{dao}}",
+        "newVotePower": "{{dao.votePower}}",
+        "proposalName": "S34 swap math model"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "encoded", "check": "built has changeVotePower action" }]
+}

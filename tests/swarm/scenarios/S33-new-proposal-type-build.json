@@ -1,0 +1,46 @@
+{
+  "id": "S33-new-proposal-type-build",
+  "title": "Build a New Proposal Type (addSettings + changeExecutors) proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "2-action: addSettings + changeExecutors. Used by 'enable staking' as well.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_new_proposal_type",
+      "args": {
+        "govSettings": "{{dao.settings}}",
+        "newSettingId": "5",
+        "executors": ["{{dao}}"],
+        "settings": {
+          "earlyCompletion": true,
+          "delegatedVotingAllowed": false,
+          "validatorsVote": false,
+          "duration": "86400",
+          "durationValidators": "86400",
+          "quorum": "100000000000000000000000000",
+          "quorumValidators": "510000000000000000000000000",
+          "minVotesForVoting": "1000000000000000000",
+          "minVotesForCreating": "1000000000000000000",
+          "executionDelay": "0",
+          "executorDescription": "S33 new type",
+          "rewardsInfo": {
+            "rewardToken": "0x0000000000000000000000000000000000000000",
+            "creationReward": "0",
+            "executionReward": "0",
+            "voteRewardsCoefficient": "0"
+          }
+        },
+        "proposalName": "S33 register new proposal type"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "two-actions", "check": "built has 2 actions" }]
+}

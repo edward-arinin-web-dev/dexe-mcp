@@ -1,0 +1,28 @@
+{
+  "id": "S23-manage-validators-build",
+  "title": "Build a Manage Validators (external) proposal on Sentinel",
+  "priority": 2,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "GovValidators.changeBalances. Tries to mint VT to PK_8.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_manage_validators",
+      "args": {
+        "govValidators": "{{dao.validators}}",
+        "changes": [
+          { "user": "0x7340b46959f4598f86aA23D5d26ec289e2736e77", "balance": "1000000000000000000000" }
+        ],
+        "proposalName": "S23 mint VT to PK_8"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "encoded", "check": "built has changeBalances action" }]
+}

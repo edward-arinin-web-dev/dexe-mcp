@@ -1,0 +1,27 @@
+{
+  "id": "S17-blacklist-build",
+  "title": "Build a Blacklist Management proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "ERC20Gov.blacklist(addrs[], bool) action. Pure builder.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_blacklist",
+      "args": {
+        "erc20Gov": "{{firstAllowlistedToken}}",
+        "addAddresses": ["0x0000000000000000000000000000000000000bad"],
+        "removeAddresses": [],
+        "proposalName": "S17 blacklist add"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "single-action", "check": "built has 1 action (add only)" }]
+}

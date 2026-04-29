@@ -1,0 +1,28 @@
+{
+  "id": "S18-withdraw-treasury-build",
+  "title": "Build a Withdraw from Treasury proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "GovPool.withdraw(receiver, amount, nftIds) — treasury lives on the GovPool itself.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_withdraw_treasury",
+      "args": {
+        "govPool": "{{dao}}",
+        "receiver": "{{agent:A:address}}",
+        "amount": "1000000000000000000",
+        "nftIds": [],
+        "proposalName": "S18 withdraw 1 GLCR"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "returns", "check": "built returns metadata + actions" }]
+}

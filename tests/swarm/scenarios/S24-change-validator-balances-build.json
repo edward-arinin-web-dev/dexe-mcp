@@ -1,0 +1,27 @@
+{
+  "id": "S24-change-validator-balances-build",
+  "title": "Build internal-proposal data: change validator balances (type=0)",
+  "priority": 2,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Encodes the data bytes for GovValidators.createInternalProposal(type=0). Pure encode.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_change_validator_balances",
+      "args": {
+        "changes": [
+          { "user": "0xf0BF4f08AE3C101fC15bc3E26a600c6fefE67638", "balance": "2000000000000000000000" }
+        ],
+        "proposalName": "S24 bump V1 balance"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "data-bytes", "check": "built has 0x-encoded data" }]
+}

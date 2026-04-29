@@ -1,0 +1,28 @@
+{
+  "id": "S29-delegate-to-expert-build",
+  "title": "Build Delegate to Expert (treasury) proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "GovPool.delegateTreasury(delegatee, amount, nftIds).",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_delegate_to_expert",
+      "args": {
+        "govPool": "{{dao}}",
+        "expert": "0x7340b46959f4598f86aA23D5d26ec289e2736e77",
+        "amount": "1000000000000000000",
+        "nftIds": [],
+        "proposalName": "S29 delegate treasury"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "delegate-encoded", "check": "built has delegateTreasury action" }]
+}

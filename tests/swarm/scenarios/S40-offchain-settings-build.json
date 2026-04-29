@@ -1,0 +1,31 @@
+{
+  "id": "S40-offchain-settings-build",
+  "title": "Build off-chain settings (template / edit) proposal — mainnet only",
+  "priority": 3,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56],
+  "requiresBrowser": false,
+  "notes": "Off-chain settings builder. POSTs to DeXe backend; testnet skipped.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_offchain_settings",
+      "args": {
+        "mode": "create_proposal_type",
+        "poolAddress": "{{dao}}",
+        "chainId": 56,
+        "title": "S40 template",
+        "votingDurationSeconds": "86400",
+        "votingType": "for_against",
+        "quorum": { "for_against": { "percent": 50 } },
+        "useDelegated": true
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "backend-accepts", "check": "built returns settings id" }]
+}

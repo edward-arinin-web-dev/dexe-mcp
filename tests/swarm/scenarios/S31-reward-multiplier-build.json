@@ -1,0 +1,73 @@
+{
+  "id": "S31-reward-multiplier-build",
+  "title": "Build Reward Multiplier proposals (4 modes)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Exercises all 4 modes: set_address, set_token_uri, mint, change_token. Glacier nftMultiplier = 0x19390f2B…be485.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_reward_multiplier",
+      "args": {
+        "mode": "set_address",
+        "govPool": "{{dao}}",
+        "newMultiplierAddress": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "nftMultiplierContract": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "proposalName": "S31 set multiplier addr"
+      },
+      "broadcast": false,
+      "captureAs": "setAddr"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_proposal_build_reward_multiplier",
+      "args": {
+        "mode": "mint",
+        "nftMultiplierContract": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "to": "0x7340b46959f4598f86aA23D5d26ec289e2736e77",
+        "multiplier": "150",
+        "rewardPeriod": "2592000",
+        "metadataUrl": "ipfs://QmMul",
+        "proposalName": "S31 mint multiplier NFT"
+      },
+      "broadcast": false,
+      "captureAs": "mintNft"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_proposal_build_reward_multiplier",
+      "args": {
+        "mode": "set_token_uri",
+        "nftMultiplierContract": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "tokenId": "1",
+        "uri": "ipfs://QmNewURI",
+        "proposalName": "S31 set token URI"
+      },
+      "broadcast": false,
+      "captureAs": "setUri"
+    },
+    {
+      "step": 4,
+      "agent": "A",
+      "tool": "dexe_proposal_build_reward_multiplier",
+      "args": {
+        "mode": "change_token",
+        "nftMultiplierContract": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "tokenId": "1",
+        "multiplier": "200",
+        "rewardPeriod": "5184000",
+        "proposalName": "S31 change token"
+      },
+      "broadcast": false,
+      "captureAs": "changeTok"
+    }
+  ],
+  "successCriteria": [{ "id": "all-modes", "check": "all 4 modes return well-formed actions" }]
+}

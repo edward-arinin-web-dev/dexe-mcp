@@ -1,0 +1,28 @@
+{
+  "id": "S20-token-distribution-build",
+  "title": "Build a Token Distribution proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Encodes DistributionProposal.execute. distributionProposal addr is the predicted helper from dao deploy.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_token_distribution",
+      "args": {
+        "distributionProposal": "0x0CDA7E428C9FDA74Fcb94d3517e837c2f001D642",
+        "proposalId": "100",
+        "token": "{{firstAllowlistedToken}}",
+        "amount": "1000000000000000000",
+        "proposalName": "S20 distribution sanity"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "approve+distribute", "check": "built has approve + execute actions" }]
+}

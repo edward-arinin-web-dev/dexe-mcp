@@ -1,0 +1,47 @@
+{
+  "id": "S32-change-voting-settings-build",
+  "title": "Build Change Voting Settings (addSettings) proposal",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Empty settingsIds → addSettings path. Creates a new ProposalSettings entry.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_change_voting_settings",
+      "args": {
+        "govSettings": "{{dao.settings}}",
+        "settingsIds": [],
+        "settings": [
+          {
+            "earlyCompletion": true,
+            "delegatedVotingAllowed": false,
+            "validatorsVote": false,
+            "duration": "86400",
+            "durationValidators": "86400",
+            "quorum": "100000000000000000000000000",
+            "quorumValidators": "510000000000000000000000000",
+            "minVotesForVoting": "1000000000000000000",
+            "minVotesForCreating": "1000000000000000000",
+            "executionDelay": "0",
+            "executorDescription": "S32 new low-quorum settings",
+            "rewardsInfo": {
+              "rewardToken": "0x0000000000000000000000000000000000000000",
+              "creationReward": "0",
+              "executionReward": "0",
+              "voteRewardsCoefficient": "0"
+            }
+          }
+        ],
+        "proposalName": "S32 add new settings slot"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "addSettings-encoded", "check": "built has addSettings action" }]
+}

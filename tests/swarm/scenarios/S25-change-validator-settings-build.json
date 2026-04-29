@@ -1,0 +1,27 @@
+{
+  "id": "S25-change-validator-settings-build",
+  "title": "Build internal-proposal data: change validator settings (type=1)",
+  "priority": 2,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Encodes changeSettings(duration, executionDelay, quorum). Half-day duration + 0 delay + 50%.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_change_validator_settings",
+      "args": {
+        "duration": "43200",
+        "executionDelay": "0",
+        "quorum": "500000000000000000000000000",
+        "proposalName": "S25 cut validator duration"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "data-bytes", "check": "built has 0x data" }]
+}

@@ -1,0 +1,33 @@
+{
+  "id": "S36-external-manual-calldata-build",
+  "title": "Build External proposal from raw actionsOnFor (manual calldata path)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Lowest-level builder. Takes a descriptionURL CID and an actionsOnFor list. Returns a ready-to-send tx payload.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_external",
+      "args": {
+        "govPool": "{{dao}}",
+        "descriptionURL": "ipfs://QmS36",
+        "actionsOnFor": [
+          {
+            "executor": "{{firstAllowlistedToken}}",
+            "value": "0",
+            "data": "0xa9059cbb0000000000000000000000000000000000000000000000000000000000000abc0000000000000000000000000000000000000000000000000de0b6b3a7640000"
+          }
+        ],
+        "actionsOnAgainst": []
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "payload-returned", "check": "built has tx payload {to,data}" }]
+}

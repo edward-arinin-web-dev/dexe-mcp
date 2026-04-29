@@ -1,0 +1,27 @@
+{
+  "id": "S35-custom-abi-build",
+  "title": "Build Custom ABI proposal action (free-form encoding)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Encodes ERC20.transfer via the generic custom_abi builder. Output is a single ProposalAction.",
+  "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_build_custom_abi",
+      "args": {
+        "target": "{{firstAllowlistedToken}}",
+        "signature": "function transfer(address,uint256)",
+        "method": "transfer",
+        "args": ["0x0000000000000000000000000000000000000abc", "1000000000000000000"]
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [{ "id": "action-shape", "check": "built has executor + value + data" }]
+}
