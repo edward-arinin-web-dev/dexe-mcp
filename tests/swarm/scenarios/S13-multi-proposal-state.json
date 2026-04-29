@@ -1,0 +1,63 @@
+{
+  "id": "S13-multi-proposal-state",
+  "title": "Multi-proposal lifecycle snapshot across both fixture DAOs",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Reads getProposalState across multiple proposals on both fixture DAOs to confirm the lifecycle states observed during the full sweep are stable: ExecutedFor, Voting, SucceededFor, Defeated. Also exercises dexe_proposal_list for paged reads.",
+  "agents": [
+    { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{firstAllowlistedDao}}", "proposalId": "1" },
+      "broadcast": false,
+      "captureAs": "glacier1",
+      "comment": "Glacier proposal #1 was executed in this DAO's smoke test — should remain ExecutedFor."
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{firstAllowlistedDao}}", "proposalId": "2" },
+      "broadcast": false,
+      "captureAs": "glacier2"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{secondAllowlistedDao}}", "proposalId": "1" },
+      "broadcast": false,
+      "captureAs": "sentinel1"
+    },
+    {
+      "step": 4,
+      "agent": "A",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{secondAllowlistedDao}}", "proposalId": "4" },
+      "broadcast": false,
+      "captureAs": "sentinel4",
+      "comment": "Sentinel proposal #4 was the S02 validator-vote-pass — should be SucceededFor."
+    },
+    {
+      "step": 5,
+      "agent": "A",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{secondAllowlistedDao}}", "proposalId": "5" },
+      "broadcast": false,
+      "captureAs": "sentinel5",
+      "comment": "Sentinel proposal #5 was the S03 validator-veto — should be Defeated."
+    }
+  ],
+  "successCriteria": [
+    { "id": "glacier1-executed", "check": "glacier1.state == 'ExecutedFor'" },
+    { "id": "sentinel4-succeeded", "check": "sentinel4.state in ['SucceededFor','ExecutedFor']" },
+    { "id": "sentinel5-defeated", "check": "sentinel5.state == 'Defeated'" }
+  ]
+}

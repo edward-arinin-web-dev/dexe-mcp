@@ -8,9 +8,9 @@
   "requiresBrowser": false,
   "notes": "Validates that GovUserKeeper recomputes B's voting weight when A undelegates while a proposal is still in Voting. A delegates to B before the proposal exists; B votes (locking weight); A undelegates after the vote is cast.",
   "agents": [
-    { "alias": "A", "role": "Delegator", "wallet": "AGENT_PK_3" },
-    { "alias": "B", "role": "Voter",     "wallet": "AGENT_PK_4" },
-    { "alias": "P", "role": "Proposer",  "wallet": "AGENT_PK_1" }
+    { "alias": "A", "role": "Delegator",        "wallet": "AGENT_PK_2" },
+    { "alias": "B", "role": "Voter",            "wallet": "AGENT_PK_8" },
+    { "alias": "P", "role": "Proposer",         "wallet": "AGENT_PK_2" }
   ],
   "steps": [
     {
@@ -40,7 +40,7 @@
       "args": {
         "token": "{{firstAllowlistedToken}}",
         "spender": "{{dao.userKeeper}}",
-        "amount": "5000000000000000000000"
+        "amount": "4000000000000000000000"
       },
       "broadcast": true,
       "captureAs": "approveB"
@@ -49,9 +49,10 @@
       "step": 4,
       "agent": "B",
       "tool": "dexe_vote_build_deposit",
-      "args": { "govPool": "{{dao}}", "amount": "5000000000000000000000", "nftIds": [] },
+      "args": { "govPool": "{{dao}}", "amount": "4000000000000000000000", "nftIds": [] },
       "broadcast": true,
-      "captureAs": "depositB"
+      "captureAs": "depositB",
+      "comment": "PK_8 holds 5k GLCR but ~1 wei is already deposited from S08, leaving ~4999 in wallet; deposit 4k for headroom."
     },
     {
       "step": 5,
@@ -99,12 +100,12 @@
         "govPool": "{{dao}}",
         "proposalId": "{{createdProp.proposalId}}",
         "isVoteFor": true,
-        "amount": "5000000000000000000000",
+        "amount": "4000000000000000000000",
         "nftIds": []
       },
       "broadcast": true,
       "captureAs": "voteB",
-      "comment": "B votes with own 5k Personal only; the 8k delegated from A is held separately by Micropool and would need a delegate-vote tool"
+      "comment": "B votes with own 4k Personal only; the 8k delegated from A is held separately in Micropool"
     },
     {
       "step": 9,

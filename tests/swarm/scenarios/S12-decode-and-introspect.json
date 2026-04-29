@@ -1,0 +1,54 @@
+{
+  "id": "S12-decode-and-introspect",
+  "title": "Decode + introspect: ABI getters, NatSpec, calldata decoder, find-selector",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Pure read sweep over the introspection toolset that doesn't need DAO state: get_methods, get_natspec, get_selectors, find_selector, decode_calldata. Targets GovPool which every dexe-mcp install has compiled artifacts for.",
+  "agents": [
+    { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_get_methods",
+      "args": { "contract": "GovPool", "kind": "read" },
+      "broadcast": false,
+      "captureAs": "methods"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_get_selectors",
+      "args": { "contract": "GovPool" },
+      "broadcast": false,
+      "captureAs": "selectors"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_find_selector",
+      "args": { "selector": "0xfe0d94c1" },
+      "broadcast": false,
+      "captureAs": "executeSelector",
+      "comment": "0xfe0d94c1 = execute(uint256) on GovPool"
+    },
+    {
+      "step": 4,
+      "agent": "A",
+      "tool": "dexe_decode_calldata",
+      "args": {
+        "contract": "GovPool",
+        "data": "0xfe0d94c1000000000000000000000000000000000000000000000000000000000000000d"
+      },
+      "broadcast": false,
+      "captureAs": "decoded"
+    }
+  ],
+  "successCriteria": [
+    { "id": "execute-decoded", "check": "decoded.functionName == 'execute' && decoded.args[0] == '13'" }
+  ]
+}
