@@ -1,0 +1,157 @@
+[
+  {
+    "id": "helios-climate-fund",
+    "name": "Helios Climate Fund",
+    "description": "Helios Climate Fund is a member-governed treasury that allocates capital to verified climate-impact projects across renewable generation, soil carbon, and grid storage. The community votes on funding proposals on a rolling monthly cycle. Every funded project commits to publishing on-chain attestations of milestone delivery, and the Fund retains the right to claw back undistributed grant tranches if reporting lapses for two consecutive cycles. Treasury composition follows a 60/30/10 split between yield-bearing stablecoins, ecosystem governance tokens, and protocol-owned liquidity. Expert delegates with documented climate science or grid engineering backgrounds may be nominated by any member holding at least 5,000 HCT and ratified by a 50% quorum vote. The Fund publishes a quarterly impact report combining grant outcomes, treasury performance, and a forward-looking funding pipeline. New members are onboarded through an applicant-grant pathway: prospective grantees submit a proposal, receive a non-transferable applicant role, and may bring a single sponsored funding request to the floor within ninety days.",
+    "avatarPath": "avatar-indigo.png",
+    "socialLinks": {
+      "website": "https://heliosclimate.example",
+      "twitter": "https://twitter.com/heliosclimate",
+      "discord": "https://discord.gg/helios-climate",
+      "github": "https://github.com/helios-climate"
+    },
+    "tokenName": "Helios Climate Token",
+    "tokenSymbol": "HCT"
+  },
+  {
+    "id": "quartz-trading-collective",
+    "name": "Quartz Trading Collective",
+    "description": "Quartz Trading Collective is a quantitative-research guild that pools capital and signal infrastructure across independent traders and small funds. Members contribute either capital, executable strategies, or operational labor, and the protocol allocates governance weight based on a transparent contribution ledger. The Collective operates a shared execution venue with policy-controlled risk limits, and any change to position-sizing rules, leverage caps, or margin assets must clear an on-chain proposal. The treasury runs a discretionary book and a rules-based market-neutral book; rebalancing between the two is a routine governance item. Validator-tier reviewers oversee monthly performance attribution, and a small board of expert delegates resolves disputes over signal authorship. Membership is non-transferable and tied to a wallet that has cleared the Collective's KYC counterparty review. Quarterly drawdowns above ten percent automatically pause new strategy onboarding until the membership ratifies a recovery plan.",
+    "avatarPath": "avatar-solid.png",
+    "socialLinks": {
+      "website": "https://quartztrading.example",
+      "twitter": "https://twitter.com/quartzcollective",
+      "discord": "https://discord.gg/quartz-collective"
+    },
+    "tokenName": "Quartz Collective Token",
+    "tokenSymbol": "QCT"
+  },
+  {
+    "id": "meridian-education-foundation",
+    "name": "Meridian Education Foundation",
+    "description": "Meridian Education Foundation funds open-curriculum scholarships, instructor stipends, and learning-tool development for under-served regions. Proposals fall into three classes: scholarship cohorts, curriculum grants, and infrastructure capital. Each class has its own quorum and execution-delay schedule, with scholarship cohorts resolving fastest and infrastructure capital requiring the longest community deliberation. Validator delegates are drawn from accredited educators, and the Foundation's reward-multiplier program issues recognition NFTs to instructors whose courses sustain ninety percent learner completion across a full year. The treasury holds a long-duration stablecoin position alongside a small basket of public-goods governance tokens, and treasury yield is recycled into next-cycle scholarship allocations. The Foundation publishes anonymized learner-outcome metrics under a Creative Commons license. Members can delegate their voting power to subject-matter experts who specialize in mathematics, language, or vocational tracks.",
+    "avatarPath": "avatar.jpeg",
+    "socialLinks": {
+      "website": "https://meridianlearning.example",
+      "twitter": "https://twitter.com/meridianlearn",
+      "discord": "https://discord.gg/meridian-learn"
+    },
+    "tokenName": "Meridian Education Token",
+    "tokenSymbol": "MET"
+  },
+  {
+    "id": "polaris-open-source-stewards",
+    "name": "Polaris Open Source Stewards",
+    "description": "Polaris Open Source Stewards finances long-term maintenance of critical open-source infrastructure. Funded projects sign a maintenance compact committing to an annual security review, a documented release cadence, and a designated maintainer succession plan. The treasury sources funding from protocol fees rebated by partner platforms, supplemented by a perpetual delegation pool that ecosystem participants seed at their discretion. Polaris maintains a public dashboard of every funded project's bus-factor and dependency exposure, and the Stewards proactively co-fund high-risk dependencies before they reach end-of-life. Expert delegates rotate through a one-year term and may not serve consecutive terms unless ratified by a supermajority. The blacklist tool is reserved for known-malicious maintainers and used sparingly; every blacklist action is published with a rationale and a review window.",
+    "avatarPath": "avatar-indigo.png",
+    "socialLinks": {
+      "website": "https://polarisstewards.example",
+      "twitter": "https://twitter.com/polarisstewards",
+      "github": "https://github.com/polaris-stewards"
+    },
+    "tokenName": "Polaris Steward Token",
+    "tokenSymbol": "PST"
+  },
+  {
+    "id": "cobalt-maritime-cooperative",
+    "name": "Cobalt Maritime Cooperative",
+    "description": "Cobalt Maritime Cooperative is a multi-stakeholder governance layer for vessel operators, port agents, and cargo underwriters. The Cooperative coordinates settlement of demurrage and laytime disputes, maintains a shared blacklist of bad-faith counterparties, and operates a mutual-aid fund that covers verified force-majeure losses. Each member class — operator, agent, underwriter — has a separate voting tier, and a proposal must clear quorum within its originating class before it advances to the full membership. Validator delegates are drawn from chartered marine surveyors. The Cooperative's reward-multiplier program issues seasonal recognition to operators with zero unresolved demurrage disputes for four consecutive quarters. Treasury policy holds two months of operating coverage in stablecoin and the remainder in protocol-owned liquidity to smooth seasonal cargo cycles.",
+    "avatarPath": "avatar-solid.png",
+    "socialLinks": {
+      "website": "https://cobaltmaritime.example",
+      "twitter": "https://twitter.com/cobaltmaritime"
+    },
+    "tokenName": "Cobalt Maritime Token",
+    "tokenSymbol": "CMT"
+  },
+  {
+    "id": "vellum-archive-society",
+    "name": "Vellum Archive Society",
+    "description": "Vellum Archive Society preserves digital media collections that would otherwise be lost to platform decay or licensing lapses. The Society funds storage capacity across redundant providers, finances format migration, and underwrites legal counsel for archival projects facing takedown demands. Funded projects commit to public access under a non-commercial license, and curators are compensated through a recurring stipend rather than per-project grants. Expert delegates include trained archivists and intellectual-property attorneys. A delegated treasury sub-pool funds emergency rescues — collections at imminent risk of takedown — and may be spent without the standard execution delay subject to a five-of-seven multisig approval recorded on-chain. The Society's NFT multiplier rewards long-tenure curators whose collections remain continuously available for over five years.",
+    "avatarPath": "avatar-indigo.png",
+    "socialLinks": {
+      "website": "https://vellumarchive.example",
+      "twitter": "https://twitter.com/vellumarchive",
+      "discord": "https://discord.gg/vellum-archive"
+    },
+    "tokenName": "Vellum Archive Token",
+    "tokenSymbol": "VAT"
+  },
+  {
+    "id": "solstice-health-mutual",
+    "name": "Solstice Health Mutual",
+    "description": "Solstice Health Mutual is a member-owned health-cost-sharing pool that smooths catastrophic medical expenses for participants in regions with limited public coverage. Members contribute monthly premiums in stablecoin, and qualifying claims are paid from the shared pool after expert-delegate review. The Mutual maintains an actuarial reserve sized to cover a one-in-fifty-year claim year, and quarterly proposals adjust premium tiers and coverage caps based on observed claim frequency. Validator delegates include licensed medical providers and actuarial professionals. The Mutual's blacklist tool is reserved for documented fraud cases and triggers an automatic review of all claims linked to the offending wallet. Member onboarding requires a six-month vesting period before catastrophic coverage activates, mitigating adverse selection.",
+    "avatarPath": "avatar.jpeg",
+    "socialLinks": {
+      "website": "https://solsticemutual.example",
+      "twitter": "https://twitter.com/solsticemutual"
+    },
+    "tokenName": "Solstice Mutual Token",
+    "tokenSymbol": "SMT"
+  },
+  {
+    "id": "northwind-energy-coalition",
+    "name": "Northwind Energy Coalition",
+    "description": "Northwind Energy Coalition operates a peer-to-peer renewable-energy market that matches small-scale generators with regional consumers. The Coalition issues settlement credits backed by verified kilowatt-hour delivery, and disputes over meter readings escalate to a panel of validator delegates drawn from independent metering auditors. Treasury reserves underwrite a delivery-shortfall guarantee — if a generator under-delivers a contracted block, the Coalition pays the difference to the buyer and reclaims from the generator's bond. Quarterly proposals adjust the bond schedule and the dispute-arbitration fee. The Coalition's expert delegate program admits power-system engineers and energy economists. A monthly-withdraw policy directs a fixed portion of revenue to a community-grid investment account that funds shared transmission upgrades.",
+    "avatarPath": "avatar-solid.png",
+    "socialLinks": {
+      "website": "https://northwindenergy.example",
+      "twitter": "https://twitter.com/northwindenergy",
+      "github": "https://github.com/northwind-coalition"
+    },
+    "tokenName": "Northwind Coalition Token",
+    "tokenSymbol": "NCT"
+  },
+  {
+    "id": "kestrel-research-guild",
+    "name": "Kestrel Research Guild",
+    "description": "Kestrel Research Guild funds independent investigators working on long-horizon scientific questions that fall outside conventional grant pipelines. Funding decisions follow a two-stage review: an open community vote establishes thematic priorities, and a panel of expert delegates allocates capital among submissions that match those priorities. Funded researchers commit to publishing a results-blind preregistration, raw data under an open license, and a plain-language summary suitable for public consumption. The Guild's reward-multiplier program elevates researchers whose work has been independently replicated within three years of publication. Treasury policy splits assets between long-duration stablecoin holdings and a small basket of liquid-staking positions that fund a perpetual research endowment.",
+    "avatarPath": "avatar-indigo.png",
+    "socialLinks": {
+      "website": "https://kestrelguild.example",
+      "twitter": "https://twitter.com/kestrelguild",
+      "discord": "https://discord.gg/kestrel-guild"
+    },
+    "tokenName": "Kestrel Research Token",
+    "tokenSymbol": "KRT"
+  },
+  {
+    "id": "tessera-arts-patronage",
+    "name": "Tessera Arts Patronage",
+    "description": "Tessera Arts Patronage is a community-funded patronage circle for digital artists and small studios. Patrons contribute to a rolling treasury, and twice-yearly cohorts of supported artists receive multi-month stipends to focus on long-form creative work without short-term monetization pressure. The Patronage maintains an open archive of every funded work under a Creative Commons license. Curatorial expert delegates rotate seasonally and may not propose work by artists in their immediate circle. The treasury's NFT multiplier program acknowledges patrons who renew their support across at least four cohorts and grants them a seat in the curatorial advisory channel. A small portion of treasury yield is reserved for an emergency stipend pool that supports artists facing acute hardship.",
+    "avatarPath": "avatar.jpeg",
+    "socialLinks": {
+      "website": "https://tesseraarts.example",
+      "twitter": "https://twitter.com/tesseraarts",
+      "discord": "https://discord.gg/tessera-arts"
+    },
+    "tokenName": "Tessera Patron Token",
+    "tokenSymbol": "TPT"
+  },
+  {
+    "id": "foundry-builder-network",
+    "name": "Foundry Builder Network",
+    "description": "Foundry Builder Network is an investor-builder cooperative that funds early-stage web3 infrastructure projects with technical mentorship, capital, and shared go-to-market support. Funded teams receive milestone-gated grants and a designated builder-mentor pairing drawn from the Network's expert delegate roster. Quarterly proposals reallocate the unspent grant pool toward new applicants. The Network's blacklist tool is reserved for confirmed cases of grant misuse and applies a five-year lookback to any associated wallet. The treasury runs a barbell allocation — a long stablecoin reserve and a high-conviction venture book — and rebalances on a public schedule. New mentors must clear a peer-vetted onboarding flow before being eligible for delegation.",
+    "avatarPath": "avatar-solid.png",
+    "socialLinks": {
+      "website": "https://foundrynetwork.example",
+      "twitter": "https://twitter.com/foundrynetwork",
+      "github": "https://github.com/foundry-network"
+    },
+    "tokenName": "Foundry Builder Token",
+    "tokenSymbol": "FBT"
+  },
+  {
+    "id": "lumina-public-goods-trust",
+    "name": "Lumina Public Goods Trust",
+    "description": "Lumina Public Goods Trust funds non-rivalrous public-goods infrastructure across knowledge commons, civic technology, and digital identity. Funding follows a quadratic-matching mechanism: community contributions to individual projects are matched from the Trust's perpetual endowment, and the matching curve favors projects with broad rather than concentrated support. Validator delegates audit project deliverables and may pause matching for any project that fails an annual transparency review. The Trust publishes its endowment composition and matching pool inflows in real time, and the community ratifies an annual investment policy statement that constrains permissible asset classes. Expert delegates include public-finance economists and civic-tech practitioners, and serve renewable two-year terms.",
+    "avatarPath": "avatar-indigo.png",
+    "socialLinks": {
+      "website": "https://luminatrust.example",
+      "twitter": "https://twitter.com/luminatrust",
+      "discord": "https://discord.gg/lumina-trust"
+    },
+    "tokenName": "Lumina Trust Token",
+    "tokenSymbol": "LTT"
+  }
+]

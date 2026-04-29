@@ -1,0 +1,172 @@
+{
+  "id": "S01-delegation-chain-3hop",
+  "title": "Three-wallet delegation: A and B each delegate own balance to C; C votes",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": ["S00-reset"],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "DeXe delegation is one-level: a delegator may delegate only own balance, never re-delegate received delegation. The 'chain' here is a hub-and-spoke (A→C, B→C) plus C's own balance, all surfacing on C's effective vote power. Verifies vote_user_power, delegate calldata, and the pools subgraph delegation_map.",
+  "agents": [
+    { "alias": "A", "role": "Delegator", "wallet": "AGENT_PK_3" },
+    { "alias": "B", "role": "Delegator", "wallet": "AGENT_PK_4" },
+    { "alias": "C", "role": "Voter",     "wallet": "AGENT_PK_5" },
+    { "alias": "P", "role": "Proposer",  "wallet": "AGENT_PK_1" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_vote_build_erc20_approve",
+      "args": {
+        "token": "{{firstAllowlistedToken}}",
+        "spender": "{{dao.userKeeper}}",
+        "amount": "12000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "approveA"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_vote_build_deposit",
+      "args": { "govPool": "{{dao}}", "amount": "12000000000000000000000", "nftIds": [] },
+      "broadcast": true,
+      "captureAs": "depositA"
+    },
+    {
+      "step": 3,
+      "agent": "B",
+      "tool": "dexe_vote_build_erc20_approve",
+      "args": {
+        "token": "{{firstAllowlistedToken}}",
+        "spender": "{{dao.userKeeper}}",
+        "amount": "12000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "approveB"
+    },
+    {
+      "step": 4,
+      "agent": "B",
+      "tool": "dexe_vote_build_deposit",
+      "args": { "govPool": "{{dao}}", "amount": "12000000000000000000000", "nftIds": [] },
+      "broadcast": true,
+      "captureAs": "depositB"
+    },
+    {
+      "step": 5,
+      "agent": "C",
+      "tool": "dexe_vote_build_erc20_approve",
+      "args": {
+        "token": "{{firstAllowlistedToken}}",
+        "spender": "{{dao.userKeeper}}",
+        "amount": "5000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "approveC"
+    },
+    {
+      "step": 6,
+      "agent": "C",
+      "tool": "dexe_vote_build_deposit",
+      "args": { "govPool": "{{dao}}", "amount": "5000000000000000000000", "nftIds": [] },
+      "broadcast": true,
+      "captureAs": "depositC"
+    },
+    {
+      "step": 7,
+      "agent": "A",
+      "tool": "dexe_vote_build_delegate",
+      "args": {
+        "govPool": "{{dao}}",
+        "delegatee": "{{agent:C:address}}",
+        "amount": "10000000000000000000000",
+        "nftIds": []
+      },
+      "broadcast": true,
+      "captureAs": "delegateAtoC"
+    },
+    {
+      "step": 8,
+      "agent": "B",
+      "tool": "dexe_vote_build_delegate",
+      "args": {
+        "govPool": "{{dao}}",
+        "delegatee": "{{agent:C:address}}",
+        "amount": "8000000000000000000000",
+        "nftIds": []
+      },
+      "broadcast": true,
+      "captureAs": "delegateBtoC"
+    },
+    {
+      "step": 9,
+      "agent": "C",
+      "tool": "dexe_vote_user_power",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:C:address}}" },
+      "broadcast": false,
+      "captureAs": "powerC"
+    },
+    {
+      "step": 10,
+      "agent": "P",
+      "tool": "dexe_proposal_build_modify_dao_profile",
+      "args": {
+        "govPool": "{{dao}}",
+        "newDescriptionURL": "ipfs://{{ipfs.profileCID}}",
+        "metadata": { "scenario": "S01" }
+      },
+      "broadcast": false,
+      "captureAs": "buildProp"
+    },
+    {
+      "step": 11,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "actions": "{{buildProp.actions}}",
+        "metadata": { "category": "Governance", "isMeta": false, "proposalName": "S01 dry-run profile bump" }
+      },
+      "broadcast": true,
+      "captureAs": "createdProp"
+    },
+    {
+      "step": 12,
+      "agent": "C",
+      "tool": "dexe_vote_build_vote",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalId": "{{createdProp.proposalId}}",
+        "isVoteFor": true,
+        "amount": "{{powerC.totalBalance}}",
+        "nftIds": []
+      },
+      "broadcast": true,
+      "captureAs": "voteC"
+    },
+    {
+      "step": 13,
+      "agent": "C",
+      "tool": "dexe_read_delegation_map",
+      "args": { "dao": "{{dao}}", "delegatee": "{{agent:C:address}}" },
+      "broadcast": false,
+      "captureAs": "incomingC"
+    }
+  ],
+  "successCriteria": [
+    {
+      "id": "delegation-edges-AtoC-BtoC",
+      "check": "incomingC contains delegation from A=10000e18 and from B=8000e18"
+    },
+    {
+      "id": "C-power-includes-delegations",
+      "check": "powerC.totalBalance >= 5000e18 (own) + 18000e18 (delegated)"
+    },
+    {
+      "id": "vote-recorded-with-full-power",
+      "check": "dexe_vote_get_votes(C, proposalId) returns weight equal to powerC.totalBalance"
+    }
+  ]
+}

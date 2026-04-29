@@ -50,7 +50,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run typecheck && npm run build"
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "swarm:preflight": "tsx scripts/swarm/preflight.ts",
+    "swarm:fund": "tsx scripts/swarm/fund-pool.ts",
+    "swarm:run": "tsx scripts/swarm/orchestrator.ts",
+    "swarm:smoke": "tsx scripts/swarm/orchestrator.ts --scenarios=S00-reset,S01-delegation-chain-3hop --dry-run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

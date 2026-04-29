@@ -9,3 +9,7 @@ coverage/
 .vscode/
 .idea/
 *.tgz
+
+# Swarm test runtime artifacts
+tests/swarm/state/
+tests/reports/swarm/

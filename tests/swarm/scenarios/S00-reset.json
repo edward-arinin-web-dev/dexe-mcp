@@ -1,0 +1,71 @@
+{
+  "id": "S00-reset",
+  "title": "Reset pool wallets to baseline state on the target DAO",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Best-effort cleanup: undelegates outgoing delegations, claims pending rewards, withdraws deposited balance. Skipped when --skip-reset is passed.",
+  "agents": [
+    { "alias": "A", "role": "Delegator", "wallet": "AGENT_PK_2" },
+    { "alias": "B", "role": "Delegator", "wallet": "AGENT_PK_3" },
+    { "alias": "C", "role": "Delegator", "wallet": "AGENT_PK_4" },
+    { "alias": "D", "role": "Delegator", "wallet": "AGENT_PK_5" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_vote_user_power",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:A:address}}" },
+      "broadcast": false,
+      "captureAs": "powerA",
+      "comment": "Read current voting power; if zero, skip subsequent reset steps for A."
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_read_delegation_map",
+      "args": { "dao": "{{dao}}", "delegator": "{{agent:A:address}}" },
+      "broadcast": false,
+      "captureAs": "outA"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_vote_build_undelegate",
+      "args": {
+        "govPool": "{{dao}}",
+        "delegatee": "{{outA.0.delegatee}}",
+        "amount": "{{outA.0.amount}}",
+        "nftIds": []
+      },
+      "broadcast": true,
+      "skipIf": "outA.length == 0",
+      "captureAs": "undelA"
+    },
+    {
+      "step": 4,
+      "agent": "A",
+      "tool": "dexe_vote_build_withdraw",
+      "args": {
+        "govPool": "{{dao}}",
+        "receiver": "{{agent:A:address}}",
+        "amount": "{{powerA.totalBalance}}",
+        "nftIds": []
+      },
+      "broadcast": true,
+      "skipIf": "powerA.totalBalance == '0'",
+      "captureAs": "wdA"
+    }
+  ],
+  "successCriteria": [
+    { "id": "all-wallets-zero-power", "check": "vote_user_power for A,B,C,D returns total=0 after reset" }
+  ],
+  "loop": {
+    "over": ["A", "B", "C", "D"],
+    "appliesToSteps": [1, 2, 3, 4],
+    "comment": "Orchestrator repeats steps 1–4 once per agent alias before evaluating successCriteria."
+  }
+}
