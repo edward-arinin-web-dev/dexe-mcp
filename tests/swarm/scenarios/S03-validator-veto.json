@@ -1,0 +1,80 @@
+{
+  "id": "S03-validator-veto",
+  "title": "Validator veto: P creates proposal, both validators vote against, proposal defeats in validator chamber",
+  "priority": 1,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Mirrors S02 but flips isVoteFor to false. Validates that the validator chamber can reject a main-chamber-passed proposal.",
+  "agents": [
+    { "alias": "P",  "role": "Proposer",   "wallet": "AGENT_PK_1" },
+    { "alias": "V1", "role": "Validator1", "wallet": "AGENT_PK_6" },
+    { "alias": "V2", "role": "Validator2", "wallet": "AGENT_PK_7" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "modify_dao_profile",
+        "title": "S03 validator veto harness",
+        "description": "Phase 2 swarm — validator-veto",
+        "newDaoDescription": "Sentinel Validators — S03 marker 2026-04-29",
+        "category": "DAO Profile",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "createdProp"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_vote_build_move_to_validators",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": true,
+      "captureAs": "moveToVal"
+    },
+    {
+      "step": 3,
+      "agent": "V1",
+      "tool": "dexe_vote_build_validator_vote",
+      "args": {
+        "govValidators": "{{dao.validators}}",
+        "proposalId": "{{createdProp.proposalId}}",
+        "scope": "external",
+        "isVoteFor": false,
+        "amount": "1000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "v1Veto"
+    },
+    {
+      "step": 4,
+      "agent": "V2",
+      "tool": "dexe_vote_build_validator_vote",
+      "args": {
+        "govValidators": "{{dao.validators}}",
+        "proposalId": "{{createdProp.proposalId}}",
+        "scope": "external",
+        "isVoteFor": false,
+        "amount": "1000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "v2Veto"
+    },
+    {
+      "step": 5,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "stateAfterVeto"
+    }
+  ],
+  "successCriteria": [
+    { "id": "validator-veto-defeats", "check": "stateAfterVeto.state in ['Defeated','SucceededAgainst']" }
+  ]
+}

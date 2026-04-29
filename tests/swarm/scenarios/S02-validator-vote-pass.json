@@ -1,0 +1,89 @@
+{
+  "id": "S02-validator-vote-pass",
+  "title": "Validator chamber pass: P creates proposal, both validators vote for, proposal executes",
+  "priority": 1,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Targets the Sentinel fixture DAO (5% main quorum + 51% validator quorum + 2 baked-in validators with 1k SVT each). P proposes a modify_dao_profile, the auto-vote in createProposalAndVote pushes main quorum past 5% so the proposal moves to the validator chamber, then V1/V2 vote yes to clear the 51% validator quorum.",
+  "agents": [
+    { "alias": "P",  "role": "Proposer",   "wallet": "AGENT_PK_1" },
+    { "alias": "V1", "role": "Validator1", "wallet": "AGENT_PK_6" },
+    { "alias": "V2", "role": "Validator2", "wallet": "AGENT_PK_7" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "modify_dao_profile",
+        "title": "S02 validator chamber harness",
+        "description": "Phase 2 swarm — validator-vote-pass",
+        "newDaoDescription": "Sentinel Validators — S02 marker 2026-04-29",
+        "category": "DAO Profile",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "createdProp"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "stateAfterMain"
+    },
+    {
+      "step": 25,
+      "agent": "P",
+      "tool": "dexe_vote_build_move_to_validators",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": true,
+      "captureAs": "moveToVal",
+      "comment": "Triggers transition from WaitingForVotingTransfer → ValidatorVoting so the validator chamber can vote."
+    },
+    {
+      "step": 3,
+      "agent": "V1",
+      "tool": "dexe_vote_build_validator_vote",
+      "args": {
+        "govValidators": "{{dao.validators}}",
+        "proposalId": "{{createdProp.proposalId}}",
+        "scope": "external",
+        "isVoteFor": true,
+        "amount": "1000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "v1Vote"
+    },
+    {
+      "step": 4,
+      "agent": "V2",
+      "tool": "dexe_vote_build_validator_vote",
+      "args": {
+        "govValidators": "{{dao.validators}}",
+        "proposalId": "{{createdProp.proposalId}}",
+        "scope": "external",
+        "isVoteFor": true,
+        "amount": "1000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "v2Vote"
+    },
+    {
+      "step": 5,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "stateAfterValidators"
+    }
+  ],
+  "successCriteria": [
+    { "id": "validator-quorum-passes", "check": "stateAfterValidators.state in ['SucceededFor','ExecutedFor']" }
+  ]
+}

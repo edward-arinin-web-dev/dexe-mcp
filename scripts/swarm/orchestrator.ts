@@ -162,8 +162,10 @@ function resolveWallets(spec: ScenarioSpec): Map<string, { address: string; envK
 function checkAllowlists(spec: ScenarioSpec, chainTag: string) {
   const daos = parseList(`SWARM_DAOS_${chainTag}`);
   if (daos.length === 0) fail(`SWARM_DAOS_${chainTag} allowlist empty.`);
-  if (spec.dao === "{{firstAllowlistedDao}}") {
-    spec.dao = daos[0];
+  if (spec.dao === "{{firstAllowlistedDao}}") spec.dao = daos[0];
+  else if (spec.dao === "{{secondAllowlistedDao}}") {
+    if (!daos[1]) fail(`Scenario ${spec.id} requires a second DAO; SWARM_DAOS_${chainTag} has only ${daos.length}.`);
+    spec.dao = daos[1];
   }
   const lower = daos.map((a) => a.toLowerCase());
   if (spec.dao && !lower.includes(spec.dao.toLowerCase())) {
@@ -636,7 +638,10 @@ async function runScenario(
   }
 
   const tokens = parseList(`SWARM_TOKENS_${chainTag}`);
-  const firstAllowlistedToken = tokens[0];
+  const daos = parseList(`SWARM_DAOS_${chainTag}`);
+  // Pick the token that matches this scenario's DAO (by index in allowlists).
+  const daoIdx = daos.findIndex((d) => d.toLowerCase() === spec.dao.toLowerCase());
+  const firstAllowlistedToken = daoIdx >= 0 ? tokens[daoIdx] ?? tokens[0] : tokens[0];
   let daoHelpers: TemplateCtx["daoHelpers"];
   try {
     const gp = new Contract(spec.dao, GOV_POOL_ABI as unknown as string[], provider);
