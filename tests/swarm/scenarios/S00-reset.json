@@ -48,16 +48,14 @@
     {
       "step": 4,
       "agent": "A",
-      "tool": "dexe_vote_build_withdraw",
+      "tool": "dexe_vote_build_withdraw_all",
       "args": {
         "govPool": "{{dao}}",
-        "receiver": "{{agent:A:address}}",
-        "amount": "{{powerA.totalBalance}}",
-        "nftIds": []
+        "receiver": "{{agent:A:address}}"
       },
       "broadcast": true,
-      "skipIf": "powerA.totalBalance == '0'",
-      "captureAs": "wdA"
+      "captureAs": "wdA",
+      "comment": "Reads getWithdrawableAssets live so it picks up tokens that flowed back from undelegate in step 3. Self-skips when withdrawable=0."
     }
   ],
   "successCriteria": [

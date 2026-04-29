@@ -205,6 +205,9 @@ const ERC20_ABI = [
 const USER_KEEPER_ABI = [
   "function tokenBalance(address voter, uint8 voteType) view returns (uint256 balance, uint256 ownedBalance)",
   "function nftBalance(address voter, uint8 voteType) view returns (uint256 balance, uint256 ownedBalance)",
+  "function delegations(address user, bool perNftPowerArray) view returns (uint256 power, tuple(address delegatee, uint256 delegatedTokens, uint256[] delegatedNfts, uint256 nftPower, uint256[] perNftPower)[] delegationsInfo)",
+  "function getWithdrawableAssets(address voter, uint256[] lockedProposals, uint256[] unlockedNfts) view returns (uint256 withdrawableTokens, uint256[] withdrawableNfts)",
+  "function maxLockedAmount(address voter) view returns (uint256)",
 ] as const;
 
 const VOTE_TYPES = ["PersonalVote", "MicropoolVote", "DelegatedVote", "TreasuryVote"] as const;
@@ -244,12 +247,20 @@ const DISPATCHERS: Record<string, Dispatcher> = {
     return { govPool, user, userKeeper, power, totalBalance: String(totalBalance) };
   },
 
-  async dexe_read_delegation_map(args, { chainTag }) {
-    // Subgraph-backed in production. BSC testnet has no subgraph (per
-    // reference_bsc_testnet.md), so return empty list. Future iterations can
-    // route via MCP for mainnet runs.
-    if (chainTag === "TESTNET") return [];
-    return [];
+  async dexe_read_delegation_map(args, { provider }) {
+    const govPool = String(args.dao ?? args.govPool);
+    const user = String(args.delegator ?? args.user ?? args.delegatee);
+    if (!govPool || !user) return [];
+    const gp = new Contract(govPool, GOV_POOL_ABI as unknown as string[], provider);
+    const helpers = await gp.getHelperContracts();
+    const uk = new Contract(helpers[1], USER_KEEPER_ABI as unknown as string[], provider);
+    const [, info] = await uk.delegations(user, false);
+    // Shape compatible with S00's outA.0.delegatee / outA.0.amount references.
+    return (info as Array<{ delegatee: string; delegatedTokens: bigint; delegatedNfts: bigint[] }>).map((d) => ({
+      delegatee: d.delegatee,
+      amount: String(d.delegatedTokens),
+      nftIds: d.delegatedNfts.map((n) => n.toString()),
+    }));
   },
 
   async dexe_vote_build_undelegate(args) {
@@ -270,6 +281,37 @@ const DISPATCHERS: Record<string, Dispatcher> = {
       (args.nftIds as string[]) ?? [],
     ]);
     return { payload: { to: String(args.govPool), data, value: "0" } };
+  },
+
+  /** Computes withdrawable as (Personal.balance - Personal.owned) -
+   * maxLockedAmount. Used by S00 reset where the prior step's powerA capture
+   * goes stale after undelegate (delegated tokens flow back to Personal) and
+   * `getWithdrawableAssets([],[])` ignores active proposal locks. Self-skips
+   * when nothing is withdrawable. */
+  async dexe_vote_build_withdraw_all(args, { provider }) {
+    const govPool = String(args.govPool);
+    const receiver = String(args.receiver);
+    const gp = new Contract(govPool, GOV_POOL_ABI as unknown as string[], provider);
+    const helpers = await gp.getHelperContracts();
+    const uk = new Contract(helpers[1], USER_KEEPER_ABI as unknown as string[], provider);
+    const [bal, owned] = await uk.tokenBalance(receiver, 0);
+    const locked: bigint = await uk.maxLockedAmount(receiver);
+    const deposited = bal - owned;
+    const withdrawable = deposited > locked ? deposited - locked : 0n;
+    if (withdrawable === 0n) {
+      return {
+        skipped: true,
+        reason: `no withdrawable (deposited=${deposited} locked=${locked})`,
+      };
+    }
+    const iface = new Interface(GOV_POOL_ABI as unknown as string[]);
+    const data = iface.encodeFunctionData("withdraw", [receiver, withdrawable, []]);
+    return {
+      payload: { to: govPool, data, value: "0" },
+      withdrawableTokens: String(withdrawable),
+      deposited: String(deposited),
+      locked: String(locked),
+    };
   },
 
   async dexe_vote_build_erc20_approve(args) {
@@ -673,6 +715,11 @@ async function runScenario(
         log.error = `deferred: ${(result as { __deferred: string }).__deferred}`;
         console.log(`    ${YELLOW}~${RESET} ${tag}step ${step.step} ${step.agent} → ${step.tool}  ${YELLOW}(${log.error})${RESET}`);
         // Propagate deferred state so downstream steps cascade-skip via {{captureAs.*}} refs.
+        if (step.captureAs) captures[step.captureAs] = result;
+      } else if (result && typeof result === "object" && (result as { skipped?: boolean }).skipped === true) {
+        log.status = "skipped";
+        log.error = String((result as { reason?: string }).reason ?? "dispatcher self-skip");
+        console.log(`    ${DIM}·${RESET} ${tag}step ${step.step} ${step.agent} → ${step.tool}  ${DIM}(${log.error})${RESET}`);
         if (step.captureAs) captures[step.captureAs] = result;
       } else {
         log.status = "pass";
