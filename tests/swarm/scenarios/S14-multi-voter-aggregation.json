@@ -1,0 +1,46 @@
+{
+  "id": "S14-multi-voter-aggregation",
+  "title": "Multi-proposal voter aggregation snapshot across both DAOs",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Reads dexe_proposal_voters across multiple proposals on both fixture DAOs to confirm voter-aggregation reads return well-formed lists. Pure read; no broadcasts so no funding requirements.",
+  "agents": [
+    { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_voters",
+      "args": { "govPool": "{{firstAllowlistedDao}}", "proposalId": 1 },
+      "broadcast": false,
+      "captureAs": "glacier1Voters",
+      "comment": "Glacier #1 (deployer voted with 1M GLCR at smoke test)"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_proposal_voters",
+      "args": { "govPool": "{{secondAllowlistedDao}}", "proposalId": 4 },
+      "broadcast": false,
+      "captureAs": "sentinel4Voters",
+      "comment": "Sentinel #4 (S02 validator-vote-pass) — should show P + V1 + V2"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_proposal_voters",
+      "args": { "govPool": "{{secondAllowlistedDao}}", "proposalId": 23 },
+      "broadcast": false,
+      "captureAs": "sentinel23Voters",
+      "comment": "Sentinel latest (S07 full-lifecycle, ExecutedFor)"
+    }
+  ],
+  "successCriteria": [
+    { "id": "glacier1-has-deployer", "check": "glacier1Voters has 1 voter (deployer)" },
+    { "id": "sentinel-has-validator-votes", "check": "sentinel4Voters has at least 1 main voter + validator entries" }
+  ]
+}

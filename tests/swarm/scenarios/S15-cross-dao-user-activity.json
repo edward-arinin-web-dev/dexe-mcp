@@ -1,0 +1,50 @@
+{
+  "id": "S15-cross-dao-user-activity",
+  "title": "Cross-DAO user activity: same wallet's footprint on Glacier and Sentinel",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "PK_1 has been the proposer on Sentinel and a voter on Glacier across the suite. read_user_activity should return distinct activity sets per DAO. Validates cross-DAO read isolation.",
+  "agents": [
+    { "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_read_user_activity",
+      "args": { "govPool": "{{firstAllowlistedDao}}", "user": "{{agent:P:address}}" },
+      "broadcast": false,
+      "captureAs": "activityGlacier"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_read_user_activity",
+      "args": { "govPool": "{{secondAllowlistedDao}}", "user": "{{agent:P:address}}" },
+      "broadcast": false,
+      "captureAs": "activitySentinel"
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_vote_user_power",
+      "args": { "govPool": "{{firstAllowlistedDao}}", "user": "{{agent:P:address}}" },
+      "broadcast": false,
+      "captureAs": "powerGlacier"
+    },
+    {
+      "step": 4,
+      "agent": "P",
+      "tool": "dexe_vote_user_power",
+      "args": { "govPool": "{{secondAllowlistedDao}}", "user": "{{agent:P:address}}" },
+      "broadcast": false,
+      "captureAs": "powerSentinel"
+    }
+  ],
+  "successCriteria": [
+    { "id": "distinct-per-dao", "check": "activityGlacier != activitySentinel" }
+  ]
+}

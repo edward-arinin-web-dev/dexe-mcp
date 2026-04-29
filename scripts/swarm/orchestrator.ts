@@ -383,8 +383,13 @@ const DISPATCHERS: Record<string, Dispatcher> = {
     }
     const txHashes = await broadcastTxPayloads(result.steps, agentWallet);
     const gp = new Contract(String(args.govPool), LATEST_PROPOSAL_ID_ABI as unknown as string[], provider);
-    const proposalId = (await gp.latestProposalId()).toString();
-    return { proposalId, txHashes, descriptionURL: result.descriptionURL };
+    const id: bigint = await gp.latestProposalId();
+    return {
+      proposalId: id.toString(),
+      proposalIdNum: Number(id),
+      txHashes,
+      descriptionURL: result.descriptionURL,
+    };
   },
 };
 
@@ -413,6 +418,35 @@ function resolvePath(path: string, root: Record<string, unknown>): unknown {
 
 function expand(value: unknown, ctx: TemplateCtx): unknown {
   if (typeof value === "string") {
+    // Whole-value single-template short-circuit: preserves the underlying type
+    // (number, boolean, object) instead of stringifying it. Lets scenarios
+    // pass a number-typed proposalId via {{createdProp.proposalIdNum}} to
+    // tools whose schemas demand z.number().
+    const whole = value.match(/^\{\{([^}]+)\}\}$/);
+    if (whole) {
+      const t = whole[1].trim();
+      if (t === "dao") return ctx.dao;
+      if (t === "firstAllowlistedToken") return ctx.firstAllowlistedToken ?? "";
+      if (t === "firstAllowlistedDao") return ctx.allowlistedDaos?.[0] ?? "";
+      if (t === "secondAllowlistedDao") return ctx.allowlistedDaos?.[1] ?? "";
+      if (t.startsWith("dao.") && ctx.daoHelpers) {
+        const k = t.slice(4) as keyof NonNullable<TemplateCtx["daoHelpers"]>;
+        return ctx.daoHelpers[k] ?? "";
+      }
+      const m = t.match(/^agent:([A-Za-z]):address$/);
+      if (m) return ctx.wallets.get(m[1])?.address ?? "";
+      const head = t.split(".")[0];
+      const root = ctx.captures[head];
+      if (root && typeof root === "object" && "__deferred" in (root as object)) {
+        ctx.deferredCascade = {
+          var: head,
+          reason: String((root as { __deferred: string }).__deferred),
+        };
+        return "";
+      }
+      const r = resolvePath(t, ctx.captures);
+      return r ?? "";
+    }
     return value.replace(/\{\{([^}]+)\}\}/g, (_full, expr) => {
       const t = String(expr).trim();
       if (t === "dao") return ctx.dao;
