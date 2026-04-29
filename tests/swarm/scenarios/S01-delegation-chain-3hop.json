@@ -112,13 +112,10 @@
       "step": 10,
       "agent": "P",
       "tool": "dexe_proposal_build_modify_dao_profile",
-      "args": {
-        "govPool": "{{dao}}",
-        "newDescriptionURL": "ipfs://{{ipfs.profileCID}}",
-        "metadata": { "scenario": "S01" }
-      },
+      "args": { "govPool": "{{dao}}" },
       "broadcast": false,
-      "captureAs": "buildProp"
+      "captureAs": "buildProp",
+      "comment": "Stub marker; proposal_create with proposalType=modify_dao_profile handles IPFS + action encoding inline."
     },
     {
       "step": 11,
@@ -126,8 +123,12 @@
       "tool": "dexe_proposal_create",
       "args": {
         "govPool": "{{dao}}",
-        "actions": "{{buildProp.actions}}",
-        "metadata": { "category": "Governance", "isMeta": false, "proposalName": "S01 dry-run profile bump" }
+        "proposalType": "modify_dao_profile",
+        "title": "S01 delegation chain — DAO profile bump",
+        "description": "Phase 1.5 swarm S01 broadcast",
+        "newDaoDescription": "Glacier Cooperative — S01 broadcast 2026-04-29",
+        "category": "DAO Profile",
+        "user": "{{agent:P:address}}"
       },
       "broadcast": true,
       "captureAs": "createdProp"

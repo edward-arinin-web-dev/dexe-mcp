@@ -15,6 +15,8 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Contract, Interface, JsonRpcProvider, Wallet } from "ethers";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 process.loadEnvFile?.();
 
@@ -309,14 +311,25 @@ const DISPATCHERS: Record<string, Dispatcher> = {
     return { payload: { to: String(args.govPool), data, value: "0" } };
   },
 
-  // Proposal flow tools require IPFS upload + multi-step composite; deferred to
-  // a Phase 1.5 dispatcher that proxies to dexe-mcp via stdio. For now, scenarios
-  // that reference these will skip with a clear marker.
+  // Phase 1.5: route the IPFS-touching composite tools through dexe-mcp via
+  // stdio. proposal_build_modify_dao_profile is a no-op marker; proposal_create
+  // (proposalType=modify_dao_profile) does IPFS + action encoding internally.
   async dexe_proposal_build_modify_dao_profile() {
-    return { __deferred: "needs MCP-client dispatcher (Phase 1.5)" };
+    return { actions: [], note: "handled inline by proposal_create with proposalType=modify_dao_profile" };
   },
-  async dexe_proposal_create() {
-    return { __deferred: "needs MCP-client dispatcher (Phase 1.5)" };
+
+  async dexe_proposal_create(args, { agentWallet, provider }) {
+    const result = (await mcpCall("dexe_proposal_create", args)) as ProposalCreateMcpResult;
+    if (result.mode === "executed") {
+      return result; // server had a signer; not expected in our flow
+    }
+    if (result.mode !== "payloads" || !result.steps) {
+      throw new Error(`unexpected proposal_create shape: ${JSON.stringify(result).slice(0, 200)}`);
+    }
+    const txHashes = await broadcastTxPayloads(result.steps, agentWallet);
+    const gp = new Contract(String(args.govPool), LATEST_PROPOSAL_ID_ABI as unknown as string[], provider);
+    const proposalId = (await gp.latestProposalId()).toString();
+    return { proposalId, txHashes, descriptionURL: result.descriptionURL };
   },
 };
 
@@ -445,6 +458,74 @@ function mutexFor(envKey: string): Mutex {
   }
   return m;
 }
+
+// ---- MCP-stdio bridge (Phase 1.5) -----------------------------------------
+// Spawns dist/index.js with DEXE_PRIVATE_KEY="" so composite tools return
+// TxPayload lists instead of broadcasting. Orchestrator signs each payload
+// with the per-step agent wallet.
+
+let mcpClientPromise: Promise<McpClient> | null = null;
+
+async function getMcpClient(): Promise<McpClient> {
+  if (!mcpClientPromise) {
+    mcpClientPromise = (async () => {
+      const transport = new StdioClientTransport({
+        command: "node",
+        args: [resolve("dist/index.js")],
+        env: { ...process.env, DEXE_PRIVATE_KEY: "" } as Record<string, string>,
+        cwd: process.cwd(),
+      });
+      const c = new McpClient({ name: "swarm-orchestrator", version: "0.1.0" });
+      await c.connect(transport);
+      return c;
+    })();
+  }
+  return mcpClientPromise;
+}
+
+async function mcpCall(name: string, args: Record<string, unknown>): Promise<unknown> {
+  const c = await getMcpClient();
+  const res = await c.callTool({ name, arguments: args });
+  if (res.isError) throw new Error(`MCP ${name}: ${JSON.stringify(res.content)}`);
+  if (res.structuredContent) return res.structuredContent;
+  // Many tools return JSON-encoded text in content[0].text rather than structured.
+  const text = (res.content as Array<{ type: string; text?: string }> | undefined)?.[0]?.text;
+  if (text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+  return null;
+}
+
+interface ProposalCreateMcpResult {
+  mode?: "payloads" | "executed";
+  steps?: Array<{ label: string; skipped: boolean; payload?: { to: string; data: string; value: string; chainId: number } }>;
+  descriptionURL?: string;
+}
+
+async function broadcastTxPayloads(
+  steps: NonNullable<ProposalCreateMcpResult["steps"]>,
+  wallet: Wallet,
+): Promise<string[]> {
+  const txHashes: string[] = [];
+  for (const s of steps) {
+    if (s.skipped || !s.payload) continue;
+    const tx = await wallet.sendTransaction({
+      to: s.payload.to,
+      data: s.payload.data,
+      value: BigInt(s.payload.value ?? "0"),
+      chainId: BigInt(s.payload.chainId),
+    });
+    const rcpt = await tx.wait(1);
+    txHashes.push(rcpt?.hash ?? tx.hash);
+  }
+  return txHashes;
+}
+
+const LATEST_PROPOSAL_ID_ABI = ["function latestProposalId() view returns (uint256)"] as const;
 
 // ---------------------------------------------------------------------------
 
@@ -719,6 +800,15 @@ async function main() {
   }
 
   writeReport(runId, results, byId, args);
+
+  if (mcpClientPromise) {
+    try {
+      const c = await mcpClientPromise;
+      await c.close();
+    } catch {
+      /* swallow */
+    }
+  }
 
   const failed = results.filter((r) => !r.pass).length;
   if (failed > 0) {
