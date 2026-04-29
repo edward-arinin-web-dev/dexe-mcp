@@ -48,6 +48,12 @@ interface SuccessCriterion {
   check: string;
 }
 
+interface PrefundSpec {
+  wallet: string;
+  token: string;
+  minBalance: string;
+}
+
 interface ScenarioSpec {
   id: string;
   title: string;
@@ -62,6 +68,10 @@ interface ScenarioSpec {
   successCriteria: SuccessCriterion[];
   notes?: string;
   loop?: { over: string[]; appliesToSteps: number[]; comment?: string };
+  /** Optional pre-scenario top-up: orchestrator transfers `token` from
+   * AGENT_FUNDER_PK to each `wallet` so its ERC20 balance is at least
+   * `minBalance`. Token can be a literal address or `{{firstAllowlistedToken}}`. */
+  prefund?: PrefundSpec[];
 }
 
 interface CliArgs {
@@ -200,6 +210,7 @@ const GOV_POOL_ABI = [
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount)",
+  "function transfer(address recipient, uint256 amount)",
   "function balanceOf(address) view returns (uint256)",
   "function allowance(address owner, address spender) view returns (uint256)",
 ] as const;
@@ -645,6 +656,33 @@ async function runScenario(
   // Pick the token that matches this scenario's DAO (by index in allowlists).
   const daoIdx = daos.findIndex((d) => d.toLowerCase() === spec.dao.toLowerCase());
   const firstAllowlistedToken = daoIdx >= 0 ? tokens[daoIdx] ?? tokens[0] : tokens[0];
+
+  // ---- Pre-scenario funding: top up wallets from AGENT_FUNDER_PK if their
+  // token balance is below the per-spec threshold. Skipped on dry-run.
+  if (!args.dryRun && spec.prefund && spec.prefund.length > 0) {
+    const funderPk = process.env.AGENT_FUNDER_PK?.trim();
+    if (funderPk && /^0x[0-9a-fA-F]{64}$/.test(funderPk)) {
+      const funder = new Wallet(funderPk, provider);
+      for (const pf of spec.prefund) {
+        const w = wallets.get(pf.wallet);
+        if (!w) continue;
+        let tokenAddr = pf.token;
+        if (tokenAddr === "{{firstAllowlistedToken}}") tokenAddr = firstAllowlistedToken ?? "";
+        if (!tokenAddr) continue;
+        const erc20 = new Contract(tokenAddr, ERC20_ABI as unknown as string[], provider);
+        const cur: bigint = await erc20.balanceOf(w.address);
+        const min = BigInt(pf.minBalance);
+        if (cur >= min) continue;
+        const shortfall = min - cur;
+        const tk = new Contract(tokenAddr, ERC20_ABI as unknown as string[], funder);
+        const tx = await tk.transfer(w.address, shortfall);
+        await tx.wait(1);
+        console.log(`    ${DIM}prefund${RESET} ${pf.wallet} ← ${shortfall} (${tokenAddr.slice(0, 10)}…) tx ${tx.hash.slice(0, 12)}…`);
+      }
+    } else {
+      console.log(`    ${YELLOW}~${RESET} prefund requested but AGENT_FUNDER_PK is missing/malformed; skipping.`);
+    }
+  }
   let daoHelpers: TemplateCtx["daoHelpers"];
   try {
     const gp = new Contract(spec.dao, GOV_POOL_ABI as unknown as string[], provider);

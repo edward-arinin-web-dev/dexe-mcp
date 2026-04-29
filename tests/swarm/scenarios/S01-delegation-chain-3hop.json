@@ -13,6 +13,11 @@
     { "alias": "C", "role": "Voter",     "wallet": "AGENT_PK_5" },
     { "alias": "P", "role": "Proposer",  "wallet": "AGENT_PK_1" }
   ],
+  "prefund": [
+    { "wallet": "A", "token": "{{firstAllowlistedToken}}", "minBalance": "13000000000000000000000" },
+    { "wallet": "B", "token": "{{firstAllowlistedToken}}", "minBalance": "13000000000000000000000" },
+    { "wallet": "C", "token": "{{firstAllowlistedToken}}", "minBalance": "6000000000000000000000" }
+  ],
   "steps": [
     {
       "step": 1,
