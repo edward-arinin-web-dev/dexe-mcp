@@ -1,0 +1,47 @@
+{
+  "id": "S11-cross-dao-info",
+  "title": "Cross-DAO info comparison: dao_info on both fixture DAOs + dao_predict_addresses sanity",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Reads dao_info on both Glacier (idx 0) and Sentinel (idx 1). Confirms dao_predict_addresses returns deterministic CREATE2 addrs that match the deployed Sentinel pool — useful for verifying multi-DAO orchestration before adding a third.",
+  "agents": [
+    { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_dao_info",
+      "args": { "govPool": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "infoGlacier"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_dao_info",
+      "args": { "govPool": "{{secondAllowlistedDao}}" },
+      "broadcast": false,
+      "captureAs": "infoSentinel"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_dao_predict_addresses",
+      "args": {
+        "deployer": "0xCa543e570e4A1F6DA7cf9C4C7211692Bc105a00A",
+        "poolName": "Sentinel Validators"
+      },
+      "broadcast": false,
+      "captureAs": "predicted"
+    }
+  ],
+  "successCriteria": [
+    { "id": "glacier-helpers", "check": "infoGlacier.helpers.userKeeper is non-zero" },
+    { "id": "sentinel-validators-active", "check": "infoSentinel.validatorsCount == '2'" },
+    { "id": "predict-matches", "check": "predicted.govPool == infoSentinel.govPool" }
+  ]
+}

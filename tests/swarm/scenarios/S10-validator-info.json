@@ -1,0 +1,51 @@
+{
+  "id": "S10-validator-info",
+  "title": "Validator subsystem reads on Sentinel: list, balances, members snapshot",
+  "priority": 2,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Pure read sweep of Sentinel's validator set. Confirms PK_6 + PK_7 are registered with 1k SVT each and the Validators contract returns the expected count.",
+  "agents": [
+    { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_dao_info",
+      "args": { "govPool": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "info"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_read_validator_list",
+      "args": { "govPool": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "validatorList"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_read_validators",
+      "args": { "govPool": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "validatorsSnapshot"
+    },
+    {
+      "step": 4,
+      "agent": "A",
+      "tool": "dexe_read_dao_members",
+      "args": { "govPool": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "members"
+    }
+  ],
+  "successCriteria": [
+    { "id": "two-validators", "check": "info.validatorsCount == '2'" },
+    { "id": "validator-list-includes-PK6-PK7", "check": "validatorList contains 0xf0BF... and 0x3E01..." }
+  ]
+}

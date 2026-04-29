@@ -1,0 +1,59 @@
+{
+  "id": "S08-cancel-vote",
+  "title": "Cancel an in-flight vote: P votes, then cancels; weight returns to free",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Cancel only works while a proposal is still in main Voting phase. Targets Glacier (50% quorum, 1M supply) and uses PK_8 as proposer because PK_8 holds 5k GLCR — well below quorum, so the auto-vote at create time does NOT push state past Voting.",
+  "agents": [
+    { "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_8" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "modify_dao_profile",
+        "title": "S08 cancel-vote harness",
+        "description": "Phase 2 swarm — cancel-vote",
+        "newDaoDescription": "Glacier — S08 marker 2026-04-29",
+        "category": "DAO Profile",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "createdProp"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "stateAfterCreate",
+      "comment": "Capture state after auto-vote so we can compare; expected SucceededFor or WaitingForVotingTransfer"
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_vote_build_cancel_vote",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": true,
+      "captureAs": "cancelP"
+    },
+    {
+      "step": 4,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "stateAfterCancel"
+    }
+  ],
+  "successCriteria": [
+    { "id": "cancel-rolls-back-weight", "check": "stateAfterCancel != stateAfterCreate (proposal moved off SucceededFor or quorum lost)" }
+  ]
+}

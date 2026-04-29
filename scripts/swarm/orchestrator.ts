@@ -381,6 +381,7 @@ interface TemplateCtx {
   dao: string;
   daoHelpers?: { settings: string; userKeeper: string; validators: string; poolRegistry: string; votePower: string };
   firstAllowlistedToken?: string;
+  allowlistedDaos?: string[];
   wallets: Map<string, { address: string; envKey: string }>;
   captures: Record<string, unknown>;
   /** Set by expand() when a referenced capture has __deferred. Lets the caller
@@ -405,6 +406,8 @@ function expand(value: unknown, ctx: TemplateCtx): unknown {
       const t = String(expr).trim();
       if (t === "dao") return ctx.dao;
       if (t === "firstAllowlistedToken") return ctx.firstAllowlistedToken ?? "";
+      if (t === "firstAllowlistedDao") return ctx.allowlistedDaos?.[0] ?? "";
+      if (t === "secondAllowlistedDao") return ctx.allowlistedDaos?.[1] ?? "";
       if (t.startsWith("dao.") && ctx.daoHelpers) {
         const k = t.slice(4) as keyof NonNullable<TemplateCtx["daoHelpers"]>;
         return ctx.daoHelpers[k] ?? "";
@@ -672,6 +675,7 @@ async function runScenario(
       dao: spec.dao,
       daoHelpers,
       firstAllowlistedToken,
+      allowlistedDaos: daos,
       wallets,
       captures,
       deferredCascade: null,

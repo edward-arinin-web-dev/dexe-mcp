@@ -1,0 +1,88 @@
+{
+  "id": "S07-full-lifecycle-execute",
+  "title": "Full proposal lifecycle on Sentinel: create → main quorum → move → validators → execute",
+  "priority": 1,
+  "dao": "{{secondAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "End-to-end happy path on the validator DAO. Confirms a proposal can transition through every state: Voting → WaitingForVotingTransfer → ValidatorVoting → SucceededFor → ExecutedFor.",
+  "agents": [
+    { "alias": "P",  "role": "Proposer",   "wallet": "AGENT_PK_1" },
+    { "alias": "V1", "role": "Validator1", "wallet": "AGENT_PK_6" },
+    { "alias": "V2", "role": "Validator2", "wallet": "AGENT_PK_7" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "modify_dao_profile",
+        "title": "S07 full lifecycle marker",
+        "description": "Phase 2 swarm — full execute path",
+        "newDaoDescription": "Sentinel — S07 marker 2026-04-29",
+        "category": "DAO Profile",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "createdProp"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_vote_build_move_to_validators",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": true,
+      "captureAs": "moveToVal"
+    },
+    {
+      "step": 3,
+      "agent": "V1",
+      "tool": "dexe_vote_build_validator_vote",
+      "args": {
+        "govValidators": "{{dao.validators}}",
+        "proposalId": "{{createdProp.proposalId}}",
+        "scope": "external",
+        "isVoteFor": true,
+        "amount": "1000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "v1Vote"
+    },
+    {
+      "step": 4,
+      "agent": "V2",
+      "tool": "dexe_vote_build_validator_vote",
+      "args": {
+        "govValidators": "{{dao.validators}}",
+        "proposalId": "{{createdProp.proposalId}}",
+        "scope": "external",
+        "isVoteFor": true,
+        "amount": "1000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "v2Vote"
+    },
+    {
+      "step": 5,
+      "agent": "P",
+      "tool": "dexe_vote_build_execute",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": true,
+      "captureAs": "executed"
+    },
+    {
+      "step": 6,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{createdProp.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "finalState"
+    }
+  ],
+  "successCriteria": [
+    { "id": "executed", "check": "finalState.state == 'ExecutedFor'" }
+  ]
+}

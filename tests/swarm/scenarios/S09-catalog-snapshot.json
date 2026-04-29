@@ -1,0 +1,43 @@
+{
+  "id": "S09-catalog-snapshot",
+  "title": "Introspection snapshot: proposal catalog, contract list, gov-contract types",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Tool-surface coverage. None of these reads touch DAO state; they validate that the introspection tools return well-formed data and that the generic MCP fallback handles bare-arg-less reads.",
+  "agents": [
+    { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_catalog",
+      "args": {},
+      "broadcast": false,
+      "captureAs": "catalog"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_list_contracts",
+      "args": {},
+      "broadcast": false,
+      "captureAs": "contracts"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_list_gov_contract_types",
+      "args": {},
+      "broadcast": false,
+      "captureAs": "govTypes"
+    }
+  ],
+  "successCriteria": [
+    { "id": "catalog-non-empty", "check": "catalog.proposalTypes.length >= 33" },
+    { "id": "contracts-listed", "check": "contracts.length > 0" }
+  ]
+}
