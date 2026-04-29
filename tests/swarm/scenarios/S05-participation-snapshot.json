@@ -1,0 +1,68 @@
+{
+  "id": "S05-participation-snapshot",
+  "title": "Participation snapshot: settings, treasury, distribution, staking reads",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Read-only sweep of the participation surface: governance settings, treasury balance, distribution status, staking info. Validates the read tools return well-formed structured data on Glacier and exercises the generic MCP fallback dispatcher across multiple tools.",
+  "agents": [
+    { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" },
+    { "alias": "B", "role": "Voter2/Delegator", "wallet": "AGENT_PK_3" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_read_settings",
+      "args": { "govPool": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "settings"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_read_treasury",
+      "args": { "holder": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "treasury"
+    },
+    {
+      "step": 3,
+      "agent": "A",
+      "tool": "dexe_read_gov_state",
+      "args": { "govPool": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "govState"
+    },
+    {
+      "step": 4,
+      "agent": "A",
+      "tool": "dexe_read_user_activity",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:A:address}}" },
+      "broadcast": false,
+      "captureAs": "activityA"
+    },
+    {
+      "step": 5,
+      "agent": "B",
+      "tool": "dexe_read_user_activity",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:B:address}}" },
+      "broadcast": false,
+      "captureAs": "activityB"
+    },
+    {
+      "step": 6,
+      "agent": "A",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "1" },
+      "broadcast": false,
+      "captureAs": "p1State"
+    }
+  ],
+  "successCriteria": [
+    { "id": "settings-shape", "check": "settings has duration, quorum, executionDelay" },
+    { "id": "p1-executed", "check": "p1State.state == 'ExecutedFor' (the original smoke proposal)" }
+  ]
+}

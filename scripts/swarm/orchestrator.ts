@@ -569,6 +569,50 @@ async function broadcastTxPayloads(
 
 const LATEST_PROPOSAL_ID_ABI = ["function latestProposalId() view returns (uint256)"] as const;
 
+/** Generic MCP fallback dispatcher. Used when no inline dispatcher is
+ * registered for a tool name. Routes the call through the dexe-mcp stdio
+ * bridge, then handles the three return shapes uniformly:
+ *   - {payload: {to,data,value,chainId}}    → broadcast as one tx (build_*)
+ *   - {mode:"payloads", steps:[{payload}]}  → broadcast each in order (composite)
+ *   - anything else                          → returned as captured result
+ */
+function mcpFallbackDispatcher(toolName: string): Dispatcher {
+  return async (args, { agentWallet, provider }) => {
+    const result = (await mcpCall(toolName, args)) as
+      | { payload?: { to: string; data: string; value?: string; chainId?: number } }
+      | { mode?: string; steps?: Array<{ skipped: boolean; payload?: { to: string; data: string; value: string; chainId: number } }> }
+      | Record<string, unknown>
+      | null;
+    if (result && typeof result === "object" && "payload" in result && (result as { payload: unknown }).payload) {
+      // build_* shape — return as-is so executeStep's broadcast wrapper picks it up.
+      return result;
+    }
+    if (
+      result &&
+      typeof result === "object" &&
+      "mode" in result &&
+      (result as { mode?: string }).mode === "payloads" &&
+      Array.isArray((result as { steps?: unknown[] }).steps)
+    ) {
+      const steps = (result as { steps: NonNullable<ProposalCreateMcpResult["steps"]> }).steps;
+      const txHashes = await broadcastTxPayloads(steps, agentWallet);
+      // Best-effort proposalId capture if a govPool arg is present.
+      let proposalId: string | undefined;
+      const gp = (args as { govPool?: string }).govPool;
+      if (gp) {
+        try {
+          const c = new Contract(gp, LATEST_PROPOSAL_ID_ABI as unknown as string[], provider);
+          proposalId = (await c.latestProposalId()).toString();
+        } catch {
+          /* contract may not be a GovPool; ignore */
+        }
+      }
+      return { ...result, txHashes, proposalId };
+    }
+    return result;
+  };
+}
+
 // ---------------------------------------------------------------------------
 
 async function runScenario(
@@ -669,15 +713,7 @@ async function runScenario(
       return;
     }
 
-    const dispatcher = DISPATCHERS[step.tool];
-    if (!dispatcher) {
-      log.status = "fail";
-      log.error = `No dispatcher registered for tool ${step.tool}`;
-      console.log(`    ${RED}✗${RESET} ${tag}step ${step.step} ${step.agent} → ${step.tool}  ${RED}(no dispatcher)${RESET}`);
-      appendFileSync(stateFile, JSON.stringify(log) + "\n");
-      stepsLog.push(log);
-      return;
-    }
+    const dispatcher: Dispatcher = DISPATCHERS[step.tool] ?? mcpFallbackDispatcher(step.tool);
 
     const walletInfo = wallets.get(step.agent);
     if (!walletInfo) {

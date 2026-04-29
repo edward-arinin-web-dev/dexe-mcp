@@ -1,0 +1,147 @@
+{
+  "id": "S06-undelegate-mid-vote",
+  "title": "Undelegate during a live vote: A delegates to B, B votes, A pulls back; weight recomputes",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": ["S00-reset"],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Validates that GovUserKeeper recomputes B's voting weight when A undelegates while a proposal is still in Voting. A delegates to B before the proposal exists; B votes (locking weight); A undelegates after the vote is cast.",
+  "agents": [
+    { "alias": "A", "role": "Delegator", "wallet": "AGENT_PK_3" },
+    { "alias": "B", "role": "Voter",     "wallet": "AGENT_PK_4" },
+    { "alias": "P", "role": "Proposer",  "wallet": "AGENT_PK_1" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_vote_build_erc20_approve",
+      "args": {
+        "token": "{{firstAllowlistedToken}}",
+        "spender": "{{dao.userKeeper}}",
+        "amount": "10000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "approveA"
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_vote_build_deposit",
+      "args": { "govPool": "{{dao}}", "amount": "10000000000000000000000", "nftIds": [] },
+      "broadcast": true,
+      "captureAs": "depositA"
+    },
+    {
+      "step": 3,
+      "agent": "B",
+      "tool": "dexe_vote_build_erc20_approve",
+      "args": {
+        "token": "{{firstAllowlistedToken}}",
+        "spender": "{{dao.userKeeper}}",
+        "amount": "5000000000000000000000"
+      },
+      "broadcast": true,
+      "captureAs": "approveB"
+    },
+    {
+      "step": 4,
+      "agent": "B",
+      "tool": "dexe_vote_build_deposit",
+      "args": { "govPool": "{{dao}}", "amount": "5000000000000000000000", "nftIds": [] },
+      "broadcast": true,
+      "captureAs": "depositB"
+    },
+    {
+      "step": 5,
+      "agent": "A",
+      "tool": "dexe_vote_build_delegate",
+      "args": {
+        "govPool": "{{dao}}",
+        "delegatee": "{{agent:B:address}}",
+        "amount": "8000000000000000000000",
+        "nftIds": []
+      },
+      "broadcast": true,
+      "captureAs": "delegateAtoB"
+    },
+    {
+      "step": 6,
+      "agent": "B",
+      "tool": "dexe_vote_user_power",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:B:address}}" },
+      "broadcast": false,
+      "captureAs": "powerBPre",
+      "comment": "Before B votes: should see Personal=5k own + Micropool=8k delegated incoming"
+    },
+    {
+      "step": 7,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "modify_dao_profile",
+        "title": "S06 mid-vote undelegation harness",
+        "description": "Phase 2 swarm: triggers a Voting-state proposal so B can vote mid-flight",
+        "newDaoDescription": "Glacier Cooperative — S06 marker 2026-04-29",
+        "category": "DAO Profile",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "createdProp"
+    },
+    {
+      "step": 8,
+      "agent": "B",
+      "tool": "dexe_vote_build_vote",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalId": "{{createdProp.proposalId}}",
+        "isVoteFor": true,
+        "amount": "5000000000000000000000",
+        "nftIds": []
+      },
+      "broadcast": true,
+      "captureAs": "voteB",
+      "comment": "B votes with own 5k Personal only; the 8k delegated from A is held separately by Micropool and would need a delegate-vote tool"
+    },
+    {
+      "step": 9,
+      "agent": "A",
+      "tool": "dexe_vote_build_undelegate",
+      "args": {
+        "govPool": "{{dao}}",
+        "delegatee": "{{agent:B:address}}",
+        "amount": "8000000000000000000000",
+        "nftIds": []
+      },
+      "broadcast": true,
+      "captureAs": "undelAB",
+      "comment": "Undelegate while proposal is still in Voting state"
+    },
+    {
+      "step": 10,
+      "agent": "B",
+      "tool": "dexe_vote_user_power",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:B:address}}" },
+      "broadcast": false,
+      "captureAs": "powerBPost",
+      "comment": "After undelegate: B's Micropool balance should drop back to 0; Personal still shows the locked 5k"
+    }
+  ],
+  "successCriteria": [
+    {
+      "id": "B-micropool-drops-to-zero",
+      "check": "powerBPost.power.MicropoolVote.tokenBalance == '0'"
+    },
+    {
+      "id": "B-personal-still-locked",
+      "check": "powerBPost.power.PersonalVote shows 5000e18 of locked deposit"
+    },
+    {
+      "id": "proposal-stays-in-voting",
+      "check": "dexe_proposal_state(createdProp.proposalId) returns 'Voting'"
+    }
+  ]
+}

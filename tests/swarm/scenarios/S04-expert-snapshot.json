@@ -1,0 +1,52 @@
+{
+  "id": "S04-expert-snapshot",
+  "title": "Expert state snapshot: read_expert_status across agents + read_dao_experts list",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Read-only verification of the expert subsystem. Confirms no agent is currently an expert and the DAO's expert list is empty. Does not exercise apply_to_dao because that path needs a passing proposal which requires more voting power than the agent pool holds.",
+  "agents": [
+    { "alias": "A", "role": "Expert/Applicant", "wallet": "AGENT_PK_8" },
+    { "alias": "B", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" },
+    { "alias": "C", "role": "Voter2/Delegator", "wallet": "AGENT_PK_3" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_read_expert_status",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:A:address}}" },
+      "broadcast": false,
+      "captureAs": "expertA"
+    },
+    {
+      "step": 2,
+      "agent": "B",
+      "tool": "dexe_read_expert_status",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:B:address}}" },
+      "broadcast": false,
+      "captureAs": "expertB"
+    },
+    {
+      "step": 3,
+      "agent": "C",
+      "tool": "dexe_read_expert_status",
+      "args": { "govPool": "{{dao}}", "user": "{{agent:C:address}}" },
+      "broadcast": false,
+      "captureAs": "expertC"
+    },
+    {
+      "step": 4,
+      "agent": "A",
+      "tool": "dexe_read_dao_experts",
+      "args": { "govPool": "{{dao}}" },
+      "broadcast": false,
+      "captureAs": "experts"
+    }
+  ],
+  "successCriteria": [
+    { "id": "no-experts-yet", "check": "expertA/B/C all return isExpert: false; experts.length == 0" }
+  ]
+}
