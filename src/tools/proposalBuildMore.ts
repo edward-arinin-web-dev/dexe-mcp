@@ -184,8 +184,8 @@ function registerChangeVotingSettings(server: McpServer): void {
         const action = { executor: govSettings, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Change Voting Settings",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "changeSettings",
           isMeta: false,
           changes: {
             proposedChanges: { mode: method, settingsIds, settings },
@@ -247,8 +247,8 @@ function registerManageValidators(server: McpServer): void {
         const action = { executor: govValidators, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Manage Validators",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "changeValidators",
           isMeta: false,
           changes: {
             proposedChanges: { validators: changes },
@@ -307,8 +307,8 @@ function registerAddExpert(server: McpServer): void {
         const action = { executor: expertNftContract, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: scope === "global" ? "Add Global Expert" : "Add Local Expert",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: scope === "global" ? "globalExpert" : "localExpert",
           isMeta: false,
           changes: {
             proposedChanges: { scope, nominatedUser, expertNftContract, uri },
@@ -361,8 +361,8 @@ function registerRemoveExpert(server: McpServer): void {
         const action = { executor: expertNftContract, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: scope === "global" ? "Remove Global Expert" : "Remove Local Expert",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: scope === "global" ? "globalExpertRemoval" : "localExpertRemoval",
           isMeta: false,
           changes: {
             proposedChanges: { scope, nominatedUser, expertNftContract },
@@ -421,8 +421,8 @@ function registerWithdrawTreasury(server: McpServer): void {
         const action = { executor: govPool, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Withdraw from Treasury",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "withdrawDeposit",
           isMeta: false,
           changes: {
             proposedChanges: { receiver, amount, nftIds },
@@ -483,8 +483,8 @@ function registerDelegateToExpert(server: McpServer): void {
         const action = { executor: govPool, value, data };
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Delegate Tokens to Expert",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "delegateTokensToExpert",
           isMeta: false,
           changes: {
             proposedChanges: { expert, amount, nftIds, value },
@@ -543,8 +543,8 @@ function registerRevokeFromExpert(server: McpServer): void {
         const action = { executor: govPool, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Revoke Tokens from Expert",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "revokeTokensFromExpert",
           isMeta: false,
           changes: {
             proposedChanges: { expert, amount, nftIds },

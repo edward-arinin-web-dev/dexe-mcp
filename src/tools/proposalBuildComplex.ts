@@ -162,8 +162,8 @@ function registerTokenDistribution(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Token Distribution",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "tokenDistribution",
           isMeta: false,
           changes: {
             proposedChanges: { tokenAddress: token, tokenAmount: amount, proposalId },
@@ -266,8 +266,8 @@ function registerTokenSale(server: McpServer): void {
         actions.push({ executor: tokenSaleProposal, value: "0", data });
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Token Sale",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "tokenSale",
           isMeta: false,
           changes: {
             proposedChanges: { tier },
@@ -317,8 +317,8 @@ function registerTokenSaleRecover(server: McpServer): void {
         const actions: Action[] = [{ executor: tokenSaleProposal, value: "0", data }];
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Recover Token Sale",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "recoverTokenSale",
           isMeta: false,
           changes: {
             proposedChanges: { tierIds },
@@ -393,8 +393,8 @@ function registerCreateStakingTier(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Create Staking",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "createStakingTier",
           isMeta: false,
           changes: {
             proposedChanges: {
@@ -451,8 +451,8 @@ function registerChangeMathModel(server: McpServer): void {
         const actions: Action[] = [{ executor: govPool, value: "0", data }];
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Change Math Model",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "mathModel",
           isMeta: false,
           changes: {
             proposedChanges: { newVotePower },
@@ -504,8 +504,8 @@ function registerModifyDaoProfile(server: McpServer): void {
         const actions: Action[] = [{ executor: govPool, value: "0", data }];
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Modify DAO Profile",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "daoProfileModification",
           isMeta: true,
           changes: {
             proposedChanges: { descriptionUrl: newDescriptionURL },
@@ -576,8 +576,8 @@ function registerBlacklistManagement(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Blacklist Management",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "blacklistManagement",
           isMeta: false,
           changes: {
             proposedChanges: { addBlacklist: addAddresses, removeBlacklist: removeAddresses },
@@ -683,8 +683,8 @@ function registerRewardMultiplier(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Reward Multiplier",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "rewardMultiplier",
           isMeta: false,
           changes: {
             proposedChanges: { ...input, mode },
@@ -756,8 +756,8 @@ function registerApplyToDao(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Apply to DAO",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "applyToDao",
           isMeta: false,
           changes: {
             proposedChanges: { receiver, tokenAmount: amount, tokenAddress: token },
@@ -862,8 +862,8 @@ function registerNewProposalType(server: McpServer): void {
         ];
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "New Proposal Type",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "createProposalType",
           isMeta: false,
           changes: {
             proposedChanges: { settings, executors, newSettingId },

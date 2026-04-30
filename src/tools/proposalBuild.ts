@@ -386,11 +386,14 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "Token Transfer",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "tokenTransfer",
           isMeta: false,
           changes: {
-            proposedChanges: { token: isNative ? ZeroAddress : token, recipient, amount, isNative },
+            proposedChanges: {
+              data: [{ tokenAmount: amount, receiverAddress: recipient }],
+              tokenAddress: isNative ? ZeroAddress : token,
+            },
             currentChanges: {},
           },
         };

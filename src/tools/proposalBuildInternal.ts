@@ -113,8 +113,8 @@ function registerChangeValidatorBalances(server: McpServer): void {
         const data = iface.encodeFunctionData("changeBalances", [balances, users]);
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "ValidatorBalances",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "changeValidatorBalances",
           changes: {
             proposedChanges: { validators: changes },
             currentChanges: {},
@@ -167,8 +167,8 @@ function registerChangeValidatorSettings(server: McpServer): void {
         ]);
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "ValidatorSettings",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "changeValidatorSettings",
           changes: {
             proposedChanges: { duration, executionDelay, quorum },
             currentChanges: {},
@@ -223,8 +223,8 @@ function registerMonthlyWithdraw(server: McpServer): void {
         const data = iface.encodeFunctionData("monthlyWithdraw", [tokens, amounts, destination]);
         const metadata = {
           proposalName,
-          proposalDescription,
-          category: "MonthlyWithdraw",
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "monthlyWithdraw",
           changes: {
             proposedChanges: { withdrawals, destination },
             currentChanges: {},
@@ -264,8 +264,8 @@ function registerOffchainInternalProposal(server: McpServer): void {
     }) => {
       const metadata = {
         proposalName,
-        proposalDescription,
-        category: "Offchain",
+        proposalDescription: JSON.stringify(proposalDescription),
+        category: "offchainInternalProposal",
       };
       return internalResult({
         metadata,
