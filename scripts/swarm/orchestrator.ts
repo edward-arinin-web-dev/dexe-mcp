@@ -975,6 +975,13 @@ async function main() {
   }
 
   const failed = results.filter((r) => !r.pass).length;
+  const passed = results.length - failed;
+  const reportPath = resolve(`tests/reports/swarm/${runId}/run.md`);
+  // Single machine-greppable line for nightly cron / webhook posters.
+  // Format: SWARM <runId> <pass>/<total> <mode> <chainTag> <reportPath>
+  console.log(
+    `SWARM ${runId} ${passed}/${results.length} ${args.dryRun ? "dry-run" : "broadcast"} ${chainTag} ${reportPath}`,
+  );
   if (failed > 0) {
     console.log(`${RED}${failed}/${results.length} scenario(s) failed.${RESET}`);
     process.exit(1);
