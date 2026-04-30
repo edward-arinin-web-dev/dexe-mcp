@@ -13,3 +13,33 @@ coverage/
 # Swarm test runtime artifacts
 tests/swarm/state/
 tests/reports/swarm/
+
+# Frontend / browser-capture experiment artifacts (kept local — never shipped).
+# Adding broad globs here so future captures don't get accidentally committed.
+tests/reports/frontend-*
+tests/reports/snapshot-*
+tests/reports/full-dao-*
+tests/reports/compat-*
+tests/reports/mcp-calldata-*
+tests/reports/compare*.mjs
+tests/reports/*.png
+tests/reports/*.hex
+tests/reports/repo
+
+# Local DAO deploy receipts and avatar staging (one-off; never ship).
+*-deploy-tx.json
+avatar-*.png
+avatar-*.jpeg
+avatar.jpeg
+.tmp-*
+
+# Local request/response captures + per-run reports (testing artifacts, never ship).
+tests/reports/pinata-*
+tests/reports/rpc-*
+tests/reports/report-*.md
+tests/reports/latest.md
+
+# Local-only Claude Code workspace + project-specific overrides
+.claude/
+CLAUDE.md
+.env.example

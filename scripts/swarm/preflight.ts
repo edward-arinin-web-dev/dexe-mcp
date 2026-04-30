@@ -28,9 +28,12 @@ interface RoleSpec {
   minToken: bigint;
 }
 
-const TWENTY_K = 20_000n * 10n ** 18n;
-const FIFTY_K = 50_000n * 10n ** 18n;
+// Mirrors fund-pool.ts. Lifecycle scenarios on the testnet fixture DAOs need
+// only a few thousand tokens to satisfy quorum; over-sizing exhausts the
+// funder's GLCR pool with no path to refill without re-minting the test token.
 const FIVE_K = 5_000n * 10n ** 18n;
+const TWO_K = 2_000n * 10n ** 18n;
+const ONE_K = 1_000n * 10n ** 18n;
 const ZERO = 0n;
 
 // BSC gas is cheap (~0.1 gwei, sub-cent per typical tx). Thresholds tuned for
@@ -40,14 +43,14 @@ const FIVE_MILLI_BNB = 5_000_000_000_000_000n;      // ~$3.00 — covers DAO dep
 const FIFTY_MILLI_BNB = 50_000_000_000_000_000n;    // ~$30   — funder reserve
 
 const POOL: RoleSpec[] = [
-  { envKey: "AGENT_PK_1", role: "Proposer", minBnb: FIVE_MILLI_BNB, minToken: FIFTY_K },
-  { envKey: "AGENT_PK_2", role: "Voter1/Delegator", minBnb: TWO_MILLI_BNB, minToken: TWENTY_K },
-  { envKey: "AGENT_PK_3", role: "Voter2/Delegator", minBnb: TWO_MILLI_BNB, minToken: TWENTY_K },
-  { envKey: "AGENT_PK_4", role: "Voter3/Delegator", minBnb: TWO_MILLI_BNB, minToken: TWENTY_K },
-  { envKey: "AGENT_PK_5", role: "Voter4/Delegator", minBnb: TWO_MILLI_BNB, minToken: TWENTY_K },
+  { envKey: "AGENT_PK_1", role: "Proposer", minBnb: FIVE_MILLI_BNB, minToken: FIVE_K },
+  { envKey: "AGENT_PK_2", role: "Voter1/Delegator", minBnb: TWO_MILLI_BNB, minToken: TWO_K },
+  { envKey: "AGENT_PK_3", role: "Voter2/Delegator", minBnb: TWO_MILLI_BNB, minToken: TWO_K },
+  { envKey: "AGENT_PK_4", role: "Voter3/Delegator", minBnb: TWO_MILLI_BNB, minToken: TWO_K },
+  { envKey: "AGENT_PK_5", role: "Voter4/Delegator", minBnb: TWO_MILLI_BNB, minToken: TWO_K },
   { envKey: "AGENT_PK_6", role: "Validator1", minBnb: TWO_MILLI_BNB, minToken: ZERO },
   { envKey: "AGENT_PK_7", role: "Validator2", minBnb: TWO_MILLI_BNB, minToken: ZERO },
-  { envKey: "AGENT_PK_8", role: "Expert/Applicant", minBnb: TWO_MILLI_BNB, minToken: FIVE_K },
+  { envKey: "AGENT_PK_8", role: "Expert/Applicant", minBnb: TWO_MILLI_BNB, minToken: ONE_K },
   { envKey: "AGENT_FUNDER_PK", role: "Funder", minBnb: FIFTY_MILLI_BNB, minToken: ZERO },
 ];
 

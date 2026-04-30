@@ -235,13 +235,20 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
           first,
           skip,
         });
-        const voters = data.proposalInteractions.map((pi) => ({
-          voter: pi.voter?.voter?.id ?? pi.voter?.id ?? "",
-          interactionType: pi.interactionType,
-          totalVote: pi.totalVote,
-          timestamp: pi.timestamp,
-          transactionHash: pi.hash,
-        }));
+        const voters = data.proposalInteractions.map((pi) => {
+          // Voter entity id = `<userAddr><poolAddr>` (40+40 hex, no separator).
+          // Slice the user address out of the composite, falling back to a
+          // nested user id if a future schema exposes one.
+          const raw = pi.voter?.voter?.id ?? pi.voter?.id ?? "";
+          const userAddr = raw.length >= 42 ? raw.slice(0, 42) : raw;
+          return {
+            voter: userAddr,
+            interactionType: pi.interactionType,
+            totalVote: pi.totalVote,
+            timestamp: pi.timestamp,
+            transactionHash: pi.hash,
+          };
+        });
         const structured = { govPool, proposalId: id, voters };
         return {
           content: [

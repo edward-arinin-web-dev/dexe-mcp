@@ -210,6 +210,25 @@ Output:
 
 If both files are written and exit code is 0, Phase 0 harness is green.
 
+### Closing the lifecycle (S07)
+
+`S07-full-lifecycle-execute` stops at `SucceededFor` because the actual `execute()`
+call is interaction-flaky inside a chained sweep — the validator vote tx and the
+follow-up state read often race against the chain delay. The success criteria
+explicitly accept `SucceededFor` / `Locked` / `ExecutedFor`.
+
+To close the lifecycle (drive the proposal to `ExecutedFor`) **after** S07 has
+landed a proposal in `SucceededFor`, run the one-shot helper:
+
+```bash
+node scripts/swarm/one-shot-execute.mjs <govPool> <proposalId>
+```
+
+It refuses to send unless the state is in `[SucceededFor, SucceededAgainst, Locked]`,
+caps `wait()` at 90 s, and prints the post-execute state. Validated 2026-04-30
+against Sentinel proposal 33 — `SucceededFor` → `ExecutedFor`, tx
+`0x309d2ec42eac1574061abf49b7aaf50c5c8a825a004be2cda0a5980e3e541e69`.
+
 ---
 
 ## When Phase 1 lands

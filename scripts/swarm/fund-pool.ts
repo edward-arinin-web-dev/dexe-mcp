@@ -37,9 +37,15 @@ interface RoleSpec {
   targetToken: bigint;
 }
 
-const TWENTY_K = 20_000n * 10n ** 18n;
-const FIFTY_K = 50_000n * 10n ** 18n;
+// Token targets sized for the BSC-testnet fixture DAOs (Glacier 50% quorum,
+// Sentinel 5% quorum) — meeting quorum on the small fixtures requires only a
+// few thousand tokens, not tens of thousands. Earlier numbers (50K/20K/5K)
+// exhausted the funder's GLCR pool in a single sweep with no path to refill
+// without re-minting the test token. Per-role thresholds in preflight.ts
+// MUST mirror these.
 const FIVE_K = 5_000n * 10n ** 18n;
+const TWO_K = 2_000n * 10n ** 18n;
+const ONE_K = 1_000n * 10n ** 18n;
 const ZERO = 0n;
 
 // Match preflight.ts thresholds. BSC mainnet: 0.1 gwei × 200k gas ≈ sub-cent.
@@ -47,14 +53,14 @@ const TWO_MILLI_BNB = 2_000_000_000_000_000n;
 const FIVE_MILLI_BNB = 5_000_000_000_000_000n;
 
 const POOL: RoleSpec[] = [
-  { envKey: "AGENT_PK_1", role: "Proposer", targetBnb: FIVE_MILLI_BNB, targetToken: FIFTY_K },
-  { envKey: "AGENT_PK_2", role: "Voter1", targetBnb: TWO_MILLI_BNB, targetToken: TWENTY_K },
-  { envKey: "AGENT_PK_3", role: "Voter2", targetBnb: TWO_MILLI_BNB, targetToken: TWENTY_K },
-  { envKey: "AGENT_PK_4", role: "Voter3", targetBnb: TWO_MILLI_BNB, targetToken: TWENTY_K },
-  { envKey: "AGENT_PK_5", role: "Voter4", targetBnb: TWO_MILLI_BNB, targetToken: TWENTY_K },
+  { envKey: "AGENT_PK_1", role: "Proposer", targetBnb: FIVE_MILLI_BNB, targetToken: FIVE_K },
+  { envKey: "AGENT_PK_2", role: "Voter1", targetBnb: TWO_MILLI_BNB, targetToken: TWO_K },
+  { envKey: "AGENT_PK_3", role: "Voter2", targetBnb: TWO_MILLI_BNB, targetToken: TWO_K },
+  { envKey: "AGENT_PK_4", role: "Voter3", targetBnb: TWO_MILLI_BNB, targetToken: TWO_K },
+  { envKey: "AGENT_PK_5", role: "Voter4", targetBnb: TWO_MILLI_BNB, targetToken: TWO_K },
   { envKey: "AGENT_PK_6", role: "Validator1", targetBnb: TWO_MILLI_BNB, targetToken: ZERO },
   { envKey: "AGENT_PK_7", role: "Validator2", targetBnb: TWO_MILLI_BNB, targetToken: ZERO },
-  { envKey: "AGENT_PK_8", role: "Expert", targetBnb: TWO_MILLI_BNB, targetToken: FIVE_K },
+  { envKey: "AGENT_PK_8", role: "Expert", targetBnb: TWO_MILLI_BNB, targetToken: ONE_K },
 ];
 
 interface Transfer {

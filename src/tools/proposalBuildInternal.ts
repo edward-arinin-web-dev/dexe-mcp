@@ -266,6 +266,10 @@ function registerOffchainInternalProposal(server: McpServer): void {
         proposalName,
         proposalDescription: JSON.stringify(proposalDescription),
         category: "offchainInternalProposal",
+        changes: {
+          proposedChanges: {},
+          currentChanges: {},
+        },
       };
       return internalResult({
         metadata,
