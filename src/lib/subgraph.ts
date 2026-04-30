@@ -29,22 +29,27 @@ export async function gqlRequest<T>(
   return body.data;
 }
 
-/** Ported from frontend `/src/gql/interactions.ts`. */
-export const VOTES_BY_PROPOSAL_QUERY = /* GraphQL */ `
-  query VotesByProposal($pool: Bytes!, $proposalId: BigInt!, $first: Int!, $skip: Int!) {
-    votes(
-      where: { pool: $pool, proposalId: $proposalId }
+/** Ported from frontend gov-pools subgraph `proposalInteractions` query. */
+export const PROPOSAL_INTERACTIONS_QUERY = /* GraphQL */ `
+  query ProposalInteractions($proposalId: String!, $first: Int!, $skip: Int!) {
+    proposalInteractions(
+      where: { proposal: $proposalId }
       first: $first
       skip: $skip
       orderBy: timestamp
       orderDirection: desc
     ) {
       id
-      voter
-      isVoteFor
-      totalRawVoted
+      hash
       timestamp
-      transactionHash
+      interactionType
+      totalVote
+      voter {
+        id
+        voter {
+          id
+        }
+      }
     }
   }
 `;

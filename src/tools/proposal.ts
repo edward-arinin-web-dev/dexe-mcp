@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
-import { gqlRequest, VOTES_BY_PROPOSAL_QUERY } from "../lib/subgraph.js";
+import { gqlRequest, PROPOSAL_INTERACTIONS_QUERY } from "../lib/subgraph.js";
 
 const GOV_POOL_READ_ABI = [
   "function getProposalState(uint256 proposalId) view returns (uint8)",
@@ -198,8 +198,8 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
         voters: z.array(
           z.object({
             voter: z.string(),
-            isVoteFor: z.boolean(),
-            totalRawVoted: z.string(),
+            interactionType: z.string(),
+            totalVote: z.string(),
             timestamp: z.string(),
             transactionHash: z.string(),
           }),
@@ -208,34 +208,46 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
     },
     async ({ govPool, proposalId, first = 50, skip = 0 }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
-      const url = ctx.config.subgraphInteractionsUrl;
+      const url = ctx.config.subgraphPoolsUrl;
       if (!url) {
         return errorResult(
-          "DEXE_SUBGRAPH_INTERACTIONS_URL is not set. Add it to the MCP env block (The Graph endpoint for DeXe interactions subgraph).",
+          "DEXE_SUBGRAPH_POOLS_URL is not set. Add it to the MCP env block (The Graph endpoint for DeXe pools subgraph).",
         );
       }
       const id = BigInt(proposalId as string).toString();
+      const num = Number(id);
+      const buf = new ArrayBuffer(4);
+      new DataView(buf).setUint32(0, num, true);
+      const leHex = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const compositeId = `${govPool.toLowerCase()}${leHex}`;
       try {
         const data = await gqlRequest<{
-          votes: Array<{
-            voter: string;
-            isVoteFor: boolean;
-            totalRawVoted: string;
+          proposalInteractions: Array<{
+            id: string;
+            hash: string;
             timestamp: string;
-            transactionHash: string;
+            interactionType: string;
+            totalVote: string;
+            voter: { id: string; voter: { id: string } };
           }>;
-        }>(url, VOTES_BY_PROPOSAL_QUERY, {
-          pool: govPool.toLowerCase(),
-          proposalId: id,
+        }>(url, PROPOSAL_INTERACTIONS_QUERY, {
+          proposalId: compositeId,
           first,
           skip,
         });
-        const structured = { govPool, proposalId: id, voters: data.votes };
+        const voters = data.proposalInteractions.map((pi) => ({
+          voter: pi.voter?.voter?.id ?? pi.voter?.id ?? "",
+          interactionType: pi.interactionType,
+          totalVote: pi.totalVote,
+          timestamp: pi.timestamp,
+          transactionHash: pi.hash,
+        }));
+        const structured = { govPool, proposalId: id, voters };
         return {
           content: [
             {
               type: "text" as const,
-              text: `Voters for proposal ${id} on ${govPool}: ${data.votes.length} returned (first=${first}, skip=${skip})`,
+              text: `Voters for proposal ${id} on ${govPool}: ${voters.length} returned (first=${first}, skip=${skip})`,
             },
           ],
           structuredContent: structured,
