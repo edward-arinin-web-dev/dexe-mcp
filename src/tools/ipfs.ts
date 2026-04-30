@@ -384,7 +384,7 @@ function registerCidInfo(server: McpServer, gateways: string[]): void {
       try {
         const info = parseCid(cid);
         const gatewayUrls = gateways.length
-          ? gateways.map((g) => `${g.replace(/\/$/, "")}/ipfs/${info.cid}`)
+          ? gateways.map((g) => `${g.replace(/\/+$/, "").replace(/\/ipfs$/, "")}/ipfs/${info.cid}`)
           : [];
         const structured = { ...info, gatewayUrls };
         return {

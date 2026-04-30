@@ -44,7 +44,8 @@ export async function fetchIpfs(
 
   for (const gw of cfg.gateways) {
     attempts++;
-    const url = `${gw.replace(/\/$/, "")}/ipfs/${cidStr}`;
+    const base = gw.replace(/\/+$/, "").replace(/\/ipfs$/, "");
+    const url = `${base}/ipfs/${cidStr}`;
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeout);
     try {
