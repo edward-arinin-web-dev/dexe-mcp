@@ -200,6 +200,33 @@ New file: `src/tools/subgraph.ts` (uses existing `src/lib/subgraph.ts` + 3 subgr
 
 ---
 
+## v0.3.0 — Composite tools + Swarm test harness (111 tools)
+
+### Composite + signing [x]
+- [x] `dexe_proposal_create` — full prerequisite handling (balance, approve, deposit, IPFS upload, `createProposalAndVote`); auto-broadcasts when `DEXE_PRIVATE_KEY` is set, else returns ordered `TxPayload` list
+- [x] `dexe_proposal_vote_and_execute` — vote + (optional) auto-execute, with `depositFirst`
+- [x] `dexe_tx_send` + `dexe_tx_status` — opt-in signer surface (env-gated)
+
+### Swarm harness — Phases 0–5 [x]
+- [x] Phase 0: orchestrator + scenario schema + 41 scenarios
+- [x] Phase 1: real MCP-stdio dispatch + role prompts + wallet semaphore
+- [x] Phase 2: full lifecycle scenarios (S07) + per-scenario prefund
+- [x] Phase 3: greppable summary line + run-report writer
+- [x] Phase 4: triage + fixer prompts (auto-fix loop bounded per CLAUDE.md)
+- [x] Phase 5: `nightly.sh` posts summary to webhook / gh issue, rotates 30-day-old reports, optional `SWARM_FIXER=1` opt-in
+
+### Validation [x]
+- [x] BSC testnet sweep (chain 97): 33/41 broadcast green (23 build-only + 10 read-only) + 41/41 dry-run green
+- [x] Proposal 33 on Sentinel: full lifecycle Voting → SucceededFor → ExecutedFor confirmed
+- [ ] BSC mainnet (chain 56) Stage B — blocked on `PoolFactory.deployGovPool` upstream revert + missing `SWARM_DAOS_MAINNET` / `SWARM_RPC_URL_MAINNET` / `SWARM_TOKENS_MAINNET` / `DEXE_BACKEND_API_URL` env
+
+### Bug fixes landed
+- [x] Bug #20 — `dexe_proposal_voters` switched to pools subgraph + composite ID (`poolAddr + uint32LE(proposalId)`)
+- [x] Bug #24 — frontend-canonical category slugs + `JSON.stringify(description)` on 17 builders
+- [x] IPFS gateway path normalization (`/ipfs/ipfs/<cid>` 404s on dedicated Pinata gateways)
+
+---
+
 ## Deferred (FUTURE.md)
 
 - Hardhat fork simulation (`dexe_simulate_vote`, originally Phase B)

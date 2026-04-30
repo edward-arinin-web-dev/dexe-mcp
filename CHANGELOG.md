@@ -10,9 +10,11 @@ End-to-end testnet validation. Every proposal-builder tool is now exercised by a
 - `scripts/swarm/orchestrator.ts` — scenario loader + dispatcher. Inline ethers dispatchers for the no-IPFS toolset (vote_user_power, read_delegation_map, build_undelegate, build_withdraw, build_withdraw_all, build_erc20_approve, build_deposit, build_delegate, build_vote). Generic MCP-stdio fallback (`mcpFallbackDispatcher`) routes anything else through the dexe-mcp child server, so adding a scenario for a new tool is JSON-only — no code changes.
 - Loop expansion (`spec.loop.over` × `appliesToSteps`), template engine (`{{dao}}`, `{{firstAllowlistedToken}}`, `{{firstAllowlistedDao}}`, `{{secondAllowlistedDao}}`, `{{dao.<helper>}}`, `{{agent:X:address}}`, `{{capture.path}}`, `{{capture.0.field}}`), `skipIf` evaluator with limited expressions, deferred-cascade for chained captures, wallet semaphore for parallel-safe broadcasts, per-scenario `prefund` hook that tops up agents from `AGENT_FUNDER_PK` before each scenario runs.
 - `scripts/swarm/preflight.ts` + `scripts/swarm/fund-pool.ts` — wallet-readiness check + token allowlist–enforced top-up. Hard-refuses to send to any non-pool address or any token not on the allowlist.
-- `scripts/swarm/nightly.sh` — Phase 5 cron scaffold (pull, preflight, sweep, tail report).
+- `scripts/swarm/nightly.sh` — Phase 5 cron runner. Pulls main, runs preflight + full sweep, tails the run report, posts the one-line summary to `SWARM_SUMMARY_WEBHOOK` and/or `SWARM_SUMMARY_ISSUE` (gh CLI), runs a triage stub on failure (with `SWARM_FIXER=1` opt-in for auto-fix), and rotates run-report dirs older than 30 days while keeping the latest 50.
+- `scripts/swarm/orchestrator.ts` emits a single greppable summary line after `writeReport`: `SWARM <runId> <pass>/<total> <mode> <chainTag> <reportPath>` — consumed by nightly.sh and any external poster.
+- `scripts/swarm/one-shot-execute.mjs` — closes a proposal lifecycle once it reaches `SucceededFor`. Polls + caps `wait()` at 90 s to avoid sandbox hangs.
 - 41 scenario JSONs covering: reset, delegation chain, validator pass / veto / full lifecycle, expert / participation / staking / validator / catalog / cross-DAO / multi-proposal-state read snapshots, cancel-vote, decode-and-introspect, build-only sanity for every external + internal proposal type from `dexe_proposal_catalog`.
-- Role prompts: `proposer`, `voter`, `delegator`, `reporter`, `triage`, `validator`, `expert`, plus `_shared.md` and the dao-personas fixture.
+- Role prompts: `proposer`, `voter`, `delegator`, `reporter`, `triage`, `validator`, `expert`, `fixer`, plus `_shared.md` and the dao-personas fixture. Fixer prompt encodes the CLAUDE.md auto-fix loop verbatim — branch `swarm-fix/<YYYY-MM-DD>`, never push to main, diff scope hard-bounded to `src/tools/`, `src/lib/`, `tests/swarm/`.
 
 **Composite + signing tools**
 - `dexe_proposal_create` — full prerequisite handling: balance check, ERC20 approve, deposit, IPFS metadata upload, `createProposalAndVote`. When `DEXE_PRIVATE_KEY` is set the tool signs and broadcasts; otherwise returns the ordered `TxPayload` list. Supports `proposalType: 'modify_dao_profile' | 'custom'`.
@@ -35,6 +37,7 @@ End-to-end testnet validation. Every proposal-builder tool is now exercised by a
 - **`STATE_NAMES` enum order** corrected (Defeated / Locked positions were swapped).
 - **Custom-proposal IPFS metadata** now includes `category`, `isMeta`, `proposedChanges`, `currentChanges`.
 - **Subgraph migration**: Studio URLs deprecated; switched to The Graph decentralized network with API key. Per-chain endpoints documented.
+- **IPFS gateway path normalization**: dedicated gateways configured with a trailing `/ipfs` (e.g. `https://<sub>.mypinata.cloud/ipfs`) no longer produce `/ipfs/ipfs/<cid>` 404s.
 
 ### Changed
 
