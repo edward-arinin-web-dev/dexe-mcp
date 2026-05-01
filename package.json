@@ -49,6 +49,7 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:compat": "node tests/compat/diff-otc.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm run build",
     "swarm:preflight": "tsx scripts/swarm/preflight.ts",
