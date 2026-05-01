@@ -1,0 +1,33 @@
+{
+  "id": "S45-otc-buyer-buy-native-build",
+  "title": "Build native-coin buy() via dexe_otc_buyer_buy (dryRun)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Phase B — exercises dexe_otc_buyer_buy native path in dryRun. ZeroAddress sentinel signals native BNB → no ERC20 approve, value=amount. Verifies the single buy() payload is returned with chainId, value, and the proof passed through (empty array for open tier).",
+  "agents": [{ "alias": "B", "role": "Proposer", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "B",
+      "tool": "dexe_otc_buyer_buy",
+      "args": {
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tierId": "1",
+        "tokenToBuyWith": "0x0000000000000000000000000000000000000000",
+        "amount": "100000000000000000",
+        "proof": [],
+        "dryRun": true,
+        "user": "{{agent:B:address}}"
+      },
+      "broadcast": false,
+      "captureAs": "buy"
+    }
+  ],
+  "successCriteria": [
+    { "id": "native-mode", "check": "buy.native == true and buy.preflight is null (no ERC20 read)" },
+    { "id": "single-payload", "check": "buy.steps length == 1 and the only step is a buy() TxPayload with value == amount and chainId == 97" }
+  ]
+}

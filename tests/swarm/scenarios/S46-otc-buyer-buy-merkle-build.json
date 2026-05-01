@@ -1,0 +1,37 @@
+{
+  "id": "S46-otc-buyer-buy-merkle-build",
+  "title": "Build ERC20 buy() with auto-derived merkle proof via dexe_otc_buyer_buy (dryRun)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Phase B — exercises dexe_otc_buyer_buy ERC20 path with `whitelistUsers` supplied. Tool builds the merkle tree from the list, finds the buyer's index, generates the proof, then emits an approve + buy payload pair. dryRun keeps preflight non-fatal so the scenario passes even when the buyer wallet has zero of the payment token.",
+  "agents": [{ "alias": "B", "role": "Proposer", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "B",
+      "tool": "dexe_otc_buyer_buy",
+      "args": {
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tierId": "2",
+        "tokenToBuyWith": "{{firstAllowlistedToken}}",
+        "amount": "10000000000000000000",
+        "whitelistUsers": [
+          "{{agent:B:address}}",
+          "0x4444444444444444444444444444444444444444",
+          "0x5555555555555555555555555555555555555555"
+        ],
+        "dryRun": true,
+        "user": "{{agent:B:address}}"
+      },
+      "broadcast": false,
+      "captureAs": "buy"
+    }
+  ],
+  "successCriteria": [
+    { "id": "proof-derived", "check": "buy.proofLength > 0 (merkle proof generated for the buyer's address)" },
+    { "id": "approve-then-buy", "check": "buy.steps last 2 entries are ERC20.approve(...) followed by TokenSaleProposal.buy(tier=2, ERC20, amount). Both have chainId == 97." }
+  ]
+}

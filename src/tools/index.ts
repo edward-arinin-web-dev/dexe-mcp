@@ -23,6 +23,7 @@ import { registerSubgraphTools } from "./subgraph.js";
 import { registerTxTools } from "./txSend.js";
 import { registerFlowTools } from "./flow.js";
 import { registerMerkleTools } from "./merkle.js";
+import { registerOtcTools } from "./otc.js";
 import { SignerManager } from "../lib/signer.js";
 
 /**
@@ -57,4 +58,5 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   const signer = new SignerManager(config);
   registerTxTools(server, config, signer);
   registerFlowTools(server, ctx, signer);
+  registerOtcTools(server, ctx, signer);
 }
