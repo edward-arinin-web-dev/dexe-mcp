@@ -1,0 +1,61 @@
+{
+  "id": "S42-otc-multi-whitelist-build",
+  "title": "Build OTC multi-tier proposal: Tier-A Open + Tier-B plain Whitelist (auto-appended addToWhitelist)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Phase A — exercises dexe_proposal_build_token_sale_multi with plain `Whitelist` participation. Plain whitelist tiers must auto-append an addToWhitelist({tierId, users, uri}) action targeting the new tier id (latestTierId + index + 1). Tier-A is open so the addToWhitelist call must reference Tier-B's id only.",
+  "agents": [{ "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_build_token_sale_multi",
+      "args": {
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "latestTierId": "0",
+        "tiers": [
+          {
+            "name": "S42 Tier-A Open",
+            "totalTokenProvided": "750000000000000000000",
+            "saleStartTime": "1750000000",
+            "saleEndTime": "1760000000",
+            "saleTokenAddress": "{{firstAllowlistedToken}}",
+            "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
+            "exchangeRates": ["1000000000000000000"]
+          },
+          {
+            "name": "S42 Tier-B Whitelist",
+            "totalTokenProvided": "250000000000000000000",
+            "saleStartTime": "1750000000",
+            "saleEndTime": "1760000000",
+            "saleTokenAddress": "{{firstAllowlistedToken}}",
+            "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
+            "exchangeRates": ["1500000000000000000"],
+            "participation": [
+              {
+                "type": "Whitelist",
+                "users": [
+                  "0x4444444444444444444444444444444444444444",
+                  "0x5555555555555555555555555555555555555555"
+                ],
+                "uri": "ipfs://Qm-S42-whitelist-tierB"
+              }
+            ]
+          }
+        ],
+        "proposalName": "S42 OTC multi-tier plain-whitelist build",
+        "proposalDescription": "Phase A swarm — Open + plain Whitelist auto-addToWhitelist"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [
+    { "id": "three-actions", "check": "built.actions length == 3 (1 approve + createTiers + addToWhitelist auto-appended for Tier-B)" },
+    { "id": "addtowhitelist-selector", "check": "actions[2].data starts with 0xce6c2d91 (addToWhitelist selector) and references tierId 2 (latestTierId 0 + index 1 + 1)" },
+    { "id": "merkle-roots-empty", "check": "built.metadata.changes.proposedChanges.derivedMerkleRoots length == 0 (no merkle tier in this scenario)" }
+  ]
+}

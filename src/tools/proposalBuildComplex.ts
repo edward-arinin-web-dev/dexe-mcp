@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { Interface, isAddress, ZeroAddress } from "ethers";
+import { AbiCoder, Interface, isAddress, ZeroAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
+import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 
 /**
  * Phase 3c — 10 complex named wrappers. Same contract as 3a/3b:
@@ -21,10 +22,66 @@ const DISTRIBUTION_PROPOSAL_ABI = [
   "function execute(uint256 proposalId, address token, uint256 amount)",
 ] as const;
 
+// Canonical TokenSaleProposal signatures — verified against
+// `dexe_get_methods TokenSaleProposal` (selectors createTiers=0x6a6effda,
+// addToWhitelist=0xce6c2d91, recover=0xc59b695a) and the interface at
+// `contracts/interfaces/gov/proposals/ITokenSaleProposal.sol`.
 const TOKEN_SALE_PROPOSAL_ABI = [
-  "function createTiers(tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint256 saleStartTime, uint256 saleEndTime, address saleTokenAddress, uint256 claimLockDuration, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 cliffPeriod, uint256 unlockStep, uint256 vestingDuration, uint256 vestingPercentage) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
+  "function createTiers(tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint64 saleStartTime, uint64 saleEndTime, uint64 claimLockDuration, address saleTokenAddress, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 vestingPercentage, uint64 vestingDuration, uint64 cliffPeriod, uint64 unlockStep) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
+  "function addToWhitelist(tuple(uint256 tierId, address[] users, string uri)[] requests)",
   "function recover(uint256[] tierIds)",
 ] as const;
+
+// `ParticipationDetails.data` payload encodings. Mirrors the per-type
+// branching in `TokenSaleProposalCreate.sol::_setParticipationInfo` —
+// sizes/shapes are checked on-chain, so getting these wrong reverts.
+type ParticipationSpec =
+  | { type: "DAOVotes"; requiredVotes: string }
+  | { type: "Whitelist"; users: readonly string[]; uri?: string }
+  | { type: "BABT" }
+  | { type: "TokenLock"; token: string; amount: string }
+  | { type: "NftLock"; nft: string; amount: string }
+  | { type: "MerkleWhitelist"; users: readonly string[]; uri?: string; root?: string };
+
+const PARTICIPATION_TYPE_INDEX: Record<ParticipationSpec["type"], number> = {
+  DAOVotes: 0,
+  Whitelist: 1,
+  BABT: 2,
+  TokenLock: 3,
+  NftLock: 4,
+  MerkleWhitelist: 5,
+};
+
+const participationSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("DAOVotes"), requiredVotes: z.string() }),
+  z.object({
+    type: z.literal("Whitelist"),
+    users: z.array(z.string()).default([]),
+    uri: z.string().default(""),
+  }),
+  z.object({ type: z.literal("BABT") }),
+  z.object({
+    type: z.literal("TokenLock"),
+    token: z.string(),
+    amount: z.string(),
+  }),
+  z.object({
+    type: z.literal("NftLock"),
+    nft: z.string(),
+    amount: z.string(),
+  }),
+  z.object({
+    type: z.literal("MerkleWhitelist"),
+    users: z.array(z.string()).default([]),
+    uri: z.string().default(""),
+    root: z
+      .string()
+      .optional()
+      .describe(
+        "Optional pre-computed merkle root. If omitted but `users` is set, the tool computes it.",
+      ),
+  }),
+]);
 
 const STAKING_PROPOSAL_ABI = [
   "function createStaking(address rewardToken, uint256 rewardAmount, uint256 startedAt, uint256 deadline, string metadata)",
@@ -99,6 +156,8 @@ export function registerProposalBuildComplexTools(
 ): void {
   registerTokenDistribution(server);
   registerTokenSale(server);
+  registerTokenSaleMulti(server);
+  registerTokenSaleWhitelist(server);
   registerTokenSaleRecover(server);
   registerCreateStakingTier(server);
   registerChangeMathModel(server);
@@ -185,92 +244,344 @@ function registerTokenDistribution(server: McpServer): void {
 
 // ---------- 2. token_sale ----------
 
-function registerTokenSale(server: McpServer): void {
+// Vesting settings shape — keys match the contract's VestingSettings struct
+// order (vestingPercentage, vestingDuration, cliffPeriod, unlockStep).
+const vestingSchema = z
+  .object({
+    vestingPercentage: z.string().default("0"),
+    vestingDuration: z.string().default("0"),
+    cliffPeriod: z.string().default("0"),
+    unlockStep: z.string().default("0"),
+  })
+  .default({
+    vestingPercentage: "0",
+    vestingDuration: "0",
+    cliffPeriod: "0",
+    unlockStep: "0",
+  });
+
+const tierSchema = z.object({
+  name: z.string(),
+  description: z.string().default(""),
+  totalTokenProvided: z.string(),
+  saleStartTime: z.string().describe("Unix seconds"),
+  saleEndTime: z.string().describe("Unix seconds"),
+  claimLockDuration: z.string().default("0"),
+  saleTokenAddress: z.string(),
+  purchaseTokenAddresses: z.array(z.string()).min(1),
+  exchangeRates: z.array(z.string()).min(1),
+  minAllocationPerUser: z.string().default("0"),
+  maxAllocationPerUser: z.string().default("0"),
+  vestingSettings: vestingSchema,
+  participation: z
+    .array(participationSchema)
+    .default([])
+    .describe(
+      "Participation requirements (joined with AND on-chain). Leave empty for an open tier.",
+    ),
+});
+
+type TierSpec = z.infer<typeof tierSchema>;
+type ParticipationDetail = { type: number; data: string };
+type WhitelistRequest = { tierId: bigint; users: string[]; uri: string };
+
+const dataCoder = AbiCoder.defaultAbiCoder();
+
+function encodeParticipationData(spec: ParticipationSpec): {
+  detail: ParticipationDetail;
+  /** When `MerkleWhitelist` derives its root from `users`, return the input
+   *  list so callers can publish it for buyers (and we can record it in
+   *  proposal metadata). */
+  derived?: { root: string; users: string[] };
+  /** When `Whitelist`, the user list to feed into a follow-up
+   *  `addToWhitelist(...)` action. */
+  whitelistUsers?: string[];
+  whitelistUri?: string;
+} {
+  const typeIdx = PARTICIPATION_TYPE_INDEX[spec.type];
+  switch (spec.type) {
+    case "DAOVotes": {
+      const data = dataCoder.encode(["uint256"], [BigInt(spec.requiredVotes)]);
+      return { detail: { type: typeIdx, data } };
+    }
+    case "Whitelist": {
+      // Plain whitelist: NFT-mint mode. Empty data; users are added via
+      // `addToWhitelist` in a follow-up action.
+      const users = (spec.users ?? []).map((u) => {
+        if (!isAddress(u)) throw new Error(`Invalid whitelist user: ${u}`);
+        return getAddress(u);
+      });
+      return {
+        detail: { type: typeIdx, data: "0x" },
+        whitelistUsers: users,
+        whitelistUri: spec.uri ?? "",
+      };
+    }
+    case "BABT": {
+      return { detail: { type: typeIdx, data: "0x" } };
+    }
+    case "TokenLock": {
+      if (!isAddress(spec.token)) throw new Error(`Invalid TokenLock token: ${spec.token}`);
+      const data = dataCoder.encode(
+        ["address", "uint256"],
+        [getAddress(spec.token), BigInt(spec.amount)],
+      );
+      return { detail: { type: typeIdx, data } };
+    }
+    case "NftLock": {
+      if (!isAddress(spec.nft)) throw new Error(`Invalid NftLock nft: ${spec.nft}`);
+      const data = dataCoder.encode(
+        ["address", "uint256"],
+        [getAddress(spec.nft), BigInt(spec.amount)],
+      );
+      return { detail: { type: typeIdx, data } };
+    }
+    case "MerkleWhitelist": {
+      let root = spec.root;
+      let users: string[] | undefined;
+      if (!root) {
+        if (!spec.users || spec.users.length === 0) {
+          throw new Error("MerkleWhitelist needs either `root` or non-empty `users`.");
+        }
+        users = spec.users.map((u) => {
+          if (!isAddress(u)) throw new Error(`Invalid MerkleWhitelist user: ${u}`);
+          return getAddress(u);
+        });
+        root = buildAddressMerkleTree(users).root;
+      }
+      const data = dataCoder.encode(["bytes32", "string"], [root, spec.uri ?? ""]);
+      return {
+        detail: { type: typeIdx, data },
+        derived: { root, users: users ?? [] },
+      };
+    }
+  }
+}
+
+function buildTierTuple(tier: TierSpec): {
+  tuple: unknown[];
+  whitelistUsers: string[];
+  whitelistUri: string;
+  derivedRoots: { root: string; users: string[] }[];
+} {
+  if (!isAddress(tier.saleTokenAddress)) {
+    throw new Error(`Invalid saleTokenAddress for tier "${tier.name}".`);
+  }
+  if (tier.purchaseTokenAddresses.length !== tier.exchangeRates.length) {
+    throw new Error(
+      `Tier "${tier.name}": purchaseTokenAddresses and exchangeRates must be parallel arrays.`,
+    );
+  }
+  for (const pt of tier.purchaseTokenAddresses) {
+    if (!isAddress(pt)) throw new Error(`Tier "${tier.name}": invalid purchase token ${pt}.`);
+  }
+
+  const participationDetails: ParticipationDetail[] = [];
+  let whitelistUsers: string[] = [];
+  let whitelistUri = "";
+  const derivedRoots: { root: string; users: string[] }[] = [];
+
+  for (const spec of tier.participation ?? []) {
+    const encoded = encodeParticipationData(spec);
+    participationDetails.push(encoded.detail);
+    if (encoded.whitelistUsers && encoded.whitelistUsers.length > 0) {
+      whitelistUsers = whitelistUsers.concat(encoded.whitelistUsers);
+      whitelistUri = encoded.whitelistUri ?? whitelistUri;
+    }
+    if (encoded.derived) derivedRoots.push(encoded.derived);
+  }
+
+  const tuple: unknown[] = [
+    [tier.name, tier.description],
+    BigInt(tier.totalTokenProvided),
+    BigInt(tier.saleStartTime),
+    BigInt(tier.saleEndTime),
+    BigInt(tier.claimLockDuration),
+    getAddress(tier.saleTokenAddress),
+    tier.purchaseTokenAddresses.map((p) => getAddress(p)),
+    tier.exchangeRates.map((r) => BigInt(r)),
+    BigInt(tier.minAllocationPerUser),
+    BigInt(tier.maxAllocationPerUser),
+    [
+      BigInt(tier.vestingSettings.vestingPercentage),
+      BigInt(tier.vestingSettings.vestingDuration),
+      BigInt(tier.vestingSettings.cliffPeriod),
+      BigInt(tier.vestingSettings.unlockStep),
+    ],
+    participationDetails.map((d) => [d.type, d.data]),
+  ];
+
+  return { tuple, whitelistUsers, whitelistUri, derivedRoots };
+}
+
+function buildSaleApprovals(
+  tiers: readonly TierSpec[],
+  tokenSaleProposal: string,
+): Action[] {
+  // Sum total token provided per sale token (matches frontend's saleTokensMap
+  // reducer in `useGovPoolCreateTokenSaleProposal.ts`).
+  const totals = new Map<string, bigint>();
+  for (const tier of tiers) {
+    const key = getAddress(tier.saleTokenAddress);
+    totals.set(key, (totals.get(key) ?? 0n) + BigInt(tier.totalTokenProvided));
+  }
+  const erc20Iface = new Interface(ERC20_GOV_ABI as unknown as string[]);
+  const actions: Action[] = [];
+  for (const [token, amount] of totals.entries()) {
+    actions.push({
+      executor: token,
+      value: "0",
+      data: erc20Iface.encodeFunctionData("approve", [tokenSaleProposal, amount]),
+    });
+  }
+  return actions;
+}
+
+function registerTokenSaleMulti(server: McpServer): void {
   server.registerTool(
-    "dexe_proposal_build_token_sale",
+    "dexe_proposal_build_token_sale_multi",
     {
-      title: "Wrapper: launch a token-sale tier via TokenSaleProposal.createTiers",
+      title: "Build a multi-tier Token Sale proposal (createTiers + optional addToWhitelist)",
       description:
-        "Builds a Token Sale proposal with a single tier. Covers the common case (basic tier, optional plain whitelist, no merkle participation). For advanced merkle-whitelist tiers, encode `participationDetails` externally and use `dexe_proposal_build_custom_abi` instead.",
+        "Wraps `TokenSaleProposal.createTiers([...])` for one or more tiers. Each tier may declare zero or more participation requirements (DAOVotes, Whitelist, BABT, TokenLock, NftLock, MerkleWhitelist) — the data payload is encoded per-type to match `TokenSaleProposalCreate.sol`. ERC20 approves are summed and deduped per sale token. For tiers using plain `Whitelist`, the matching `addToWhitelist` action is appended automatically when users are supplied.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
-        tier: z.object({
-          name: z.string(),
-          description: z.string().default(""),
-          totalTokenProvided: z.string(),
-          saleStartTime: z.string().describe("Unix seconds"),
-          saleEndTime: z.string().describe("Unix seconds"),
-          saleTokenAddress: z.string(),
-          claimLockDuration: z.string().default("0"),
-          purchaseTokenAddresses: z.array(z.string()).min(1),
-          exchangeRates: z.array(z.string()).min(1),
-          minAllocationPerUser: z.string().default("0"),
-          maxAllocationPerUser: z.string().default("0"),
-          vestingSettings: z
-            .object({
-              cliffPeriod: z.string().default("0"),
-              unlockStep: z.string().default("0"),
-              vestingDuration: z.string().default("0"),
-              vestingPercentage: z.string().default("0"),
-            })
-            .default({
-              cliffPeriod: "0",
-              unlockStep: "0",
-              vestingDuration: "0",
-              vestingPercentage: "0",
-            }),
-        }),
+        tiers: z.array(tierSchema).min(1),
+        latestTierId: z
+          .string()
+          .default("0")
+          .describe(
+            "Current `latestTierId()` on TokenSaleProposal. Defaults to 0 — bump when extending an existing sale so addToWhitelist tier ids are correct.",
+          ),
         proposalName: z.string().default("Token Sale"),
         proposalDescription: z.string().default(""),
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ tokenSaleProposal, tier, proposalName = "Token Sale", proposalDescription = "" }) => {
-      if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
-      if (!isAddress(tier.saleTokenAddress)) return errorResult(`Invalid saleTokenAddress`);
-      if (tier.purchaseTokenAddresses.length !== tier.exchangeRates.length) {
-        return errorResult("purchaseTokenAddresses and exchangeRates must be parallel arrays");
+    async ({
+      tokenSaleProposal,
+      tiers,
+      latestTierId = "0",
+      proposalName = "Token Sale",
+      proposalDescription = "",
+    }) => {
+      if (!isAddress(tokenSaleProposal)) {
+        return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       }
       try {
         const iface = new Interface(TOKEN_SALE_PROPOSAL_ABI as unknown as string[]);
-        const tierTuple = [
-          [tier.name, tier.description],
-          BigInt(tier.totalTokenProvided),
-          BigInt(tier.saleStartTime),
-          BigInt(tier.saleEndTime),
-          tier.saleTokenAddress,
-          BigInt(tier.claimLockDuration),
-          tier.purchaseTokenAddresses,
-          tier.exchangeRates.map((r) => BigInt(r)),
-          BigInt(tier.minAllocationPerUser),
-          BigInt(tier.maxAllocationPerUser),
-          [
-            BigInt(tier.vestingSettings.cliffPeriod),
-            BigInt(tier.vestingSettings.unlockStep),
-            BigInt(tier.vestingSettings.vestingDuration),
-            BigInt(tier.vestingSettings.vestingPercentage),
-          ],
-          [], // participationDetails — empty for the common case
-        ];
-        const data = iface.encodeFunctionData("createTiers", [[tierTuple]]);
+        const built = tiers.map((t) => buildTierTuple(t));
+
+        const whitelistRequests: WhitelistRequest[] = [];
+        const baseTierId = BigInt(latestTierId);
+        built.forEach((w, i) => {
+          if (w.whitelistUsers.length > 0) {
+            whitelistRequests.push({
+              tierId: baseTierId + 1n + BigInt(i),
+              users: w.whitelistUsers,
+              uri: w.whitelistUri,
+            });
+          }
+        });
+
+        const tierTuples = built.map((b) => b.tuple);
+        const createData = iface.encodeFunctionData("createTiers", [tierTuples]);
+
         const actions: Action[] = [];
-        // Prepend ERC20.approve for the sale token (required for on-chain execution)
-        if (isAddress(tier.saleTokenAddress)) {
-          const erc20Iface = new Interface(ERC20_GOV_ABI as unknown as string[]);
-          const approveData = erc20Iface.encodeFunctionData("approve", [
-            tokenSaleProposal,
-            BigInt(tier.totalTokenProvided),
+        actions.push(...buildSaleApprovals(tiers, tokenSaleProposal));
+        actions.push({ executor: tokenSaleProposal, value: "0", data: createData });
+        if (whitelistRequests.length > 0) {
+          const wlData = iface.encodeFunctionData("addToWhitelist", [
+            whitelistRequests.map((r) => [r.tierId, r.users, r.uri]),
           ]);
-          actions.push({ executor: tier.saleTokenAddress, value: "0", data: approveData });
+          actions.push({ executor: tokenSaleProposal, value: "0", data: wlData });
         }
-        actions.push({ executor: tokenSaleProposal, value: "0", data });
+
         const metadata = {
           proposalName,
           proposalDescription: JSON.stringify(proposalDescription),
           category: "tokenSale",
           isMeta: false,
           changes: {
-            proposedChanges: { tier },
+            proposedChanges: {
+              tiers,
+              derivedMerkleRoots: built.flatMap((b) => b.derivedRoots),
+            },
+            currentChanges: {},
+          },
+        };
+
+        const tierNames = tiers.map((t) => t.name).join(", ");
+        return wrapperResult({
+          metadata,
+          actions,
+          title: `Token Sale tiers → ${tierNames}`,
+          detail: `Target: TokenSaleProposal(${tokenSaleProposal}).createTiers (${tiers.length} tier${tiers.length === 1 ? "" : "s"}${
+            whitelistRequests.length > 0 ? ` + addToWhitelist(${whitelistRequests.length})` : ""
+          })`,
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+function registerTokenSale(server: McpServer): void {
+  // Back-compat shim around the multi-tier builder. Same single-tier API as
+  // before, plus an optional `participation` field. Delegates encoding to
+  // `buildTierTuple` so calldata stays canonical.
+  server.registerTool(
+    "dexe_proposal_build_token_sale",
+    {
+      title: "Wrapper: launch a token-sale tier via TokenSaleProposal.createTiers",
+      description:
+        "Builds a Token Sale proposal with a single tier. Forwards to `dexe_proposal_build_token_sale_multi` internally. For multi-tier sales or merkle whitelists, call `_multi` directly.",
+      inputSchema: {
+        tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
+        tier: tierSchema,
+        latestTierId: z.string().default("0"),
+        proposalName: z.string().default("Token Sale"),
+        proposalDescription: z.string().default(""),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({
+      tokenSaleProposal,
+      tier,
+      latestTierId = "0",
+      proposalName = "Token Sale",
+      proposalDescription = "",
+    }) => {
+      if (!isAddress(tokenSaleProposal)) {
+        return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      }
+      try {
+        const iface = new Interface(TOKEN_SALE_PROPOSAL_ABI as unknown as string[]);
+        const built = buildTierTuple(tier);
+
+        const actions: Action[] = [];
+        actions.push(...buildSaleApprovals([tier], tokenSaleProposal));
+        actions.push({
+          executor: tokenSaleProposal,
+          value: "0",
+          data: iface.encodeFunctionData("createTiers", [[built.tuple]]),
+        });
+        if (built.whitelistUsers.length > 0) {
+          const baseTierId = BigInt(latestTierId);
+          const wlData = iface.encodeFunctionData("addToWhitelist", [
+            [[baseTierId + 1n, built.whitelistUsers, built.whitelistUri]],
+          ]);
+          actions.push({ executor: tokenSaleProposal, value: "0", data: wlData });
+        }
+
+        const metadata = {
+          proposalName,
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "tokenSale",
+          isMeta: false,
+          changes: {
+            proposedChanges: { tier, derivedMerkleRoots: built.derivedRoots },
             currentChanges: {},
           },
         };
@@ -278,7 +589,79 @@ function registerTokenSale(server: McpServer): void {
           metadata,
           actions,
           title: `Token Sale tier → ${tier.name}`,
-          detail: `Target: TokenSaleProposal(${tokenSaleProposal}).createTiers (1 tier)`,
+          detail: `Target: TokenSaleProposal(${tokenSaleProposal}).createTiers (1 tier${
+            built.whitelistUsers.length > 0 ? " + addToWhitelist" : ""
+          })`,
+        });
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+function registerTokenSaleWhitelist(server: McpServer): void {
+  server.registerTool(
+    "dexe_proposal_build_token_sale_whitelist",
+    {
+      title: "Build an addToWhitelist proposal for existing token-sale tiers",
+      description:
+        "Builds an external proposal calling `TokenSaleProposal.addToWhitelist([{tierId, users, uri}, ...])`. Use this to extend the whitelist of a tier that's already live (plain `Whitelist` participation type only — merkle tiers are gated by their root, not this list).",
+      inputSchema: {
+        tokenSaleProposal: z.string(),
+        requests: z
+          .array(
+            z.object({
+              tierId: z.string(),
+              users: z.array(z.string()).min(1),
+              uri: z.string().default(""),
+            }),
+          )
+          .min(1),
+        proposalName: z.string().default("Whitelist Token Sale Tier"),
+        proposalDescription: z.string().default(""),
+      },
+      outputSchema: payloadOutputSchema(),
+    },
+    async ({
+      tokenSaleProposal,
+      requests,
+      proposalName = "Whitelist Token Sale Tier",
+      proposalDescription = "",
+    }) => {
+      if (!isAddress(tokenSaleProposal)) {
+        return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      }
+      try {
+        const normalised = requests.map((r) => {
+          for (const u of r.users) {
+            if (!isAddress(u)) throw new Error(`Invalid whitelist user: ${u}`);
+          }
+          return [
+            BigInt(r.tierId),
+            r.users.map((u) => getAddress(u)),
+            r.uri ?? "",
+          ];
+        });
+        const iface = new Interface(TOKEN_SALE_PROPOSAL_ABI as unknown as string[]);
+        const data = iface.encodeFunctionData("addToWhitelist", [normalised]);
+        const actions: Action[] = [{ executor: tokenSaleProposal, value: "0", data }];
+
+        const metadata = {
+          proposalName,
+          proposalDescription: JSON.stringify(proposalDescription),
+          category: "tokenSale",
+          isMeta: false,
+          changes: {
+            proposedChanges: { requests },
+            currentChanges: {},
+          },
+        };
+        return wrapperResult({
+          metadata,
+          actions,
+          title: `addToWhitelist (${requests.length} request${requests.length === 1 ? "" : "s"})`,
+          detail: `Target: TokenSaleProposal(${tokenSaleProposal}).addToWhitelist`,
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));

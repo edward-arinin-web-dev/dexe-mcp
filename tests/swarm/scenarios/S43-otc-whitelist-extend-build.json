@@ -1,0 +1,40 @@
+{
+  "id": "S43-otc-whitelist-extend-build",
+  "title": "Build standalone addToWhitelist proposal for an existing tier",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Phase A — exercises dexe_proposal_build_token_sale_whitelist (standalone). Use to extend the whitelist of a tier already created on-chain. One action only, calling addToWhitelist; no approves.",
+  "agents": [{ "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_build_token_sale_whitelist",
+      "args": {
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "requests": [
+          {
+            "tierId": "1",
+            "users": [
+              "0x1111111111111111111111111111111111111111",
+              "0x2222222222222222222222222222222222222222",
+              "0x3333333333333333333333333333333333333333"
+            ],
+            "uri": "ipfs://Qm-S43-extend-tier1"
+          }
+        ],
+        "proposalName": "S43 OTC whitelist extend",
+        "proposalDescription": "Phase A swarm — addToWhitelist standalone"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [
+    { "id": "single-action", "check": "built.actions length == 1 (addToWhitelist only; no approves needed)" },
+    { "id": "addtowhitelist-selector", "check": "actions[0].data starts with 0xce6c2d91 (addToWhitelist selector) and request[0].tierId == 1, users length == 3" }
+  ]
+}

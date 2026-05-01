@@ -22,6 +22,7 @@ import { registerDaoDeployTools } from "./daoDeploy.js";
 import { registerSubgraphTools } from "./subgraph.js";
 import { registerTxTools } from "./txSend.js";
 import { registerFlowTools } from "./flow.js";
+import { registerMerkleTools } from "./merkle.js";
 import { SignerManager } from "../lib/signer.js";
 
 /**
@@ -51,6 +52,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
   registerSubgraphTools(server, ctx);
+  registerMerkleTools(server, ctx);
 
   const signer = new SignerManager(config);
   registerTxTools(server, config, signer);

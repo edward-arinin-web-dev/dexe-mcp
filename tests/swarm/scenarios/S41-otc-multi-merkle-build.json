@@ -1,0 +1,64 @@
+{
+  "id": "S41-otc-multi-merkle-build",
+  "title": "Build OTC multi-tier proposal: Tier-A Open + Tier-B MerkleWhitelist (auto-derived root)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Phase A — exercises dexe_proposal_build_token_sale_multi with mixed Open + MerkleWhitelist tiers. Auto-derives merkle root from users[]; verifies addToWhitelist NOT appended (merkle tier gates buyers via root, not whitelist NFT). Single sale token across both tiers must produce ONE deduped/summed approve action.",
+  "agents": [{ "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_build_token_sale_multi",
+      "args": {
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tiers": [
+          {
+            "name": "S41 Tier-A Open",
+            "description": "Open tier — anyone can buy",
+            "totalTokenProvided": "1000000000000000000000",
+            "saleStartTime": "1750000000",
+            "saleEndTime": "1760000000",
+            "saleTokenAddress": "{{firstAllowlistedToken}}",
+            "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
+            "exchangeRates": ["1000000000000000000"]
+          },
+          {
+            "name": "S41 Tier-B MerkleWhitelist",
+            "description": "Gated by merkle root over 3 buyer addresses",
+            "totalTokenProvided": "500000000000000000000",
+            "saleStartTime": "1750000000",
+            "saleEndTime": "1760000000",
+            "saleTokenAddress": "{{firstAllowlistedToken}}",
+            "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
+            "exchangeRates": ["2000000000000000000"],
+            "participation": [
+              {
+                "type": "MerkleWhitelist",
+                "users": [
+                  "0x1111111111111111111111111111111111111111",
+                  "0x2222222222222222222222222222222222222222",
+                  "0x3333333333333333333333333333333333333333"
+                ],
+                "uri": "ipfs://Qm-S41-merkle-tierB"
+              }
+            ]
+          }
+        ],
+        "proposalName": "S41 OTC multi-tier merkle build",
+        "proposalDescription": "Phase A swarm — Open + MerkleWhitelist auto-root"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    }
+  ],
+  "successCriteria": [
+    { "id": "two-tiers-encoded", "check": "built.actions length == 2 (1 approve + createTiers); NO addToWhitelist action because the only gated tier uses MerkleWhitelist (root-gated, not NFT-gated)" },
+    { "id": "approve-summed", "check": "actions[0] is ERC20.approve(saleToken → TokenSaleProposal, sum=1500e18); only one approve because both tiers share the same sale token" },
+    { "id": "create-tiers-selector", "check": "actions[1].data starts with 0x6a6effda (createTiers selector) and encodes 2 tier tuples" },
+    { "id": "merkle-root-derived", "check": "built.metadata.changes.proposedChanges.derivedMerkleRoots length >= 1 (auto-derived from users[]) — should equal `0x` + 64 hex chars" }
+  ]
+}
