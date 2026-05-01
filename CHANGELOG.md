@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.4.0
+
+OTC DAO support. Adds the calldata builders, merkle utilities, and four
+composite tools needed to launch and operate an over-the-counter token sale
+end-to-end through one MCP surface. **119 tools** total. Lifecycle proven
+on BSC testnet (deploy → open_sale → vote → execute → buy → claim →
+balance delta verified).
+
+### Added
+
+**Phase A — calldata builders (4 tools)**
+- `dexe_proposal_build_token_sale_multi` — N-tier sale envelope. Sums and dedupes ERC20 approves per sale token, auto-derives merkle roots for `MerkleWhitelist` tiers when only `users[]` is supplied, auto-appends `addToWhitelist` for plain `Whitelist` tiers.
+- `dexe_proposal_build_token_sale_whitelist` — standalone external proposal that calls `addToWhitelist([{tierId, users[], uri}, …])` on a live tier.
+- `dexe_proposal_build_token_sale` — kept as back-compat shim forwarding `[tier]` to `_multi`. Gains optional `participation` field.
+- `dexe_merkle_build` / `dexe_merkle_proof` — OZ `StandardMerkleTree`-compatible: sorted-pair commutative keccak, double-hash leaf `keccak256(keccak256(abi.encode(...)))`. Default leaf shape `["address"]`; advanced shapes via `entries` + `leafEncoding`.
+
+**Phase B — composite tools (4 tools)**
+- `dexe_otc_dao_open_sale` — orchestrates `_multi` + `runProposalCreate` (balance/threshold check, approve, deposit, IPFS metadata, `createProposalAndVote`). `buildOnly: true` short-circuits the proposal flow and just returns the envelope. `dryRun: true` returns ordered TxPayloads even when `DEXE_PRIVATE_KEY` is set.
+- `dexe_otc_buyer_status` — read-only aggregator. Multicalls `getTierViews` + `getUserViews(user, tierIds, proofs)`, surfaces participation requirements + pre-computed `claimable` (`canClaim && !isClaimed ? claimTotalAmount : 0`) and `vestingWithdrawable` (`amountToWithdraw`). Optional per-tier `whitelists[]` triggers merkle-tree build + proof + verify check for the user.
+- `dexe_otc_buyer_buy` — preflights ERC20 balance + allowance (skipped on native sentinel `ZeroAddress`), prepends `approve(spender=TokenSaleProposal, MAX_UINT256)` when needed, builds `buy(tierId, paymentToken, amount, proof)`. Auto-derives the merkle proof when `whitelistUsers[]` is supplied without a precomputed `proof`. Native path sets `value=amount`.
+- `dexe_otc_buyer_claim_all` — picks tiers with `canClaim && !isClaimed` → `claim`, tiers with `amountToWithdraw > 0` → `vestingWithdraw`. Skips silently when nothing pending (`mode='noop'`).
+
+**Refactors**
+- `proposalBuildComplex.ts` — extracted `buildTokenSaleMultiActions(input)` pure helper; `tierSchema`, `TierSpec`, `buildTierTuple`, `buildSaleApprovals`, `TOKEN_SALE_PROPOSAL_ABI` now exported. The `dexe_proposal_build_token_sale_multi` registrar is a thin shim around the helper.
+- `flow.ts` — extracted `runProposalCreate(input, deps)` + `sendOrCollect` exported. `dexe_proposal_create` gains a `dryRun` flag. `sendOrCollect` distinguishes `mode='dryRun'` (caller-requested) from `mode='payloads'` (no signer); the swarm orchestrator's `mcpFallbackDispatcher` only auto-broadcasts on `'payloads'`.
+
+**Docs + scripts**
+- `docs/OTC.md` — project-owner + buyer flows with paste-ready examples. Documents every gotcha that bit during integration: PRECISION 1e25 (not 1e18) on `exchangeRates`; `canClaim` requires `block.timestamp >= saleEndTime + claimLockDuration` so buyers must wait for the sale window to close even with `claimLockDuration: 0`; `maxAllocationPerUser == 0` means unlimited (not zero); newly-passed proposals briefly land in `Locked` (idx 6) before `SucceededFor` (idx 4); treasury must be seeded with sale token (mint via `tokenParams.users[]` + predicted `govPool` address).
+- `scripts/lifecycle-otc.mjs` — runnable end-to-end proof on BSC testnet (chain 97). Single command. Deploys a fresh DAO, opens a 1-tier sale, votes+executes, buys, claims, verifies balance delta.
+
+**Swarm scenarios**
+- `S41-otc-multi-merkle-build` — 2 tiers Open + MerkleWhitelist, auto-derived root.
+- `S42-otc-multi-whitelist-build` — 2 tiers Open + plain Whitelist, auto-appended `addToWhitelist`.
+- `S43-otc-whitelist-extend-build` — standalone `_whitelist` proposal extending an existing tier.
+- `S44-otc-open-sale-build` — `buildOnly` envelope sanity.
+- `S45-otc-buyer-buy-native-build` — `dryRun` + native sentinel.
+- `S46-otc-buyer-buy-merkle-build` — `dryRun` + auto-merkle proof.
+
+### Fixed
+
+- **Bug #25** — `TOKEN_SALE_PROPOSAL_ABI` had two field-order transpositions vs the contract: `TierInitParams` swapped `saleTokenAddress` <-> `claimLockDuration`, and `VestingSettings` was declared `(cliff, step, duration, percentage)` instead of canonical `(percentage, duration, cliff, step)`. Selector matched (`0x6a6effda`) but calldata was silently misdecoded — every prior single-tier sale proposal built via dexe-mcp landed with vesting + claim-lock fields scrambled.
+- **Bug #26** — `getUserViews` ABI in `read.ts` (and copied into `otc.ts`) declared `UserView` as a flat 7-field struct (`canParticipate, isWhitelisted, purchasedAmount, owedAmount, lockedAmount, claimableAmount, vestingWithdrawAmount`). Actual contract returns `tuple(bool canParticipate, PurchaseView purchaseView, VestingUserView vestingUserView)` with nested structs. Both files now match the contract; affected callers (`dexe_read_token_sale_user`, `dexe_otc_buyer_status`, `dexe_otc_buyer_claim_all`) updated to read fields via the correct paths.
+- **Bug #27** — `getUserViews` is a 3-arg function (`address user, uint256[] tierIds, bytes32[][] proofs`); ABI was missing the third parameter, causing every call to revert with `require(false)` at the abicoder layer. Fixed in both `read.ts` and `otc.ts`; non-merkle tiers pass `tierIds.map(() => [])`.
+- **`flow.ts` `vote_and_execute` Locked state.** When `open_sale`'s `createProposalAndVote` clears quorum + earlyCompletion, the proposal lands directly in state 6 (`Locked`) before transitioning to `SucceededFor`. The skip-vote-and-execute branch only matched 4/5; now also matches 6.
+- **`otc.ts` multicall double-unwrap.** Single-return-value functions are already unwrapped by `src/lib/multicall.ts`; the OTC composites were treating the result as one extra layer deep and indexing `[0]`. Fixed.
+
+### Lifecycle proof
+
+Live run on BSC testnet (chain 97) on 2026-05-01:
+- govPool: `0x028C447c72A6Fd1955f0937bb3C5926E8EAC297c`
+- deploy tx: `0x3e17ff4e46a6840bf4945e15a9c3af620be276b7de0e1efe807e08ec8a097dbe`
+- execute proposal 1: `0x17b677e3fb0b078ca670d3a16c3a776cc36dac97e4497446b19d6490633873df`
+- buyer balance: `400000.0` → `399999.0` (buy) → `400000.0` (claim) — delta verified
+
+---
+
 ## 0.3.0
 
 End-to-end testnet validation. Every proposal-builder tool is now exercised by an automated swarm scenario on BSC testnet, and the harness itself ships in-repo so external integrators can run it. **111 tools** total, **41 swarm scenarios**, full sweep green.
