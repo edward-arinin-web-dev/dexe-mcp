@@ -1,0 +1,28 @@
+{
+  "id": "S51-inbox-with-supplied-daos",
+  "title": "Multi-DAO inbox with explicit DAO list",
+  "priority": 4,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Phase v0.5.0 — exercises dexe_user_inbox with `daos` supplied explicitly so it works on both testnet (no subgraph) and mainnet. The agent wallet may have zero pending items; the success criteria only require the response shape, not non-empty content.",
+  "agents": [{ "alias": "U", "role": "Voter", "wallet": "AGENT_PK_3" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "U",
+      "tool": "dexe_user_inbox",
+      "args": {
+        "user": "{{agent:U:address}}",
+        "daos": ["{{firstAllowlistedDao}}"]
+      },
+      "broadcast": false,
+      "captureAs": "inbox"
+    }
+  ],
+  "successCriteria": [
+    { "id": "shape", "check": "inbox.pendingItems is array" },
+    { "id": "summary", "check": "inbox.summary.totalDaos == 1 && inbox.summary.criticalCount >= 0" }
+  ]
+}
