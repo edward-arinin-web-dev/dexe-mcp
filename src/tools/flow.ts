@@ -514,8 +514,13 @@ export function registerFlowTools(
       const stateNum = Number(stateRes[0]!.value);
       const stateName = STATE_NAMES[stateNum] ?? `Unknown(${stateNum})`;
 
-      // Already succeeded — skip voting, go straight to execute
-      if ((stateNum === 4 || stateNum === 5) && input.autoExecute) {
+      // Already past voting — skip vote, go straight to execute. State 4 =
+      // SucceededFor, 5 = SucceededAgainst, 6 = Locked (post-quorum, post-
+      // validator window if any, executable once delay elapsed). When the
+      // open_sale composite votes with enough power to clear quorum +
+      // earlyCompletion, the proposal lands directly in Locked, so we must
+      // recognize it here as executable.
+      if ((stateNum === 4 || stateNum === 5 || stateNum === 6) && input.autoExecute) {
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
         ]);

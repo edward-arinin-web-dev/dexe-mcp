@@ -38,7 +38,7 @@ const BABT_ABI = [
 const TOKEN_SALE_READ_ABI = [
   "function latestTierId() view returns (uint256)",
   "function getTierViews(uint256 offset, uint256 limit) view returns (tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint256 saleStartTime, uint256 saleEndTime, address saleTokenAddress, uint256 claimLockDuration, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 cliffPeriod, uint256 unlockStep, uint256 vestingDuration, uint256 vestingPercentage) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
-  "function getUserViews(address user, uint256[] tierIds) view returns (tuple(bool canParticipate, bool isWhitelisted, uint256 purchasedAmount, uint256 owedAmount, uint256 lockedAmount, uint256 claimableAmount, uint256 vestingWithdrawAmount)[] userViews)",
+  "function getUserViews(address user, uint256[] tierIds, bytes32[][] proofs) view returns (tuple(bool canParticipate, tuple(bool isClaimed, bool canClaim, uint64 claimUnlockTime, uint256 claimTotalAmount, uint256 boughtTotalAmount, address[] lockedTokenAddresses, uint256[] lockedTokenAmounts, address[] lockedNftAddresses, uint256[][] lockedNftIds, address[] purchaseTokenAddresses, uint256[] purchaseTokenAmounts) purchaseView, tuple(uint64 latestVestingWithdraw, uint64 nextUnlockTime, uint256 nextUnlockAmount, uint256 vestingTotalAmount, uint256 vestingWithdrawnAmount, uint256 amountToWithdraw, uint256 lockedAmount) vestingUserView)[] userViews)",
 ] as const;
 
 const DISTRIBUTION_READ_ABI = [
@@ -470,7 +470,7 @@ function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
             target: tokenSaleProposal,
             iface,
             method: "getUserViews",
-            args: [user, tierIds.map((id) => BigInt(id))],
+            args: [user, tierIds.map((id) => BigInt(id)), tierIds.map(() => [])],
             allowFailure: true,
           },
         ]);

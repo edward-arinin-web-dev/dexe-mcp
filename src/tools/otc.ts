@@ -28,7 +28,7 @@ const ERC20_ABI = new Interface([
 const TOKEN_SALE_ABI = new Interface([
   "function latestTierId() view returns (uint256)",
   "function getTierViews(uint256 offset, uint256 limit) view returns (tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint256 saleStartTime, uint256 saleEndTime, address saleTokenAddress, uint256 claimLockDuration, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 cliffPeriod, uint256 unlockStep, uint256 vestingDuration, uint256 vestingPercentage) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
-  "function getUserViews(address user, uint256[] tierIds) view returns (tuple(bool canParticipate, bool isWhitelisted, uint256 purchasedAmount, uint256 owedAmount, uint256 lockedAmount, uint256 claimableAmount, uint256 vestingWithdrawAmount)[] userViews)",
+  "function getUserViews(address user, uint256[] tierIds, bytes32[][] proofs) view returns (tuple(bool canParticipate, tuple(bool isClaimed, bool canClaim, uint64 claimUnlockTime, uint256 claimTotalAmount, uint256 boughtTotalAmount, address[] lockedTokenAddresses, uint256[] lockedTokenAmounts, address[] lockedNftAddresses, uint256[][] lockedNftIds, address[] purchaseTokenAddresses, uint256[] purchaseTokenAmounts) purchaseView, tuple(uint64 latestVestingWithdraw, uint64 nextUnlockTime, uint256 nextUnlockAmount, uint256 vestingTotalAmount, uint256 vestingWithdrawnAmount, uint256 amountToWithdraw, uint256 lockedAmount) vestingUserView)[] userViews)",
   "function buy(uint256 tierId, address tokenToBuyWith, uint256 amount, bytes32[] proof) payable",
   "function claim(uint256[] tierIds)",
   "function vestingWithdraw(uint256[] tierIds)",
@@ -229,7 +229,7 @@ export function registerOtcTools(
           target: tokenSaleProposal,
           iface: TOKEN_SALE_ABI,
           method: "getUserViews",
-          args: [userAddr, tierIdNums],
+          args: [userAddr, tierIdNums, tierIdNums.map(() => [])],
           allowFailure: true,
         },
       ];
@@ -239,8 +239,8 @@ export function registerOtcTools(
         if (!res[0]!.success) return err(`getTierViews failed: ${res[0]!.error}`);
         if (!res[1]!.success) return err(`getUserViews failed: ${res[1]!.error}`);
 
-        const tierViewsRange = (res[0]!.value as unknown as unknown[][])[0] as unknown[];
-        const userViews = (res[1]!.value as unknown as unknown[][])[0] as unknown[];
+        const tierViewsRange = res[0]!.value as unknown as unknown[];
+        const userViews = res[1]!.value as unknown as unknown[];
 
         const whitelistByTier = new Map(whitelists.map((w) => [w.tierId, w.users]));
 
@@ -275,12 +275,21 @@ export function registerOtcTools(
             | undefined
             | {
                 canParticipate: boolean;
-                isWhitelisted: boolean;
-                purchasedAmount: bigint;
-                owedAmount: bigint;
-                lockedAmount: bigint;
-                claimableAmount: bigint;
-                vestingWithdrawAmount: bigint;
+                purchaseView: {
+                  isClaimed: boolean;
+                  canClaim: boolean;
+                  claimUnlockTime: bigint;
+                  claimTotalAmount: bigint;
+                  boughtTotalAmount: bigint;
+                };
+                vestingUserView: {
+                  vestingTotalAmount: bigint;
+                  vestingWithdrawnAmount: bigint;
+                  amountToWithdraw: bigint;
+                  lockedAmount: bigint;
+                  nextUnlockTime: bigint;
+                  nextUnlockAmount: bigint;
+                };
               };
           if (!uv) {
             return { tierId: tierIdStr, error: "user view missing" };
@@ -327,12 +336,13 @@ export function registerOtcTools(
             participation,
             user: {
               canParticipate: uv.canParticipate,
-              isWhitelisted: uv.isWhitelisted,
-              purchasedAmount: uv.purchasedAmount,
-              owedAmount: uv.owedAmount,
-              lockedAmount: uv.lockedAmount,
-              claimableAmount: uv.claimableAmount,
-              vestingWithdrawAmount: uv.vestingWithdrawAmount,
+              purchase: uv.purchaseView,
+              vesting: uv.vestingUserView,
+              claimable:
+                uv.purchaseView.canClaim && !uv.purchaseView.isClaimed
+                  ? uv.purchaseView.claimTotalAmount
+                  : 0n,
+              vestingWithdrawable: uv.vestingUserView.amountToWithdraw,
             },
             ...(merkle ? { merkle } : {}),
           };
@@ -505,22 +515,32 @@ export function registerOtcTools(
           target: input.tokenSaleProposal,
           iface: TOKEN_SALE_ABI,
           method: "getUserViews",
-          args: [userAddr, tierIdBns],
+          args: [userAddr, tierIdBns, tierIdBns.map(() => [])],
           allowFailure: true,
         },
       ]);
       if (!res[0]!.success) return err(`getUserViews failed: ${res[0]!.error}`);
 
-      const userViews = (res[0]!.value as unknown as unknown[][])[0] as unknown[];
+      const userViews = res[0]!.value as unknown as unknown[];
 
       const claimable: string[] = [];
       const vestingReady: string[] = [];
       const summary = input.tierIds.map((tierId, i) => {
         const uv = userViews[i] as
           | undefined
-          | { claimableAmount: bigint; vestingWithdrawAmount: bigint };
-        const c = uv?.claimableAmount ?? 0n;
-        const v = uv?.vestingWithdrawAmount ?? 0n;
+          | {
+              purchaseView: {
+                isClaimed: boolean;
+                canClaim: boolean;
+                claimTotalAmount: bigint;
+              };
+              vestingUserView: { amountToWithdraw: bigint };
+            };
+        const c =
+          uv?.purchaseView?.canClaim && !uv?.purchaseView?.isClaimed
+            ? uv.purchaseView.claimTotalAmount
+            : 0n;
+        const v = uv?.vestingUserView?.amountToWithdraw ?? 0n;
         if (c > 0n) claimable.push(tierId);
         if (v > 0n) vestingReady.push(tierId);
         return { tierId, claimable: c.toString(), vestingWithdrawable: v.toString() };
