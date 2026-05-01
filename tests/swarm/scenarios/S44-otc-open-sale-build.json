@@ -1,0 +1,64 @@
+{
+  "id": "S44-otc-open-sale-build",
+  "title": "Build OTC sale envelope via dexe_otc_dao_open_sale (buildOnly)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Phase B — exercises dexe_otc_dao_open_sale composite in buildOnly mode. Skips runProposalCreate (no IPFS, no DAO state read, no broadcast). Verifies the envelope contains the createTiers + addToWhitelist actions plus the otc.tierIdsAfterExecute helper for callers that need to know which tier ids the sale will live under once executed.",
+  "agents": [{ "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_otc_dao_open_sale",
+      "args": {
+        "govPool": "{{dao}}",
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "latestTierId": "0",
+        "tiers": [
+          {
+            "name": "S44 Tier-A Open",
+            "totalTokenProvided": "1000000000000000000000",
+            "saleStartTime": "1750000000",
+            "saleEndTime": "1760000000",
+            "saleTokenAddress": "{{firstAllowlistedToken}}",
+            "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
+            "exchangeRates": ["1000000000000000000"]
+          },
+          {
+            "name": "S44 Tier-B Whitelist",
+            "totalTokenProvided": "250000000000000000000",
+            "saleStartTime": "1750000000",
+            "saleEndTime": "1760000000",
+            "saleTokenAddress": "{{firstAllowlistedToken}}",
+            "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
+            "exchangeRates": ["2000000000000000000"],
+            "participation": [
+              {
+                "type": "Whitelist",
+                "users": [
+                  "0x4444444444444444444444444444444444444444",
+                  "0x5555555555555555555555555555555555555555"
+                ],
+                "uri": "ipfs://Qm-S44-whitelist-tierB"
+              }
+            ]
+          }
+        ],
+        "proposalName": "S44 OTC Phase B compose build",
+        "proposalDescription": "Phase B swarm — composite open_sale buildOnly",
+        "buildOnly": true,
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": false,
+      "captureAs": "envelope"
+    }
+  ],
+  "successCriteria": [
+    { "id": "build-only-mode", "check": "envelope.mode == 'buildOnly' (no proposal_create flow run)" },
+    { "id": "tier-ids-helper", "check": "envelope.otc.tierIdsAfterExecute == ['1','2'] (latestTierId 0 + 1, +2)" },
+    { "id": "actions-shape", "check": "envelope.actions length == 3 (1 approve + createTiers + auto addToWhitelist for plain Whitelist tier)" }
+  ]
+}

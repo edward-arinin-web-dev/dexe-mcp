@@ -151,12 +151,24 @@ async function resolvePrereqs(
   };
 }
 
-async function sendOrCollect(
+export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
-): Promise<{ mode: "executed" | "payloads"; steps: FlowStep[] }> {
+  opts?: { dryRun?: boolean },
+): Promise<{ mode: "executed" | "payloads" | "dryRun"; steps: FlowStep[] }> {
   const steps: FlowStep[] = [];
 
+  // `dryRun` and "no signer" both return calldata without broadcasting, but
+  // they're tagged distinctly so the swarm orchestrator's mcpFallbackDispatcher
+  // (which auto-broadcasts on `mode === "payloads"`) leaves dryRun responses
+  // alone. No-signer remains "payloads" so external callers get the same
+  // ordered TxPayload contract the public docs promise.
+  if (opts?.dryRun) {
+    for (const p of payloads) {
+      steps.push({ label: p.description, skipped: false, payload: p });
+    }
+    return { mode: "dryRun", steps };
+  }
   if (!signer.hasSigner()) {
     for (const p of payloads) {
       steps.push({ label: p.description, skipped: false, payload: p });
@@ -182,60 +194,53 @@ async function sendOrCollect(
   return { mode: "executed", steps };
 }
 
-// ---------- register ----------
+// ---------- exported runner ----------
 
-export function registerFlowTools(
-  server: McpServer,
-  ctx: ToolContext,
-  signer: SignerManager,
-): void {
-  const rpc = new RpcProvider(ctx.config);
+export interface ProposalCreateInput {
+  govPool: string;
+  proposalType?: "modify_dao_profile" | "custom";
+  title: string;
+  description?: string;
+  newDaoName?: string;
+  newDaoDescription?: string;
+  newWebsiteUrl?: string;
+  newAvatarCID?: string;
+  newAvatarFileName?: string;
+  newSocialLinks?: [string, string][];
+  actionsOnFor?: { executor: string; value?: string; data: string }[];
+  category?: string;
+  proposalMetadataExtra?: Record<string, unknown>;
+  voteAmount?: string;
+  voteNftIds?: string[];
+  user?: string;
+  /** When true, return ordered TxPayloads even if a signer is configured. */
+  dryRun?: boolean;
+}
 
-  // =============================================
-  // dexe_proposal_create
-  // =============================================
-  server.tool(
-    "dexe_proposal_create",
-    "Create a governance proposal with full prerequisite handling. " +
-      "Automatically checks token balance, approves if needed, deposits if needed, " +
-      "uploads metadata to IPFS (with correct category/changes fields), and builds " +
-      "createProposalAndVote calldata. When DEXE_PRIVATE_KEY is set, signs and broadcasts " +
-      "all transactions. Otherwise returns ordered TxPayload list.\n\n" +
-      "Supported proposalType values: 'modify_dao_profile', 'custom'.\n\n" +
-      "For modify_dao_profile: provide newDaoDescription and/or newAvatarCID to change the DAO profile. " +
-      "Tool encodes editDescriptionURL action and uploads both DAO metadata and proposal metadata to IPFS.\n\n" +
-      "For custom: provide actionsOnFor array with {executor, value, data} objects.",
-    {
-      govPool: z.string().describe("GovPool contract address"),
-      proposalType: z.enum(["modify_dao_profile", "custom"]).default("custom"),
-      title: z.string().describe("Proposal title"),
-      description: z.string().default("").describe("Proposal description (markdown supported)"),
+export interface ProposalCreateDeps {
+  ctx: ToolContext;
+  signer: SignerManager;
+  rpc: RpcProvider;
+}
 
-      // modify_dao_profile fields
-      newDaoName: z.string().optional().describe("New DAO name (for modify_dao_profile)"),
-      newDaoDescription: z.string().optional().describe("New DAO description markdown"),
-      newWebsiteUrl: z.string().optional().describe("New website URL"),
-      newAvatarCID: z.string().optional().describe("CID of avatar image (from dexe_ipfs_upload_file)"),
-      newAvatarFileName: z.string().optional().describe("Avatar filename e.g. 'avatar.jpeg'"),
-      newSocialLinks: z.array(z.tuple([z.string(), z.string()])).optional(),
-
-      // custom fields
-      actionsOnFor: z.array(z.object({
-        executor: z.string(),
-        value: z.string().default("0"),
-        data: z.string(),
-      })).default([]).describe("Actions for custom proposals"),
-      category: z.string().optional().describe("Proposal category (e.g. 'Token Transfer', 'Change Voting Settings'). Included in IPFS metadata."),
-      proposalMetadataExtra: z.record(z.unknown()).optional().describe("Extra fields merged into IPFS metadata (e.g. changes, isMeta). From dexe_proposal_build_* output."),
-
-      // voting
-      voteAmount: z.string().optional().describe("Auto-vote amount (18-dec wei). Defaults to all deposited power."),
-      voteNftIds: z.array(z.string()).default([]),
-
-      // override
-      user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
-    },
-    async (input) => {
+/**
+ * Pure runner behind `dexe_proposal_create`. Exposed for composite tools
+ * (e.g. `dexe_otc_dao_open_sale`) that build their own `actionsOnFor` and
+ * want the same prereq + IPFS + multicall flow without going through the
+ * MCP tool layer.
+ */
+export async function runProposalCreate(
+  inputRaw: ProposalCreateInput,
+  deps: ProposalCreateDeps,
+) {
+  const input = {
+    proposalType: "custom" as const,
+    description: "",
+    actionsOnFor: [] as { executor: string; value?: string; data: string }[],
+    voteNftIds: [] as string[],
+    ...inputRaw,
+  };
+  const { ctx, signer, rpc } = deps;
       if (!ctx.config.pinataJwt) return err("DEXE_PINATA_JWT required for proposal creation (IPFS metadata upload).");
 
       const user = input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
@@ -313,7 +318,7 @@ export function registerFlowTools(
         // custom
         actionsOnFor = input.actionsOnFor.map(a => ({
           executor: a.executor,
-          value: BigInt(a.value),
+          value: BigInt(a.value ?? "0"),
           data: a.data,
         }));
         proposalExtra = {
@@ -404,7 +409,7 @@ export function registerFlowTools(
       }
 
       // Step 6: send or return
-      const result = await sendOrCollect(signer, payloads);
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun });
 
       return ok({
         mode: result.mode,
@@ -419,7 +424,55 @@ export function registerFlowTools(
         },
         steps: [...skippedSteps, ...result.steps],
       });
+}
+
+// ---------- register ----------
+
+export function registerFlowTools(
+  server: McpServer,
+  ctx: ToolContext,
+  signer: SignerManager,
+): void {
+  const rpc = new RpcProvider(ctx.config);
+
+  // =============================================
+  // dexe_proposal_create — thin shim around runProposalCreate
+  // =============================================
+  server.tool(
+    "dexe_proposal_create",
+    "Create a governance proposal with full prerequisite handling. " +
+      "Automatically checks token balance, approves if needed, deposits if needed, " +
+      "uploads metadata to IPFS (with correct category/changes fields), and builds " +
+      "createProposalAndVote calldata. When DEXE_PRIVATE_KEY is set, signs and broadcasts " +
+      "all transactions. Otherwise returns ordered TxPayload list.\n\n" +
+      "Supported proposalType values: 'modify_dao_profile', 'custom'.\n\n" +
+      "For modify_dao_profile: provide newDaoDescription and/or newAvatarCID to change the DAO profile. " +
+      "Tool encodes editDescriptionURL action and uploads both DAO metadata and proposal metadata to IPFS.\n\n" +
+      "For custom: provide actionsOnFor array with {executor, value, data} objects.",
+    {
+      govPool: z.string().describe("GovPool contract address"),
+      proposalType: z.enum(["modify_dao_profile", "custom"]).default("custom"),
+      title: z.string().describe("Proposal title"),
+      description: z.string().default("").describe("Proposal description (markdown supported)"),
+      newDaoName: z.string().optional(),
+      newDaoDescription: z.string().optional(),
+      newWebsiteUrl: z.string().optional(),
+      newAvatarCID: z.string().optional(),
+      newAvatarFileName: z.string().optional(),
+      newSocialLinks: z.array(z.tuple([z.string(), z.string()])).optional(),
+      actionsOnFor: z.array(z.object({
+        executor: z.string(),
+        value: z.string().default("0"),
+        data: z.string(),
+      })).default([]).describe("Actions for custom proposals"),
+      category: z.string().optional().describe("Proposal category (included in IPFS metadata)."),
+      proposalMetadataExtra: z.record(z.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
+      voteAmount: z.string().optional().describe("Auto-vote amount (18-dec wei). Defaults to all deposited power."),
+      voteNftIds: z.array(z.string()).default([]),
+      user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
     },
+    (input) => runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc }),
   );
 
   // =============================================
@@ -461,8 +514,13 @@ export function registerFlowTools(
       const stateNum = Number(stateRes[0]!.value);
       const stateName = STATE_NAMES[stateNum] ?? `Unknown(${stateNum})`;
 
-      // Already succeeded — skip voting, go straight to execute
-      if ((stateNum === 4 || stateNum === 5) && input.autoExecute) {
+      // Already past voting — skip vote, go straight to execute. State 4 =
+      // SucceededFor, 5 = SucceededAgainst, 6 = Locked (post-quorum, post-
+      // validator window if any, executable once delay elapsed). When the
+      // open_sale composite votes with enough power to clear quorum +
+      // earlyCompletion, the proposal lands directly in Locked, so we must
+      // recognize it here as executable.
+      if ((stateNum === 4 || stateNum === 5 || stateNum === 6) && input.autoExecute) {
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
         ]);
