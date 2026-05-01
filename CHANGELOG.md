@@ -2,42 +2,35 @@
 
 ## 0.5.0
 
-Frontend ↔ MCP byte-diff for OTC `createTiers` calldata. Locks in the
-encoding contract between `dexe_proposal_build_token_sale_multi` and the
-production DeXe frontend's `useGovPoolCreateTokenSaleProposal` hook so future
-contract upgrades or helper refactors are caught the moment they diverge.
+Transaction simulator gate + frontend byte-diff harness. Adds `eth_call`-based preflight tools so any agent can dry-run calldata before broadcasting (catching reverts, gas spikes, allowance issues without spending real money), plus a fixture-driven byte-diff runner that locks in the encoding contract between `dexe_proposal_build_token_sale_multi` and the production DeXe frontend's `useGovPoolCreateTokenSaleProposal` hook. **122 tools** total (119 → 122).
 
 ### Added
 
-- `tests/compat/diff-otc.mjs` — fixture-driven runner. For each
-  `tests/compat/fixtures/otc-frontend-*.json` it calls
-  `buildTokenSaleMultiActions(input)` from compiled `dist/`, byte-compares
-  every `actions[i].data` against the fixture, and on mismatch prints an
-  ABI-decoded field-level diff via `Interface.parseTransaction`. Exit 0 = all
-  green, 1 = at least one diverged. Wired as `npm run test:compat`.
-- `tests/compat/gen-otc-fixtures.mjs` — fixture generator. Runs an
-  *independent* synthesizer that mirrors the frontend hook's pipeline
-  (lines 33-130 of `useGovPoolCreateTokenSaleProposal.ts`) **and** the MCP
-  helper, asserts byte-identical calldata, then writes the fixture using the
-  helper's output. Refuses to write on synth/helper divergence. Re-run after
-  any helper refactor or frontend ABI bump.
+**Simulator tools (3)**
+- `dexe_sim_calldata` — generic preflight. Returns `{ success, revertReason?, returnData?, gasEstimate? }`. Decodes `Error(string)` (selector `0x08c379a0`) and `Panic(uint256)` revert payloads. Optional `from`/`value`/`blockTag` overrides.
+- `dexe_sim_proposal` — preflight `GovPool.execute(proposalId)`. Reads proposal state first; refuses to sim unless `SucceededFor` (idx 4). Surfaces `proposalState` + `proposalStateIndex` for diagnostics.
+- `dexe_sim_buy` — preflight `TokenSaleProposal.buy(...)`. Native path (paymentToken = `0x0`) sets `value=amount`. ERC20 path also reads current allowance and reports `willNeedApprove: true` when allowance < amount.
+
+**Integration**
+- `dexe_otc_buyer_buy` — new `simulateFirst?: boolean` flag. When true, runs `dexe_sim_calldata` on the encoded `buy()` payload before the broadcast/return path; aborts with the revert reason on failure. Ignored when `dryRun: true`.
+
+**Frontend ↔ MCP byte-diff harness**
+- `tests/compat/diff-otc.mjs` — fixture-driven runner. For each `tests/compat/fixtures/otc-frontend-*.json` it calls `buildTokenSaleMultiActions(input)` from compiled `dist/`, byte-compares every `actions[i].data` against the fixture, and on mismatch prints an ABI-decoded field-level diff via `Interface.parseTransaction`. Exit 0 = all green, 1 = at least one diverged. Wired as `npm run test:compat`.
+- `tests/compat/gen-otc-fixtures.mjs` — fixture generator. Runs an *independent* synthesizer that mirrors the frontend hook's pipeline (lines 33-130 of `useGovPoolCreateTokenSaleProposal.ts`) **and** the MCP helper, asserts byte-identical calldata, then writes the fixture using the helper's output. Refuses to write on synth/helper divergence. Re-run after any helper refactor or frontend ABI bump.
 - Three fixtures covering the canonical OTC shapes:
   - `otc-frontend-1tier-open.json` — single open tier (no participation gating).
-  - `otc-frontend-2tier-merkle.json` — open + `MerkleWhitelist` (auto-derived
-    root, no `addToWhitelist`).
-  - `otc-frontend-2tier-plain-whitelist.json` — open + plain `Whitelist`
-    (auto-appended `addToWhitelist` action).
-- `tests/compat/CAPTURE.md` — runbook documenting both capture methods
-  (synthesizer + live WalletConnect intercept) and the form-field → TierSpec
-  field map for re-capture.
+  - `otc-frontend-2tier-merkle.json` — open + `MerkleWhitelist` (auto-derived root, no `addToWhitelist`).
+  - `otc-frontend-2tier-plain-whitelist.json` — open + plain `Whitelist` (auto-appended `addToWhitelist` action).
+- `tests/compat/CAPTURE.md` — runbook documenting both capture methods (synthesizer + live WalletConnect intercept) and the form-field → TierSpec field map for re-capture.
+
+**Docs + scenarios**
+- `docs/SIMULATOR.md` — explains the three sim tools, response shapes, revert decoding, integration with `dexe_otc_buyer_buy`, and the limits of `eth_call`-based simulation (pending state, reorg risk, L2 divergence).
+- `S47-sim-calldata-balance` — exercises `dexe_sim_calldata` calling `balanceOf` on the active chain's first allowlisted token; verifies `success: true` and a 32-byte return.
+- `S48-sim-buy-no-tier` — exercises `dexe_sim_buy` against Glacier's TokenSaleProposal on BSC testnet with `tierId=999`; verifies `success: false` + revert reason set.
 
 ### Notes
 
-- Fixtures are **synthesized** for v1: the synthesizer encodes via the same
-  canonical `TokenSaleProposal` ABI signature both the frontend artifact and
-  `TOKEN_SALE_PROPOSAL_ABI` regenerate from (post-Bug #25 fix). Live
-  WalletConnect-intercept re-cert is documented in `CAPTURE.md` and remains
-  the ground-truth check after frontend major bumps.
+- Compat fixtures are **synthesized** for v1: the synthesizer encodes via the same canonical `TokenSaleProposal` ABI signature both the frontend artifact and `TOKEN_SALE_PROPOSAL_ABI` regenerate from (post-Bug #25 fix). Live WalletConnect-intercept re-cert is documented in `CAPTURE.md` and remains the ground-truth check after frontend major bumps.
 - All three fixtures round-trip cleanly through `Interface.decodeFunctionData`.
 
 ## 0.4.0

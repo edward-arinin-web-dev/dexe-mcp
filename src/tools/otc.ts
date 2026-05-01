@@ -16,6 +16,7 @@ import {
   computeLeafHash,
   verifyProof,
 } from "../lib/merkleTree.js";
+import { simulateCalldata } from "./simulate.js";
 
 // ---------- ABI fragments ----------
 
@@ -375,6 +376,12 @@ export function registerOtcTools(
       whitelistUsers: z.array(z.string()).default([]).describe("Optional whitelist for proof gen"),
       user: z.string().optional(),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+      simulateFirst: z
+        .boolean()
+        .default(false)
+        .describe(
+          "If true, eth_call-simulate the buy() against live state before broadcasting. Aborts with the revertReason if the sim fails.",
+        ),
     },
     async (input) => {
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);
@@ -455,18 +462,38 @@ export function registerOtcTools(
       }
 
       // buy()
+      const buyData = TOKEN_SALE_ABI.encodeFunctionData("buy", [
+        tierIdBn,
+        input.tokenToBuyWith,
+        amountBn,
+        proof,
+      ]);
       payloads.push({
         to: input.tokenSaleProposal,
-        data: TOKEN_SALE_ABI.encodeFunctionData("buy", [
-          tierIdBn,
-          input.tokenToBuyWith,
-          amountBn,
-          proof,
-        ]),
+        data: buyData,
         value: native ? amountBn.toString() : "0",
         chainId,
         description: `TokenSaleProposal.buy(tier=${tierIdBn}, ${native ? "native" : input.tokenToBuyWith}, ${amountBn})`,
       });
+
+      // Optional simulation gate: preflight the buy() against live state before
+      // we ever touch the broadcast path. Skipped on dryRun since dryRun
+      // already short-circuits to payload return.
+      let simulation: unknown;
+      if (input.simulateFirst && !input.dryRun) {
+        const sim = await simulateCalldata(rpc, {
+          to: input.tokenSaleProposal,
+          data: buyData,
+          value: native ? amountBn.toString() : undefined,
+          from: userAddr,
+        });
+        simulation = sim;
+        if (!sim.success) {
+          return err(
+            `Simulation failed before broadcast: ${sim.revertReason ?? "unknown revert"}`,
+          );
+        }
+      }
 
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun });
 
@@ -478,6 +505,7 @@ export function registerOtcTools(
         amount: amountBn.toString(),
         proofLength: proof.length,
         preflight: native ? null : { balance: balance.toString(), allowance: allowance.toString() },
+        ...(simulation ? { simulation } : {}),
         steps: [...skipped, ...result.steps],
       });
     },
