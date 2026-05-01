@@ -25,6 +25,8 @@ import { registerFlowTools } from "./flow.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcTools } from "./otc.js";
 import { registerSimulateTools } from "./simulate.js";
+import { registerInboxTools } from "./inbox.js";
+import { registerPredictTools } from "./predict.js";
 import { SignerManager } from "../lib/signer.js";
 
 /**
@@ -55,6 +57,8 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerDaoDeployTools(server, ctx);
   registerSubgraphTools(server, ctx);
   registerMerkleTools(server, ctx);
+  registerInboxTools(server, ctx);
+  registerPredictTools(server, ctx);
 
   const signer = new SignerManager(config);
   registerTxTools(server, config, signer);

@@ -2,7 +2,12 @@
 
 ## 0.5.0
 
-Transaction simulator gate + frontend byte-diff harness. Adds `eth_call`-based preflight tools so any agent can dry-run calldata before broadcasting (catching reverts, gas spikes, allowance issues without spending real money), plus a fixture-driven byte-diff runner that locks in the encoding contract between `dexe_proposal_build_token_sale_multi` and the production DeXe frontend's `useGovPoolCreateTokenSaleProposal` hook. **122 tools** total (119 → 122).
+Transaction simulator gate, multi-DAO inbox + forecast + OTC discovery, and
+frontend byte-diff harness. Adds preflight tools (catch reverts before
+broadcast), the read-side "what needs my attention" loop (inbox +
+forecast), OTC tier discovery, and a fixture-driven calldata-equivalence
+test against the production DeXe frontend. **125 tools** total
+(119 → 125).
 
 ### Added
 
@@ -28,10 +33,42 @@ Transaction simulator gate + frontend byte-diff harness. Adds `eth_call`-based p
 - `S47-sim-calldata-balance` — exercises `dexe_sim_calldata` calling `balanceOf` on the active chain's first allowlisted token; verifies `success: true` and a 32-byte return.
 - `S48-sim-buy-no-tier` — exercises `dexe_sim_buy` against Glacier's TokenSaleProposal on BSC testnet with `tierId=999`; verifies `success: false` + revert reason set.
 
+**Subgraph trio — read-side "what needs my attention" tools (3)**
+- `dexe_user_inbox` — multi-DAO attention aggregator. Per DAO, surfaces
+  `unvotedProposal` items (Voting state + zero personal vote), `claimableRewards`
+  (non-zero pending rewards across the scanned window), and `lockedDeposit`
+  (UserKeeper.tokenBalance > 0). Mainnet auto-discovers DAOs via the pools
+  subgraph (`voterInPools` for the user, limit 50). Testnet requires explicit
+  `daos[]` since chain 97 has no subgraph. Read-only. See `docs/INBOX.md`.
+- `dexe_proposal_forecast` — predictive pass-rate. Reads latest 10 proposals via
+  `getProposals(0, 10)` + their final states, computes historical pass-rate +
+  average For-vote weight, and returns `{ quorum, historicalPassRate, risks,
+  recommendation }`. `recommendation` is `likelyPass` / `borderline` /
+  `likelyFail` based on `hitProbability = clamp(projectedFor / required, 0, 1)`.
+  Mainnet only by default; pass `forceRpcOnly: true` to run on testnet.
+- `dexe_otc_list_sales_for_dao` — OTC tier discovery. Reads `latestTierId()`
+  then `getTierViews(0, latestTierId)` on a DAO's TokenSaleProposal helper.
+  Returns tiers tagged with `status` (`upcoming` / `active` / `ended`)
+  computed against `block.timestamp`, plus aggregate counts. Works on both
+  chain 56 and chain 97 — no subgraph required. `totalSold` returns `null`
+  in v1 (not exposed via `getTierViews`).
+
+**Tests**
+- `S50-otc-list-for-dao.json` — chain 97, validates tier-list shape on
+  Glacier (zero tiers expected).
+- `S51-inbox-with-supplied-daos.json` — chain 97/56, exercises
+  `dexe_user_inbox` with explicit `daos[]`.
+
 ### Notes
 
 - Compat fixtures are **synthesized** for v1: the synthesizer encodes via the same canonical `TokenSaleProposal` ABI signature both the frontend artifact and `TOKEN_SALE_PROPOSAL_ABI` regenerate from (post-Bug #25 fix). Live WalletConnect-intercept re-cert is documented in `CAPTURE.md` and remains the ground-truth check after frontend major bumps.
 - All three fixtures round-trip cleanly through `Interface.decodeFunctionData`.
+
+### Follow-ups (v0.5.1+)
+
+- `dexe_otc_list_active_sales` — cross-DAO global live-sale list. Requires a subgraph entity that doesn't exist yet.
+- Per-DAO TokenSaleProposal helper auto-discovery from registry / deploy receipt so callers don't need to thread the address.
+- State-override allowance for ERC20 sim path (currently flags `willNeedApprove`).
 
 ## 0.4.0
 

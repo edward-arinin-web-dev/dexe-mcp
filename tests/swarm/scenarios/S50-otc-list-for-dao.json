@@ -1,0 +1,28 @@
+{
+  "id": "S50-otc-list-for-dao",
+  "title": "List OTC sale tiers for an allowlisted DAO",
+  "priority": 4,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "Phase v0.5.0 — exercises dexe_otc_list_sales_for_dao against Glacier (BSC testnet). The TokenSaleProposal helper is wired but has zero tiers; expect tiers: [] and counts.active == 0. Mainnet variant pending: the orchestrator template engine doesn't have firstAllowlistedTokenSaleProposal, so the helper address is hard-coded to Glacier here.",
+  "agents": [{ "alias": "R", "role": "Voter", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "R",
+      "tool": "dexe_otc_list_sales_for_dao",
+      "args": {
+        "govPool": "{{firstAllowlistedDao}}",
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6"
+      },
+      "broadcast": false,
+      "captureAs": "list"
+    }
+  ],
+  "successCriteria": [
+    { "id": "no-error", "check": "list.tiers is array (not error)" },
+    { "id": "shape", "check": "list.counts.active >= 0 && list.counts.upcoming >= 0 && list.counts.ended >= 0" }
+  ]
+}

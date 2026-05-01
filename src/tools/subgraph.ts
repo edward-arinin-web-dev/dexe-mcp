@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { isAddress } from "ethers";
+import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
+import { RpcProvider } from "../rpc.js";
+import { multicall } from "../lib/multicall.js";
 import { gqlRequest } from "../lib/subgraph.js";
 
 /**
@@ -218,6 +220,7 @@ export function registerSubgraphTools(server: McpServer, ctx: ToolContext): void
   registerValidatorList(server, ctx);
   registerUserActivity(server, ctx);
   registerDaoExperts(server, ctx);
+  registerOtcListSalesForDao(server, ctx);
 }
 
 // ---------- tools ----------
@@ -434,6 +437,171 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
         };
       } catch (err) {
         return errorResult(`read_dao_experts failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+}
+
+// ---------- OTC discovery ----------
+
+const TOKEN_SALE_DISCOVERY_ABI = new Interface([
+  "function latestTierId() view returns (uint256)",
+  "function getTierViews(uint256 offset, uint256 limit) view returns (tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint256 saleStartTime, uint256 saleEndTime, address saleTokenAddress, uint256 claimLockDuration, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 cliffPeriod, uint256 unlockStep, uint256 vestingDuration, uint256 vestingPercentage) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
+]);
+
+const GOV_POOL_HELPERS_DISCOVERY_ABI = new Interface([
+  // Some deployments expose the TokenSaleProposal address via a custom getter;
+  // we don't rely on it. Caller passes the address directly when known. Keep
+  // the placeholder ABI for forward-compat.
+  "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+]);
+
+function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
+  const rpc = new RpcProvider(ctx.config);
+
+  server.registerTool(
+    "dexe_otc_list_sales_for_dao",
+    {
+      title: "List OTC sale tiers for a DAO",
+      description:
+        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with status (`upcoming` / `active` / `ended`) computed against current block timestamp. Works on chain 56 (mainnet) and 97 (testnet) — no subgraph required. " +
+        "When `tokenSaleProposal` is omitted the tool returns an error pointing at the helper-discovery follow-up; supply it explicitly until per-DAO helper discovery lands.",
+      inputSchema: {
+        govPool: z.string().describe("GovPool address"),
+        tokenSaleProposal: z
+          .string()
+          .describe("TokenSaleProposal helper address. Look up via dexe_dao_predict_addresses or DAO deploy receipt."),
+      },
+    },
+    async ({ govPool, tokenSaleProposal }) => {
+      if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
+      if (!isAddress(tokenSaleProposal))
+        return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+
+      try {
+        const provider = rpc.requireProvider();
+
+        // Validate the GovPool actually exists (helper read is the cheapest
+        // smoke test — reverts cleanly on EOA/empty address).
+        const [helpersR] = await multicall(provider, [
+          {
+            target: govPool,
+            iface: GOV_POOL_HELPERS_DISCOVERY_ABI,
+            method: "getHelperContracts",
+            args: [],
+            allowFailure: true,
+          },
+        ]);
+        if (!helpersR?.success) {
+          return errorResult(
+            `${govPool} does not look like a GovPool (getHelperContracts reverted): ${helpersR?.error ?? "unknown"}`,
+          );
+        }
+
+        // Read latestTierId, then page with offset=0 limit=latestTierId.
+        const [latestR] = await multicall(provider, [
+          {
+            target: tokenSaleProposal,
+            iface: TOKEN_SALE_DISCOVERY_ABI,
+            method: "latestTierId",
+            args: [],
+            allowFailure: true,
+          },
+        ]);
+        if (!latestR?.success) {
+          return errorResult(
+            `${tokenSaleProposal} does not look like a TokenSaleProposal (latestTierId reverted): ${latestR?.error ?? "unknown"}`,
+          );
+        }
+        const latestTierId = Number(latestR.value as bigint);
+        if (latestTierId === 0) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `${tokenSaleProposal}: zero tiers (latestTierId=0). DAO has not opened a sale yet.`,
+              },
+            ],
+            structuredContent: {
+              govPool,
+              tokenSaleProposal,
+              tiers: [],
+            },
+          };
+        }
+
+        const [tiersR] = await multicall(provider, [
+          {
+            target: tokenSaleProposal,
+            iface: TOKEN_SALE_DISCOVERY_ABI,
+            method: "getTierViews",
+            args: [0n, BigInt(latestTierId)],
+            allowFailure: true,
+          },
+        ]);
+        if (!tiersR?.success) {
+          return errorResult(`getTierViews(0, ${latestTierId}) reverted: ${tiersR?.error ?? "unknown"}`);
+        }
+
+        const block = await provider.getBlock("latest");
+        const nowSec = BigInt(block?.timestamp ?? Math.floor(Date.now() / 1000));
+
+        const rawTiers = tiersR.value as unknown as Array<{
+          metadata: { name: string; description: string };
+          totalTokenProvided: bigint;
+          saleStartTime: bigint;
+          saleEndTime: bigint;
+          saleTokenAddress: string;
+          purchaseTokenAddresses: string[];
+        }>;
+
+        const tiers = rawTiers.map((t, i) => {
+          const tierId = String(i + 1);
+          let status: "upcoming" | "active" | "ended";
+          if (nowSec < t.saleStartTime) status = "upcoming";
+          else if (nowSec <= t.saleEndTime) status = "active";
+          else status = "ended";
+
+          return {
+            tierId,
+            name: t.metadata.name,
+            saleStartTime: t.saleStartTime.toString(),
+            saleEndTime: t.saleEndTime.toString(),
+            saleToken: t.saleTokenAddress,
+            purchaseTokens: t.purchaseTokenAddresses,
+            totalProvided: t.totalTokenProvided.toString(),
+            // totalSold is not exposed via getTierViews — would require an
+            // event/subgraph query. v1 leaves this null; caller can derive
+            // from getUserViews aggregation.
+            totalSold: null as string | null,
+            status,
+          };
+        });
+
+        const counts = {
+          upcoming: tiers.filter((t) => t.status === "upcoming").length,
+          active: tiers.filter((t) => t.status === "active").length,
+          ended: tiers.filter((t) => t.status === "ended").length,
+        };
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${tokenSaleProposal}: ${tiers.length} tier(s) — ${counts.active} active, ${counts.upcoming} upcoming, ${counts.ended} ended (block ts ${nowSec}).`,
+            },
+          ],
+          structuredContent: {
+            govPool,
+            tokenSaleProposal,
+            tiers,
+            counts,
+          },
+        };
+      } catch (e) {
+        return errorResult(
+          `otc_list_sales_for_dao failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
     },
   );
