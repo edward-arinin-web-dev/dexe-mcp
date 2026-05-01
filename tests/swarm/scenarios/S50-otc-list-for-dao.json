@@ -4,9 +4,9 @@
   "priority": 4,
   "dao": "{{firstAllowlistedDao}}",
   "dependsOn": [],
-  "requiresChain": [56, 97],
+  "requiresChain": [97],
   "requiresBrowser": false,
-  "notes": "Phase v0.5.0 — exercises dexe_otc_list_sales_for_dao against the first allowlisted DAO. On testnet (Glacier) the TokenSaleProposal helper is wired but no tiers exist yet; expect tiers: [] and counts.active == 0. Validates the helper-discovery happy path without requiring a live sale.",
+  "notes": "Phase v0.5.0 — exercises dexe_otc_list_sales_for_dao against Glacier (BSC testnet). The TokenSaleProposal helper is wired but has zero tiers; expect tiers: [] and counts.active == 0. Mainnet variant pending: the orchestrator template engine doesn't have firstAllowlistedTokenSaleProposal, so the helper address is hard-coded to Glacier here.",
   "agents": [{ "alias": "R", "role": "Voter", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
@@ -15,7 +15,7 @@
       "tool": "dexe_otc_list_sales_for_dao",
       "args": {
         "govPool": "{{firstAllowlistedDao}}",
-        "tokenSaleProposal": "{{firstAllowlistedTokenSaleProposal}}"
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6"
       },
       "broadcast": false,
       "captureAs": "list"
