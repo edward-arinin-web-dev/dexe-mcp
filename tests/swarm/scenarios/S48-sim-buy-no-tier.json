@@ -1,0 +1,33 @@
+{
+  "id": "S48-sim-buy-no-tier",
+  "title": "Sim TokenSaleProposal.buy() against a non-existent tier — expect revert",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "Phase v0.5 — exercises dexe_sim_buy against Glacier's empty TokenSaleProposal on BSC testnet with tierId=999 (no such tier). The sim must report success: false with a revertReason. testnet-only because the target address is the testnet Glacier helper.",
+  "agents": [{ "alias": "B", "role": "Proposer", "wallet": "AGENT_PK_2" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "B",
+      "tool": "dexe_sim_buy",
+      "args": {
+        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tierId": "999",
+        "tokenToBuyWith": "0x0000000000000000000000000000000000000000",
+        "amount": "100000000000000000",
+        "proof": [],
+        "from": "{{agent:B:address}}"
+      },
+      "broadcast": false,
+      "captureAs": "sim"
+    }
+  ],
+  "successCriteria": [
+    { "id": "success-false", "check": "sim.success == false" },
+    { "id": "revert-reason-set", "check": "sim.revertReason is a non-empty string" },
+    { "id": "native-flag", "check": "sim.native == true" }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "S47-sim-calldata-balance",
+  "title": "Sim ERC20.balanceOf via dexe_sim_calldata (read-only eth_call)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Phase v0.5 — exercises dexe_sim_calldata against the active chain's first allowlisted token. balanceOf is a guaranteed-non-reverting view, so success must be true and returnData must decode to a 32-byte uint256.",
+  "agents": [{ "alias": "A", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_sim_calldata",
+      "args": {
+        "to": "{{firstAllowlistedToken}}",
+        "data": "0x70a08231000000000000000000000000000000000000000000000000000000000000dead",
+        "from": "{{agent:A:address}}"
+      },
+      "broadcast": false,
+      "captureAs": "sim"
+    }
+  ],
+  "successCriteria": [
+    { "id": "success-true", "check": "sim.success == true" },
+    { "id": "return-data-bytes32", "check": "sim.returnData starts with 0x and is 66 chars long (32-byte uint256)" }
+  ]
+}
