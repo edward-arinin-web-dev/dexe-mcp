@@ -39,6 +39,9 @@ tests/reports/rpc-*
 tests/reports/report-*.md
 tests/reports/latest.md
 
+# Local one-off probe scripts (mainnet/offchain sanity checks). Never shipped.
+scripts/swarm/test-*.mjs
+
 # Local-only Claude Code workspace + project-specific overrides
 .claude/
 CLAUDE.md
