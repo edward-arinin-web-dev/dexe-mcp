@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents. Total tools: **111**.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents. Total tools: **125**.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Three composite tools (`dexe_tx_send`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -19,6 +19,10 @@ Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_propo
 9. [Off-chain wrappers and auth](#9-off-chain-wrappers-and-auth)
 10. [Vote, stake, delegate, execute, claim builders](#10-vote-stake-delegate-execute-claim-builders)
 11. [Composite signing flows](#11-composite-signing-flows)
+12. [Merkle utility](#12-merkle-utility)
+13. [OTC composites](#13-otc-composites)
+14. [Simulator](#14-simulator)
+15. [Multi-DAO inbox + forecast](#15-multi-dao-inbox--forecast)
 
 Each row links to the runtime schema. Args, return shapes, and zod input validators live in `src/tools/*.ts` — call the tool with no args (or via your MCP client) to see the JSON schema.
 
@@ -231,6 +235,53 @@ Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`. **These four require `DEXE_
 | `dexe_proposal_vote_and_execute` | Vote on a proposal, optionally execute when state allows. Handles deposits + state transitions. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_send` | Sign and broadcast any TxPayload from a `*_build_*` tool. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_status` | Read receipt/status of a previously submitted tx hash. | `DEXE_RPC_URL` |
+
+---
+
+## 12. Merkle utility
+
+Source: `src/tools/merkle.ts`. OZ `StandardMerkleTree`-compatible. No env required (pure compute).
+
+| Tool | What it does |
+|------|--------------|
+| `dexe_merkle_build` | Build a merkle tree over `entries[]` with `leafEncoding` (default `["address"]`). Returns `{ root, proofs[], leafHashes[] }`. Sorted-pair commutative keccak; double-hash leaf `keccak256(keccak256(abi.encode(...)))`. Matches frontend's `@openzeppelin/merkle-tree` 1:1. |
+| `dexe_merkle_proof` | Single-target convenience wrapper: `{ entries, target, leafEncoding? }` → `{ root, proof, leafHash, included }`. |
+
+---
+
+## 13. OTC composites
+
+Source: `src/tools/otc.ts`. Composites that orchestrate `proposal_create` + `TokenSaleProposal` reads/writes for an end-to-end OTC sale flow. See [`docs/OTC.md`](./OTC.md) for the full project-owner + buyer recipe.
+
+| Tool | What it does | Required env |
+|------|--------------|--------------|
+| `dexe_otc_dao_open_sale` | Project-owner composite. Builds the multi-tier `createTiers` envelope (deduped approves, auto-merkle, auto-`addToWhitelist`) and runs the full proposal_create flow (balance/threshold check, IPFS metadata, approve, deposit, `createProposalAndVote`). Flags: `buildOnly` (skip proposal flow, return envelope only), `dryRun` (return TxPayloads even with key set). | `DEXE_RPC_URL`, `DEXE_PINATA_JWT`, `DEXE_PRIVATE_KEY` for broadcast |
+| `dexe_otc_buyer_status` | Read-only aggregator. Multicalls `getTierViews` + `getUserViews(user, tierIds, proofs)`, surfaces participation requirements + pre-computed `claimable` and `vestingWithdrawable`. Optional per-tier `whitelists[]` triggers merkle root + proof + verifyProof for the user. | `DEXE_RPC_URL` |
+| `dexe_otc_buyer_buy` | Buyer composite. Preflights ERC20 balance + allowance (skipped on native sentinel `0x0`), prepends approve when needed, builds `buy(tierId, paymentToken, amount, proof)`. Auto-derives merkle proof when `whitelistUsers[]` supplied. Native path sets `value=amount`. Optional `simulateFirst` runs sim before broadcast. | `DEXE_RPC_URL`, `DEXE_PRIVATE_KEY` for broadcast |
+| `dexe_otc_buyer_claim_all` | Picks tiers with `canClaim && !isClaimed` → `claim`, tiers with `amountToWithdraw > 0` → `vestingWithdraw`. `mode='noop'` when nothing pending. | `DEXE_RPC_URL`, `DEXE_PRIVATE_KEY` for broadcast |
+
+---
+
+## 14. Simulator
+
+Source: `src/tools/simulate.ts`. `eth_call`-based preflight gate. Catches reverts before broadcast without spending real money. See [`docs/SIMULATOR.md`](./SIMULATOR.md).
+
+| Tool | What it does | Required env |
+|------|--------------|--------------|
+| `dexe_sim_calldata` | Generic preflight. Returns `{ success, revertReason?, returnData?, gasEstimate? }`. Decodes `Error(string)` (selector `0x08c379a0`) and `Panic(uint256)` revert payloads. Optional `from`/`value`/`blockTag` overrides. | `DEXE_RPC_URL` |
+| `dexe_sim_proposal` | Preflight `GovPool.execute(proposalId)`. Reads proposal state first; refuses to sim unless `SucceededFor` (idx 4). Surfaces `proposalState` + `proposalStateIndex`. | `DEXE_RPC_URL` |
+| `dexe_sim_buy` | Preflight `TokenSaleProposal.buy(...)`. Native path uses `value=amount`. ERC20 path also reads current allowance and reports `willNeedApprove: true` when allowance < amount. | `DEXE_RPC_URL` |
+
+---
+
+## 15. Multi-DAO inbox + forecast
+
+Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my attention" tools. See [`docs/INBOX.md`](./INBOX.md).
+
+| Tool | What it does | Required env |
+|------|--------------|--------------|
+| `dexe_user_inbox` | Multi-DAO attention aggregator. Per DAO surfaces `unvotedProposal` (Voting state + zero personal vote), `claimableRewards`, `lockedDeposit`. Mainnet auto-discovers DAOs via pools subgraph; testnet requires explicit `daos[]`. | `DEXE_RPC_URL`, `DEXE_SUBGRAPH_POOLS_URL` for auto-discovery |
+| `dexe_proposal_forecast` | Predictive pass-rate. Reads latest 10 proposals + final states, computes historical pass-rate + average For-vote weight, returns `{ quorum, historicalPassRate, risks, recommendation }`. Mainnet only by default; pass `forceRpcOnly: true` for testnet. | `DEXE_RPC_URL`, `DEXE_SUBGRAPH_POOLS_URL` |
 
 ---
 
