@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.2
+
+Subgraph auth fix. The Graph decentralized gateway now rejects requests
+without `Authorization: Bearer <api-key>` — every subgraph-backed tool
+(`dexe_read_dao_list`, `dexe_proposal_voters`, `dexe_user_inbox`, etc.) was
+silently failing with HTTP 401 / "missing authorization header".
+
+### Fixed
+
+- `gqlRequest` (`src/lib/subgraph.ts`) now sends a Bearer token derived from
+  (in priority order): explicit `apiKey` arg → `DEXE_GRAPH_API_KEY` env →
+  auto-extracted from URL path (`/api/<key>/subgraphs/...`). Backward-compatible
+  with the legacy URL shape — no env or call-site changes required for users
+  whose key is already embedded in `DEXE_SUBGRAPH_*_URL`.
+- HTTP error path now includes the gateway's response body (truncated to 200
+  chars) so 401/403 reasons surface in the thrown message.
+
+### Added
+
+- New optional env var `DEXE_GRAPH_API_KEY` for the Bearer-only URL shape
+  (`https://gateway.thegraph.com/api/subgraphs/id/<id>`). Documented in
+  `.env.example`.
+- Exported helper `extractGraphApiKey(endpoint)` for reuse.
+
 ## 0.5.1
 
 OTC tier rate-scaling guardrails. Production incident on 2026-05-04: a sale

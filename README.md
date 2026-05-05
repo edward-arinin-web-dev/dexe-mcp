@@ -105,8 +105,10 @@ All optional. Tools that need a missing variable fail with a clear message point
 | `DEXE_PINATA_JWT` | IPFS uploads | Pinata JWT for pinning proposal/DAO metadata |
 | `DEXE_IPFS_GATEWAY` | IPFS fetch | **Dedicated** gateway URL (Pinata provides one alongside your JWT; Filebase / Quicknode / self-hosted also work). Public gateways are unreliable and NOT defaulted |
 | `DEXE_IPFS_GATEWAYS_FALLBACK` | IPFS fetch (optional) | Comma-separated public gateways tried sequentially after the primary |
-| `DEXE_SUBGRAPH_INTERACTIONS_URL` | `dexe_proposal_voters` | The Graph endpoint for the DeXe interactions subgraph |
-| `DEXE_SUBGRAPH_POOLS_URL`, `DEXE_SUBGRAPH_VALIDATORS_URL` | reserved | Additional subgraph endpoints for future tools |
+| `DEXE_SUBGRAPH_POOLS_URL` | `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`, `dexe_read_dao_experts`, `dexe_user_inbox`, `dexe_proposal_voters`, `dexe_dao_predict_addresses` | The Graph endpoint for the DeXe pools subgraph |
+| `DEXE_SUBGRAPH_VALIDATORS_URL` | `dexe_read_validator_list` | The Graph endpoint for the DeXe validators subgraph |
+| `DEXE_SUBGRAPH_INTERACTIONS_URL` | `dexe_read_user_activity` | The Graph endpoint for the DeXe interactions subgraph |
+| `DEXE_GRAPH_API_KEY` | subgraph reads (optional) | Bearer token for `gateway.thegraph.com`. Required only when `DEXE_SUBGRAPH_*_URL` does not embed the key in the path (`/api/<key>/subgraphs/...`). Auto-extracted from the URL when present |
 | `DEXE_BACKEND_API_URL` | off-chain proposals | DeXe backend (e.g. `https://api.dexe.io`) |
 
 ## Documentation
