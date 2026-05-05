@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.1
+
+OTC tier rate-scaling guardrails. Production incident on 2026-05-04: a sale
+proposal shipped with `exchangeRates: ["1e17"]` for "0.10 USDT/HELIO" — the
+on-chain formula is `saleAmount = purchaseAmount * PRECISION / rate` with
+`PRECISION = 10^25` (see `contracts/core/Globals.sol`), so the tier promised
+buyers `10^7` more sale tokens than the tier could provide. Buys reverted
+with `TSP: insufficient sale token amount` and the tiers had to be
+recovered via `offTiers + recover`.
+
+### Added
+
+- New optional tier field `purchaseRatios: string[]` — human decimal ratios
+  (`"0.10"` = 0.10 purchase tokens per 1 sale token), auto-scaled with
+  `parseUnits(r, 25)`. Mutually exclusive with `exchangeRates`.
+- Exported `PRECISION_DECIMALS = 25` constant from `proposalBuildComplex`.
+
+### Changed
+
+- `tierSchema.exchangeRates` is now optional. The schema enforces via
+  `.refine()` that exactly one of `exchangeRates` (raw 25-precision wei)
+  or `purchaseRatios` (decimals) is provided.
+- `buildTierTuple` normalizes both shapes into raw 25-precision
+  `bigint[]` before encoding.
+
+### Validation
+
+- Raw `exchangeRates[i] < 10^18` now throws with a hint citing
+  `PRECISION = 10^25` — catches the unscaled-ratio mistake at build time
+  instead of on-chain. Existing fixtures (rates ≥ 1e18) remain
+  byte-identical (verified via `npm run test:compat`).
+
 ## 0.5.0
 
 Transaction simulator gate, multi-DAO inbox + forecast + OTC discovery, and

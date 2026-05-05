@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AbiCoder, Interface, isAddress, ZeroAddress, getAddress } from "ethers";
+import { AbiCoder, Interface, isAddress, ZeroAddress, getAddress, parseUnits } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
@@ -260,26 +260,67 @@ const vestingSchema = z
     unlockStep: "0",
   });
 
-export const tierSchema = z.object({
-  name: z.string(),
-  description: z.string().default(""),
-  totalTokenProvided: z.string(),
-  saleStartTime: z.string().describe("Unix seconds"),
-  saleEndTime: z.string().describe("Unix seconds"),
-  claimLockDuration: z.string().default("0"),
-  saleTokenAddress: z.string(),
-  purchaseTokenAddresses: z.array(z.string()).min(1),
-  exchangeRates: z.array(z.string()).min(1),
-  minAllocationPerUser: z.string().default("0"),
-  maxAllocationPerUser: z.string().default("0"),
-  vestingSettings: vestingSchema,
-  participation: z
-    .array(participationSchema)
-    .default([])
-    .describe(
-      "Participation requirements (joined with AND on-chain). Leave empty for an open tier.",
-    ),
-});
+// On-chain `TokenSaleProposalBuy` formula:
+//   saleTokenAmount = purchaseAmount * PRECISION / exchangeRate
+// where PRECISION = 10**25 (see contracts/core/Globals.sol).
+//
+// Callers MUST either:
+//   - pass `exchangeRates` as raw 25-precision wei (paid_per_sold * 10^25), OR
+//   - pass `purchaseRatios` as decimal strings (e.g. "0.10" meaning
+//     0.10 purchase tokens buy 1 sale token) — auto-scaled to PRECISION.
+//
+// Any raw rate below `RATE_SUSPICION_FLOOR` is rejected with a clear hint,
+// because it almost certainly means the caller forgot the PRECISION scale
+// (a 0.10-USDT-per-token sale was misencoded as 1e17 instead of 1e24 in
+// production on 2026-05-04).
+export const PRECISION_DECIMALS = 25;
+const RATE_SUSPICION_FLOOR = 10n ** 18n;
+
+export const tierSchema = z
+  .object({
+    name: z.string(),
+    description: z.string().default(""),
+    totalTokenProvided: z.string(),
+    saleStartTime: z.string().describe("Unix seconds"),
+    saleEndTime: z.string().describe("Unix seconds"),
+    claimLockDuration: z.string().default("0"),
+    saleTokenAddress: z.string(),
+    purchaseTokenAddresses: z.array(z.string()).min(1),
+    exchangeRates: z
+      .array(z.string())
+      .min(1)
+      .optional()
+      .describe(
+        "Raw 25-precision rate wei (PRECISION = 10^25). On-chain: saleAmount = purchaseAmount * 1e25 / rate. " +
+          "For \"0.10 purchase per 1 sale\" pass \"1000000000000000000000000\" (= 0.10 × 10^25). " +
+          "Prefer `purchaseRatios` for human-readable input.",
+      ),
+    purchaseRatios: z
+      .array(z.string())
+      .min(1)
+      .optional()
+      .describe(
+        "Human decimal ratio of purchase tokens per 1 sale token (e.g. \"0.10\" = 0.10 USDT buys 1 HELIO). " +
+          "Auto-scaled to PRECISION = 10^25. Mutually exclusive with `exchangeRates`.",
+      ),
+    minAllocationPerUser: z.string().default("0"),
+    maxAllocationPerUser: z.string().default("0"),
+    vestingSettings: vestingSchema,
+    participation: z
+      .array(participationSchema)
+      .default([])
+      .describe(
+        "Participation requirements (joined with AND on-chain). Leave empty for an open tier.",
+      ),
+  })
+  .refine(
+    (t) => Boolean(t.exchangeRates) !== Boolean(t.purchaseRatios),
+    {
+      message:
+        "Provide exactly one of `exchangeRates` (raw 25-precision wei) or `purchaseRatios` (human decimals).",
+      path: ["exchangeRates"],
+    },
+  );
 
 export type TierSpec = z.infer<typeof tierSchema>;
 type ParticipationDetail = { type: number; data: string };
@@ -367,13 +408,61 @@ export function buildTierTuple(tier: TierSpec): {
   if (!isAddress(tier.saleTokenAddress)) {
     throw new Error(`Invalid saleTokenAddress for tier "${tier.name}".`);
   }
-  if (tier.purchaseTokenAddresses.length !== tier.exchangeRates.length) {
-    throw new Error(
-      `Tier "${tier.name}": purchaseTokenAddresses and exchangeRates must be parallel arrays.`,
-    );
-  }
   for (const pt of tier.purchaseTokenAddresses) {
     if (!isAddress(pt)) throw new Error(`Tier "${tier.name}": invalid purchase token ${pt}.`);
+  }
+
+  // Normalize rates to raw 25-precision wei. Either branch produces a
+  // bigint[] aligned with purchaseTokenAddresses.
+  let rates: bigint[];
+  if (tier.purchaseRatios) {
+    if (tier.purchaseTokenAddresses.length !== tier.purchaseRatios.length) {
+      throw new Error(
+        `Tier "${tier.name}": purchaseTokenAddresses and purchaseRatios must be parallel arrays.`,
+      );
+    }
+    rates = tier.purchaseRatios.map((r, i) => {
+      let scaled: bigint;
+      try {
+        scaled = parseUnits(r, PRECISION_DECIMALS);
+      } catch (err) {
+        throw new Error(
+          `Tier "${tier.name}": purchaseRatios[${i}] = "${r}" is not a valid decimal.`,
+        );
+      }
+      if (scaled === 0n) {
+        throw new Error(
+          `Tier "${tier.name}": purchaseRatios[${i}] = "${r}" resolves to 0 — rate cannot be zero.`,
+        );
+      }
+      return scaled;
+    });
+  } else {
+    if (!tier.exchangeRates) {
+      throw new Error(
+        `Tier "${tier.name}": one of \`exchangeRates\` or \`purchaseRatios\` is required.`,
+      );
+    }
+    if (tier.purchaseTokenAddresses.length !== tier.exchangeRates.length) {
+      throw new Error(
+        `Tier "${tier.name}": purchaseTokenAddresses and exchangeRates must be parallel arrays.`,
+      );
+    }
+    rates = tier.exchangeRates.map((r, i) => {
+      const v = BigInt(r);
+      if (v === 0n) {
+        throw new Error(`Tier "${tier.name}": exchangeRates[${i}] = 0 — rate cannot be zero.`);
+      }
+      if (v < RATE_SUSPICION_FLOOR) {
+        throw new Error(
+          `Tier "${tier.name}": exchangeRates[${i}] = ${r} looks unscaled. ` +
+            `On-chain formula uses PRECISION = 10^25: saleAmount = purchaseAmount * 1e25 / rate. ` +
+            `For "K purchase tokens per 1 sale token" pass K × 10^25, ` +
+            `or use \`purchaseRatios\` with a decimal string instead.`,
+        );
+      }
+      return v;
+    });
   }
 
   const participationDetails: ParticipationDetail[] = [];
@@ -399,7 +488,7 @@ export function buildTierTuple(tier: TierSpec): {
     BigInt(tier.claimLockDuration),
     getAddress(tier.saleTokenAddress),
     tier.purchaseTokenAddresses.map((p) => getAddress(p)),
-    tier.exchangeRates.map((r) => BigInt(r)),
+    rates,
     BigInt(tier.minAllocationPerUser),
     BigInt(tier.maxAllocationPerUser),
     [
