@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.4
+
+Off-chain backend + DAO deploy hardening. Two latent bugs surfaced during
+mainnet client-demo lifecycle on `0xCAe32Fa6e6D1C223Ed1047caA58F7fC0b2D65B41`
+(BSC) — both fixed at the boundary so callers don't have to know.
+
+### Fixed
+
+- **`dexe_dao_build_deploy`** (`src/tools/daoDeploy.ts`) — pre-flight reject
+  when `tokenParams.cap == mintedTotal` while creating a new gov token.
+  ERC20Gov init reverted silently inside `_initGovPool` with the generic
+  `Address: low-level delegate call failed`, hiding the real cause behind a
+  10M-gas wasted tx. The validator now throws a clear message:
+  `cap must be strictly greater than mintedTotal; pass cap=0 for uncapped, or
+  cap > mintedTotal`. Tool description updated.
+- **`dexe_proposal_build_offchain_single_option` / `_multi_option` /
+  `_for_against`** (`src/tools/proposalBuildOffchain.ts`) — backend rejected
+  every off-chain proposal with HTTP 400 `proposal type was not found` because
+  the builders sent `attributes.type = String(Math.floor(Date.now()/1000))`
+  (unix timestamp) instead of a registered template name. Constants now wired
+  per voting type:
+  - `default_single_option_type` for `voting_type=one_of`
+  - `default_multi_option_type` for `voting_type=multiple_of`
+  - `default_for_against_type` for `voting_type=for_against`
+- **Off-chain quorum percentages** — same three builders. The backend stores
+  `*_percent` as fractions (`0.5` = 50%), but the inputs accept whole-number
+  percentages (`50` = 50%) for ergonomic parity with the frontend form.
+  Boundary now divides by 100 once, via a new `pctToFraction` helper.
+
+### Verified
+
+- Smoke-tested all three off-chain builders: `outer.type` and
+  `custom_parameters.type` carry the correct constants; quorum fractions match
+  backend examples (live proposal #58 created end-to-end against
+  `https://api.dexe.io`).
+- DAO deploy: `cap == mintedTotal` rejected pre-flight with the new message;
+  `cap > mintedTotal` and `cap == 0` (uncapped) pass the check.
+- `tsc` clean, no project-test regressions.
+
 ## 0.5.3
 
 `getProposals` ABI fix for the post-upgrade GovPool layout. On-chain

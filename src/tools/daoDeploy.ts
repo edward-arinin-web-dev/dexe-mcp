@@ -227,6 +227,7 @@ function registerBuildDeploy(
         "**executorDescription auto-upload:** When `DEXE_PINATA_JWT` is configured and `executorDescription` is empty, " +
         "the tool auto-uploads proposal settings JSON to IPFS and sets the CID (matching frontend behavior). " +
         "Without this, the DAO's proposal settings won't display correctly in the frontend UI.\n\n" +
+        "**Token cap constraint:** When creating a new gov token (`tokenParams.name` non-empty), `cap` MUST be either 0 (uncapped) or strictly greater than `mintedTotal`. ERC20Gov init reverts silently otherwise. The tool pre-flight-rejects with a clear error.\n\n" +
         "Prefer running `dexe_compile` first for strict ABI parity.",
       inputSchema: {
         poolFactory: z
@@ -326,6 +327,20 @@ function registerBuildDeploy(
       }
       if (params.tokenParams.users.length !== params.tokenParams.amounts.length) {
         return errorResult("tokenParams.users and .amounts must be the same length");
+      }
+      // Bug #28: ERC20Gov init reverts inside _initGovPool with the generic
+      // "Address: low-level delegate call failed" when cap == mintedTotal.
+      // The token contract requires strict headroom (cap > minted) or cap=0
+      // (uncapped). Pre-flight reject so callers get a clear error instead of
+      // a 10M-gas revert hiding the real cause.
+      if (isTokenCreation) {
+        const capBn = BigInt(params.tokenParams.cap);
+        const mintedBn = BigInt(params.tokenParams.mintedTotal);
+        if (capBn > 0n && capBn <= mintedBn) {
+          return errorResult(
+            `tokenParams.cap (${capBn}) must be strictly greater than tokenParams.mintedTotal (${mintedBn}). ERC20Gov requires headroom for future minting; pass cap=0 for uncapped, or cap > mintedTotal.`,
+          );
+        }
       }
 
       // ---------- resolve PoolFactory address ----------

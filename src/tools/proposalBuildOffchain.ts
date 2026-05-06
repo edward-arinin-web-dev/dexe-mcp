@@ -27,6 +27,12 @@ const VOTE_ENDPOINT = "/integrations/voting/vote";
 const NONCE_ENDPOINT = "/integrations/nonce-auth-svc/nonce";
 const LOGIN_ENDPOINT = "/integrations/nonce-auth-svc/login";
 
+// Bug #27: backend rejects unix-timestamp `type` with
+// "proposal type was not found". Real values are registered template names.
+const DEFAULT_TYPE_SINGLE_OPTION = "default_single_option_type";
+const DEFAULT_TYPE_MULTI_OPTION = "default_multi_option_type";
+const DEFAULT_TYPE_FOR_AGAINST = "default_for_against_type";
+
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
@@ -176,11 +182,12 @@ function buildCustomParameters(
   p: ProposalParamsBase,
   votingType: "one_of" | "multiple_of" | "for_against",
   quorum: Record<string, unknown>,
+  defaultType: string,
 ) {
   return {
     title: p.title,
     description: p.description,
-    type: p.type ?? String(Math.floor(Date.now() / 1000)),
+    type: p.type ?? defaultType,
     use_delegated: p.useDelegated ?? true,
     voting_duration: Number(p.votingDurationSeconds),
     voting_type: votingType,
@@ -197,21 +204,29 @@ function buildProposalBody(
   p: ProposalParamsBase,
   votingType: "one_of" | "multiple_of" | "for_against",
   quorum: Record<string, unknown>,
+  defaultType: string,
 ) {
   return {
     data: {
       type: "proposals",
       attributes: {
-        type: p.type ?? String(Math.floor(Date.now() / 1000)),
+        type: p.type ?? defaultType,
         title: p.title,
         chain_id: p.chainId,
         description: JSON.stringify(markdownToSlate(p.description)),
         pool_address: p.poolAddress,
         vote_options: p.voteOptions,
-        custom_parameters: buildCustomParameters(p, votingType, quorum),
+        custom_parameters: buildCustomParameters(p, votingType, quorum, defaultType),
       },
     },
   };
+}
+
+// Bug #27 (decimals variant): backend stores quorum percentages as fractions
+// (0.5 = 50%), but the tool inputs use whole numbers (50 = 50%) for ergonomic
+// parity with the frontend form. Divide once at the boundary.
+function pctToFraction(p: number): number {
+  return p / 100;
 }
 
 const commonInputSchema = {
@@ -255,11 +270,11 @@ function registerSingleOption(server: McpServer): void {
       if (typeof base !== "string") return errorResult(base.error);
       const body = buildProposalBody(input, "one_of", {
         one_of_quorum: {
-          general_closing_percent: input.generalClosingPercent,
-          anticipatory_closing_percent: input.anticipatoryClosingPercent,
-          against_percent: input.againstPercent,
+          general_closing_percent: pctToFraction(input.generalClosingPercent),
+          anticipatory_closing_percent: pctToFraction(input.anticipatoryClosingPercent),
+          against_percent: pctToFraction(input.againstPercent),
         },
-      });
+      }, DEFAULT_TYPE_SINGLE_OPTION);
       return requestResult("POST", `${base}${PROPOSAL_ENDPOINT}`, body, {
         authRequired: true,
         note: `Off-chain 'one_of' proposal for ${input.poolAddress} — ${input.voteOptions.length} options.`,
@@ -290,10 +305,10 @@ function registerMultiOption(server: McpServer): void {
       if (typeof base !== "string") return errorResult(base.error);
       const body = buildProposalBody(input, "multiple_of", {
         multiple_of_quorum: {
-          boundary_percent: input.boundaryPercent,
-          against_percent: input.againstPercent,
+          boundary_percent: pctToFraction(input.boundaryPercent),
+          against_percent: pctToFraction(input.againstPercent),
         },
-      });
+      }, DEFAULT_TYPE_MULTI_OPTION);
       return requestResult("POST", `${base}${PROPOSAL_ENDPOINT}`, body, {
         authRequired: true,
         note: `Off-chain 'multiple_of' proposal for ${input.poolAddress} — ${input.voteOptions.length} options.`,
@@ -329,10 +344,10 @@ function registerForAgainst(server: McpServer): void {
       if (typeof base !== "string") return errorResult(base.error);
       const body = buildProposalBody(input, "for_against", {
         for_against_quorum: {
-          for_percent: input.forPercent,
-          against_percent: input.againstPercent,
+          for_percent: pctToFraction(input.forPercent),
+          against_percent: pctToFraction(input.againstPercent),
         },
-      });
+      }, DEFAULT_TYPE_FOR_AGAINST);
       return requestResult("POST", `${base}${PROPOSAL_ENDPOINT}`, body, {
         authRequired: true,
         note: `Off-chain 'for_against' proposal for ${input.poolAddress}.`,
