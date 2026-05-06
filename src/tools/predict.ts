@@ -23,7 +23,7 @@ import { proposalStateLabel } from "../lib/govEnums.js";
 
 const GOV_POOL_ABI = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
-  "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst)[] proposals, tuple(uint256 proposalId, uint256 executeAfter, uint256 quorum, uint256 rawVotesFor, uint256 rawVotesAgainst, bool executed, tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings)[] validatorProposals, uint8[] proposalStates, uint256[] requiredQuorums, uint256[] requiredValidatorsQuorums)",
+  "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst) proposal, tuple(tuple(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter, uint128 quorum, uint256 votesFor, uint256 votesAgainst) core) validatorProposal, uint8 proposalState, uint256 requiredQuorum, uint256 requiredValidatorsQuorum)[])",
 ]);
 
 const GOV_SETTINGS_ABI = new Interface([
@@ -139,20 +139,18 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         votesAgainst: bigint;
       }[] = [];
       if (proposalsR?.success) {
-        const raw = proposalsR.value as unknown as {
-          proposals: {
-            core: { executed: boolean; votesFor: bigint; votesAgainst: bigint };
-          }[];
-          proposalStates: bigint[] | number[];
-        };
-        proposals = raw.proposals.map((p, i) => {
-          const idx = Number(raw.proposalStates[i] ?? 9);
+        const views = proposalsR.value as unknown as Array<{
+          proposal: { core: { executed: boolean; votesFor: bigint; votesAgainst: bigint } };
+          proposalState: bigint | number;
+        }>;
+        proposals = views.map((v, i) => {
+          const idx = Number(v.proposalState);
           return {
             proposalId: String(i + 1),
             state: proposalStateLabel(idx),
-            executed: p.core.executed,
-            votesFor: p.core.votesFor,
-            votesAgainst: p.core.votesAgainst,
+            executed: v.proposal.core.executed,
+            votesFor: v.proposal.core.votesFor,
+            votesAgainst: v.proposal.core.votesAgainst,
           };
         });
       }

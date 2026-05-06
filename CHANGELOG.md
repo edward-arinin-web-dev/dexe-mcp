@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.3
+
+`getProposals` ABI fix for the post-upgrade GovPool layout. On-chain
+`GovPool.getProposals(offset, limit)` now returns a single `ProposalView[]`
+array — not the legacy 5-tuple `(Proposal[], ValidatorProposal[], uint8[],
+uint256[], uint256[])`. Every multicall-backed reader was decoding against
+the old shape and surfacing as `getProposals reverted` on every live mainnet
+DAO (DeXe Protocol, BOXY, Carib, HackenDAO, …). Verified live decode on 4
+DAOs after the patch.
+
+### Fixed
+
+- `dexe_proposal_list` (`src/tools/proposal.ts`) — ABI string + decoder
+  rewritten for the `ProposalView[]` shape. `requiredQuorum` now read
+  per-view instead of from a parallel array.
+- `dexe_user_inbox` (`src/tools/inbox.ts`) — same ABI swap; voting-state
+  scan now indexes `views[i].proposal.core` / `views[i].proposalState`.
+- `dexe_proposal_forecast` (`src/tools/predict.ts`) — same ABI swap;
+  history mapping reads `views[i].proposal.core.{executed,votesFor,
+  votesAgainst}`.
+- `dexe_decode_proposal` (`src/tools/gov.ts`) — already correct (uses the
+  artifact ABI loaded by `dexe_compile`), no change.
+
+### Notes
+
+- Validators' `ProposalCore` differs from gov `ProposalCore`:
+  `(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter,
+  uint128 quorum, uint256 votesFor, uint256 votesAgainst)`. Don't reuse the
+  gov fragment when decoding `ExternalProposal`.
+
 ## 0.5.2
 
 Subgraph auth fix. The Graph decentralized gateway now rejects requests

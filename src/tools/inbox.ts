@@ -25,7 +25,7 @@ import { proposalStateLabel } from "../lib/govEnums.js";
 
 const GOV_POOL_ABI = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
-  "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst)[] proposals, tuple(uint256 proposalId, uint256 executeAfter, uint256 quorum, uint256 rawVotesFor, uint256 rawVotesAgainst, bool executed, tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings)[] validatorProposals, uint8[] proposalStates, uint256[] requiredQuorums, uint256[] requiredValidatorsQuorums)",
+  "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst) proposal, tuple(tuple(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter, uint128 quorum, uint256 votesFor, uint256 votesAgainst) core) validatorProposal, uint8 proposalState, uint256 requiredQuorum, uint256 requiredValidatorsQuorum)[])",
   "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 totalVoted, uint256 totalRawVoted, uint256 votesForNow, bool isVoteFor)",
   "function getPendingRewards(address user, uint256[] proposalIds) view returns (tuple(address[] tokens, uint256[] amounts, uint256[] proposalIds))",
 ]);
@@ -190,19 +190,19 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
           // Step 3: walk recent proposals for unvoted in Voting state, and for
           // claimable rewards on already-voted proposals.
           if (proposalsR?.success) {
-            const raw = proposalsR.value as unknown as {
-              proposals: { core: { voteEnd: bigint } }[];
-              proposalStates: bigint[] | number[];
-            };
+            const views = proposalsR.value as unknown as Array<{
+              proposal: { core: { voteEnd: bigint } };
+              proposalState: bigint | number;
+            }>;
             const proposalIds: string[] = [];
             const votingIds: { id: string; deadline: string }[] = [];
-            for (let i = 0; i < raw.proposals.length; i++) {
+            for (let i = 0; i < views.length; i++) {
               const id = String(i + 1);
               proposalIds.push(id);
-              const stateIdx = Number(raw.proposalStates[i] ?? 9);
+              const stateIdx = Number(views[i]!.proposalState);
               const stateName = proposalStateLabel(stateIdx);
               if (stateName === "Voting" || stateName === "ValidatorVoting") {
-                votingIds.push({ id, deadline: raw.proposals[i]!.core.voteEnd.toString() });
+                votingIds.push({ id, deadline: views[i]!.proposal.core.voteEnd.toString() });
               }
             }
 

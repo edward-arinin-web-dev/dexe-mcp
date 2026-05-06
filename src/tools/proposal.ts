@@ -10,7 +10,7 @@ import { gqlRequest, PROPOSAL_INTERACTIONS_QUERY } from "../lib/subgraph.js";
 const GOV_POOL_READ_ABI = [
   "function getProposalState(uint256 proposalId) view returns (uint8)",
   "function getProposalRequiredQuorum(uint256 proposalId) view returns (uint256)",
-  "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst)[] proposals, tuple(uint256 proposalId, uint256 executeAfter, uint256 quorum, uint256 rawVotesFor, uint256 rawVotesAgainst, bool executed, tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings)[] validatorProposals, uint8[] proposalStates, uint256[] requiredQuorums, uint256[] requiredValidatorsQuorums)",
+  "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst) proposal, tuple(tuple(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter, uint128 quorum, uint256 votesFor, uint256 votesAgainst) core) validatorProposal, uint8 proposalState, uint256 requiredQuorum, uint256 requiredValidatorsQuorum)[])",
 ] as const;
 
 export function registerProposalTools(server: McpServer, ctx: ToolContext): void {
@@ -130,8 +130,8 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
           },
         ]);
         if (!res?.success) return errorResult("getProposals reverted");
-        const raw = res.value as unknown as {
-          proposals: Array<{
+        const views = res.value as unknown as Array<{
+          proposal: {
             core: {
               voteEnd: bigint;
               executed: boolean;
@@ -139,22 +139,22 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
               votesAgainst: bigint;
             };
             descriptionURL: string;
-          }>;
-          proposalStates: number[] | bigint[];
-          requiredQuorums: bigint[];
-        };
-        const proposals = raw.proposals.map((p, i) => {
-          const idx = Number(raw.proposalStates[i] ?? 9);
+          };
+          proposalState: number | bigint;
+          requiredQuorum: bigint;
+        }>;
+        const proposals = views.map((v, i) => {
+          const idx = Number(v.proposalState);
           return {
             proposalId: String(offset + i + 1),
-            descriptionURL: p.descriptionURL,
+            descriptionURL: v.proposal.descriptionURL,
             state: proposalStateLabel(idx),
             stateIndex: idx,
-            votesFor: p.core.votesFor.toString(),
-            votesAgainst: p.core.votesAgainst.toString(),
-            voteEnd: p.core.voteEnd.toString(),
-            executed: p.core.executed,
-            requiredQuorum: (raw.requiredQuorums[i] ?? 0n).toString(),
+            votesFor: v.proposal.core.votesFor.toString(),
+            votesAgainst: v.proposal.core.votesAgainst.toString(),
+            voteEnd: v.proposal.core.voteEnd.toString(),
+            executed: v.proposal.core.executed,
+            requiredQuorum: (v.requiredQuorum ?? 0n).toString(),
           };
         });
         const structured = { govPool, offset, limit, proposals };
