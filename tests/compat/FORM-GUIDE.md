@@ -128,7 +128,7 @@ MCP browser has no extensions. Wallet connected via WalletConnect QR. `window.et
 After clicking "Create DAO":
 
 1. Frontend uploads metadata to Pinata — `POST api.pinata.cloud/pinning/pinJSONToIPFS` (3-4 requests)
-2. Frontend calls `eth_estimateGas` on RPC with full deploy calldata — look for POST to `mbsc1.dexe.io/rpc` with content-length >5000
+2. Frontend calls `eth_estimateGas` on RPC with full deploy calldata — look for the POST to your configured RPC endpoint (e.g. `bsc-dataseed.binance.org`) with content-length >5000
 3. Frontend sends tx via WalletConnect relay — shows "Waiting" modal
 4. **Calldata** is in the `eth_estimateGas` request body at `params[0].data`
 

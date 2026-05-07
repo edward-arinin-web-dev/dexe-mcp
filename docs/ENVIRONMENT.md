@@ -18,7 +18,7 @@ message naming exactly which var to set.
 Read-only operation against BSC mainnet (proposal lists, state reads, decode):
 
 ```env
-DEXE_RPC_URL=https://mbsc1.dexe.io/rpc
+DEXE_RPC_URL=https://bsc-dataseed.binance.org
 DEXE_CHAIN_ID=56
 DEXE_PINATA_JWT=<your-pinata-jwt>
 DEXE_IPFS_GATEWAY=https://<your-subdomain>.mypinata.cloud
@@ -38,7 +38,7 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 
 | Variable | Required for | Purpose | Example |
 |----------|--------------|---------|---------|
-| `DEXE_RPC_URL` | All on-chain reads, all builders that resolve helpers via registry, signer mode | JSON-RPC endpoint. Any EVM chain where DeXe is deployed. | `https://mbsc1.dexe.io/rpc` |
+| `DEXE_RPC_URL` | All on-chain reads, all builders that resolve helpers via registry, signer mode | JSON-RPC endpoint. Any EVM chain where DeXe is deployed. | `https://bsc-dataseed.binance.org` |
 | `DEXE_CHAIN_ID` | Chain selection | Defaults to `56` (BSC mainnet). Must be a positive integer. | `56`, `97`, `1`, `137` |
 | `DEXE_CONTRACTS_REGISTRY` | Custom chain / non-default registry | Override the `ContractsRegistry` root address. Defaults to the per-chain known address from `src/lib/addresses.ts`. | `0x...` |
 | `DEXE_PINATA_JWT` | All `dexe_ipfs_upload_*` tools, auto-upload of `executorDescription` in `dexe_dao_build_deploy`, `dexe_proposal_create` flow | Pinata JWT for pinning JSON / files. | `eyJhbGciOi...` |
@@ -130,7 +130,7 @@ arbitrarily invoke any tool. Treat `DEXE_PRIVATE_KEY` like a hot wallet:
 ### BSC mainnet (chain 56) — defaults
 
 ```env
-DEXE_RPC_URL=https://mbsc1.dexe.io/rpc
+DEXE_RPC_URL=https://bsc-dataseed.binance.org
 DEXE_CHAIN_ID=56
 ```
 

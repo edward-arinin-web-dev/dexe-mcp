@@ -66,9 +66,9 @@ Minimum config to get **read-only** access to a BSC mainnet DAO:
 }
 ```
 
-Add `DEXE_PINATA_JWT` for IPFS uploads, `DEXE_BACKEND_API_URL` for off-chain proposals, and per-chain subgraph URLs for `dexe_proposal_voters` and the DAO-list reads. Full matrix → [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md).
+Add `DEXE_PINATA_JWT` for IPFS uploads, `DEXE_BACKEND_API_URL` for off-chain proposals, and per-chain subgraph URLs for `dexe_proposal_voters` and the DAO-list reads. Full matrix → [`docs/ENVIRONMENT.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/ENVIRONMENT.md).
 
-Three first-call examples (full set in [`docs/USAGE.md`](./docs/USAGE.md)):
+Three first-call examples (full set in [`docs/USAGE.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USAGE.md)):
 
 ```jsonc
 // 1) discover available proposal types
@@ -94,7 +94,7 @@ Most tools don't need the protocol checkout at all — read/proposal/vote/deploy
 
 ## Environment variables
 
-All optional. Tools that need a missing variable fail with a clear message pointing at exactly what to set. Full matrix + per-tool requirements → [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md).
+All optional. Tools that need a missing variable fail with a clear message pointing at exactly what to set. Full matrix + per-tool requirements → [`docs/ENVIRONMENT.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/ENVIRONMENT.md).
 
 | Variable | Required for | Purpose |
 |----------|--------------|---------|
@@ -113,11 +113,11 @@ All optional. Tools that need a missing variable fail with a clear message point
 
 ## Documentation
 
-Full docs in [`docs/`](./docs):
+Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/main/docs):
 
-- [`docs/TOOLS.md`](./docs/TOOLS.md) — complete catalog of all 125 tools, organized by category, with one-line descriptions and required envs per tool.
-- [`docs/USAGE.md`](./docs/USAGE.md) — 10 worked examples (deploy DAO, create proposals, vote, delegate, validator chamber, decode calldata, off-chain proposals, multicall batching). Copy-pasteable JSON.
-- [`docs/ENVIRONMENT.md`](./docs/ENVIRONMENT.md) — full env-var reference: minimum block to get started, per-category requirements, calldata vs signer mode, chain-specific config, IPFS gateway rationale, subgraph migration, swarm harness envs, common pitfalls.
+- [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 125 tools, organized by category, with one-line descriptions and required envs per tool.
+- [`docs/USAGE.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USAGE.md) — 10 worked examples (deploy DAO, create proposals, vote, delegate, validator chamber, decode calldata, off-chain proposals, multicall batching). Copy-pasteable JSON.
+- [`docs/ENVIRONMENT.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/ENVIRONMENT.md) — full env-var reference: minimum block to get started, per-category requirements, calldata vs signer mode, chain-specific config, IPFS gateway rationale, subgraph migration, swarm harness envs, common pitfalls.
 
 ## Tool surface (high-level)
 
@@ -136,11 +136,11 @@ Full docs in [`docs/`](./docs):
 | Composite signing flows | 4 | `_proposal_create`, `_proposal_vote_and_execute`, `_tx_send`, `_tx_status` (all opt-in via `DEXE_PRIVATE_KEY`) |
 | Subgraph reads | 7 | DAO list, members, experts, user activity, delegation map, distribution status, OTC sale tiers per DAO (decentralized network endpoints + RPC fallback) |
 | Merkle utility | 2 | `dexe_merkle_build`, `dexe_merkle_proof` — OZ `StandardMerkleTree`-compatible (sorted-pair commutative keccak, double-hash leaf) |
-| OTC composites | 4 | `dexe_otc_dao_open_sale`, `_buyer_status`, `_buyer_buy`, `_buyer_claim_all` — full project-owner + buyer flows over `TokenSaleProposal`. See [`docs/OTC.md`](./docs/OTC.md) |
-| Simulator | 3 | `dexe_sim_calldata`, `_sim_proposal`, `_sim_buy` — `eth_call`-based preflight with revert-reason decoding. See [`docs/SIMULATOR.md`](./docs/SIMULATOR.md) |
-| Multi-DAO inbox + forecast | 2 | `dexe_user_inbox` — pending items across N DAOs (unvoted proposals, claimable rewards, locked deposits). `_proposal_forecast` — pass-rate prediction with quorum projection + risk flags. See [`docs/INBOX.md`](./docs/INBOX.md) |
+| OTC composites | 4 | `dexe_otc_dao_open_sale`, `_buyer_status`, `_buyer_buy`, `_buyer_claim_all` — full project-owner + buyer flows over `TokenSaleProposal`. See [`docs/OTC.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/OTC.md) |
+| Simulator | 3 | `dexe_sim_calldata`, `_sim_proposal`, `_sim_buy` — `eth_call`-based preflight with revert-reason decoding. See [`docs/SIMULATOR.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/SIMULATOR.md) |
+| Multi-DAO inbox + forecast | 2 | `dexe_user_inbox` — pending items across N DAOs (unvoted proposals, claimable rewards, locked deposits). `_proposal_forecast` — pass-rate prediction with quorum projection + risk flags. See [`docs/INBOX.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/INBOX.md) |
 
-Total: **125**. Per-tool descriptions, args, return shapes → [`docs/TOOLS.md`](./docs/TOOLS.md).
+Total: **125**. Per-tool descriptions, args, return shapes → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
 ## Swarm test harness
 
@@ -174,8 +174,8 @@ npm run swarm:run                      # full sweep, all scenarios
 npm run swarm:run -- --scenarios=S00-reset,S01-delegation-chain-3hop --dry-run
 ```
 
-Setup runbook: [`tests/swarm/README.md`](tests/swarm/README.md).
-Scenario schema: [`tests/swarm/scenarios/_schema.md`](tests/swarm/scenarios/_schema.md).
+Setup runbook: [`tests/swarm/README.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/tests/swarm/README.md).
+Scenario schema: [`tests/swarm/scenarios/_schema.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/tests/swarm/scenarios/_schema.md).
 Per-role agent prompts: `tests/swarm/prompts/`.
 
 ## Contributing
@@ -191,4 +191,4 @@ npm run dev          # watch mode
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. See [LICENSE](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/LICENSE).

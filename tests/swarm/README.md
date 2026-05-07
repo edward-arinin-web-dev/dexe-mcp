@@ -102,7 +102,7 @@ SWARM_DAOS_TESTNET=                     # filled in step 3 after deploy
 SWARM_TOKENS_TESTNET=                   # filled in step 3 after deploy
 
 # Stage B — mainnet (fill in when ready to run final pass)
-SWARM_RPC_URL_MAINNET=https://mbsc1.dexe.io/rpc
+SWARM_RPC_URL_MAINNET=https://bsc-dataseed.binance.org
 SWARM_DAOS_MAINNET=0x3E224749a18dBF46FdAE027ba152B1d1D5B4568F
 SWARM_TOKENS_MAINNET=0x0051Cf7595BeEA1669a13d23A74B74E6415B721d
 ```

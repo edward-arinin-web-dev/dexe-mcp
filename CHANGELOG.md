@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.5.5
+
+Doc + RPC hygiene. Two issues surfaced after publishing 0.5.4:
+
+### Fixed
+
+- **Internal RPC URL leaked into examples.** Three files referenced
+  `https://mbsc1.dexe.io/rpc`, an internal DeXe endpoint not intended for
+  public traffic. Replaced with the canonical public BSC RPC
+  `https://bsc-dataseed.binance.org` in:
+  - `docs/ENVIRONMENT.md` (3 occurrences — quick-start block, env table
+    example, BSC mainnet chain config)
+  - `tests/swarm/README.md` (`SWARM_RPC_URL_MAINNET` example)
+  - `tests/compat/FORM-GUIDE.md` (network-capture hint)
+  - `.env.example` (2 occurrences — `DEXE_RPC_URL` core block,
+    `SWARM_RPC_URL_MAINNET` swarm block)
+  - `scripts/swarm/test-mainnet-deploy.mjs` + `test-offchain-mainnet.mjs`
+    (now read `process.env.DEXE_RPC_URL` first, fall back to public BSC RPC)
+  Existing installs that copy-pasted the snippet still work — both URLs
+  serve BSC mainnet — but the public one carries no internal-infra hint.
+- **README links broken on npmjs.com.** Relative links like
+  `./docs/TOOLS.md` work on GitHub but npm does NOT resolve them against the
+  repo URL — npm renders the README at the package home and a relative link
+  resolves to a non-existent path on `npmjs.com`. Converted all in-README
+  links to absolute GitHub URLs:
+  `./docs/X.md` → `https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/X.md`
+  Same pattern applied to the swarm-runbook + LICENSE links.
+
+### Scope of exposure
+
+Verified via `npm pack --dry-run`: the internal URL was **never shipped in
+any npm tarball**. `package.json`'s `files` array only includes `dist/`,
+`README.md`, `CHANGELOG.md`, `FUTURE.md`, and `.mcp.example.json` — all of
+which used the public BSC RPC. The leak was confined to GitHub-only
+artifacts (`docs/`, `tests/`, gitignored `.env.example` + swarm probe
+scripts). No npm-deprecation needed.
+
+### Notes
+
+- Git history retains the original URL — full history rewrite via
+  `git filter-repo` was considered and declined: rewrites every commit SHA,
+  breaks PR refs and external clones, and the URL is an endpoint, not a
+  credential. Forward-fix is sufficient.
+
 ## 0.5.4
 
 Off-chain backend + DAO deploy hardening. Two latent bugs surfaced during
