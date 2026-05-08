@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
+import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 
 /**
  * Phase 3b named wrappers. Every wrapper returns the same scaffold shape as
@@ -29,7 +30,6 @@ const EXPERT_NFT_ABI = [
 ] as const;
 
 const GOV_POOL_TREASURY_ABI = [
-  "function withdraw(address receiver, uint256 amount, uint256[] nftIds)",
   "function delegateTreasury(address delegatee, uint256 amount, uint256[] nftIds)",
   "function undelegateTreasury(address delegatee, uint256 amount, uint256[] nftIds)",
 ] as const;
@@ -132,7 +132,7 @@ export function registerProposalBuildMoreTools(
   registerManageValidators(server);
   registerAddExpert(server);
   registerRemoveExpert(server);
-  registerWithdrawTreasury(server);
+  registerWithdrawTreasury(server, _ctx);
   registerDelegateToExpert(server);
   registerRevokeFromExpert(server);
 }
@@ -384,18 +384,25 @@ function registerRemoveExpert(server: McpServer): void {
 
 // ---------- 5. withdraw_treasury ----------
 
-function registerWithdrawTreasury(server: McpServer): void {
+const ERC20_TRANSFER_ABI = ["function transfer(address to, uint256 amount)"] as const;
+const ERC721_TRANSFER_ABI = [
+  "function transferFrom(address from, address to, uint256 tokenId)",
+] as const;
+
+function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_proposal_build_withdraw_treasury",
     {
-      title: "Wrapper: withdraw native/tokens/NFTs from the DAO treasury",
+      title: "Wrapper: withdraw ERC20/ERC721 from the DAO treasury",
       description:
-        "Builds a 'Withdraw from Treasury' external proposal calling GovPool.withdraw(receiver, amount, nftIds). The executor IS the GovPool itself — treasury is held there.",
+        "Builds a 'Withdraw from Treasury' external proposal that emits one ERC20.transfer(receiver, amount) action per token and/or one ERC721.transferFrom(govPool, receiver, tokenId) action per NFT. Treasury sits in the GovPool address as a regular ERC20/721 holding, so each withdrawal is just an external token call. At least one of `token` (with non-zero `amount`) or (`nftAddress` + `nftIds`) must be supplied. When DEXE_RPC_URL is set and `token` is ERC20Gov, the receiver is checked against isBlacklisted; build aborts if blacklisted.",
       inputSchema: {
-        govPool: z.string(),
+        govPool: z.string().describe("DAO GovPool address — used as the `from` for NFT transferFrom"),
         receiver: z.string(),
-        amount: z.string().describe("Token amount in wei (0 for NFT-only)"),
-        nftIds: z.array(z.string()).default([]),
+        token: z.string().default("").describe("ERC20 token contract for the cash withdrawal (omit for NFT-only)"),
+        amount: z.string().default("0").describe("ERC20 amount in wei (omit/0 for NFT-only)"),
+        nftAddress: z.string().default("").describe("ERC721 contract address (omit for token-only)"),
+        nftIds: z.array(z.string()).default([]).describe("NFT token ids to transfer; one transferFrom per id"),
         proposalName: z.string().default("Withdraw from Treasury"),
         proposalDescription: z.string().default(""),
       },
@@ -404,36 +411,71 @@ function registerWithdrawTreasury(server: McpServer): void {
     async ({
       govPool,
       receiver,
-      amount,
+      token = "",
+      amount = "0",
+      nftAddress = "",
       nftIds = [],
       proposalName = "Withdraw from Treasury",
       proposalDescription = "",
     }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(receiver)) return errorResult(`Invalid receiver: ${receiver}`);
+      const wantToken = token.length > 0 && BigInt(amount) > 0n;
+      const wantNfts = nftAddress.length > 0 && nftIds.length > 0;
+      if (!wantToken && !wantNfts) {
+        return errorResult(
+          "Nothing to withdraw — supply `token` + non-zero `amount`, and/or `nftAddress` + `nftIds`.",
+        );
+      }
+      if (wantToken && !isAddress(token)) return errorResult(`Invalid token: ${token}`);
+      if (wantNfts && !isAddress(nftAddress)) return errorResult(`Invalid nftAddress: ${nftAddress}`);
       try {
-        const iface = new Interface(GOV_POOL_TREASURY_ABI as unknown as string[]);
-        const data = iface.encodeFunctionData("withdraw", [
-          receiver,
-          BigInt(amount),
-          nftIds.map((n) => BigInt(n)),
-        ]);
-        const action = { executor: govPool, value: "0", data };
+        let blacklistNote = "";
+        if (wantToken) {
+          const bl = await checkBlacklist(ctx.config, token, receiver);
+          if (bl.status === "blacklisted") return errorResult(blacklistError(token, receiver));
+          blacklistNote =
+            bl.status === "skipped"
+              ? ` Blacklist precheck skipped: ${bl.reason}.`
+              : " Recipient not blacklisted.";
+        }
+        const actions: Action[] = [];
+        if (wantToken) {
+          const erc20 = new Interface(ERC20_TRANSFER_ABI as unknown as string[]);
+          actions.push({
+            executor: token,
+            value: "0",
+            data: erc20.encodeFunctionData("transfer", [receiver, BigInt(amount)]),
+          });
+        }
+        if (wantNfts) {
+          const erc721 = new Interface(ERC721_TRANSFER_ABI as unknown as string[]);
+          for (const id of nftIds) {
+            actions.push({
+              executor: nftAddress,
+              value: "0",
+              data: erc721.encodeFunctionData("transferFrom", [govPool, receiver, BigInt(id)]),
+            });
+          }
+        }
         const metadata = {
           proposalName,
           proposalDescription: JSON.stringify(proposalDescription),
           category: "withdrawDeposit",
           isMeta: false,
           changes: {
-            proposedChanges: { receiver, amount, nftIds },
+            proposedChanges: { receiver, token, amount, nftAddress, nftIds },
             currentChanges: {},
           },
         };
+        const tokenSeg = wantToken ? `${amount} of ${token}` : "";
+        const nftSeg = wantNfts ? `${nftIds.length} NFT(s) from ${nftAddress}` : "";
+        const summary = [tokenSeg, nftSeg].filter(Boolean).join(" + ");
         return wrapperResult({
           metadata,
-          actions: [action],
-          title: `Withdraw Treasury → ${receiver} (${amount} wei, ${nftIds.length} NFTs)`,
-          detail: `Target: GovPool(${govPool}).withdraw\nCalldata: ${data.slice(0, 66)}…`,
+          actions,
+          title: `Withdraw Treasury → ${receiver}: ${summary}`,
+          detail: `${actions.length} external action${actions.length === 1 ? "" : "s"} (token.transfer / nft.transferFrom from GovPool).${blacklistNote}`,
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));

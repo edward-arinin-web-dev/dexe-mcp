@@ -1,6 +1,21 @@
 # Test Backlog — Client Demo Coverage
 
-Live demo DAO on BSC mainnet `0xCAe32Fa6e6D1C223Ed1047caA58F7fC0b2D65B41` (DEMO token `0x00346dAfbbFB3B6822cd246E175adfd7678B8686`). 4/33 proposal types exercised end-to-end (#1 modify_dao_profile, #2 change_voting_settings, #3 token_transfer, #4 offchain.single_option). Backlog tracks remaining surface + bugs.
+Live demo DAO on BSC mainnet `0xCAe32Fa6e6D1C223Ed1047caA58F7fC0b2D65B41` (DEMO token `0x00346dAfbbFB3B6822cd246E175adfd7678B8686`). 8/33 proposal types exercised end-to-end. Backlog tracks remaining surface + bugs.
+
+**Exercised (live mainnet):**
+- #1 modify_dao_profile (proposal id 1) — ExecutedFor
+- #2 change_voting_settings (proposal id 2) — ExecutedFor
+- #3 token_transfer external (proposal id 3) — ExecutedFor
+- #4 offchain.single_option (api.dexe.io #58) — Live
+- #5 blacklist (proposal id 4) — ExecutedFor — added `0xdead…dead`
+- #6 add_local_expert (proposal id 5) — ExecutedFor — minted local ExpertNft to deployer
+- #7 custom_abi (proposal id 6) — ExecutedFor — DEMO.approve(0xdead, 0)
+- #8b apply_to_dao (proposal id 8) — ExecutedFor — 100 DEMO → deployer
+
+**Stuck on-chain (cannot execute, can never recover):**
+- proposal id 7 — apply_to_dao to 0xdead. Recipient was blacklisted by id 4 before id 7 reached execute. Bug A29 (see below).
+- proposal id 9 — token_distribution. State Voting until +1h (settings index 3 has `earlyCompletion=false`, `duration=3600s`). Will move to SucceededFor → ExecutedFor available after that, then claim per-voter via `vote_build_distribution_claim`.
+- proposal id 10 — reward_multiplier mint. SucceededFor; execute reverts silently. Bug A31.
 
 ## Bugs found 2026-05-06
 
@@ -28,19 +43,44 @@ Live demo DAO on BSC mainnet `0xCAe32Fa6e6D1C223Ed1047caA58F7fC0b2D65B41` (DEMO 
 **Reproduce.** Compare GET response of #58 (created with 0.5) vs a fresh POST using the raw MCP output (50).
 **Fix path.** If broken: divide all `*_percent` by 100 inside builders. Update tool descriptions.
 
+### Bug A29 — apply_to_dao does not check ERC20Gov blacklist (P2)
+**Symptom.** Proposal passes voting (SucceededFor) but `GovPool.execute` reverts with `ERC20Gov: account is blacklisted`. Proposal sits unexecutable forever.
+**Reproduce.** Stage A 2026-05-06: id 4 blacklisted `0x000000000000000000000000000000000000dEaD`; id 7 = `apply_to_dao(receiver=0xdead, 100 DEMO)` passed voting; execute reverts.
+**Fix path.**
+- `src/tools/proposalBuildApplyToDao.ts` — when token is detected as ERC20Gov, multicall `isBlacklisted(receiver)` at build time and either throw or surface a clear warning in metadata.
+- Same idea applies to `proposal_build_token_transfer` and any builder that emits `ERC20Gov.transfer` to an arbitrary address.
+**Workaround.** Don't reuse blacklisted addresses as test recipients in subsequent transfers.
+
+### Bug A30 — withdraw_treasury builder encodes wrong selector (P1)
+**Symptom.** `proposal_create` reverts at create-time with `Gov: invalid internal data`.
+**Reproduce.** `dexe_proposal_build_withdraw_treasury({ govPool, receiver, amount: "100e18" })` → action targets GovPool with selector `0xfb8c5ef0` = `withdraw(address,uint256,uint256[])` (user deposit-withdraw, not treasury). GovPool's internal-action allowlist rejects.
+**Root cause.** Treasury sits in GovPool address as a normal ERC20 holding. Withdrawing it is just an external proposal calling `token.transfer(receiver, amount)` — exactly what `apply_to_dao` already does. There is no special internal "withdrawTreasury" action.
+**Fix path.**
+- Rewrite `src/tools/proposalBuildWithdrawTreasury.ts` to emit `{ executor: token, data: erc20.encodeFunctionData("transfer", [receiver, amount]) }` (plus per-NFT `transferFrom(govPool, receiver, id)` for NFT treasury). Or remove the builder and document that `apply_to_dao` covers this.
+**Workaround.** Use `apply_to_dao` for treasury withdrawals.
+
+### Bug A31 — reward_multiplier mint reverts silently (P2, root cause TBD)
+**Symptom.** `ERC721Multiplier.mint(to, multiplier, rewardPeriod, metadataUrl)` called by GovPool reverts with empty returndata. Sim confirms `require(false)` from inside the contract.
+**Reproduce.** Stage A id 10 on DexeClientDemo — args: multiplier=1.5e27, rewardPeriod=2592000, metadataUrl="ipfs://stage-a-11-multiplier-deployer". Pre-state: GovPool.getNftContracts.nftMultiplier set, ERC721Multiplier.owner=GovPool, totalSupply=0, recipient balance=0.
+**Suspected root cause.** Multiplier-scale unit. PRECISION on ERC721Multiplier is likely `1e25` (so 1.5× = 1.5e25), and 1.5e27 may exceed an internal cap. MCP builder doesn't document the unit or validate.
+**Fix path.**
+- Read `DeXe-Protocol/contracts/gov/ERC721/ERC721Multiplier.sol` to confirm the actual revert.
+- Add unit-explicit `@param` description to `dexe_proposal_build_reward_multiplier.multiplier` and a build-time bound check.
+**Workaround.** None until verified — do not mint multipliers on mainnet via this builder.
+
 ## Backlog — proposal-type coverage
 
 ### Stage A — Same-DAO external (no validators needed)
 
 | # | Proposal type | Builder | Notes |
 |---|---|---|---|
-| 5 | token_distribution | `proposal_build_token_distribution` | Verify DistributionProposal `0x5220…BF109` accepts. Need to fund it first. |
-| 6 | withdraw_treasury | `proposal_build_withdraw_treasury` | Internal flavor (executor=GovPool). Mind memory bug `withdraw_treasury_internal`. |
-| 7 | blacklist | `proposal_build_blacklist` | DEMO is ERC20Gov → should support. Add `0xdead…dead` to blacklist. |
-| 8 | apply_to_dao | `proposal_build_apply_to_dao` | Transfer + auto-mint shortfall path. |
-| 9 | add_local_expert | `proposal_build_add_expert` | Mints ExpertNft to deployer → unblocks gated proposals. |
-| 10 | reward_multiplier | `proposal_build_reward_multiplier` | Set NFT mult URI / mint. |
-| 11 | custom_abi | `proposal_build_custom_abi` | Encode arbitrary ERC20.approve as proof. |
+| 5 | blacklist | `proposal_build_blacklist` | ✅ DONE 2026-05-06, proposal id 4. Added `0xdead…dead`. |
+| 6 | add_local_expert | `proposal_build_add_expert` | ✅ DONE 2026-05-06, proposal id 5. Local ExpertNft minted to deployer. |
+| 7 | custom_abi | `proposal_build_custom_abi` | ✅ DONE 2026-05-06, proposal id 6. DEMO.approve(0xdead, 0). |
+| 8 | apply_to_dao | `proposal_build_apply_to_dao` | ✅ DONE 2026-05-06, proposal id 8 (id 7 stuck — Bug A29). 100 DEMO → deployer. |
+| 9 | token_distribution | `proposal_build_token_distribution` | ⏳ proposal id 9 — Voting; settings index 3 has `earlyCompletion=false`, must wait 3600s. Fund-flow (approve+execute) on DistributionProposal `0x5220…BF109` succeeded at create-time. Re-check + execute after delay. |
+| 10 | withdraw_treasury | `proposal_build_withdraw_treasury` | ❌ BLOCKED — Bug A30. Builder encodes wrong selector. Use apply_to_dao until rewritten. |
+| 11 | reward_multiplier | `proposal_build_reward_multiplier` | ❌ STUCK — proposal id 10 SucceededFor, execute reverts silently. Bug A31. |
 | 12 | new_proposal_type | `proposal_build_new_proposal_type` | Register new settings + bind executor. |
 | 13 | change_math_model | `proposal_build_change_math_model` | Swap LinearPower → custom. Risky — gate behind a flag. |
 | 14 | create_staking_tier | `proposal_build_create_staking_tier` | Staking pool for DEMO. |

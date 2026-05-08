@@ -3,6 +3,7 @@ import { AbiCoder, Interface, isAddress, ZeroAddress, getAddress, parseUnits } f
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
+import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 
 /**
  * Phase 3c — 10 complex named wrappers. Same contract as 3a/3b:
@@ -102,9 +103,13 @@ const ERC20_GOV_ABI = [
 
 const ERC721_MULTIPLIER_ABI = [
   "function setTokenURI(uint256 tokenId, string uri)",
-  "function mint(address to, uint256 multiplier, uint256 rewardPeriod, string metadataUrl)",
-  "function changeToken(uint256 tokenId, uint256 multiplier, uint256 rewardPeriod)",
+  "function mint(address to, uint256 multiplier, uint64 duration, string uri_)",
+  "function changeToken(uint256 tokenId, uint256 multiplier, uint64 duration)",
 ] as const;
+
+// ERC721Multiplier multiplier scale = PRECISION = 10**25. So 1.5x = 1.5e25.
+const ERC721_MULTIPLIER_PRECISION = 10n ** 25n;
+const UINT64_MAX = (1n << 64n) - 1n;
 
 const GOV_SETTINGS_FULL_ABI = [
   "function addSettings(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)[] settings)",
@@ -164,7 +169,7 @@ export function registerProposalBuildComplexTools(
   registerModifyDaoProfile(server);
   registerBlacklistManagement(server);
   registerRewardMultiplier(server);
-  registerApplyToDao(server);
+  registerApplyToDao(server, _ctx);
   registerNewProposalType(server);
 }
 
@@ -1109,7 +1114,7 @@ function registerRewardMultiplier(server: McpServer): void {
     {
       title: "Wrapper: manage the DAO's reward-multiplier NFT contract",
       description:
-        "Four modes: 'set_address' (GovPool.setNftMultiplierAddress — ZERO to disable), 'set_token_uri' (ERC721Multiplier.setTokenURI on a tokenId), 'mint' (ERC721Multiplier.mint(to, multiplier, rewardPeriod, metadataUrl)), 'change_token' (ERC721Multiplier.changeToken(tokenId, multiplier, rewardPeriod) — modify existing NFT).",
+        "Four modes: 'set_address' (GovPool.setNftMultiplierAddress — ZERO to disable), 'set_token_uri' (ERC721Multiplier.setTokenURI on a tokenId), 'mint' (ERC721Multiplier.mint(to, multiplier, duration, uri_)), 'change_token' (ERC721Multiplier.changeToken(tokenId, multiplier, duration) — modify existing NFT). UNITS: `multiplier` is scaled by PRECISION = 1e25 (e.g. 1.5x = 1500000000000000000000000000 = 15e24); `rewardPeriod` is the lock duration in SECONDS and is encoded as uint64 (must fit in 2^64 − 1, ~584 billion years — any positive integer is fine).",
       inputSchema: {
         mode: z.enum(["set_address", "set_token_uri", "mint", "change_token"]),
         govPool: z.string().optional(),
@@ -1118,8 +1123,16 @@ function registerRewardMultiplier(server: McpServer): void {
         tokenId: z.string().optional().describe("For mode=set_token_uri or change_token"),
         uri: z.string().optional().describe("For mode=set_token_uri"),
         to: z.string().optional().describe("For mode=mint"),
-        multiplier: z.string().optional().describe("For mode=mint or change_token"),
-        rewardPeriod: z.string().default("0").describe("For mode=mint or change_token"),
+        multiplier: z
+          .string()
+          .optional()
+          .describe(
+            "For mode=mint or change_token. Scaled by PRECISION = 1e25 (1.5x => 15000000000000000000000000 = 1.5e25).",
+          ),
+        rewardPeriod: z
+          .string()
+          .default("0")
+          .describe("For mode=mint or change_token. Lock duration in SECONDS (uint64)."),
         metadataUrl: z.string().default("").describe("For mode=mint — metadata URI string"),
         proposalName: z.string().default("Reward Multiplier"),
         proposalDescription: z.string().default(""),
@@ -1157,30 +1170,59 @@ function registerRewardMultiplier(server: McpServer): void {
             return errorResult(`change_token requires valid nftMultiplierContract`);
           if (!input.tokenId) return errorResult(`change_token requires tokenId`);
           if (!input.multiplier) return errorResult(`change_token requires multiplier`);
+          const multiplierBn = BigInt(input.multiplier);
+          if (multiplierBn === 0n)
+            return errorResult(
+              `change_token: multiplier=0 is meaningless — pass 1.5e25 for 1.5x (PRECISION=1e25).`,
+            );
+          if (multiplierBn < ERC721_MULTIPLIER_PRECISION / 100n)
+            return errorResult(
+              `change_token: multiplier ${multiplierBn} is suspiciously small — values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`,
+            );
+          const durationBn = BigInt(input.rewardPeriod ?? "0");
+          if (durationBn > UINT64_MAX)
+            return errorResult(`change_token: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
           actions.push({
             executor: input.nftMultiplierContract,
             value: "0",
             data: iface.encodeFunctionData("changeToken", [
               BigInt(input.tokenId),
-              BigInt(input.multiplier),
-              BigInt(input.rewardPeriod ?? "0"),
+              multiplierBn,
+              durationBn,
             ]),
           });
         } else {
-          // mint — 4-arg: mint(address, uint256, uint256, string)
+          // mint — mint(address, uint256, uint64, string). The uint64 vs uint256
+          // matters: ethers derives the selector from the canonical sig, so a
+          // wrong-typed arg yields a different selector → silent revert with no
+          // returndata when GovPool.execute calls into the multiplier.
           if (!input.nftMultiplierContract || !isAddress(input.nftMultiplierContract))
             return errorResult(`mint requires valid nftMultiplierContract`);
           if (!input.to || !isAddress(input.to)) return errorResult(`mint requires valid to`);
           if (!input.multiplier) return errorResult(`mint requires multiplier`);
+          const multiplierBn = BigInt(input.multiplier);
+          if (multiplierBn === 0n)
+            return errorResult(
+              `mint: multiplier=0 is meaningless — pass 1.5e25 for 1.5x (PRECISION=1e25).`,
+            );
+          if (multiplierBn < ERC721_MULTIPLIER_PRECISION / 100n)
+            return errorResult(
+              `mint: multiplier ${multiplierBn} is suspiciously small — values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`,
+            );
+          const durationBn = BigInt(input.rewardPeriod ?? "0");
+          if (durationBn === 0n)
+            return errorResult(`mint: rewardPeriod must be > 0 seconds (lock duration).`);
+          if (durationBn > UINT64_MAX)
+            return errorResult(`mint: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
           actions.push({
             executor: input.nftMultiplierContract,
             value: "0",
             data: iface.encodeFunctionData("mint", [
               input.to,
-              BigInt(input.multiplier),
-              BigInt(input.rewardPeriod ?? "0"),
+              multiplierBn,
+              durationBn,
               input.metadataUrl ?? "",
             ]),
           });
@@ -1210,13 +1252,13 @@ function registerRewardMultiplier(server: McpServer): void {
 
 // ---------- 9. apply_to_dao ----------
 
-function registerApplyToDao(server: McpServer): void {
+function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_proposal_build_apply_to_dao",
     {
       title: "Wrapper: apply for/disburse DAO tokens to a receiver (transfer + optional mint)",
       description:
-        "Builds an 'Apply to DAO' external proposal. If the DAO treasury has enough tokens, emits one ERC20.transfer action. If not, emits ERC20Gov.transfer + ERC20Gov.mint for the shortfall. Pass `treasuryBalance` (in wei) so we decide correctly.",
+        "Builds an 'Apply to DAO' external proposal. If the DAO treasury has enough tokens, emits one ERC20.transfer action. If not, emits ERC20Gov.transfer + ERC20Gov.mint for the shortfall. Pass `treasuryBalance` (in wei) so we decide correctly. When DEXE_RPC_URL is set the receiver is checked against ERC20Gov.isBlacklisted; build aborts if blacklisted (avoids stuck SucceededFor proposals).",
       inputSchema: {
         token: z.string().describe("The token contract (ERC20 or ERC20Gov)"),
         receiver: z.string(),
@@ -1241,6 +1283,8 @@ function registerApplyToDao(server: McpServer): void {
       if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
       if (!isAddress(receiver)) return errorResult(`Invalid receiver: ${receiver}`);
       try {
+        const bl = await checkBlacklist(ctx.config, token, receiver);
+        if (bl.status === "blacklisted") return errorResult(blacklistError(token, receiver));
         const iface = new Interface(ERC20_GOV_ABI as unknown as string[]);
         const actions: Action[] = [];
         const total = BigInt(amount);
@@ -1268,11 +1312,13 @@ function registerApplyToDao(server: McpServer): void {
             currentChanges: { treasuryBalance },
           },
         };
+        const blacklistNote =
+          bl.status === "skipped" ? `Blacklist precheck skipped: ${bl.reason}` : "Recipient not blacklisted.";
         return wrapperResult({
           metadata,
           actions,
           title: `Apply to DAO: ${amount} of ${token} → ${receiver}`,
-          detail: `${actions.length} action${actions.length === 1 ? "" : "s"} (transfer${actions.length > 1 ? " + mint" : ""})`,
+          detail: `${actions.length} action${actions.length === 1 ? "" : "s"} (transfer${actions.length > 1 ? " + mint" : ""}). ${blacklistNote}`,
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));

@@ -3,6 +3,7 @@ import { Interface, isAddress, ZeroAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
+import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import {
   PROPOSAL_CATALOG,
   EXTERNAL_METADATA_SHAPE,
@@ -338,7 +339,7 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: build a 'Token Transfer' proposal (treasury → recipient)",
       description:
-        "Builds a complete Token Transfer external proposal. Returns three things the agent composes: (1) the IPFS metadata JSON to upload (shape expected by the frontend indexer), (2) the ProposalAction encoded for the ERC20.transfer call, (3) a hint message explaining the next step (upload → get CID → call dexe_proposal_build_external with that CID and `actions`). Does NOT upload or send the tx itself — returns signable payload components.",
+        "Builds a complete Token Transfer external proposal. Returns three things the agent composes: (1) the IPFS metadata JSON to upload (shape expected by the frontend indexer), (2) the ProposalAction encoded for the ERC20.transfer call, (3) a hint message explaining the next step (upload → get CID → call dexe_proposal_build_external with that CID and `actions`). When DEXE_RPC_URL is set and the token is ERC20Gov, the recipient is checked against isBlacklisted; build aborts if blacklisted. Does NOT upload or send the tx itself — returns signable payload components.",
       inputSchema: {
         govPool: z.string(),
         token: z.string().describe("ERC20 token contract (the transfer executor). Ignored when isNative=true."),
@@ -375,14 +376,21 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
       try {
         let actions: { executor: string; value: string; data: string }[];
         let actionLabel: string;
+        let blacklistNote = "";
         if (isNative) {
           actions = [{ executor: recipient, value: amount, data: "0x" }];
           actionLabel = `Native transfer → ${recipient} (${amount} wei)`;
         } else {
+          const bl = await checkBlacklist(ctx.config, token, recipient);
+          if (bl.status === "blacklisted") return errorResult(blacklistError(token, recipient));
+          blacklistNote =
+            bl.status === "skipped"
+              ? ` (blacklist precheck skipped: ${bl.reason})`
+              : " (recipient not blacklisted)";
           const iface = new Interface(ERC20_ABI as unknown as string[]);
           const data = iface.encodeFunctionData("transfer", [recipient, BigInt(amount)]);
           actions = [{ executor: token, value: "0", data }];
-          actionLabel = `ERC20(${token}).transfer(${recipient}, ${amount})`;
+          actionLabel = `ERC20(${token}).transfer(${recipient}, ${amount})${blacklistNote}`;
         }
         const metadata = {
           proposalName,

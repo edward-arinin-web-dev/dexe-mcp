@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.5.6
+
+Three Stage A mainnet bug fixes — all surfaced on `DexeClientDemo`
+(BSC `0xCAe3…5B41`) and tracked as bugs #29 / #30 / #31.
+
+### Fixed
+
+- **Bug #30 — `dexe_proposal_build_withdraw_treasury` emitted wrong
+  selector.** Builder targeted `GovPool.withdraw(address,uint256,uint256[])`
+  (selector `0xfb8c5ef0`), which is the user-deposit-withdraw function on
+  GovPool, not a treasury transfer. `proposal_create` rejected it with
+  `Gov: invalid internal data`. Rewritten to emit one external
+  `ERC20.transfer(receiver, amount)` action per token and/or one
+  `ERC721.transferFrom(govPool, receiver, tokenId)` action per NFT —
+  treasury sits in the GovPool address as a regular ERC20/721 balance, so
+  withdrawal is just a plain external token call. New schema: drop the
+  single `(amount, nftIds)` shape; supply `token`+`amount` and/or
+  `nftAddress`+`nftIds`. At least one must be non-empty.
+
+- **Bug #29 — `apply_to_dao` / `token_transfer` / `withdraw_treasury` had
+  no blacklist precheck.** `ERC20Gov.transfer` reverts on a blacklisted
+  recipient, and a proposal that passes voting then fails `execute()` sits
+  in `SucceededFor` permanently with no recovery. When `DEXE_RPC_URL` is
+  set, the three builders now `isBlacklisted(receiver)` against the token
+  before encoding and refuse to build with a clear error if the recipient
+  is blacklisted. When the token isn't ERC20Gov (call reverts) or RPC is
+  absent, the precheck soft-skips with a note in the result detail —
+  build always proceeds. New helper: `src/lib/blacklist.ts`.
+
+- **Bug #31 — `dexe_proposal_build_reward_multiplier` mint/change_token
+  reverted silently.** `ERC721_MULTIPLIER_ABI` declared `duration` as
+  `uint256`, but `ERC721Multiplier.mint(address,uint256,uint64,string)`
+  uses `uint64`. ethers derives the selector from the canonical signature,
+  so the wrong-typed arg produced a different selector → no-match →
+  silent revert with no returndata when GovPool.execute called into the
+  multiplier (the contract has no `MAX_MULTIPLIER` check, so the original
+  scale-mismatch hypothesis was wrong). Fixed the ABI to `uint64
+  duration`. Builder now also rejects `multiplier=0`, multiplier values
+  below `PRECISION/100` (likely forgot the 1e25 scale), `duration > 2^64
+  − 1`, and `duration=0` for mint. Tool description spells out
+  `PRECISION = 1e25` and `duration = seconds (uint64)`.
+
 ## 0.5.5
 
 Doc + RPC hygiene. Two issues surfaced after publishing 0.5.4:

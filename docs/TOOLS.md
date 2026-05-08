@@ -139,7 +139,7 @@ Sources: `src/tools/proposalBuild.ts`, `src/tools/proposalBuildMore.ts`, `src/to
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
-| `dexe_proposal_build_token_transfer` | Treasury → recipient ERC20 transfer. Encodes `ERC20.transfer`. | (none) |
+| `dexe_proposal_build_token_transfer` | Treasury → recipient ERC20 transfer. Encodes `ERC20.transfer`. Aborts if `DEXE_RPC_URL` set and recipient is `ERC20Gov.isBlacklisted`. | `DEXE_RPC_URL` (optional, for blacklist precheck) |
 | `dexe_proposal_build_token_distribution` | Batch distribution via DistributionProposal. Auto-prepends `ERC20.approve` for non-native tokens. | (none) |
 | `dexe_proposal_build_token_sale` | Launches a single tier via `TokenSaleProposal.createTiers`. Plain whitelist supported; merkle requires custom_abi. | (none) |
 | `dexe_proposal_build_token_sale_recover` | `TokenSaleProposal.recover(tierIds)` — recover unsold tokens. | (none) |
@@ -147,14 +147,14 @@ Sources: `src/tools/proposalBuild.ts`, `src/tools/proposalBuildMore.ts`, `src/to
 | `dexe_proposal_build_change_math_model` | `GovPool.changeVotePower(newVotePower)` — swap LINEAR / POLYNOMIAL / custom power contract. | (none) |
 | `dexe_proposal_build_modify_dao_profile` | `GovPool.editDescriptionURL(url)`. Upload new DAO metadata via `dexe_ipfs_upload_dao_metadata` first. | (none) |
 | `dexe_proposal_build_blacklist` | Up to 2 actions: `ERC20Gov.blacklist(add,true)` + `blacklist(remove,false)`. | (none) |
-| `dexe_proposal_build_reward_multiplier` | 4 modes: set_address / set_token_uri / mint / change_token on the multiplier NFT. | (none) |
-| `dexe_proposal_build_apply_to_dao` | Disburse DAO tokens to a receiver. Treasury-sufficient → 1 transfer; shortfall → transfer + mint. | (none) |
+| `dexe_proposal_build_reward_multiplier` | 4 modes: set_address / set_token_uri / mint / change_token on the multiplier NFT. `mint`/`change_token` use `uint64` duration + multiplier scaled by `PRECISION = 1e25` (1.5x = 1.5e25); builder rejects unscaled or zero values. | (none) |
+| `dexe_proposal_build_apply_to_dao` | Disburse DAO tokens to a receiver. Treasury-sufficient → 1 transfer; shortfall → transfer + mint. Aborts if `DEXE_RPC_URL` set and recipient is `ERC20Gov.isBlacklisted`. | `DEXE_RPC_URL` (optional, for blacklist precheck) |
 | `dexe_proposal_build_new_proposal_type` | 2 actions: `GovSettings.addSettings([new])` + `changeExecutors`. Path for enabling staking. | (none) |
 | `dexe_proposal_build_change_voting_settings` | `GovSettings.editSettings` (when `settingsIds` given) or `addSettings` (when empty). | (none) |
 | `dexe_proposal_build_manage_validators` | `GovValidators.changeBalances(balances, users)`. Set 0 to remove. | (none) |
 | `dexe_proposal_build_add_expert` | Mint Expert NFT — `scope='local'` (DAO ExpertNft) or `'global'` (DeXeExpertNft). | (none) |
 | `dexe_proposal_build_remove_expert` | `ExpertNft.burn(from)` — local or global. | (none) |
-| `dexe_proposal_build_withdraw_treasury` | `GovPool.withdraw(receiver, amount, nftIds)`. Executor IS GovPool itself. | (none) |
+| `dexe_proposal_build_withdraw_treasury` | One ERC20 `transfer(receiver, amount)` action and/or one ERC721 `transferFrom(govPool, receiver, tokenId)` action per NFT. Treasury sits in GovPool as a regular ERC20/721 balance — withdrawal is a plain external token call. Aborts if `DEXE_RPC_URL` set and recipient is `ERC20Gov.isBlacklisted`. | `DEXE_RPC_URL` (optional, for blacklist precheck) |
 | `dexe_proposal_build_delegate_to_expert` | `GovPool.delegateTreasury(delegatee, amount, nftIds)`. | (none) |
 | `dexe_proposal_build_revoke_from_expert` | `GovPool.undelegateTreasury(delegatee, amount, nftIds)`. | (none) |
 
