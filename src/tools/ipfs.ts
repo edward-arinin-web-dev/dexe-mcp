@@ -57,6 +57,18 @@ function resolveGateways(_ctx: ToolContext): string[] {
       if (g && !out.includes(g)) out.push(g);
     }
   }
+  // Auto-fallback: if the primary is a Pinata dedicated gateway AND no
+  // gateway key is configured, anonymous reads return 403 and tools like
+  // dexe_ipfs_update_dao_metadata hang. Append `https://ipfs.io` as a
+  // last-resort public reader so flows keep working out of the box.
+  // Opt-out via DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1.
+  const disablePublic = process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1";
+  const usesRestrictedPinata = out.some((g) => /\.mypinata\.cloud(\/|$)/i.test(g));
+  const haveGatewayKey = !!process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
+  if (!disablePublic && usesRestrictedPinata && !haveGatewayKey) {
+    const publicFallback = "https://ipfs.io";
+    if (!out.includes(publicFallback)) out.push(publicFallback);
+  }
   return out;
 }
 

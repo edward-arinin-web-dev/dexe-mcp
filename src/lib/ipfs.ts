@@ -42,20 +42,21 @@ export async function fetchIpfs(
   const errors: string[] = [];
   let attempts = 0;
 
-  const pinataJwt = process.env.DEXE_PINATA_JWT?.trim();
+  const pinataGatewayToken = process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
   for (const gw of cfg.gateways) {
     attempts++;
     const base = gw.replace(/\/+$/, "").replace(/\/ipfs$/, "");
     const url = `${base}/ipfs/${cidStr}`;
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeout);
-    // Pinata's "dedicated gateways" (`*.mypinata.cloud`) reject anonymous GET
-    // requests with HTTP 403 — the same JWT used for pinning authenticates
-    // reads. Apply it automatically when the URL points at one. Public
-    // gateways receive no auth header.
+    // Pinata "dedicated gateways" (`*.mypinata.cloud`) in Restricted mode
+    // reject anonymous GETs with HTTP 403. They authenticate via a separate
+    // Gateway Key (NOT the API JWT used for pinning); pass it as either
+    // `?pinataGatewayToken=…` or the `x-pinata-gateway-token` header. We use
+    // the header form. Public gateways receive no auth header.
     const headers: Record<string, string> = {};
-    if (pinataJwt && /\.mypinata\.cloud(\/|$)/i.test(base)) {
-      headers.Authorization = `Bearer ${pinataJwt}`;
+    if (pinataGatewayToken && /\.mypinata\.cloud(\/|$)/i.test(base)) {
+      headers["x-pinata-gateway-token"] = pinataGatewayToken;
     }
     try {
       const res = await fetch(url, { signal: controller.signal, headers });
