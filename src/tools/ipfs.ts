@@ -7,6 +7,7 @@ import {
   fetchIpfs,
   parseCid,
   PinataClient,
+  toCidV1,
 } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 
@@ -16,6 +17,9 @@ export function registerIpfsTools(server: McpServer, ctx: ToolContext): void {
   registerUploadProposalMetadata(server, ctx);
   registerUploadDaoMetadata(server, ctx);
   registerUploadFile(server, ctx);
+  registerUploadAvatar(server, ctx);
+  registerGenerateAvatar(server, ctx);
+  registerUpdateDaoMetadata(server, ctx, gateways);
   registerFetch(server, gateways);
   registerCidInfo(server, gateways);
   registerCidForJson(server);
@@ -211,14 +215,16 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
 
         // Step 2: Build the outer metadata wrapper (matches frontend schema exactly)
         let avatarUrl = "";
+        let avatarCidV1: string | undefined;
         if (avatarCID && avatarFileName) {
-          // Frontend uses 4everland gateway: https://<cidV1>.ipfs.4everland.io/<filename>
-          avatarUrl = `https://${avatarCID}.ipfs.4everland.io/${avatarFileName}`;
+          // Normalize to CID v1 base32 — subdomain gateway only resolves v1.
+          avatarCidV1 = toCidV1(avatarCID);
+          avatarUrl = `https://${avatarCidV1}.ipfs.4everland.io/${avatarFileName}`;
         }
 
         const outerPayload = {
           avatarUrl,
-          avatarCID: avatarCID ?? undefined,
+          avatarCID: avatarCidV1,
           avatarFileName: avatarFileName ?? "",
           daoName,
           websiteUrl,
@@ -267,30 +273,59 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
     {
       title: "Upload raw bytes (avatar, attachment, etc.) to IPFS (Pinata)",
       description:
-        "Pins a file to IPFS. Accepts base64-encoded bytes; returns the CID. Use for DAO avatars or proposal attachments.",
+        "Pins a file to IPFS. Accepts base64-encoded bytes; returns the CID v1 (base32) and the (possibly normalized) filename. " +
+        "For images (contentType: image/*) the filename extension is normalized to `.jpeg` to match what the DeXe frontend stores — " +
+        "this is what `dexe_ipfs_upload_dao_metadata` and the DAO profile reader expect. Set `normalizeImageExt: false` to opt out.",
       inputSchema: {
         base64: z.string().min(1).describe("Base64-encoded file bytes"),
         fileName: z.string().default("file"),
         contentType: z.string().default("application/octet-stream"),
+        normalizeImageExt: z
+          .boolean()
+          .default(true)
+          .describe("If true and contentType starts with image/, rename the file extension to .jpeg."),
       },
       outputSchema: {
-        cid: z.string(),
+        cid: z.string().describe("CID v1 base32 — use this as avatarCID."),
+        cidV0: z.string().describe("Original CID returned by Pinata (usually v0 Qm...). Kept for legacy callers."),
+        fileName: z.string().describe("Filename actually pinned (possibly normalized to .jpeg)."),
         size: z.number(),
         pinnedAt: z.string(),
       },
     },
-    async ({ base64, fileName = "file", contentType = "application/octet-stream" }) => {
+    async ({
+      base64,
+      fileName = "file",
+      contentType = "application/octet-stream",
+      normalizeImageExt = true,
+    }) => {
       const client = requirePinata(ctx);
       if ("error" in client) return errorResult(client.error);
       try {
+        const isImage = contentType.toLowerCase().startsWith("image/");
+        const effectiveFileName =
+          normalizeImageExt && isImage
+            ? `${fileName.includes(".") ? fileName.substring(0, fileName.lastIndexOf(".")) : fileName}.jpeg`
+            : fileName;
         const bytes = Uint8Array.from(Buffer.from(base64, "base64"));
-        const res = await client.pinFile(bytes, { fileName, contentType, name: fileName });
-        const structured = { cid: res.cid, size: res.size, pinnedAt: res.pinnedAt };
+        const res = await client.pinFile(bytes, {
+          fileName: effectiveFileName,
+          contentType,
+          name: effectiveFileName,
+        });
+        const cidV1 = toCidV1(res.cid);
+        const structured = {
+          cid: cidV1,
+          cidV0: res.cid,
+          fileName: effectiveFileName,
+          size: res.size,
+          pinnedAt: res.pinnedAt,
+        };
         return {
           content: [
             {
               type: "text" as const,
-              text: `Pinned ${fileName} (${bytes.length} bytes) → ${res.cid} (size on IPFS=${res.size})`,
+              text: `Pinned ${effectiveFileName} (${bytes.length} bytes) → ${cidV1} (v0=${res.cid}, size on IPFS=${res.size})`,
             },
           ],
           structuredContent: structured,
@@ -443,3 +478,326 @@ function registerCidForJson(server: McpServer): void {
 // Keep this export so `cidForBytes` isn't flagged as dead code by strict builds;
 // tools can opt into it later.
 export { cidForBytes };
+
+// ---------- dexe_ipfs_upload_avatar (one-shot composite) ----------
+
+/**
+ * Convenience wrapper around `dexe_ipfs_upload_file` that returns the
+ * exact triple `dexe_ipfs_upload_dao_metadata` (and `*_modify_dao_profile`)
+ * expect: { avatarCID (v1), avatarFileName (.jpeg), avatarUrl }.
+ *
+ * Single call replaces: pinFile → toV1 → rename → build subdomain URL.
+ */
+function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_ipfs_upload_avatar",
+    {
+      title: "Upload a DAO avatar (one-shot: pins + returns avatarCID/avatarFileName/avatarUrl)",
+      description:
+        "Uploads an image and returns the {avatarCID, avatarFileName, avatarUrl} triple ready to feed into `dexe_ipfs_upload_dao_metadata` " +
+        "(for DAO creation) or `dexe_proposal_build_modify_dao_profile` (for profile updates). " +
+        "Normalizes the filename to `.jpeg` (matching the frontend) and returns a CID v1 base32 string that resolves on the subdomain gateway.",
+      inputSchema: {
+        base64: z.string().min(1).describe("Base64-encoded image bytes"),
+        fileName: z.string().default("avatar").describe("Base filename; extension will be normalized to .jpeg"),
+        contentType: z
+          .string()
+          .default("image/jpeg")
+          .describe("MIME type; must start with image/. Defaults to image/jpeg."),
+      },
+      outputSchema: {
+        avatarCID: z.string().describe("CID v1 base32 — pass to upload_dao_metadata as avatarCID."),
+        avatarFileName: z.string().describe("Filename (always ends with .jpeg)."),
+        avatarUrl: z.string().describe("Full subdomain-gateway URL — what the frontend stores verbatim."),
+        size: z.number(),
+        pinnedAt: z.string(),
+      },
+    },
+    async ({ base64, fileName = "avatar", contentType = "image/jpeg" }) => {
+      if (!contentType.toLowerCase().startsWith("image/")) {
+        return errorResult(`contentType must be image/* (got: ${contentType})`);
+      }
+      const client = requirePinata(ctx);
+      if ("error" in client) return errorResult(client.error);
+      try {
+        const base = fileName.includes(".") ? fileName.substring(0, fileName.lastIndexOf(".")) : fileName;
+        const normalized = `${base || "avatar"}.jpeg`;
+        const bytes = Uint8Array.from(Buffer.from(base64, "base64"));
+        const res = await client.pinFile(bytes, {
+          fileName: normalized,
+          contentType,
+          name: normalized,
+        });
+        const avatarCID = toCidV1(res.cid);
+        const avatarUrl = `https://${avatarCID}.ipfs.4everland.io/${normalized}`;
+        const structured = {
+          avatarCID,
+          avatarFileName: normalized,
+          avatarUrl,
+          size: res.size,
+          pinnedAt: res.pinnedAt,
+        };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Avatar pinned: ${avatarUrl} (cidV1=${avatarCID}, ${bytes.length} bytes)`,
+            },
+          ],
+          structuredContent: structured,
+        };
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+// ---------- dexe_dao_generate_avatar (no external provider) ----------
+
+/**
+ * Deterministic placeholder avatar: 1–2 letter initials over a hash-coloured
+ * gradient. Pure SVG → uploaded as image/svg+xml then served via the same
+ * subdomain gateway frontend uses. No third-party generator required.
+ */
+function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_dao_generate_avatar",
+    {
+      title: "Generate a deterministic placeholder avatar for a DAO",
+      description:
+        "Builds an SVG avatar with the DAO's initials over a hash-coloured gradient (no external generator) and pins it to IPFS. " +
+        "Returns the same {avatarCID, avatarFileName, avatarUrl} shape as `dexe_ipfs_upload_avatar`, " +
+        "ready to feed into `dexe_ipfs_upload_dao_metadata` or `dexe_proposal_build_modify_dao_profile`. " +
+        "Same input always produces the same colours (great for re-deploys).",
+      inputSchema: {
+        daoName: z.string().min(1).describe("DAO name; first 1–2 alphanumeric chars become the avatar initials."),
+        size: z.number().int().min(64).max(2048).default(512).describe("SVG viewBox size (square)."),
+      },
+      outputSchema: {
+        avatarCID: z.string(),
+        avatarFileName: z.string(),
+        avatarUrl: z.string(),
+        size: z.number(),
+        pinnedAt: z.string(),
+      },
+    },
+    async ({ daoName, size = 512 }) => {
+      const client = requirePinata(ctx);
+      if ("error" in client) return errorResult(client.error);
+      try {
+        const svg = buildIdenticonSvg(daoName, size);
+        const bytes = Buffer.from(svg, "utf8");
+        // Frontend reader looks for an extension; we keep .jpeg to stay
+        // consistent with what `dexe_ipfs_upload_avatar` returns even though
+        // the bytes themselves are SVG. The subdomain gateway serves it by
+        // CID; content negotiation handles the type.
+        const fileName = "avatar.jpeg";
+        const res = await client.pinFile(bytes, {
+          fileName,
+          contentType: "image/svg+xml",
+          name: fileName,
+        });
+        const avatarCID = toCidV1(res.cid);
+        const avatarUrl = `https://${avatarCID}.ipfs.4everland.io/${fileName}`;
+        const structured = {
+          avatarCID,
+          avatarFileName: fileName,
+          avatarUrl,
+          size: res.size,
+          pinnedAt: res.pinnedAt,
+        };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Generated avatar for "${daoName}" → ${avatarUrl}`,
+            },
+          ],
+          structuredContent: structured,
+        };
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}
+
+/** djb2-style hash → unsigned 32-bit. */
+function hashString(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h >>> 0;
+}
+
+function buildIdenticonSvg(daoName: string, size: number): string {
+  const cleaned = daoName.replace(/[^\p{L}\p{N}]/gu, "");
+  const initials = (cleaned.slice(0, 2) || "?").toUpperCase();
+  const h = hashString(daoName);
+  const hue1 = h % 360;
+  const hue2 = (hue1 + 40 + ((h >>> 8) % 80)) % 360;
+  const c1 = `hsl(${hue1} 70% 55%)`;
+  const c2 = `hsl(${hue2} 70% 35%)`;
+  const fontSize = Math.round(size * 0.46);
+  // Plain SVG — no <foreignObject>, no JS. Safe to pin and serve via subdomain gateway.
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">\n  <defs>\n    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">\n      <stop offset="0%" stop-color="${c1}"/>\n      <stop offset="100%" stop-color="${c2}"/>\n    </linearGradient>\n  </defs>\n  <rect width="100%" height="100%" fill="url(#g)"/>\n  <text x="50%" y="50%" dy=".35em" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="white">${initials}</text>\n</svg>\n`;
+}
+
+// ---------- dexe_ipfs_update_dao_metadata (fetch + merge + re-upload) ----------
+
+/**
+ * Smart helper for "Modify DAO Profile" proposals. Fetches the DAO's existing
+ * metadata JSON, applies user-supplied partial overrides, re-pins the result.
+ *
+ * Returns the new outer CID so callers can feed it into
+ * `dexe_proposal_build_modify_dao_profile` as `newDescriptionURL`.
+ *
+ * Without this tool, callers had to re-specify every unchanged field
+ * (daoName, websiteUrl, socialLinks, …) on every edit, and any forgotten
+ * field would silently disappear from the profile.
+ */
+function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways: string[]): void {
+  server.registerTool(
+    "dexe_ipfs_update_dao_metadata",
+    {
+      title: "Fetch DAO metadata, apply partial overrides, re-upload",
+      description:
+        "Reads the existing DAO metadata JSON from IPFS via the configured gateway, applies only the fields you pass in `overrides`, " +
+        "and re-pins the merged result. Returns the new outer `descriptionURL` ready for `dexe_proposal_build_modify_dao_profile`. " +
+        "Unspecified fields are preserved verbatim (so you can change just the avatar without re-typing the website or social links).",
+      inputSchema: {
+        currentDescriptionURL: z
+          .string()
+          .describe("Current DAO descriptionURL — `ipfs://<cid>` or bare CID. Fetched via the configured IPFS gateway."),
+        overrides: z
+          .object({
+            daoName: z.string().optional(),
+            websiteUrl: z.string().optional(),
+            description: z
+              .string()
+              .optional()
+              .describe("Markdown or plain text. If provided, replaces the description content (re-uploaded as its own pin)."),
+            avatarCID: z.string().optional().describe("New avatar CID (any version). Pair with avatarFileName to set, or pass empty string to clear."),
+            avatarFileName: z.string().optional(),
+            socialLinks: z.array(z.tuple([z.string(), z.string()])).optional(),
+            documents: z.array(z.object({ name: z.string(), url: z.string() })).optional(),
+          })
+          .describe("Only the fields you want to change. Anything omitted is kept from the current metadata."),
+        timeoutMs: z.number().int().min(500).max(30_000).default(6000),
+      },
+      outputSchema: {
+        descriptionURL: z.string().describe("New outer CID — pass to dexe_proposal_build_modify_dao_profile.newDescriptionURL."),
+        previousDescriptionURL: z.string(),
+        cid: z.string(),
+        descriptionCid: z.string().optional(),
+        size: z.number(),
+        pinnedAt: z.string(),
+      },
+    },
+    async ({ currentDescriptionURL, overrides, timeoutMs = 6000 }) => {
+      if (gateways.length === 0) return errorResult(NO_GATEWAY_HINT);
+      const client = requirePinata(ctx);
+      if ("error" in client) return errorResult(client.error);
+      try {
+        const fetched = await fetchIpfs(currentDescriptionURL, {
+          gateways,
+          perRequestTimeoutMs: timeoutMs,
+        });
+        if (!fetched.json || typeof fetched.json !== "object") {
+          return errorResult(
+            `Current descriptionURL did not resolve to JSON metadata (content-type=${fetched.contentType}). ` +
+              `Got ${fetched.bytes.length} bytes from ${fetched.gateway}.`,
+          );
+        }
+        const current = fetched.json as Record<string, unknown>;
+
+        // Per-field merge, with explicit semantics for the trickier ones.
+        const daoName =
+          typeof overrides.daoName === "string" ? overrides.daoName : (current.daoName as string) ?? "";
+        const websiteUrl =
+          typeof overrides.websiteUrl === "string" ? overrides.websiteUrl : (current.websiteUrl as string) ?? "";
+        const socialLinks =
+          overrides.socialLinks ?? ((current.socialLinks as [string, string][]) ?? []);
+        const documents =
+          overrides.documents ?? ((current.documents as { name: string; url: string }[]) ?? []);
+
+        // Avatar: empty-string avatarCID means "clear". Otherwise normalize to v1.
+        let avatarUrl = "";
+        let avatarCidV1: string | undefined;
+        let avatarFileName = "";
+        if (overrides.avatarCID === undefined && overrides.avatarFileName === undefined) {
+          // Unchanged — copy from current.
+          avatarUrl = (current.avatarUrl as string) ?? "";
+          avatarCidV1 = (current.avatarCID as string) || undefined;
+          avatarFileName = (current.avatarFileName as string) ?? "";
+        } else if (overrides.avatarCID && overrides.avatarFileName) {
+          avatarCidV1 = toCidV1(overrides.avatarCID);
+          avatarFileName = overrides.avatarFileName;
+          avatarUrl = `https://${avatarCidV1}.ipfs.4everland.io/${avatarFileName}`;
+        } else if (overrides.avatarCID === "") {
+          // Explicit clear.
+          avatarUrl = "";
+          avatarCidV1 = undefined;
+          avatarFileName = "";
+        } else {
+          return errorResult(
+            "Avatar overrides require BOTH avatarCID and avatarFileName (or empty string for avatarCID to clear).",
+          );
+        }
+
+        // Description: re-upload only if changed.
+        let descriptionIpfsPath: string;
+        let descriptionCid: string | undefined;
+        if (typeof overrides.description === "string") {
+          const payload = markdownToSlate(overrides.description);
+          const descRes = await client.pinJson(payload, {
+            name: `dao-desc:${daoName.slice(0, 40)}`,
+          });
+          descriptionIpfsPath = `ipfs://${descRes.cid}`;
+          descriptionCid = descRes.cid;
+        } else {
+          descriptionIpfsPath = (current.description as string) ?? "";
+        }
+
+        const outerPayload = {
+          avatarUrl,
+          avatarCID: avatarCidV1,
+          avatarFileName,
+          daoName,
+          websiteUrl,
+          description: descriptionIpfsPath,
+          socialLinks,
+          documents,
+        };
+        const metadataRes = await client.pinJson(outerPayload, {
+          name: `dao:${daoName.slice(0, 48)}`,
+        });
+
+        const structured = {
+          descriptionURL: metadataRes.cid,
+          previousDescriptionURL: fetched.cid,
+          cid: metadataRes.cid,
+          descriptionCid,
+          size: metadataRes.size,
+          pinnedAt: metadataRes.pinnedAt,
+        };
+        const changed = Object.keys(overrides).filter((k) => (overrides as Record<string, unknown>)[k] !== undefined);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `Updated DAO metadata (${changed.length ? changed.join(", ") : "no changes"}):\n` +
+                `  previous → ${fetched.cid}\n` +
+                `  new      → ${metadataRes.cid}\n` +
+                `Pass "${metadataRes.cid}" to dexe_proposal_build_modify_dao_profile.newDescriptionURL.`,
+            },
+          ],
+          structuredContent: structured,
+        };
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+}

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.8
+
+DAO avatar pipeline — root-cause fix + three new composites.
+
+### Avatar bug fixes (frontend rendering)
+
+- **`dexe_ipfs_upload_file` now returns a CID v1 base32 string** (`bafy…`) as the primary `cid` field, with the original Pinata response preserved as `cidV0`. The DeXe frontend stores avatar URLs as `https://<cid>.ipfs.4everland.io/<file>`, and that subdomain gateway only resolves v1 — so the pre-0.5.8 server produced dead links every time an agent uploaded an avatar.
+- **Image filenames are normalized to `.jpeg` for any `image/*` content type** (configurable via `normalizeImageExt: false`). Matches what `useCreateDAO` does in the frontend and what `parseAvatarFromIpfsResponse` expects when reading the profile back.
+- **`dexe_ipfs_upload_dao_metadata` auto-converts any incoming `avatarCID` to v1 base32** before composing `avatarUrl`. Callers that previously passed in a v0 `Qm…` (which silently produced a dead link) now get a working URL.
+
+### New tools (+3, total 126 → 129)
+
+- **`dexe_ipfs_upload_avatar`** — one-shot composite. Takes base64 image bytes, normalizes the filename to `.jpeg`, pins, converts the CID to v1, and returns the exact `{avatarCID, avatarFileName, avatarUrl}` triple that `dexe_ipfs_upload_dao_metadata` and `dexe_ipfs_update_dao_metadata` accept. Removes a three-step manual chain.
+- **`dexe_dao_generate_avatar`** — generates a deterministic placeholder. Initials of the DAO name over a hash-coloured gradient, emitted as plain SVG (no `<foreignObject>`, no JS) and pinned through Pinata. Same input always produces the same colours, so re-deploys keep the brand. No external image-generation provider involved.
+- **`dexe_ipfs_update_dao_metadata`** — smart "modify DAO profile" helper. Fetches the current DAO descriptionURL JSON, applies only the fields you pass in `overrides` (avatar / name / website / description / socialLinks / documents), re-pins the merged result, and returns the new CID ready to feed into `dexe_proposal_build_modify_dao_profile.newDescriptionURL`. Eliminates the previous footgun where re-uploading metadata meant manually re-specifying every unchanged field — any forgotten field silently disappeared from the profile.
+
+### Recommended modify-profile flow
+
+```text
+1. dexe_ipfs_upload_avatar        → {avatarCID, avatarFileName, avatarUrl}
+   (or dexe_dao_generate_avatar)
+2. dexe_ipfs_update_dao_metadata  → newDescriptionURL
+3. dexe_proposal_build_modify_dao_profile → TxPayload
+4. dexe_proposal_create           → broadcast
+```
+
 ## 0.5.7
 
 Last broadcast sweep: **57 / 57 green** on Polaris (BSC testnet 97), 2026-05-12.

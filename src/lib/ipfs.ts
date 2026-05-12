@@ -114,6 +114,18 @@ export function stripIpfsPrefix(s: string): string {
   return s.replace(/^ipfs:\/\//, "").replace(/^\/?ipfs\//, "");
 }
 
+/**
+ * Convert a CID string to its v1 base32 form (idempotent for v1 inputs).
+ * Frontend uses subdomain gateway (`<cid>.ipfs.4everland.io`), which only
+ * resolves CID v1 base32. Passing a v0 (Qm...) here produces a dead link.
+ */
+export function toCidV1(input: string): string {
+  const s = stripIpfsPrefix(input);
+  const cid = CID.parse(s);
+  if (cid.version === 1) return cid.toString(base32);
+  return cid.toV1().toString(base32);
+}
+
 /** Compute the CIDv1 for arbitrary JSON locally — no network. */
 export async function cidForJson(value: unknown): Promise<string> {
   const bytes = json.encode(value);
