@@ -803,10 +803,22 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
         let avatarCidV1: string | undefined;
         let avatarFileName = "";
         if (overrides.avatarCID === undefined && overrides.avatarFileName === undefined) {
-          // Unchanged — copy from current.
-          avatarUrl = (current.avatarUrl as string) ?? "";
-          avatarCidV1 = (current.avatarCID as string) || undefined;
-          avatarFileName = (current.avatarFileName as string) ?? "";
+          // Unchanged — copy avatarCID + filename from current, but rebuild
+          // avatarUrl with the configured gateway. Carrying the old URL
+          // verbatim leaves stale 4everland references in DAOs that have
+          // only had a name/website update; the cache backend then fails
+          // to fetch the avatar binary and serves a 404 for `<cid>.jpeg`.
+          const currCID = (current.avatarCID as string) || "";
+          const currFile = (current.avatarFileName as string) || "";
+          if (currCID && currFile) {
+            avatarCidV1 = toCidV1(currCID);
+            avatarFileName = currFile;
+            avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
+          } else {
+            avatarUrl = (current.avatarUrl as string) ?? "";
+            avatarCidV1 = currCID || undefined;
+            avatarFileName = currFile;
+          }
         } else if (overrides.avatarCID && overrides.avatarFileName) {
           avatarCidV1 = toCidV1(overrides.avatarCID);
           avatarFileName = overrides.avatarFileName;
