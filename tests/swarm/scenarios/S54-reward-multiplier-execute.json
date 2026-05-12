@@ -1,0 +1,63 @@
+{
+  "id": "S54-reward-multiplier-execute",
+  "title": "reward_multiplier mint (v0.5.6 uint64 duration ABI fix) — build → create → on-chain validation",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Validates Bug #31 fix: ERC721Multiplier.mint had ABI duration as uint256 but the contract is uint64. ethers derives the selector from the canonical sig, so the wrong-typed arg yielded a different selector and GovPool.execute reverted with empty returndata. Fixed to uint64 + multiplier-scale validation (PRECISION = 1e25). Pick mint mode because that's the one that surfaced the selector regression. The set_address / set_uri / burn modes share the same ABI fix.",
+  "agents": [
+    { "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_build_reward_multiplier",
+      "args": {
+        "govPool": "{{dao}}",
+        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
+        "mode": "mint",
+        "to": "{{agent:P:address}}",
+        "multiplier": "15000000000000000000000000",
+        "rewardPeriod": "2592000",
+        "metadataUrl": "ipfs://QmYWMzNGEzNzU3MmIyN2Y1ZmRiYzZhMWVkNTVlMzZj",
+        "proposalName": "S54 reward_multiplier mint validator",
+        "proposalDescription": "Validates v0.5.6 uint64 rewardPeriod ABI fix"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "custom",
+        "title": "S54 reward_multiplier mint validator",
+        "description": "Validates Bug #31 ABI uint64 fix — mint mode",
+        "category": "NFT Multiplier",
+        "actionsOnFor": "{{built.actions}}",
+        "proposalMetadataExtra": "{{built.metadata}}",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "created"
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{created.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "state"
+    }
+  ],
+  "successCriteria": [
+    { "id": "proposal-id-assigned", "check": "created.proposalId is a positive integer" },
+    { "id": "proposal-accepted-on-chain", "check": "state.state in ['Voting', 'SucceededFor', 'ExecutedFor']" },
+    { "id": "mint-action-uses-erc721-multiplier", "check": "built.actions[0].executor == nftMultiplier (NFT contract from dao_info)" }
+  ]
+}

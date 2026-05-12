@@ -1,0 +1,60 @@
+{
+  "id": "S52-withdraw-treasury-execute",
+  "title": "withdraw_treasury (v0.5.6 rewrite) — build → create → on-chain validation",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Validates Bug #30 fix end-to-end: builder now emits external ERC20.transfer action with GovPool as the from-address, not the old GovPool.withdraw selector. Steps: (1) builder emits actions, (2) proposal_create lands the proposal on-chain with auto-vote from proposer, (3) proposal_state confirms acceptance (state == Voting or SucceededFor). Quorum on Polaris is 50% → proposer's 150k against 900k supply leaves the proposal in Voting; that's the pass criterion. We don't drive it to ExecutedFor here because that needs the full pool to vote and would mask whether the builder shape regressed.",
+  "agents": [
+    { "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_build_withdraw_treasury",
+      "args": {
+        "govPool": "{{dao}}",
+        "token": "{{firstAllowlistedToken}}",
+        "receiver": "{{agent:P:address}}",
+        "amount": "1000000000000000000",
+        "proposalName": "S52 withdraw_treasury validator",
+        "proposalDescription": "Builder-shape validation for the v0.5.6 withdraw_treasury rewrite"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "custom",
+        "title": "S52 withdraw_treasury validator",
+        "description": "Builder-shape validation for v0.5.6 rewrite",
+        "category": "Withdraw Treasury",
+        "actionsOnFor": "{{built.actions}}",
+        "proposalMetadataExtra": "{{built.metadata}}",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "created"
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{created.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "state"
+    }
+  ],
+  "successCriteria": [
+    { "id": "proposal-id-assigned", "check": "created.proposalId is a positive integer" },
+    { "id": "proposal-accepted-on-chain", "check": "state.state in ['Voting', 'SucceededFor', 'ExecutedFor']" },
+    { "id": "action-shape-external-erc20-transfer", "check": "built.actions[0].executor == firstAllowlistedToken (token contract, not GovPool — Bug #30 fix)" }
+  ]
+}

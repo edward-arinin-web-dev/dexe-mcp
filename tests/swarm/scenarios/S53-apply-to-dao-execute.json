@@ -1,0 +1,60 @@
+{
+  "id": "S53-apply-to-dao-execute",
+  "title": "apply_to_dao (v0.5.6 blacklist precheck) — build → create → on-chain validation",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Validates Bug #29 fix: apply_to_dao now soft-checks recipient blacklist before emitting actions; rejects build when blacklisted. Happy-path test: PK_8 (Applicant) is not blacklisted, so build succeeds and proposal lands. We deliberately pick a non-blacklisted applicant — a separate scenario can cover the blacklist-rejection branch if needed.",
+  "agents": [
+    { "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_build_apply_to_dao",
+      "args": {
+        "token": "{{firstAllowlistedToken}}",
+        "receiver": "0x7340b46959f4598f86aA23D5d26ec289e2736e77",
+        "amount": "1000000000000000000",
+        "treasuryBalance": "0",
+        "proposalName": "S53 apply_to_dao validator",
+        "proposalDescription": "Validates v0.5.6 blacklist precheck — happy path"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "custom",
+        "title": "S53 apply_to_dao validator",
+        "description": "Validates Bug #29 fix — happy path",
+        "category": "Apply to DAO",
+        "actionsOnFor": "{{built.actions}}",
+        "proposalMetadataExtra": "{{built.metadata}}",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "created"
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{created.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "state"
+    }
+  ],
+  "successCriteria": [
+    { "id": "proposal-id-assigned", "check": "created.proposalId is a positive integer" },
+    { "id": "proposal-accepted-on-chain", "check": "state.state in ['Voting', 'SucceededFor', 'ExecutedFor']" },
+    { "id": "blacklist-precheck-noop-when-clean", "check": "built.actions array has 1+ entries (no early-reject when applicant is not blacklisted)" }
+  ]
+}
