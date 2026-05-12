@@ -36,27 +36,26 @@ function errorResult(message: string) {
  * if nothing is configured; the fetch tool fails clean in that case.
  */
 /**
- * Path-style gateway base URL used to build the `avatarUrl` field stored in
- * DAO metadata. Must produce `<base>/ipfs/<cid>/<filename>` because the
- * DeXe `ipfs-cache.dexe.io` backend reads this field server-side to pull
- * the avatar binary, and it only resolves path-form URLs (subdomain-form
- * URLs like `<cid>.ipfs.<host>/<file>` silently fail server-side fetching,
- * so the cache never populates `<descCID>.jpeg` and the frontend renders
- * a blank avatar). Matches the format DeXe Protocol DAO uses
- * (`https://ipfs.io/ipfs/Qm…/dexe11.jpeg`).
+ * Subdomain-gateway host used to build the `avatarUrl` field stored inside
+ * DAO metadata. Must speak the `<cidV1>.ipfs.<host>/<filename>` schema so the
+ * DeXe frontend's `parseAvatarFromIpfsResponse` can round-trip the URL.
  *
- * Configurable via `DEXE_IPFS_AVATAR_GATEWAY` (full URL or host).
+ * Default is `dweb.link`. The frontend historically hardcoded `4everland.io`,
+ * but 4everland fails to discover freshly-pinned CIDs for tens of minutes —
+ * during that window the backend cache (`ipfs-cache.dexe.io`) can't fetch
+ * the avatar and serves 404 for `<CID>.jpeg`, leaving the profile image
+ * broken on app.dexe.io. dweb.link / w3s.link / gateway.pinata.cloud all
+ * resolve the same pins immediately.
+ *
+ * Configurable via `DEXE_IPFS_AVATAR_GATEWAY` (host, no scheme).
  */
-function avatarGatewayBase(): string {
-  const raw = process.env.DEXE_IPFS_AVATAR_GATEWAY?.trim();
-  if (!raw) return "https://ipfs.io";
-  const stripped = raw.replace(/\/$/, "");
-  if (/^https?:\/\//i.test(stripped)) return stripped;
-  return `https://${stripped}`;
+function avatarSubdomainHost(): string {
+  const override = process.env.DEXE_IPFS_AVATAR_GATEWAY?.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  return override || "dweb.link";
 }
 
 function buildAvatarUrl(cidV1: string, fileName: string): string {
-  return `${avatarGatewayBase()}/ipfs/${cidV1}/${fileName}`;
+  return `https://${cidV1}.ipfs.${avatarSubdomainHost()}/${fileName}`;
 }
 
 /**
