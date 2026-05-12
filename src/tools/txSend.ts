@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SignerManager } from "../lib/signer.js";
-import type { DexeConfig } from "../config.js";
+import { resolveChain, type DexeConfig } from "../config.js";
 
 export function registerTxTools(
   server: McpServer,
@@ -12,7 +12,8 @@ export function registerTxTools(
     "dexe_tx_send",
     "Sign and broadcast a transaction using the configured DEXE_PRIVATE_KEY. " +
       "Pass the TxPayload fields returned by any dexe_*_build_* tool. " +
-      "Waits for on-chain confirmation and returns the receipt.",
+      "Waits for on-chain confirmation and returns the receipt. " +
+      "When the MCP has multiple chains configured, pass `chainId` explicitly to pick which one to broadcast on; otherwise the default chain is used.",
     {
       to: z.string().describe("Destination contract address"),
       data: z.string().describe("ABI-encoded calldata (0x-prefixed hex)"),
@@ -20,6 +21,14 @@ export function registerTxTools(
         .string()
         .default("0")
         .describe("Wei value as decimal string"),
+      chainId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Target chain id. Defaults to the MCP's default chain. Tool rejects if no RPC is configured for the requested chain.",
+        ),
       gasLimit: z
         .string()
         .optional()
@@ -32,14 +41,15 @@ export function registerTxTools(
         .default(1)
         .describe("Confirmations to wait (0 = fire-and-forget)"),
     },
-    async ({ to, data, value, gasLimit, waitConfirmations }) => {
-      const wallet = signer.requireSigner();
+    async ({ to, data, value, chainId, gasLimit, waitConfirmations }) => {
+      const chain = resolveChain(config, chainId);
+      const wallet = signer.requireSigner(chain.chainId);
 
       const tx = await wallet.sendTransaction({
         to,
         data,
         value: BigInt(value),
-        chainId: BigInt(config.chainId),
+        chainId: BigInt(chain.chainId),
         ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
       });
 
@@ -49,7 +59,12 @@ export function registerTxTools(
             {
               type: "text" as const,
               text: JSON.stringify(
-                { txHash: tx.hash, from: wallet.address, status: "submitted" },
+                {
+                  txHash: tx.hash,
+                  from: wallet.address,
+                  chainId: chain.chainId,
+                  status: "submitted",
+                },
                 null,
                 2,
               ),
@@ -64,7 +79,11 @@ export function registerTxTools(
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({ txHash: tx.hash, status: "unknown" }, null, 2),
+              text: JSON.stringify(
+                { txHash: tx.hash, chainId: chain.chainId, status: "unknown" },
+                null,
+                2,
+              ),
             },
           ],
         };
@@ -73,6 +92,7 @@ export function registerTxTools(
       const result = {
         txHash: receipt.hash,
         from: wallet.address,
+        chainId: chain.chainId,
         blockNumber: receipt.blockNumber,
         gasUsed: receipt.gasUsed.toString(),
         status: receipt.status,
@@ -89,20 +109,35 @@ export function registerTxTools(
     "Check the receipt/status of a previously submitted transaction hash.",
     {
       txHash: z.string().describe("Transaction hash to look up"),
+      chainId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Chain id to look up the receipt on. Defaults to the MCP's default chain.",
+        ),
     },
-    async ({ txHash }) => {
-      const wallet = signer.requireSigner();
+    async ({ txHash, chainId }) => {
+      const chain = resolveChain(config, chainId);
+      const wallet = signer.requireSigner(chain.chainId);
       const provider = wallet.provider!;
 
       const receipt = await provider.getTransactionReceipt(txHash);
       if (!receipt) {
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ status: "pending" }) }],
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ chainId: chain.chainId, status: "pending" }),
+            },
+          ],
         };
       }
 
       const result = {
         txHash: receipt.hash,
+        chainId: chain.chainId,
         status: receipt.status,
         blockNumber: receipt.blockNumber,
         gasUsed: receipt.gasUsed.toString(),

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.7
+
+### Multi-chain config (chain-mixup guard)
+
+- New optional env vars `DEXE_RPC_URL_TESTNET` + `DEXE_RPC_URL_MAINNET` + `DEXE_DEFAULT_CHAIN_ID`. Configure one or both; the MCP can now route reads and broadcasts to whichever chain a tool call requests, without an MCP restart.
+- Write/composite tools accept an optional `chainId` arg: `dexe_tx_send`, `dexe_tx_status`, `dexe_dao_build_deploy`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_otc_dao_open_sale`, `dexe_otc_buyer_buy`, `dexe_otc_buyer_claim_all`. Omitting the arg uses the default chain. Requesting a chain with no configured RPC fails fast with a clear error before any tx is built or signed.
+- Legacy `DEXE_RPC_URL` + `DEXE_CHAIN_ID` still works and stacks with the new vars — the legacy entry registers as one more chain in the pool. When `DEXE_CHAIN_ID` is omitted, the chain id is best-effort inferred from the URL hostname.
+- New `dexe_get_config` diagnostic tool: returns the resolved chain set, the default chain, signer status, and IPFS/subgraph configuration. Call it at session start to orient before any write.
+- Provider and signer are now per-chain caches (`RpcProvider`, `SignerManager`) so multi-chain usage doesn't churn through new connections.
+
 ## 0.5.6
 
 Three Stage A mainnet bug fixes — all surfaced on `DexeClientDemo`

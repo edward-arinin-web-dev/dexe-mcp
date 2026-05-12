@@ -21,6 +21,7 @@ import { registerVoteBuildTools } from "./voteBuild.js";
 import { registerDaoDeployTools } from "./daoDeploy.js";
 import { registerSubgraphTools } from "./subgraph.js";
 import { registerTxTools } from "./txSend.js";
+import { registerGetConfigTool } from "./getConfig.js";
 import { registerFlowTools } from "./flow.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcTools } from "./otc.js";
@@ -62,6 +63,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
 
   const signer = new SignerManager(config);
   registerTxTools(server, config, signer);
+  registerGetConfigTool(server, config, signer);
   registerFlowTools(server, ctx, signer);
   registerOtcTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);

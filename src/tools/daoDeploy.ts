@@ -3,6 +3,7 @@ import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
+import { resolveChain } from "../config.js";
 import { ArtifactsMissingError } from "../artifacts.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { RpcProvider } from "../rpc.js";
@@ -230,6 +231,14 @@ function registerBuildDeploy(
         "**Token cap constraint:** When creating a new gov token (`tokenParams.name` non-empty), `cap` MUST be either 0 (uncapped) or strictly greater than `mintedTotal`. ERC20Gov init reverts silently otherwise. The tool pre-flight-rejects with a clear error.\n\n" +
         "Prefer running `dexe_compile` first for strict ABI parity.",
       inputSchema: {
+        chainId: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Target chain id. Defaults to the MCP's default chain. The predicted addresses + TxPayload.chainId are computed against this chain — broadcast with the same chainId.",
+          ),
         poolFactory: z
           .string()
           .optional()
@@ -251,7 +260,8 @@ function registerBuildDeploy(
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ poolFactory, deployer, params }) => {
+    async ({ chainId, poolFactory, deployer, params }) => {
+      const chain = resolveChain(ctx.config, chainId);
       const isTokenCreation = params.tokenParams.name.length > 0;
       const hasValidators = !!(params.validatorsParams && params.validatorsParams.validators.length > 0);
 
@@ -347,11 +357,11 @@ function registerBuildDeploy(
       let factoryAddress = poolFactory;
       if (!factoryAddress) {
         try {
-          const provider = rpc.requireProvider();
+          const provider = rpc.requireProvider(chain.chainId);
           const book = new AddressBook({
             provider,
-            chainId: ctx.config.chainId,
-            registryOverride: ctx.config.registryOverride,
+            chainId: chain.chainId,
+            registryOverride: chain.registryOverride ?? ctx.config.registryOverride,
           });
           factoryAddress = await book.resolve(CONTRACT_NAMES.POOL_FACTORY);
         } catch (err) {
@@ -368,7 +378,7 @@ function registerBuildDeploy(
       let predictedTokenSale: string | undefined;
 
       try {
-        const provider = rpc.requireProvider();
+        const provider = rpc.requireProvider(chain.chainId);
         const predictIface = new Interface([
           "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
         ]);
@@ -634,7 +644,7 @@ function registerBuildDeploy(
           iface,
           method: "deployGovPool",
           args: [paramsTuple],
-          chainId: ctx.config.chainId,
+          chainId: chain.chainId,
           contractLabel: "PoolFactory",
           description: `PoolFactory.deployGovPool("${params.name}") via ${ifaceSource}`,
         });

@@ -26,6 +26,27 @@ DEXE_SUBGRAPH_POOLS_URL=https://gateway-arbitrum.network.thegraph.com/api/<key>/
 DEXE_SUBGRAPH_INTERACTIONS_URL=https://gateway-arbitrum.network.thegraph.com/api/<key>/subgraphs/id/<interactions-id>
 ```
 
+### Multi-chain mode (testnet + mainnet without restart)
+
+If you want the MCP to broadcast on both BSC testnet and BSC mainnet from the same session, use the new per-chain RPC vars instead. Pass `chainId` to write tools (`dexe_tx_send`, `dexe_dao_build_deploy`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_otc_*`) to pick which chain to act on; omit it to use the default.
+
+Both vars are **optional** — configure only the chain(s) you need. The MCP refuses to broadcast on a chain that doesn't have an RPC configured.
+
+```env
+# Configure both, or just one. Testnet alone:
+DEXE_RPC_URL_TESTNET=https://data-seed-prebsc-1-s1.binance.org:8545
+
+# Or mainnet alone:
+DEXE_RPC_URL_MAINNET=https://bsc-dataseed.binance.org
+
+# When both are set, testnet is the default. Override with:
+DEXE_DEFAULT_CHAIN_ID=56
+```
+
+Legacy `DEXE_RPC_URL` + `DEXE_CHAIN_ID` still works and stacks with the new vars; the legacy entry registers as one more chain in the pool.
+
+Call `dexe_get_config` at session start to see which chains the server resolved and which one is the default.
+
 That covers reads + IPFS fetch/upload + DAO/proposal/voter discovery. Adding
 write tools (deploy, proposal builders, vote) does not require any new env
 var — those tools return `TxPayload` calldata your wallet signs externally.
@@ -38,8 +59,11 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 
 | Variable | Required for | Purpose | Example |
 |----------|--------------|---------|---------|
-| `DEXE_RPC_URL` | All on-chain reads, all builders that resolve helpers via registry, signer mode | JSON-RPC endpoint. Any EVM chain where DeXe is deployed. | `https://bsc-dataseed.binance.org` |
-| `DEXE_CHAIN_ID` | Chain selection | Defaults to `56` (BSC mainnet). Must be a positive integer. | `56`, `97`, `1`, `137` |
+| `DEXE_RPC_URL` | Single-chain legacy mode | JSON-RPC endpoint. Registers as the chain inferred from the URL hostname (or `DEXE_CHAIN_ID` when set). | `https://bsc-dataseed.binance.org` |
+| `DEXE_CHAIN_ID` | Single-chain legacy mode | Chain id paired with `DEXE_RPC_URL`. Optional — best-effort inferred from the hostname when omitted. | `56`, `97`, `1`, `137` |
+| `DEXE_RPC_URL_TESTNET` | Multi-chain mode (testnet) | RPC for chain 97 (BSC testnet). Optional — set when you want the MCP to broadcast on testnet without restart. | `https://data-seed-prebsc-1-s1.binance.org:8545` |
+| `DEXE_RPC_URL_MAINNET` | Multi-chain mode (mainnet) | RPC for chain 56 (BSC mainnet). Optional — set when you want to broadcast on mainnet without restart. | `https://bsc-dataseed.binance.org` |
+| `DEXE_DEFAULT_CHAIN_ID` | Multi-chain mode (default selection) | Which configured chain is used when a tool call omits `chainId`. Defaults to testnet when both are configured. | `97`, `56` |
 | `DEXE_CONTRACTS_REGISTRY` | Custom chain / non-default registry | Override the `ContractsRegistry` root address. Defaults to the per-chain known address from `src/lib/addresses.ts`. | `0x...` |
 | `DEXE_PINATA_JWT` | All `dexe_ipfs_upload_*` tools, auto-upload of `executorDescription` in `dexe_dao_build_deploy`, `dexe_proposal_create` flow | Pinata JWT for pinning JSON / files. | `eyJhbGciOi...` |
 | `DEXE_IPFS_GATEWAY` | `dexe_ipfs_fetch`, any tool that re-reads metadata from IPFS | **Dedicated** gateway URL (Pinata bundles one with the JWT; Filebase / QuickNode / self-hosted also fine). Public gateways throttle and disagree on CIDs — not defaulted. | `https://my-sub.mypinata.cloud` |
@@ -121,7 +145,7 @@ arbitrarily invoke any tool. Treat `DEXE_PRIVATE_KEY` like a hot wallet:
 - Never set `DEXE_PRIVATE_KEY` in a config file checked into git.
 - Restart the server to rotate the key.
 
-`DEXE_PRIVATE_KEY` requires `DEXE_RPC_URL` — startup fails fast otherwise.
+`DEXE_PRIVATE_KEY` requires at least one of `DEXE_RPC_URL` / `DEXE_RPC_URL_TESTNET` / `DEXE_RPC_URL_MAINNET` — startup fails fast otherwise.
 
 ---
 

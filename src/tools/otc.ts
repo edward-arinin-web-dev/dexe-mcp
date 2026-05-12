@@ -7,6 +7,7 @@ import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { TxPayload } from "../lib/calldata.js";
 import { runProposalCreate, sendOrCollect, type ProposalCreateInput } from "./flow.js";
+import { resolveChain } from "../config.js";
 import {
   buildTokenSaleMultiActions,
   tierSchema,
@@ -88,6 +89,12 @@ export function registerOtcTools(
       "an executor (set at deploy time via `dexe_dao_build_deploy`).",
     {
       govPool: z.string().describe("GovPool address"),
+      chainId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Target chain id. Defaults to the MCP's default chain."),
       tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       tiers: z.array(tierSchema).min(1),
       latestTierId: z.string().default("0"),
@@ -133,6 +140,7 @@ export function registerOtcTools(
         const builtChanges = (built.metadata as { changes?: unknown }).changes;
         const proposalInput: ProposalCreateInput = {
           govPool: input.govPool,
+          chainId: input.chainId,
           proposalType: "custom",
           title: input.proposalName,
           description: input.proposalDescription,
@@ -369,6 +377,12 @@ export function registerOtcTools(
       "TxPayload list.",
     {
       tokenSaleProposal: z.string(),
+      chainId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Target chain id. Defaults to the MCP's default chain."),
       tierId: z.string(),
       tokenToBuyWith: z.string().describe("Payment token; use 0x000...000 for native BNB"),
       amount: z.string().describe("Amount to spend in payment-token wei"),
@@ -409,8 +423,9 @@ export function registerOtcTools(
         proof = tree.proofs[idx]!;
       }
 
-      const provider = rpc.requireProvider();
-      const chainId = ctx.config.chainId;
+      const chain = resolveChain(ctx.config, input.chainId);
+      const chainId = chain.chainId;
+      const provider = rpc.requireProvider(chainId);
       const payloads: TxPayload[] = [];
       const skipped: { label: string; reason: string }[] = [];
 
@@ -495,7 +510,7 @@ export function registerOtcTools(
         }
       }
 
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
 
       return ok({
         mode: result.mode,
@@ -522,6 +537,12 @@ export function registerOtcTools(
       "is unset, returns ordered TxPayloads. Skips silently if no tiers have anything claimable.",
     {
       tokenSaleProposal: z.string(),
+      chainId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Target chain id. Defaults to the MCP's default chain."),
       tierIds: z.array(z.string()).min(1),
       user: z.string().optional(),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
@@ -535,8 +556,9 @@ export function registerOtcTools(
       const userAddr = getAddress(userResolved);
       const tierIdBns = input.tierIds.map((s) => BigInt(s));
 
-      const provider = rpc.requireProvider();
-      const chainId = ctx.config.chainId;
+      const chain = resolveChain(ctx.config, input.chainId);
+      const chainId = chain.chainId;
+      const provider = rpc.requireProvider(chainId);
 
       const res = await multicall(provider, [
         {
@@ -616,7 +638,7 @@ export function registerOtcTools(
         });
       }
 
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
 
       return ok({
         mode: result.mode,

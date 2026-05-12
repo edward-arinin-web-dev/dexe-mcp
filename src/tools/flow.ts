@@ -8,6 +8,7 @@ import { multicall, type Call } from "../lib/multicall.js";
 import { PinataClient } from "../lib/ipfs.js";
 import { SignerManager } from "../lib/signer.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
+import { resolveChain } from "../config.js";
 
 // ---------- ABI fragments ----------
 
@@ -89,8 +90,9 @@ async function resolvePrereqs(
   rpc: RpcProvider,
   govPool: string,
   user: string,
+  chainId?: number,
 ): Promise<Prereqs> {
-  const provider = rpc.requireProvider();
+  const provider = rpc.requireProvider(chainId);
 
   // Batch 1: get helper addresses
   const batch1: Call[] = [
@@ -154,7 +156,7 @@ async function resolvePrereqs(
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
-  opts?: { dryRun?: boolean },
+  opts?: { dryRun?: boolean; chainId?: number },
 ): Promise<{ mode: "executed" | "payloads" | "dryRun"; steps: FlowStep[] }> {
   const steps: FlowStep[] = [];
 
@@ -176,7 +178,7 @@ export async function sendOrCollect(
     return { mode: "payloads", steps };
   }
 
-  const wallet = signer.requireSigner();
+  const wallet = signer.requireSigner(opts?.chainId);
   for (const p of payloads) {
     const tx = await wallet.sendTransaction({
       to: p.to,
@@ -198,6 +200,8 @@ export async function sendOrCollect(
 
 export interface ProposalCreateInput {
   govPool: string;
+  /** Target chain id. Defaults to the MCP's default chain. */
+  chainId?: number;
   proposalType?: "modify_dao_profile" | "custom";
   title: string;
   description?: string;
@@ -247,13 +251,14 @@ export async function runProposalCreate(
       if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
 
       const pinata = new PinataClient(ctx.config.pinataJwt);
-      const chainId = ctx.config.chainId;
+      const chain = resolveChain(ctx.config, input.chainId);
+      const chainId = chain.chainId;
       const govPool = input.govPool;
 
       // Step 1: resolve prerequisites
       let prereqs: Prereqs;
       try {
-        prereqs = await resolvePrereqs(rpc, govPool, user);
+        prereqs = await resolvePrereqs(rpc, govPool, user, chainId);
       } catch (e) {
         return err(`Failed to resolve prerequisites: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -293,7 +298,7 @@ export async function runProposalCreate(
         // Read current descriptionURL for "currentChanges"
         let currentDescriptionURL = "";
         try {
-          const provider = rpc.requireProvider();
+          const provider = rpc.requireProvider(chainId);
           const descIface = new Interface(["function descriptionURL() view returns (string)"]);
           const batch: Call[] = [{ target: govPool, iface: descIface, method: "descriptionURL", args: [] }];
           const res = await multicall(provider, batch);
@@ -409,7 +414,7 @@ export async function runProposalCreate(
       }
 
       // Step 6: send or return
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
 
       return ok({
         mode: result.mode,
@@ -451,6 +456,14 @@ export function registerFlowTools(
       "For custom: provide actionsOnFor array with {executor, value, data} objects.",
     {
       govPool: z.string().describe("GovPool contract address"),
+      chainId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
+        ),
       proposalType: z.enum(["modify_dao_profile", "custom"]).default("custom"),
       title: z.string().describe("Proposal title"),
       description: z.string().default("").describe("Proposal description (markdown supported)"),
@@ -486,6 +499,14 @@ export function registerFlowTools(
       "Otherwise returns ordered TxPayload list.",
     {
       govPool: z.string().describe("GovPool contract address"),
+      chainId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
+        ),
       proposalId: z.number().int().min(1).describe("Proposal ID (1-indexed)"),
       isVoteFor: z.boolean().default(true).describe("Vote for (true) or against (false)"),
       voteAmount: z.string().optional().describe("Vote amount (18-dec wei). Defaults to all deposited power."),
@@ -498,8 +519,9 @@ export function registerFlowTools(
       const user = input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
       if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
 
-      const provider = rpc.requireProvider();
-      const chainId = ctx.config.chainId;
+      const chain = resolveChain(ctx.config, input.chainId);
+      const chainId = chain.chainId;
+      const provider = rpc.requireProvider(chainId);
       const govPool = input.govPool;
       const proposalId = input.proposalId;
 
@@ -523,7 +545,7 @@ export function registerFlowTools(
       if ((stateNum === 4 || stateNum === 5 || stateNum === 6) && input.autoExecute) {
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-        ]);
+        ], { chainId });
         return ok({
           mode: execResult.mode,
           proposalId,
@@ -543,7 +565,7 @@ export function registerFlowTools(
       // Step 2: resolve prereqs for deposit check
       let prereqs: Prereqs | undefined;
       if (input.depositFirst) {
-        prereqs = await resolvePrereqs(rpc, govPool, user);
+        prereqs = await resolvePrereqs(rpc, govPool, user, chainId);
       }
 
       const payloads: TxPayload[] = [];
@@ -579,7 +601,7 @@ export function registerFlowTools(
       // Check minVotesForVoting threshold
       if (!prereqs && !input.voteAmount) {
         // Need prereqs to validate threshold — fetch them
-        prereqs = await resolvePrereqs(rpc, govPool, user);
+        prereqs = await resolvePrereqs(rpc, govPool, user, chainId);
       }
       if (prereqs && prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
         return err(
@@ -595,7 +617,7 @@ export function registerFlowTools(
       ));
 
       // Step 5: send or collect
-      const result = await sendOrCollect(signer, payloads);
+      const result = await sendOrCollect(signer, payloads, { chainId });
 
       // Step 6: auto-execute (only in executed mode)
       let executed = false;
@@ -611,7 +633,7 @@ export function registerFlowTools(
           // SucceededFor or SucceededAgainst — execute
           const execResult = await sendOrCollect(signer, [
             makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-          ]);
+          ], { chainId });
           result.steps.push(...execResult.steps);
           executed = true;
         } else {
