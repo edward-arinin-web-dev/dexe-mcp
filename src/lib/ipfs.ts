@@ -222,15 +222,24 @@ export class PinataClient {
 
   async pinFile(
     bytes: Uint8Array,
-    opts?: { fileName?: string; contentType?: string; name?: string },
+    opts?: { fileName?: string; contentType?: string; name?: string; wrapWithDirectory?: boolean },
   ): Promise<PinataPinResult> {
     const form = new FormData();
     const blob = new Blob([bytes], {
       type: opts?.contentType ?? "application/octet-stream",
     });
+    // Default: wrap-with-directory so the returned CID is a directory whose
+    // single child is `fileName`. That's what lets subdomain gateways serve
+    // `<cid>.ipfs.<host>/<fileName>` — without the wrapper, the CID is a raw
+    // file and any path suffix returns 404, breaking every consumer that
+    // builds URLs from `cid + fileName` (DeXe frontend + ipfs-cache.dexe.io).
+    const wrap = opts?.wrapWithDirectory ?? true;
     form.append("file", blob, opts?.fileName ?? "file");
     if (opts?.name) {
       form.append("pinataMetadata", JSON.stringify({ name: opts.name }));
+    }
+    if (wrap) {
+      form.append("pinataOptions", JSON.stringify({ wrapWithDirectory: true }));
     }
     const res = await fetch(PINATA_PIN_FILE_URL, {
       method: "POST",
