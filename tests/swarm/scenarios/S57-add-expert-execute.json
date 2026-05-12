@@ -1,0 +1,60 @@
+{
+  "id": "S57-add-expert-execute",
+  "title": "add_expert (local scope) — build → create → on-chain validation",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "ExpertNft.mint(nominee) action. Uses local scope — DAO-bound expert NFT contract (dao_info.nftContracts.expertNft). Global scope uses dexeExpertNft instead; covered separately if needed.",
+  "agents": [
+    { "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_build_add_expert",
+      "args": {
+        "expertNftContract": "0x7cf4f13c0E5787EE79d6Caff768160A4cC85ad6D",
+        "scope": "local",
+        "nominatedUser": "{{agent:P:address}}",
+        "uri": "ipfs://QmYxExpertNominationS57",
+        "proposalName": "S57 add_expert validator",
+        "proposalDescription": "End-to-end local-scope expert nomination"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "custom",
+        "title": "S57 add_expert validator",
+        "description": "End-to-end add_expert local",
+        "category": "Local Expert",
+        "actionsOnFor": "{{built.actions}}",
+        "proposalMetadataExtra": "{{built.metadata}}",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "created"
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{created.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "state"
+    }
+  ],
+  "successCriteria": [
+    { "id": "proposal-id-assigned", "check": "created.proposalId is a positive integer" },
+    { "id": "proposal-accepted-on-chain", "check": "state.state in ['Voting', 'SucceededFor', 'ExecutedFor']" },
+    { "id": "uses-local-expert-nft", "check": "built.actions[0].executor == expertNft (local DAO contract, not dexeExpertNft)" }
+  ]
+}

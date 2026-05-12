@@ -2,6 +2,12 @@
 
 ## 0.5.7
 
+### Swarm coverage — 41 → 57 scenarios
+
+- New broadcast-lifecycle scenarios for the three v0.5.6 builder rewrites: `S52-withdraw-treasury-execute`, `S53-apply-to-dao-execute`, `S54-reward-multiplier-execute`. Each runs the wrapper builder → `dexe_proposal_create` custom flow on the swarm fixture DAO and asserts the proposal lands in Voting / SucceededFor / ExecutedFor. Validates the Bug #29 / #30 / #31 fixes end-to-end against on-chain state, not just calldata shape.
+- New broadcast scenarios for the most-used proposal types: `S55-token-transfer-execute`, `S56-blacklist-execute`, `S57-add-expert-execute`. Same build → create → state pattern.
+- Replaced retired Glacier fixture with fresh **Polaris** testnet DAO (LINEAR, 50% quorum, deployed 2026-05-12). Sentinel (validator chamber) unchanged. README updated.
+
 ### Multi-chain config (chain-mixup guard)
 
 - New optional env vars `DEXE_RPC_URL_TESTNET` + `DEXE_RPC_URL_MAINNET` + `DEXE_DEFAULT_CHAIN_ID`. Configure one or both; the MCP can now route reads and broadcasts to whichever chain a tool call requests, without an MCP restart.

@@ -8,7 +8,7 @@ MCP server that gives AI agents **full DeXe Protocol DAO operations coverage** �
 
 **126 tools** across 14 groups. Call `dexe_proposal_catalog` at runtime for the full proposal-type map, or browse the [catalog](#tool-catalog) below.
 
-> **End-to-end coverage.** Every proposal-builder tool ships with a swarm-test scenario that exercises it on BSC testnet. Latest pass: **41/41 scenarios green**, ~200 broadcasts validated against two fixture DAOs (Glacier 50%-quorum + Sentinel 5%-quorum-with-validators). See [Swarm test harness](#swarm-test-harness) below.
+> **End-to-end coverage.** Every proposal-builder tool ships with a swarm-test scenario that exercises it on BSC testnet. Latest pass (2026-05-12): **57 scenarios shipped**, broadcasts validated against two fixture DAOs (Polaris 50%-quorum + Sentinel 5%-quorum-with-validators). See [Swarm test harness](#swarm-test-harness) below.
 
 ## Prerequisites
 
@@ -149,7 +149,7 @@ tool against real BSC-testnet DAOs. Scenarios are JSON specs; the orchestrator
 loads them, resolves agent wallets, and runs each step through either an inline
 ethers dispatcher or the dexe-mcp stdio bridge.
 
-**41 scenarios shipped** covering:
+**57 scenarios shipped** covering:
 
 - Reset + delegation chains (S00, S01, S06, S14)
 - Validator chamber pass / veto / full lifecycle (S02, S03, S07)
@@ -163,6 +163,12 @@ ethers dispatcher or the dexe-mcp stdio bridge.
   delegate/revoke from expert, reward multiplier (4 modes), change voting
   settings, new proposal type, change math model, custom ABI, manual calldata,
   create staking tier, off-chain validator + for/against + settings) (S16–S40)
+- OTC multi-tier sale flows: open sale, buyer buy native + merkle (S41–S46)
+- Simulator + inbox + per-DAO reads (S47, S48, S50, S51)
+- **Broadcast lifecycle for the v0.5.6 builder rewrites: `withdraw_treasury`,
+  `apply_to_dao`, `reward_multiplier mint` (S52–S54)**
+- **Broadcast lifecycle for the most-used proposal types: `token_transfer`,
+  `blacklist`, `add_expert` (S55–S57)**
 
 ```bash
 # 1) generate 9 wallets (8 agents + funder), fund the funder from your wallet

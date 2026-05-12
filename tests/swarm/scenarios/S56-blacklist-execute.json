@@ -1,0 +1,59 @@
+{
+  "id": "S56-blacklist-execute",
+  "title": "blacklist — build → create → on-chain validation",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "ERC20Gov.blacklist(addrs[], bool) action. Validates the 2-action add+remove path (single-add here). Uses a synthetic 0x...bad address — does not blacklist a real wallet.",
+  "agents": [
+    { "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_build_blacklist",
+      "args": {
+        "erc20Gov": "{{firstAllowlistedToken}}",
+        "addAddresses": ["0x0000000000000000000000000000000000000bad"],
+        "removeAddresses": [],
+        "proposalName": "S56 blacklist validator",
+        "proposalDescription": "End-to-end ERC20Gov.blacklist action"
+      },
+      "broadcast": false,
+      "captureAs": "built"
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "custom",
+        "title": "S56 blacklist validator",
+        "description": "End-to-end ERC20Gov.blacklist",
+        "category": "Blacklist",
+        "actionsOnFor": "{{built.actions}}",
+        "proposalMetadataExtra": "{{built.metadata}}",
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": true,
+      "captureAs": "created"
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_proposal_state",
+      "args": { "govPool": "{{dao}}", "proposalId": "{{created.proposalId}}" },
+      "broadcast": false,
+      "captureAs": "state"
+    }
+  ],
+  "successCriteria": [
+    { "id": "proposal-id-assigned", "check": "created.proposalId is a positive integer" },
+    { "id": "proposal-accepted-on-chain", "check": "state.state in ['Voting', 'SucceededFor', 'ExecutedFor']" },
+    { "id": "one-action-add-only", "check": "built.actions has 1 entry (addAddresses non-empty, removeAddresses empty)" }
+  ]
+}
