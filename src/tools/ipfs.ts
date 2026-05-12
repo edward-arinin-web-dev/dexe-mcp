@@ -35,6 +35,53 @@ function errorResult(message: string) {
  * the user opts in via `DEXE_IPFS_GATEWAYS_FALLBACK`. Returns an empty array
  * if nothing is configured; the fetch tool fails clean in that case.
  */
+/**
+ * Subdomain-gateway host used to build the `avatarUrl` field stored inside
+ * DAO metadata. Must speak the `<cidV1>.ipfs.<host>/<filename>` schema so the
+ * DeXe frontend's `parseAvatarFromIpfsResponse` can round-trip the URL.
+ *
+ * Default is `dweb.link`. The frontend historically hardcoded `4everland.io`,
+ * but 4everland fails to discover freshly-pinned CIDs for tens of minutes —
+ * during that window the backend cache (`ipfs-cache.dexe.io`) can't fetch
+ * the avatar and serves 404 for `<CID>.jpeg`, leaving the profile image
+ * broken on app.dexe.io. dweb.link / w3s.link / gateway.pinata.cloud all
+ * resolve the same pins immediately.
+ *
+ * Configurable via `DEXE_IPFS_AVATAR_GATEWAY` (host, no scheme).
+ */
+function avatarSubdomainHost(): string {
+  const override = process.env.DEXE_IPFS_AVATAR_GATEWAY?.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  return override || "dweb.link";
+}
+
+function buildAvatarUrl(cidV1: string, fileName: string): string {
+  return `https://${cidV1}.ipfs.${avatarSubdomainHost()}/${fileName}`;
+}
+
+/**
+ * Best-effort POST to the DeXe IPFS cache service so the next reader hit on
+ * `https://ipfs-cache.dexe.io/<cid>.json|.jpeg` serves cached bytes instead
+ * of 404. The frontend's modify-profile flow does this automatically; the
+ * MCP path didn't, which is why agents who landed a `editDescriptionURL`
+ * proposal saw their new avatar fail to render on app.dexe.io even though
+ * the on-chain pointer was correct.
+ *
+ * Never throws; returns the warmed CID(s) on success.
+ */
+async function warmDexeIpfsCache(cidV0: string): Promise<{ ok: boolean; status?: number; error?: string }> {
+  try {
+    const body = JSON.stringify({ data: { attributes: { link: cidV0 } } });
+    const r = await fetch("https://api.dexe.io/integrations/ipfs-cache-svc/public/pool-info", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    return { ok: r.ok, status: r.status };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 function resolveGateways(_ctx: ToolContext): string[] {
   const out: string[] = [];
   const normalize = (raw: string): string => {
@@ -161,7 +208,7 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
  *
  * Outer metadata shape (must match for frontend UI compatibility):
  * {
- *   avatarUrl: "https://<cidV1>.ipfs.4everland.io/<filename>" | "",
+ *   avatarUrl: "https://<cidV1>.ipfs.<host>/<filename>" | "",
  *   avatarCID: "<cidV1>" | undefined,
  *   avatarFileName: "<filename>.jpeg" | "",
  *   daoName: string,
@@ -243,7 +290,7 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
         if (avatarCID && avatarFileName) {
           // Normalize to CID v1 base32 — subdomain gateway only resolves v1.
           avatarCidV1 = toCidV1(avatarCID);
-          avatarUrl = `https://${avatarCidV1}.ipfs.4everland.io/${avatarFileName}`;
+          avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
         }
 
         const outerPayload = {
@@ -262,12 +309,17 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
           name: `dao:${daoName.slice(0, 48)}`,
         });
 
+        // Step 4: Prewarm the DeXe IPFS cache so app.dexe.io renders the new
+        // metadata + avatar immediately. Best-effort; never fails the call.
+        const warmed = await warmDexeIpfsCache(metadataRes.cid);
+
         const structured = {
           cid: metadataRes.cid,
           descriptionCid: descriptionRes.cid,
           size: metadataRes.size,
           pinnedAt: metadataRes.pinnedAt,
           descriptionURL: metadataRes.cid,
+          cachePrewarmed: warmed.ok,
         };
         return {
           content: [
@@ -277,6 +329,7 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
                 `Pinned DAO metadata (frontend-compatible):\n` +
                 `  description content → ${descriptionRes.cid}\n` +
                 `  outer metadata      → ${metadataRes.cid} (${metadataRes.size} bytes)\n` +
+                `  ipfs-cache.dexe.io prewarm → ${warmed.ok ? "ok" : `skipped (${warmed.status ?? warmed.error})`}\n` +
                 `Use "${metadataRes.cid}" as descriptionURL in deployGovPool.`,
             },
           ],
@@ -553,7 +606,7 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
           name: normalized,
         });
         const avatarCID = toCidV1(res.cid);
-        const avatarUrl = `https://${avatarCID}.ipfs.4everland.io/${normalized}`;
+        const avatarUrl = buildAvatarUrl(avatarCID, normalized);
         const structured = {
           avatarCID,
           avatarFileName: normalized,
@@ -623,7 +676,7 @@ function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
           name: fileName,
         });
         const avatarCID = toCidV1(res.cid);
-        const avatarUrl = `https://${avatarCID}.ipfs.4everland.io/${fileName}`;
+        const avatarUrl = buildAvatarUrl(avatarCID, fileName);
         const structured = {
           avatarCID,
           avatarFileName: fileName,
@@ -757,7 +810,7 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
         } else if (overrides.avatarCID && overrides.avatarFileName) {
           avatarCidV1 = toCidV1(overrides.avatarCID);
           avatarFileName = overrides.avatarFileName;
-          avatarUrl = `https://${avatarCidV1}.ipfs.4everland.io/${avatarFileName}`;
+          avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
         } else if (overrides.avatarCID === "") {
           // Explicit clear.
           avatarUrl = "";
@@ -797,6 +850,10 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
           name: `dao:${daoName.slice(0, 48)}`,
         });
 
+        // Prewarm DeXe ipfs-cache so app.dexe.io renders the new metadata
+        // immediately after the modify-profile proposal executes.
+        const warmed = await warmDexeIpfsCache(metadataRes.cid);
+
         const structured = {
           descriptionURL: metadataRes.cid,
           previousDescriptionURL: fetched.cid,
@@ -804,6 +861,7 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
           descriptionCid,
           size: metadataRes.size,
           pinnedAt: metadataRes.pinnedAt,
+          cachePrewarmed: warmed.ok,
         };
         const changed = Object.keys(overrides).filter((k) => (overrides as Record<string, unknown>)[k] !== undefined);
         return {
@@ -814,6 +872,7 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
                 `Updated DAO metadata (${changed.length ? changed.join(", ") : "no changes"}):\n` +
                 `  previous → ${fetched.cid}\n` +
                 `  new      → ${metadataRes.cid}\n` +
+                `  ipfs-cache.dexe.io prewarm → ${warmed.ok ? "ok" : `skipped (${warmed.status ?? warmed.error})`}\n` +
                 `Pass "${metadataRes.cid}" to dexe_proposal_build_modify_dao_profile.newDescriptionURL.`,
             },
           ],
