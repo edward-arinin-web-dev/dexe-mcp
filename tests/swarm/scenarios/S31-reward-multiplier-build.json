@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [56, 97],
   "requiresBrowser": false,
-  "notes": "Exercises all 4 modes: set_address, set_token_uri, mint, change_token. Glacier nftMultiplier = 0x19390f2B…be485.",
+  "notes": "Exercises all 4 modes: set_address, set_token_uri, mint, change_token. Polaris nftMultiplier = 0x7e4C209f…f5DE. Multipliers are PRECISION-scaled per v0.5.6: 1.5x => 1.5e25 = 15e24.",
   "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
@@ -16,8 +16,8 @@
       "args": {
         "mode": "set_address",
         "govPool": "{{dao}}",
-        "newMultiplierAddress": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
-        "nftMultiplierContract": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "newMultiplierAddress": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
+        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
         "proposalName": "S31 set multiplier addr"
       },
       "broadcast": false,
@@ -29,12 +29,12 @@
       "tool": "dexe_proposal_build_reward_multiplier",
       "args": {
         "mode": "mint",
-        "nftMultiplierContract": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
         "to": "0x7340b46959f4598f86aA23D5d26ec289e2736e77",
-        "multiplier": "150",
+        "multiplier": "15000000000000000000000000",
         "rewardPeriod": "2592000",
         "metadataUrl": "ipfs://QmMul",
-        "proposalName": "S31 mint multiplier NFT"
+        "proposalName": "S31 mint multiplier NFT (1.5x for 30d)"
       },
       "broadcast": false,
       "captureAs": "mintNft"
@@ -45,7 +45,7 @@
       "tool": "dexe_proposal_build_reward_multiplier",
       "args": {
         "mode": "set_token_uri",
-        "nftMultiplierContract": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
         "tokenId": "1",
         "uri": "ipfs://QmNewURI",
         "proposalName": "S31 set token URI"
@@ -59,11 +59,11 @@
       "tool": "dexe_proposal_build_reward_multiplier",
       "args": {
         "mode": "change_token",
-        "nftMultiplierContract": "0x19390f2B6A712d9bD2927cFB410fF6f0D05be485",
+        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
         "tokenId": "1",
-        "multiplier": "200",
+        "multiplier": "20000000000000000000000000",
         "rewardPeriod": "5184000",
-        "proposalName": "S31 change token"
+        "proposalName": "S31 change token (2x for 60d)"
       },
       "broadcast": false,
       "captureAs": "changeTok"

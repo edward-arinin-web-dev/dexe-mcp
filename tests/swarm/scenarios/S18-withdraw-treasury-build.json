@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [56, 97],
   "requiresBrowser": false,
-  "notes": "GovPool.withdraw(receiver, amount, nftIds) — treasury lives on the GovPool itself.",
+  "notes": "Build-only sanity for the v0.5.6 rewrite — emits external ERC20.transfer with GovPool as the from-address (treasury lives in GovPool as a regular ERC20 balance). Token arg is now mandatory.",
   "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
@@ -15,10 +15,11 @@
       "tool": "dexe_proposal_build_withdraw_treasury",
       "args": {
         "govPool": "{{dao}}",
+        "token": "{{firstAllowlistedToken}}",
         "receiver": "{{agent:A:address}}",
         "amount": "1000000000000000000",
         "nftIds": [],
-        "proposalName": "S18 withdraw 1 GLCR"
+        "proposalName": "S18 withdraw 1 token from treasury"
       },
       "broadcast": false,
       "captureAs": "built"
