@@ -294,21 +294,16 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
           avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
         }
 
-        // Match the schema shape DeXe Protocol DAO (and every other working
-        // production DAO) pins: only `avatarUrl` lives in the outer
-        // metadata. Including `avatarCID` / `avatarFileName` here makes
-        // `ipfs-cache.dexe.io` skip its own server-side fetch of the
-        // avatar binary, so `<descCid>.jpeg` never populates and the
-        // frontend renders a jazzicon fallback.
         const outerPayload = {
           avatarUrl,
+          avatarCID: avatarCidV1,
+          avatarFileName: avatarFileName ?? "",
           daoName,
           websiteUrl,
           description: descriptionIpfsPath,
           socialLinks: socialLinks ?? [],
           documents: documents ?? [],
         };
-        void avatarCidV1;
 
         // Step 3: Upload the outer metadata wrapper
         const metadataRes = await client.pinJson(outerPayload, {
@@ -856,14 +851,14 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
 
         const outerPayload = {
           avatarUrl,
+          avatarCID: avatarCidV1,
+          avatarFileName,
           daoName,
           websiteUrl,
           description: descriptionIpfsPath,
           socialLinks,
           documents,
         };
-        void avatarCidV1;
-        void avatarFileName;
         const metadataRes = await client.pinJson(outerPayload, {
           name: `dao:${daoName.slice(0, 48)}`,
         });
