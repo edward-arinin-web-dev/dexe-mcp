@@ -37,11 +37,23 @@ function errorResult(message: string) {
  */
 function resolveGateways(_ctx: ToolContext): string[] {
   const out: string[] = [];
-  const primary = process.env.DEXE_IPFS_GATEWAY?.trim();
-  if (primary) out.push(primary.replace(/\/$/, ""));
-  const fallback = process.env.DEXE_IPFS_GATEWAYS_FALLBACK?.trim();
+  const normalize = (raw: string): string => {
+    const trimmed = raw.trim().replace(/\/$/, "");
+    if (!trimmed) return "";
+    // Allow operators to set DEXE_IPFS_GATEWAY=<host> without a scheme — fetch()
+    // refuses such URLs with "Failed to parse URL", which masquerades as an
+    // IPFS outage. Default to https since every realistic gateway requires it.
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  };
+  const primary = process.env.DEXE_IPFS_GATEWAY;
+  if (primary) {
+    const p = normalize(primary);
+    if (p) out.push(p);
+  }
+  const fallback = process.env.DEXE_IPFS_GATEWAYS_FALLBACK;
   if (fallback) {
-    for (const g of fallback.split(",").map((s) => s.trim().replace(/\/$/, ""))) {
+    for (const g of fallback.split(",").map(normalize)) {
       if (g && !out.includes(g)) out.push(g);
     }
   }
