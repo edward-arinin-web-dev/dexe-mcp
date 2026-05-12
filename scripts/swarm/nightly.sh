@@ -51,15 +51,21 @@ if [[ -n "${SUMMARY_LINE}" ]]; then
   echo "--- summary ---"
   echo "${SUMMARY_LINE}"
 
+  # Strip the trailing absolute report path before posting to public targets
+  # (webhook + GitHub issue). The path is a host-local artifact and leaks
+  # filesystem layout when the repo is public. Keep the runId so callers can
+  # still locate the report in their own checkout.
+  SUMMARY_LINE_PUBLIC="$(echo "$SUMMARY_LINE" | awk '{NF--; print}')"
+
   if [[ -n "${SWARM_SUMMARY_WEBHOOK:-}" ]]; then
     curl -sS -X POST -H 'Content-Type: application/json' \
-      --data "$(printf '{"text":"%s"}' "${SUMMARY_LINE}")" \
+      --data "$(printf '{"text":"%s"}' "${SUMMARY_LINE_PUBLIC}")" \
       "${SWARM_SUMMARY_WEBHOOK}" >/dev/null \
       || echo "warn: webhook post failed (non-fatal)"
   fi
 
   if [[ -n "${SWARM_SUMMARY_ISSUE:-}" ]] && command -v gh >/dev/null 2>&1; then
-    gh issue comment "${SWARM_SUMMARY_ISSUE}" --body "${SUMMARY_LINE}" \
+    gh issue comment "${SWARM_SUMMARY_ISSUE}" --body "${SUMMARY_LINE_PUBLIC}" \
       || echo "warn: gh issue comment failed (non-fatal)"
   fi
 fi
