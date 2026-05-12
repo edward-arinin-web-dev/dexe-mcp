@@ -2,11 +2,19 @@
 
 ## 0.5.7
 
+Last broadcast sweep: **57 / 57 green** on Polaris (BSC testnet 97), 2026-05-12.
+
 ### Swarm coverage — 41 → 57 scenarios
 
 - New broadcast-lifecycle scenarios for the three v0.5.6 builder rewrites: `S52-withdraw-treasury-execute`, `S53-apply-to-dao-execute`, `S54-reward-multiplier-execute`. Each runs the wrapper builder → `dexe_proposal_create` custom flow on the swarm fixture DAO and asserts the proposal lands in Voting / SucceededFor / ExecutedFor. Validates the Bug #29 / #30 / #31 fixes end-to-end against on-chain state, not just calldata shape.
 - New broadcast scenarios for the most-used proposal types: `S55-token-transfer-execute`, `S56-blacklist-execute`, `S57-add-expert-execute`. Same build → create → state pattern.
+- Refreshed `S18-withdraw-treasury-build` to pass the now-required `token` argument; refreshed `S31-reward-multiplier-build` to use Polaris's `nftMultiplier` (replacing retired Glacier address) and PRECISION-scaled multipliers (`1.5x => 1.5e25`) per v0.5.6's stricter validator.
 - Replaced retired Glacier fixture with fresh **Polaris** testnet DAO (LINEAR, 50% quorum, deployed 2026-05-12). Sentinel (validator chamber) unchanged. README updated.
+
+### Swarm tooling
+
+- **`scripts/swarm/preflight.ts` now counts deposited tokens alongside the wallet balance.** A wallet with funds locked behind in-flight proposals had `ERC20.balanceOf=0` even though its governance power was intact in UserKeeper; the old check aborted nightly runs on a non-issue. Each token row now also reads `UserKeeper.tokenBalance(user, Personal)` from the parallel DAO and adds the deposited surplus to the threshold check. Falls back to wallet-only when the helper call reverts.
+- **`scripts/swarm/nightly.sh` sanitizes the SUMMARY_LINE before posting to public targets.** The orchestrator's machine-greppable summary line ends with the absolute report path, which leaks the operator's filesystem layout when the repo is public. Local stdout still gets the full line; webhook + GitHub-issue posts get a stripped variant (runId + N/M + mode + chainTag, no path).
 
 ### Multi-chain config (chain-mixup guard)
 
