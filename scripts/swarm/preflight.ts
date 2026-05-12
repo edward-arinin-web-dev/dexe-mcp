@@ -132,13 +132,31 @@ async function main() {
   console.log(`${GREEN}✓${RESET} Allowlist: ${daos.length} DAOs, ${tokens.length} tokens`);
 
   const tokenMeta = await Promise.all(
-    tokens.map(async (addr) => {
+    tokens.map(async (addr, i) => {
       const c = new Contract(addr, ERC20_ABI, provider);
       const [symbol, decimals] = await Promise.all([
         c.symbol().catch(() => "?"),
         c.decimals().catch(() => 18),
       ]);
-      return { addr, symbol: String(symbol), decimals: Number(decimals) };
+      // Resolve the parallel DAO's userKeeper so we can count deposited power
+      // alongside wallet balance — a wallet with funds locked behind in-flight
+      // proposals still has governance power and should not block preflight.
+      let userKeeper: string | null = null;
+      const daoAddr = daos[i];
+      if (daoAddr) {
+        try {
+          const gp = new Contract(
+            daoAddr,
+            ["function getHelperContracts() view returns (address,address,address,address,address)"],
+            provider,
+          );
+          const helpers = await gp.getHelperContracts();
+          userKeeper = helpers[1] as string;
+        } catch {
+          /* leave userKeeper null — falls back to wallet-only check */
+        }
+      }
+      return { addr, symbol: String(symbol), decimals: Number(decimals), userKeeper };
     }),
   );
 
@@ -164,9 +182,28 @@ async function main() {
     const tokenRows = await Promise.all(
       tokenMeta.map(async (tm) => {
         const c = new Contract(tm.addr, ERC20_ABI, provider);
-        const bal: bigint = await c.balanceOf(w.address);
-        const ok = spec.minToken === 0n || bal >= spec.minToken;
-        return { symbol: tm.symbol, balance: bal, decimals: tm.decimals, ok };
+        const walletBal: bigint = await c.balanceOf(w.address);
+        let deposited: bigint = 0n;
+        if (tm.userKeeper) {
+          try {
+            const uk = new Contract(
+              tm.userKeeper,
+              ["function tokenBalance(address,uint8) view returns (uint256[2])"],
+              provider,
+            );
+            // VoteType.Personal = 0. The returned `balance` includes wallet
+            // ERC20.balanceOf — userKeeper.tokenBalance(Personal).balance =
+            // ERC20.balanceOf(user) + UserKeeper-side deposited. We avoid
+            // double-counting by reading deposited as the difference.
+            const [personalBalance] = (await uk.tokenBalance(w.address, 0)) as [bigint, bigint];
+            deposited = personalBalance > walletBal ? personalBalance - walletBal : 0n;
+          } catch {
+            /* keep deposited at 0 — wallet-only check */
+          }
+        }
+        const effective = walletBal + deposited;
+        const ok = spec.minToken === 0n || effective >= spec.minToken;
+        return { symbol: tm.symbol, balance: walletBal, deposited, decimals: tm.decimals, ok };
       }),
     );
     const allTokensOk = spec.minToken === 0n || tokenRows.some((t) => t.ok);
