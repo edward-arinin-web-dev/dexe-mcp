@@ -26,6 +26,19 @@ DAO avatar pipeline — root-cause fix + three new composites.
 4. dexe_proposal_create           → broadcast
 ```
 
+### Supply-chain hygiene
+
+- **Closes 4 transitive `npm audit` findings** under `@modelcontextprotocol/sdk@1.29.0`:
+  - `fast-uri` <=3.1.0 (high) — path-traversal + host-confusion (GHSA-q3j6-qgpj-74h6, GHSA-v39h-62p7-jpjc)
+  - `hono` <4.12.18 (moderate) — six advisories, incl. JSX HTML/CSS injection, JWT validation, cache-key leakage
+  - `ip-address` <=10.1.0 (moderate) — XSS in `Address6` HTML-emitting methods (GHSA-v2v4-37r5-5v8g)
+  - `express-rate-limit` (moderate)
+- Resolved via `package.json` `overrides`. `@modelcontextprotocol/sdk` pin bumped from `^1.0.0` → `^1.29.0`. No public-API change.
+- **`SECURITY.md`** added — vuln-disclosure policy, scoped threat model, contact email. Now ships in the tarball alongside `LICENSE`.
+- **`.github/FUNDING.yml`** added (GitHub sponsors link).
+
+`npm audit --omit=dev` now reports **0 vulnerabilities**.
+
 ## 0.5.7
 
 Last broadcast sweep: **57 / 57 green** on Polaris (BSC testnet 97), 2026-05-12.
