@@ -1,0 +1,307 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 500" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="dexe-mcp — the runtime for autonomous DAOs">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0%" stop-color="#0A0C12"/>
+      <stop offset="55%" stop-color="#0D101A"/>
+      <stop offset="100%" stop-color="#0B0E18"/>
+    </linearGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#A8BEEA"/>
+    </linearGradient>
+    <linearGradient id="cardFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#13161F"/>
+      <stop offset="100%" stop-color="#0A0D15"/>
+    </linearGradient>
+    <linearGradient id="hubFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#181D2E"/>
+      <stop offset="100%" stop-color="#0B0F1B"/>
+    </linearGradient>
+    <linearGradient id="cardInset" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.10"/>
+      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="chipInset" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.07"/>
+      <stop offset="60%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="orbA" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#3F5FAB" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#3F5FAB" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="orbB" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#1F2A40" stop-opacity="0.50"/>
+      <stop offset="100%" stop-color="#1F2A40" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="hubGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#5B8DEF" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#5B8DEF" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
+      <path d="M56 0H0V56" fill="none" stroke="#FFFFFF" stroke-opacity="0.018" stroke-width="0.5"/>
+    </pattern>
+    <filter id="grain" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix values="0 0 0 0 1   0 0 0 0 1   0 0 0 0 1   0 0 0 0.022 0"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="rgba(168,178,201,0.55)"/>
+    </marker>
+
+    <path id="a1" d="M 890,154 L 920,154" fill="none"/>
+    <path id="a2" d="M 1040,154 L 1070,154" fill="none"/>
+    <path id="a3" d="M 980,184 L 980,200" fill="none"/>
+    <path id="a4" d="M 980,236 L 980,252" fill="none"/>
+    <path id="a5" d="M 1040,282 L 1070,282" fill="none"/>
+
+    <g id="icon-sparkle">
+      <path d="M6 0.5 C6.3 3.7 8.3 5.7 11.5 6 C8.3 6.3 6.3 8.3 6 11.5 C5.7 8.3 3.7 6.3 0.5 6 C3.7 5.7 5.7 3.7 6 0.5 Z" fill="none" stroke-width="1" stroke-linejoin="round"/>
+    </g>
+    <g id="icon-hub">
+      <circle cx="6" cy="6" r="2.2" fill="none" stroke-width="1"/>
+      <circle cx="1.5" cy="1.5" r="1" fill="none" stroke-width="0.9"/>
+      <circle cx="10.5" cy="1.5" r="1" fill="none" stroke-width="0.9"/>
+      <circle cx="1.5" cy="10.5" r="1" fill="none" stroke-width="0.9"/>
+      <circle cx="10.5" cy="10.5" r="1" fill="none" stroke-width="0.9"/>
+      <line x1="2.5" y1="2.5" x2="4.4" y2="4.4" stroke-width="0.85"/>
+      <line x1="9.5" y1="2.5" x2="7.6" y2="4.4" stroke-width="0.85"/>
+      <line x1="2.5" y1="9.5" x2="4.4" y2="7.6" stroke-width="0.85"/>
+      <line x1="9.5" y1="9.5" x2="7.6" y2="7.6" stroke-width="0.85"/>
+    </g>
+    <g id="icon-temple">
+      <path d="M0.5 5 L6 1 L11.5 5" fill="none" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>
+      <line x1="2" y1="5.5" x2="2" y2="10" stroke-width="1" stroke-linecap="round"/>
+      <line x1="6" y1="5.5" x2="6" y2="10" stroke-width="1" stroke-linecap="round"/>
+      <line x1="10" y1="5.5" x2="10" y2="10" stroke-width="1" stroke-linecap="round"/>
+      <line x1="0" y1="11" x2="12" y2="11" stroke-width="1" stroke-linecap="round"/>
+    </g>
+    <g id="icon-braces">
+      <path d="M3.5 1.2 C2.2 1.2 1.8 1.8 1.8 3 L1.8 4.8 C1.8 5.6 1.2 6 0.7 6 C1.2 6 1.8 6.4 1.8 7.2 L1.8 9 C1.8 10.2 2.2 10.8 3.5 10.8" fill="none" stroke-width="0.95" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M8.5 1.2 C9.8 1.2 10.2 1.8 10.2 3 L10.2 4.8 C10.2 5.6 10.8 6 11.3 6 C10.8 6 10.2 6.4 10.2 7.2 L10.2 9 C10.2 10.2 9.8 10.8 8.5 10.8" fill="none" stroke-width="0.95" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="icon-wallet">
+      <rect x="0.5" y="2.8" width="11" height="8" rx="1.6" fill="none" stroke-width="1"/>
+      <path d="M2 2.8 L2 1.5 L9 1.5 L9 2.8" fill="none" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="8.7" cy="6.8" r="0.8"/>
+    </g>
+    <g id="icon-cube">
+      <path d="M6 0.7 L11.2 3.3 L6 5.9 L0.8 3.3 Z" fill="none" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M0.8 3.3 L0.8 8.7 L6 11.3 L11.2 8.7 L11.2 3.3" fill="none" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>
+      <line x1="6" y1="5.9" x2="6" y2="11.3" stroke-width="1" stroke-linecap="round"/>
+    </g>
+  </defs>
+
+  <rect width="1280" height="500" fill="url(#bg)"/>
+  <rect width="1280" height="500" fill="url(#grid)"/>
+
+  <ellipse cx="985" cy="220" rx="280" ry="180" fill="url(#orbA)">
+    <animate attributeName="rx" values="260;320;260" dur="11s"
+      calcMode="spline" keyTimes="0;0.5;1"
+      keySplines="0.32 0.72 0 1;0.32 0.72 0 1"
+      repeatCount="indefinite"/>
+    <animate attributeName="ry" values="170;210;170" dur="11s"
+      calcMode="spline" keyTimes="0;0.5;1"
+      keySplines="0.32 0.72 0 1;0.32 0.72 0 1"
+      repeatCount="indefinite"/>
+  </ellipse>
+  <ellipse cx="220" cy="440" rx="320" ry="200" fill="url(#orbB)">
+    <animate attributeName="opacity" values="0.55;0.95;0.55" dur="9s"
+      calcMode="spline" keyTimes="0;0.5;1"
+      keySplines="0.32 0.72 0 1;0.32 0.72 0 1"
+      repeatCount="indefinite"/>
+  </ellipse>
+  <ellipse cx="980" cy="154" rx="140" ry="54" fill="url(#hubGlow)">
+    <animate attributeName="opacity" values="0.5;0.95;0.5" dur="4.2s"
+      calcMode="spline" keyTimes="0;0.5;1"
+      keySplines="0.32 0.72 0 1;0.32 0.72 0 1"
+      repeatCount="indefinite"/>
+  </ellipse>
+
+  <rect width="1280" height="500" filter="url(#grain)" opacity="0.45"/>
+
+  <g transform="translate(80, 84)">
+    <circle cx="4" cy="10" r="3" fill="#5BC9A0">
+      <animate attributeName="opacity" values="0.45;1;0.45" dur="2.4s"
+        calcMode="spline" keyTimes="0;0.5;1"
+        keySplines="0.32 0.72 0 1;0.32 0.72 0 1"
+        repeatCount="indefinite"/>
+    </circle>
+    <text x="18" y="14" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif" font-size="10" font-weight="600" fill="#A8B2C9" letter-spacing="3.2">RUNTIME FOR AUTONOMOUS DAOs</text>
+  </g>
+
+  <text x="80" y="196" font-family="'Clash Display','Geist','PP Editorial New','Plus Jakarta Sans',ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif" font-size="104" font-weight="700" fill="url(#title)" letter-spacing="-3">dexe-mcp</text>
+
+  <text x="82" y="244" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="28" font-weight="500" fill="#E8ECF5" letter-spacing="-0.4">Governance, as a function call.</text>
+
+  <text x="82" y="282" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="15" font-weight="400" fill="#8B93A8">Every DAO action &#x2014; deploy, propose, vote, delegate, execute, claim &#x2014;</text>
+  <text x="82" y="304" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="15" font-weight="400" fill="#8B93A8">in any language your agent already speaks.  <tspan fill="#E8ECF5" font-weight="600">129 typed tools &#x00B7; one protocol &#x00B7; any LLM.</tspan></text>
+
+  <g font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="12" font-weight="600" letter-spacing="0.6">
+    <g transform="translate(80, 344)">
+      <rect width="92" height="32" rx="16" fill="rgba(255,255,255,0.025)" stroke="rgba(168,178,201,0.35)" stroke-width="0.8"/>
+      <rect width="92" height="32" rx="16" fill="url(#chipInset)" pointer-events="none"/>
+      <text x="46" y="20" text-anchor="middle" fill="#D6DCEA">deploy</text>
+    </g>
+    <g transform="translate(180, 344)">
+      <rect width="100" height="32" rx="16" fill="rgba(255,255,255,0.025)" stroke="rgba(168,178,201,0.35)" stroke-width="0.8"/>
+      <rect width="100" height="32" rx="16" fill="url(#chipInset)" pointer-events="none"/>
+      <text x="50" y="20" text-anchor="middle" fill="#D6DCEA">propose</text>
+    </g>
+    <g transform="translate(288, 344)">
+      <rect width="76" height="32" rx="16" fill="rgba(255,255,255,0.025)" stroke="rgba(168,178,201,0.35)" stroke-width="0.8"/>
+      <rect width="76" height="32" rx="16" fill="url(#chipInset)" pointer-events="none"/>
+      <text x="38" y="20" text-anchor="middle" fill="#D6DCEA">vote</text>
+    </g>
+    <g transform="translate(372, 344)">
+      <rect width="104" height="32" rx="16" fill="rgba(255,255,255,0.025)" stroke="rgba(168,178,201,0.35)" stroke-width="0.8"/>
+      <rect width="104" height="32" rx="16" fill="url(#chipInset)" pointer-events="none"/>
+      <text x="52" y="20" text-anchor="middle" fill="#D6DCEA">delegate</text>
+    </g>
+    <g transform="translate(484, 344)">
+      <rect width="96" height="32" rx="16" fill="rgba(255,255,255,0.025)" stroke="rgba(168,178,201,0.35)" stroke-width="0.8"/>
+      <rect width="96" height="32" rx="16" fill="url(#chipInset)" pointer-events="none"/>
+      <text x="48" y="20" text-anchor="middle" fill="#D6DCEA">execute</text>
+    </g>
+    <g transform="translate(588, 344)">
+      <rect width="80" height="32" rx="16" fill="rgba(255,255,255,0.025)" stroke="rgba(168,178,201,0.35)" stroke-width="0.8"/>
+      <rect width="80" height="32" rx="16" fill="url(#chipInset)" pointer-events="none"/>
+      <text x="40" y="20" text-anchor="middle" fill="#D6DCEA">claim</text>
+    </g>
+  </g>
+
+  <text x="82" y="402" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="11" font-weight="400" fill="#5A6480" letter-spacing="0.4">+ IPFS pinning &#x00B7; simulator &#x00B7; multi-DAO inbox &#x00B7; OTC sales &#x00B7; validator chamber &#x00B7; subgraph reads &#x00B7; merkle proofs &#x00B7; all 33 proposal types</text>
+
+  <g transform="translate(770, 84)">
+    <text font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="10" font-weight="600" fill="#9CB4F1" letter-spacing="3.2">INTENT</text>
+    <text x="56" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="10" fill="#5A6480">&#x2192;</text>
+    <text x="72" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="10" font-weight="600" fill="#9CB4F1" letter-spacing="3.2">CALLDATA</text>
+    <text x="146" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="10" fill="#5A6480">&#x2192;</text>
+    <text x="162" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="10" font-weight="600" fill="#9CB4F1" letter-spacing="3.2">CHAIN</text>
+  </g>
+
+  <g>
+    <rect x="770" y="124" width="120" height="60" rx="11" fill="url(#cardFill)" stroke="rgba(122,166,255,0.40)" stroke-width="1"/>
+    <rect x="770" y="124" width="120" height="60" rx="11" fill="url(#cardInset)" pointer-events="none"/>
+    <use href="#icon-sparkle" x="824" y="134" stroke="#7AA6FF"/>
+    <text x="830" y="166" text-anchor="middle" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="13" font-weight="700" fill="#E8ECF5">AI agent</text>
+    <text x="830" y="178" text-anchor="middle" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="9.5" fill="#8B93A8">Claude / GPT / any LLM</text>
+  </g>
+
+  <g>
+    <rect x="916" y="120" width="128" height="68" rx="13" fill="rgba(255,255,255,0.020)" stroke="rgba(255,255,255,0.10)" stroke-width="0.8"/>
+    <rect x="920" y="124" width="120" height="60" rx="11" fill="url(#hubFill)" stroke="rgba(91,141,239,0.65)" stroke-width="1.2">
+      <animate attributeName="stroke-opacity" values="0.45;0.90;0.45" dur="3.8s"
+        calcMode="spline" keyTimes="0;0.5;1"
+        keySplines="0.32 0.72 0 1;0.32 0.72 0 1"
+        repeatCount="indefinite"/>
+    </rect>
+    <rect x="920" y="124" width="120" height="60" rx="11" fill="url(#cardInset)" pointer-events="none"/>
+    <use href="#icon-hub" x="974" y="134" stroke="#5B8DEF"/>
+    <text x="980" y="166" text-anchor="middle" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="13" font-weight="700" fill="#F2F5FB">dexe-mcp</text>
+    <text x="980" y="178" text-anchor="middle" font-family="'Geist Mono','JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="9.5" fill="#A8B2C9">129 typed tools</text>
+    <circle cx="1032" cy="132" r="3" fill="#5BC9A0">
+      <animate attributeName="opacity" values="0.45;1;0.45" dur="1.8s"
+        calcMode="spline" keyTimes="0;0.5;1"
+        keySplines="0.32 0.72 0 1;0.32 0.72 0 1"
+        repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <g>
+    <rect x="1070" y="124" width="130" height="60" rx="11" fill="url(#cardFill)" stroke="rgba(167,187,227,0.40)" stroke-width="1"/>
+    <rect x="1070" y="124" width="130" height="60" rx="11" fill="url(#cardInset)" pointer-events="none"/>
+    <use href="#icon-temple" x="1129" y="134" stroke="#A7BBE3"/>
+    <text x="1135" y="166" text-anchor="middle" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="13" font-weight="700" fill="#E8ECF5">DeXe Protocol</text>
+    <text x="1135" y="178" text-anchor="middle" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="9.5" fill="#8B93A8">DAO &#x00B7; voters &#x00B7; treasury</text>
+  </g>
+
+  <g>
+    <rect x="920" y="200" width="120" height="36" rx="9" fill="rgba(255,255,255,0.015)" stroke="rgba(168,178,201,0.30)" stroke-width="0.8" stroke-dasharray="3 3"/>
+    <use href="#icon-braces" x="950" y="212" stroke="#A8B2C9"/>
+    <text x="975" y="223" font-family="'Geist Mono','JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="12" font-weight="600" fill="#C7D2EF">TxPayload</text>
+  </g>
+
+  <g>
+    <rect x="920" y="252" width="120" height="60" rx="11" fill="url(#cardFill)" stroke="rgba(91,141,239,0.45)" stroke-width="1"/>
+    <rect x="920" y="252" width="120" height="60" rx="11" fill="url(#cardInset)" pointer-events="none"/>
+    <use href="#icon-wallet" x="974" y="262" stroke="#5B8DEF"/>
+    <text x="980" y="294" text-anchor="middle" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="13" font-weight="700" fill="#E8ECF5">your wallet</text>
+    <text x="980" y="306" text-anchor="middle" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="9.5" fill="#8B93A8">MetaMask &#x00B7; Safe &#x00B7; Ledger</text>
+  </g>
+
+  <g>
+    <rect x="1070" y="252" width="130" height="60" rx="11" fill="url(#cardFill)" stroke="rgba(91,201,160,0.45)" stroke-width="1"/>
+    <rect x="1070" y="252" width="130" height="60" rx="11" fill="url(#cardInset)" pointer-events="none"/>
+    <use href="#icon-cube" x="1129" y="262" stroke="#5BC9A0"/>
+    <text x="1135" y="294" text-anchor="middle" font-family="'Clash Display','Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="13" font-weight="700" fill="#E8ECF5">BNB Chain</text>
+    <text x="1135" y="306" text-anchor="middle" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="9.5" fill="#8B93A8">executed &#x00B7; on-chain</text>
+    <circle cx="1188" cy="260" r="3" fill="#5BC9A0">
+      <animate attributeName="opacity" values="0.45;1;0.45" dur="1.8s" begin="0.6s"
+        calcMode="spline" keyTimes="0;0.5;1"
+        keySplines="0.32 0.72 0 1;0.32 0.72 0 1"
+        repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <use href="#a1" stroke="rgba(168,178,201,0.30)" stroke-width="1" fill="none" marker-end="url(#arrow)"/>
+  <use href="#a2" stroke="rgba(168,178,201,0.30)" stroke-width="1" fill="none" marker-end="url(#arrow)"/>
+  <use href="#a3" stroke="rgba(168,178,201,0.30)" stroke-width="1" fill="none" marker-end="url(#arrow)"/>
+  <use href="#a4" stroke="rgba(168,178,201,0.30)" stroke-width="1" fill="none" marker-end="url(#arrow)"/>
+  <use href="#a5" stroke="rgba(168,178,201,0.30)" stroke-width="1" fill="none" marker-end="url(#arrow)"/>
+
+  <circle r="2.6" fill="#7AA6FF">
+    <animateMotion dur="3.2s" repeatCount="indefinite"
+      calcMode="spline" keyTimes="0;1" keySplines="0.32 0.72 0 1">
+      <mpath href="#a1"/>
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="3.2s"
+      calcMode="spline" keyTimes="0;0.15;0.85;1"
+      keySplines="0.32 0.72 0 1;0 0 1 1;0.4 0 0.6 1"
+      repeatCount="indefinite"/>
+  </circle>
+  <circle r="2.6" fill="#A7BBE3">
+    <animateMotion dur="3.2s" begin="0.7s" repeatCount="indefinite"
+      calcMode="spline" keyTimes="0;1" keySplines="0.32 0.72 0 1">
+      <mpath href="#a2"/>
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="3.2s" begin="0.7s"
+      calcMode="spline" keyTimes="0;0.15;0.85;1"
+      keySplines="0.32 0.72 0 1;0 0 1 1;0.4 0 0.6 1"
+      repeatCount="indefinite"/>
+  </circle>
+  <circle r="2.6" fill="#5B8DEF">
+    <animateMotion dur="3.2s" begin="1.3s" repeatCount="indefinite"
+      calcMode="spline" keyTimes="0;1" keySplines="0.32 0.72 0 1">
+      <mpath href="#a3"/>
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="3.2s" begin="1.3s"
+      calcMode="spline" keyTimes="0;0.15;0.85;1"
+      keySplines="0.32 0.72 0 1;0 0 1 1;0.4 0 0.6 1"
+      repeatCount="indefinite"/>
+  </circle>
+  <circle r="2.6" fill="#5B8DEF">
+    <animateMotion dur="3.2s" begin="1.9s" repeatCount="indefinite"
+      calcMode="spline" keyTimes="0;1" keySplines="0.32 0.72 0 1">
+      <mpath href="#a4"/>
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="3.2s" begin="1.9s"
+      calcMode="spline" keyTimes="0;0.15;0.85;1"
+      keySplines="0.32 0.72 0 1;0 0 1 1;0.4 0 0.6 1"
+      repeatCount="indefinite"/>
+  </circle>
+  <circle r="2.6" fill="#5BC9A0">
+    <animateMotion dur="3.2s" begin="2.5s" repeatCount="indefinite"
+      calcMode="spline" keyTimes="0;1" keySplines="0.32 0.72 0 1">
+      <mpath href="#a5"/>
+    </animateMotion>
+    <animate attributeName="opacity" values="0;1;1;0" dur="3.2s" begin="2.5s"
+      calcMode="spline" keyTimes="0;0.15;0.85;1"
+      keySplines="0.32 0.72 0 1;0 0 1 1;0.4 0 0.6 1"
+      repeatCount="indefinite"/>
+  </circle>
+
+  <rect x="0" y="460" width="1280" height="40" fill="#06080F" opacity="0.7"/>
+  <rect x="0" y="460" width="1280" height="1" fill="rgba(255,255,255,0.06)"/>
+  <text x="82" y="486" font-family="'Geist Mono','JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="13" fill="#A8B2C9">$ npm install -g dexe-mcp</text>
+  <text x="328" y="486" font-family="'Geist','Plus Jakarta Sans',ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif" font-size="12" fill="#5A6480" letter-spacing="0.3">MCP-compatible &#x00B7; Node 20+ &#x00B7; MIT licensed &#x00B7; open source &#x00B7; built for AI-native governance</text>
+</svg>
