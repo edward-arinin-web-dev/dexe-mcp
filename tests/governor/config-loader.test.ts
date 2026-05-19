@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { loadGovernorConfigs, resolveGovernor } from "../../src/governor/loader.js";
-import { PROPOSAL_STATE, stateName } from "../../src/governor/adapter.js";
+import {
+  PROPOSAL_STATE,
+  stateName,
+  isBravo,
+  GOVERNOR_BRAVO_READ_ABI,
+  GOVERNOR_OZ_READ_ABI,
+} from "../../src/governor/adapter.js";
 
 describe("governor config loader", () => {
   it("accepts the Uniswap fixture", () => {
@@ -28,6 +34,32 @@ describe("governor config loader", () => {
 
   it("rejects unknown governor lookups", () => {
     expect(() => resolveGovernor("does-not-exist")).toThrow(/unknown governor/);
+  });
+});
+
+describe("governor adapter — family detection + ABI fragments", () => {
+  it("flags Uniswap as Bravo (true Bravo deployment)", () => {
+    const uni = resolveGovernor("uniswap");
+    expect(uni.governorVersion).toBe("bravo-v3");
+    expect(isBravo(uni)).toBe(true);
+  });
+
+  it("Bravo ABI exposes quorumVotes + proposals(uint256), drops quorum/snapshot/deadline", () => {
+    const bravo = GOVERNOR_BRAVO_READ_ABI.join("\n");
+    expect(bravo).toContain("quorumVotes()");
+    expect(bravo).toContain("proposals(uint256");
+    expect(bravo).not.toContain("function quorum(uint256");
+    expect(bravo).not.toContain("proposalSnapshot");
+    expect(bravo).not.toContain("proposalDeadline");
+  });
+
+  it("OZ ABI exposes quorum(blockNumber) + proposalSnapshot/Deadline, drops Bravo-only surface", () => {
+    const oz = GOVERNOR_OZ_READ_ABI.join("\n");
+    expect(oz).toContain("function quorum(uint256");
+    expect(oz).toContain("proposalSnapshot");
+    expect(oz).toContain("proposalDeadline");
+    expect(oz).not.toContain("quorumVotes()");
+    expect(oz).not.toContain("function proposals(uint256");
   });
 });
 

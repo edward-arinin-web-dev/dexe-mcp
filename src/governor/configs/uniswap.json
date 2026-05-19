@@ -2,7 +2,7 @@
   "id": "uniswap",
   "chainId": 1,
   "governorAddress": "0x408ED6354d4973f66138C91495F2f2FCbd8724C3",
-  "governorVersion": "oz-v4",
+  "governorVersion": "bravo-v3",
   "votingToken": {
     "type": "ERC20Votes",
     "address": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
@@ -28,5 +28,5 @@
     "etherscanBase": "https://etherscan.io",
     "tallyOrgSlug": "uniswap"
   },
-  "notes": "Uniswap GovernorBravoDelegate (proxy). Treated as oz-v4 surface — ProposalState enum matches OZ canonical order."
+  "notes": "Uniswap GovernorBravoDelegate (proxy). Bravo signatures: propose has signatures[], queue/execute take proposalId, quorum is fixed quorumVotes(), snapshot/deadline via proposals(uint256). ProposalState enum matches OZ canonical order."
 }

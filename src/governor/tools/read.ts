@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
-import { governorContract, votesContract, stateName } from "../adapter.js";
+import { governorContract, votesContract, readProposal, readQuorum } from "../adapter.js";
 import { loadGovernorConfigs, resolveGovernor } from "../loader.js";
 
 function ok(data: unknown) {
@@ -65,26 +65,14 @@ function registerGetProposal(server: McpServer, rpc: RpcProvider): void {
         const provider = rpc.requireProvider(cfg.chainId);
         const c = governorContract(provider, cfg);
         const pid = BigInt(proposalId);
-        const [stateIdx, snapshot, deadline, votes] = await Promise.all([
-          c.getFunction("state").staticCall(pid),
-          c.getFunction("proposalSnapshot").staticCall(pid),
-          c.getFunction("proposalDeadline").staticCall(pid),
-          c.getFunction("proposalVotes").staticCall(pid),
-        ]);
-        const s = Number(stateIdx);
+        const readout = await readProposal(c, cfg, pid);
         return ok({
           governor: cfg.id,
           governorAddress: cfg.governorAddress,
           chainId: cfg.chainId,
+          governorVersion: cfg.governorVersion,
           proposalId,
-          state: { index: s, name: stateName(s) },
-          snapshotBlock: snapshot.toString(),
-          deadlineBlock: deadline.toString(),
-          votes: {
-            against: votes[0].toString(),
-            for: votes[1].toString(),
-            abstain: votes[2].toString(),
-          },
+          ...readout,
         });
       } catch (e) {
         return err(`dexe_gov_get_proposal failed: ${(e as Error).message}`);
@@ -157,11 +145,13 @@ function registerGetQuorum(server: McpServer, rpc: RpcProvider): void {
         const provider = rpc.requireProvider(cfg.chainId);
         const c = governorContract(provider, cfg);
         const block = blockNumber ?? (await provider.getBlockNumber());
-        const quorum: bigint = await c.getFunction("quorum").staticCall(block);
+        const { quorum, method } = await readQuorum(c, cfg, block);
         return ok({
           governor: cfg.id,
+          governorVersion: cfg.governorVersion,
           blockNumber: block,
           quorum: quorum.toString(),
+          method,
           configured: {
             numerator: cfg.votingParams.quorumNumerator,
             denominator: cfg.votingParams.quorumDenominator,
