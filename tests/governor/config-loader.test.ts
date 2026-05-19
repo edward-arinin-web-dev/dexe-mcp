@@ -17,7 +17,7 @@ describe("governor config loader", () => {
     expect(uni.governorAddress).toMatch(/^0x[a-fA-F0-9]{40}$/);
     expect(uni.governorAddress.toLowerCase()).toBe("0x408ed6354d4973f66138c91495f2f2fcbd8724c3");
     expect(uni.votingToken.symbol).toBe("UNI");
-    expect(uni.votingToken.type).toBe("ERC20Votes");
+    expect(uni.votingToken.type).toBe("ERC20VotesComp");
     expect(uni.timelock?.address.toLowerCase()).toBe("0x1a9c8182c09f50355cea8fff4b7e1649a535498a");
     expect(uni.votingParams.votingDelay).toBe(1);
     expect(uni.votingParams.votingPeriod).toBe(50400);

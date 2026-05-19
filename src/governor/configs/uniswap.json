@@ -4,7 +4,7 @@
   "governorAddress": "0x408ED6354d4973f66138C91495F2f2FCbd8724C3",
   "governorVersion": "bravo-v3",
   "votingToken": {
-    "type": "ERC20Votes",
+    "type": "ERC20VotesComp",
     "address": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
     "symbol": "UNI",
     "decimals": 18

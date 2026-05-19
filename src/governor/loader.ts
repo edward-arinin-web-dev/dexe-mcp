@@ -1,4 +1,6 @@
 import uniswap from "./configs/uniswap.json" with { type: "json" };
+import compound from "./configs/compound.json" with { type: "json" };
+import optimism from "./configs/optimism.json" with { type: "json" };
 
 /**
  * Per-DAO Governor config. Source of truth lives in src/governor/configs/*.json
@@ -30,7 +32,7 @@ export interface GovernorConfig {
   notes?: string;
 }
 
-const RAW_CONFIGS: unknown[] = [uniswap];
+const RAW_CONFIGS: unknown[] = [uniswap, compound, optimism];
 
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
 

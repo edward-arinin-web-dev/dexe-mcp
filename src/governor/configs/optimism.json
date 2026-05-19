@@ -1,0 +1,28 @@
+{
+  "id": "optimism",
+  "chainId": 10,
+  "governorAddress": "0xcDF27F107725988f2261Ce2256bDfCdE8B382B10",
+  "governorVersion": "oz-v4",
+  "votingToken": {
+    "type": "ERC20Votes",
+    "address": "0x4200000000000000000000000000000000000042",
+    "symbol": "OP",
+    "decimals": 18
+  },
+  "votingParams": {
+    "votingDelay": 6646,
+    "votingPeriod": 46027,
+    "proposalThreshold": "0",
+    "quorumNumerator": 30,
+    "quorumDenominator": 100
+  },
+  "executor": {
+    "type": "governor-self",
+    "id": null
+  },
+  "explorer": {
+    "etherscanBase": "https://optimistic.etherscan.io",
+    "tallyOrgSlug": "optimism"
+  },
+  "notes": "Optimism's modified OZ Governor. ERC20Votes (OP token implements OZ-style getPastVotes). Custom ProposalTypesConfigurator is OUT OF SCOPE (research/06-execution-plan.md §6). Treated as vanilla oz-v4 surface for read+build tools."
+}

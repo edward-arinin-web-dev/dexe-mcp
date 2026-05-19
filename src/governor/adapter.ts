@@ -80,7 +80,30 @@ export function governorContract(provider: JsonRpcProvider, cfg: GovernorConfig)
 }
 
 export function votesContract(provider: JsonRpcProvider, cfg: GovernorConfig): Contract {
-  return new Contract(cfg.votingToken.address, IVOTES_ABI as unknown as string[], provider);
+  const abi = cfg.votingToken.type === "ERC20VotesComp" ? IVOTES_COMP_ABI : IVOTES_ABI;
+  return new Contract(cfg.votingToken.address, abi as unknown as string[], provider);
+}
+
+/**
+ * Family-agnostic voting-power read. ERC20VotesComp (UNI, COMP) exposes
+ * `getCurrentVotes` / `getPriorVotes`; ERC20Votes (OP, modern OZ) exposes
+ * `getVotes` / `getPastVotes`. Returns wei + the actual method invoked.
+ */
+export async function readVotingPower(
+  c: Contract,
+  cfg: GovernorConfig,
+  account: string,
+  blockNumber: number | undefined,
+): Promise<{ power: bigint; method: string }> {
+  const isComp = cfg.votingToken.type === "ERC20VotesComp";
+  if (blockNumber === undefined) {
+    const method = isComp ? "getCurrentVotes" : "getVotes";
+    const power: bigint = await c.getFunction(method).staticCall(account);
+    return { power, method };
+  }
+  const method = isComp ? "getPriorVotes" : "getPastVotes";
+  const power: bigint = await c.getFunction(method).staticCall(account, blockNumber);
+  return { power, method };
 }
 
 export interface ProposalReadout {

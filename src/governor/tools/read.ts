@@ -1,7 +1,13 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
-import { governorContract, votesContract, readProposal, readQuorum } from "../adapter.js";
+import {
+  governorContract,
+  votesContract,
+  readProposal,
+  readQuorum,
+  readVotingPower,
+} from "../adapter.js";
 import { loadGovernorConfigs, resolveGovernor } from "../loader.js";
 
 function ok(data: unknown) {
@@ -104,16 +110,14 @@ function registerGetVotingPower(server: McpServer, rpc: RpcProvider): void {
         const cfg = resolveGovernor(governor);
         const provider = rpc.requireProvider(cfg.chainId);
         const c = votesContract(provider, cfg);
-        const raw: bigint = blockNumber === undefined
-          ? await c.getFunction("getVotes").staticCall(account)
-          : await c.getFunction("getPastVotes").staticCall(account, blockNumber);
+        const { power, method } = await readVotingPower(c, cfg, account, blockNumber);
         return ok({
           governor: cfg.id,
           account,
           blockNumber: blockNumber ?? "latest",
           votingToken: cfg.votingToken,
-          votingPower: { raw: raw.toString(), decimals: cfg.votingToken.decimals },
-          method: blockNumber === undefined ? "getVotes" : "getPastVotes",
+          votingPower: { raw: power.toString(), decimals: cfg.votingToken.decimals },
+          method,
         });
       } catch (e) {
         return err(`dexe_gov_get_voting_power failed: ${(e as Error).message}`);
