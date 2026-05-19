@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased — `gov` track
+
+External OpenZeppelin Governor + Compound Bravo surface. **+12 tools, total 129 → 141. 14 → 15 groups.** Targets Uniswap, Compound, Optimism. Independent from the DeXe Protocol — no DeXe contract needs to be deployed on the target chain. Source plan: `research/06-execution-plan.md` (Option 1).
+
+### New tools — `dexe_gov_*` (12)
+
+**Read (5)** — `dexe_gov_list_governors`, `dexe_gov_get_proposal`, `dexe_gov_get_voting_power`, `dexe_gov_get_quorum`, `dexe_gov_get_proposal_threshold`. Family-agnostic readouts: Bravo's `proposals(uint256)` flat struct is mapped onto the OZ `{snapshot, deadline, votes}` shape; `bravoExtra` (`proposer`, `eta`, `canceled`, `executed`) surfaced when applicable. Voting-power routes by token type — `ERC20VotesComp` (UNI, COMP) hits `getPriorVotes` / `getCurrentVotes`; `ERC20Votes` (OP) hits `getPastVotes` / `getVotes`.
+
+**Build (5)** — `dexe_gov_build_propose`, `dexe_gov_build_vote_cast`, `dexe_gov_build_queue`, `dexe_gov_build_execute`, `dexe_gov_build_delegate`. Version-branched encoders:
+- OZ v4+ propose: `(targets, values, calldatas, description)`; queue/execute: `(…, descriptionHash)` — accepts raw description (auto-keccak'd) or pre-computed hash.
+- Bravo propose: `(targets, values, signatures, calldatas, description)`; queue/execute: `(proposalId)` only.
+- `castVote` / `castVoteWithReason` identical both families; `support`: 0=Against, 1=For, 2=Abstain.
+- `delegate` is on the voting token, not the governor.
+
+**Simulate (2)** — `dexe_gov_simulate_proposal` (single-block `eth_call` dry-run with `Error(string)` + `Panic(uint256)` decoding) and `dexe_gov_simulate_vote_impact` (pure projection: current tallies + quorum, project the post-vote state, report `{quorumMet, willPass}` with family-aware quorum semantics — Bravo counts `forVotes` only, OZ counts `for + abstain`).
+
+### New configs / fixtures
+
+`src/governor/configs/` — Uniswap, Compound, Optimism. Each is one JSON. Adding a DAO is a config-only change.
+
+### Tally parity harness
+
+`tests/governor/parity.test.ts` — pulls the 10 most-recent proposals per Tier-1 DAO via Tally GraphQL, asserts on-chain `state()` matches the canonical-indexed Tally status. Live mode gated by `TALLY_API_KEY`; unit cases for the comparator run without network.
+
+### Tests
+
+60 governor unit tests green (encoder selector + roundtrip, family detection, isolation guard, fixture validity, Tally mapper). Plan §4.1 selector targets verified: OZ propose `0x7d5e81e2`, castVote `0x56781388`, delegate `0x5c19a95c`. Bravo propose selector derived from canonical 5-arg signature.
+
+### Docs
+
+`docs/GOVERNOR.md` (new). `docs/TOOLS.md` §16. README catalog row + tool count.
+
 ## 0.5.8
 
 DAO avatar pipeline — root-cause fix + three new composites.
