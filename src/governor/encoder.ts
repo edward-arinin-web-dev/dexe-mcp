@@ -257,6 +257,38 @@ export function buildExecute(cfg: GovernorConfig, args: QueueExecuteArgs, msgVal
   };
 }
 
+export function buildCancel(cfg: GovernorConfig, args: QueueExecuteArgs): BuiltTx {
+  const iface = governorIface(cfg);
+  if (isBravo(cfg)) {
+    if (args.proposalId === undefined) throw new Error("bravo cancel: proposalId required");
+    const pid = BigInt(args.proposalId);
+    const data = iface.encodeFunctionData("cancel", [pid]);
+    return {
+      to: cfg.governorAddress,
+      value: "0",
+      data,
+      selector: data.slice(0, 10),
+      method: "cancel",
+      args: { proposalId: pid.toString() },
+      family: "bravo",
+    };
+  }
+  const targets = ensureAddressArray("targets", args.targets);
+  const values = ensureUintArray("values", args.values);
+  const calldatas = ensureBytesArray("calldatas", args.calldatas);
+  const descriptionHash = computeDescHash(args);
+  const data = iface.encodeFunctionData("cancel", [targets, values, calldatas, descriptionHash]);
+  return {
+    to: cfg.governorAddress,
+    value: "0",
+    data,
+    selector: data.slice(0, 10),
+    method: "cancel",
+    args: { targets, values: values.map(String), calldatas, descriptionHash },
+    family: "oz",
+  };
+}
+
 export function buildDelegate(cfg: GovernorConfig, delegatee: string): BuiltTx {
   if (!isAddress(delegatee)) throw new Error(`delegate: invalid delegatee address ${delegatee}`);
   const iface = new Interface(IVOTES_WRITE_ABI as unknown as string[]);

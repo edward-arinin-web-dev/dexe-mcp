@@ -24,6 +24,8 @@ export const GOVERNOR_OZ_READ_ABI = [
   "function quorum(uint256 blockNumber) view returns (uint256)",
   "function votingDelay() view returns (uint256)",
   "function votingPeriod() view returns (uint256)",
+  "function hasVoted(uint256 proposalId, address account) view returns (bool)",
+  "function hashProposal(address[] targets, uint256[] values, bytes[] calldatas, bytes32 descriptionHash) pure returns (uint256)",
   "function name() view returns (string)",
   "function version() view returns (string)",
 ] as const;
@@ -35,6 +37,7 @@ export const GOVERNOR_BRAVO_READ_ABI = [
   "function quorumVotes() view returns (uint256)",
   "function votingDelay() view returns (uint256)",
   "function votingPeriod() view returns (uint256)",
+  "function hasVoted(uint256 proposalId, address account) view returns (bool)",
   "function name() view returns (string)",
 ] as const;
 

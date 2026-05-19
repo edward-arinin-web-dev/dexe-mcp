@@ -4,6 +4,7 @@ import { RpcProvider } from "../rpc.js";
 import { registerGovernorReadTools } from "./tools/read.js";
 import { registerGovernorBuildTools } from "./tools/build.js";
 import { registerGovernorSimulateTools } from "./tools/simulate.js";
+import { registerGovernorExtraTools } from "./tools/extras.js";
 
 /**
  * External Governor MCP surface (research/06-execution-plan.md).
@@ -17,4 +18,5 @@ export function registerGovernorTools(server: McpServer, config: DexeConfig): vo
   registerGovernorReadTools(server, rpc);
   registerGovernorBuildTools(server);
   registerGovernorSimulateTools(server, rpc);
+  registerGovernorExtraTools(server, rpc);
 }

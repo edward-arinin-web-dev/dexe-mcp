@@ -2,7 +2,7 @@
 
 ## Unreleased — `gov` track
 
-External OpenZeppelin Governor + Compound Bravo surface. **+12 tools, total 129 → 141. 14 → 15 groups.** Targets Uniswap, Compound, Optimism. Independent from the DeXe Protocol — no DeXe contract needs to be deployed on the target chain. Source plan: `research/06-execution-plan.md` (Option 1).
+External OpenZeppelin Governor + Compound Bravo surface. **+18 tools, total 129 → 147. 14 → 15 groups.** Targets Uniswap, Compound, Optimism. Independent from the DeXe Protocol — no DeXe contract needs to be deployed on the target chain. Source plan: `research/06-execution-plan.md` (Option 1).
 
 ### New tools — `dexe_gov_*` (12)
 
@@ -15,6 +15,8 @@ External OpenZeppelin Governor + Compound Bravo surface. **+12 tools, total 129 
 - `delegate` is on the voting token, not the governor.
 
 **Simulate (2)** — `dexe_gov_simulate_proposal` (single-block `eth_call` dry-run with `Error(string)` + `Panic(uint256)` decoding) and `dexe_gov_simulate_vote_impact` (pure projection: current tallies + quorum, project the post-vote state, report `{quorumMet, willPass}` with family-aware quorum semantics — Bravo counts `forVotes` only, OZ counts `for + abstain`).
+
+**Extras (6)** — `dexe_gov_get_state` (single-call state lookup), `dexe_gov_has_voted` (per-account vote receipt), `dexe_gov_build_cancel` (family-aware cancel encoder), `dexe_gov_decode_calldata` (round-trip any Governor write calldata), `dexe_gov_hash_description` (pure keccak256 utility), `dexe_gov_hash_proposal` (OZ-only `hashProposal` preview — errors clearly on Bravo). Closes plan §2 metric #2 (`≥18 dexe_gov_* tools shipped`).
 
 ### New configs / fixtures
 
