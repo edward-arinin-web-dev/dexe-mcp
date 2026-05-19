@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 import { RpcProvider } from "../rpc.js";
 import { registerGovernorReadTools } from "./tools/read.js";
+import { registerGovernorBuildTools } from "./tools/build.js";
 
 /**
  * External Governor MCP surface (research/06-execution-plan.md).
@@ -13,4 +14,5 @@ import { registerGovernorReadTools } from "./tools/read.js";
 export function registerGovernorTools(server: McpServer, config: DexeConfig): void {
   const rpc = new RpcProvider(config);
   registerGovernorReadTools(server, rpc);
+  registerGovernorBuildTools(server);
 }
