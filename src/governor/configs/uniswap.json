@@ -1,0 +1,32 @@
+{
+  "id": "uniswap",
+  "chainId": 1,
+  "governorAddress": "0x408ED6354d4973f66138C91495F2f2FCbd8724C3",
+  "governorVersion": "oz-v4",
+  "votingToken": {
+    "type": "ERC20Votes",
+    "address": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
+    "symbol": "UNI",
+    "decimals": 18
+  },
+  "timelock": {
+    "address": "0x1a9C8182C09F50355CeA8fFF4b7E1649A535498a",
+    "minDelay": 172800
+  },
+  "votingParams": {
+    "votingDelay": 1,
+    "votingPeriod": 50400,
+    "proposalThreshold": "2500000000000000000000000",
+    "quorumNumerator": 4,
+    "quorumDenominator": 100
+  },
+  "executor": {
+    "type": "timelock",
+    "id": null
+  },
+  "explorer": {
+    "etherscanBase": "https://etherscan.io",
+    "tallyOrgSlug": "uniswap"
+  },
+  "notes": "Uniswap GovernorBravoDelegate (proxy). Treated as oz-v4 surface — ProposalState enum matches OZ canonical order."
+}
