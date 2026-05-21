@@ -4,6 +4,16 @@
 
 Only the latest published version on npm receives security updates. Pin to the latest minor (`^0.5`) in your MCP client config.
 
+## Release provenance
+
+Every npm release from `v0.5.9` onwards is published via `.github/workflows/release.yml` with `npm publish --provenance`. The signed attestation links the tarball to the exact git commit and GitHub Actions run that produced it. Verify in three ways:
+
+- The npmjs.com page for the package shows a "Provenance" badge with the source repo and workflow run.
+- `npm view dexe-mcp dist.signatures` returns Sigstore signatures.
+- `npm audit signatures` against an installed copy fails if the registry tarball was tampered with.
+
+If you ever install a `dexe-mcp` version that lacks a provenance attestation (and is not a pre-`v0.5.9` historical release), treat it as suspect and report.
+
 ## Reporting a Vulnerability
 
 If you find a vulnerability in `dexe-mcp` — whether in the calldata builders, the optional signer (`DEXE_PRIVATE_KEY`), IPFS upload paths, or the Hardhat bridge — please **do not** open a public GitHub issue.
