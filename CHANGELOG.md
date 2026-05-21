@@ -9,6 +9,12 @@
 - **Dependency Review on PRs.** New `.github/workflows/dependency-review.yml` runs on every PR touching deps. Fails the check on `high`-or-`critical` CVEs from GitHub Advisory Database, denies copyleft licenses (GPL/AGPL), and posts a PR comment when issues found. Blocks unsafe dep updates before merge.
 - **`ci.yml` least-privilege.** Tightened top-level + job `permissions: contents: read` per Scorecard Token-Permissions check. Added `npm test` to PR/main pipeline (previously typecheck+build only). Closes security-hardening roadmap A4.
 - **CodeQL static analysis.** New `.github/workflows/codeql.yml` runs the `security-extended` query suite against the `javascript-typescript` source on every PR/main push and weekly (Sundays 05:00 UTC). Catches prototype pollution, command injection, ReDoS, unsafe deserialization, path traversal, and other CWE patterns. Findings upload to GitHub code-scanning. Closes security-hardening roadmap A5.
+- **CVE sweep after Dependabot activation.** Three new moderate CVEs surfaced when Dependency Graph was enabled on the repo. Resolved in this PR:
+  - `esbuild >=0.25.0` added to `overrides` (GHSA-67mh-4wv8-2f99 — dev server SSRF; transitive through vite/vitest/tsx).
+  - `ws >=8.20.1` added to `overrides` (GHSA-58qx-3vcg-4xpx — uninitialized memory disclosure; transitive through ethers).
+  - `vitest` bumped from `^2.1.0` to `^3.0.0` in devDependencies — pulls in vite ≥6.4.2 which patches the path-traversal CVE (GHSA-4w7w-66w2-5vf9).
+  - `npm audit` now reports **0 vulnerabilities** (both prod and dev).
+- **`npm test` no-test-files tolerance.** Added `--passWithNoTests` to the `test` script so the CI/release pipeline doesn't fail on branches that don't yet have tests under their tree (e.g. this one — tests live on `governor-adapter`).
 
 ## 0.5.8
 
