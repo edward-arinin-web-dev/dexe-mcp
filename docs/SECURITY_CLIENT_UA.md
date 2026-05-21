@@ -124,6 +124,8 @@ Runtime (`package.json` → `dependencies`):
 ### 5.2 Контроль ланцюга
 
 - **npm provenance (з `v0.5.9`+).** Кожен реліз публікується через GitHub Actions (`.github/workflows/release.yml`) з прапором `npm publish --provenance`. Sigstore-підписана attestation прив'язує tarball до конкретного git-коміту і workflow-ран. На сторінці пакета на npmjs.com відображається бейдж "Provenance". Клієнт може верифікувати через `npm audit signatures` або `npm view dexe-mcp dist.signatures`.
+- **OSSF Scorecard аудит** — щотижня + при кожному пуші у `main` через `.github/workflows/scorecard.yml`. Перевіряє branch protection, signed releases, pinned dependencies, token permissions, dependency-update tool, packaging, SAST, code review та ще ~10 категорій. Публічний score на `https://api.securityscorecards.dev/projects/github.com/edward-arinin-web-dev/dexe-mcp`. SARIF-результати у GitHub code-scanning.
+- **Dependency Review на PR.** Кожен pull request, що змінює `package.json` / `package-lock.json`, автоматично діффиться проти GitHub Advisory Database. PR падає якщо додано залежність із `high`/`critical` CVE, або з GPL/AGPL ліцензією. Унеможливлює мерж уразливих deps.
 - **`overrides` у `package.json`** примусово піднімають уразливі transitive-залежності: `fast-uri >=3.1.2`, `hono >=4.12.18`, `ip-address >=10.1.1`, `express-rate-limit >=8.4.0`. Без них npm міг би взяти стару транзитивну версію.
 - **`prepublishOnly` запускає `typecheck` + `build`** — пакет не публікується, якщо TypeScript не валідний. У релізному workflow додатково ганяється `npm test` + перевірка що тег відповідає `package.json` version.
 - **MIT-ліцензія, відкритий код**, репозиторій `edward-arinin-web-dev/dexe-mcp`. Можна побудувати локально з джерел.
