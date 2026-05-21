@@ -6,11 +6,12 @@ Only the latest published version on npm receives security updates. Pin to the l
 
 ## Automated security checks
 
-The repo runs three GitHub Actions security workflows continuously:
+The repo runs four GitHub Actions security workflows continuously:
 
 - **CI** (`ci.yml`) — typecheck, build, and full test suite on every push to `main` and every pull request, against Node 20 and 22. Read-only `GITHUB_TOKEN` scope.
 - **Dependency Review** (`dependency-review.yml`) — every PR is checked against the GitHub Advisory Database. Fails the PR check if any added/updated dependency carries a `high` or `critical` CVE, or if it introduces a forbidden license (GPL/AGPL).
 - **OSSF Scorecard** (`scorecard.yml`) — weekly + on push to `main`. Audits branch protection, signed releases, pinned dependencies, token permissions, and a dozen other supply-chain checks. Results uploaded to GitHub code-scanning (SARIF) and published as a public score at `https://api.securityscorecards.dev/projects/github.com/edward-arinin-web-dev/dexe-mcp/badge`.
+- **CodeQL** (`codeql.yml`) — GitHub-native SAST with the `security-extended` query suite. Runs on every PR/main push and weekly. Scans for prototype pollution, command injection, ReDoS, unsafe deserialization, path traversal, and other CWE patterns. Findings land in the repo's Security tab.
 
 ## Release provenance
 
