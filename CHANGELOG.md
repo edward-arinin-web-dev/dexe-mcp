@@ -5,6 +5,9 @@
 ### Supply-chain hardening
 
 - **npm provenance enabled.** New `.github/workflows/release.yml` triggered by `v*.*.*` tag push: runs typecheck + build + tests, verifies tag matches `package.json` version, then `npm publish --provenance --access public`. OIDC-signed attestation links every future tarball to the exact git commit and workflow run. Visible as a "Provenance" badge on npmjs.com. `publishConfig.provenance: true` is now baked into `package.json` so even manual `npm publish` (in an OIDC-enabled env) attaches an attestation. Requires repo secret `NPM_TOKEN`. Closes security-hardening roadmap A1.
+- **OSSF Scorecard analysis.** New `.github/workflows/scorecard.yml` runs weekly (Sundays 04:00 UTC) and on push to `main`. Audits branch protection, token permissions, dependency hygiene, signed releases, and 15+ other checks. Publishes SARIF to GitHub code-scanning and a public score via OIDC to `api.securityscorecards.dev`. Badge usable at `https://api.securityscorecards.dev/projects/github.com/edward-arinin-web-dev/dexe-mcp/badge`.
+- **Dependency Review on PRs.** New `.github/workflows/dependency-review.yml` runs on every PR touching deps. Fails the check on `high`-or-`critical` CVEs from GitHub Advisory Database, denies copyleft licenses (GPL/AGPL), and posts a PR comment when issues found. Blocks unsafe dep updates before merge.
+- **`ci.yml` least-privilege.** Tightened top-level + job `permissions: contents: read` per Scorecard Token-Permissions check. Added `npm test` to PR/main pipeline (previously typecheck+build only). Closes security-hardening roadmap A4.
 
 ## 0.5.8
 
