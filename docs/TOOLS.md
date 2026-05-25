@@ -92,6 +92,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_read_validator_list` | Paginated validators ordered by balance descending. | `DEXE_SUBGRAPH_VALIDATORS_URL` |
 | `dexe_read_user_activity` | Paginated tx history per user — proposals/votes/delegations/claims by timestamp desc. | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
 | `dexe_read_delegation_map` | Outgoing or incoming delegation pairs for a user. | `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_otc_list_sales_for_dao` | Reads `latestTierId()` + `getTierViews(0, latestTierId)` on a DAO's TokenSaleProposal helper. Returns tiers with `upcoming`/`active`/`ended` status vs current block. Works chain 56 + 97, no subgraph needed. Pass `tokenSaleProposal` explicitly until per-DAO helper discovery lands. | `DEXE_RPC_URL` |
 
 ---
 
@@ -146,6 +147,8 @@ Sources: `src/tools/proposalBuild.ts`, `src/tools/proposalBuildMore.ts`, `src/to
 | `dexe_proposal_build_token_transfer` | Treasury → recipient ERC20 transfer. Encodes `ERC20.transfer`. Aborts if `DEXE_RPC_URL` set and recipient is `ERC20Gov.isBlacklisted`. | `DEXE_RPC_URL` (optional, for blacklist precheck) |
 | `dexe_proposal_build_token_distribution` | Batch distribution via DistributionProposal. Auto-prepends `ERC20.approve` for non-native tokens. | (none) |
 | `dexe_proposal_build_token_sale` | Launches a single tier via `TokenSaleProposal.createTiers`. Plain whitelist supported; merkle requires custom_abi. | (none) |
+| `dexe_proposal_build_token_sale_multi` | `TokenSaleProposal.createTiers([...])` for one or more tiers. Each tier may declare participation requirements (DAOVotes / Whitelist / BABT / TokenLock / NftLock / MerkleWhitelist), encoded per-type. ERC20 approves are summed + deduped per sale token; plain-`Whitelist` tiers auto-append the matching `addToWhitelist` action when users are supplied. | (none) |
+| `dexe_proposal_build_token_sale_whitelist` | `TokenSaleProposal.addToWhitelist([{tierId, users, uri}, ...])` — extend the whitelist of an already-live tier (plain `Whitelist` type only; merkle tiers are gated by their root). | (none) |
 | `dexe_proposal_build_token_sale_recover` | `TokenSaleProposal.recover(tierIds)` — recover unsold tokens. | (none) |
 | `dexe_proposal_build_create_staking_tier` | `StakingProposal.createStaking(rewardToken, amount, startedAt, deadline, metadata)`. Auto-prepends approve for ERC20 rewards. | (none) |
 | `dexe_proposal_build_change_math_model` | `GovPool.changeVotePower(newVotePower)` — swap LINEAR / POLYNOMIAL / custom power contract. | (none) |
@@ -231,7 +234,7 @@ Source: `src/tools/voteBuild.ts`. All return calldata `TxPayload`. None require 
 
 ## 11. Composite signing flows
 
-Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`. **These four require `DEXE_PRIVATE_KEY` for the auto-signed mode** — they sign and broadcast directly. Other tools always return calldata for an external signer.
+Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`, `src/tools/getConfig.ts`. The signing flows (`dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`) **require `DEXE_PRIVATE_KEY` for the auto-signed mode** — they sign and broadcast directly (and run the B6/B7/B10 broadcast guards first; `dexe_tx_send` also runs B9 simulation). Other tools always return calldata for an external signer.
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
@@ -239,6 +242,7 @@ Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`. **These four require `DEXE_
 | `dexe_proposal_vote_and_execute` | Vote on a proposal, optionally execute when state allows. Handles deposits + state transitions. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_send` | Sign and broadcast any TxPayload from a `*_build_*` tool. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_status` | Read receipt/status of a previously submitted tx hash. | `DEXE_RPC_URL` |
+| `dexe_get_config` | Diagnostic read: the server's chain set, default chain, and signer status (`readonly`/`eoa`/`safe`). Call once at session start when unsure which chain is configured. Never writes. | (none) |
 
 ---
 
