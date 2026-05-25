@@ -176,7 +176,7 @@ All optional. Tools that need a missing variable fail with a clear, actionable m
 
 Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/main/docs):
 
-- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 129 tools, grouped, with one-line descriptions and required envs.
+- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 131 tools, grouped, with one-line descriptions and required envs.
 - [**`docs/USAGE.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USAGE.md) — 10 worked examples (deploy DAO, create/vote/execute proposals, delegate, validator chamber, decode calldata, off-chain proposals, multicall batching). Copy-pasteable JSON.
 - [**`docs/ENVIRONMENT.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/ENVIRONMENT.md) — env-var reference: minimum block to get started, per-category requirements, calldata vs signer mode, chain config, IPFS gateway rationale, subgraph migration, swarm-harness envs, common pitfalls.
 - [**`docs/OTC.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/OTC.md) — multi-tier OTC sale flows (project-owner and buyer paths).
@@ -187,7 +187,7 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 
 ## Tool catalog
 
-**129 tools, 14 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+**131 tools, 15 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
 | Group | # | What it gives you |
 |-------|---|------|
@@ -205,6 +205,7 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 | **Subgraph reads** | 7 | The Graph queries: DAO list, members, experts, user activity, delegation map, distribution status, OTC sale tiers. Decentralized-network endpoints + RPC fallback. |
 | **Merkle utility** | 2 | `dexe_merkle_build`, `dexe_merkle_proof` — OZ `StandardMerkleTree`-compatible. For whitelisted sales and airdrops. |
 | **OTC composites** | 4 | Full project-owner + buyer flows over `TokenSaleProposal`: open multi-tier sale, check buyer status, buy native or with merkle proof, claim vested payouts. See [`docs/OTC.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/OTC.md). |
+| **Safe multisig** | 2 | Queue a tx in the Safe Transaction Service for owners to co-sign instead of broadcasting — `dexe_safe_info` (on-chain nonce/threshold/owners + endpoint), `dexe_safe_propose_tx` (compute `safeTxHash`, sign as owner, POST to the queue; dry-run by default). See [`docs/SAFE.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/SAFE.md). |
 | **Simulator** | 3 | `eth_call`-based preflight with decoded revert reasons — `_sim_calldata`, `_sim_proposal`, `_sim_buy`. Catch reverts before you pay gas. See [`docs/SIMULATOR.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/SIMULATOR.md). |
 | **Multi-DAO inbox + forecast** | 2 | `dexe_user_inbox` aggregates pending items (unvoted proposals, claimable rewards, locked deposits) across N DAOs. `_proposal_forecast` predicts pass rate with quorum projection + risk flags. See [`docs/INBOX.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/INBOX.md). |
 
