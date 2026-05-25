@@ -4,21 +4,28 @@
 
 ### Signer broadcast guards
 
-`dexe_tx_send` now runs `runBroadcastGuards()` (new `src/lib/broadcastGuards.ts`)
-before `wallet.sendTransaction()`. Four opt-in checks, chained in order; each is
-a no-op unless its env var is set, so calldata mode and the default signer
-posture are unchanged. A failed guard returns `{ status: "rejected", guard, reason }`
-with `isError: true` and **no gas spent**. Closes security-hardening roadmap
-B6/B7/B9/B10.
+`dexe_tx_send` **and every composite signer flow** (`dexe_proposal_create`,
+`dexe_proposal_vote_and_execute`, and the OTC composites — all broadcast through
+the shared `sendOrCollect` loop) now run `runBroadcastGuards()` (new
+`src/lib/broadcastGuards.ts`) before `wallet.sendTransaction()`. Four opt-in
+checks, chained in order; each is a no-op unless its env var is set, so calldata
+mode and the default signer posture are unchanged. A failed guard returns
+`{ status: "rejected", guard, reason }` with `isError: true` and **no gas spent**.
+Closes security-hardening roadmap B6/B7/B9/B10.
 
 - **B6 — destination allowlist (`DEXE_SIGNER_ALLOWLIST`).** Comma-separated `to`
   addresses; broadcasts to anything off-list are rejected. Validated and
   lowercased at startup — an invalid address aborts startup.
 - **B7 — value cap (`DEXE_SIGNER_MAX_VALUE_WEI`).** Rejects any broadcast whose
   `value` (wei) exceeds the cap.
-- **B9 — auto-simulation (always on in signer mode).** Reuses `simulateCalldata`
-  to `eth_call` the tx against live state; aborts with the decoded revert reason
-  instead of paying gas for a doomed tx.
+- **B9 — auto-simulation (always on in single-shot signer mode).** Reuses
+  `simulateCalldata` to `eth_call` the tx against live state; aborts with the
+  decoded revert reason instead of paying gas for a doomed tx. Only a genuine
+  contract revert (`CALL_EXCEPTION` / decodable returndata) aborts — a transport
+  failure (timeout, 429) fails **open** so a flaky RPC can't wedge a valid
+  broadcast. Skipped inside composite flows, whose steps are an ordered
+  *dependent* sequence that can't be simulated against pre-sequence state
+  (B6/B7/B10 still apply there).
 - **B10 — rate limit (`DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`).** Sliding 60s window,
   serialized with `p-limit(1)`; rejects with a retry hint once the cap is hit.
 

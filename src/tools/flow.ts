@@ -9,6 +9,7 @@ import { PinataClient } from "../lib/ipfs.js";
 import { SignerManager } from "../lib/signer.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
+import { runBroadcastGuards } from "../lib/broadcastGuards.js";
 
 // ---------- ABI fragments ----------
 
@@ -179,7 +180,23 @@ export async function sendOrCollect(
   }
 
   const wallet = signer.requireSigner(opts?.chainId);
+  const cfg = signer.getConfig();
   for (const p of payloads) {
+    // Same B6/B7/B10 broadcast guards as dexe_tx_send. B9 simulation is skipped:
+    // these payloads are an ordered, *dependent* sequence, so simming a later
+    // step against pre-sequence state would falsely revert. A BroadcastGuardError
+    // aborts the flow before the offending send (gas spent only on prior steps).
+    await runBroadcastGuards(
+      {
+        to: p.to,
+        data: p.data,
+        value: p.value,
+        chainId: Number(p.chainId),
+        from: wallet.address,
+      },
+      cfg,
+      { skipSimulation: true },
+    );
     const tx = await wallet.sendTransaction({
       to: p.to,
       data: p.data,

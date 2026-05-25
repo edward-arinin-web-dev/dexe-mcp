@@ -9,7 +9,7 @@
   <a href="https://nodejs.org"><img alt="node" src="https://img.shields.io/node/v/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=E07AFF"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=FFC878"></a>
   <a href="https://modelcontextprotocol.io"><img alt="MCP-compatible" src="https://img.shields.io/badge/MCP-compatible-9BB4FF?style=flat-square&labelColor=0b0f1e"></a>
-  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-129-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
+  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-131-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="proposal types" src="https://img.shields.io/badge/proposal--types-33-E07AFF?style=flat-square&labelColor=0b0f1e"></a>
 </p>
 
@@ -40,7 +40,7 @@ That era is ending.
 
 LLMs can now reason about voting power, weigh proposals against a mandate, draft calldata, simulate execution, and ask your wallet to sign — **continuously, across every DAO you care about, all at once.** What was a UI is becoming a conversation. What was a treasurer's spreadsheet is becoming an always-on agent.
 
-**`dexe-mcp` is the substrate that makes it real for the DeXe stack.** One MCP server. 129 typed tools. Every flow the official frontend exposes — and a few it doesn't.
+**`dexe-mcp` is the substrate that makes it real for the DeXe stack.** One MCP server. 131 typed tools. Every flow the official frontend exposes — and a few it doesn't.
 
 |     | What you get |
 |-----|------|
@@ -273,7 +273,7 @@ Supply-chain hardening is enforced in CI. See [SECURITY.md](SECURITY.md) for the
   A `Good signature` line is the only acceptable result; `no signature found` or `No public key` means do not trust the tag.
 - **npm provenance.** Releases publish with `npm publish --provenance`; verify with `npm audit signatures` against an installed copy.
 - **Reproducible installs.** A `verify-lockfile` CI job installs strictly from the committed `package-lock.json` and fails on any drift.
-- **Continuous scanning.** CodeQL (SAST), OSSF Scorecard, and Dependency Review run on every PR and on a weekly schedule.
+- **Continuous scanning.** CodeQL (SAST) runs on every PR and weekly; OSSF Scorecard runs weekly and on push to `main`; Dependency Review runs on every PR.
 
 ## License
 

@@ -246,7 +246,7 @@ arb1, sep, …). `DEXE_SAFE_TX_SERVICE_URL` always wins when set.
 
 ---
 
-## 6. IPFS configuration
+## 7. IPFS configuration
 
 ### Why a dedicated gateway is required
 
@@ -287,7 +287,7 @@ parallel — see [`src/lib/ipfs.ts`](../src/lib/ipfs.ts)).
 
 ---
 
-## 7. Subgraph configuration
+## 8. Subgraph configuration
 
 DeXe migrated from The Graph **Hosted Service / Studio** to the
 **decentralized network**. Studio URLs are dead. Use the gateway form with
@@ -318,7 +318,7 @@ when you switch `DEXE_CHAIN_ID`.
 
 ---
 
-## 8. Swarm test harness envs
+## 9. Swarm test harness envs
 
 The swarm harness (`tests/swarm/`) uses a separate env block. Full setup
 runbook: [`tests/swarm/README.md`](../tests/swarm/README.md). Brief callout:
@@ -340,7 +340,7 @@ testing-strategy contract.
 
 ---
 
-## 9. Common pitfalls
+## 10. Common pitfalls
 
 ### `process.loadEnvFile()` quirks
 

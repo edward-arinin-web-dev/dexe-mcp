@@ -5,7 +5,8 @@ import { simulateCalldata } from "../tools/simulate.js";
 
 /**
  * Signer broadcast guards. A single `runBroadcastGuards` chains opt-in checks
- * that run **inside `dexe_tx_send` before `wallet.sendTransaction()`**. Each
+ * that run before every `wallet.sendTransaction()` — both the single-shot
+ * `dexe_tx_send` and the shared composite-flow loop (`sendOrCollect`). Each
  * guard is a no-op when its env var is unset, so the default (calldata) posture
  * is unchanged. They only bite once a `DEXE_PRIVATE_KEY` is configured and a
  * broadcast is attempted.
@@ -14,6 +15,12 @@ import { simulateCalldata } from "../tools/simulate.js";
  *   B7  value cap              — `DEXE_SIGNER_MAX_VALUE_WEI`
  *   B9  auto-simulation        — eth_call preflight, abort on revert
  *   B10 rate limit             — `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`
+ *
+ * B6/B7/B10 are stateless and safe on any broadcast. B9 simulates against
+ * *current* chain state, so it is unsound for dependent multi-step sequences
+ * (e.g. approve→deposit→createProposal): step N would be simmed before step
+ * N-1 is mined and falsely "revert". Composite flows therefore pass
+ * `skipSimulation: true`; the security-relevant guards still apply.
  */
 
 /** Transaction about to be broadcast. `from`/`chainId` come from the resolved signer. */
@@ -53,6 +60,7 @@ export function __resetBroadcastWindow(): void {
 export async function runBroadcastGuards(
   tx: BroadcastTx,
   cfg: DexeConfig,
+  opts?: { skipSimulation?: boolean },
 ): Promise<void> {
   // ---- B6: destination allowlist ----------------------------------------
   if (cfg.signerAllowlist && cfg.signerAllowlist.length > 0) {
@@ -84,23 +92,29 @@ export async function runBroadcastGuards(
   // the preflight is meaningless (sims one chain, sends to another). The shared
   // `simulateCalldata` resolves its provider via the config's default chain and
   // takes no chainId, so hand it a config view whose default IS `tx.chainId`.
-  const simCfg: DexeConfig =
-    tx.chainId === cfg.defaultChainId
-      ? cfg
-      : { ...cfg, defaultChainId: tx.chainId, chainId: tx.chainId };
-  const rpc = new RpcProvider(simCfg);
-  const sim = await simulateCalldata(rpc, {
-    to: tx.to,
-    data: tx.data,
-    value: tx.value,
-    from: tx.from,
-  });
-  if (!sim.success) {
-    throw new BroadcastGuardError(
-      "B9",
-      `Pre-broadcast simulation (eth_call) reverted: ${sim.revertReason ?? "unknown"}. ` +
-        `Aborting before spending gas.`,
-    );
+  // Skipped for dependent multi-step composite flows (see header).
+  if (!opts?.skipSimulation) {
+    const simCfg: DexeConfig =
+      tx.chainId === cfg.defaultChainId
+        ? cfg
+        : { ...cfg, defaultChainId: tx.chainId, chainId: tx.chainId };
+    const rpc = new RpcProvider(simCfg);
+    const sim = await simulateCalldata(rpc, {
+      to: tx.to,
+      data: tx.data,
+      value: tx.value,
+      from: tx.from,
+    });
+    // Only a *genuine* revert aborts. A transport/RPC failure (sim.networkError)
+    // means the call never ran — fail open rather than wedge a valid broadcast
+    // and mislabel an infra hiccup as a revert.
+    if (!sim.success && !sim.networkError) {
+      throw new BroadcastGuardError(
+        "B9",
+        `Pre-broadcast simulation (eth_call) reverted: ${sim.revertReason ?? "unknown"}. ` +
+          `Aborting before spending gas.`,
+      );
+    }
   }
 
   // ---- B10: rate limit (N per rolling 60s) ------------------------------
