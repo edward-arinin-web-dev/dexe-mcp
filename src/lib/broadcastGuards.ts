@@ -1,4 +1,6 @@
 import type { DexeConfig } from "../config.js";
+import { RpcProvider } from "../rpc.js";
+import { simulateCalldata } from "../tools/simulate.js";
 
 /**
  * Signer broadcast guards. A single `runBroadcastGuards` chains opt-in checks
@@ -9,6 +11,7 @@ import type { DexeConfig } from "../config.js";
  *
  *   B6  destination allowlist  — `DEXE_SIGNER_ALLOWLIST`
  *   B7  value cap              — `DEXE_SIGNER_MAX_VALUE_WEI`
+ *   B9  auto-simulation        — eth_call preflight, abort on revert
  */
 
 /** Transaction about to be broadcast. `from`/`chainId` come from the resolved signer. */
@@ -59,5 +62,30 @@ export async function runBroadcastGuards(
           `Refusing to broadcast.`,
       );
     }
+  }
+
+  // ---- B9: auto-simulation (eth_call preflight) -------------------------
+  // Reuses the shared sim core; aborts before spending gas if the call would
+  // revert. Must run against the SAME chain the broadcast targets — otherwise
+  // the preflight is meaningless (sims one chain, sends to another). The shared
+  // `simulateCalldata` resolves its provider via the config's default chain and
+  // takes no chainId, so hand it a config view whose default IS `tx.chainId`.
+  const simCfg: DexeConfig =
+    tx.chainId === cfg.defaultChainId
+      ? cfg
+      : { ...cfg, defaultChainId: tx.chainId, chainId: tx.chainId };
+  const rpc = new RpcProvider(simCfg);
+  const sim = await simulateCalldata(rpc, {
+    to: tx.to,
+    data: tx.data,
+    value: tx.value,
+    from: tx.from,
+  });
+  if (!sim.success) {
+    throw new BroadcastGuardError(
+      "B9",
+      `Pre-broadcast simulation (eth_call) reverted: ${sim.revertReason ?? "unknown"}. ` +
+        `Aborting before spending gas.`,
+    );
   }
 }
