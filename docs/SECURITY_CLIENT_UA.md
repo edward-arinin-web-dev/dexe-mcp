@@ -177,6 +177,11 @@ Runtime (`package.json` → `dependencies`):
 - [ ] Запускати MCP-сервер у звичайному режимі (без `DEXE_PRIVATE_KEY`) для будь-яких prod-дій з governance / treasury.
 - [ ] Підписувати транзакції лише через Safe Multisig або Ledger.
 - [ ] Для опційного signer-режиму — використовувати окремий hot-wallet з обмеженим балансом і моніторинг.
+- [ ] У signer-режимі увімкнути broadcast-guards (захист `dexe_tx_send`):
+  - [ ] `DEXE_SIGNER_ALLOWLIST` — список дозволених адрес `to` (B6); напр. лише GovPool + UserKeeper свого DAO.
+  - [ ] `DEXE_SIGNER_MAX_VALUE_WEI` — стеля на `value` однієї транзакції в wei (B7).
+  - [ ] `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` — ліміт broadcast-ів за хвилину (B10).
+  - [ ] B9 (eth_call перед відправкою) працює автоматично в signer-режимі — окремого налаштування не потребує.
 - [ ] Налаштовувати приватні endpoints (RPC, subgraph, IPFS gateway) — не використовувати публічні.
 - [ ] Pinata JWT створювати окремо під проект, з мінімально потрібними правами.
 - [ ] Усі секрети — в `.env` поряд з пакетом або в env-блоці MCP-клієнта; ніколи в git.

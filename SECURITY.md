@@ -81,3 +81,16 @@ Out of scope:
 3. IPFS pinning credentials — keep `PINATA_JWT` scoped to a project-specific key.
 
 If you believe any of the above is broken, please report per the process above.
+
+## Signer broadcast guards
+
+When signer mode is enabled (`DEXE_PRIVATE_KEY`), `dexe_tx_send` runs four opt-in guards before broadcasting (`src/lib/broadcastGuards.ts`). They narrow the blast radius of a compromised or runaway MCP host — the host can still *call* the tool, but cannot send to arbitrary destinations, drain arbitrary value, pay gas for reverting txs, or loop unbounded. Each is a no-op unless its env var is set; a failed guard returns `{ status: "rejected", guard, reason }` with **no gas spent**.
+
+| Guard | Env var | What it blocks |
+|-------|---------|----------------|
+| **B6** destination allowlist | `DEXE_SIGNER_ALLOWLIST` | Broadcasts to any `to` not on the comma-separated list. |
+| **B7** value cap | `DEXE_SIGNER_MAX_VALUE_WEI` | Broadcasts whose `value` (wei) exceeds the cap. |
+| **B9** auto-simulation | _(always on in signer mode)_ | Doomed txs — `eth_call` preflight aborts with the decoded revert reason before gas is spent. |
+| **B10** rate limit | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | More than N broadcasts in a rolling 60s window. |
+
+These are defense-in-depth, **not** a substitute for keeping the key off-host. For prod governance/treasury actions, prefer calldata mode + Safe Multisig / Ledger. See `docs/ENVIRONMENT.md` §4 for the recommended config block.

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Signer broadcast guards
+
+`dexe_tx_send` now runs `runBroadcastGuards()` (new `src/lib/broadcastGuards.ts`)
+before `wallet.sendTransaction()`. Four opt-in checks, chained in order; each is
+a no-op unless its env var is set, so calldata mode and the default signer
+posture are unchanged. A failed guard returns `{ status: "rejected", guard, reason }`
+with `isError: true` and **no gas spent**. Closes security-hardening roadmap
+B6/B7/B9/B10.
+
+- **B6 — destination allowlist (`DEXE_SIGNER_ALLOWLIST`).** Comma-separated `to`
+  addresses; broadcasts to anything off-list are rejected. Validated and
+  lowercased at startup — an invalid address aborts startup.
+- **B7 — value cap (`DEXE_SIGNER_MAX_VALUE_WEI`).** Rejects any broadcast whose
+  `value` (wei) exceeds the cap.
+- **B9 — auto-simulation (always on in signer mode).** Reuses `simulateCalldata`
+  to `eth_call` the tx against live state; aborts with the decoded revert reason
+  instead of paying gas for a doomed tx.
+- **B10 — rate limit (`DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`).** Sliding 60s window,
+  serialized with `p-limit(1)`; rejects with a retry hint once the cap is hit.
+
+See `docs/ENVIRONMENT.md` §4 and `SECURITY.md` for the full config block.
+
 ### Supply-chain hardening
 
 - **npm provenance enabled.** New `.github/workflows/release.yml` triggered by `v*.*.*` tag push: runs typecheck + build + tests, verifies tag matches `package.json` version, then `npm publish --provenance --access public`. OIDC-signed attestation links every future tarball to the exact git commit and workflow run. Visible as a "Provenance" badge on npmjs.com. `publishConfig.provenance: true` is now baked into `package.json` so even manual `npm publish` (in an OIDC-enabled env) attaches an attestation. Requires repo secret `NPM_TOKEN`. Closes security-hardening roadmap A1.

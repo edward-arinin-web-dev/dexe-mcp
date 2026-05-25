@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SignerManager } from "../lib/signer.js";
 import { resolveChain, type DexeConfig } from "../config.js";
+import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
 
 export function registerTxTools(
   server: McpServer,
@@ -44,6 +45,37 @@ export function registerTxTools(
     async ({ to, data, value, chainId, gasLimit, waitConfirmations }) => {
       const chain = resolveChain(config, chainId);
       const wallet = signer.requireSigner(chain.chainId);
+
+      // Signer broadcast guards (B6/B7/B9/B10) — no-ops unless their env vars
+      // are set. Run before spending any gas.
+      try {
+        await runBroadcastGuards(
+          { to, data, value, chainId: chain.chainId, from: wallet.address },
+          config,
+        );
+      } catch (e) {
+        if (e instanceof BroadcastGuardError) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    status: "rejected",
+                    guard: e.guard,
+                    reason: e.message,
+                    chainId: chain.chainId,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+        throw e;
+      }
 
       const tx = await wallet.sendTransaction({
         to,
