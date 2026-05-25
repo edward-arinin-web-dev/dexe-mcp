@@ -75,6 +75,9 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_PROTOCOL_PATH` | dev tooling (optional) | Use an existing DeXe-Protocol checkout instead of the auto-managed cache directory; disables auto clone/install. Must be a Hardhat project (`hardhat.config.{js,ts}`) with `node_modules/`. | `D:/dev/DeXe-Protocol` |
 | `DEXE_FORK_BLOCK` | reserved (Phase B) | Pin a fork block for deterministic state reads. Non-negative integer. | `38123456` |
 | `DEXE_PRIVATE_KEY` | `dexe_tx_send`, signed branch of `dexe_proposal_create` / `dexe_proposal_vote_and_execute` | 0x-prefixed 64-hex EOA key. Requires `DEXE_RPC_URL`. **Process-resident — see §4.** | `0xabc...` |
+| `DEXE_SIGNER_ALLOWLIST` | `dexe_tx_send` (signer mode, optional) | **B6 guard.** Comma-separated destination addresses; `dexe_tx_send` rejects any `to` not on the list. Unset = no restriction. Validated + lowercased at startup; invalid address aborts startup. | `0xAbc...,0xDef...` |
+| `DEXE_SIGNER_MAX_VALUE_WEI` | `dexe_tx_send` (signer mode, optional) | **B7 guard.** Hard cap on the `value` (wei) of any single broadcast; over-cap is rejected. Unset = no cap. | `100000000000000000` (0.1 BNB) |
+| `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | `dexe_tx_send` (signer mode, optional) | **B10 guard.** Max broadcasts per rolling 60s window across the process; over-limit is rejected with a retry hint. Unset = no limit. | `10` |
 | `DEXE_PRIVACY_POLICY_HASH` | `dexe_vote_build_privacy_policy_*` (optional) | Default privacy-policy bytes32 hash. Otherwise read live from `UserRegistry.documentHash()`. | `0x...` |
 
 Every var is read once during `loadConfig()` at startup or directly from
@@ -144,6 +147,29 @@ arbitrarily invoke any tool. Treat `DEXE_PRIVATE_KEY` like a hot wallet:
 - Cap exposure (top up just-in-time funding).
 - Never set `DEXE_PRIVATE_KEY` in a config file checked into git.
 - Restart the server to rotate the key.
+
+### Signer broadcast guards (opt-in)
+
+In signer mode, `dexe_tx_send` runs four guards before
+`wallet.sendTransaction()`. Each is a no-op unless its env var is set, so they
+narrow the blast radius of a compromised/confused MCP host without changing the
+default posture. They run in order; the first failure rejects the broadcast
+(JSON `{ status: "rejected", guard, reason }`, no gas spent):
+
+| Guard | Env var | Effect |
+|-------|---------|--------|
+| **B6** destination allowlist | `DEXE_SIGNER_ALLOWLIST` | Rejects any `to` not on the comma-separated list. Confines the signer to known contracts (e.g. one GovPool + UserKeeper). |
+| **B7** value cap | `DEXE_SIGNER_MAX_VALUE_WEI` | Rejects `value` above the cap. Bounds native-token outflow per tx. |
+| **B9** auto-simulation | _(always on in signer mode)_ | `eth_call` preflight against live state; aborts with the decoded revert reason instead of paying gas for a doomed tx. |
+| **B10** rate limit | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | Rejects once N broadcasts have landed in the trailing 60s. Caps drain rate under a runaway loop. |
+
+Recommended signer-mode block for a single-DAO operator:
+
+```jsonc
+"DEXE_SIGNER_ALLOWLIST": "0x<govPool>,0x<userKeeper>",
+"DEXE_SIGNER_MAX_VALUE_WEI": "100000000000000000",  // 0.1 BNB
+"DEXE_SIGNER_MAX_BROADCASTS_PER_MIN": "10"
+```
 
 `DEXE_PRIVATE_KEY` requires at least one of `DEXE_RPC_URL` / `DEXE_RPC_URL_TESTNET` / `DEXE_RPC_URL_MAINNET` — startup fails fast otherwise.
 

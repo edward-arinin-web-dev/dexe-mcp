@@ -50,6 +50,8 @@ export interface DexeConfig {
   signerAllowlist?: string[];
   /** B7 — max wei value per broadcast. Undefined = no cap. */
   signerMaxValueWei?: bigint;
+  /** B10 — max broadcasts per rolling minute. Undefined = no limit. */
+  signerMaxBroadcastsPerMin?: number;
 }
 
 /**
@@ -206,6 +208,17 @@ export async function loadConfig(): Promise<DexeConfig> {
     signerMaxValueWei = parsed!;
   }
 
+  // ---- signer broadcast guard B10 (rate limit) ---------------------------
+  let signerMaxBroadcastsPerMin: number | undefined;
+  const maxBroadcastsRaw = process.env.DEXE_SIGNER_MAX_BROADCASTS_PER_MIN?.trim();
+  if (maxBroadcastsRaw) {
+    const n = Number(maxBroadcastsRaw);
+    if (!Number.isInteger(n) || n <= 0) {
+      fatal(`DEXE_SIGNER_MAX_BROADCASTS_PER_MIN must be a positive integer, got: ${maxBroadcastsRaw}`);
+    }
+    signerMaxBroadcastsPerMin = n;
+  }
+
   let forkBlock: number | undefined;
   if (process.env.DEXE_FORK_BLOCK) {
     const n = Number(process.env.DEXE_FORK_BLOCK);
@@ -232,6 +245,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     privateKey,
     signerAllowlist,
     signerMaxValueWei,
+    signerMaxBroadcastsPerMin,
   }) as DexeConfig;
 }
 

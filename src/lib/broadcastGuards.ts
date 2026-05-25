@@ -1,3 +1,4 @@
+import pLimit from "p-limit";
 import type { DexeConfig } from "../config.js";
 import { RpcProvider } from "../rpc.js";
 import { simulateCalldata } from "../tools/simulate.js";
@@ -12,6 +13,7 @@ import { simulateCalldata } from "../tools/simulate.js";
  *   B6  destination allowlist  — `DEXE_SIGNER_ALLOWLIST`
  *   B7  value cap              — `DEXE_SIGNER_MAX_VALUE_WEI`
  *   B9  auto-simulation        — eth_call preflight, abort on revert
+ *   B10 rate limit             — `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`
  */
 
 /** Transaction about to be broadcast. `from`/`chainId` come from the resolved signer. */
@@ -34,6 +36,18 @@ export class BroadcastGuardError extends Error {
     super(message);
     this.name = "BroadcastGuardError";
   }
+}
+
+// ---- B10 sliding-window state -------------------------------------------
+// Module-scoped so the window survives across tool calls for the process
+// lifetime. Serialized through p-limit(1) so concurrent broadcasts cannot
+// race the prune/append on the timestamp array.
+const rateLimitGate = pLimit(1);
+const broadcastTimestamps: number[] = [];
+
+/** Reset the B10 window. Test-only. */
+export function __resetBroadcastWindow(): void {
+  broadcastTimestamps.length = 0;
 }
 
 export async function runBroadcastGuards(
@@ -87,5 +101,27 @@ export async function runBroadcastGuards(
       `Pre-broadcast simulation (eth_call) reverted: ${sim.revertReason ?? "unknown"}. ` +
         `Aborting before spending gas.`,
     );
+  }
+
+  // ---- B10: rate limit (N per rolling 60s) ------------------------------
+  if (cfg.signerMaxBroadcastsPerMin !== undefined) {
+    const cap = cfg.signerMaxBroadcastsPerMin;
+    await rateLimitGate(() => {
+      const now = Date.now();
+      const cutoff = now - 60_000;
+      while (broadcastTimestamps.length > 0 && broadcastTimestamps[0]! < cutoff) {
+        broadcastTimestamps.shift();
+      }
+      if (broadcastTimestamps.length >= cap) {
+        const oldest = broadcastTimestamps[0]!;
+        const waitS = Math.ceil((oldest + 60_000 - now) / 1000);
+        throw new BroadcastGuardError(
+          "B10",
+          `Broadcast rate limit reached: ${cap} per minute (DEXE_SIGNER_MAX_BROADCASTS_PER_MIN). ` +
+            `Retry in ~${waitS}s.`,
+        );
+      }
+      broadcastTimestamps.push(now);
+    });
   }
 }
