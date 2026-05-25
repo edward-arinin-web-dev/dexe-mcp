@@ -15,6 +15,7 @@
   - `vitest` bumped from `^2.1.0` to `^3.0.0` in devDependencies — pulls in vite ≥6.4.2 which patches the path-traversal CVE (GHSA-4w7w-66w2-5vf9).
   - `npm audit` now reports **0 vulnerabilities** (both prod and dev).
 - **`npm test` no-test-files tolerance.** Added `--passWithNoTests` to the `test` script so the CI/release pipeline doesn't fail on branches that don't yet have tests under their tree (e.g. this one — tests live on `governor-adapter`).
+- **Lockfile integrity job.** New `verify-lockfile` job in `ci.yml` installs strictly from the committed `package-lock.json` via `npm ci` (which aborts if `package.json` and the lockfile are out of sync and never rewrites the lockfile), asserts the lockfile was not mutated (`git diff --exit-code package-lock.json`), and validates the full resolved tree with `npm ls --all`. Any drift — stale lockfile, hand-edit, or inconsistent override/peer resolution — fails the build before merge. Closes security-hardening roadmap A3.
 
 ## 0.5.8
 
