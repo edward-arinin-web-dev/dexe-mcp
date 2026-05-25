@@ -258,6 +258,22 @@ npm run dev          # watch mode
 
 Issues, PRs, and proposal-type requests welcome → [GitHub issues](https://github.com/edward-arinin-web-dev/dexe-mcp/issues).
 
+## Security
+
+Supply-chain hardening is enforced in CI. See [SECURITY.md](SECURITY.md) for the full policy, threat model, and how to report a vulnerability. Highlights:
+
+- **Signed release tags.** Every release tag is GPG-signed and `release.yml` runs `git verify-tag` before publishing — an unsigned or untrusted tag aborts the release. Verify any tag yourself after cloning:
+
+  ```bash
+  gpg --recv-keys <MAINTAINER_KEY_ID>   # import maintainer key once
+  git verify-tag v0.5.9                 # or the shorthand: git tag -v v0.5.9
+  ```
+
+  A `Good signature` line is the only acceptable result; `no signature found` or `No public key` means do not trust the tag.
+- **npm provenance.** Releases publish with `npm publish --provenance`; verify with `npm audit signatures` against an installed copy.
+- **Reproducible installs.** A `verify-lockfile` CI job installs strictly from the committed `package-lock.json` and fails on any drift.
+- **Continuous scanning.** CodeQL (SAST), OSSF Scorecard, and Dependency Review run on every PR and on a weekly schedule.
+
 ## License
 
 MIT. See [LICENSE](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/LICENSE).

@@ -16,6 +16,7 @@
   - `npm audit` now reports **0 vulnerabilities** (both prod and dev).
 - **`npm test` no-test-files tolerance.** Added `--passWithNoTests` to the `test` script so the CI/release pipeline doesn't fail on branches that don't yet have tests under their tree (e.g. this one — tests live on `governor-adapter`).
 - **Lockfile integrity job.** New `verify-lockfile` job in `ci.yml` installs strictly from the committed `package-lock.json` via `npm ci` (which aborts if `package.json` and the lockfile are out of sync and never rewrites the lockfile), asserts the lockfile was not mutated (`git diff --exit-code package-lock.json`), and validates the full resolved tree with `npm ls --all`. Any drift — stale lockfile, hand-edit, or inconsistent override/peer resolution — fails the build before merge. Closes security-hardening roadmap A3.
+- **Signed-tag enforcement on release.** `release.yml` now imports the maintainer's public key (repo secret `MAINTAINER_GPG_PUBLIC_KEY`) and runs `git verify-tag "$GITHUB_REF_NAME"` **before** the publish step. An unsigned tag, an invalid signature, or a tag from an unknown key aborts the release, so nothing reaches npm without a valid maintainer signature. Checkout switched to `fetch-depth: 0` + `fetch-tags: true` so the annotated tag object and its signature are available. Documented `git verify-tag` / `git tag -v` for consumers in `SECURITY.md` and `README.md`. Closes security-hardening roadmap A2. (GPG key generation is a separate maintainer step.)
 
 ## 0.5.8
 

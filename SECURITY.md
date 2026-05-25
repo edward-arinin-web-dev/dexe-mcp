@@ -23,6 +23,24 @@ Every npm release from `v0.5.9` onwards is published via `.github/workflows/rele
 
 If you ever install a `dexe-mcp` version that lacks a provenance attestation (and is not a pre-`v0.5.9` historical release), treat it as suspect and report.
 
+## Signed release tags
+
+Every release tag is GPG-signed by the maintainer, and `release.yml` runs `git verify-tag "$GITHUB_REF_NAME"` **before** the publish step — an unsigned tag, an invalid signature, or a tag signed by an unknown key aborts the release, so a pushed tag can never publish to npm without a valid maintainer signature.
+
+To verify a tag yourself after cloning the repo:
+
+```bash
+# Import the maintainer's public key once (key id published alongside releases).
+gpg --recv-keys <MAINTAINER_KEY_ID>
+
+# Verify a specific tag — exits non-zero if unsigned or signed by an unknown key.
+git verify-tag v0.5.9
+# Equivalent shorthand:
+git tag -v v0.5.9
+```
+
+A clean `gpg: Good signature from "<maintainer>"` line is the only acceptable result. `error: ... no signature found` (unsigned) or `Can't check signature: No public key` (unknown signer) means do not trust the tag.
+
 ## Reporting a Vulnerability
 
 If you find a vulnerability in `dexe-mcp` — whether in the calldata builders, the optional signer (`DEXE_PRIVATE_KEY`), IPFS upload paths, or the Hardhat bridge — please **do not** open a public GitHub issue.
