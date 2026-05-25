@@ -194,6 +194,32 @@ Subgraph URLs only work if a DeXe subgraph is deployed for that chain.
 
 ---
 
+## 6. Safe{Wallet} multisig signing (the `dexe_safe_*` tools)
+
+When the operator key is custodied in a Gnosis Safe, the `dexe_safe_*` tools
+**queue** a transaction in the Safe Transaction Service for owners to co-sign,
+instead of broadcasting from a single EOA. See [`SAFE.md`](./SAFE.md) for the
+full flow.
+
+| Var | When required | What it does |
+|-----|---------------|--------------|
+| `DEXE_PRIVATE_KEY` | to sign a proposal | The signing EOA. Must be one of the Safe's owners or the service rejects the proposal. |
+| `DEXE_SAFE_TX_SERVICE_URL` | chains without a hosted service, or self-hosted | Overrides the auto-resolved endpoint. Point it at the service base ending in `/api/v2`, e.g. `https://api.safe.global/tx-service/bnb/api/v2`. **Required for BSC testnet (97)** — no hosted Safe service exists there. |
+| `DEXE_SAFE_API_KEY` | live POST to `api.safe.global` | Bearer token for the hosted Safe Transaction Service. Not needed when `dryRun=true` or when `DEXE_SAFE_TX_SERVICE_URL` points at a service that doesn't require auth. |
+
+Endpoint resolution: with no override, `chainId` maps to
+`https://api.safe.global/tx-service/<shortname>/api/v2` (eth, bnb, matic, base,
+arb1, sep, …). `DEXE_SAFE_TX_SERVICE_URL` always wins when set.
+
+`dexe_get_config` reports the effective `signerMode`:
+
+- `readonly` — no `DEXE_PRIVATE_KEY`; tools return unsigned `TxPayload`s only.
+- `eoa` — key set, no Safe service; `dexe_tx_send` broadcasts directly.
+- `safe` — key set **and** `DEXE_SAFE_TX_SERVICE_URL` set; `dexe_safe_*` can
+  queue to the multisig.
+
+---
+
 ## 6. IPFS configuration
 
 ### Why a dedicated gateway is required

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Safe{Wallet} multisig signing (Track C)
+
+- **New `dexe_safe_*` tool family (+2, total 129 → 131; new "Safe multisig" group → 15 groups).** Adds a signer mode that **queues** a transaction in the [Safe Transaction Service](https://docs.safe.global/) for owners to co-sign and execute, instead of broadcasting it from a single EOA. Designed for clients who custody the DAO/treasury operator key in a Gnosis Safe.
+  - **`dexe_safe_propose_tx`** — takes a `TxPayload` (`to`/`value`/`data`/`operation`) as produced by any `dexe_*_build_*` tool, reads the Safe's next `nonce()` on-chain (unless supplied), computes the EIP-712 `safeTxHash`, signs it with `DEXE_PRIVATE_KEY` (which must be a Safe owner), and assembles the create-multisig-transaction body. **`dryRun` defaults to `true`** — returns the full signed payload and the resolved POST target without sending. `dryRun=false` POSTs to the service (api.safe.global requires `DEXE_SAFE_API_KEY`). *Live POST validation is deferred pending a test Safe; build + dry-run paths are verified.*
+  - **`dexe_safe_info`** — read-only: live Safe nonce / threshold / owners / singleton version, whether the configured signer is an owner, and which Safe Transaction Service endpoint this chain resolves to.
+- **`src/lib/ethersProvider.ts`** — new Safe ethers layer: `SAFE_ABI` + `readSafeState`, the `SafeTx` EIP-712 type set + `computeSafeTxHash`, and the `chainId → api.safe.global/tx-service/<shortname>/api/v2` endpoint resolver (override via `DEXE_SAFE_TX_SERVICE_URL`).
+- **`dexe_get_config`** now reports `signerMode` (`"readonly"` | `"eoa"` | `"safe"`) plus a `safe` block (service URL + API-key configured flags), so an agent can tell at session start whether writes broadcast directly or queue to a multisig.
+- **New env vars** — `DEXE_SAFE_TX_SERVICE_URL` (override / required for chains without a hosted service, e.g. BSC testnet) and `DEXE_SAFE_API_KEY` (Bearer token for api.safe.global). See [`docs/SAFE.md`](docs/SAFE.md) and [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md). Closes security-hardening roadmap C12.
+
 ### Supply-chain hardening
 
 - **npm provenance enabled.** New `.github/workflows/release.yml` triggered by `v*.*.*` tag push: runs typecheck + build + tests, verifies tag matches `package.json` version, then `npm publish --provenance --access public`. OIDC-signed attestation links every future tarball to the exact git commit and workflow run. Visible as a "Provenance" badge on npmjs.com. `publishConfig.provenance: true` is now baked into `package.json` so even manual `npm publish` (in an OIDC-enabled env) attaches an attestation. Requires repo secret `NPM_TOKEN`. Closes security-hardening roadmap A1.
