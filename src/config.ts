@@ -42,6 +42,12 @@ export interface DexeConfig {
   forkBlock?: number;
   /** Private key for tx signing. When set, `dexe_tx_send` can broadcast. */
   privateKey?: string;
+
+  /**
+   * B6 — destination allowlist for `dexe_tx_send`. Lowercased, checksummed-then-
+   * lowercased addresses. Undefined/empty = no restriction.
+   */
+  signerAllowlist?: string[];
 }
 
 /**
@@ -165,6 +171,23 @@ export async function loadConfig(): Promise<DexeConfig> {
     process.stderr.write(`[dexe-mcp] signing enabled for ${addr}\n`);
   }
 
+  // ---- signer broadcast guard B6 (destination allowlist) -----------------
+  // Opt-in; only meaningful in signer mode. Parses to undefined when unset,
+  // leaving the default posture unchanged.
+  let signerAllowlist: string[] | undefined;
+  const allowlistRaw = process.env.DEXE_SIGNER_ALLOWLIST?.trim();
+  if (allowlistRaw) {
+    const { isAddress, getAddress } = await import("ethers");
+    const normalized: string[] = [];
+    for (const entry of allowlistRaw.split(",").map(s => s.trim()).filter(Boolean)) {
+      if (!isAddress(entry)) {
+        fatal(`DEXE_SIGNER_ALLOWLIST contains an invalid address: ${entry}`);
+      }
+      normalized.push(getAddress(entry).toLowerCase());
+    }
+    if (normalized.length > 0) signerAllowlist = normalized;
+  }
+
   let forkBlock: number | undefined;
   if (process.env.DEXE_FORK_BLOCK) {
     const n = Number(process.env.DEXE_FORK_BLOCK);
@@ -189,6 +212,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     subgraphInteractionsUrl,
     forkBlock,
     privateKey,
+    signerAllowlist,
   }) as DexeConfig;
 }
 
