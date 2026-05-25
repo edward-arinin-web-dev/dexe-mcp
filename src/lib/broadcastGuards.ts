@@ -8,6 +8,7 @@ import type { DexeConfig } from "../config.js";
  * broadcast is attempted.
  *
  *   B6  destination allowlist  — `DEXE_SIGNER_ALLOWLIST`
+ *   B7  value cap              — `DEXE_SIGNER_MAX_VALUE_WEI`
  */
 
 /** Transaction about to be broadcast. `from`/`chainId` come from the resolved signer. */
@@ -43,6 +44,18 @@ export async function runBroadcastGuards(
       throw new BroadcastGuardError(
         "B6",
         `Destination ${tx.to} is not in DEXE_SIGNER_ALLOWLIST (${cfg.signerAllowlist.length} allowed). ` +
+          `Refusing to broadcast.`,
+      );
+    }
+  }
+
+  // ---- B7: value cap ----------------------------------------------------
+  if (cfg.signerMaxValueWei !== undefined) {
+    const v = BigInt(tx.value);
+    if (v > cfg.signerMaxValueWei) {
+      throw new BroadcastGuardError(
+        "B7",
+        `Value ${v.toString()} wei exceeds DEXE_SIGNER_MAX_VALUE_WEI cap of ${cfg.signerMaxValueWei.toString()} wei. ` +
           `Refusing to broadcast.`,
       );
     }
