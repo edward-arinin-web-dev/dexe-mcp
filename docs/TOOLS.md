@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents. Total tools: **126**.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents. Total tools: **131**.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Three composite tools (`dexe_tx_send`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -21,8 +21,9 @@ Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_propo
 11. [Composite signing flows](#11-composite-signing-flows)
 12. [Merkle utility](#12-merkle-utility)
 13. [OTC composites](#13-otc-composites)
-14. [Simulator](#14-simulator)
-15. [Multi-DAO inbox + forecast](#15-multi-dao-inbox--forecast)
+14. [Safe multisig](#14-safe-multisig)
+15. [Simulator](#15-simulator)
+16. [Multi-DAO inbox + forecast](#16-multi-dao-inbox--forecast)
 
 Each row links to the runtime schema. Args, return shapes, and zod input validators live in `src/tools/*.ts` — call the tool with no args (or via your MCP client) to see the JSON schema.
 
@@ -265,7 +266,18 @@ Source: `src/tools/otc.ts`. Composites that orchestrate `proposal_create` + `Tok
 
 ---
 
-## 14. Simulator
+## 14. Safe multisig
+
+Source: `src/tools/safe.ts`, `src/lib/ethersProvider.ts`. Alternative signer posture: instead of broadcasting from a hot EOA, **queue** the tx in the [Safe Transaction Service](https://docs.safe.global/) for the Safe's owners to co-sign and execute. Use when the DAO/treasury operator key is custodied in a Gnosis Safe rather than a bare `DEXE_PRIVATE_KEY`. See [`docs/SAFE.md`](./SAFE.md).
+
+| Tool | What it does | Required env |
+|------|--------------|--------------|
+| `dexe_safe_info` | Read-only: live Safe `nonce` / `threshold` / `owners` / singleton version, whether the configured signer is an owner, and which Safe Transaction Service endpoint this chain resolves to. | `DEXE_RPC_URL` |
+| `dexe_safe_propose_tx` | Takes a `TxPayload` (`to`/`value`/`data`/`operation`), reads the Safe's next `nonce()` (unless supplied), computes the EIP-712 `safeTxHash`, signs it with `DEXE_PRIVATE_KEY` (which must be a Safe owner), and assembles the create-multisig-transaction body. **`dryRun` defaults to `true`** — returns the signed payload + resolved POST target without sending; `dryRun=false` POSTs to the service. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL`; `DEXE_SAFE_API_KEY` for api.safe.global; `DEXE_SAFE_TX_SERVICE_URL` for chains without a hosted service |
+
+---
+
+## 15. Simulator
 
 Source: `src/tools/simulate.ts`. `eth_call`-based preflight gate. Catches reverts before broadcast without spending real money. See [`docs/SIMULATOR.md`](./SIMULATOR.md).
 
@@ -277,7 +289,7 @@ Source: `src/tools/simulate.ts`. `eth_call`-based preflight gate. Catches revert
 
 ---
 
-## 15. Multi-DAO inbox + forecast
+## 16. Multi-DAO inbox + forecast
 
 Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my attention" tools. See [`docs/INBOX.md`](./INBOX.md).
 
