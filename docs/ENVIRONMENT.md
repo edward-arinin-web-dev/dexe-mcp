@@ -158,7 +158,7 @@ default posture. They run in order; the first failure rejects the broadcast
 
 | Guard | Env var | Effect |
 |-------|---------|--------|
-| **B6** destination allowlist | `DEXE_SIGNER_ALLOWLIST` | Rejects any `to` not on the comma-separated list. Confines the signer to known contracts (e.g. one GovPool + UserKeeper). |
+| **B6** destination allowlist | `DEXE_SIGNER_ALLOWLIST` | Rejects any `to` not on the comma-separated list. Confines the signer to known contracts. **List the GovPool _and_ its governance token** — deposit-requiring flows broadcast an `ERC20.approve` whose `to` is the **token** (UserKeeper is only the `spender` argument, never a `to`), so an allowlist missing the token rejects the approve step. |
 | **B7** value cap | `DEXE_SIGNER_MAX_VALUE_WEI` | Rejects `value` above the cap. Bounds native-token outflow per tx. |
 | **B9** auto-simulation | _(always on in signer mode)_ | `eth_call` preflight against live state; aborts with the decoded revert reason instead of paying gas for a doomed tx. |
 | **B10** rate limit | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | Rejects once N broadcasts have landed in the trailing 60s. Caps drain rate under a runaway loop. |
@@ -166,7 +166,7 @@ default posture. They run in order; the first failure rejects the broadcast
 Recommended signer-mode block for a single-DAO operator:
 
 ```jsonc
-"DEXE_SIGNER_ALLOWLIST": "0x<govPool>,0x<userKeeper>",
+"DEXE_SIGNER_ALLOWLIST": "0x<govPool>,0x<govToken>",
 "DEXE_SIGNER_MAX_VALUE_WEI": "100000000000000000",  // 0.1 BNB
 "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN": "10"
 ```

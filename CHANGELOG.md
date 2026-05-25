@@ -9,9 +9,11 @@
 the shared `sendOrCollect` loop) now run `runBroadcastGuards()` (new
 `src/lib/broadcastGuards.ts`) before `wallet.sendTransaction()`. Four opt-in
 checks, chained in order; each is a no-op unless its env var is set, so calldata
-mode and the default signer posture are unchanged. A failed guard returns
-`{ status: "rejected", guard, reason }` with `isError: true` and **no gas spent**.
-Closes security-hardening roadmap B6/B7/B9/B10.
+mode and the default signer posture are unchanged. In every case the broadcast is
+aborted **before any gas is spent** and the result carries `isError: true`.
+`dexe_tx_send` returns the structured `{ status: "rejected", guard, reason }`
+shape; composite flows abort with the guard's reason as error text. Closes
+security-hardening roadmap B6/B7/B9/B10.
 
 - **B6 — destination allowlist (`DEXE_SIGNER_ALLOWLIST`).** Comma-separated `to`
   addresses; broadcasts to anything off-list are rejected. Validated and

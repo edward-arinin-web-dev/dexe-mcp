@@ -178,7 +178,7 @@ Runtime (`package.json` → `dependencies`):
 - [ ] Підписувати транзакції лише через Safe Multisig або Ledger.
 - [ ] Для опційного signer-режиму — використовувати окремий hot-wallet з обмеженим балансом і моніторинг.
 - [ ] У signer-режимі увімкнути broadcast-guards (захист `dexe_tx_send`):
-  - [ ] `DEXE_SIGNER_ALLOWLIST` — список дозволених адрес `to` (B6); напр. лише GovPool + UserKeeper свого DAO.
+  - [ ] `DEXE_SIGNER_ALLOWLIST` — список дозволених адрес `to` (B6); напр. GovPool + governance-токен свого DAO (UserKeeper — це аргумент `spender` в `approve`, а не `to`, тому в список не потрібен).
   - [ ] `DEXE_SIGNER_MAX_VALUE_WEI` — стеля на `value` однієї транзакції в wei (B7).
   - [ ] `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` — ліміт broadcast-ів за хвилину (B10).
   - [ ] B9 (eth_call перед відправкою) працює автоматично в signer-режимі — окремого налаштування не потребує.

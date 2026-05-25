@@ -1,7 +1,8 @@
 name: Release
 
 # Triggered by pushing a semver tag (e.g. `v0.5.9`). The job verifies the tag
-# matches package.json, runs typecheck/build/tests, then publishes to npm with
+# matches package.json, runs typecheck/build (+ tests when present on the branch;
+# currently a no-op via --passWithNoTests), then publishes to npm with
 # a provenance attestation linking the tarball to this commit + workflow run.
 #
 # Requirements:
