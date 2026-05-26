@@ -5,6 +5,7 @@ import {
   GOVERNOR_OZ_READ_ABI,
   projectVoteImpact,
   readProposal,
+  readQuorum,
   readVotingPower,
   type VoteTally,
 } from "../../src/governor/adapter.js";
@@ -142,6 +143,43 @@ describe("projectVoteImpact — quorum semantics branch by family", () => {
     expect(r.projected.against).toBe(999n);
     expect(r.quorumMet).toBe(false); // bravo: for(0) < 1
     expect(r.willPass).toBe(false);
+  });
+});
+
+describe("readQuorum — family + quorumSource branching", () => {
+  it("Bravo (UNI) → fixed quorumVotes(), block ignored", async () => {
+    const c = stubContract({ quorumVotes: () => 40_000_000n });
+    const r = await readQuorum(c, uniswap, 99);
+    expect(r.method).toBe("quorumVotes()");
+    expect(r.quorum).toBe(40_000_000n);
+  });
+
+  it("OP (quorumSource=votable-supply) → votableSupply(block) * num/den, NOT quorum()", async () => {
+    expect(optimism.quorumSource).toBe("votable-supply");
+    let calledBlock = -1;
+    const c = stubContract({
+      votableSupply: (blk: number) => {
+        calledBlock = blk;
+        return 1000n;
+      },
+      // quorum() must NOT be called for OP — it returns 0 (keyed by proposalId).
+      quorum: () => {
+        throw new Error("quorum() should not be called for votable-supply governors");
+      },
+    });
+    const r = await readQuorum(c, optimism, 152_000_000);
+    expect(calledBlock).toBe(152_000_000);
+    expect(r.method).toBe("votableSupply(blockNumber)*ratio");
+    // optimism config: quorumNumerator 30 / quorumDenominator 100 → 1000 * 30/100.
+    expect(r.quorum).toBe(300n);
+  });
+
+  it("vanilla OZ (no quorumSource) → quorum(blockNumber)", async () => {
+    const vanilla = { ...optimism, quorumSource: undefined };
+    const c = stubContract({ quorum: (blk: number) => (blk === 500 ? 12345n : 0n) });
+    const r = await readQuorum(c, vanilla, 500);
+    expect(r.method).toBe("quorum(blockNumber)");
+    expect(r.quorum).toBe(12345n);
   });
 });
 

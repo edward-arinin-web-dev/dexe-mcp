@@ -28,6 +28,13 @@ export interface GovernorConfig {
     quorumDenominator: number;
   };
   executor: { type: "timelock" | "governor-self"; id?: string | null };
+  /**
+   * How `readQuorum` derives quorum for OZ-family governors. Omitted / "governor"
+   * → vanilla `quorum(blockNumber)`. "votable-supply" → OP-style governors whose
+   * `quorum(uint256)` is keyed by proposalId; quorum is computed as
+   * `votableSupply(block) * quorumNumerator / quorumDenominator`. Ignored for Bravo.
+   */
+  quorumSource?: "governor" | "votable-supply";
   explorer?: { etherscanBase?: string; tallyOrgSlug?: string };
   notes?: string;
 }
@@ -88,6 +95,10 @@ export function validateGovernorConfig(raw: unknown, source: string): GovernorCo
     throw new Error(`${source}: executor.type must be timelock|governor-self`);
   }
 
+  if (o.quorumSource !== undefined && !["governor", "votable-supply"].includes(o.quorumSource)) {
+    throw new Error(`${source}: quorumSource must be governor|votable-supply`);
+  }
+
   return {
     id: o.id,
     chainId: o.chainId,
@@ -103,6 +114,7 @@ export function validateGovernorConfig(raw: unknown, source: string): GovernorCo
       quorumDenominator: typeof vp.quorumDenominator === "number" ? vp.quorumDenominator : 100,
     },
     executor: { type: ex.type, id: ex.id ?? null },
+    quorumSource: o.quorumSource,
     explorer: o.explorer,
     notes: o.notes,
   };

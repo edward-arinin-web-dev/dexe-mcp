@@ -152,7 +152,7 @@ function registerGetQuorum(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read Governor quorum threshold at a snapshot block",
       description:
-        "Calls Governor.quorum(blockNumber). When blockNumber is omitted, uses the latest block. Also returns the config-derived quorumNumerator/quorumDenominator for cross-check.",
+        "Returns the quorum threshold at a snapshot block. Bravo (UNI/COMP) → fixed quorumVotes(); vanilla OZ → quorum(blockNumber); OP-style governors (quorumSource=votable-supply, whose quorum() is keyed by proposalId) → votableSupply(block) * quorumNumerator/quorumDenominator. When blockNumber is omitted, uses the latest block. The `method` field reports which path was used; `configured` echoes the numerator/denominator for cross-check.",
       inputSchema: {
         governor: governorIdSchema,
         blockNumber: z

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`dexe_gov_get_quorum` returned 0 for Optimism.** OP's modified Governor keys
+  `quorum(uint256)` by *proposalId* (via its out-of-scope ProposalTypesConfigurator),
+  not by block number, so the vanilla OZ `quorum(blockNumber)` call always returned
+  0. Added a `quorumSource` config field; OP is now `"votable-supply"`, and
+  `readQuorum` derives the canonical quorum as
+  `votableSupply(block) * quorumNumerator / quorumDenominator` (verified live:
+  ~22.9M OP = 76.3M votable supply × 30%). Bravo (`quorumVotes()`) and vanilla OZ
+  (`quorum(blockNumber)`) paths are unchanged; the `method` field reports which was
+  used. Found via live verification of the governor adapter against mainnet/OP RPCs.
+
 ## 0.7.0 — 2026-05-26
 
 ### WalletConnect signer mode — Phase B (C12)
