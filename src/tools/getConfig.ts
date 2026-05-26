@@ -46,12 +46,17 @@ export function registerGetConfigTool(server: McpServer, config: DexeConfig, sig
       //   - "safe":     key + DEXE_SAFE_TX_SERVICE_URL → dexe_safe_* can queue txs
       //                 to the Safe multisig instead of broadcasting
       //   - "eoa":      key set, no Safe service → dexe_tx_send broadcasts directly
+      //   - "walletconnect": no key, but DEXE_WALLETCONNECT_PROJECT_ID set →
+      //                 txs are forwarded to the operator's phone for approval
+      //                 (Phase B). WC wins only when no hot key is present.
       const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined;
-      const signerMode: "readonly" | "eoa" | "safe" = !signer.hasSigner()
-        ? "readonly"
-        : safeServiceUrl
+      const signerMode: "readonly" | "eoa" | "safe" | "walletconnect" = signer.hasSigner()
+        ? safeServiceUrl
           ? "safe"
-          : "eoa";
+          : "eoa"
+        : config.walletConnectProjectId
+          ? "walletconnect"
+          : "readonly";
 
       const result = {
         defaultChainId: config.defaultChainId,
@@ -63,6 +68,11 @@ export function registerGetConfigTool(server: McpServer, config: DexeConfig, sig
           txServiceConfigured: !!safeServiceUrl,
           txServiceUrl: safeServiceUrl ?? null,
           apiKeyConfigured: !!(process.env.DEXE_SAFE_API_KEY?.trim()),
+        },
+        walletConnect: {
+          projectIdConfigured: !!config.walletConnectProjectId,
+          relayUrl: config.walletConnectRelayUrl ?? null,
+          approvalTimeoutMs: config.walletConnectApprovalTimeoutMs ?? null,
         },
         ipfs: {
           pinataConfigured: !!config.pinataJwt,

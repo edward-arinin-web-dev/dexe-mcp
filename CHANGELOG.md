@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.7.0 — 2026-05-26
+
+### WalletConnect signer mode — Phase B (C12)
+
+Live relay session on top of Phase A's config. WalletConnect is now a working
+keyless signer: `dexe_tx_send` forwards each tx to the operator's phone wallet,
+which **signs and broadcasts** — the private key never enters the MCP process.
+
+- **Dependency.** Added `@walletconnect/universal-provider` (^2.17.0). **Lazily
+  imported** inside `src/lib/walletconnect.ts` — read-only / EOA / Safe
+  deployments that never open a WC session pay no startup cost, and a missing
+  install surfaces a clear error only on `dexe_wc_connect`.
+- **`WalletConnectManager` (`src/lib/walletconnect.ts`).** Singleton holding the
+  `UniversalProvider` + session: `connect` (returns the pairing URI, approval
+  resolves in the background), `disconnect`, `sendTransaction` (per-tx approval
+  timeout from `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`), CAIP-10 account parsing.
+- **New tools `dexe_wc_connect` + `dexe_wc_disconnect`.** `dexe_wc_status` now
+  reports live session state (`connected`, `connecting`, `account`, `chainId`,
+  `topic`, `peerName`, `expiry`, `lastError`). +2 tools (150 → **152**); still
+  19 groups.
+- **`dexe_tx_send`.** Branches to the WalletConnect path when no hot key is set;
+  the wallet returns the tx hash and `waitConfirmations` is honoured via a
+  read-only RPC provider. Guards B6/B7/B9/B10 still run before forwarding.
+- **`dexe_tx_status`.** Reworked to a read-only `JsonRpcProvider` so it no longer
+  requires a signer — works in `walletconnect` and `readonly` modes.
+- **Scope.** Only `dexe_tx_send` / `dexe_tx_status` route through WalletConnect;
+  composite broadcast flows (`flow.ts` / OTC `sendOrCollect`) still require a hot
+  key (per-step phone approval on dependent sequences is impractical) — deferred.
+- **CJS/ESM interop fix.** `getProvider()` assumed `mod.default.init`, which threw
+  `UniversalProvider.init is not a function` on the first live `dexe_wc_connect`
+  (the published package is CJS; a dynamic import nests the class under varying
+  keys). Now probes `mod.UniversalProvider` → `mod.default.UniversalProvider` →
+  `mod.default.default` → `mod.default`, with a clear error if none exposes
+  `init()`.
+- **Tests.** `tests/walletconnect.test.ts` (8) — config gating, CAIP-10 parsing,
+  no-session guards, and a regression guard asserting the real package resolves to
+  a constructor with `init()`.
+- **Gate cleared:** live phone-wallet round-trip on BSC testnet (chain 97) green —
+  connect → QR → MetaMask mobile approval → `dexe_tx_send` 0-value self-send →
+  status 1 → `dexe_wc_disconnect`.
+
+### WalletConnect signer mode — Phase A (C12)
+
+Plumbing for a fourth `signerMode`: `walletconnect`. Broadcast convenience
+**without a hot key** — every tx is approved on the operator's phone wallet and
+the private key never enters the MCP process. Closes the last security-hardening
+roadmap item (C12). Phase A is **config-only**: no relay connection, no new
+dependency (`@walletconnect/universal-provider` lands in Phase B / v0.7.0), so
+the supply-chain surface is unchanged.
+
+- **Config (`src/config.ts`).** Three new env vars parsed into `DexeConfig`:
+  `DEXE_WALLETCONNECT_PROJECT_ID`, `DEXE_WALLETCONNECT_RELAY_URL` (default
+  `wss://relay.walletconnect.com`), `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`
+  (default `120000`, validated `> 0`).
+- **`dexe_get_config`.** `signerMode` union extended to
+  `readonly | eoa | safe | walletconnect`. Precedence: `safe` → `eoa` →
+  `walletconnect` → `readonly` (WalletConnect wins only when no `DEXE_PRIVATE_KEY`
+  is present). New `walletConnect` report block (`projectIdConfigured`,
+  `relayUrl`, `approvalTimeoutMs`).
+- **New tool `dexe_wc_status`** (`src/tools/walletconnectStatus.ts`). Read-only;
+  reports the resolved WalletConnect config + whether `walletconnect` is the
+  active mode. Opens no relay connection in Phase A. +1 tool (149 → 150), new
+  "WalletConnect" group (18 → 19).
+- **Docs.** `docs/WALLETCONNECT.md` (spec + phased plan), `docs/ENVIRONMENT.md`
+  (3 vars), `SECURITY.md` (threat-model note), README + `docs/TOOLS.md` counts.
+
 ## 0.6.0 — 2026-05-26
 
 ### `gov` track

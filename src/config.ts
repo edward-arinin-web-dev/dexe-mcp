@@ -52,6 +52,17 @@ export interface DexeConfig {
   signerMaxValueWei?: bigint;
   /** B10 — max broadcasts per rolling minute. Undefined = no limit. */
   signerMaxBroadcastsPerMin?: number;
+
+  /**
+   * C12 — WalletConnect project id (Reown cloud.reown.com). When set and
+   * `privateKey` is absent, `signerMode` resolves to `walletconnect`: broadcast
+   * convenience without a hot key (every tx approved on the operator's phone).
+   */
+  walletConnectProjectId?: string;
+  /** C12 — relay websocket override. Default `wss://relay.walletconnect.com`. */
+  walletConnectRelayUrl?: string;
+  /** C12 — per-tx phone-approval timeout in ms. Default 120000. */
+  walletConnectApprovalTimeoutMs?: number;
 }
 
 /**
@@ -232,6 +243,26 @@ export async function loadConfig(): Promise<DexeConfig> {
     signerMaxBroadcastsPerMin = n;
   }
 
+  // ---- C12 WalletConnect signer mode ------------------------------------
+  // Phase A: parse + expose config only. No relay connection, no dependency.
+  const walletConnectProjectId = process.env.DEXE_WALLETCONNECT_PROJECT_ID?.trim() || undefined;
+  const walletConnectRelayUrl =
+    process.env.DEXE_WALLETCONNECT_RELAY_URL?.trim() || "wss://relay.walletconnect.com";
+  let walletConnectApprovalTimeoutMs = 120000;
+  const wcTimeoutRaw = process.env.DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS?.trim();
+  if (wcTimeoutRaw) {
+    const n = Number(wcTimeoutRaw);
+    if (!Number.isInteger(n) || n <= 0) {
+      fatal(`DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS must be a positive integer (ms), got: ${wcTimeoutRaw}`);
+    }
+    walletConnectApprovalTimeoutMs = n;
+  }
+  if (walletConnectProjectId) {
+    process.stderr.write(
+      `[dexe-mcp] WalletConnect project id configured${privateKey ? " (inactive — DEXE_PRIVATE_KEY takes precedence)" : ""}\n`,
+    );
+  }
+
   let forkBlock: number | undefined;
   if (process.env.DEXE_FORK_BLOCK) {
     const n = Number(process.env.DEXE_FORK_BLOCK);
@@ -259,6 +290,9 @@ export async function loadConfig(): Promise<DexeConfig> {
     signerAllowlist,
     signerMaxValueWei,
     signerMaxBroadcastsPerMin,
+    walletConnectProjectId,
+    walletConnectRelayUrl,
+    walletConnectApprovalTimeoutMs,
   }) as DexeConfig;
 }
 
