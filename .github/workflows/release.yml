@@ -53,6 +53,11 @@ jobs:
 
       - name: Verify tag is signed by maintainer
         run: |
+          # actions/checkout lands the tag as a *lightweight* ref (peeled to the
+          # commit), so `git verify-tag` would fail with "cannot verify a non-tag
+          # object of type commit". Force-fetch the annotated tag object — with
+          # its embedded GPG signature — back into refs/tags before verifying.
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           # `git verify-tag` exits non-zero when the tag is unsigned, the
           # signature is invalid, or the signing key is unknown to the keyring.
           git verify-tag "$GITHUB_REF_NAME"
