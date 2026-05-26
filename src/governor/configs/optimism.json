@@ -20,9 +20,10 @@
     "type": "governor-self",
     "id": null
   },
+  "quorumSource": "votable-supply",
   "explorer": {
     "etherscanBase": "https://optimistic.etherscan.io",
     "tallyOrgSlug": "optimism"
   },
-  "notes": "Optimism's modified OZ Governor. ERC20Votes (OP token implements OZ-style getPastVotes). Custom ProposalTypesConfigurator is OUT OF SCOPE (research/06-execution-plan.md §6). Treated as vanilla oz-v4 surface for read+build tools."
+  "notes": "Optimism's modified OZ Governor. ERC20Votes (OP token implements OZ-style getPastVotes). Custom ProposalTypesConfigurator is OUT OF SCOPE (research/06-execution-plan.md §6); its quorum(uint256) is keyed by proposalId and returns 0 for a bare block number, so quorumSource is 'votable-supply' — readQuorum computes votableSupply(block) * 30/100. Treated as vanilla oz-v4 surface otherwise."
 }

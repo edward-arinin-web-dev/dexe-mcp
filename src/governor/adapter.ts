@@ -22,6 +22,10 @@ export const GOVERNOR_OZ_READ_ABI = [
   "function proposalVotes(uint256 proposalId) view returns (uint256 againstVotes, uint256 forVotes, uint256 abstainVotes)",
   "function proposalThreshold() view returns (uint256)",
   "function quorum(uint256 blockNumber) view returns (uint256)",
+  // OP-style governors derive quorum from the votable supply at the snapshot
+  // (see readQuorum + the `votable-supply` quorumSource). Harmless on vanilla OZ
+  // governors that lack it — only called when quorumSource is set.
+  "function votableSupply(uint256 blockNumber) view returns (uint256)",
   "function votingDelay() view returns (uint256)",
   "function votingPeriod() view returns (uint256)",
   "function hasVoted(uint256 proposalId, address account) view returns (bool)",
@@ -170,19 +174,35 @@ export async function readProposal(
   };
 }
 
+export type QuorumMethod =
+  | "quorum(blockNumber)"
+  | "quorumVotes()"
+  | "votableSupply(blockNumber)*ratio";
+
 /**
- * Returns the active quorum value. For OZ v4+ this is `quorum(blockNumber)`;
- * for Bravo it's the fixed `quorumVotes()` (blockNumber is ignored, surfaced
- * as `latest` in the response).
+ * Returns the active quorum value. Three families:
+ * - **Bravo** (UNI, COMP): fixed `quorumVotes()` (blockNumber ignored).
+ * - **Vanilla OZ** (`quorumSource` unset / `"governor"`): `quorum(blockNumber)`.
+ * - **OP-style** (`quorumSource: "votable-supply"`): the governor's own
+ *   `quorum(uint256)` is keyed by *proposalId* (via the out-of-scope
+ *   ProposalTypesConfigurator) and returns 0 for a bare block number, so we
+ *   derive the canonical quorum the way the governor does internally —
+ *   `votableSupply(snapshot) * quorumNumerator / quorumDenominator`.
  */
 export async function readQuorum(
   c: Contract,
   cfg: GovernorConfig,
   blockNumber: number,
-): Promise<{ quorum: bigint; method: "quorum(blockNumber)" | "quorumVotes()" }> {
+): Promise<{ quorum: bigint; method: QuorumMethod }> {
   if (isBravo(cfg)) {
     const q: bigint = await c.getFunction("quorumVotes").staticCall();
     return { quorum: q, method: "quorumVotes()" };
+  }
+  if (cfg.quorumSource === "votable-supply") {
+    const vs: bigint = await c.getFunction("votableSupply").staticCall(blockNumber);
+    const num = BigInt(cfg.votingParams.quorumNumerator);
+    const den = BigInt(cfg.votingParams.quorumDenominator);
+    return { quorum: (vs * num) / den, method: "votableSupply(blockNumber)*ratio" };
   }
   const q: bigint = await c.getFunction("quorum").staticCall(blockNumber);
   return { quorum: q, method: "quorum(blockNumber)" };
