@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-05-26
 
-### WalletConnect signer mode — Phase B (C12) → v0.7.0
+### WalletConnect signer mode — Phase B (C12)
 
 Live relay session on top of Phase A's config. WalletConnect is now a working
 keyless signer: `dexe_tx_send` forwards each tx to the operator's phone wallet,
@@ -28,10 +28,18 @@ which **signs and broadcasts** — the private key never enters the MCP process.
 - **Scope.** Only `dexe_tx_send` / `dexe_tx_status` route through WalletConnect;
   composite broadcast flows (`flow.ts` / OTC `sendOrCollect`) still require a hot
   key (per-step phone approval on dependent sequences is impractical) — deferred.
-- **Tests.** `tests/walletconnect.test.ts` (7) — config gating, CAIP-10 parsing,
-  no-session guards.
-- **Remaining gate before tag/publish:** one live phone-wallet round-trip on BSC
-  testnet (human action).
+- **CJS/ESM interop fix.** `getProvider()` assumed `mod.default.init`, which threw
+  `UniversalProvider.init is not a function` on the first live `dexe_wc_connect`
+  (the published package is CJS; a dynamic import nests the class under varying
+  keys). Now probes `mod.UniversalProvider` → `mod.default.UniversalProvider` →
+  `mod.default.default` → `mod.default`, with a clear error if none exposes
+  `init()`.
+- **Tests.** `tests/walletconnect.test.ts` (8) — config gating, CAIP-10 parsing,
+  no-session guards, and a regression guard asserting the real package resolves to
+  a constructor with `init()`.
+- **Gate cleared:** live phone-wallet round-trip on BSC testnet (chain 97) green —
+  connect → QR → MetaMask mobile approval → `dexe_tx_send` 0-value self-send →
+  status 1 → `dexe_wc_disconnect`.
 
 ### WalletConnect signer mode — Phase A (C12)
 
