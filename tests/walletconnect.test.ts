@@ -53,6 +53,25 @@ describe("WalletConnectManager — config gating", () => {
   });
 });
 
+describe("@walletconnect/universal-provider — export shape", () => {
+  // Regression guard for the CJS/ESM interop bug fixed 2026-05-26: the published
+  // package is CJS, so a dynamic import nests the class under one of several keys.
+  // getProvider() probes them in order; this asserts at least one still resolves
+  // to a constructor exposing `.init`, so a future package bump can't silently
+  // reintroduce `UniversalProvider.init is not a function` at connect time.
+  it("resolves UniversalProvider with an init() via one of the known shapes", async () => {
+    const mod = (await import("@walletconnect/universal-provider")) as Record<string, unknown>;
+    const def = mod.default as Record<string, unknown> | undefined;
+    const candidate =
+      (mod.UniversalProvider as { init?: unknown } | undefined) ??
+      (def?.UniversalProvider as { init?: unknown } | undefined) ??
+      (def?.default as { init?: unknown } | undefined) ??
+      (def as { init?: unknown } | undefined);
+    expect(candidate).toBeTruthy();
+    expect(typeof candidate?.init).toBe("function");
+  });
+});
+
 describe("WalletConnectManager — CAIP-10 account parsing", () => {
   function withSession(): WalletConnectManager {
     const wc = new WalletConnectManager(makeConfig({ walletConnectProjectId: "abc" }));

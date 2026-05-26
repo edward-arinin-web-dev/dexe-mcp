@@ -108,7 +108,8 @@ export class WalletConnectManager {
         "DEXE_WALLETCONNECT_PROJECT_ID not set. Get a free project id at https://cloud.reown.com to enable WalletConnect mode.",
       );
     }
-    let mod: { default: { init(opts: unknown): Promise<UniversalProviderLike> } };
+    type UpCtor = { init(opts: unknown): Promise<UniversalProviderLike> };
+    let mod: Record<string, unknown>;
     try {
       mod = (await import("@walletconnect/universal-provider")) as never;
     } catch {
@@ -116,7 +117,21 @@ export class WalletConnectManager {
         "@walletconnect/universal-provider is not installed. Run `npm install @walletconnect/universal-provider` in the MCP server directory to enable WalletConnect mode.",
       );
     }
-    const UniversalProvider = mod.default;
+    // ESM/CJS interop: the published package is CJS, so a dynamic import nests the
+    // class under varying keys depending on the loader. Probe the known shapes:
+    //   mod.UniversalProvider | mod.default.UniversalProvider | mod.default.default | mod.default
+    const def = mod.default as Record<string, unknown> | undefined;
+    const candidate =
+      (mod.UniversalProvider as UpCtor | undefined) ??
+      (def?.UniversalProvider as UpCtor | undefined) ??
+      (def?.default as UpCtor | undefined) ??
+      (def as UpCtor | undefined);
+    if (!candidate || typeof candidate.init !== "function") {
+      throw new Error(
+        "@walletconnect/universal-provider loaded but UniversalProvider.init was not found (unexpected module shape).",
+      );
+    }
+    const UniversalProvider = candidate;
     const provider = await UniversalProvider.init({
       projectId: this.config.walletConnectProjectId,
       relayUrl: this.config.walletConnectRelayUrl,
