@@ -25,6 +25,7 @@ import { registerGetConfigTool } from "./getConfig.js";
 import { registerFlowTools } from "./flow.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcTools } from "./otc.js";
+import { registerSafeTools } from "./safe.js";
 import { registerSimulateTools } from "./simulate.js";
 import { registerInboxTools } from "./inbox.js";
 import { registerPredictTools } from "./predict.js";
@@ -67,6 +68,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerGetConfigTool(server, config, signer);
   registerFlowTools(server, ctx, signer);
   registerOtcTools(server, ctx, signer);
+  registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
 
   // External OpenZeppelin Governor surface (research/06-execution-plan.md).

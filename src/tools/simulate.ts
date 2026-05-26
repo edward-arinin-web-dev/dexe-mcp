@@ -113,6 +113,13 @@ interface SimCalldataResult {
   revertReason?: string;
   returnData?: string;
   gasEstimate?: string;
+  /**
+   * True when the eth_call failed for a transport/RPC reason (timeout, 429,
+   * node hiccup) rather than a genuine contract revert. Callers that gate on
+   * `!success` (e.g. the B9 broadcast guard) must NOT treat a network error as
+   * a revert — the contract was never evaluated.
+   */
+  networkError?: boolean;
 }
 
 async function simulateCalldata(
@@ -139,6 +146,13 @@ async function simulateCalldata(
     const decoded = decodeRevert(e);
     result.revertReason = decoded.revertReason;
     if (decoded.returnData) result.returnData = decoded.returnData;
+    // A genuine contract revert surfaces as ethers `CALL_EXCEPTION` or carries
+    // decodable return data. Anything else (TIMEOUT / NETWORK_ERROR / SERVER_ERROR
+    // 429/5xx / connection reset) is a transport failure — the call never ran, so
+    // it must not be reported to callers as a revert.
+    const code = (e as { code?: string })?.code;
+    const isRevert = code === "CALL_EXCEPTION" || decoded.returnData !== undefined;
+    if (!isRevert) result.networkError = true;
     return result;
   }
 

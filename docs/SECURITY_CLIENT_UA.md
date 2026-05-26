@@ -126,6 +126,7 @@ Runtime (`package.json` → `dependencies`):
 - **npm provenance (з `v0.5.9`+).** Кожен реліз публікується через GitHub Actions (`.github/workflows/release.yml`) з прапором `npm publish --provenance`. Sigstore-підписана attestation прив'язує tarball до конкретного git-коміту і workflow-ран. На сторінці пакета на npmjs.com відображається бейдж "Provenance". Клієнт може верифікувати через `npm audit signatures` або `npm view dexe-mcp dist.signatures`.
 - **OSSF Scorecard аудит** — щотижня + при кожному пуші у `main` через `.github/workflows/scorecard.yml`. Перевіряє branch protection, signed releases, pinned dependencies, token permissions, dependency-update tool, packaging, SAST, code review та ще ~10 категорій. Публічний score на `https://api.securityscorecards.dev/projects/github.com/edward-arinin-web-dev/dexe-mcp`. SARIF-результати у GitHub code-scanning.
 - **Dependency Review на PR.** Кожен pull request, що змінює `package.json` / `package-lock.json`, автоматично діффиться проти GitHub Advisory Database. PR падає якщо додано залежність із `high`/`critical` CVE, або з GPL/AGPL ліцензією. Унеможливлює мерж уразливих deps.
+- **CodeQL SAST.** GitHub-native статичний аналіз з query-pack `security-extended`. Сканує JS/TS-вихідник на prototype pollution, command injection, ReDoS, небезпечну десеріалізацію, path traversal, та інші CWE-патерни. Запуск: кожен PR/push у main + щотижня. Знахідки у вкладці Security репозиторію.
 - **`overrides` у `package.json`** примусово піднімають уразливі transitive-залежності: `fast-uri >=3.1.2`, `hono >=4.12.18`, `ip-address >=10.1.1`, `express-rate-limit >=8.4.0`. Без них npm міг би взяти стару транзитивну версію.
 - **`prepublishOnly` запускає `typecheck` + `build`** — пакет не публікується, якщо TypeScript не валідний. У релізному workflow додатково ганяється `npm test` + перевірка що тег відповідає `package.json` version.
 - **MIT-ліцензія, відкритий код**, репозиторій `edward-arinin-web-dev/dexe-mcp`. Можна побудувати локально з джерел.
@@ -176,6 +177,11 @@ Runtime (`package.json` → `dependencies`):
 - [ ] Запускати MCP-сервер у звичайному режимі (без `DEXE_PRIVATE_KEY`) для будь-яких prod-дій з governance / treasury.
 - [ ] Підписувати транзакції лише через Safe Multisig або Ledger.
 - [ ] Для опційного signer-режиму — використовувати окремий hot-wallet з обмеженим балансом і моніторинг.
+- [ ] У signer-режимі увімкнути broadcast-guards (захист `dexe_tx_send`):
+  - [ ] `DEXE_SIGNER_ALLOWLIST` — список дозволених адрес `to` (B6); напр. GovPool + governance-токен свого DAO (UserKeeper — це аргумент `spender` в `approve`, а не `to`, тому в список не потрібен).
+  - [ ] `DEXE_SIGNER_MAX_VALUE_WEI` — стеля на `value` однієї транзакції в wei (B7).
+  - [ ] `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` — ліміт broadcast-ів за хвилину (B10).
+  - [ ] B9 (eth_call перед відправкою) працює автоматично в signer-режимі — окремого налаштування не потребує.
 - [ ] Налаштовувати приватні endpoints (RPC, subgraph, IPFS gateway) — не використовувати публічні.
 - [ ] Pinata JWT створювати окремо під проект, з мінімально потрібними правами.
 - [ ] Усі секрети — в `.env` поряд з пакетом або в env-блоці MCP-клієнта; ніколи в git.

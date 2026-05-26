@@ -41,11 +41,29 @@ export function registerGetConfigTool(server: McpServer, config: DexeConfig, sig
         ? { available: true, address: signer.getAddress() }
         : { available: false, address: null };
 
+      // How writes are dispatched:
+      //   - "readonly": no DEXE_PRIVATE_KEY → tools return unsigned TxPayloads only
+      //   - "safe":     key + DEXE_SAFE_TX_SERVICE_URL → dexe_safe_* can queue txs
+      //                 to the Safe multisig instead of broadcasting
+      //   - "eoa":      key set, no Safe service → dexe_tx_send broadcasts directly
+      const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined;
+      const signerMode: "readonly" | "eoa" | "safe" = !signer.hasSigner()
+        ? "readonly"
+        : safeServiceUrl
+          ? "safe"
+          : "eoa";
+
       const result = {
         defaultChainId: config.defaultChainId,
         defaultChainName: CHAIN_NAMES[config.defaultChainId] ?? `chain ${config.defaultChainId}`,
         chains,
+        signerMode,
         signer: signerInfo,
+        safe: {
+          txServiceConfigured: !!safeServiceUrl,
+          txServiceUrl: safeServiceUrl ?? null,
+          apiKeyConfigured: !!(process.env.DEXE_SAFE_API_KEY?.trim()),
+        },
         ipfs: {
           pinataConfigured: !!config.pinataJwt,
         },

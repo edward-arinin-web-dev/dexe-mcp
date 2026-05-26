@@ -2,18 +2,11 @@
 
 ## Unreleased
 
-### Supply-chain hardening
-
-- **npm provenance enabled.** New `.github/workflows/release.yml` triggered by `v*.*.*` tag push: runs typecheck + build + tests, verifies tag matches `package.json` version, then `npm publish --provenance --access public`. OIDC-signed attestation links every future tarball to the exact git commit and workflow run. Visible as a "Provenance" badge on npmjs.com. `publishConfig.provenance: true` is now baked into `package.json` so even manual `npm publish` (in an OIDC-enabled env) attaches an attestation. Requires repo secret `NPM_TOKEN`. Closes security-hardening roadmap A1.
-- **OSSF Scorecard analysis.** New `.github/workflows/scorecard.yml` runs weekly (Sundays 04:00 UTC) and on push to `main`. Audits branch protection, token permissions, dependency hygiene, signed releases, and 15+ other checks. Publishes SARIF to GitHub code-scanning and a public score via OIDC to `api.securityscorecards.dev`. Badge usable at `https://api.securityscorecards.dev/projects/github.com/edward-arinin-web-dev/dexe-mcp/badge`.
-- **Dependency Review on PRs.** New `.github/workflows/dependency-review.yml` runs on every PR touching deps. Fails the check on `high`-or-`critical` CVEs from GitHub Advisory Database, denies copyleft licenses (GPL/AGPL), and posts a PR comment when issues found. Blocks unsafe dep updates before merge.
-- **`ci.yml` least-privilege.** Tightened top-level + job `permissions: contents: read` per Scorecard Token-Permissions check. Added `npm test` to PR/main pipeline (previously typecheck+build only). Closes security-hardening roadmap A4.
-
 ### `gov` track
 
-External OpenZeppelin Governor + Compound Bravo surface. **+18 tools, total 129 → 147. 14 → 15 groups.** Targets Uniswap, Compound, Optimism. Independent from the DeXe Protocol — no DeXe contract needs to be deployed on the target chain. Source plan: `research/06-execution-plan.md` (Option 1).
+External OpenZeppelin Governor + Compound Bravo surface. **+18 tools, total 131 → 149. 17 → 18 groups.** Targets Uniswap, Compound, Optimism. Independent from the DeXe Protocol — no DeXe contract needs to be deployed on the target chain. Source plan: `research/06-execution-plan.md` (Option 1).
 
-### New tools — `dexe_gov_*` (12)
+### New tools — `dexe_gov_*` (18)
 
 **Read (5)** — `dexe_gov_list_governors`, `dexe_gov_get_proposal`, `dexe_gov_get_voting_power`, `dexe_gov_get_quorum`, `dexe_gov_get_proposal_threshold`. Family-agnostic readouts: Bravo's `proposals(uint256)` flat struct is mapped onto the OZ `{snapshot, deadline, votes}` shape; `bravoExtra` (`proposer`, `eta`, `canceled`, `executed`) surfaced when applicable. Voting-power routes by token type — `ERC20VotesComp` (UNI, COMP) hits `getPriorVotes` / `getCurrentVotes`; `ERC20Votes` (OP) hits `getPastVotes` / `getVotes`.
 
@@ -35,13 +28,73 @@ External OpenZeppelin Governor + Compound Bravo surface. **+18 tools, total 129 
 
 `tests/governor/parity.test.ts` — pulls the 10 most-recent proposals per Tier-1 DAO via Tally GraphQL, asserts on-chain `state()` matches the canonical-indexed Tally status. Live mode gated by `TALLY_API_KEY`; unit cases for the comparator run without network.
 
-### Tests
+### Tests (gov)
 
 60 governor unit tests green (encoder selector + roundtrip, family detection, isolation guard, fixture validity, Tally mapper). Plan §4.1 selector targets verified: OZ propose `0x7d5e81e2`, castVote `0x56781388`, delegate `0x5c19a95c`. Bravo propose selector derived from canonical 5-arg signature.
 
-### Docs
+### Docs (gov)
 
-`docs/GOVERNOR.md` (new). `docs/TOOLS.md` §16. README catalog row + tool count.
+`docs/GOVERNOR.md` (new). `docs/GOVERNOR_LAUNCH.md` (launch runbook). `docs/TOOLS.md` §17. README catalog row + tool count.
+
+## 0.5.9 — 2026-05-26
+
+Security-hardening release: supply-chain CI, signer broadcast guards, and Safe{Wallet} multisig signing.
+
+### Signer broadcast guards
+
+`dexe_tx_send` **and every composite signer flow** (`dexe_proposal_create`,
+`dexe_proposal_vote_and_execute`, and the OTC composites — all broadcast through
+the shared `sendOrCollect` loop) now run `runBroadcastGuards()` (new
+`src/lib/broadcastGuards.ts`) before `wallet.sendTransaction()`. Four opt-in
+checks, chained in order; each is a no-op unless its env var is set, so calldata
+mode and the default signer posture are unchanged. In every case the broadcast is
+aborted **before any gas is spent** and the result carries `isError: true`.
+`dexe_tx_send` returns the structured `{ status: "rejected", guard, reason }`
+shape; composite flows abort with the guard's reason as error text. Closes
+security-hardening roadmap B6/B7/B9/B10.
+
+- **B6 — destination allowlist (`DEXE_SIGNER_ALLOWLIST`).** Comma-separated `to`
+  addresses; broadcasts to anything off-list are rejected. Validated and
+  lowercased at startup — an invalid address aborts startup.
+- **B7 — value cap (`DEXE_SIGNER_MAX_VALUE_WEI`).** Rejects any broadcast whose
+  `value` (wei) exceeds the cap.
+- **B9 — auto-simulation (always on in single-shot signer mode).** Reuses
+  `simulateCalldata` to `eth_call` the tx against live state; aborts with the
+  decoded revert reason instead of paying gas for a doomed tx. Only a genuine
+  contract revert (`CALL_EXCEPTION` / decodable returndata) aborts — a transport
+  failure (timeout, 429) fails **open** so a flaky RPC can't wedge a valid
+  broadcast. Skipped inside composite flows, whose steps are an ordered
+  *dependent* sequence that can't be simulated against pre-sequence state
+  (B6/B7/B10 still apply there).
+- **B10 — rate limit (`DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`).** Sliding 60s window,
+  serialized with `p-limit(1)`; rejects with a retry hint once the cap is hit.
+
+See `docs/ENVIRONMENT.md` §4 and `SECURITY.md` for the full config block.
+
+### Safe{Wallet} multisig signing (Track C)
+
+- **New `dexe_safe_*` tool family (+2, total 129 → 131; new "Safe multisig" group → 15 groups).** Adds a signer mode that **queues** a transaction in the [Safe Transaction Service](https://docs.safe.global/) for owners to co-sign and execute, instead of broadcasting it from a single EOA. Designed for clients who custody the DAO/treasury operator key in a Gnosis Safe.
+  - **`dexe_safe_propose_tx`** — takes a `TxPayload` (`to`/`value`/`data`/`operation`) as produced by any `dexe_*_build_*` tool, reads the Safe's next `nonce()` on-chain (unless supplied), computes the EIP-712 `safeTxHash`, signs it with `DEXE_PRIVATE_KEY` (which must be a Safe owner), and assembles the create-multisig-transaction body. **`dryRun` defaults to `true`** — returns the full signed payload and the resolved POST target without sending. `dryRun=false` POSTs to the service (api.safe.global requires `DEXE_SAFE_API_KEY`). *Live POST validation is deferred pending a test Safe; build + dry-run paths are verified.*
+  - **`dexe_safe_info`** — read-only: live Safe nonce / threshold / owners / singleton version, whether the configured signer is an owner, and which Safe Transaction Service endpoint this chain resolves to.
+- **`src/lib/ethersProvider.ts`** — new Safe ethers layer: `SAFE_ABI` + `readSafeState`, the `SafeTx` EIP-712 type set + `computeSafeTxHash`, and the `chainId → api.safe.global/tx-service/<shortname>/api/v2` endpoint resolver (override via `DEXE_SAFE_TX_SERVICE_URL`).
+- **`dexe_get_config`** now reports `signerMode` (`"readonly"` | `"eoa"` | `"safe"`) plus a `safe` block (service URL + API-key configured flags), so an agent can tell at session start whether writes broadcast directly or queue to a multisig.
+- **New env vars** — `DEXE_SAFE_TX_SERVICE_URL` (override / required for chains without a hosted service, e.g. BSC testnet) and `DEXE_SAFE_API_KEY` (Bearer token for api.safe.global). See [`docs/SAFE.md`](docs/SAFE.md) and [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md). Closes security-hardening roadmap C13.
+
+### Supply-chain hardening
+
+- **npm provenance enabled.** New `.github/workflows/release.yml` triggered by `v*.*.*` tag push: runs typecheck + build + tests, verifies tag matches `package.json` version, then `npm publish --provenance --access public`. OIDC-signed attestation links every future tarball to the exact git commit and workflow run. Visible as a "Provenance" badge on npmjs.com. `publishConfig.provenance: true` is now baked into `package.json` so even manual `npm publish` (in an OIDC-enabled env) attaches an attestation. Requires repo secret `NPM_TOKEN`. Closes security-hardening roadmap A1.
+- **OSSF Scorecard analysis.** New `.github/workflows/scorecard.yml` runs weekly (Sundays 04:00 UTC) and on push to `main`. Audits branch protection, token permissions, dependency hygiene, signed releases, and 15+ other checks. Publishes SARIF to GitHub code-scanning and a public score via OIDC to `api.securityscorecards.dev`. Badge usable at `https://api.securityscorecards.dev/projects/github.com/edward-arinin-web-dev/dexe-mcp/badge`.
+- **Dependency Review on PRs.** New `.github/workflows/dependency-review.yml` runs on every PR touching deps. Fails the check on `high`-or-`critical` CVEs from GitHub Advisory Database, denies copyleft licenses (GPL/AGPL), and posts a PR comment when issues found. Blocks unsafe dep updates before merge.
+- **`ci.yml` least-privilege.** Tightened top-level + job `permissions: contents: read` per Scorecard Token-Permissions check. Added `npm test` to PR/main pipeline (previously typecheck+build only). Closes security-hardening roadmap A4.
+- **CodeQL static analysis.** New `.github/workflows/codeql.yml` runs the `security-extended` query suite against the `javascript-typescript` source on every PR/main push and weekly (Sundays 05:00 UTC). Catches prototype pollution, command injection, ReDoS, unsafe deserialization, path traversal, and other CWE patterns. Findings upload to GitHub code-scanning. Closes security-hardening roadmap A5.
+- **CVE sweep after Dependabot activation.** Three new moderate CVEs surfaced when Dependency Graph was enabled on the repo. Resolved in this PR:
+  - `esbuild >=0.25.0` added to `overrides` (GHSA-67mh-4wv8-2f99 — dev server SSRF; transitive through vite/vitest/tsx).
+  - `ws >=8.20.1` added to `overrides` (GHSA-58qx-3vcg-4xpx — uninitialized memory disclosure; transitive through ethers).
+  - `vitest` bumped from `^2.1.0` to `^3.0.0` in devDependencies — pulls in vite ≥6.4.2 which patches the path-traversal CVE (GHSA-4w7w-66w2-5vf9).
+  - `npm audit` now reports **0 vulnerabilities** (both prod and dev).
+- **`npm test` no-test-files tolerance.** Added `--passWithNoTests` to the `test` script so the CI/release pipeline doesn't fail on branches that don't yet have tests under their tree (e.g. this one — tests live on `governor-adapter`).
+- **Lockfile integrity job.** New `verify-lockfile` job in `ci.yml` installs strictly from the committed `package-lock.json` via `npm ci` (which aborts if `package.json` and the lockfile are out of sync and never rewrites the lockfile), asserts the lockfile was not mutated (`git diff --exit-code package-lock.json`), and validates the full resolved tree with `npm ls --all`. Any drift — stale lockfile, hand-edit, or inconsistent override/peer resolution — fails the build before merge. Closes security-hardening roadmap A3.
+- **Signed-tag enforcement on release.** `release.yml` now imports the maintainer's public key (repo secret `MAINTAINER_GPG_PUBLIC_KEY`) and runs `git verify-tag "$GITHUB_REF_NAME"` **before** the publish step. An unsigned tag, an invalid signature, or a tag from an unknown key aborts the release, so nothing reaches npm without a valid maintainer signature. Checkout switched to `fetch-depth: 0` + `fetch-tags: true` so the annotated tag object and its signature are available. Documented `git verify-tag` / `git tag -v` for consumers in `SECURITY.md` and `README.md`. Closes security-hardening roadmap A2. (GPG key generation is a separate maintainer step.)
 
 ## 0.5.8
 

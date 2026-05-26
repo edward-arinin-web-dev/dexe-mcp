@@ -1,0 +1,62 @@
+name: CodeQL
+
+# GitHub-native SAST. Scans JS/TS source AND GitHub Actions workflow files
+# for known vulnerability patterns (prototype pollution, command injection,
+# ReDoS, unsafe deserialization, path traversal, workflow-injection, etc.).
+#
+# Uses the `security-extended` query suite — the default-plus pack curated
+# by GitHub Security Lab. Covers everything in `security-and-quality` minus
+# a few low-signal style checks.
+#
+# Triggers:
+#   - push to main: scan after merges
+#   - pull_request to main: catch new findings before merge
+#   - schedule: weekly on Sunday at 05:00 UTC (offset from Scorecard cron)
+#
+# Results upload to GitHub code-scanning (Security tab). No secrets needed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 5 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

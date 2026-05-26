@@ -29,3 +29,30 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+
+  # Supply-chain guard: install strictly from the committed package-lock.json and
+  # fail on any drift between package.json, the lockfile, and the resolved tree.
+  verify-lockfile:
+    name: Verify lockfile integrity
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      # `npm ci` aborts (non-zero) if package.json and package-lock.json are out
+      # of sync, and — unlike `npm install` — never rewrites the lockfile. A
+      # stale or hand-edited lockfile fails the build right here.
+      - name: Clean install from committed lockfile
+        run: npm ci
+      # Belt-and-suspenders: prove `npm ci` did not mutate the committed lockfile.
+      - name: Assert lockfile unchanged
+        run: git diff --exit-code package-lock.json
+      # Integrity check: the full installed tree must be internally consistent —
+      # no missing, extraneous, or invalidly-resolved dependencies. `npm ls`
+      # exits non-zero on any of these, catching override/peer drift.
+      - name: Validate dependency tree
+        run: npm ls --all
