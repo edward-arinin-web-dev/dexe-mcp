@@ -94,3 +94,7 @@ When signer mode is enabled (`DEXE_PRIVATE_KEY`), `dexe_tx_send` runs four opt-i
 | **B10** rate limit | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | More than N broadcasts in a rolling 60s window. |
 
 These are defense-in-depth, **not** a substitute for keeping the key off-host. For prod governance/treasury actions, prefer calldata mode + Safe Multisig / Ledger. See `docs/ENVIRONMENT.md` §4 for the recommended config block.
+
+## WalletConnect signer mode (C12)
+
+`signerMode: walletconnect` (activated by `DEXE_WALLETCONNECT_PROJECT_ID` when **no** `DEXE_PRIVATE_KEY` is set) removes the hot key from the threat model entirely: the signing key never leaves the operator's phone wallet, and **every** transaction is gated by an explicit per-tx approval on that device. The MCP process holds only a relay session, never key material. The broadcast guards above (B6/B7/B9/B10) still run on the `tx` *before* it is forwarded to the relay — the phone approval is an **additional** human gate, not a replacement. A hard approval timeout (`DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`, default 120 s) bounds how long a request can block. Phase A (current) ships config + the read-only `dexe_wc_status` tool only — no relay connection, no new dependency. The live session lands in v0.6.0. See `docs/WALLETCONNECT.md`.

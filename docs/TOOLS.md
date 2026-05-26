@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **149**.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **150**.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Three composite tools (`dexe_tx_send`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -25,6 +25,7 @@ Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_propo
 15. [Simulator](#15-simulator)
 16. [Multi-DAO inbox + forecast](#16-multi-dao-inbox--forecast)
 17. [External Governor DAOs (dexe_gov_*)](#17-external-governor-daos-dexe_gov_)
+18. [WalletConnect](#18-walletconnect)
 
 Each row links to the runtime schema. Args, return shapes, and zod input validators live in `src/tools/*.ts` — call the tool with no args (or via your MCP client) to see the JSON schema.
 
@@ -339,6 +340,16 @@ No DeXe Protocol contract is required on the target chain.
 Parity vs Tally — `tests/governor/parity.test.ts` compares `state()` for 30
 sampled proposals (10 per Tier-1 DAO) against Tally's GraphQL status. Live
 mode gated by `TALLY_API_KEY` + chain RPCs.
+
+---
+
+## 18. WalletConnect
+
+Source: `src/tools/walletconnectStatus.ts`. A fourth signer mode (`readonly` | `eoa` | `safe` | `walletconnect`): broadcast convenience **without a hot key** — every tx is approved on the operator's phone wallet, key never leaves the device. **Phase A is config-only** (no relay connection, no new dependency); the live session (`dexe_wc_connect`/`dexe_wc_disconnect` + the `eth_sendTransaction` branch) lands in v0.7.0. See [`docs/WALLETCONNECT.md`](./WALLETCONNECT.md).
+
+| Tool | What it does | Required env |
+|------|--------------|--------------|
+| `dexe_wc_status` | Report the resolved WalletConnect config (`projectIdConfigured`, `relayUrl`, `approvalTimeoutMs`) and whether `walletconnect` is the active `signerMode`. Read-only; opens no relay connection in Phase A. WalletConnect activates only when `DEXE_WALLETCONNECT_PROJECT_ID` is set AND no `DEXE_PRIVATE_KEY` is present. | `DEXE_WALLETCONNECT_PROJECT_ID` (for active mode) |
 
 ---
 

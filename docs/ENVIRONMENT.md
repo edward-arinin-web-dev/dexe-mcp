@@ -79,6 +79,9 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_SIGNER_ALLOWLIST` | `dexe_tx_send` (signer mode, optional) | **B6 guard.** Comma-separated destination addresses; `dexe_tx_send` rejects any `to` not on the list. Unset = no restriction. Validated + lowercased at startup; invalid address aborts startup. | `0xAbc...,0xDef...` |
 | `DEXE_SIGNER_MAX_VALUE_WEI` | `dexe_tx_send` (signer mode, optional) | **B7 guard.** Hard cap on the `value` (wei) of any single broadcast; over-cap is rejected. Unset = no cap. | `100000000000000000` (0.1 BNB) |
 | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | `dexe_tx_send` (signer mode, optional) | **B10 guard.** Max broadcasts per rolling 60s window across the process; over-limit is rejected with a retry hint. Unset = no limit. | `10` |
+| `DEXE_WALLETCONNECT_PROJECT_ID` | WalletConnect signer mode (C12) | Free project id from <https://cloud.reown.com>. Activates `signerMode: walletconnect` when set **and** `DEXE_PRIVATE_KEY` is **absent** (mutually exclusive — hot key wins). Phase A (config-only) just reports it via `dexe_wc_status`. | `abc123...` |
+| `DEXE_WALLETCONNECT_RELAY_URL` | WalletConnect (optional) | Override the relay websocket. | `wss://relay.walletconnect.com` (default) |
+| `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS` | WalletConnect (optional) | Per-tx phone-approval timeout; over-timeout returns `{status:'timeout'}` instead of hanging the MCP request. Validated `> 0`. | `120000` (default) |
 | `DEXE_PRIVACY_POLICY_HASH` | `dexe_vote_build_privacy_policy_*` (optional) | Default privacy-policy bytes32 hash. Otherwise read live from `UserRegistry.documentHash()`. | `0x...` |
 
 Every var is read once during `loadConfig()` at startup or directly from
@@ -244,6 +247,10 @@ arb1, sep, …). `DEXE_SAFE_TX_SERVICE_URL` always wins when set.
 - `eoa` — key set, no Safe service; `dexe_tx_send` broadcasts directly.
 - `safe` — key set **and** `DEXE_SAFE_TX_SERVICE_URL` set; `dexe_safe_*` can
   queue to the multisig.
+- `walletconnect` — **no** `DEXE_PRIVATE_KEY`, but `DEXE_WALLETCONNECT_PROJECT_ID`
+  set; broadcasts are forwarded to the operator's phone wallet for approval (no
+  hot key). Precedence: `safe` → `eoa` → `walletconnect` → `readonly`. Phase A is
+  config-only — see [`WALLETCONNECT.md`](./WALLETCONNECT.md).
 
 ---
 

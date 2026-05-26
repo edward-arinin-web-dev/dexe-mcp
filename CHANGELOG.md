@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### WalletConnect signer mode — Phase A (C12)
+
+Plumbing for a fourth `signerMode`: `walletconnect`. Broadcast convenience
+**without a hot key** — every tx is approved on the operator's phone wallet and
+the private key never enters the MCP process. Closes the last security-hardening
+roadmap item (C12). Phase A is **config-only**: no relay connection, no new
+dependency (`@walletconnect/universal-provider` lands in Phase B / v0.7.0), so
+the supply-chain surface is unchanged.
+
+- **Config (`src/config.ts`).** Three new env vars parsed into `DexeConfig`:
+  `DEXE_WALLETCONNECT_PROJECT_ID`, `DEXE_WALLETCONNECT_RELAY_URL` (default
+  `wss://relay.walletconnect.com`), `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`
+  (default `120000`, validated `> 0`).
+- **`dexe_get_config`.** `signerMode` union extended to
+  `readonly | eoa | safe | walletconnect`. Precedence: `safe` → `eoa` →
+  `walletconnect` → `readonly` (WalletConnect wins only when no `DEXE_PRIVATE_KEY`
+  is present). New `walletConnect` report block (`projectIdConfigured`,
+  `relayUrl`, `approvalTimeoutMs`).
+- **New tool `dexe_wc_status`** (`src/tools/walletconnectStatus.ts`). Read-only;
+  reports the resolved WalletConnect config + whether `walletconnect` is the
+  active mode. Opens no relay connection in Phase A. +1 tool (149 → 150), new
+  "WalletConnect" group (18 → 19).
+- **Docs.** `docs/WALLETCONNECT.md` (spec + phased plan), `docs/ENVIRONMENT.md`
+  (3 vars), `SECURITY.md` (threat-model note), README + `docs/TOOLS.md` counts.
+
 ## 0.6.0 — 2026-05-26
 
 ### `gov` track
