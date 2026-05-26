@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Full history + tag objects so `git verify-tag` can read the
           # annotated tag and its GPG signature (shallow checkout omits them).
@@ -63,7 +63,7 @@ jobs:
           git verify-tag "$GITHUB_REF_NAME"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
