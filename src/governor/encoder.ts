@@ -91,6 +91,32 @@ function ensureStringArray(label: string, xs: unknown): string[] {
   return xs;
 }
 
+/** Upper bound on a proposal's action count. Guards the calldata builders
+ * against pathological array sizes; well above any real governance proposal. */
+export const MAX_ACTIONS = 50;
+
+/**
+ * Validates the OZ action tuple: equal lengths, non-empty (Governor reverts on
+ * empty proposals), and within MAX_ACTIONS. Shared by propose/queue/execute/cancel
+ * so every OZ path enforces the same shape.
+ */
+function ensureActionParity(
+  label: string,
+  targets: unknown[],
+  values: unknown[],
+  calldatas: unknown[],
+): void {
+  if (targets.length !== values.length || targets.length !== calldatas.length) {
+    throw new Error(
+      `${label}: target/value/calldata length mismatch (targets=${targets.length}, values=${values.length}, calldatas=${calldatas.length})`,
+    );
+  }
+  if (targets.length === 0) throw new Error(`${label}: at least one action is required`);
+  if (targets.length > MAX_ACTIONS) {
+    throw new Error(`${label}: too many actions (${targets.length} > ${MAX_ACTIONS})`);
+  }
+}
+
 export interface ProposeArgs {
   targets: string[];
   values: (string | number | bigint)[];
@@ -106,11 +132,7 @@ export function buildPropose(cfg: GovernorConfig, args: ProposeArgs): BuiltTx {
   const values = ensureUintArray("values", args.values);
   const calldatas = ensureBytesArray("calldatas", args.calldatas);
   if (typeof args.description !== "string") throw new Error("description must be a string");
-  if (targets.length !== values.length || targets.length !== calldatas.length) {
-    throw new Error(
-      `propose: target/value/calldata length mismatch (targets=${targets.length}, values=${values.length}, calldatas=${calldatas.length})`,
-    );
-  }
+  ensureActionParity("propose", targets, values, calldatas);
   let data: string;
   let argsOut: unknown;
   if (isBravo(cfg)) {
@@ -211,6 +233,7 @@ export function buildQueue(cfg: GovernorConfig, args: QueueExecuteArgs): BuiltTx
   const targets = ensureAddressArray("targets", args.targets);
   const values = ensureUintArray("values", args.values);
   const calldatas = ensureBytesArray("calldatas", args.calldatas);
+  ensureActionParity("queue", targets, values, calldatas);
   const descriptionHash = computeDescHash(args);
   const data = iface.encodeFunctionData("queue", [targets, values, calldatas, descriptionHash]);
   return {
@@ -244,6 +267,7 @@ export function buildExecute(cfg: GovernorConfig, args: QueueExecuteArgs, msgVal
   const targets = ensureAddressArray("targets", args.targets);
   const values = ensureUintArray("values", args.values);
   const calldatas = ensureBytesArray("calldatas", args.calldatas);
+  ensureActionParity("execute", targets, values, calldatas);
   const descriptionHash = computeDescHash(args);
   const data = iface.encodeFunctionData("execute", [targets, values, calldatas, descriptionHash]);
   return {
@@ -276,6 +300,7 @@ export function buildCancel(cfg: GovernorConfig, args: QueueExecuteArgs): BuiltT
   const targets = ensureAddressArray("targets", args.targets);
   const values = ensureUintArray("values", args.values);
   const calldatas = ensureBytesArray("calldatas", args.calldatas);
+  ensureActionParity("cancel", targets, values, calldatas);
   const descriptionHash = computeDescHash(args);
   const data = iface.encodeFunctionData("cancel", [targets, values, calldatas, descriptionHash]);
   return {

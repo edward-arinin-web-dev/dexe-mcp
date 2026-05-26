@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
 import {
@@ -22,6 +23,25 @@ const governorIdSchema = z
   .string()
   .min(1)
   .describe("Governor id (e.g. 'uniswap') or 0x-prefixed governor contract address.");
+
+const addressArg = (desc: string) =>
+  z.string().refine((s) => isAddress(s), { message: "must be a 0x-prefixed 20-byte address" }).describe(desc);
+
+const proposalIdArg = (desc: string) =>
+  z
+    .string()
+    .refine(
+      (s) => {
+        try {
+          BigInt(s);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { message: "must be a uint256 (decimal or 0x-hex) string" },
+    )
+    .describe(desc);
 
 export function registerGovernorReadTools(server: McpServer, rpc: RpcProvider): void {
   registerListGovernors(server);
@@ -60,9 +80,9 @@ function registerGetProposal(server: McpServer, rpc: RpcProvider): void {
         "Returns ProposalState (string + numeric enum), proposalSnapshot block, proposalDeadline block, and proposalVotes (for/against/abstain) for the given proposalId on a configured Governor.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z
-          .string()
-          .describe("Proposal id as decimal string (Governor uses uint256, often the bytes32 keccak hash interpreted as uint256)."),
+        proposalId: proposalIdArg(
+          "Proposal id as decimal string (Governor uses uint256, often the bytes32 keccak hash interpreted as uint256).",
+        ),
       },
     },
     async ({ governor, proposalId }) => {
@@ -96,7 +116,7 @@ function registerGetVotingPower(server: McpServer, rpc: RpcProvider): void {
         "Calls IVotes.getPastVotes(account, blockNumber) on the configured Governor's voting token. Falls back to IVotes.getVotes(account) when blockNumber is omitted. Decimals reported alongside raw wei value.",
       inputSchema: {
         governor: governorIdSchema,
-        account: z.string().describe("0x-prefixed account address."),
+        account: addressArg("0x-prefixed account address."),
         blockNumber: z
           .number()
           .int()

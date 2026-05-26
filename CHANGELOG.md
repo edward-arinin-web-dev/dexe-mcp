@@ -36,6 +36,15 @@ External OpenZeppelin Governor + Compound Bravo surface. **+18 tools, total 131 
 
 `docs/GOVERNOR.md` (new). `docs/GOVERNOR_LAUNCH.md` (launch runbook). `docs/TOOLS.md` §17. README catalog row + tool count.
 
+### Hardening (gov, post-audit)
+
+Multi-agent audit pass before merge. No correctness or security blockers found; the following were tightened:
+- **Generic per-chain RPC** — `config.ts` now registers any `DEXE_RPC_URL_<chainId>` env var, so the live Governor read/simulate tools can reach Ethereum (1) and Optimism (10) where the Tier-1 DAOs actually live. Documented in `docs/GOVERNOR.md` + `docs/ENVIRONMENT.md`.
+- **Read-side input validation** — `dexe_gov_get_proposal` / `_get_voting_power` / `_get_state` / `_has_voted` now reject malformed `account` / `proposalId` at the schema layer instead of forwarding a cryptic RPC error.
+- **Encoder guards** — OZ `queue`/`execute`/`cancel` now enforce target/value/calldata length parity (previously only `propose` did); all builders reject empty action sets and cap at `MAX_ACTIONS` (50).
+- **Revert decoding** — `simulate_proposal` decodes `Panic(uint256)` codes to a human hint (overflow, div-by-zero, …) instead of raw bytes.
+- **Testability** — vote-impact projection extracted to a pure `projectVoteImpact()`; `validateGovernorConfig` exported. New offline tests cover voting-power routing, Bravo/OZ proposal-struct mapping, family-branched quorum projection, encoder guards, `hashProposal` Bravo invariant, and the real config validator. Governor suite now 70+ unit tests.
+
 ## 0.5.9 — 2026-05-26
 
 Security-hardening release: supply-chain CI, signer broadcast guards, and Safe{Wallet} multisig signing.

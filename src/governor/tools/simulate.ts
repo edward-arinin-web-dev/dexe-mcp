@@ -3,7 +3,7 @@ import { Interface, ZeroAddress, toUtf8String } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
 import { resolveGovernor } from "../loader.js";
-import { governorContract, isBravo, readProposal, readQuorum, stateName } from "../adapter.js";
+import { governorContract, isBravo, projectVoteImpact, readProposal, readQuorum, stateName } from "../adapter.js";
 import { buildExecute, decodeGovernorWrite, type QueueExecuteArgs } from "../encoder.js";
 
 const ERROR_STRING_SELECTOR = "0x08c379a0";
@@ -32,7 +32,24 @@ function decodeRevert(data: string | undefined): string | null {
     }
   }
   if (data.startsWith(PANIC_SELECTOR)) {
-    return `Panic(${data.slice(10)})`;
+    try {
+      const code = BigInt("0x" + data.slice(10));
+      const known: Record<string, string> = {
+        "1": "assert(false)",
+        "17": "arithmetic overflow/underflow",
+        "18": "division or modulo by zero",
+        "33": "invalid enum conversion",
+        "34": "invalid storage byte array access",
+        "49": "pop() on empty array",
+        "50": "array index out of bounds",
+        "65": "out-of-memory allocation",
+        "81": "call to uninitialized internal function",
+      };
+      const hint = known[code.toString()];
+      return `Panic(0x${code.toString(16)})${hint ? ` — ${hint}` : ""}`;
+    } catch {
+      return `Panic(${data.slice(10)})`;
+    }
   }
   return data;
 }
@@ -161,15 +178,13 @@ function registerSimulateVoteImpact(server: McpServer, rpc: RpcProvider): void {
           for: BigInt(readout.votes.for),
           abstain: BigInt(readout.votes.abstain),
         };
-        const proj = { ...cur };
-        if (support === 0) proj.against += w;
-        else if (support === 1) proj.for += w;
-        else proj.abstain += w;
-
-        // Quorum semantics: OZ counts for+abstain; Bravo counts only forVotes.
-        const quorumPool = isBravo(cfg) ? proj.for : proj.for + proj.abstain;
-        const quorumMet = quorumPool >= quorum;
-        const willPass = quorumMet && proj.for > proj.against;
+        const { projected: proj, quorumMet, willPass } = projectVoteImpact(
+          isBravo(cfg),
+          cur,
+          support,
+          w,
+          quorum,
+        );
 
         return ok({
           governor: cfg.id,

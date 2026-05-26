@@ -94,6 +94,19 @@ export async function loadConfig(): Promise<DexeConfig> {
     chains.set(56, { chainId: 56, rpcUrl: rpcMainnet });
   }
 
+  // Generic per-chain RPC: DEXE_RPC_URL_<chainId> (e.g. DEXE_RPC_URL_1,
+  // DEXE_RPC_URL_10). Enables chains beyond BSC — notably the external
+  // Governor DAOs, which live on Ethereum (1) and Optimism (10). The numeric
+  // suffix never collides with the named *_TESTNET / *_MAINNET vars above.
+  for (const [key, val] of Object.entries(process.env)) {
+    const m = /^DEXE_RPC_URL_(\d+)$/.exec(key);
+    if (!m) continue;
+    const url = val?.trim();
+    if (!url) continue;
+    const cid = Number(m[1]);
+    chains.set(cid, { chainId: cid, rpcUrl: url });
+  }
+
   // Legacy single-chain env (still supported)
   const legacyRpc = process.env.DEXE_RPC_URL?.trim() || undefined;
   let legacyChainId: number | undefined;

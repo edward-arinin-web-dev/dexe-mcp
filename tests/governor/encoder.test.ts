@@ -180,3 +180,35 @@ describe("encoder — validation errors", () => {
     expect(() => buildDelegate(uniswap, ZeroAddress)).not.toThrow();
   });
 });
+
+describe("encoder action-array guards (propose + OZ queue/execute/cancel)", () => {
+  it("rejects an empty propose action set", () => {
+    expect(() =>
+      buildPropose(ozFixture, { targets: [], values: [], calldatas: [], description: "x" }),
+    ).toThrow(/at least one action/);
+  });
+
+  it("rejects a propose above MAX_ACTIONS", () => {
+    const n = 51;
+    expect(() =>
+      buildPropose(ozFixture, {
+        targets: Array(n).fill(targets[0]),
+        values: Array(n).fill("0"),
+        calldatas: Array(n).fill("0x"),
+        description: "x",
+      }),
+    ).toThrow(/too many actions/);
+  });
+
+  it("OZ queue enforces target/value/calldata length parity", () => {
+    expect(() =>
+      buildQueue(ozFixture, { targets, values: ["0", "0"], calldatas, description: "x" }),
+    ).toThrow(/length mismatch/);
+  });
+
+  it("OZ execute rejects an empty action set", () => {
+    expect(() =>
+      buildExecute(ozFixture, { targets: [], values: [], calldatas: [], description: "x" }),
+    ).toThrow(/at least one action/);
+  });
+});

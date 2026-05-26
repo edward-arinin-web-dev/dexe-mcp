@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Interface, keccak256, toUtf8Bytes } from "ethers";
+import { Interface, isAddress, keccak256, toUtf8Bytes } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
 import { resolveGovernor } from "../loader.js";
@@ -26,6 +26,21 @@ const governorIdSchema = z
 
 const uintLikeSchema = z.union([z.string(), z.number()]);
 
+const addressArg = (desc: string) =>
+  z.string().refine((s) => isAddress(s), { message: "must be a 0x-prefixed 20-byte address" }).describe(desc);
+
+const proposalIdArg = z.string().refine(
+  (s) => {
+    try {
+      BigInt(s);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  { message: "must be a uint256 (decimal or 0x-hex) string" },
+);
+
 export function registerGovernorExtraTools(server: McpServer, rpc: RpcProvider): void {
   registerGetState(server, rpc);
   registerHasVoted(server, rpc);
@@ -44,7 +59,7 @@ function registerGetState(server: McpServer, rpc: RpcProvider): void {
         "Returns {index, name} for the proposal's current state. Shorthand for the state field of dexe_gov_get_proposal — useful when you only need the state and want a single eth_call.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z.string(),
+        proposalId: proposalIdArg,
       },
     },
     async ({ governor, proposalId }) => {
@@ -75,8 +90,8 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
         "Returns true when the account has already cast a vote on this proposal. Identical signature on OZ and Bravo.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z.string(),
-        account: z.string(),
+        proposalId: proposalIdArg,
+        account: addressArg("0x-prefixed account address."),
       },
     },
     async ({ governor, proposalId, account }) => {

@@ -42,7 +42,7 @@ function assertAddress(label: string, v: unknown): asserts v is string {
   }
 }
 
-function validate(raw: unknown, source: string): GovernorConfig {
+export function validateGovernorConfig(raw: unknown, source: string): GovernorConfig {
   if (!raw || typeof raw !== "object") {
     throw new Error(`governor config ${source}: root must be an object`);
   }
@@ -115,7 +115,7 @@ export function loadGovernorConfigs(): Map<string, GovernorConfig> {
   const out = new Map<string, GovernorConfig>();
   for (const raw of RAW_CONFIGS) {
     const id = typeof (raw as any)?.id === "string" ? (raw as any).id : "<anonymous>";
-    const cfg = validate(raw, `configs/${id}.json`);
+    const cfg = validateGovernorConfig(raw, `configs/${id}.json`);
     if (out.has(cfg.id)) throw new Error(`governor config: duplicate id "${cfg.id}"`);
     out.set(cfg.id, cfg);
   }

@@ -48,9 +48,11 @@ export const IVOTES_ABI = [
 ] as const;
 
 /**
- * IERC20 + ERC20Votes hybrid. Bravo voting tokens (COMP, UNI) implement the
- * Compound-style getter `getPriorVotes(address, uint256)`. We surface it as a
- * fallback when `getPastVotes` reverts on a Bravo-era token.
+ * Compound-style vote getters. Bravo voting tokens (COMP, UNI) expose
+ * `getCurrentVotes(address)` / `getPriorVotes(address, uint256)` instead of the
+ * OZ `getVotes` / `getPastVotes`. Routing is static by `votingToken.type`
+ * (see `readVotingPower`) — `ERC20VotesComp` always uses these getters; there is
+ * no runtime fallback between the two interfaces.
  */
 export const IVOTES_COMP_ABI = [
   "function getCurrentVotes(address account) view returns (uint96)",
@@ -184,4 +186,34 @@ export async function readQuorum(
   }
   const q: bigint = await c.getFunction("quorum").staticCall(blockNumber);
   return { quorum: q, method: "quorum(blockNumber)" };
+}
+
+export interface VoteTally {
+  against: bigint;
+  for: bigint;
+  abstain: bigint;
+}
+
+/**
+ * Pure projection of a hypothetical vote onto current tallies. Quorum semantics
+ * branch by family: OZ `GovernorCountingSimple` counts `for + abstain` toward
+ * quorum, Bravo counts only `forVotes`. `willPass` requires quorum met AND
+ * strictly more For than Against. No I/O — unit-testable in isolation.
+ */
+export function projectVoteImpact(
+  bravo: boolean,
+  current: VoteTally,
+  support: number,
+  weight: bigint,
+  quorum: bigint,
+): { projected: VoteTally; quorumMet: boolean; willPass: boolean } {
+  const projected: VoteTally = { ...current };
+  if (support === 0) projected.against += weight;
+  else if (support === 1) projected.for += weight;
+  else projected.abstain += weight;
+
+  const quorumPool = bravo ? projected.for : projected.for + projected.abstain;
+  const quorumMet = quorumPool >= quorum;
+  const willPass = quorumMet && projected.for > projected.against;
+  return { projected, quorumMet, willPass };
 }
