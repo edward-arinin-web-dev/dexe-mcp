@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.9 — 2026-05-26
+
+Security-hardening release: supply-chain CI, signer broadcast guards, and Safe{Wallet} multisig signing.
 
 ### Signer broadcast guards
 
