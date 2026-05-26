@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents. Total tools: **131**.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **149**.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Three composite tools (`dexe_tx_send`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -24,6 +24,7 @@ Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_propo
 14. [Safe multisig](#14-safe-multisig)
 15. [Simulator](#15-simulator)
 16. [Multi-DAO inbox + forecast](#16-multi-dao-inbox--forecast)
+17. [External Governor DAOs (dexe_gov_*)](#17-external-governor-daos-dexe_gov_)
 
 Each row links to the runtime schema. Args, return shapes, and zod input validators live in `src/tools/*.ts` — call the tool with no args (or via your MCP client) to see the JSON schema.
 
@@ -301,6 +302,43 @@ Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my 
 |------|--------------|--------------|
 | `dexe_user_inbox` | Multi-DAO attention aggregator. Per DAO surfaces `unvotedProposal` (Voting state + zero personal vote), `claimableRewards`, `lockedDeposit`. Mainnet auto-discovers DAOs via pools subgraph; testnet requires explicit `daos[]`. | `DEXE_RPC_URL`, `DEXE_SUBGRAPH_POOLS_URL` for auto-discovery |
 | `dexe_proposal_forecast` | Predictive pass-rate. Reads latest 10 proposals + final states, computes historical pass-rate + average For-vote weight, returns `{ quorum, historicalPassRate, risks, recommendation }`. Mainnet only by default; pass `forceRpcOnly: true` for testnet. | `DEXE_RPC_URL`, `DEXE_SUBGRAPH_POOLS_URL` |
+
+---
+
+## 17. External Governor DAOs (`dexe_gov_*`)
+
+Sources: `src/governor/tools/read.ts`, `src/governor/tools/build.ts`,
+`src/governor/tools/simulate.ts`. Configs: `src/governor/configs/*.json`.
+Family-branched internally — callers see normalized OZ-shaped output regardless
+of whether the target is OZ v4+ or Compound Bravo. See [`docs/GOVERNOR.md`](./GOVERNOR.md).
+
+Tier-1 fixtures shipped: **uniswap**, **compound**, **optimism**.
+No DeXe Protocol contract is required on the target chain.
+
+| Tool | What it does | Required env |
+|------|--------------|--------------|
+| `dexe_gov_list_governors` | Lists every DAO config under `src/governor/configs/`. Pure read, no RPC. | — |
+| `dexe_gov_get_proposal` | Returns `{state, snapshotBlock, deadlineBlock, votes: {against, for, abstain}}` for a proposal. Bravo paths flatten `proposals(uint256)`; OZ paths use `proposalSnapshot`/`proposalDeadline`/`proposalVotes`. | RPC for the DAO's chain |
+| `dexe_gov_get_voting_power` | `IVotes.getPastVotes` (ERC20Votes) or `getPriorVotes` (ERC20VotesComp). Falls back to `getVotes`/`getCurrentVotes` when block omitted. | RPC for the DAO's chain |
+| `dexe_gov_get_quorum` | `quorum(blockNumber)` on OZ; `quorumVotes()` on Bravo. Returns the actual method invoked. | RPC for the DAO's chain |
+| `dexe_gov_get_proposal_threshold` | `proposalThreshold()`. | RPC for the DAO's chain |
+| `dexe_gov_build_propose` | Encodes Governor.propose. OZ: `(targets, values, calldatas, description)`. Bravo: `(targets, values, signatures, calldatas, description)`. Validates length parity + bytes/address shapes. | — |
+| `dexe_gov_build_vote_cast` | Encodes `castVote` or `castVoteWithReason`. Identical signature both families. support: 0=Against, 1=For, 2=Abstain. | — |
+| `dexe_gov_build_queue` | OZ: `(targets, values, calldatas, descriptionHash)` — accepts raw description (auto-hashed) or pre-computed hash. Bravo: `queue(proposalId)`. | — |
+| `dexe_gov_build_execute` | Same shape split as queue. Optional `msgValue`. | — |
+| `dexe_gov_build_delegate` | `IVotes.delegate(delegatee)` on the voting token (NOT the Governor). Zero address allowed as self-revoke. | — |
+| `dexe_gov_simulate_proposal` | Builds Governor.execute() calldata and runs `eth_call` against the configured RPC. Decodes `Error(string)` and `Panic(uint256)` revert reasons. Single-block dry-run only; for fork-and-time-warp, run against a hardhat/anvil fork. | RPC for the DAO's chain |
+| `dexe_gov_simulate_vote_impact` | Projects proposal outcome after a hypothetical vote — `{currentTallies, projectedTallies, quorumMet, willPass}`. Quorum semantics branch by family (Bravo counts forVotes only). | RPC for the DAO's chain |
+| `dexe_gov_get_state` | Shorthand for the state field of `dexe_gov_get_proposal` — single eth_call returning `{index, name}`. | RPC for the DAO's chain |
+| `dexe_gov_has_voted` | `hasVoted(proposalId, account)` — identical on OZ and Bravo. | RPC for the DAO's chain |
+| `dexe_gov_build_cancel` | Encode Governor.cancel. OZ 4-arg + descriptionHash; Bravo `cancel(proposalId)`. | — |
+| `dexe_gov_decode_calldata` | Decode any Governor write calldata back to `{method, args}` against the family-aware ABI. Useful for wallet-side preview of `dexe_gov_build_*` output. | — |
+| `dexe_gov_hash_description` | `keccak256(toUtf8Bytes(description))` — pre-compute the descriptionHash OZ queue/execute/cancel/hashProposal expect. | — |
+| `dexe_gov_hash_proposal` | OZ-only `Governor.hashProposal()` — preview the deterministic on-chain proposalId before submission. Errors clearly when called on Bravo. | RPC for the DAO's chain (OZ DAOs only) |
+
+Parity vs Tally — `tests/governor/parity.test.ts` compares `state()` for 30
+sampled proposals (10 per Tier-1 DAO) against Tally's GraphQL status. Live
+mode gated by `TALLY_API_KEY` + chain RPCs.
 
 ---
 

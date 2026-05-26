@@ -30,6 +30,7 @@ import { registerSimulateTools } from "./simulate.js";
 import { registerInboxTools } from "./inbox.js";
 import { registerPredictTools } from "./predict.js";
 import { SignerManager } from "../lib/signer.js";
+import { registerGovernorTools } from "../governor/index.js";
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
@@ -69,4 +70,8 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerOtcTools(server, ctx, signer);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
+
+  // External OpenZeppelin Governor surface (research/06-execution-plan.md).
+  // Independent namespace; no DeXe Protocol dependency.
+  registerGovernorTools(server, config);
 }

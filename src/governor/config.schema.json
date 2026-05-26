@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dexe.network/schemas/governor-config.json",
+  "title": "Governor DAO Config",
+  "description": "Per-DAO config for OpenZeppelin Governor v4.x+ targets. One file per DAO under src/governor/configs/.",
+  "type": "object",
+  "required": ["id", "chainId", "governorAddress", "votingToken", "votingParams", "executor"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Short slug, e.g. 'uniswap', 'compound', 'optimism'."
+    },
+    "chainId": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "governorAddress": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{40}$"
+    },
+    "governorVersion": {
+      "type": "string",
+      "enum": ["oz-v4", "oz-v5", "bravo-v3"],
+      "default": "oz-v4"
+    },
+    "votingToken": {
+      "type": "object",
+      "required": ["type", "address", "symbol"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["ERC20Votes", "ERC20VotesComp"]
+        },
+        "address": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+        "symbol": { "type": "string" },
+        "decimals": { "type": "integer", "minimum": 0, "maximum": 30, "default": 18 }
+      }
+    },
+    "timelock": {
+      "type": "object",
+      "required": ["address", "minDelay"],
+      "additionalProperties": false,
+      "properties": {
+        "address": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+        "minDelay": { "type": "integer", "minimum": 0, "description": "Seconds." }
+      }
+    },
+    "votingParams": {
+      "type": "object",
+      "required": ["votingDelay", "votingPeriod", "quorumNumerator"],
+      "additionalProperties": false,
+      "properties": {
+        "votingDelay": { "type": "integer", "minimum": 0, "description": "Blocks (oz-v4) or seconds (oz-v5)." },
+        "votingPeriod": { "type": "integer", "minimum": 1 },
+        "proposalThreshold": { "type": "string", "pattern": "^[0-9]+$", "description": "uint256 as decimal string." },
+        "quorumNumerator": { "type": "number", "minimum": 0 },
+        "quorumDenominator": { "type": "integer", "minimum": 1, "default": 100 }
+      }
+    },
+    "executor": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["timelock", "governor-self"] },
+        "id": { "type": ["string", "null"] }
+      }
+    },
+    "explorer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "etherscanBase": { "type": "string", "format": "uri" },
+        "tallyOrgSlug": { "type": "string" }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

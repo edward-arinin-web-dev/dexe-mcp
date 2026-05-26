@@ -1,0 +1,32 @@
+{
+  "id": "compound",
+  "chainId": 1,
+  "governorAddress": "0xc0Da02939E1441F497fd74F78cE7Decb17B66529",
+  "governorVersion": "bravo-v3",
+  "votingToken": {
+    "type": "ERC20VotesComp",
+    "address": "0xc00e94Cb662C3520282E6f5717214004A7f26888",
+    "symbol": "COMP",
+    "decimals": 18
+  },
+  "timelock": {
+    "address": "0x6d903f6003cca6255D85CcA4D3B5E5146dC33925",
+    "minDelay": 172800
+  },
+  "votingParams": {
+    "votingDelay": 13140,
+    "votingPeriod": 19710,
+    "proposalThreshold": "25000000000000000000000",
+    "quorumNumerator": 400000,
+    "quorumDenominator": 1
+  },
+  "executor": {
+    "type": "timelock",
+    "id": null
+  },
+  "explorer": {
+    "etherscanBase": "https://etherscan.io",
+    "tallyOrgSlug": "compound"
+  },
+  "notes": "Compound GovernorBravoDelegate. Bravo signatures, Compound-style votes interface (getPriorVotes / getCurrentVotes — NOT OZ getPastVotes). quorumVotes() is a fixed value (400k COMP); quorumNumerator/Denominator here are descriptive only."
+}

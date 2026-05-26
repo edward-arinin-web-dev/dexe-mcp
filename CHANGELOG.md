@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.6.0 — 2026-05-26
+
+### `gov` track
+
+External OpenZeppelin Governor + Compound Bravo surface. **+18 tools, total 131 → 149. 17 → 18 groups.** Targets Uniswap, Compound, Optimism. Independent from the DeXe Protocol — no DeXe contract needs to be deployed on the target chain. Source plan: `research/06-execution-plan.md` (Option 1).
+
+### New tools — `dexe_gov_*` (18)
+
+**Read (5)** — `dexe_gov_list_governors`, `dexe_gov_get_proposal`, `dexe_gov_get_voting_power`, `dexe_gov_get_quorum`, `dexe_gov_get_proposal_threshold`. Family-agnostic readouts: Bravo's `proposals(uint256)` flat struct is mapped onto the OZ `{snapshot, deadline, votes}` shape; `bravoExtra` (`proposer`, `eta`, `canceled`, `executed`) surfaced when applicable. Voting-power routes by token type — `ERC20VotesComp` (UNI, COMP) hits `getPriorVotes` / `getCurrentVotes`; `ERC20Votes` (OP) hits `getPastVotes` / `getVotes`.
+
+**Build (5)** — `dexe_gov_build_propose`, `dexe_gov_build_vote_cast`, `dexe_gov_build_queue`, `dexe_gov_build_execute`, `dexe_gov_build_delegate`. Version-branched encoders:
+- OZ v4+ propose: `(targets, values, calldatas, description)`; queue/execute: `(…, descriptionHash)` — accepts raw description (auto-keccak'd) or pre-computed hash.
+- Bravo propose: `(targets, values, signatures, calldatas, description)`; queue/execute: `(proposalId)` only.
+- `castVote` / `castVoteWithReason` identical both families; `support`: 0=Against, 1=For, 2=Abstain.
+- `delegate` is on the voting token, not the governor.
+
+**Simulate (2)** — `dexe_gov_simulate_proposal` (single-block `eth_call` dry-run with `Error(string)` + `Panic(uint256)` decoding) and `dexe_gov_simulate_vote_impact` (pure projection: current tallies + quorum, project the post-vote state, report `{quorumMet, willPass}` with family-aware quorum semantics — Bravo counts `forVotes` only, OZ counts `for + abstain`).
+
+**Extras (6)** — `dexe_gov_get_state` (single-call state lookup), `dexe_gov_has_voted` (per-account vote receipt), `dexe_gov_build_cancel` (family-aware cancel encoder), `dexe_gov_decode_calldata` (round-trip any Governor write calldata), `dexe_gov_hash_description` (pure keccak256 utility), `dexe_gov_hash_proposal` (OZ-only `hashProposal` preview — errors clearly on Bravo). Closes plan §2 metric #2 (`≥18 dexe_gov_* tools shipped`).
+
+### New configs / fixtures
+
+`src/governor/configs/` — Uniswap, Compound, Optimism. Each is one JSON. Adding a DAO is a config-only change.
+
+### Tally parity harness
+
+`tests/governor/parity.test.ts` — pulls the 10 most-recent proposals per Tier-1 DAO via Tally GraphQL, asserts on-chain `state()` matches the canonical-indexed Tally status. Live mode gated by `TALLY_API_KEY`; unit cases for the comparator run without network.
+
+### Tests (gov)
+
+60 governor unit tests green (encoder selector + roundtrip, family detection, isolation guard, fixture validity, Tally mapper). Plan §4.1 selector targets verified: OZ propose `0x7d5e81e2`, castVote `0x56781388`, delegate `0x5c19a95c`. Bravo propose selector derived from canonical 5-arg signature.
+
+### Docs (gov)
+
+`docs/GOVERNOR.md` (new). `docs/GOVERNOR_LAUNCH.md` (launch runbook). `docs/TOOLS.md` §17. README catalog row + tool count.
+
+### Hardening (gov, post-audit)
+
+Multi-agent audit pass before merge. No correctness or security blockers found; the following were tightened:
+- **Generic per-chain RPC** — `config.ts` now registers any `DEXE_RPC_URL_<chainId>` env var, so the live Governor read/simulate tools can reach Ethereum (1) and Optimism (10) where the Tier-1 DAOs actually live. Documented in `docs/GOVERNOR.md` + `docs/ENVIRONMENT.md`.
+- **Read-side input validation** — `dexe_gov_get_proposal` / `_get_voting_power` / `_get_state` / `_has_voted` now reject malformed `account` / `proposalId` at the schema layer instead of forwarding a cryptic RPC error.
+- **Encoder guards** — OZ `queue`/`execute`/`cancel` now enforce target/value/calldata length parity (previously only `propose` did); all builders reject empty action sets and cap at `MAX_ACTIONS` (50).
+- **Revert decoding** — `simulate_proposal` decodes `Panic(uint256)` codes to a human hint (overflow, div-by-zero, …) instead of raw bytes.
+- **Testability** — vote-impact projection extracted to a pure `projectVoteImpact()`; `validateGovernorConfig` exported. New offline tests cover voting-power routing, Bravo/OZ proposal-struct mapping, family-branched quorum projection, encoder guards, `hashProposal` Bravo invariant, and the real config validator. Governor suite now 70+ unit tests.
+
 ## 0.5.9 — 2026-05-26
 
 Security-hardening release: supply-chain CI, signer broadcast guards, and Safe{Wallet} multisig signing.
