@@ -9,7 +9,7 @@
   <a href="https://nodejs.org"><img alt="node" src="https://img.shields.io/node/v/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=E07AFF"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=FFC878"></a>
   <a href="https://modelcontextprotocol.io"><img alt="MCP-compatible" src="https://img.shields.io/badge/MCP-compatible-9BB4FF?style=flat-square&labelColor=0b0f1e"></a>
-  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-129-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
+  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-131-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="proposal types" src="https://img.shields.io/badge/proposal--types-33-E07AFF?style=flat-square&labelColor=0b0f1e"></a>
 </p>
 
@@ -40,7 +40,7 @@ That era is ending.
 
 LLMs can now reason about voting power, weigh proposals against a mandate, draft calldata, simulate execution, and ask your wallet to sign — **continuously, across every DAO you care about, all at once.** What was a UI is becoming a conversation. What was a treasurer's spreadsheet is becoming an always-on agent.
 
-**`dexe-mcp` is the substrate that makes it real for the DeXe stack.** One MCP server. 129 typed tools. Every flow the official frontend exposes — and a few it doesn't.
+**`dexe-mcp` is the substrate that makes it real for the DeXe stack.** One MCP server. 131 typed tools. Every flow the official frontend exposes — and a few it doesn't.
 
 |     | What you get |
 |-----|------|
@@ -176,7 +176,7 @@ All optional. Tools that need a missing variable fail with a clear, actionable m
 
 Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/main/docs):
 
-- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 129 tools, grouped, with one-line descriptions and required envs.
+- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 131 tools, grouped, with one-line descriptions and required envs.
 - [**`docs/USAGE.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USAGE.md) — 10 worked examples (deploy DAO, create/vote/execute proposals, delegate, validator chamber, decode calldata, off-chain proposals, multicall batching). Copy-pasteable JSON.
 - [**`docs/ENVIRONMENT.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/ENVIRONMENT.md) — env-var reference: minimum block to get started, per-category requirements, calldata vs signer mode, chain config, IPFS gateway rationale, subgraph migration, swarm-harness envs, common pitfalls.
 - [**`docs/OTC.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/OTC.md) — multi-tier OTC sale flows (project-owner and buyer paths).
@@ -187,24 +187,25 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 
 ## Tool catalog
 
-**129 tools, 14 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+**131 tools, 17 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
 | Group | # | What it gives you |
 |-------|---|------|
 | **Dev tooling** | 4 | One-command Hardhat lifecycle for the DeXe-Protocol monorepo — `dexe_compile`, `_test`, `_coverage`, `_lint`. Auto-clones the repo on first call. |
 | **Contract introspection** | 10 | Ask the protocol about itself — list contracts, fetch ABIs, look up selectors, read NatSpec, view source, decode arbitrary calldata or full proposal payloads. The agent's reverse-engineer toolkit. |
-| **DAO reads** | 25 | Everything you'd see on a DAO dashboard, returned as JSON — `dao_info`, predicted helper addresses, proposal state/list/voters, voting power, treasury, settings, validators, staking, distributions, privacy policy, user activity. |
+| **DAO reads** | 19 | Everything you'd see on a DAO dashboard, returned as JSON — `dao_info`, predicted helper addresses, proposal state/list/voters, voting power, treasury, settings, validators, staking, distributions, privacy policy. |
 | **IPFS** | 9 | Pinata uploads for files / avatars / DAO + proposal metadata, smart metadata updates, deterministic identicon generation, gateway-fallback fetch, CID computation without uploading. |
 | **DAO deploy** | 1 | `dexe_dao_build_deploy` — encodes the full nested `PoolFactory.deployGovPool` struct with predicted helper addresses pre-wired. From idea to a live DAO in one signed tx. |
 | **Proposal catalog + primitives** | 5 | `dexe_proposal_catalog` enumerates **all 33** proposal types with metadata + gating. Primitives `_build_external`, `_build_internal`, `_build_custom_abi`, `_build_offchain` cover anything not in a named wrapper. |
 | **External proposal wrappers** | 20 | Named builders for every common action: token transfer / distribution / sale (single + multi-tier), treasury withdraw, validators, experts, staking tier, math model, blacklist, reward multiplier, apply to DAO, modify profile, change voting settings, new proposal type, whitelist, and more. |
 | **Internal validator wrappers** | 4 | Validator-chamber proposals: `_change_validator_balances`, `_change_validator_settings`, `_monthly_withdraw`, `_offchain_internal_proposal`. |
 | **Off-chain backend** | 8 | Full DeXe-backend integration — nonce + SIWE login, off-chain proposal creation (single-option / multi-option / for-against / settings), off-chain vote + cancel. |
-| **Vote / stake / delegate / execute / claim** | 16 | Every direct EOA write on `GovPool` and `Validators` — deposit, vote, delegate, undelegate, execute, claim rewards, micropool rewards, staking flows, NFT multiplier lock/unlock, privacy policy signing. |
+| **Vote / stake / delegate / execute / claim** | 26 | Every direct EOA write on `GovPool` and `Validators` — deposit, vote, delegate, undelegate, execute, claim rewards, micropool rewards, staking flows, token-sale buy/claim/vesting, distribution claim, NFT multiplier lock/unlock, privacy policy signing, multicall. |
 | **Composite signing flows** | 5 | High-level flows for power users: `_proposal_create`, `_proposal_vote_and_execute`, `_tx_send`, `_tx_status`, `_get_config`. Signing tools opt-in via `DEXE_PRIVATE_KEY`. |
-| **Subgraph reads** | 7 | The Graph queries: DAO list, members, experts, user activity, delegation map, distribution status, OTC sale tiers. Decentralized-network endpoints + RPC fallback. |
+| **Subgraph reads** | 7 | The Graph queries: DAO list, members, experts, validator list, user activity, delegation map, OTC sale tiers. Decentralized-network endpoints + RPC fallback. |
 | **Merkle utility** | 2 | `dexe_merkle_build`, `dexe_merkle_proof` — OZ `StandardMerkleTree`-compatible. For whitelisted sales and airdrops. |
 | **OTC composites** | 4 | Full project-owner + buyer flows over `TokenSaleProposal`: open multi-tier sale, check buyer status, buy native or with merkle proof, claim vested payouts. See [`docs/OTC.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/OTC.md). |
+| **Safe multisig** | 2 | Queue a tx in the Safe Transaction Service for owners to co-sign instead of broadcasting — `dexe_safe_info` (on-chain nonce/threshold/owners + endpoint), `dexe_safe_propose_tx` (compute `safeTxHash`, sign as owner, POST to the queue; dry-run by default). See [`docs/SAFE.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/SAFE.md). |
 | **Simulator** | 3 | `eth_call`-based preflight with decoded revert reasons — `_sim_calldata`, `_sim_proposal`, `_sim_buy`. Catch reverts before you pay gas. See [`docs/SIMULATOR.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/SIMULATOR.md). |
 | **Multi-DAO inbox + forecast** | 2 | `dexe_user_inbox` aggregates pending items (unvoted proposals, claimable rewards, locked deposits) across N DAOs. `_proposal_forecast` predicts pass rate with quorum projection + risk flags. See [`docs/INBOX.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/INBOX.md). |
 
@@ -257,6 +258,22 @@ npm run dev          # watch mode
 ```
 
 Issues, PRs, and proposal-type requests welcome → [GitHub issues](https://github.com/edward-arinin-web-dev/dexe-mcp/issues).
+
+## Security
+
+Supply-chain hardening is enforced in CI. See [SECURITY.md](SECURITY.md) for the full policy, threat model, and how to report a vulnerability. Highlights:
+
+- **Signed release tags.** Every release tag is GPG-signed and `release.yml` runs `git verify-tag` before publishing — an unsigned or untrusted tag aborts the release. Verify any tag yourself after cloning:
+
+  ```bash
+  gpg --recv-keys <MAINTAINER_KEY_ID>   # import maintainer key once
+  git verify-tag v0.5.9                 # or the shorthand: git tag -v v0.5.9
+  ```
+
+  A `Good signature` line is the only acceptable result; `no signature found` or `No public key` means do not trust the tag.
+- **npm provenance.** Releases publish with `npm publish --provenance`; verify with `npm audit signatures` against an installed copy.
+- **Reproducible installs.** A `verify-lockfile` CI job installs strictly from the committed `package-lock.json` and fails on any drift.
+- **Continuous scanning.** CodeQL (SAST) runs on every PR and weekly; OSSF Scorecard runs weekly and on push to `main`; Dependency Review runs on every PR.
 
 ## License
 

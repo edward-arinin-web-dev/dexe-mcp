@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents. Total tools: **126**.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents. Total tools: **131**.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Three composite tools (`dexe_tx_send`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -21,8 +21,9 @@ Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_propo
 11. [Composite signing flows](#11-composite-signing-flows)
 12. [Merkle utility](#12-merkle-utility)
 13. [OTC composites](#13-otc-composites)
-14. [Simulator](#14-simulator)
-15. [Multi-DAO inbox + forecast](#15-multi-dao-inbox--forecast)
+14. [Safe multisig](#14-safe-multisig)
+15. [Simulator](#15-simulator)
+16. [Multi-DAO inbox + forecast](#16-multi-dao-inbox--forecast)
 
 Each row links to the runtime schema. Args, return shapes, and zod input validators live in `src/tools/*.ts` — call the tool with no args (or via your MCP client) to see the JSON schema.
 
@@ -91,6 +92,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_read_validator_list` | Paginated validators ordered by balance descending. | `DEXE_SUBGRAPH_VALIDATORS_URL` |
 | `dexe_read_user_activity` | Paginated tx history per user — proposals/votes/delegations/claims by timestamp desc. | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
 | `dexe_read_delegation_map` | Outgoing or incoming delegation pairs for a user. | `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_otc_list_sales_for_dao` | Reads `latestTierId()` + `getTierViews(0, latestTierId)` on a DAO's TokenSaleProposal helper. Returns tiers with `upcoming`/`active`/`ended` status vs current block. Works chain 56 + 97, no subgraph needed. Pass `tokenSaleProposal` explicitly until per-DAO helper discovery lands. | `DEXE_RPC_URL` |
 
 ---
 
@@ -145,6 +147,8 @@ Sources: `src/tools/proposalBuild.ts`, `src/tools/proposalBuildMore.ts`, `src/to
 | `dexe_proposal_build_token_transfer` | Treasury → recipient ERC20 transfer. Encodes `ERC20.transfer`. Aborts if `DEXE_RPC_URL` set and recipient is `ERC20Gov.isBlacklisted`. | `DEXE_RPC_URL` (optional, for blacklist precheck) |
 | `dexe_proposal_build_token_distribution` | Batch distribution via DistributionProposal. Auto-prepends `ERC20.approve` for non-native tokens. | (none) |
 | `dexe_proposal_build_token_sale` | Launches a single tier via `TokenSaleProposal.createTiers`. Plain whitelist supported; merkle requires custom_abi. | (none) |
+| `dexe_proposal_build_token_sale_multi` | `TokenSaleProposal.createTiers([...])` for one or more tiers. Each tier may declare participation requirements (DAOVotes / Whitelist / BABT / TokenLock / NftLock / MerkleWhitelist), encoded per-type. ERC20 approves are summed + deduped per sale token; plain-`Whitelist` tiers auto-append the matching `addToWhitelist` action when users are supplied. | (none) |
+| `dexe_proposal_build_token_sale_whitelist` | `TokenSaleProposal.addToWhitelist([{tierId, users, uri}, ...])` — extend the whitelist of an already-live tier (plain `Whitelist` type only; merkle tiers are gated by their root). | (none) |
 | `dexe_proposal_build_token_sale_recover` | `TokenSaleProposal.recover(tierIds)` — recover unsold tokens. | (none) |
 | `dexe_proposal_build_create_staking_tier` | `StakingProposal.createStaking(rewardToken, amount, startedAt, deadline, metadata)`. Auto-prepends approve for ERC20 rewards. | (none) |
 | `dexe_proposal_build_change_math_model` | `GovPool.changeVotePower(newVotePower)` — swap LINEAR / POLYNOMIAL / custom power contract. | (none) |
@@ -230,7 +234,7 @@ Source: `src/tools/voteBuild.ts`. All return calldata `TxPayload`. None require 
 
 ## 11. Composite signing flows
 
-Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`. **These four require `DEXE_PRIVATE_KEY` for the auto-signed mode** — they sign and broadcast directly. Other tools always return calldata for an external signer.
+Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`, `src/tools/getConfig.ts`. The signing flows (`dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`) **require `DEXE_PRIVATE_KEY` for the auto-signed mode** — they sign and broadcast directly (and run the B6/B7/B10 broadcast guards first; `dexe_tx_send` also runs B9 simulation). Other tools always return calldata for an external signer.
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
@@ -238,6 +242,7 @@ Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`. **These four require `DEXE_
 | `dexe_proposal_vote_and_execute` | Vote on a proposal, optionally execute when state allows. Handles deposits + state transitions. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_send` | Sign and broadcast any TxPayload from a `*_build_*` tool. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_status` | Read receipt/status of a previously submitted tx hash. | `DEXE_RPC_URL` |
+| `dexe_get_config` | Diagnostic read: the server's chain set, default chain, and signer status (`readonly`/`eoa`/`safe`). Call once at session start when unsure which chain is configured. Never writes. | (none) |
 
 ---
 
@@ -265,7 +270,18 @@ Source: `src/tools/otc.ts`. Composites that orchestrate `proposal_create` + `Tok
 
 ---
 
-## 14. Simulator
+## 14. Safe multisig
+
+Source: `src/tools/safe.ts`, `src/lib/ethersProvider.ts`. Alternative signer posture: instead of broadcasting from a hot EOA, **queue** the tx in the [Safe Transaction Service](https://docs.safe.global/) for the Safe's owners to co-sign and execute. Use when the DAO/treasury operator key is custodied in a Gnosis Safe rather than a bare `DEXE_PRIVATE_KEY`. See [`docs/SAFE.md`](./SAFE.md).
+
+| Tool | What it does | Required env |
+|------|--------------|--------------|
+| `dexe_safe_info` | Read-only: live Safe `nonce` / `threshold` / `owners` / singleton version, whether the configured signer is an owner, and which Safe Transaction Service endpoint this chain resolves to. | `DEXE_RPC_URL` |
+| `dexe_safe_propose_tx` | Takes a `TxPayload` (`to`/`value`/`data`/`operation`), reads the Safe's next `nonce()` (unless supplied), computes the EIP-712 `safeTxHash`, signs it with `DEXE_PRIVATE_KEY` (which must be a Safe owner), and assembles the create-multisig-transaction body. **`dryRun` defaults to `true`** — returns the signed payload + resolved POST target without sending; `dryRun=false` POSTs to the service. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL`; `DEXE_SAFE_API_KEY` for api.safe.global; `DEXE_SAFE_TX_SERVICE_URL` for chains without a hosted service |
+
+---
+
+## 15. Simulator
 
 Source: `src/tools/simulate.ts`. `eth_call`-based preflight gate. Catches reverts before broadcast without spending real money. See [`docs/SIMULATOR.md`](./SIMULATOR.md).
 
@@ -277,7 +293,7 @@ Source: `src/tools/simulate.ts`. `eth_call`-based preflight gate. Catches revert
 
 ---
 
-## 15. Multi-DAO inbox + forecast
+## 16. Multi-DAO inbox + forecast
 
 Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my attention" tools. See [`docs/INBOX.md`](./INBOX.md).
 

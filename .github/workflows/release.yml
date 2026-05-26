@@ -1,0 +1,91 @@
+name: Release
+
+# Triggered by pushing a semver tag (e.g. `v0.5.9`). The job verifies the tag
+# matches package.json, runs typecheck/build (+ tests when present on the branch;
+# currently a no-op via --passWithNoTests), then publishes to npm with
+# a provenance attestation linking the tarball to this commit + workflow run.
+#
+# Requirements:
+#   - Repo secret NPM_TOKEN  (npm automation token with publish rights)
+#   - Repo secret MAINTAINER_GPG_PUBLIC_KEY (ASCII-armored public key of the
+#     maintainer who signs release tags; used by `git verify-tag`)
+#   - id-token: write permission (granted below; needed for OIDC)
+#
+# To cut a release:
+#   1. Bump package.json version (and CHANGELOG/README per release discipline)
+#   2. git tag -s vX.Y.Z -m vX.Y.Z   (GPG-SIGNED tag — unsigned tags are rejected)
+#   3. git push --tags
+#   4. This workflow publishes and the provenance badge appears on npmjs.com
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tag objects so `git verify-tag` can read the
+          # annotated tag and its GPG signature (shallow checkout omits them).
+          fetch-depth: 0
+          fetch-tags: true
+
+      # Supply-chain guard: the release aborts unless the pushed tag carries a
+      # valid GPG signature from the maintainer key. An unsigned or tampered tag
+      # never reaches the publish step.
+      - name: Import maintainer GPG public key
+        env:
+          MAINTAINER_GPG_PUBLIC_KEY: ${{ secrets.MAINTAINER_GPG_PUBLIC_KEY }}
+        run: |
+          if [ -z "$MAINTAINER_GPG_PUBLIC_KEY" ]; then
+            echo "::error::MAINTAINER_GPG_PUBLIC_KEY secret is not set; cannot verify the tag signature. Add the maintainer's ASCII-armored public key as a repo secret."
+            exit 1
+          fi
+          echo "$MAINTAINER_GPG_PUBLIC_KEY" | gpg --import
+
+      - name: Verify tag is signed by maintainer
+        run: |
+          # `git verify-tag` exits non-zero when the tag is unsigned, the
+          # signature is invalid, or the signing key is unknown to the keyring.
+          git verify-tag "$GITHUB_REF_NAME"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+          echo "Tag and package.json agree on ${PKG_VERSION}"
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

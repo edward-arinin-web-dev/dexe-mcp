@@ -4,6 +4,43 @@
 
 Only the latest published version on npm receives security updates. Pin to the latest minor (`^0.5`) in your MCP client config.
 
+## Automated security checks
+
+The repo runs four GitHub Actions security workflows continuously:
+
+- **CI** (`ci.yml`) — typecheck and build on every push to `main` and every pull request, against Node 20 and 22, plus a `verify-lockfile` integrity job. The test step (`vitest`) runs whenever test files are present on the branch; it is currently a no-op via `--passWithNoTests` (the suite lives on `governor-adapter`) and becomes an enforcing gate once those tests merge. Read-only `GITHUB_TOKEN` scope.
+- **Dependency Review** (`dependency-review.yml`) — every PR is checked against the GitHub Advisory Database. Fails the PR check if any added/updated dependency carries a `high` or `critical` CVE, or if it introduces a forbidden license (GPL/AGPL).
+- **OSSF Scorecard** (`scorecard.yml`) — weekly + on push to `main`. Audits branch protection, signed releases, pinned dependencies, token permissions, and a dozen other supply-chain checks. Results uploaded to GitHub code-scanning (SARIF) and published as a public score at `https://api.securityscorecards.dev/projects/github.com/edward-arinin-web-dev/dexe-mcp/badge`.
+- **CodeQL** (`codeql.yml`) — GitHub-native SAST with the `security-extended` query suite. Runs on every PR/main push and weekly. Scans for prototype pollution, command injection, ReDoS, unsafe deserialization, path traversal, and other CWE patterns. Findings land in the repo's Security tab.
+
+## Release provenance
+
+Every npm release from `v0.5.9` onwards is published via `.github/workflows/release.yml` with `npm publish --provenance`. The signed attestation links the tarball to the exact git commit and GitHub Actions run that produced it. Verify in three ways:
+
+- The npmjs.com page for the package shows a "Provenance" badge with the source repo and workflow run.
+- `npm view dexe-mcp dist.signatures` returns Sigstore signatures.
+- `npm audit signatures` against an installed copy fails if the registry tarball was tampered with.
+
+If you ever install a `dexe-mcp` version that lacks a provenance attestation (and is not a pre-`v0.5.9` historical release), treat it as suspect and report.
+
+## Signed release tags
+
+Every release tag is GPG-signed by the maintainer, and `release.yml` runs `git verify-tag "$GITHUB_REF_NAME"` **before** the publish step — an unsigned tag, an invalid signature, or a tag signed by an unknown key aborts the release, so a pushed tag can never publish to npm without a valid maintainer signature.
+
+To verify a tag yourself after cloning the repo:
+
+```bash
+# Import the maintainer's public key once (key id published alongside releases).
+gpg --recv-keys <MAINTAINER_KEY_ID>
+
+# Verify a specific tag — exits non-zero if unsigned or signed by an unknown key.
+git verify-tag v0.5.9
+# Equivalent shorthand:
+git tag -v v0.5.9
+```
+
+A clean `gpg: Good signature from "<maintainer>"` line is the only acceptable result. `error: ... no signature found` (unsigned) or `Can't check signature: No public key` (unknown signer) means do not trust the tag.
+
 ## Reporting a Vulnerability
 
 If you find a vulnerability in `dexe-mcp` — whether in the calldata builders, the optional signer (`DEXE_PRIVATE_KEY`), IPFS upload paths, or the Hardhat bridge — please **do not** open a public GitHub issue.
@@ -44,3 +81,16 @@ Out of scope:
 3. IPFS pinning credentials — keep `PINATA_JWT` scoped to a project-specific key.
 
 If you believe any of the above is broken, please report per the process above.
+
+## Signer broadcast guards
+
+When signer mode is enabled (`DEXE_PRIVATE_KEY`), `dexe_tx_send` runs four opt-in guards before broadcasting (`src/lib/broadcastGuards.ts`). They narrow the blast radius of a compromised or runaway MCP host — the host can still *call* the tool, but cannot send to arbitrary destinations, drain arbitrary value, pay gas for reverting txs, or loop unbounded. Each is a no-op unless its env var is set; a failed guard returns `{ status: "rejected", guard, reason }` with **no gas spent**.
+
+| Guard | Env var | What it blocks |
+|-------|---------|----------------|
+| **B6** destination allowlist | `DEXE_SIGNER_ALLOWLIST` | Broadcasts to any `to` not on the comma-separated list. |
+| **B7** value cap | `DEXE_SIGNER_MAX_VALUE_WEI` | Broadcasts whose `value` (wei) exceeds the cap. |
+| **B9** auto-simulation | _(always on in signer mode)_ | Doomed txs — `eth_call` preflight aborts with the decoded revert reason before gas is spent. |
+| **B10** rate limit | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | More than N broadcasts in a rolling 60s window. |
+
+These are defense-in-depth, **not** a substitute for keeping the key off-host. For prod governance/treasury actions, prefer calldata mode + Safe Multisig / Ledger. See `docs/ENVIRONMENT.md` §4 for the recommended config block.

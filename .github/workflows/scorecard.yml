@@ -1,0 +1,61 @@
+name: OSSF Scorecard
+
+# OpenSSF Scorecard scans repo security practices weekly (branch protection,
+# token permissions, signed releases, dependency hygiene, etc.) and uploads
+# results as SARIF to GitHub code-scanning. publish_results: true also enables
+# the public badge at api.securityscorecards.dev.
+#
+# Triggers:
+#   - schedule: weekly on Sunday, low cost
+#   - push to main: re-score after merges that may shift posture
+#   - workflow_dispatch: manual re-run after fixing an issue
+#
+# No secrets required. Uses OIDC for publication.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 4 * * 0'  # Sunday 04:00 UTC
+  workflow_dispatch:
+
+# Top-level default = read-only. Per Scorecard's own Token-Permissions check.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # upload SARIF to code-scanning
+      id-token: write         # publish to api.securityscorecards.dev via OIDC
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard
+        # Pinned to commit SHA for v2.4.0. Tags are mutable; pinning a 3rd-party
+        # action by SHA defends against the upstream account being compromised.
+        # Update by running: git ls-remote https://github.com/ossf/scorecard-action.git 'vX.Y.Z^{}'
+        uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46  # v2.4.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 30
+
+      - name: Upload SARIF to GitHub code-scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

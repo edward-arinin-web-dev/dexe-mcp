@@ -1,0 +1,40 @@
+name: Dependency Review
+
+# Runs on every pull request that touches package manifests. Diffs the changed
+# dependency graph against GitHub's Advisory Database and fails the check if
+# any added/updated dep introduces a high-or-critical CVE. Also flags forbidden
+# licenses. Posts a summary comment on the PR for human reviewers.
+#
+# No secrets required. Uses default GITHUB_TOKEN.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write  # required for comment-summary-in-pr
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Review dependencies
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+          # License allowlist — MIT-compatible only. Add to deny-licenses to
+          # forbid copyleft creeping into the runtime dep graph.
+          # Include the canonical -only/-or-later SPDX forms (modern tooling emits
+          # these; the bare ids are SPDX-deprecated and won't match them) plus the
+          # legacy bare ids for older package.json license fields.
+          deny-licenses: >-
+            GPL-2.0-only, GPL-2.0-or-later,
+            GPL-3.0-only, GPL-3.0-or-later,
+            AGPL-1.0-only, AGPL-1.0-or-later,
+            AGPL-3.0-only, AGPL-3.0-or-later,
+            GPL-2.0, GPL-3.0, AGPL-1.0, AGPL-3.0

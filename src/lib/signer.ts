@@ -19,6 +19,11 @@ export class SignerManager {
     return !!this.key;
   }
 
+  /** The config this signer was built from — lets broadcast paths reach the guard env. */
+  getConfig(): DexeConfig {
+    return this.config;
+  }
+
   /**
    * Address of the configured signer (chain-agnostic — same EOA across chains).
    * Throws if no `DEXE_PRIVATE_KEY` is set.

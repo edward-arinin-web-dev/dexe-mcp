@@ -75,6 +75,9 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_PROTOCOL_PATH` | dev tooling (optional) | Use an existing DeXe-Protocol checkout instead of the auto-managed cache directory; disables auto clone/install. Must be a Hardhat project (`hardhat.config.{js,ts}`) with `node_modules/`. | `D:/dev/DeXe-Protocol` |
 | `DEXE_FORK_BLOCK` | reserved (Phase B) | Pin a fork block for deterministic state reads. Non-negative integer. | `38123456` |
 | `DEXE_PRIVATE_KEY` | `dexe_tx_send`, signed branch of `dexe_proposal_create` / `dexe_proposal_vote_and_execute` | 0x-prefixed 64-hex EOA key. Requires `DEXE_RPC_URL`. **Process-resident — see §4.** | `0xabc...` |
+| `DEXE_SIGNER_ALLOWLIST` | `dexe_tx_send` (signer mode, optional) | **B6 guard.** Comma-separated destination addresses; `dexe_tx_send` rejects any `to` not on the list. Unset = no restriction. Validated + lowercased at startup; invalid address aborts startup. | `0xAbc...,0xDef...` |
+| `DEXE_SIGNER_MAX_VALUE_WEI` | `dexe_tx_send` (signer mode, optional) | **B7 guard.** Hard cap on the `value` (wei) of any single broadcast; over-cap is rejected. Unset = no cap. | `100000000000000000` (0.1 BNB) |
+| `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | `dexe_tx_send` (signer mode, optional) | **B10 guard.** Max broadcasts per rolling 60s window across the process; over-limit is rejected with a retry hint. Unset = no limit. | `10` |
 | `DEXE_PRIVACY_POLICY_HASH` | `dexe_vote_build_privacy_policy_*` (optional) | Default privacy-policy bytes32 hash. Otherwise read live from `UserRegistry.documentHash()`. | `0x...` |
 
 Every var is read once during `loadConfig()` at startup or directly from
@@ -145,6 +148,29 @@ arbitrarily invoke any tool. Treat `DEXE_PRIVATE_KEY` like a hot wallet:
 - Never set `DEXE_PRIVATE_KEY` in a config file checked into git.
 - Restart the server to rotate the key.
 
+### Signer broadcast guards (opt-in)
+
+In signer mode, `dexe_tx_send` runs four guards before
+`wallet.sendTransaction()`. Each is a no-op unless its env var is set, so they
+narrow the blast radius of a compromised/confused MCP host without changing the
+default posture. They run in order; the first failure rejects the broadcast
+(JSON `{ status: "rejected", guard, reason }`, no gas spent):
+
+| Guard | Env var | Effect |
+|-------|---------|--------|
+| **B6** destination allowlist | `DEXE_SIGNER_ALLOWLIST` | Rejects any `to` not on the comma-separated list. Confines the signer to known contracts. **List the GovPool _and_ its governance token** — deposit-requiring flows broadcast an `ERC20.approve` whose `to` is the **token** (UserKeeper is only the `spender` argument, never a `to`), so an allowlist missing the token rejects the approve step. |
+| **B7** value cap | `DEXE_SIGNER_MAX_VALUE_WEI` | Rejects `value` above the cap. Bounds native-token outflow per tx. |
+| **B9** auto-simulation | _(always on in signer mode)_ | `eth_call` preflight against live state; aborts with the decoded revert reason instead of paying gas for a doomed tx. |
+| **B10** rate limit | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | Rejects once N broadcasts have landed in the trailing 60s. Caps drain rate under a runaway loop. |
+
+Recommended signer-mode block for a single-DAO operator:
+
+```jsonc
+"DEXE_SIGNER_ALLOWLIST": "0x<govPool>,0x<govToken>",
+"DEXE_SIGNER_MAX_VALUE_WEI": "100000000000000000",  // 0.1 BNB
+"DEXE_SIGNER_MAX_BROADCASTS_PER_MIN": "10"
+```
+
 `DEXE_PRIVATE_KEY` requires at least one of `DEXE_RPC_URL` / `DEXE_RPC_URL_TESTNET` / `DEXE_RPC_URL_MAINNET` — startup fails fast otherwise.
 
 ---
@@ -194,7 +220,33 @@ Subgraph URLs only work if a DeXe subgraph is deployed for that chain.
 
 ---
 
-## 6. IPFS configuration
+## 6. Safe{Wallet} multisig signing (the `dexe_safe_*` tools)
+
+When the operator key is custodied in a Gnosis Safe, the `dexe_safe_*` tools
+**queue** a transaction in the Safe Transaction Service for owners to co-sign,
+instead of broadcasting from a single EOA. See [`SAFE.md`](./SAFE.md) for the
+full flow.
+
+| Var | When required | What it does |
+|-----|---------------|--------------|
+| `DEXE_PRIVATE_KEY` | to sign a proposal | The signing EOA. Must be one of the Safe's owners or the service rejects the proposal. |
+| `DEXE_SAFE_TX_SERVICE_URL` | chains without a hosted service, or self-hosted | Overrides the auto-resolved endpoint. Point it at the service base ending in `/api/v2`, e.g. `https://api.safe.global/tx-service/bnb/api/v2`. **Required for BSC testnet (97)** — no hosted Safe service exists there. |
+| `DEXE_SAFE_API_KEY` | live POST to `api.safe.global` | Bearer token for the hosted Safe Transaction Service. Not needed when `dryRun=true` or when `DEXE_SAFE_TX_SERVICE_URL` points at a service that doesn't require auth. |
+
+Endpoint resolution: with no override, `chainId` maps to
+`https://api.safe.global/tx-service/<shortname>/api/v2` (eth, bnb, matic, base,
+arb1, sep, …). `DEXE_SAFE_TX_SERVICE_URL` always wins when set.
+
+`dexe_get_config` reports the effective `signerMode`:
+
+- `readonly` — no `DEXE_PRIVATE_KEY`; tools return unsigned `TxPayload`s only.
+- `eoa` — key set, no Safe service; `dexe_tx_send` broadcasts directly.
+- `safe` — key set **and** `DEXE_SAFE_TX_SERVICE_URL` set; `dexe_safe_*` can
+  queue to the multisig.
+
+---
+
+## 7. IPFS configuration
 
 ### Why a dedicated gateway is required
 
@@ -235,7 +287,7 @@ parallel — see [`src/lib/ipfs.ts`](../src/lib/ipfs.ts)).
 
 ---
 
-## 7. Subgraph configuration
+## 8. Subgraph configuration
 
 DeXe migrated from The Graph **Hosted Service / Studio** to the
 **decentralized network**. Studio URLs are dead. Use the gateway form with
@@ -266,7 +318,7 @@ when you switch `DEXE_CHAIN_ID`.
 
 ---
 
-## 8. Swarm test harness envs
+## 9. Swarm test harness envs
 
 The swarm harness (`tests/swarm/`) uses a separate env block. Full setup
 runbook: [`tests/swarm/README.md`](../tests/swarm/README.md). Brief callout:
@@ -288,7 +340,7 @@ testing-strategy contract.
 
 ---
 
-## 9. Common pitfalls
+## 10. Common pitfalls
 
 ### `process.loadEnvFile()` quirks
 
