@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### WalletConnect signer mode — Phase B (C12) → v0.7.0
+
+Live relay session on top of Phase A's config. WalletConnect is now a working
+keyless signer: `dexe_tx_send` forwards each tx to the operator's phone wallet,
+which **signs and broadcasts** — the private key never enters the MCP process.
+
+- **Dependency.** Added `@walletconnect/universal-provider` (^2.17.0). **Lazily
+  imported** inside `src/lib/walletconnect.ts` — read-only / EOA / Safe
+  deployments that never open a WC session pay no startup cost, and a missing
+  install surfaces a clear error only on `dexe_wc_connect`.
+- **`WalletConnectManager` (`src/lib/walletconnect.ts`).** Singleton holding the
+  `UniversalProvider` + session: `connect` (returns the pairing URI, approval
+  resolves in the background), `disconnect`, `sendTransaction` (per-tx approval
+  timeout from `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`), CAIP-10 account parsing.
+- **New tools `dexe_wc_connect` + `dexe_wc_disconnect`.** `dexe_wc_status` now
+  reports live session state (`connected`, `connecting`, `account`, `chainId`,
+  `topic`, `peerName`, `expiry`, `lastError`). +2 tools (150 → **152**); still
+  19 groups.
+- **`dexe_tx_send`.** Branches to the WalletConnect path when no hot key is set;
+  the wallet returns the tx hash and `waitConfirmations` is honoured via a
+  read-only RPC provider. Guards B6/B7/B9/B10 still run before forwarding.
+- **`dexe_tx_status`.** Reworked to a read-only `JsonRpcProvider` so it no longer
+  requires a signer — works in `walletconnect` and `readonly` modes.
+- **Scope.** Only `dexe_tx_send` / `dexe_tx_status` route through WalletConnect;
+  composite broadcast flows (`flow.ts` / OTC `sendOrCollect`) still require a hot
+  key (per-step phone approval on dependent sequences is impractical) — deferred.
+- **Tests.** `tests/walletconnect.test.ts` (7) — config gating, CAIP-10 parsing,
+  no-session guards.
+- **Remaining gate before tag/publish:** one live phone-wallet round-trip on BSC
+  testnet (human action).
+
 ### WalletConnect signer mode — Phase A (C12)
 
 Plumbing for a fourth `signerMode`: `walletconnect`. Broadcast convenience

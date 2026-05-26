@@ -1,7 +1,8 @@
 # WalletConnect signer mode (C12)
 
-> Status: **design + Phase A** (2026-05-26). Phase B (live relay session) is gated on
-> an operator `DEXE_WALLETCONNECT_PROJECT_ID` + a phone wallet for end-to-end testing.
+> Status: **Phase B shipped** (2026-05-26) — live relay session implemented and
+> unit-tested; targets `v0.7.0`. The final gate before tag/publish is one live
+> round-trip against a real phone wallet (`DEXE_WALLETCONNECT_PROJECT_ID` is set).
 
 ## Why
 
@@ -39,15 +40,22 @@ session. Lifecycle is driven by explicit tools, not implicitly per-call:
 
 | Tool | Action |
 |------|--------|
-| `dexe_wc_connect` | init provider (if needed), start `connect()`, return the pairing `uri` + an ASCII QR hint. Stores the pending-approval promise. Non-blocking — returns the URI immediately. |
-| `dexe_wc_status` | report `{ connected, account, chains, expiry }`. In Phase A (no live relay) reports only the resolved config (projectId present? relay url?). |
-| `dexe_wc_disconnect` | `provider.disconnect()`, clear singleton. |
+| `dexe_wc_connect` | init provider (if needed), start `connect()`, return the pairing `uri`. Non-blocking — returns the URI as soon as the relay emits it; the session-approval handshake completes in the background. Poll `dexe_wc_status` until `connected`. |
+| `dexe_wc_status` | report `{ connected, connecting, account, chainId, topic, peerName, expiry, lastError }` plus the resolved config. |
+| `dexe_wc_disconnect` | `provider.disconnect()`, clear session state. Safe no-op when not connected. |
 
-`dexe_tx_send` (and the composite broadcast loop `sendOrCollect`) branch on
-`signerMode === 'walletconnect'`: instead of `wallet.sendTransaction(tx)` they call
+`dexe_tx_send` branches on the active dispatch path: when there is **no hot key** and
+WalletConnect is configured, instead of `wallet.sendTransaction(tx)` it calls
 `provider.request('eth_sendTransaction', tx, 'eip155:'+chainId)`. The call **blocks
 until the phone approves** — so a hard timeout (default 120 s, env-tunable) is
-mandatory, returning a clear `{status:'timeout'}` instead of hanging the MCP request.
+mandatory; on timeout it returns `{status:'rejected', reason:'…timed out…'}` instead
+of hanging the MCP request. The wallet signs **and broadcasts**, so the response carries
+the tx hash; `waitConfirmations` is honoured via a read-only RPC provider.
+
+> **Scope note (v0.7.0):** only `dexe_tx_send` / `dexe_tx_status` route through
+> WalletConnect. The composite broadcast flows (`sendOrCollect` in `flow.ts` / OTC) still
+> require a hot key — they broadcast multi-step dependent sequences where per-step phone
+> approval is impractical. Routing them through WC is deferred.
 
 ### Guard interaction
 
@@ -80,16 +88,21 @@ approval is an *additional* human gate, not a replacement for the guards.
 - Docs (this file) + CHANGELOG + ENVIRONMENT.md + SECURITY.md threat-model note.
 - `typecheck && build && test` green. **No live relay, no broadcast yet.**
 
-### Phase B — live session (needs `DEXE_WALLETCONNECT_PROJECT_ID` + phone)
-- Add `@walletconnect/universal-provider` dependency (the only new dep — lands here).
-- `src/lib/walletconnect.ts` singleton: init / connect / request / disconnect.
-- `dexe_wc_connect` + `dexe_wc_disconnect` tools; ASCII-QR rendering of the URI.
-- Wire `eth_sendTransaction` branch into `dexe_tx_send` + `sendOrCollect`, with the
-  approval timeout + guards B6/B7/B9/B10.
-- End-to-end test on BSC testnet (chain 97) against a phone wallet.
-- README tool-count bump (+1 to +3 tools, +1 group "WalletConnect").
+### Phase B — live session — SHIPPED 2026-05-26
+- ✅ `@walletconnect/universal-provider` dependency added (lazily imported in
+  `src/lib/walletconnect.ts`, so non-WC deployments pay no startup cost).
+- ✅ `WalletConnectManager` (`src/lib/walletconnect.ts`): init / connect / request /
+  disconnect, CAIP-10 account parsing, per-tx approval timeout.
+- ✅ `dexe_wc_connect` + `dexe_wc_disconnect` tools; `dexe_wc_status` now reports live
+  session state. URI returned raw (client renders the QR).
+- ✅ `eth_sendTransaction` branch wired into `dexe_tx_send`; `dexe_tx_status` reworked to
+  a read-only provider so it works keyless. Guards B6/B7/B9/B10 still run on the WC path.
+- ✅ Unit tests (`tests/walletconnect.test.ts`): config gating, CAIP-10 parsing, no-session
+  guards. typecheck / build / test green (152 tools / 19 groups).
+- ⬜ **Remaining gate:** one live round-trip against a phone wallet on BSC testnet (chain
+  97) before tagging — human action.
 
-After Phase B lands → cut `v0.6.0`.
+After the live test passes → cut `v0.7.0`.
 
 ## Open questions for the operator
 1. Project id source — confirm `cloud.reown.com` (Reown, formerly WalletConnect Cloud).

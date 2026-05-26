@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { JsonRpcProvider } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SignerManager } from "../lib/signer.js";
+import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
 
@@ -8,7 +10,10 @@ export function registerTxTools(
   server: McpServer,
   config: DexeConfig,
   signer: SignerManager,
+  wc: WalletConnectManager,
 ): void {
+  // WalletConnect is the dispatch path only when there is no hot key to sign with.
+  const wcActive = (): boolean => !signer.hasSigner() && wc.isConfigured();
   server.tool(
     "dexe_tx_send",
     "Sign and broadcast a transaction using the configured DEXE_PRIVATE_KEY. " +
@@ -44,6 +49,104 @@ export function registerTxTools(
     },
     async ({ to, data, value, chainId, gasLimit, waitConfirmations }) => {
       const chain = resolveChain(config, chainId);
+
+      // ---- WalletConnect dispatch path (no hot key) ----------------------
+      // The phone wallet signs AND broadcasts; we only see the hash. Guards
+      // (B6/B7/B9/B10) still run, keyed on the connected account as `from`.
+      if (wcActive()) {
+        if (!wc.isConnected()) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    status: "rejected",
+                    reason:
+                      "WalletConnect mode is active but no session is connected. Call dexe_wc_connect and approve on your phone first.",
+                    chainId: chain.chainId,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+        const from = wc.account()!;
+        try {
+          await runBroadcastGuards({ to, data, value, chainId: chain.chainId, from }, config);
+        } catch (e) {
+          if (e instanceof BroadcastGuardError) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(
+                    { status: "rejected", guard: e.guard, reason: e.message, chainId: chain.chainId },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+              isError: true,
+            };
+          }
+          throw e;
+        }
+
+        let txHash: string;
+        try {
+          txHash = await wc.sendTransaction({ to, data, value, chainId: chain.chainId, gasLimit });
+        } catch (e) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  { status: "rejected", reason: e instanceof Error ? e.message : String(e), chainId: chain.chainId },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        if (waitConfirmations === 0) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  { txHash, from, chainId: chain.chainId, signer: "walletconnect", status: "submitted" },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+        // Wait via a read provider — WC returned the hash, the wallet broadcast it.
+        const provider = new JsonRpcProvider(chain.rpcUrl);
+        const receipt = await provider.waitForTransaction(txHash, waitConfirmations);
+        const result = receipt
+          ? {
+              txHash: receipt.hash,
+              from,
+              chainId: chain.chainId,
+              signer: "walletconnect",
+              blockNumber: receipt.blockNumber,
+              gasUsed: receipt.gasUsed.toString(),
+              status: receipt.status,
+            }
+          : { txHash, from, chainId: chain.chainId, signer: "walletconnect", status: "unknown" };
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      }
+
+      // ---- hot-key (EOA) dispatch path -----------------------------------
       const wallet = signer.requireSigner(chain.chainId);
 
       // Signer broadcast guards (B6/B7/B9/B10) — no-ops unless their env vars
@@ -152,8 +255,9 @@ export function registerTxTools(
     },
     async ({ txHash, chainId }) => {
       const chain = resolveChain(config, chainId);
-      const wallet = signer.requireSigner(chain.chainId);
-      const provider = wallet.provider!;
+      // Read-only lookup — no signer needed, so this works in WalletConnect/
+      // readonly modes too.
+      const provider = new JsonRpcProvider(chain.rpcUrl);
 
       const receipt = await provider.getTransactionReceipt(txHash);
       if (!receipt) {
