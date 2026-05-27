@@ -7,6 +7,10 @@ import {
   GOVERNOR_BRAVO_WRITE_ABI,
   GOVERNOR_OZ_WRITE_ABI,
 } from "../../src/governor/encoder.js";
+import {
+  GOVERNOR_BRAVO_READ_ABI,
+  GOVERNOR_OZ_READ_ABI,
+} from "../../src/governor/adapter.js";
 import type { GovernorConfig } from "../../src/governor/loader.js";
 
 const uniswap = resolveGovernor("uniswap");
@@ -55,6 +59,22 @@ describe("decodeGovernorWrite — round-trips every build* output", () => {
     const decoded = decodeGovernorWrite(uniswap, out.data);
     expect(decoded.method).toBe("cancel");
     expect((decoded.args[0] as bigint).toString()).toBe("42");
+  });
+});
+
+describe("has_voted — family read surface", () => {
+  // Regression: GovernorBravo (Uniswap/Compound) has no hasVoted(proposalId,account);
+  // it exposes getReceipt(...).hasVoted. The OZ family does implement hasVoted.
+  it("Bravo read ABI exposes getReceipt and NOT hasVoted", () => {
+    const iface = new Interface(GOVERNOR_BRAVO_READ_ABI as unknown as string[]);
+    expect(iface.getFunction("getReceipt")).toBeTruthy();
+    expect(iface.getFunction("getReceipt")!.outputs.some((o) => o.name === "hasVoted")).toBe(true);
+    expect(iface.getFunction("hasVoted")).toBeNull();
+  });
+
+  it("OZ read ABI exposes hasVoted", () => {
+    const iface = new Interface(GOVERNOR_OZ_READ_ABI as unknown as string[]);
+    expect(iface.getFunction("hasVoted")).toBeTruthy();
   });
 });
 

@@ -331,7 +331,7 @@ No DeXe Protocol contract is required on the target chain.
 | `dexe_gov_simulate_proposal` | Builds Governor.execute() calldata and runs `eth_call` against the configured RPC. Decodes `Error(string)` and `Panic(uint256)` revert reasons. Single-block dry-run only; for fork-and-time-warp, run against a hardhat/anvil fork. | RPC for the DAO's chain |
 | `dexe_gov_simulate_vote_impact` | Projects proposal outcome after a hypothetical vote — `{currentTallies, projectedTallies, quorumMet, willPass}`. Quorum semantics branch by family (Bravo counts forVotes only). | RPC for the DAO's chain |
 | `dexe_gov_get_state` | Shorthand for the state field of `dexe_gov_get_proposal` — single eth_call returning `{index, name}`. | RPC for the DAO's chain |
-| `dexe_gov_has_voted` | `hasVoted(proposalId, account)` — identical on OZ and Bravo. | RPC for the DAO's chain |
+| `dexe_gov_has_voted` | Whether `account` has voted on `proposalId`. Family-aware: OZ reads `hasVoted(proposalId, account)`; Bravo (Uniswap/Compound) has no `hasVoted` and reads `getReceipt(proposalId, voter).hasVoted`. Output includes the `method` actually used. | RPC for the DAO's chain |
 | `dexe_gov_build_cancel` | Encode Governor.cancel. OZ 4-arg + descriptionHash; Bravo `cancel(proposalId)`. | — |
 | `dexe_gov_decode_calldata` | Decode any Governor write calldata back to `{method, args}` against the family-aware ABI. Useful for wallet-side preview of `dexe_gov_build_*` output. | — |
 | `dexe_gov_hash_description` | `keccak256(toUtf8Bytes(description))` — pre-compute the descriptionHash OZ queue/execute/cancel/hashProposal expect. | — |

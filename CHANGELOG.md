@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.2 — 2026-05-27
+
+### Fixed
+
+- **`dexe_gov_has_voted` reverted on every Bravo DAO (Uniswap, Compound).** Classic
+  `GovernorBravoDelegate` does not expose `hasVoted(uint256, address)` — it exposes
+  `getReceipt(proposalId, voter)` returning `Receipt{hasVoted, support, votes}`. The
+  Bravo read ABI wrongly listed `hasVoted` and the tool called it unconditionally, so
+  the call failed with `CALL_EXCEPTION`. The tool now family-branches: OZ reads
+  `hasVoted`, Bravo reads `getReceipt(...).hasVoted`, and the response reports the
+  `method` used. OZ (Optimism) was unaffected. Found via live verification of the
+  governor adapter against mainnet/OP RPCs; verified live post-fix (Compound 374,
+  Uniswap 75, Optimism).
+
 ## 0.7.1 — 2026-05-26
 
 ### Fixed

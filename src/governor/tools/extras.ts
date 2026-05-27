@@ -85,9 +85,9 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_gov_has_voted",
     {
-      title: "Read Governor.hasVoted(proposalId, account)",
+      title: "Read whether an account has voted on a proposal",
       description:
-        "Returns true when the account has already cast a vote on this proposal. Identical signature on OZ and Bravo.",
+        "Returns true when the account has already cast a vote on this proposal. OZ reads hasVoted(proposalId, account); Bravo (Uniswap/Compound) has no hasVoted — read via getReceipt(proposalId, voter).hasVoted.",
       inputSchema: {
         governor: governorIdSchema,
         proposalId: proposalIdArg,
@@ -99,12 +99,22 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
         const cfg = resolveGovernor(governor);
         const provider = rpc.requireProvider(cfg.chainId);
         const c = governorContract(provider, cfg);
-        const voted: boolean = await c.getFunction("hasVoted").staticCall(BigInt(proposalId), account);
+        let voted: boolean;
+        let method: string;
+        if (isBravo(cfg)) {
+          const receipt = await c.getFunction("getReceipt").staticCall(BigInt(proposalId), account);
+          voted = Boolean(receipt.hasVoted);
+          method = "getReceipt";
+        } else {
+          voted = await c.getFunction("hasVoted").staticCall(BigInt(proposalId), account);
+          method = "hasVoted";
+        }
         return ok({
           governor: cfg.id,
           proposalId,
           account,
           hasVoted: voted,
+          method,
         });
       } catch (e) {
         return err(`dexe_gov_has_voted failed: ${(e as Error).message}`);
