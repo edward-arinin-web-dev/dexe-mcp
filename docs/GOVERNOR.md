@@ -17,7 +17,7 @@ generalization).
 | **Read** | `dexe_gov_list_governors`, `dexe_gov_get_proposal`, `dexe_gov_get_voting_power`, `dexe_gov_get_quorum`, `dexe_gov_get_proposal_threshold` | Resolve configured DAOs, fetch proposal state + tallies, voting power at a snapshot, current quorum, proposal threshold |
 | **Build** | `dexe_gov_build_propose`, `dexe_gov_build_vote_cast`, `dexe_gov_build_queue`, `dexe_gov_build_execute`, `dexe_gov_build_delegate` | Family-aware calldata builders for propose / castVote / queue / execute / delegate |
 | **Simulate** | `dexe_gov_simulate_proposal`, `dexe_gov_simulate_vote_impact` | Dry-run `execute()` via `eth_call`; project proposal outcome after a hypothetical vote |
-| **Extras** | `dexe_gov_get_state`, `dexe_gov_has_voted`, `dexe_gov_build_cancel`, `dexe_gov_decode_calldata`, `dexe_gov_hash_description`, `dexe_gov_hash_proposal` | Single-call state lookup; per-account vote receipt; family-aware cancel encoder; decode any Governor write calldata; keccak256 description hash; OZ-only `hashProposal` proposalId preview (errors on Bravo) |
+| **Extras** | `dexe_gov_get_state`, `dexe_gov_has_voted`, `dexe_gov_build_cancel`, `dexe_gov_decode_calldata`, `dexe_gov_hash_description`, `dexe_gov_hash_proposal` | Single-call state lookup; per-account vote check (OZ `hasVoted` / Bravo `getReceipt().hasVoted`, reports `method`); family-aware cancel encoder; decode any Governor write calldata; keccak256 description hash; OZ-only `hashProposal` proposalId preview (errors on Bravo) |
 
 **18 tools total** — 5 read · 5 build · 2 simulate · 6 extras.
 
