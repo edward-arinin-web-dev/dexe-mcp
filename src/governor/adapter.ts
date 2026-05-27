@@ -41,7 +41,8 @@ export const GOVERNOR_BRAVO_READ_ABI = [
   "function quorumVotes() view returns (uint256)",
   "function votingDelay() view returns (uint256)",
   "function votingPeriod() view returns (uint256)",
-  "function hasVoted(uint256 proposalId, address account) view returns (bool)",
+  // Bravo has NO hasVoted(proposalId,account) — it exposes getReceipt(...).hasVoted.
+  "function getReceipt(uint256 proposalId, address voter) view returns (bool hasVoted, uint8 support, uint96 votes)",
   "function name() view returns (string)",
 ] as const;
 
