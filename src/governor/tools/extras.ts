@@ -65,7 +65,9 @@ function registerGetState(server: McpServer, rpc: RpcProvider): void {
     async ({ governor, proposalId }) => {
       try {
         const cfg = resolveGovernor(governor);
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const idx = Number(await c.getFunction("state").staticCall(BigInt(proposalId)));
         return ok({
@@ -97,7 +99,9 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
     async ({ governor, proposalId, account }) => {
       try {
         const cfg = resolveGovernor(governor);
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const c = governorContract(provider, cfg);
         let voted: boolean;
         let method: string;
@@ -235,7 +239,9 @@ function registerHashProposal(server: McpServer, rpc: RpcProvider): void {
             `dexe_gov_hash_proposal: ${cfg.id} is Bravo (${cfg.governorVersion}); Bravo does not expose hashProposal. Use Bravo's on-chain proposalCount + propose-returned id instead.`,
           );
         }
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const dh = descriptionHash
           ?? (description !== undefined ? keccak256(toUtf8Bytes(description)) : undefined);

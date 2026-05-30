@@ -19,6 +19,10 @@ import {
 } from "../lib/merkleTree.js";
 import { simulateCalldata } from "./simulate.js";
 
+function errorResult(message: string) {
+  return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
 // ---------- ABI fragments ----------
 
 const ERC20_ABI = new Interface([
@@ -214,7 +218,9 @@ export function registerOtcTools(
     async ({ tokenSaleProposal, tierIds, user, whitelists }) => {
       if (!isAddress(tokenSaleProposal)) return err(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       if (!isAddress(user)) return err(`Invalid user: ${user}`);
-      const provider = rpc.requireProvider();
+      const pr = rpc.tryProvider();
+      if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+      const provider = pr.ok;
       const userAddr = getAddress(user);
 
       // For tier params we need an offset-based getTierViews. The cheapest
@@ -425,7 +431,9 @@ export function registerOtcTools(
 
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;
-      const provider = rpc.requireProvider(chainId);
+      const pr2 = rpc.tryProvider(chainId);
+      if ("error" in pr2) return errorResult(`${pr2.error}\n${pr2.remediation}`);
+      const provider = pr2.ok;
       const payloads: TxPayload[] = [];
       const skipped: { label: string; reason: string }[] = [];
 
@@ -558,7 +566,9 @@ export function registerOtcTools(
 
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;
-      const provider = rpc.requireProvider(chainId);
+      const pr2 = rpc.tryProvider(chainId);
+      if ("error" in pr2) return errorResult(`${pr2.error}\n${pr2.remediation}`);
+      const provider = pr2.ok;
 
       const res = await multicall(provider, [
         {

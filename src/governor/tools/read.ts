@@ -88,7 +88,9 @@ function registerGetProposal(server: McpServer, rpc: RpcProvider): void {
     async ({ governor, proposalId }) => {
       try {
         const cfg = resolveGovernor(governor);
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const pid = BigInt(proposalId);
         const readout = await readProposal(c, cfg, pid);
@@ -128,7 +130,9 @@ function registerGetVotingPower(server: McpServer, rpc: RpcProvider): void {
     async ({ governor, account, blockNumber }) => {
       try {
         const cfg = resolveGovernor(governor);
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const c = votesContract(provider, cfg);
         const { power, method } = await readVotingPower(c, cfg, account, blockNumber);
         return ok({
@@ -166,7 +170,9 @@ function registerGetQuorum(server: McpServer, rpc: RpcProvider): void {
     async ({ governor, blockNumber }) => {
       try {
         const cfg = resolveGovernor(governor);
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const block = blockNumber ?? (await provider.getBlockNumber());
         const { quorum, method } = await readQuorum(c, cfg, block);
@@ -202,7 +208,9 @@ function registerGetProposalThreshold(server: McpServer, rpc: RpcProvider): void
     async ({ governor }) => {
       try {
         const cfg = resolveGovernor(governor);
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const threshold: bigint = await c.getFunction("proposalThreshold").staticCall();
         return ok({

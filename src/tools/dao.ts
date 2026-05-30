@@ -5,6 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { multicall, type Call } from "../lib/multicall.js";
+import type { EnvGuardResult } from "../lib/requireEnv.js";
 
 const POOL_FACTORY_ABI = [
   "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
@@ -28,13 +29,16 @@ const GOV_VALIDATORS_ABI = [
 export function registerDaoTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
 
-  function requireBook(): AddressBook {
-    const provider = rpc.requireProvider();
-    return new AddressBook({
-      provider,
-      chainId: ctx.config.chainId,
-      registryOverride: ctx.config.registryOverride,
-    });
+  function requireBook(): EnvGuardResult<AddressBook> {
+    const pr = rpc.tryProvider();
+    if ("error" in pr) return pr;
+    return {
+      ok: new AddressBook({
+        provider: pr.ok,
+        chainId: ctx.config.chainId,
+        registryOverride: ctx.config.registryOverride,
+      }),
+    };
   }
 
   registerPredictAddresses(server, ctx, requireBook);
@@ -51,7 +55,7 @@ function errorResult(message: string) {
 function registerPredictAddresses(
   server: McpServer,
   ctx: ToolContext,
-  requireBook: () => AddressBook,
+  requireBook: () => EnvGuardResult<AddressBook>,
 ): void {
   server.registerTool(
     "dexe_dao_predict_addresses",
@@ -77,7 +81,9 @@ function registerPredictAddresses(
       if (!poolName || poolName.length === 0) return errorResult("poolName must be non-empty");
 
       try {
-        const book = requireBook();
+        const ab = requireBook();
+        if ("error" in ab) return errorResult(`${ab.error}\n${ab.remediation}`);
+        const book = ab.ok;
         const factoryAddr = await book.resolve(CONTRACT_NAMES.POOL_FACTORY);
         const factory = new Contract(factoryAddr, POOL_FACTORY_ABI, book.provider);
         const res = await factory.getFunction("predictGovAddresses").staticCall(deployer, poolName);
@@ -115,7 +121,7 @@ function registerPredictAddresses(
 function registerRegistryLookup(
   server: McpServer,
   ctx: ToolContext,
-  requireBook: () => AddressBook,
+  requireBook: () => EnvGuardResult<AddressBook>,
 ): void {
   server.registerTool(
     "dexe_dao_registry_lookup",
@@ -136,7 +142,9 @@ function registerRegistryLookup(
     async ({ address }) => {
       if (!isAddress(address)) return errorResult(`Invalid address: ${address}`);
       try {
-        const book = requireBook();
+        const ab = requireBook();
+        if ("error" in ab) return errorResult(`${ab.error}\n${ab.remediation}`);
+        const book = ab.ok;
         const registryAddr = await book.resolve(CONTRACT_NAMES.POOL_REGISTRY);
         const reg = new Contract(registryAddr, POOL_REGISTRY_ABI, book.provider);
         const isGov: boolean = await reg.getFunction("isGovPool").staticCall(address);
@@ -170,7 +178,7 @@ function registerDaoInfo(
   server: McpServer,
   ctx: ToolContext,
   rpc: RpcProvider,
-  requireBook: () => AddressBook,
+  requireBook: () => EnvGuardResult<AddressBook>,
 ): void {
   server.registerTool(
     "dexe_dao_info",
@@ -203,7 +211,9 @@ function registerDaoInfo(
     async ({ govPool }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const gpIface = new Interface(GOV_POOL_ABI as unknown as string[]);
         const vIface = new Interface(GOV_VALIDATORS_ABI as unknown as string[]);
 
@@ -270,7 +280,8 @@ function registerDaoInfo(
 
         // Use requireBook so we fail clearly if chain support is missing — even
         // though dao_info doesn't otherwise need the registry.
-        requireBook();
+        const abCheck = requireBook();
+        if ("error" in abCheck) return errorResult(`${abCheck.error}\n${abCheck.remediation}`);
 
         const structured = {
           govPool,

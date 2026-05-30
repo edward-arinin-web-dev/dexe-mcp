@@ -5,6 +5,10 @@ import type { ToolContext } from "./context.js";
 import { SignerManager } from "../lib/signer.js";
 import { RpcProvider } from "../rpc.js";
 
+function errorResult(message: string) {
+  return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
 // ---------- ABI fragments ----------
 
 const ERROR_STRING_SELECTOR = "0x08c379a0"; // Error(string)
@@ -126,7 +130,11 @@ async function simulateCalldata(
   rpc: RpcProvider,
   input: SimCalldataInput,
 ): Promise<SimCalldataResult> {
-  const provider = rpc.requireProvider();
+  const pr0 = rpc.tryProvider();
+  if ("error" in pr0) {
+    return { success: false, revertReason: `${pr0.error}\n${pr0.remediation}` };
+  }
+  const provider = pr0.ok;
   const blockTag = input.blockTag ?? "latest";
   const tx = {
     to: input.to,
@@ -234,7 +242,9 @@ export function registerSimulateTools(
     async (input) => {
       try {
         if (!isAddress(input.govPool)) return err(`Invalid govPool: ${input.govPool}`);
-        const provider = rpc.requireProvider();
+        const pr0 = rpc.tryProvider();
+  if ("error" in pr0) return errorResult(`${pr0.error}\n${pr0.remediation}`);
+  const provider = pr0.ok;
         const govAddr = getAddress(input.govPool);
         const proposalIdBn = BigInt(input.proposalId);
 
@@ -325,7 +335,9 @@ export function registerSimulateTools(
         let willNeedApprove: boolean | undefined;
         if (!native) {
           try {
-            const provider = rpc.requireProvider();
+            const pr0 = rpc.tryProvider();
+  if ("error" in pr0) return errorResult(`${pr0.error}\n${pr0.remediation}`);
+  const provider = pr0.ok;
             const allowanceData = ERC20_ABI.encodeFunctionData("allowance", [
               fromResolved,
               tspAddr,

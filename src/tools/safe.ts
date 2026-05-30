@@ -71,7 +71,9 @@ export function registerSafeTools(
       if (!isAddress(safe)) return err(`Invalid safe address: ${safe}`);
       try {
         const chain = resolveChain(ctx.config, chainId);
-        const provider = rpc.requireProvider(chain.chainId);
+        const pr = rpc.tryProvider(chain.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const state = await readSafeState(provider, safe);
 
         const { serviceUrl, apiKey } = safeEnv();
@@ -177,7 +179,9 @@ export function registerSafeTools(
         let nonce = input.nonce;
         let nonceSource: "input" | "onchain" = "input";
         if (nonce === undefined) {
-          const provider = rpc.requireProvider(chainId);
+          const pr = rpc.tryProvider(chainId);
+          if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+          const provider = pr.ok;
           const state = await readSafeState(provider, safe);
           nonce = state.nonce.toString();
           nonceSource = "onchain";
@@ -202,7 +206,9 @@ export function registerSafeTools(
         let signature: string | undefined;
         let sender = input.sender ? getAddress(input.sender) : undefined;
         if (signer.hasSigner()) {
-          const wallet = signer.requireSigner(chainId);
+          const sg = signer.trySigner(chainId);
+          if ("error" in sg) return err(`${sg.error}\n${sg.remediation}`);
+          const wallet = sg.ok;
           signature = await wallet.signTypedData(safeTxDomain(chainId, safe), SAFE_TX_TYPES, tx);
           sender = sender ?? getAddress(wallet.address);
         }
