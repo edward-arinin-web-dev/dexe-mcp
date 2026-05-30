@@ -1,5 +1,6 @@
 import { JsonRpcProvider, Wallet } from "ethers";
 import { resolveChain, type DexeConfig } from "../config.js";
+import { hintFor, type EnvGuardResult } from "./requireEnv.js";
 
 /**
  * Per-chain signer cache. The private key is chain-agnostic; only the
@@ -47,6 +48,23 @@ export class SignerManager {
       this.cache.set(chain.chainId, wallet);
     }
     return wallet;
+  }
+
+  /**
+   * Soft variant of `requireSigner` — returns a structured `{error, remediation}`
+   * instead of throwing when the key or RPC is missing. Hot tool paths use
+   * this so missing env surfaces as a clean MCP error with fix instructions
+   * instead of a thrown stack trace.
+   */
+  trySigner(chainId?: number): EnvGuardResult<Wallet> {
+    try {
+      return { ok: this.requireSigner(chainId) };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : String(err),
+        remediation: hintFor(["DEXE_PRIVATE_KEY"]),
+      };
+    }
   }
 
   private failNoKey(): never {

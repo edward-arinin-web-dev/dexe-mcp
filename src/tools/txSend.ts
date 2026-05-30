@@ -147,7 +147,28 @@ export function registerTxTools(
       }
 
       // ---- hot-key (EOA) dispatch path -----------------------------------
-      const wallet = signer.requireSigner(chain.chainId);
+      const sg = signer.trySigner(chain.chainId);
+      if ("error" in sg) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  status: "rejected",
+                  reason: sg.error,
+                  remediation: sg.remediation,
+                  chainId: chain.chainId,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+          isError: true,
+        };
+      }
+      const wallet = sg.ok;
 
       // Signer broadcast guards (B6/B7/B9/B10) — no-ops unless their env vars
       // are set. Run before spending any gas.

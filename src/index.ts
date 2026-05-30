@@ -1,23 +1,39 @@
 #!/usr/bin/env node
 import { resolve, dirname } from "node:path";
-import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { registerAll } from "./tools/index.js";
+import { loadEnvFile, writeStartupBanner } from "./env/loader.js";
+import { envKeys } from "./env/schema.js";
 
-// Load .env from project root if present — ensures env vars reach the process
-// regardless of how the MCP host launches us (Claude Code drops most env vars
-// from its settings.json "env" block on Windows).
+// Snapshot DEXE_* schema keys already in process.env BEFORE we load .env.
+// Anything found here was injected by the MCP host (Claude Code's
+// .claude.json `env` block) and will SHADOW the .env file —
+// `process.loadEnvFile()` does NOT override pre-set keys. The startup banner
+// (and dexe_doctor) surface the collision so users don't chase a phantom
+// "I edited .env and nothing changed" bug.
+//
+// This must run BEFORE the CLI subcommand dispatch below: `npx dexe-mcp
+// doctor` invoked directly from a shell needs the same env as the MCP
+// startup path, otherwise the diagnostic sees an empty config.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dotenvPath = resolve(__dirname, "..", ".env");
-if (existsSync(dotenvPath)) {
-  try {
-    process.loadEnvFile(dotenvPath);
-  } catch {
-    // Node < 21.7 or other issue — fall through to process.env as-is
-  }
+const prevSnapshot = new Set<string>(envKeys().filter(k => !!process.env[k]?.trim()));
+const envReport = loadEnvFile(dotenvPath, prevSnapshot);
+writeStartupBanner(envReport);
+
+// CLI subcommand dispatch. `npx dexe-mcp` (no args) → MCP server.
+// `npx dexe-mcp doctor` → run diagnostics and exit. Keeps a single bin entry
+// instead of shipping a parallel `dexe-mcp-doctor` script. Subcommands must
+// be handled BEFORE the stdio transport opens — the MCP host passes no args,
+// so any argv[2] means a human/CI invoked the binary directly.
+const subcommand = process.argv[2];
+if (subcommand === "doctor") {
+  const mod = await import("./cli/doctor.js");
+  await mod.run();
+  process.exit(0);
 }
 
 async function main(): Promise<void> {

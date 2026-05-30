@@ -22,6 +22,7 @@ import { registerDaoDeployTools } from "./daoDeploy.js";
 import { registerSubgraphTools } from "./subgraph.js";
 import { registerTxTools } from "./txSend.js";
 import { registerGetConfigTool } from "./getConfig.js";
+import { registerDoctorTool } from "./doctor.js";
 import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
 import { registerMerkleTools } from "./merkle.js";
@@ -69,6 +70,8 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   const wc = new WalletConnectManager(config);
   registerTxTools(server, config, signer, wc);
   registerGetConfigTool(server, config, signer);
+  // Diagnostics — call dexe_doctor first when env-related failures show up.
+  registerDoctorTool(server, config);
   registerWalletConnectTools(server, config, signer, wc);
   registerFlowTools(server, ctx, signer);
   registerOtcTools(server, ctx, signer);

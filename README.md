@@ -40,7 +40,7 @@ That era is ending.
 
 LLMs can now reason about voting power, weigh proposals against a mandate, draft calldata, simulate execution, and ask your wallet to sign — **continuously, across every DAO you care about, all at once.** What was a UI is becoming a conversation. What was a treasurer's spreadsheet is becoming an always-on agent.
 
-**`dexe-mcp` is the substrate that makes it real for the DeXe stack — and now for external OpenZeppelin Governor DAOs as well.** One MCP server. 152 typed tools across 19 groups. Every flow the DeXe frontend exposes — plus a generic `dexe_gov_*` surface targeting Uniswap, Compound, and Optimism.
+**`dexe-mcp` is the substrate that makes it real for the DeXe stack — and now for external OpenZeppelin Governor DAOs as well.** One MCP server. 153 typed tools across 19 groups. Every flow the DeXe frontend exposes — plus a generic `dexe_gov_*` surface targeting Uniswap, Compound, and Optimism.
 
 |     | What you get |
 |-----|------|

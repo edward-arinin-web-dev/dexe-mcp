@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`dexe_doctor` tool + CLI.** New diagnostic that walks every
+  recognized `DEXE_*` env var, runs reachability checks (RPC
+  `eth_chainId` per chain, Pinata `testAuthentication`, IPFS gateway DNS
+  lookup, subgraph `{__typename}` introspection, backend HEAD), and
+  reports pass/warn/fail per check with paste-ready remediation hints.
+  Network checks have a 3s hard timeout that downgrades to `warn` so
+  offline laptops don't see all-red. Also runnable as
+  `npx dexe-mcp doctor` (exit 0/1/2).
+- **Schema-driven env handling.** `src/env/schema.ts` (`ENV_SPEC`,
+  `ENV_REGISTRY`) is now the canonical registry for every recognized
+  `DEXE_*` var (category, doc, zod schema, enabled flows, secret flag).
+  Consumed by the new parser, doctor, and fail-soft guards. Drift
+  guarded by `tests/env/schema.test.ts` against `.env.example`.
+- **Startup self-diagnostic banner.** `src/env/loader.ts` reads `.env`
+  raw bytes before `process.loadEnvFile()` and emits stderr warnings
+  for: UTF-8 BOM, missing trailing newline, spaces around `=`, unknown
+  `DEXE_*` keys, and host-env shadowing of `.env` values. Surfaces
+  silent parse traps that previously made "I edited .env and nothing
+  changed" hard to diagnose.
+- **Fail-soft guard helpers.** New `src/lib/requireEnv.ts` (`requireEnv`,
+  `hintFor`) generalizes the existing `requirePinata` pattern from
+  `src/tools/ipfs.ts`. Added `SignerManager.trySigner` and
+  `RpcProvider.tryProvider` siblings that return `{error, remediation}`
+  instead of throwing — keeps the throwing variants for backward
+  compatibility.
+
+### Changed
+
+- **`src/tools/read.ts` and `src/tools/txSend.ts` hot handlers** migrated
+  to the soft `tryProvider`/`trySigner` variants. Missing RPC or
+  `DEXE_PRIVATE_KEY` now surfaces as a structured MCP error with fix
+  instructions instead of a thrown stack. Other call sites of
+  `requireProvider`/`requireSigner` keep their throwing behavior — they
+  are migrated incrementally in follow-up PRs.
+- **`src/index.ts`** now dispatches `dexe-mcp doctor` to the CLI before
+  opening the MCP stdio transport. No-arg invocation still starts the
+  server as before.
+- **`docs/TOOLS.md`** bumped to 153 tools / 19 groups (added the
+  Diagnostics group containing `dexe_doctor`).
+
 ## 0.7.2 — 2026-05-27
 
 ### Fixed
