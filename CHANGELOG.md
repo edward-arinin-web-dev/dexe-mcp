@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — 2026-05-30
+
+### Env onboarding overhaul
+
+This release exists to make first-run setup fail-safe for new users
+(human or AI assistant). Previously, when an env var was missing or
+typoed, tools threw raw stacks and the assistant had no way to discover
+which file to edit, which key was missing, or whether `.claude.json` was
+shadowing `.env`. Now there is one diagnostic, one wizard, one skill,
+and one schema that drives every check.
+
+**Upgrade:** zero env changes required, no breaking renames or removals.
+See [`docs/MIGRATION.md`](docs/MIGRATION.md) for the 0.7.x → 0.8.0
+guide and the documented behavior change in `dexe_read_*` /
+`dexe_tx_send` error responses.
 
 ### Added
 
@@ -11,12 +25,21 @@
   reports pass/warn/fail per check with paste-ready remediation hints.
   Network checks have a 3s hard timeout that downgrades to `warn` so
   offline laptops don't see all-red. Also runnable as
-  `npx dexe-mcp doctor` (exit 0/1/2).
+  `npx dexe-mcp doctor` (exit 0/1/2). See [`docs/DOCTOR.md`](docs/DOCTOR.md).
+- **`npx dexe-mcp init` wizard.** Interactive onboarding via native
+  `node:readline/promises`. Asks four questions (network, Pinata JWT,
+  Graph API key, signer mode), writes `.env` at the repo root (merge or
+  overwrite), and prints a `~/.claude.json` snippet for copy-paste.
+  Validates the Pinata JWT against the live endpoint before writing.
+  Defaults the signer mode to readonly; warns explicitly and double-confirms
+  before storing a private key in plaintext. Never auto-edits
+  `.claude.json`. No new dependencies.
 - **Schema-driven env handling.** `src/env/schema.ts` (`ENV_SPEC`,
   `ENV_REGISTRY`) is now the canonical registry for every recognized
   `DEXE_*` var (category, doc, zod schema, enabled flows, secret flag).
-  Consumed by the new parser, doctor, and fail-soft guards. Drift
-  guarded by `tests/env/schema.test.ts` against `.env.example`.
+  Consumed by the new parser, doctor, fail-soft guards, and the
+  `/dexe-setup` skill. Drift guarded by `tests/env/schema.test.ts`
+  against `.env.example`.
 - **Startup self-diagnostic banner.** `src/env/loader.ts` reads `.env`
   raw bytes before `process.loadEnvFile()` and emits stderr warnings
   for: UTF-8 BOM, missing trailing newline, spaces around `=`, unknown
@@ -29,6 +52,19 @@
   `RpcProvider.tryProvider` siblings that return `{error, remediation}`
   instead of throwing — keeps the throwing variants for backward
   compatibility.
+- **`/dexe-setup` skill** at `.claude/skills/dexe-setup/SKILL.md`. Calls
+  `dexe_doctor`, parses the report, asks the user only for missing
+  values, edits `.env` (never `.claude.json`), and tells the user to
+  restart Claude Code. Caps at 3 doctor → fix → restart iterations.
+  Hard rule: refuse to write `DEXE_PRIVATE_KEY` without explicit user
+  opt-in; suggest WalletConnect first.
+- **`docs/SETUP.md` + `docs/DOCTOR.md` + `docs/MIGRATION.md`.**
+  Consolidated quickstart with three setup paths, the full check
+  reference, and the per-version migration notes.
+- **"For AI assistants" block in `CLAUDE.md`.** Tells future Claude:
+  call `dexe_doctor` first; edit `.env` not `.claude.json`; restart is
+  required after env changes; the `/dexe-setup` skill exists; point
+  upgrading users at `docs/MIGRATION.md`.
 
 ### Changed
 
@@ -37,12 +73,24 @@
   `DEXE_PRIVATE_KEY` now surfaces as a structured MCP error with fix
   instructions instead of a thrown stack. Other call sites of
   `requireProvider`/`requireSigner` keep their throwing behavior — they
-  are migrated incrementally in follow-up PRs.
-- **`src/index.ts`** now dispatches `dexe-mcp doctor` to the CLI before
-  opening the MCP stdio transport. No-arg invocation still starts the
-  server as before.
+  are migrated incrementally in 0.8.1.
+- **`src/index.ts`** now dispatches `dexe-mcp doctor` and `dexe-mcp init`
+  to their respective CLI entry points before opening the MCP stdio
+  transport. No-arg invocation still starts the server as before. The
+  env loader runs BEFORE the subcommand dispatch so the CLI sees the
+  same env as the MCP server.
 - **`docs/TOOLS.md`** bumped to 153 tools / 19 groups (added the
   Diagnostics group containing `dexe_doctor`).
+- **`README.md` Quickstart** now leads with the wizard path
+  (`init` + `doctor`) above the manual install instructions.
+
+### Notes
+
+- No removed APIs. `requireSigner`/`requireProvider` keep throwing so
+  every existing call site (~17 outside read.ts and txSend.ts)
+  continues to work; the migration is incremental.
+- No new runtime dependencies. The wizard and doctor use only
+  `node:readline/promises`, `node:dns/promises`, and native `fetch`.
 
 ## 0.7.2 — 2026-05-27
 

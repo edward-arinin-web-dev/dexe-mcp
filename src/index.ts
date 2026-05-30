@@ -25,13 +25,19 @@ const envReport = loadEnvFile(dotenvPath, prevSnapshot);
 writeStartupBanner(envReport);
 
 // CLI subcommand dispatch. `npx dexe-mcp` (no args) → MCP server.
-// `npx dexe-mcp doctor` → run diagnostics and exit. Keeps a single bin entry
-// instead of shipping a parallel `dexe-mcp-doctor` script. Subcommands must
-// be handled BEFORE the stdio transport opens — the MCP host passes no args,
-// so any argv[2] means a human/CI invoked the binary directly.
+// `npx dexe-mcp doctor` → run diagnostics and exit.
+// `npx dexe-mcp init`   → run the onboarding wizard and exit.
+// Keeps a single bin entry instead of shipping parallel scripts.
+// Subcommands must be handled BEFORE the stdio transport opens — the MCP
+// host passes no args, so any argv[2] means a human/CI invoked directly.
 const subcommand = process.argv[2];
 if (subcommand === "doctor") {
   const mod = await import("./cli/doctor.js");
+  await mod.run();
+  process.exit(0);
+}
+if (subcommand === "init") {
+  const mod = await import("./cli/init.js");
   await mod.run();
   process.exit(0);
 }

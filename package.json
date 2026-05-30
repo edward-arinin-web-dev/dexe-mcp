@@ -1,6 +1,6 @@
 {
   "name": "dexe-mcp",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "MCP server for the DeXe Protocol — full DAO operations coverage: deploy DAOs, build every proposal type, IPFS metadata, stake/vote/delegate/execute/claim calldata. Plus dev tooling (build/test/introspect/decode).",
   "type": "module",
   "license": "MIT",
@@ -49,6 +49,8 @@
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "doctor": "node dist/index.js doctor",
+    "init": "node dist/index.js init",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:compat": "node tests/compat/diff-otc.mjs",
@@ -92,5 +94,6 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
-  }
+  },
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
 }
