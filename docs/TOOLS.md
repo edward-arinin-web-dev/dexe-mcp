@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **152**.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **153** across **19** groups.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Three composite tools (`dexe_tx_send`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -26,6 +26,7 @@ Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_propo
 16. [Multi-DAO inbox + forecast](#16-multi-dao-inbox--forecast)
 17. [External Governor DAOs (dexe_gov_*)](#17-external-governor-daos-dexe_gov_)
 18. [WalletConnect](#18-walletconnect)
+19. [Diagnostics](#19-diagnostics)
 
 Each row links to the runtime schema. Args, return shapes, and zod input validators live in `src/tools/*.ts` — call the tool with no args (or via your MCP client) to see the JSON schema.
 
@@ -352,6 +353,16 @@ Source: `src/tools/walletconnectStatus.ts` + `src/lib/walletconnect.ts`. A fourt
 | `dexe_wc_status` | Report the resolved WalletConnect config plus live session state (`connected`, `connecting`, `account`, `chainId`, `topic`, `peerName`, `expiry`, `lastError`) and whether `walletconnect` is the active `signerMode`. Read-only. WalletConnect activates only when `DEXE_WALLETCONNECT_PROJECT_ID` is set AND no `DEXE_PRIVATE_KEY` is present. | `DEXE_WALLETCONNECT_PROJECT_ID` (for active mode) |
 | `dexe_wc_connect` | Start a session. Returns a pairing `uri` to render as a QR / paste into the phone wallet (MetaMask / Trust / Rainbow). Non-blocking — approval completes in the background; poll `dexe_wc_status` until `connected`. | `DEXE_WALLETCONNECT_PROJECT_ID` |
 | `dexe_wc_disconnect` | Tear down the active session. Safe no-op when not connected. | — |
+
+---
+
+## 19. Diagnostics
+
+Source: `src/tools/doctor.ts` + `src/diag/checks.ts`. Pure reads. First stop when an env-related failure shows up. Also runnable as a CLI: `npx dexe-mcp doctor` (exit 0 pass, 1 warn-only, 2 any fail).
+
+| Tool | What it does | Required env |
+|------|--------------|--------------|
+| `dexe_doctor` | Diagnose env setup end-to-end. Walks every recognized `DEXE_*` var, runs `eth_chainId` per configured RPC, `testAuthentication` on Pinata, DNS lookup on the IPFS gateway, `{ __typename }` introspection on each configured subgraph, then validates signer broadcast-guard config and chain consistency. Returns pass/warn/fail per check + paste-ready remediation hints. Network checks have a 3s hard timeout that downgrades to `warn` so offline laptops don't see all-red. | — |
 
 ---
 

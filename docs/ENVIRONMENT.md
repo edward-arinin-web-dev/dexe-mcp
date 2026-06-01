@@ -11,6 +11,17 @@ work.
 All vars are **optional**. A tool that needs a missing var fails with a
 message naming exactly which var to set.
 
+> **For AI assistants and new users.** If a tool reports an env-related
+> failure, **call `dexe_doctor` first** — it walks every recognized var,
+> checks RPC / Pinata / subgraph reachability, and returns paste-ready
+> remediation hints. The canonical schema lives in
+> [`src/env/schema.ts`](../src/env/schema.ts); `dexe_doctor` reads from
+> there, so the schema is the source of truth and this document tracks it.
+> Env edits go in `.env` at the repo root (or the MCP host's `env` block —
+> see the precedence note below). After any change, **restart Claude Code**
+> (`process.loadEnvFile()` runs once at startup, and the host env block
+> SHADOWS `.env` for any key set in both).
+
 ---
 
 ## 1. Quick start — minimum env block

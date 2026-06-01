@@ -112,7 +112,9 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
     },
     async ({ calls }) => {
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const batch: Call[] = calls.map((c) => {
           if (!isAddress(c.target)) throw new Error(`Invalid target: ${c.target}`);
           return {
@@ -177,7 +179,9 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
     async ({ holder, tokens = [] }) => {
       if (!isAddress(holder)) return errorResult(`Invalid holder: ${holder}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const native = (await provider.getBalance(holder)).toString();
         const iface = new Interface(ERC20_ABI as unknown as string[]);
         const calls: Call[] = [];
@@ -236,7 +240,9 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (candidate && !isAddress(candidate)) return errorResult(`Invalid candidate: ${candidate}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const gp = new Interface(GOV_POOL_ABI as unknown as string[]);
         const v = new Interface(GOV_VALIDATORS_ABI as unknown as string[]);
         const [helpersR] = await multicall(provider, [
@@ -300,7 +306,9 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
     async ({ govPool }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const gp = new Interface(GOV_POOL_ABI as unknown as string[]);
         const s = new Interface(GOV_SETTINGS_ABI as unknown as string[]);
         const [helpersR] = await multicall(provider, [
@@ -363,7 +371,9 @@ function registerExpertStatus(server: McpServer, rpc: RpcProvider): void {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const gp = new Interface(GOV_POOL_ABI as unknown as string[]);
         const babt = new Interface(BABT_ABI as unknown as string[]);
         const [expertR, nftR] = await multicall(provider, [
@@ -418,7 +428,9 @@ function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
     async ({ tokenSaleProposal, offset = 0, limit = 10 }) => {
       if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const iface = new Interface(TOKEN_SALE_READ_ABI as unknown as string[]);
         const [countR] = await multicall(provider, [
           { target: tokenSaleProposal, iface, method: "latestTierId", args: [], allowFailure: true },
@@ -463,7 +475,9 @@ function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
       if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const iface = new Interface(TOKEN_SALE_READ_ABI as unknown as string[]);
         const [viewsR] = await multicall(provider, [
           {
@@ -506,7 +520,9 @@ function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
       if (!isAddress(distributionProposal)) return errorResult(`Invalid distributionProposal: ${distributionProposal}`);
       if (!isAddress(voter)) return errorResult(`Invalid voter: ${voter}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const iface = new Interface(DISTRIBUTION_READ_ABI as unknown as string[]);
         const calls: Call[] = [];
         for (const pid of proposalIds) {
@@ -553,7 +569,9 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
       if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
       if (user && !isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const iface = new Interface(STAKING_READ_ABI as unknown as string[]);
         const baseCalls: Call[] = [
           { target: stakingProposal, iface, method: "stakingsCount", args: [], allowFailure: true },
@@ -597,7 +615,9 @@ function registerPrivacyPolicyStatus(server: McpServer, rpc: RpcProvider): void 
       if (!isAddress(userRegistry)) return errorResult(`Invalid userRegistry: ${userRegistry}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const iface = new Interface(USER_REGISTRY_READ_ABI as unknown as string[]);
         const [hashR, agreedR] = await multicall(provider, [
           { target: userRegistry, iface, method: "documentHash", args: [], allowFailure: true },
