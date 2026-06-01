@@ -147,8 +147,18 @@ export async function run(): Promise<void> {
     const repoRoot = findRepoRoot();
     const envPath = resolve(repoRoot, ".env");
 
+    // Read the file once up-front (or treat ENOENT as "no existing .env") so
+    // the later write isn't a check-then-act TOCTOU: every decision below
+    // operates on this captured snapshot, not on a re-stat of the path.
+    let existingEnv: string | null = null;
+    try {
+      existingEnv = readFileSync(envPath, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+
     let action: "write" | "merge" = "write";
-    if (existsSync(envPath)) {
+    if (existingEnv !== null) {
       const choice = await pickOne(
         rl,
         `Existing .env at ${envPath}. Overwrite or merge?`,
@@ -166,13 +176,11 @@ export async function run(): Promise<void> {
       action = choice === "o" ? "write" : "merge";
     }
 
-    if (action === "write") {
-      writeFileSync(envPath, renderFreshEnv(updates), "utf8");
-    } else {
-      const existing = readFileSync(envPath, "utf8");
-      const merged = mergeEnv(existing, updates);
-      writeFileSync(envPath, merged, "utf8");
-    }
+    const content =
+      action === "write" || existingEnv === null
+        ? renderFreshEnv(updates)
+        : mergeEnv(existingEnv, updates);
+    writeFileSync(envPath, content, "utf8");
 
     output.write(line(`✔ Wrote ${envPath} (${Object.keys(updates).length} key${Object.keys(updates).length === 1 ? "" : "s"} set).`));
     output.write(line(""));

@@ -45,4 +45,3 @@ scripts/swarm/test-*.mjs
 # Local-only Claude Code workspace + project-specific overrides
 .claude/
 CLAUDE.md
-.env.example
