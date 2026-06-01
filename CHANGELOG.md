@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.8.1 — 2026-05-30
+
+### Full soft-fail migration
+
+Extends the soft-fail behavior shipped in 0.8.0 (`dexe_read_*` and
+`dexe_tx_send`) to **every** remaining tool that touched the throwing
+`RpcProvider.requireProvider()` / `SignerManager.requireSigner()`
+variants. Missing env now surfaces uniformly across the entire MCP tool
+catalog as a structured error with paste-ready remediation hints —
+never a thrown stack reaching the MCP transport.
+
+### Changed
+
+- 18 tool files migrated from the throwing variants to the soft
+  `tryProvider` / `trySigner` siblings:
+  - `src/tools/`: `dao.ts` (incl. the shared `requireBook` helper, now
+    returning `EnvGuardResult<AddressBook>`), `daoDeploy.ts`, `flow.ts`,
+    `gov.ts`, `inbox.ts`, `otc.ts`, `predict.ts`, `proposal.ts`,
+    `safe.ts`, `simulate.ts`, `subgraph.ts`, `vote.ts`
+  - `src/governor/tools/`: `extras.ts`, `read.ts`, `simulate.ts`
+- The throwing `requireSigner` / `requireProvider` definitions stay in
+  `src/lib/signer.ts` and `src/rpc.ts` for backward compatibility — no
+  removed public API. Only the in-tree call sites moved.
+
+### Added
+
+- `tests/lib/soft-fail-migration.test.ts` — regression guard that
+  asserts no direct `.requireProvider(` / `.requireSigner(` call exists
+  in `src/tools/**` or `src/governor/**`. Catches the regression at
+  test-run time if a future tool forgets the soft-fail pattern.
+
+### Notes
+
+- No env contract change. No new vars. No caller-side change required.
+- Patch-level release because the failure-mode contract is identical to
+  0.8.0's; just applied uniformly across the catalog.
+
 ## 0.8.0 — 2026-05-30
 
 ### Env onboarding overhaul

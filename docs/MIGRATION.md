@@ -134,10 +134,13 @@ stacks on missing env now return structured errors. Same pattern as
 0.8.0 — extended to every remaining tool.
 
 In 0.8.0, only `dexe_read_*` and `dexe_tx_send` were migrated to the
-soft-fail pattern. The 0.8.1 release extends it to every other
-`dexe_dao_*`, `dexe_flow_*`, `dexe_inbox_*`, `dexe_otc_*`,
-`dexe_predict_*`, `dexe_safe_*`, `dexe_sim_*` tool, and the external
-governor surface (`dexe_gov_*`).
+soft-fail pattern. The 0.8.1 release extends it to **18 tool files**
+spanning every other `dexe_dao_*`, `dexe_flow_*`, `dexe_inbox_*`,
+`dexe_otc_*`, `dexe_predict_*`, `dexe_proposal_*`, `dexe_safe_*`,
+`dexe_sim_*`, `dexe_subgraph_*`, `dexe_vote_*` tool, and the external
+governor surface (`dexe_gov_*`). A regression test at
+`tests/lib/soft-fail-migration.test.ts` asserts no future tool
+backslides.
 
 No env contract change. No new env vars. Patch-level release because
 the failure-mode contract is identical to 0.8.0's — just applied

@@ -93,7 +93,9 @@ async function resolvePrereqs(
   user: string,
   chainId?: number,
 ): Promise<Prereqs> {
-  const provider = rpc.requireProvider(chainId);
+  const pr = rpc.tryProvider(chainId);
+  if ("error" in pr) throw new Error(`${pr.error}\n${pr.remediation}`);
+  const provider = pr.ok;
 
   // Batch 1: get helper addresses
   const batch1: Call[] = [
@@ -179,7 +181,9 @@ export async function sendOrCollect(
     return { mode: "payloads", steps };
   }
 
-  const wallet = signer.requireSigner(opts?.chainId);
+  const sg = signer.trySigner(opts?.chainId);
+  if ("error" in sg) throw new Error(`${sg.error}\n${sg.remediation}`);
+  const wallet = sg.ok;
   const cfg = signer.getConfig();
   for (const p of payloads) {
     // Same B6/B7/B10 broadcast guards as dexe_tx_send. B9 simulation is skipped:
@@ -315,7 +319,9 @@ export async function runProposalCreate(
         // Read current descriptionURL for "currentChanges"
         let currentDescriptionURL = "";
         try {
-          const provider = rpc.requireProvider(chainId);
+          const pr = rpc.tryProvider(chainId);
+  if ("error" in pr) throw new Error(`${pr.error}\n${pr.remediation}`);
+  const provider = pr.ok;
           const descIface = new Interface(["function descriptionURL() view returns (string)"]);
           const batch: Call[] = [{ target: govPool, iface: descIface, method: "descriptionURL", args: [] }];
           const res = await multicall(provider, batch);
@@ -538,7 +544,9 @@ export function registerFlowTools(
 
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;
-      const provider = rpc.requireProvider(chainId);
+      const pr = rpc.tryProvider(chainId);
+      if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+      const provider = pr.ok;
       const govPool = input.govPool;
       const proposalId = input.proposalId;
 

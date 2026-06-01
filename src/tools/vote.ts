@@ -56,7 +56,9 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool: ${govPool}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const gp = new Interface(GOV_POOL_HELPERS_ABI as unknown as string[]);
         const uk = new Interface(USER_KEEPER_ABI as unknown as string[]);
 
@@ -171,7 +173,9 @@ function registerGetVotes(server: McpServer, rpc: RpcProvider): void {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(voter)) return errorResult(`Invalid voter: ${voter}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const iface = new Interface(GOV_POOL_HELPERS_ABI as unknown as string[]);
         const id = BigInt(proposalId as string);
         const vtNum = voteTypeFromString(voteType);

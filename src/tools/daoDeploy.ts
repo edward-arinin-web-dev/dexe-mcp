@@ -357,7 +357,9 @@ function registerBuildDeploy(
       let factoryAddress = poolFactory;
       if (!factoryAddress) {
         try {
-          const provider = rpc.requireProvider(chain.chainId);
+          const pr = rpc.tryProvider(chain.chainId);
+          if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+          const provider = pr.ok;
           const book = new AddressBook({
             provider,
             chainId: chain.chainId,
@@ -378,7 +380,9 @@ function registerBuildDeploy(
       let predictedTokenSale: string | undefined;
 
       try {
-        const provider = rpc.requireProvider(chain.chainId);
+        const pr = rpc.tryProvider(chain.chainId);
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const predictIface = new Interface([
           "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
         ]);

@@ -91,7 +91,9 @@ function registerSimulateProposal(server: McpServer, rpc: RpcProvider): void {
     async (args) => {
       try {
         const cfg = resolveGovernor(args.governor);
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const queueExec: QueueExecuteArgs = {
           proposalId: args.proposalId,
           targets: args.targets,
@@ -163,7 +165,9 @@ function registerSimulateVoteImpact(server: McpServer, rpc: RpcProvider): void {
     async ({ governor, proposalId, support, weight }) => {
       try {
         const cfg = resolveGovernor(governor);
-        const provider = rpc.requireProvider(cfg.chainId);
+        const pr = rpc.tryProvider(cfg.chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const pid = BigInt(proposalId);
         const readout = await readProposal(c, cfg, pid);

@@ -479,7 +479,9 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
         return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
 
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
 
         // Validate the GovPool actually exists (helper read is the cheapest
         // smoke test — reverts cleanly on EOA/empty address).

@@ -7,6 +7,10 @@ import { multicall, type Call } from "../lib/multicall.js";
 import { gqlRequest } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 
+function errorResult(message: string) {
+  return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
 /**
  * dexe_user_inbox — multi-DAO attention aggregator.
  *
@@ -112,7 +116,9 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
     },
     async ({ user, daos, proposalScanLimit = 20 }) => {
       if (!isAddress(user)) return err(`Invalid user: ${user}`);
-      const provider = rpc.requireProvider();
+      const pr = rpc.tryProvider();
+      if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+      const provider = pr.ok;
       const userAddr = getAddress(user);
 
       // ----- DAO list resolution -----

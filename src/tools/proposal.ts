@@ -47,7 +47,9 @@ function registerProposalState(server: McpServer, ctx: ToolContext, rpc: RpcProv
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
       const id = BigInt(proposalId as string);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const iface = new Interface(GOV_POOL_READ_ABI as unknown as string[]);
         const calls: Call[] = [
           { target: govPool, iface, method: "getProposalState", args: [id] },
@@ -119,7 +121,9 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
     async ({ govPool, offset = 0, limit = 20 }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
       try {
-        const provider = rpc.requireProvider();
+        const pr = rpc.tryProvider();
+        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
         const iface = new Interface(GOV_POOL_READ_ABI as unknown as string[]);
         const [res] = await multicall(provider, [
           {

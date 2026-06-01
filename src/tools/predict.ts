@@ -7,6 +7,10 @@ import { multicall } from "../lib/multicall.js";
 import { gqlRequest } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 
+function errorResult(message: string) {
+  return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
 /**
  * dexe_proposal_forecast — predictive pass-rate based on historical proposals.
  *
@@ -104,7 +108,9 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         });
       }
 
-      const provider = rpc.requireProvider();
+      const pr = rpc.tryProvider();
+      if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+      const provider = pr.ok;
 
       // Step 1: helpers + recent 10 proposals.
       const [helpersR, proposalsR] = await multicall(provider, [

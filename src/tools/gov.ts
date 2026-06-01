@@ -148,12 +148,9 @@ function registerDecodeProposal(
         throw err;
       }
 
-      let provider;
-      try {
-        provider = rpc.requireProvider();
-      } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
-      }
+      const pr = rpc.tryProvider();
+      if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+      const provider = pr.ok;
 
       const abi = ctx.artifacts.get("GovPool")[0]?.abi;
       if (!abi) return errorResult("GovPool artifact not loaded. Run dexe_compile first.");
@@ -287,12 +284,9 @@ function registerReadGovState(
     },
     async ({ govPool }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
-      let provider;
-      try {
-        provider = rpc.requireProvider();
-      } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
-      }
+      const pr = rpc.tryProvider();
+      if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+      const provider = pr.ok;
 
       try {
         const helpers = await addresses.resolveHelpers(govPool, provider);
