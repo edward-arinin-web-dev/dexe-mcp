@@ -155,7 +155,7 @@ Sources: `src/tools/proposalBuild.ts`, `src/tools/proposalBuildMore.ts`, `src/to
 | `dexe_proposal_build_token_sale_recover` | `TokenSaleProposal.recover(tierIds)` — recover unsold tokens. | (none) |
 | `dexe_proposal_build_create_staking_tier` | `StakingProposal.createStaking(rewardToken, amount, startedAt, deadline, metadata)`. Auto-prepends approve for ERC20 rewards. | (none) |
 | `dexe_proposal_build_change_math_model` | `GovPool.changeVotePower(newVotePower)` — swap LINEAR / POLYNOMIAL / custom power contract. | (none) |
-| `dexe_proposal_build_modify_dao_profile` | `GovPool.editDescriptionURL(url)`. Upload new DAO metadata via `dexe_ipfs_upload_dao_metadata` first. | (none) |
+| `dexe_proposal_build_modify_dao_profile` | `GovPool.editDescriptionURL(url)`. Upload new DAO metadata via `dexe_ipfs_upload_dao_metadata` first. End-to-end round-trip contract documented in [`docs/PROFILE.md`](./PROFILE.md) — directory pin for avatar, `isMeta:false`, `changes.currentChanges.descriptionUrl` are load-bearing. | (none) |
 | `dexe_proposal_build_blacklist` | Up to 2 actions: `ERC20Gov.blacklist(add,true)` + `blacklist(remove,false)`. | (none) |
 | `dexe_proposal_build_reward_multiplier` | 4 modes: set_address / set_token_uri / mint / change_token on the multiplier NFT. `mint`/`change_token` use `uint64` duration + multiplier scaled by `PRECISION = 1e25` (1.5x = 1.5e25); builder rejects unscaled or zero values. | (none) |
 | `dexe_proposal_build_apply_to_dao` | Disburse DAO tokens to a receiver. Treasury-sufficient → 1 transfer; shortfall → transfer + mint. Aborts if `DEXE_RPC_URL` set and recipient is `ERC20Gov.isBlacklisted`. | `DEXE_RPC_URL` (optional, for blacklist precheck) |

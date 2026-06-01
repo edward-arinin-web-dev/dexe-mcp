@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import type { TxPayload } from "../lib/calldata.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { PinataClient } from "../lib/ipfs.js";
+import { PinataClient, fetchIpfs } from "../lib/ipfs.js";
 import { SignerManager } from "../lib/signer.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
@@ -297,36 +297,101 @@ export async function runProposalCreate(
       let proposalExtra: Record<string, unknown>;
 
       if (input.proposalType === "modify_dao_profile") {
-        // Upload new DAO metadata
-        const descSlate = markdownToSlate(input.newDaoDescription ?? input.description ?? "");
-        const descRes = await pinata.pinJson(descSlate, { name: `dao-desc:${govPool.slice(0, 10)}` });
-
-        const daoMeta: Record<string, unknown> = {
-          daoName: input.newDaoName ?? "",
-          websiteUrl: input.newWebsiteUrl ?? "",
-          description: `ipfs://${descRes.cid}`,
-          socialLinks: input.newSocialLinks ?? [],
-          documents: [],
-        };
-        if (input.newAvatarCID) {
-          daoMeta.avatarCID = input.newAvatarCID;
-          daoMeta.avatarFileName = input.newAvatarFileName ?? "avatar";
-          daoMeta.avatarUrl = `https://${input.newAvatarCID}.ipfs.4everland.io/${daoMeta.avatarFileName}`;
-        }
-        const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${govPool.slice(0, 10)}` });
-        const newDescriptionURL = `ipfs://${daoMetaRes.cid}`;
-
-        // Read current descriptionURL for "currentChanges"
+        // Read current on-chain descriptionURL up front so we can both:
+        //   (a) merge its IPFS payload with the user's partial-update inputs,
+        //   (b) record the prior URL in `changes.currentChanges` for the diff UI.
         let currentDescriptionURL = "";
         try {
           const pr = rpc.tryProvider(chainId);
-  if ("error" in pr) throw new Error(`${pr.error}\n${pr.remediation}`);
-  const provider = pr.ok;
+          if ("error" in pr) throw new Error(`${pr.error}\n${pr.remediation}`);
+          const provider = pr.ok;
           const descIface = new Interface(["function descriptionURL() view returns (string)"]);
           const batch: Call[] = [{ target: govPool, iface: descIface, method: "descriptionURL", args: [] }];
           const res = await multicall(provider, batch);
           if (res[0]!.success) currentDescriptionURL = res[0]!.value as string;
         } catch { /* best effort */ }
+
+        // Pull the existing DAO metadata so unspecified fields stay intact.
+        // Without this, calling modify_dao_profile with only `newAvatarCID` would
+        // blank `daoName`, `websiteUrl`, `socialLinks`, and `documents` — a
+        // destructive partial update that bricks the DAO header on the frontend.
+        let currentMeta: Record<string, unknown> = {};
+        let currentMetaFetchError: string | null = null;
+        if (currentDescriptionURL) {
+          const fallbackGateways = (process.env.DEXE_IPFS_GATEWAYS_FALLBACK ?? "")
+            .split(",").map(s => s.trim()).filter(Boolean);
+          const primary = process.env.DEXE_IPFS_GATEWAY?.trim();
+          // ALWAYS append public gateways as last-resort for this read-only fetch.
+          // Pinata dedicated gateways require DEXE_PINATA_GATEWAY_TOKEN auth and
+          // 403 anonymous reads; without the token + no configured fallback the
+          // fetch would throw → empty merge → blanked metadata. Public gateways
+          // (ipfs.io, dweb.link) serve any pinned CID, so they're a safe fallback
+          // for read-only loads of already-public metadata.
+          const gateways = Array.from(new Set([
+            primary,
+            ...fallbackGateways,
+            "https://ipfs.io",
+            "https://dweb.link",
+          ].filter(Boolean))) as string[];
+          try {
+            const fetched = await fetchIpfs(currentDescriptionURL, { gateways, perRequestTimeoutMs: 6000 });
+            if (fetched.json && typeof fetched.json === "object") {
+              currentMeta = fetched.json as Record<string, unknown>;
+            } else {
+              currentMetaFetchError = `fetched but not JSON object (contentType=${fetched.contentType})`;
+            }
+          } catch (e) {
+            currentMetaFetchError = e instanceof Error ? e.message : String(e);
+          }
+        }
+        // Hard guard: if we wanted to merge but couldn't fetch the current
+        // metadata AND the caller is doing a partial update (any field unset),
+        // refuse to broadcast. Silently blanking fields is worse than aborting.
+        const isPartialUpdate =
+          input.newDaoName === undefined ||
+          input.newWebsiteUrl === undefined ||
+          input.newSocialLinks === undefined;
+        if (currentDescriptionURL && Object.keys(currentMeta).length === 0 && isPartialUpdate) {
+          return err(
+            "Cannot fetch current DAO metadata at " + currentDescriptionURL +
+            " to merge partial update — refusing to broadcast (would blank unspecified fields). " +
+            (currentMetaFetchError ? `Last error: ${currentMetaFetchError}. ` : "") +
+            "Either set DEXE_IPFS_GATEWAY to a reachable gateway or pass all fields explicitly " +
+            "(newDaoName, newWebsiteUrl, newDaoDescription, newSocialLinks, newAvatarCID/newAvatarFileName).",
+          );
+        }
+
+        // Decide which description body to use:
+        //   - if caller passed newDaoDescription (or generic description), upload fresh
+        //   - else preserve the existing `description` ipfs:// pointer
+        let descriptionRef = typeof currentMeta.description === "string" ? currentMeta.description : "";
+        if (input.newDaoDescription !== undefined || (input.description && input.description.length > 0)) {
+          const descSlate = markdownToSlate(input.newDaoDescription ?? input.description ?? "");
+          const descRes = await pinata.pinJson(descSlate, { name: `dao-desc:${govPool.slice(0, 10)}` });
+          descriptionRef = `ipfs://${descRes.cid}`;
+        }
+
+        // Merge: start from current, override only fields the caller explicitly supplied.
+        // socialLinks/documents replace fully when supplied (lists are atomic in the UI).
+        const daoMeta: Record<string, unknown> = {
+          ...currentMeta,
+          daoName: input.newDaoName ?? (currentMeta.daoName as string | undefined) ?? "",
+          websiteUrl: input.newWebsiteUrl ?? (currentMeta.websiteUrl as string | undefined) ?? "",
+          description: descriptionRef,
+          socialLinks: input.newSocialLinks ?? (Array.isArray(currentMeta.socialLinks) ? currentMeta.socialLinks : []),
+          documents: Array.isArray(currentMeta.documents) ? currentMeta.documents : [],
+        };
+        if (input.newAvatarCID) {
+          daoMeta.avatarCID = input.newAvatarCID;
+          daoMeta.avatarFileName = input.newAvatarFileName ?? "avatar.jpeg";
+          // dweb.link + path-style resolves directory pins reliably across
+          // gateways. The frontend rebuilds the URL itself (see
+          // parseAvatarFromIpfsResponse) so the field is informational only,
+          // but the CID + filename pair is load-bearing.
+          daoMeta.avatarUrl = `https://${input.newAvatarCID}.ipfs.dweb.link/${daoMeta.avatarFileName}`;
+        }
+        const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${govPool.slice(0, 10)}` });
+        const newDescriptionURL = `ipfs://${daoMetaRes.cid}`;
 
         actionsOnFor = [{
           executor: govPool,
@@ -349,11 +414,20 @@ export async function runProposalCreate(
           value: BigInt(a.value ?? "0"),
           data: a.data,
         }));
+        const userExtra = input.proposalMetadataExtra ?? {};
         proposalExtra = {
           ...(input.category ? { category: input.category } : {}),
           isMeta: false,
-          ...(input.proposalMetadataExtra ?? {}),
+          ...userExtra,
         };
+        // Frontend's modify-profile diff UI (useGovPoolProposalProfileModel.ts:80)
+        // assumes isMeta=true means the action wraps a createProposal; for the
+        // single-action editDescriptionURL of daoProfileModification that decode
+        // path throws, blanking the diff table. Force isMeta=false regardless of
+        // what the caller passed so the UI renders correctly.
+        if (input.category === "daoProfileModification") {
+          proposalExtra.isMeta = false;
+        }
       }
 
       // Step 4: upload proposal metadata (field names must match frontend exactly)
