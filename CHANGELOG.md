@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.8.2 — 2026-06-01
+
+### Modify DAO profile — partial-update preservation + isMeta guard
+
+Two fixes to `dexe_proposal_create`'s `modify_dao_profile` flow so the
+round-trip to `app.dexe.io` actually renders.
+
+### Fixed
+
+- **`modify_dao_profile` no longer wipes unchanged fields.** The builder
+  now fetches the current DAO metadata from IPFS (using
+  `DEXE_IPFS_GATEWAY` / `DEXE_IPFS_GATEWAYS_FALLBACK`, with a public
+  read-only fallback if neither is set) and merges the caller's inputs
+  on top. Previously, passing only `newAvatarCID` would write empty
+  strings for `daoName`, `websiteUrl`, `description`, and `[]` for
+  `socialLinks` / `documents`, bricking the DAO header. Only fields the
+  caller explicitly supplies are replaced now.
+- **`isMeta` is forced to `false` for `daoProfileModification`** in the
+  `custom` proposal path too. The frontend's profile-diff component
+  (`useGovPoolProposalProfileModel.ts`) decodes the proposal's last
+  action as a `createProposal` wrapper when `isMeta=true`. For the
+  single-action `editDescriptionURL` of `modify_dao_profile`, that
+  decode throws → catch → empty `tableData` → no "proposed changes"
+  block rendered. Passing
+  `proposalMetadataExtra: { isMeta: true, ... }` with
+  `category: "daoProfileModification"` no longer silently breaks the
+  diff UI.
+- **Avatar URL field switched from 4everland to `dweb.link`** in
+  `modify_dao_profile`'s emitted DAO metadata. Field is informational
+  (frontend rebuilds the URL via `parseAvatarFromIpfsResponse`), but
+  `dweb.link` resolves directory pins more reliably across regions.
+
+### Notes
+
+- These fixes are producer-side only. The Cloudflare R2 backing
+  `ipfs-cache.dexe.io` will only populate `<descriptionCID>.jpeg` once
+  the Go cacher (`ipfs-cache` service) successfully runs
+  `cacheAvatar(descCid)` for the new metadata — verify by hitting
+  `https://ipfs-cache.dexe.io/<descriptionCID>.jpeg` after the proposal
+  executes. If it 404s persistently, the issue is in the Go cacher's
+  loader/R2 chain, not in this MCP.
+
 ## 0.8.1 — 2026-05-30
 
 ### Full soft-fail migration
