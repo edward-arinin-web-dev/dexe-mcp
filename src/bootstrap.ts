@@ -12,6 +12,29 @@ const CACHE_DIR_NAME = "dexe-mcp";
 const CHECKOUT_DIR = "DeXe-Protocol";
 
 /**
+ * Build the `git clone` args. H-1/H-2: when `DEXE_PROTOCOL_REF` is set we pin
+ * the checkout to that branch/tag instead of cloning the floating default-branch
+ * HEAD, so the runtime sources are reproducible and an upstream HEAD move can't
+ * silently change what is compiled and executed via `hardhat.config.js`.
+ */
+export function buildCloneArgs(repoUrl: string, dir: string, ref?: string): string[] {
+  const args = ["clone", "--depth", "1"];
+  if (ref && ref.trim()) args.push("--branch", ref.trim());
+  args.push(repoUrl, dir);
+  return args;
+}
+
+/**
+ * Build the `npm install` args. H-1/H-2: `--ignore-scripts` blocks any
+ * preinstall/postinstall/prepare lifecycle script in the cloned tree (or a
+ * transitive dependency) from executing arbitrary code as the MCP user on the
+ * first build.
+ */
+export function buildNpmInstallArgs(prefixArgs: readonly string[]): string[] {
+  return [...prefixArgs, "install", "--ignore-scripts", "--no-audit", "--no-fund"];
+}
+
+/**
  * Returns the platform-appropriate cache directory for dexe-mcp.
  *
  * - Windows: %LOCALAPPDATA%/dexe-mcp
@@ -126,7 +149,7 @@ export async function ensureBuildReady(protocolPath: string): Promise<void> {
         try {
           await execFileAsync(
             "git",
-            ["clone", "--depth", "1", REPO_URL, CHECKOUT_DIR],
+            buildCloneArgs(REPO_URL, CHECKOUT_DIR, process.env.DEXE_PROTOCOL_REF),
             { cwd: cacheDir, windowsHide: true },
           );
         } catch (err: unknown) {
@@ -150,7 +173,7 @@ export async function ensureBuildReady(protocolPath: string): Promise<void> {
         try {
           await execFileAsync(
             npm.command,
-            [...npm.prefixArgs, "install", "--no-audit", "--no-fund"],
+            buildNpmInstallArgs(npm.prefixArgs),
             {
               cwd: protocolPath,
               windowsHide: true,
