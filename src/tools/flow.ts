@@ -201,12 +201,14 @@ export async function sendOrCollect(
       cfg,
       { skipSimulation: true },
     );
-    const tx = await wallet.sendTransaction({
-      to: p.to,
-      data: p.data,
-      value: BigInt(p.value),
-      chainId: BigInt(p.chainId),
-    });
+    const tx = await signer.withBroadcastLock(Number(p.chainId), () =>
+      wallet.sendTransaction({
+        to: p.to,
+        data: p.data,
+        value: BigInt(p.value),
+        chainId: BigInt(p.chainId),
+      }),
+    );
     const receipt = await tx.wait(1);
     steps.push({
       label: p.description,
