@@ -18,6 +18,21 @@ export function extractGraphApiKey(endpoint: string): string | undefined {
   return m ? m[1] : undefined;
 }
 
+/**
+ * Trusted hosts for The Graph's decentralized gateway / Studio. The Graph API
+ * key is only meaningful for these; we refuse to attach it as a Bearer to any
+ * other configured endpoint so a hostile `DEXE_SUBGRAPH_*_URL` can't harvest
+ * the operator's key (W21 companion / L-6).
+ */
+export function isTrustedGraphHost(endpoint: string): boolean {
+  try {
+    const host = new URL(endpoint).hostname.toLowerCase();
+    return host === "thegraph.com" || host.endsWith(".thegraph.com");
+  } catch {
+    return false;
+  }
+}
+
 export async function gqlRequest<T>(
   endpoint: string,
   query: string,
@@ -25,8 +40,16 @@ export async function gqlRequest<T>(
   apiKey?: string,
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const key = apiKey ?? process.env.DEXE_GRAPH_API_KEY?.trim() ?? extractGraphApiKey(endpoint);
-  if (key) headers["Authorization"] = `Bearer ${key}`;
+  const extracted = extractGraphApiKey(endpoint);
+  const key = apiKey ?? process.env.DEXE_GRAPH_API_KEY?.trim() ?? extracted;
+  // W21/L-6: only attach the key as a Bearer when the endpoint is a trusted
+  // Graph host, or when the key is already embedded in the endpoint URL
+  // (sending it back to the same URL leaks nothing new). A hostile
+  // DEXE_SUBGRAPH_*_URL must not receive the operator's separate Graph API key.
+  const keyAlreadyInUrl = extracted !== undefined && key === extracted;
+  if (key && (keyAlreadyInUrl || isTrustedGraphHost(endpoint))) {
+    headers["Authorization"] = `Bearer ${key}`;
+  }
 
   const res = await fetch(endpoint, {
     method: "POST",
