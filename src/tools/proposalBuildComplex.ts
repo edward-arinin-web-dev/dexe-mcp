@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
+import { parseUintString } from "../lib/amount.js";
 
 /**
  * Phase 3c — 10 complex named wrappers. Same contract as 3a/3b:
@@ -485,6 +486,20 @@ export function buildTierTuple(tier: TierSpec): {
     if (encoded.derived) derivedRoots.push(encoded.derived);
   }
 
+  // H-10: the contract reads vestingPercentage as percent × PRECISION
+  // (TokenSaleProposalBuy uses MathHelper.percentage, which divides by
+  // PERCENTAGE_100 = 100 × PRECISION). A raw "50" is ~0% vesting on-chain, so
+  // scale it the same way exchangeRates are scaled, and reject out-of-range %.
+  const vestingPct = tier.vestingSettings.vestingPercentage;
+  const vestingPctNum = Number(vestingPct);
+  if (!Number.isFinite(vestingPctNum) || vestingPctNum < 0 || vestingPctNum > 100) {
+    throw new Error(
+      `Tier "${tier.name}": vestingSettings.vestingPercentage = "${vestingPct}" must be a ` +
+        `human percent in [0, 100] (e.g. "50" for 50%); it is scaled by PRECISION on-chain.`,
+    );
+  }
+  const vestingPercentageScaled = parseUnits(vestingPct, PRECISION_DECIMALS);
+
   const tuple: unknown[] = [
     [tier.name, tier.description],
     BigInt(tier.totalTokenProvided),
@@ -497,7 +512,7 @@ export function buildTierTuple(tier: TierSpec): {
     BigInt(tier.minAllocationPerUser),
     BigInt(tier.maxAllocationPerUser),
     [
-      BigInt(tier.vestingSettings.vestingPercentage),
+      vestingPercentageScaled,
       BigInt(tier.vestingSettings.vestingDuration),
       BigInt(tier.vestingSettings.cliffPeriod),
       BigInt(tier.vestingSettings.unlockStep),
@@ -1287,14 +1302,28 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
         if (bl.status === "blacklisted") return errorResult(blacklistError(token, receiver));
         const iface = new Interface(ERC20_GOV_ABI as unknown as string[]);
         const actions: Action[] = [];
-        const total = BigInt(amount);
-        const have = BigInt(treasuryBalance);
-        actions.push({
-          executor: token,
-          value: "0",
-          data: iface.encodeFunctionData("transfer", [receiver, total]),
-        });
-        if (have < total) {
+        const total = parseUintString(amount, "amount");
+        const have = parseUintString(treasuryBalance, "treasuryBalance");
+        if (have >= total) {
+          // Treasury covers it: a single transfer of the full amount.
+          actions.push({
+            executor: token,
+            value: "0",
+            data: iface.encodeFunctionData("transfer", [receiver, total]),
+          });
+        } else {
+          // H-4: short treasury. Transfer only what the treasury actually holds
+          // (transferring `total` would revert), then mint the shortfall to the
+          // receiver so they still net the full grant. The previous code
+          // transferred `total` unconditionally and the proposal reverted on
+          // execution.
+          if (have > 0n) {
+            actions.push({
+              executor: token,
+              value: "0",
+              data: iface.encodeFunctionData("transfer", [receiver, have]),
+            });
+          }
           const shortfall = total - have;
           actions.push({
             executor: token,
