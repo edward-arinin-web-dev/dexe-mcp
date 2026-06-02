@@ -14,6 +14,7 @@ import {
   SAFE_OPERATION,
   SAFE_TX_TYPES,
 } from "../lib/ethersProvider.js";
+import { assertAllowlistAndValueCap, BroadcastGuardError } from "../lib/broadcastGuards.js";
 
 // ---------- helpers ----------
 
@@ -199,6 +200,17 @@ export function registerSafeTools(
           refundReceiver: input.refundReceiver,
           nonce,
         });
+
+        // L-1: apply the destination-allowlist (B6) and value-cap (B7) guards on
+        // the Safe-queue path too. Previously a Safe propose signed and queued a
+        // transaction without ANY broadcast guard, giving the operator a false
+        // sense of protection from DEXE_SIGNER_ALLOWLIST / DEXE_SIGNER_MAX_VALUE_WEI.
+        try {
+          assertAllowlistAndValueCap({ to: tx.to, value: String(tx.value) }, signer.getConfig());
+        } catch (e) {
+          if (e instanceof BroadcastGuardError) return err(`[${e.guard}] ${e.message}`);
+          throw e;
+        }
 
         const safeTxHash = computeSafeTxHash(chainId, safe, tx);
 

@@ -57,11 +57,13 @@ export function __resetBroadcastWindow(): void {
   broadcastTimestamps.length = 0;
 }
 
-export async function runBroadcastGuards(
-  tx: BroadcastTx,
-  cfg: DexeConfig,
-  opts?: { skipSimulation?: boolean },
-): Promise<void> {
+/**
+ * B6 + B7: the stateless destination-allowlist and value-cap checks. Unlike B9
+ * (sim) and B10 (rate limit), these are safe to apply to ANY signed/queued tx —
+ * including a Safe-TX-Service propose (L-1), which previously signed and queued
+ * without any guard.
+ */
+export function assertAllowlistAndValueCap(tx: { to: string; value: string }, cfg: DexeConfig): void {
   // ---- B6: destination allowlist ----------------------------------------
   if (cfg.signerAllowlist && cfg.signerAllowlist.length > 0) {
     const to = tx.to.toLowerCase();
@@ -85,6 +87,15 @@ export async function runBroadcastGuards(
       );
     }
   }
+}
+
+export async function runBroadcastGuards(
+  tx: BroadcastTx,
+  cfg: DexeConfig,
+  opts?: { skipSimulation?: boolean },
+): Promise<void> {
+  // ---- B6 + B7: destination allowlist & value cap -----------------------
+  assertAllowlistAndValueCap(tx, cfg);
 
   // ---- B9: auto-simulation (eth_call preflight) -------------------------
   // Reuses the shared sim core; aborts before spending gas if the call would
