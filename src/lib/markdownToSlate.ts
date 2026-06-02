@@ -158,6 +158,24 @@ const overrides: Record<string, (node: any, next: Next) => SlateNode | SlateNode
 const SLATE_DEFAULT = [{ type: "paragraph", children: [{ text: "" }] }];
 
 /**
+ * Default cap on markdown input length (H-3 CPU-DoS guard). The parser is
+ * synchronous and super-linear in input size — ~16 KB blocks the single
+ * event loop for ~24 s, and unbounded input freezes the whole server. 16 KB is
+ * the documented threshold; operators in shared/untrusted environments should
+ * lower it via DEXE_MAX_DESCRIPTION_LEN.
+ */
+export const DEFAULT_MAX_MARKDOWN_LEN = 16_384;
+
+export function maxMarkdownLen(): number {
+  const raw = process.env.DEXE_MAX_DESCRIPTION_LEN?.trim();
+  if (raw && /^[0-9]+$/.test(raw)) {
+    const n = Number(raw);
+    if (n > 0) return n;
+  }
+  return DEFAULT_MAX_MARKDOWN_LEN;
+}
+
+/**
  * Unified processor configured with our overrides.
  */
 const processor = unified()
@@ -178,6 +196,16 @@ const processor = unified()
 export function markdownToSlate(markdown: string): unknown[] {
   if (!markdown || markdown.trim().length === 0) {
     return SLATE_DEFAULT;
+  }
+
+  // H-3: reject oversize input BEFORE the synchronous super-linear parse so a
+  // large/adversarial description can't freeze the single-threaded server.
+  const max = maxMarkdownLen();
+  if (markdown.length > max) {
+    throw new Error(
+      `Description too long for markdown conversion: ${markdown.length} chars exceeds the ${max}-char ` +
+        `limit (set DEXE_MAX_DESCRIPTION_LEN to adjust). Shorten it, or upload the long form as a file/CID.`,
+    );
   }
 
   try {
