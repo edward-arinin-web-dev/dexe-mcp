@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
+import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
 import {
   PROPOSAL_CATALOG,
   EXTERNAL_METADATA_SHAPE,
@@ -150,6 +151,10 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
         const iface = new Interface(GOV_POOL_ABI as unknown as string[]);
         const on = actionsOnFor.map(toAction);
         const against = actionsOnAgainst.map(toAction);
+        for (const a of [...on, ...against]) {
+          const forbidden = findForbiddenSelector(a.data);
+          if (forbidden) return errorResult(dangerousSelectorError(forbidden, a.executor));
+        }
         let payload: TxPayload;
         if (andVote) {
           payload = buildPayload({
@@ -266,6 +271,8 @@ function registerBuildCustomAbi(server: McpServer, ctx: ToolContext): void {
           return a;
         });
         const data = iface.encodeFunctionData(method, coerced);
+        const forbidden = findForbiddenSelector(data);
+        if (forbidden) return errorResult(dangerousSelectorError(forbidden, target));
         const action = { executor: target, value, data };
         const preview = `ProposalAction → ${target}.${method}(${args.length} args), value=${value}, calldata=${data.slice(0, 18)}…`;
         return {

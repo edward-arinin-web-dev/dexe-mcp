@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.8.3 — 2026-06-01
+
+### Security: guardrail against C-2 (DEFAULT-routing allowlist bypass)
+
+Red-team finding **C-2** (against 0.7.2): a DeXe proposal can drain an arbitrary
+depositor's *unlocked* balance by calling
+`GovUserKeeper.withdrawTokens(payer, receiver, amount)` from a DEFAULT-routed
+proposal that bypasses the `GovPoolCreate` INTERNAL allowlist. The root cause is
+in the **DeXe protocol contracts** (settings keyed on the last action only;
+`withdrawTokens` takes an unbound `payer`) and is **not fixable from the MCP** —
+only a contract upgrade closes it. dexe-mcp was an amplifier: the proposal
+builders encoded the malicious action with zero checks.
+
+### Added
+
+- **`src/lib/dangerousSelectors.ts`** — denylist of the 12 `GovUserKeeper`
+  `onlyOwner` accounting selectors (deposit / withdraw / delegate / undelegate,
+  token + NFT + treasury variants) that must never be a proposal-action target.
+
+### Changed
+
+- **`dexe_proposal_build_custom_abi` and `dexe_proposal_build_external` now
+  hard-refuse** (no override) any action whose calldata carries a denylisted
+  selector. Harm-reduction only — an attacker can still hand-craft calldata; the
+  protocol fix is the real remediation. See
+  `docs/security/C2-default-routing-bypass.md`.
+
+### Notes
+
+- Tool surface unchanged (no tools added/removed) — README and `docs/TOOLS.md`
+  counts/groups are unaffected.
+
 ## 0.8.2 — 2026-06-01
 
 ### Modify DAO profile — partial-update preservation + isMeta guard
