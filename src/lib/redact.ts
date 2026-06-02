@@ -11,46 +11,42 @@
  * - `safeErrorMessage(err)` — prefer ethers' `shortMessage` (which stays
  *   URL-free) over the verbose `message`, then redact as a backstop. Use this
  *   wherever a caught error is surfaced to the user.
- * - `redactUrlCredentials(text)` — strip `user:pass@` userinfo and known
- *   provider key segments / `?apikey=` style params from arbitrary text.
- * - `maskUrl(url)` — for deliberately displaying a configured endpoint
- *   (e.g. `dexe_get_config`, `dexe_doctor`) without its key.
+ * - `redactUrlCredentials(text)` — mask every URL found in arbitrary text
+ *   (path + query + userinfo), so any embedded API key is removed regardless
+ *   of provider.
+ * - `maskUrl(url)` — mask a single configured URL for deliberate display
+ *   (e.g. `dexe_get_config`, `dexe_doctor`).
+ *
+ * The masking is provider-agnostic and structural (no host allowlist), so it
+ * covers any RPC vendor and cannot be bypassed by an unrecognized host.
  */
 
+/** Userinfo in a URL: `scheme://user:pass@` (used only in the parse fallback). */
 const USERINFO_RE = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g;
 
-const PROVIDER_KEY_RES: [RegExp, string][] = [
-  [/(g\.alchemy\.com\/v2\/)[A-Za-z0-9_-]+/gi, "$1***"],
-  [/(\.infura\.io\/v3\/)[A-Za-z0-9_-]+/gi, "$1***"],
-  [/(quiknode\.pro\/)[A-Za-z0-9_-]+/gi, "$1***"],
-  [/(rpc\.ankr\.com\/[a-z0-9_]+\/)[A-Za-z0-9]+/gi, "$1***"],
-  [/(blastapi\.io\/)[A-Za-z0-9-]+/gi, "$1***"],
-  [/(nodereal\.io\/v1\/)[A-Za-z0-9]+/gi, "$1***"],
-  [/(chainstack\.com\/[A-Za-z0-9]+\/)[A-Za-z0-9]+/gi, "$1***"],
-  // Generic api-key style query params.
-  [/([?&](?:api[-_]?key|apikey|key|auth|token|access[-_]?token|secret)=)[^&\s#"']+/gi, "$1***"],
-];
-
-/** Strip credentials from any URLs found in `text`. Best-effort, never throws. */
-export function redactUrlCredentials(text: string): string {
-  let out = text.replace(USERINFO_RE, "$1***@");
-  for (const [re, rep] of PROVIDER_KEY_RES) out = out.replace(re, rep);
-  return out;
-}
+/** Any http(s) URL token, bounded by whitespace / common punctuation. */
+const URL_RE = /\bhttps?:\/\/[^\s'"`)<>\]},;]+/gi;
 
 /**
- * Mask a single configured URL for display: keep scheme + host, drop userinfo,
- * and replace any path/query (which may carry the API key) with `***`.
+ * Mask a single URL: keep scheme + host, drop userinfo, and replace any
+ * path/query (which may carry the API key) with `***`. Never throws.
  */
 export function maskUrl(raw: string): string {
   try {
     const u = new URL(raw);
     const path = u.pathname && u.pathname !== "/" ? "/***" : "";
     const query = u.search ? "?***" : "";
+    // u.host excludes userinfo, so credentials in `user:pass@` are dropped.
     return `${u.protocol}//${u.host}${path}${query}`;
   } catch {
-    return redactUrlCredentials(raw);
+    // Non-parseable token: strip userinfo without recursing.
+    return raw.replace(USERINFO_RE, "$1***@");
   }
+}
+
+/** Mask credentials/keys in every URL found in `text`. Best-effort, never throws. */
+export function redactUrlCredentials(text: string): string {
+  return text.replace(URL_RE, (m) => maskUrl(m));
 }
 
 /**

@@ -14,9 +14,9 @@ const SECRET = "abcd1234SECRETKEYxyz";
 describe("redactUrlCredentials (W36)", () => {
   it("masks user:pass@ userinfo", () => {
     const out = redactUrlCredentials("dial https://alice:s3cr3t@rpc.example.org/path");
-    expect(out).toContain("https://***@rpc.example.org/path");
     expect(out).not.toContain("s3cr3t");
     expect(out).not.toContain("alice");
+    expect(out).toContain("rpc.example.org");
   });
 
   it("masks Alchemy / Infura / QuickNode / Ankr key segments", () => {
@@ -31,9 +31,10 @@ describe("redactUrlCredentials (W36)", () => {
     expect(redactUrlCredentials(`https://node.example.org/rpc?x=1&key=${SECRET}`)).not.toContain(SECRET);
   });
 
-  it("leaves keyless public nodes untouched", () => {
-    const url = "https://bsc-dataseed.bnbchain.org/";
-    expect(redactUrlCredentials(`RPC ${url} timed out`)).toContain(url);
+  it("preserves the host of keyless public nodes (no key to leak)", () => {
+    const out = redactUrlCredentials("RPC https://bsc-dataseed.bnbchain.org/ timed out");
+    expect(out).toContain("https://bsc-dataseed.bnbchain.org");
+    expect(out).toContain("timed out");
   });
 });
 
