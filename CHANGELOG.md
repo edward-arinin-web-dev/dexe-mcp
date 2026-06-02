@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.9.0 — 2026-06-02
+
+### Security hardening (red-team audit remediation)
+
+Remediates the `dexe-mcp@0.7.2` red-team audit. The 1 CRITICAL (C-2) was guarded
+in 0.8.3; this release closes the MCP-fixable HIGH/MEDIUM/LOW findings. Each fix
+shipped as its own PR with a locking regression test, CI green throughout.
+
+#### Fixed — builders & numeric safety
+- **H-8 / H-9** — amount/id fields are validated (`^[0-9]+$`) before `BigInt()`
+  (`src/lib/amount.ts`), so empty/hex/negative values no longer silently
+  mis-encode; documented the on-chain `from18Safe` 18-decimal normalization on
+  the token-sale `buy` builders.
+- **H-4** — `apply_to_dao`'s short-treasury branch transfers what the treasury
+  holds (not the full amount) and mints the shortfall, so the proposal no longer
+  reverts on execution.
+- **H-10** — tier `vestingPercentage` is scaled by `PRECISION` (×1e25); raw
+  values no longer silently disable vesting, and out-of-`[0,100]` is rejected.
+- **W29** — OTC `buyer_buy` approves the exact amount, never `MAX_UINT256`.
+- **W39** — `read_staking_info` ABI matches the deployed `IStakingProposal`
+  (9-field `StakingInfoView`, 8-field `TierUserInfo`); a decode mismatch is
+  surfaced, not silently emptied.
+
+#### Fixed — disclosure, decode & data channels
+- **W36** — RPC provider API keys are redacted from tool output and errors
+  (`src/lib/redact.ts`); `get_config` masks the keyed RPC URL.
+- **H-13 / W24** — attacker-controlled on-chain/IPFS strings are sanitized
+  before rendering (`src/lib/sanitize.ts`): control chars escaped, NFKC
+  normalized, non-ASCII flagged — defeats prompt-injection / newline-forgery /
+  homoglyph spoofing.
+- **C-1 (decode-no-recursion)** — `decode_calldata` / `decode_proposal`
+  recursively unwrap nested `multicall` / `createProposal` / … and flag
+  privileged selectors.
+- **W20** — `ipfs_fetch` verifies fetched bytes against the requested CID
+  (raw/json codecs) and rejects a mismatch.
+- **W21 / L-6** — the Graph API key is only sent as a Bearer to trusted
+  `*.thegraph.com` hosts.
+
+#### Fixed — signer, flow & infra
+- **H-12** — broadcasts are serialized per chain (no nonce collision);
+  `tx_status` distinguishes `not_found` from `pending`.
+- **W10** — the composite flow verifies `govPool` against the canonical
+  `PoolRegistry` and approves the exact deposit amount, not `MAX_UINT256`.
+- **H-1 / H-2** — protocol bootstrap runs `npm install --ignore-scripts` and
+  supports pinning the clone via `DEXE_PROTOCOL_REF`.
+- **H-3** — `markdownToSlate` rejects input over a length cap
+  (`DEXE_MAX_DESCRIPTION_LEN`, default 16384) before the super-linear parse.
+- **L-1** — the Safe-TX propose path now applies the B6 (allowlist) + B7
+  (value-cap) guards.
+
+#### Added
+- `dexe_proposal_vote_and_execute` gains a `dryRun` flag (preview without
+  broadcasting), matching `dexe_proposal_create`.
+- Protocol-property advisories (`src/lib/protocolAdvisories.ts`) surfaced in the
+  `change_voting_settings`, `change_math_model`, and `custom_abi` previews.
+- New env vars: `DEXE_PROTOCOL_REF`, `DEXE_MAX_DESCRIPTION_LEN`.
+
+### Docs
+- **`docs/ESCALATION-DEXE.md`** — contract-level findings (C-2, H-11,
+  `executionDelay=0`, `changeVotePower`, PolynomialPower) for the DeXe protocol
+  team, with root cause, contract fix, and MCP mitigation.
+- **`docs/SECURITY.md`** — security posture and remediation summary.
+
+### Notes
+- `list_gov_contract_types` PoolRegistry source path corrected to
+  `contracts/factory/PoolRegistry.sol`.
+- Verified non-bugs (no change): H-5 (`cap=0` already guarded as uncapped),
+  H-7 (the `uniswap.json` timelock is the correct Uniswap Timelock).
+- Tool surface unchanged: still **153 tools across 19 groups**.
+
 ## 0.8.3 — 2026-06-01
 
 ### Security: guardrail against C-2 (DEFAULT-routing allowlist bypass)
