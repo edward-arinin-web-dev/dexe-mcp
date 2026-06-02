@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Interface, MaxUint256 } from "ethers";
+import { Contract, Interface, JsonRpcProvider } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import type { TxPayload } from "../lib/calldata.js";
@@ -8,8 +8,9 @@ import { multicall, type Call } from "../lib/multicall.js";
 import { PinataClient, fetchIpfs } from "../lib/ipfs.js";
 import { SignerManager } from "../lib/signer.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
-import { resolveChain } from "../config.js";
+import { resolveChain, type DexeConfig } from "../config.js";
 import { runBroadcastGuards } from "../lib/broadcastGuards.js";
+import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 
 // ---------- ABI fragments ----------
 
@@ -87,15 +88,66 @@ function makeTxPayload(to: string, iface: Interface, method: string, args: unkno
   };
 }
 
+const POOL_REGISTRY_ISGOV_ABI = ["function isGovPool(address) view returns (bool)"];
+
+/**
+ * W10 refusal decision: a definitive `isGovPool === false` aborts the flow; a
+ * `true` or `null` (could-not-verify) proceeds (the exact-amount approve bounds
+ * the residual risk).
+ */
+export function refuseIfNotGovPool(govPool: string, isGovPool: boolean | null): void {
+  if (isGovPool === false) {
+    throw new Error(
+      `Refusing: ${govPool} is not a registered DeXe GovPool (PoolRegistry.isGovPool == false). ` +
+        `A fake govPool returns attacker-controlled helper addresses and would route the ` +
+        `auto-approve to an attacker contract (W10). Double-check the govPool address.`,
+    );
+  }
+}
+
+/**
+ * W10: verify `govPool` is a registered DeXe GovPool against the CANONICAL
+ * PoolRegistry for the chain — never the helper addresses the pool itself
+ * reports (an attacker fully controls those for a fake "govPool", and the
+ * composite flow would then auto-approve the attacker's keeper). A definitive
+ * `isGovPool == false` aborts the flow; if the registry can't be resolved on
+ * this chain we proceed, since the exact-amount approve still bounds the risk.
+ */
+async function assertRegisteredGovPool(
+  provider: JsonRpcProvider,
+  rpc: RpcProvider,
+  config: DexeConfig,
+  chainId: number | undefined,
+  govPool: string,
+): Promise<void> {
+  let isGov: boolean;
+  try {
+    const book = new AddressBook({
+      provider,
+      chainId: rpc.resolveChainId(chainId),
+      registryOverride: config.registryOverride,
+    });
+    const registryAddr = await book.resolve(CONTRACT_NAMES.POOL_REGISTRY);
+    const reg = new Contract(registryAddr, POOL_REGISTRY_ISGOV_ABI, provider);
+    isGov = (await reg.getFunction("isGovPool").staticCall(govPool)) as boolean;
+  } catch {
+    return; // registry unresolvable / call failed — cannot verify, proceed
+  }
+  refuseIfNotGovPool(govPool, isGov);
+}
+
 async function resolvePrereqs(
   rpc: RpcProvider,
   govPool: string,
   user: string,
+  config: DexeConfig,
   chainId?: number,
 ): Promise<Prereqs> {
   const pr = rpc.tryProvider(chainId);
   if ("error" in pr) throw new Error(`${pr.error}\n${pr.remediation}`);
   const provider = pr.ok;
+  // W10: refuse a fake govPool before reading its helpers / auto-approving.
+  await assertRegisteredGovPool(provider, rpc, config, chainId, govPool);
 
   // Batch 1: get helper addresses
   const batch1: Call[] = [
@@ -281,7 +333,7 @@ export async function runProposalCreate(
       // Step 1: resolve prerequisites
       let prereqs: Prereqs;
       try {
-        prereqs = await resolvePrereqs(rpc, govPool, user, chainId);
+        prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
       } catch (e) {
         return err(`Failed to resolve prerequisites: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -460,10 +512,13 @@ export async function runProposalCreate(
 
       // Approve (if needed)
       if (needDeposit > 0n && prereqs.currentAllowance < needDeposit) {
+        // W10: approve exactly what the deposit needs, never MAX_UINT256 — a
+        // residual unlimited allowance to a (possibly attacker-supplied) keeper
+        // is the drain primitive.
         payloads.push(makeTxPayload(
           prereqs.tokenAddress, ERC20_ABI, "approve",
-          [prereqs.userKeeper, MaxUint256], chainId,
-          `ERC20.approve(${prereqs.userKeeper}, MAX_UINT256)`,
+          [prereqs.userKeeper, needDeposit], chainId,
+          `ERC20.approve(${prereqs.userKeeper}, ${needDeposit})`,
         ));
       } else {
         skippedSteps.push({ label: "ERC20.approve", skipped: true, reason: "Allowance sufficient" });
@@ -666,7 +721,7 @@ export function registerFlowTools(
       // Step 2: resolve prereqs for deposit check
       let prereqs: Prereqs | undefined;
       if (input.depositFirst) {
-        prereqs = await resolvePrereqs(rpc, govPool, user, chainId);
+        prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
       }
 
       const payloads: TxPayload[] = [];
@@ -676,10 +731,11 @@ export function registerFlowTools(
       if (input.depositFirst && prereqs && prereqs.walletBalance > 0n) {
         // Approve if needed
         if (prereqs.currentAllowance < prereqs.walletBalance) {
+          // W10: exact-amount approve, never MAX_UINT256.
           payloads.push(makeTxPayload(
             prereqs.tokenAddress, ERC20_ABI, "approve",
-            [prereqs.userKeeper, MaxUint256], chainId,
-            `ERC20.approve(${prereqs.userKeeper}, MAX_UINT256)`,
+            [prereqs.userKeeper, prereqs.walletBalance], chainId,
+            `ERC20.approve(${prereqs.userKeeper}, ${prereqs.walletBalance})`,
           ));
         }
         // Deposit
@@ -702,7 +758,7 @@ export function registerFlowTools(
       // Check minVotesForVoting threshold
       if (!prereqs && !input.voteAmount) {
         // Need prereqs to validate threshold — fetch them
-        prereqs = await resolvePrereqs(rpc, govPool, user, chainId);
+        prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
       }
       if (prereqs && prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
         return err(
