@@ -5,6 +5,7 @@ import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
+import { CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY } from "../lib/protocolAdvisories.js";
 import {
   PROPOSAL_CATALOG,
   EXTERNAL_METADATA_SHAPE,
@@ -276,7 +277,7 @@ function registerBuildCustomAbi(server: McpServer, ctx: ToolContext): void {
         const action = { executor: target, value, data };
         const preview = `ProposalAction → ${target}.${method}(${args.length} args), value=${value}, calldata=${data.slice(0, 18)}…`;
         return {
-          content: [{ type: "text" as const, text: preview }],
+          content: [{ type: "text" as const, text: `${preview}\n\n${CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY}` }],
           structuredContent: { action, preview },
         };
       } catch (err) {

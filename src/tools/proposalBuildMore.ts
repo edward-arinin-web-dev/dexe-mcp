@@ -3,6 +3,7 @@ import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
+import { settingsAdvisories } from "../lib/protocolAdvisories.js";
 
 /**
  * Phase 3b named wrappers. Every wrapper returns the same scaffold shape as
@@ -192,11 +193,18 @@ function registerChangeVotingSettings(server: McpServer): void {
             currentChanges: {},
           },
         };
+        const advisories = settings.flatMap((s, i) =>
+          settingsAdvisories(s).map((a) => `⚠ settings[${i}]: ${a}`),
+        );
         return wrapperResult({
           metadata,
           actions: [action],
           title: `Change Voting Settings (${method}, ${settings.length} entries)`,
-          detail: `Target: GovSettings(${govSettings}).${method}\nCalldata: ${data.slice(0, 66)}…`,
+          detail:
+            `Target: GovSettings(${govSettings}).${method}\nCalldata: ${data.slice(0, 66)}…` +
+            (advisories.length > 0
+              ? `\n\nProtocol advisories (see docs/ESCALATION-DEXE.md):\n${advisories.join("\n")}`
+              : ""),
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));

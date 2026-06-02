@@ -5,6 +5,7 @@ import type { ToolContext } from "./context.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { parseUintString } from "../lib/amount.js";
+import { CHANGE_VOTE_POWER_ADVISORY } from "../lib/protocolAdvisories.js";
 
 /**
  * Phase 3c — 10 complex named wrappers. Same contract as 3a/3b:
@@ -987,7 +988,7 @@ function registerChangeMathModel(server: McpServer): void {
           metadata,
           actions,
           title: `Change Vote Power → ${newVotePower}`,
-          detail: `Target: GovPool(${govPool}).changeVotePower`,
+          detail: `Target: GovPool(${govPool}).changeVotePower\n\n${CHANGE_VOTE_POWER_ADVISORY}`,
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
