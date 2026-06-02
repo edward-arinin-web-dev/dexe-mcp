@@ -47,10 +47,16 @@ const DISTRIBUTION_READ_ABI = [
   "function getPotentialReward(uint256 proposalId, address voter) view returns (uint256)",
 ] as const;
 
-const STAKING_READ_ABI = [
+// Mirrors the deployed IStakingProposal structs exactly: StakingInfoView = 9
+// fields, TierUserInfo = 8 fields (contracts/interfaces/gov/proposals/IStakingProposal.sol).
+// W39: a too-narrow ABI silently corrupts the decoded numbers — getActiveStakings
+// (dynamic, has `string metadata`) throws and gets swallowed as empty, while
+// getUserInfo (all-static) in-bounds head-aliases real values onto the wrong
+// names with NO error. Keep these in lockstep with the deployed structs.
+export const STAKING_READ_ABI = [
   "function stakingsCount() view returns (uint256)",
-  "function getActiveStakings() view returns (tuple(address rewardToken, uint256 rewardAmount, uint256 startedAt, uint256 deadline, string metadata)[] stakings)",
-  "function getUserInfo(address user) view returns (tuple(uint256 staked, uint256 reward)[] tiersUserInfo)",
+  "function getActiveStakings() view returns (tuple(uint256 id, string metadata, address rewardToken, uint256 totalRewardsAmount, uint256 startedAt, uint256 deadline, bool isActive, uint256 totalStaked, uint256 owedToProtocol)[] stakings)",
+  "function getUserInfo(address user) view returns (tuple(uint256 tierId, bool isActive, address rewardToken, uint256 startedAt, uint256 deadline, uint256 currentStake, uint256 currentRewards, uint256 tierCurrentStakes)[] tiersUserInfo)",
 ] as const;
 
 const USER_REGISTRY_READ_ABI = [
@@ -583,10 +589,34 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
         }
         const res = await multicall(provider, baseCalls);
         const count = res[0]?.success ? Number(res[0].value as bigint) : 0;
-        const activeStakings = res[1]?.success ? jsonSafe(res[1].value) : [];
-        const userInfo = user && res[2]?.success ? jsonSafe(res[2].value) : null;
-        const structured = { stakingProposal, stakingsCount: count, activeStakings, user: user ?? null, userInfo };
-        const text = `Staking ${stakingProposal}: ${count} tier(s)` + (user ? `, user ${user} info included` : "");
+        const warnings: string[] = [];
+        const stakingsOk = !!res[1]?.success;
+        if (!stakingsOk) {
+          // W39: surface a decode failure explicitly instead of returning a
+          // silent empty list that reads as "no stakings".
+          warnings.push(
+            `getActiveStakings() did not decode (${res[1]?.error ?? "unknown"}); values omitted rather than reported as empty.`,
+          );
+        }
+        const activeStakings = stakingsOk ? (res[1]!.value as unknown[]).map(namedResult) : [];
+        let userInfo: unknown = null;
+        if (user) {
+          if (res[2]?.success) {
+            userInfo = (res[2].value as unknown[]).map(namedResult);
+          } else {
+            warnings.push(`getUserInfo(${user}) did not decode (${res[2]?.error ?? "unknown"}).`);
+          }
+        }
+        const structured = {
+          stakingProposal,
+          stakingsCount: count,
+          activeStakings,
+          user: user ?? null,
+          userInfo,
+          ...(warnings.length ? { warnings } : {}),
+        };
+        let text = `Staking ${stakingProposal}: ${count} tier(s)` + (user ? `, user ${user} info included` : "");
+        if (warnings.length) text += "\n⚠ " + warnings.join("\n⚠ ");
         return {
           content: [{ type: "text" as const, text }],
           structuredContent: structured,
@@ -667,4 +697,16 @@ function jsonSafe(v: unknown): unknown {
     return out;
   }
   return v;
+}
+
+/**
+ * Convert an ethers v6 Result (an Array subclass — JSON-serializes positionally
+ * and loses field names) into a plain named object before jsonSafe. Falls back
+ * to positional serialization for non-Result values.
+ */
+function namedResult(v: unknown): unknown {
+  if (v && typeof (v as { toObject?: unknown }).toObject === "function") {
+    return jsonSafe((v as { toObject: (deep?: boolean) => unknown }).toObject(true));
+  }
+  return jsonSafe(v);
 }
