@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 const GOV_POOL_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -145,7 +146,7 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(
-          `read_multicall failed: ${err instanceof Error ? err.message : String(err)}`,
+          `read_multicall failed: ${safeErrorMessage(err)}`,
         );
       }
     },
@@ -210,7 +211,7 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(
-          `read_treasury failed: ${err instanceof Error ? err.message : String(err)}`,
+          `read_treasury failed: ${safeErrorMessage(err)}`,
         );
       }
     },
@@ -279,7 +280,7 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(
-          `read_validators failed: ${err instanceof Error ? err.message : String(err)}`,
+          `read_validators failed: ${safeErrorMessage(err)}`,
         );
       }
     },
@@ -341,7 +342,7 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(
-          `read_settings failed: ${err instanceof Error ? err.message : String(err)}`,
+          `read_settings failed: ${safeErrorMessage(err)}`,
         );
       }
     },
@@ -403,7 +404,7 @@ function registerExpertStatus(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(
-          `read_expert_status failed: ${err instanceof Error ? err.message : String(err)}`,
+          `read_expert_status failed: ${safeErrorMessage(err)}`,
         );
       }
     },
@@ -452,7 +453,7 @@ function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_token_sale_tiers failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`read_token_sale_tiers failed: ${safeErrorMessage(err)}`);
       }
     },
   );
@@ -495,7 +496,7 @@ function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_token_sale_user failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`read_token_sale_user failed: ${safeErrorMessage(err)}`);
       }
     },
   );
@@ -545,7 +546,7 @@ function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_distribution_status failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`read_distribution_status failed: ${safeErrorMessage(err)}`);
       }
     },
   );
@@ -591,7 +592,7 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_staking_info failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`read_staking_info failed: ${safeErrorMessage(err)}`);
       }
     },
   );
@@ -636,7 +637,7 @@ function registerPrivacyPolicyStatus(server: McpServer, rpc: RpcProvider): void 
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_privacy_policy_status failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`read_privacy_policy_status failed: ${safeErrorMessage(err)}`);
       }
     },
   );

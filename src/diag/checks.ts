@@ -2,6 +2,7 @@ import { resolve as dnsResolve } from "node:dns/promises";
 import { ENV_REGISTRY, type EnvKey, type EnvEntry, type EnvCategory } from "../env/schema.js";
 import { parseEnv } from "../env/parse.js";
 import type { DexeConfig } from "../config.js";
+import { maskUrl, redactUrlCredentials } from "../lib/redact.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 export type CheckCategory = EnvCategory | "network" | "process";
@@ -112,7 +113,7 @@ function rpcReachabilityChecks(
             id: `rpc.reachable.${chain.chainId}`,
             category: "network",
             status: "warn",
-            message: `RPC ${chain.rpcUrl} timed out after ${timeoutMs}ms`,
+            message: `RPC ${maskUrl(chain.rpcUrl)} timed out after ${timeoutMs}ms`,
             remediation:
               "Check connectivity. If intermittent, ignore. Otherwise pick a different RPC at https://chainlist.org.",
           };
@@ -122,7 +123,7 @@ function rpcReachabilityChecks(
             id: `rpc.reachable.${chain.chainId}`,
             category: "network",
             status: "fail",
-            message: `RPC ${chain.rpcUrl} unreachable: ${res.error}`,
+            message: `RPC ${maskUrl(chain.rpcUrl)} unreachable: ${redactUrlCredentials(String(res.error))}`,
             remediation:
               "Replace the RPC URL. Browse alternatives at https://chainlist.org and restart the MCP.",
           };
@@ -135,14 +136,14 @@ function rpcReachabilityChecks(
             category: "network",
             status: "fail",
             message: `RPC returned chainId=${got ?? "?"} but configured chainId=${chain.chainId}`,
-            remediation: `RPC at ${chain.rpcUrl} is for the wrong chain. Replace it.`,
+            remediation: `RPC at ${maskUrl(chain.rpcUrl)} is for the wrong chain. Replace it.`,
           };
         }
         return {
           id: `rpc.reachable.${chain.chainId}`,
           category: "network",
           status: "pass",
-          message: `eth_chainId=${chain.chainId} (${chain.rpcUrl})`,
+          message: `eth_chainId=${chain.chainId} (${maskUrl(chain.rpcUrl)})`,
         };
       })(),
     );

@@ -6,6 +6,7 @@ import { CalldataDecoder, type DecodedProposalAction } from "../lib/decoders.js"
 import { GovAddressResolver } from "../lib/govAddresses.js";
 import { RpcProvider } from "../rpc.js";
 import { ArtifactsMissingError } from "../artifacts.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 export function registerGovTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
@@ -160,7 +161,7 @@ function registerDecodeProposal(
       try {
         views = await pool.getFunction("getProposals")(proposalId - 1, 1);
       } catch (err) {
-        return errorResult(`RPC call to getProposals failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`RPC call to getProposals failed: ${safeErrorMessage(err)}`);
       }
       if (!views || views.length === 0) {
         return errorResult(`Proposal ${proposalId} not found at ${govPool}.`);
@@ -302,7 +303,7 @@ function registerReadGovState(
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`Failed to read gov state: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Failed to read gov state: ${safeErrorMessage(err)}`);
       }
     },
   );

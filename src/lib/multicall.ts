@@ -1,4 +1,5 @@
 import { Contract, Interface, JsonRpcProvider } from "ethers";
+import { safeErrorMessage } from "./redact.js";
 
 /**
  * Multicall3 — deployed at the same address on ~every EVM chain.
@@ -50,8 +51,15 @@ export async function multicall(
     callData: c.iface.encodeFunctionData(c.method, c.args),
   }));
 
-  const results: Array<{ success: boolean; returnData: string }> =
-    await mc.getFunction("aggregate3").staticCall(payload);
+  let results: Array<{ success: boolean; returnData: string }>;
+  try {
+    results = await mc.getFunction("aggregate3").staticCall(payload);
+  } catch (err) {
+    // Central W36 redaction: a keyed RPC URL rides in ethers' err.message on
+    // any non-2xx provider response. Rethrow with a credential-free message so
+    // no downstream catch block can leak it into an LLM-visible tool result.
+    throw new Error(safeErrorMessage(err));
+  }
 
   return results.map((r, i) => {
     const c = calls[i]!;
@@ -68,7 +76,7 @@ export async function multicall(
         success: false,
         value: null,
         raw: r.returnData,
-        error: err instanceof Error ? err.message : String(err),
+        error: safeErrorMessage(err),
       };
     }
   });
