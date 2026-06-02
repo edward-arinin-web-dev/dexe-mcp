@@ -29,8 +29,10 @@ builders encoded the malicious action with zero checks.
 
 ### Notes
 
-- Tool surface unchanged (no tools added/removed) — README and `docs/TOOLS.md`
-  counts/groups are unaffected.
+- Tool surface unchanged (no tools added/removed) — **153 tools / 19 groups**.
+  Corrected a stale README count: the badge said `149` and the catalog
+  header/group table said `152` (the table was missing `dexe_doctor`). All now
+  read `153`. `docs/TOOLS.md` was already correct at 153.
 
 ## 0.8.2 — 2026-06-01
 
