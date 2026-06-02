@@ -9,7 +9,7 @@
   <a href="https://nodejs.org"><img alt="node" src="https://img.shields.io/node/v/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=E07AFF"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=FFC878"></a>
   <a href="https://modelcontextprotocol.io"><img alt="MCP-compatible" src="https://img.shields.io/badge/MCP-compatible-9BB4FF?style=flat-square&labelColor=0b0f1e"></a>
-  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-149-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
+  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-153-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="proposal types" src="https://img.shields.io/badge/proposal--types-33-E07AFF?style=flat-square&labelColor=0b0f1e"></a>
 </p>
 
@@ -194,7 +194,7 @@ All optional. Tools that need a missing variable fail with a clear, actionable m
 
 Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/main/docs):
 
-- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 152 tools, grouped, with one-line descriptions and required envs.
+- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 153 tools, grouped, with one-line descriptions and required envs.
 - [**`docs/GOVERNOR.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/GOVERNOR.md) — external OpenZeppelin / Bravo Governor surface (Uniswap, Compound, Optimism). Family branching, fixture map, paste-able JSON examples, Tally parity harness.
 - [**`docs/WALLETCONNECT.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/WALLETCONNECT.md) — `walletconnect` signer mode: phone-approved broadcast with no hot key. Phase A (config) + Phase B (live relay, `dexe_wc_connect` / `dexe_wc_disconnect`, per-tx phone approval) shipped in v0.7.0, validated end-to-end with a live MetaMask-mobile round-trip on BSC testnet.
 - [**`docs/USAGE.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USAGE.md) — 10 worked examples (deploy DAO, create/vote/execute proposals, delegate, validator chamber, decode calldata, off-chain proposals, multicall batching). Copy-pasteable JSON.
@@ -207,7 +207,7 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 
 ## Tool catalog
 
-**152 tools, 19 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+**153 tools, 19 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
 | Group | # | What it gives you |
 |-------|---|------|
@@ -221,7 +221,7 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 | **Internal validator wrappers** | 4 | Validator-chamber proposals: `_change_validator_balances`, `_change_validator_settings`, `_monthly_withdraw`, `_offchain_internal_proposal`. |
 | **Off-chain backend** | 8 | Full DeXe-backend integration — nonce + SIWE login, off-chain proposal creation (single-option / multi-option / for-against / settings), off-chain vote + cancel. |
 | **Vote / stake / delegate / execute / claim** | 26 | Every direct EOA write on `GovPool` and `Validators` — deposit, vote, delegate, undelegate, execute, claim rewards, micropool rewards, staking flows, token-sale buy/claim/vesting, distribution claim, NFT multiplier lock/unlock, privacy policy signing, multicall. |
-| **Composite signing flows** | 5 | High-level flows for power users: `_proposal_create`, `_proposal_vote_and_execute`, `_tx_send`, `_tx_status`, `_get_config`. Signing tools opt-in via `DEXE_PRIVATE_KEY`. |
+| **Composite flows + diagnostics** | 6 | High-level flows for power users, plus server self-check: `_proposal_create`, `_proposal_vote_and_execute`, `_tx_send`, `_tx_status`, `_get_config`, `_doctor`. Signing tools opt-in via `DEXE_PRIVATE_KEY`. |
 | **Subgraph reads** | 7 | The Graph queries: DAO list, members, experts, validator list, user activity, delegation map, OTC sale tiers. Decentralized-network endpoints + RPC fallback. |
 | **Merkle utility** | 2 | `dexe_merkle_build`, `dexe_merkle_proof` — OZ `StandardMerkleTree`-compatible. For whitelisted sales and airdrops. |
 | **OTC composites** | 4 | Full project-owner + buyer flows over `TokenSaleProposal`: open multi-tier sale, check buyer status, buy native or with merkle proof, claim vested payouts. See [`docs/OTC.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/OTC.md). |

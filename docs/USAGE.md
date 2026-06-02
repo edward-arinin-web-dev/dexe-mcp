@@ -907,5 +907,5 @@ Output:
 | Off-chain auth + propose | `dexe_auth_request_nonce`, `dexe_auth_login_request`, `dexe_proposal_build_offchain_*` |
 | Sign + broadcast | `dexe_tx_send`, `dexe_tx_status` |
 
-For the full per-tool schema (98 tools total), browse `src/tools/*.ts` or call the
+For the full per-tool schema (153 tools total), browse `src/tools/*.ts` or call the
 tool — every input/output is a Zod schema MCP exposes via `tools/list`.
