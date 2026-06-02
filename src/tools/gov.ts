@@ -365,7 +365,7 @@ function registerListGovContractTypes(server: McpServer): void {
         { name: "LinearPower", role: "Voting-power formula: linear", sourcePath: "contracts/gov/voting/LinearPower.sol" },
         { name: "PolynomialPower", role: "Voting-power formula: polynomial", sourcePath: "contracts/gov/voting/PolynomialPower.sol" },
         { name: "ContractsRegistry", role: "Service locator for global protocol contracts (not per-pool)", sourcePath: "contracts/core/ContractsRegistry.sol" },
-        { name: "PoolRegistry", role: "Tracks all deployed GovPool instances", sourcePath: "contracts/core/PoolRegistry.sol" },
+        { name: "PoolRegistry", role: "Tracks all deployed GovPool instances", sourcePath: "contracts/factory/PoolRegistry.sol" },
       ];
       return {
         content: [

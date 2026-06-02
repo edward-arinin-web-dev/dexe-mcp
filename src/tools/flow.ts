@@ -667,6 +667,7 @@ export function registerFlowTools(
       voteNftIds: z.array(z.string()).default([]),
       depositFirst: z.boolean().default(false).describe("Deposit wallet tokens before voting"),
       autoExecute: z.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
+      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
     },
     async (input) => {
@@ -701,7 +702,7 @@ export function registerFlowTools(
       if ((stateNum === 4 || stateNum === 5 || stateNum === 6) && input.autoExecute) {
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-        ], { chainId });
+        ], { dryRun: input.dryRun, chainId });
         return ok({
           mode: execResult.mode,
           proposalId,
@@ -710,7 +711,7 @@ export function registerFlowTools(
             { label: "GovPool.vote", skipped: true, reason: `Proposal already in "${stateName}" — no vote needed` },
             ...execResult.steps,
           ],
-          executed: true,
+          executed: execResult.mode === "executed",
         });
       }
 
@@ -774,7 +775,7 @@ export function registerFlowTools(
       ));
 
       // Step 5: send or collect
-      const result = await sendOrCollect(signer, payloads, { chainId });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
 
       // Step 6: auto-execute (only in executed mode)
       let executed = false;
@@ -790,7 +791,7 @@ export function registerFlowTools(
           // SucceededFor or SucceededAgainst — execute
           const execResult = await sendOrCollect(signer, [
             makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-          ], { chainId });
+          ], { dryRun: input.dryRun, chainId });
           result.steps.push(...execResult.steps);
           executed = true;
         } else {
