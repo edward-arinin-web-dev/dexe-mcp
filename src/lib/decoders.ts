@@ -1,6 +1,7 @@
 import { Interface, type Result } from "ethers";
 import type { Artifacts } from "../artifacts.js";
 import type { SelectorIndex } from "./selectors.js";
+import { findForbiddenSelector } from "./dangerousSelectors.js";
 
 export interface DecodedCall {
   /** Which contract's ABI produced this decode. May be `null` if we used a bare selector match. */
@@ -12,6 +13,14 @@ export interface DecodedCall {
   args: Record<string, unknown>;
   /** Raw positional args — useful for agents that want the tuple directly. */
   argsArray: unknown[];
+  /** True if this selector is a C-2-class privileged accounting function. */
+  privileged?: boolean;
+  /**
+   * Calls discovered inside this call's calldata args — e.g. the inner calls of
+   * a `multicall(bytes[])`, or the actions of a nested `createProposal`. Lets a
+   * reviewer see hidden privileged calls instead of just the wrapper (C-1).
+   */
+  nested?: DecodedCall[];
 }
 
 export interface DecodedProposalAction {
@@ -34,7 +43,54 @@ export class CalldataDecoder {
    * is tried. Otherwise every artifact whose selector matches is tried in
    * turn; the first successful parse wins (with alternatives in `.alternatives`).
    */
+  static readonly MAX_NEST_DEPTH = 4;
+
+  /**
+   * Decode calldata and recursively unwrap any well-formed nested calldata
+   * found in its arguments — `multicall(bytes[])`, a nested `createProposal`'s
+   * `ProposalAction[]`, `tryExecute`, etc. The decoded `primary` carries a
+   * `privileged` flag for C-2-class selectors and a `nested` tree so a reviewer
+   * reading the text sees hidden inner calls, not just the wrapper (C-1).
+   */
   decodeCalldata(
+    data: string,
+    contractName?: string,
+  ): { primary: DecodedCall | null; alternatives: DecodedCall[] } {
+    return this.decodeEnriched(data, contractName, 0);
+  }
+
+  private decodeEnriched(
+    data: string,
+    contractName: string | undefined,
+    depth: number,
+  ): { primary: DecodedCall | null; alternatives: DecodedCall[] } {
+    const res = this.decodeOnce(data, contractName);
+    if (res.primary) {
+      res.primary.privileged = findForbiddenSelector(res.primary.selector) != null;
+      if (depth < CalldataDecoder.MAX_NEST_DEPTH) {
+        const nested: DecodedCall[] = [];
+        this.collectNested(res.primary.argsArray, depth + 1, nested);
+        if (nested.length > 0) res.primary.nested = nested;
+      }
+    }
+    return res;
+  }
+
+  /** Walk decoded args; recurse into any value that is itself well-formed calldata. */
+  private collectNested(value: unknown, depth: number, out: DecodedCall[]): void {
+    if (typeof value === "string") {
+      if (looksLikeCalldata(value)) {
+        const r = this.decodeEnriched(value, undefined, depth);
+        if (r.primary) out.push(r.primary);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const el of value) this.collectNested(el, depth, out);
+    }
+  }
+
+  private decodeOnce(
     data: string,
     contractName?: string,
   ): { primary: DecodedCall | null; alternatives: DecodedCall[] } {
@@ -148,4 +204,15 @@ function normalize(v: unknown): unknown {
     }
   }
   return v;
+}
+
+/**
+ * Heuristic: does `v` look like ABI calldata (a 4-byte selector followed by
+ * whole 32-byte words)? This filters out addresses (20 bytes), bytes32 hashes,
+ * and arbitrary blobs, so recursion only follows real nested calls.
+ */
+function looksLikeCalldata(v: string): boolean {
+  if (!/^0x[0-9a-fA-F]+$/.test(v)) return false;
+  if (v.length < 10) return false; // need at least the 4-byte selector
+  return (v.length - 10) % 64 === 0; // selector + N 32-byte words
 }

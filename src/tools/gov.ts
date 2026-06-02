@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Contract, isAddress, type InterfaceAbi } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
-import { CalldataDecoder, type DecodedProposalAction } from "../lib/decoders.js";
+import { CalldataDecoder, type DecodedProposalAction, type DecodedCall } from "../lib/decoders.js";
 import { GovAddressResolver } from "../lib/govAddresses.js";
 import { RpcProvider } from "../rpc.js";
 import { ArtifactsMissingError } from "../artifacts.js";
@@ -57,6 +57,8 @@ function registerDecodeCalldata(
             selector: z.string(),
             args: z.record(z.unknown()),
             argsArray: z.array(z.unknown()),
+            privileged: z.boolean().optional(),
+            nested: z.array(z.unknown()).optional(),
           })
           .nullable(),
         alternativeCount: z.number(),
@@ -85,11 +87,10 @@ function registerDecodeCalldata(
       };
 
       const text = result.primary
-        ? `${result.primary.contract ?? "?"}.${result.primary.signature}\n\nArgs:\n${JSON.stringify(result.primary.args, null, 2).slice(0, 3000)}${
-            result.alternatives.length > 0
-              ? `\n\n${result.alternatives.length} alternative match(es): ${result.alternatives.map((a) => `${a.contract}.${a.signature}`).join(", ")}`
-              : ""
-          }`
+        ? renderDecodedCall(result.primary, "") +
+          (result.alternatives.length > 0
+            ? `\n\n${result.alternatives.length} alternative match(es): ${result.alternatives.map((a) => `${a.contract}.${a.signature}`).join(", ")}`
+            : "")
         : `No matching ABI found for selector ${data.slice(0, 10)}. Try dexe_find_selector.`;
 
       return {
@@ -235,16 +236,38 @@ const PROPOSAL_STATE_NAMES = [
   "Undefined",
 ];
 
+/**
+ * Render a decoded call as indented text, printing its decoded args, a
+ * ⚠ PRIVILEGED marker for C-2-class selectors, and recursively unwrapping any
+ * nested calls (e.g. the inner calls of a `multicall`) so a reviewer reading
+ * the text sees hidden privileged actions, not just the wrapper (C-1).
+ */
+function renderDecodedCall(call: DecodedCall, indent: string): string {
+  const flag = call.privileged ? "  ⚠ PRIVILEGED SELECTOR" : "";
+  let argsText = "";
+  try {
+    const j = JSON.stringify(call.args);
+    if (j && j !== "{}") argsText = j.length > 1000 ? j.slice(0, 1000) + "…" : j;
+  } catch {
+    /* args not JSON-serializable — skip */
+  }
+  let s = `${indent}${call.contract ?? "?"}.${call.signature}${flag}`;
+  if (argsText) s += `\n${indent}  args: ${argsText}`;
+  if (call.nested && call.nested.length > 0) {
+    s += `\n${indent}  ↳ unwraps ${call.nested.length} nested call(s):`;
+    for (const n of call.nested) s += `\n${renderDecodedCall(n, indent + "    ")}`;
+  }
+  return s;
+}
+
 function formatActions(actions: DecodedProposalAction[]): string {
   if (actions.length === 0) return "";
   return (
     `\n\n--- ${actions[0]!.side.toUpperCase()} actions ---\n` +
     actions
       .map((a, i) => {
-        const decoded = a.decoded
-          ? `${a.decoded.contract ?? "?"}.${a.decoded.signature}`
-          : "(no matching ABI)";
-        return `  ${i}: executor=${a.executor} value=${a.value}\n     ${decoded}`;
+        const decoded = a.decoded ? renderDecodedCall(a.decoded, "     ") : "     (no matching ABI)";
+        return `  ${i}: executor=${a.executor} value=${a.value}\n${decoded}`;
       })
       .join("\n")
   );
