@@ -30,6 +30,12 @@ export interface IpfsFetchResult {
   json: unknown | null;
   /** Total attempts made (including failures before success). */
   attempts: number;
+  /**
+   * True if the bytes were hash-verified against the requested CID (raw/json
+   * codecs). False when the codec (dag-pb / unixfs) can't be cheaply verified
+   * without full DAG reconstruction — content-addressing was NOT confirmed.
+   */
+  verified: boolean;
 }
 
 export async function fetchIpfs(
@@ -74,7 +80,22 @@ export async function fetchIpfs(
           // not JSON — that's fine
         }
       }
-      return { cid: cidStr, gateway: gw, contentType, bytes, json: parsedJson, attempts };
+      const verdict = await verifyCidBytes(parsed, bytes);
+      if (verdict === "mismatch") {
+        // W20: a hostile / MitM gateway returned bytes that don't hash to the
+        // requested CID. Don't trust it — try the next gateway.
+        errors.push(`${gw} → content-hash mismatch for ${cidStr}`);
+        continue;
+      }
+      return {
+        cid: cidStr,
+        gateway: gw,
+        contentType,
+        bytes,
+        json: parsedJson,
+        attempts,
+        verified: verdict === "verified",
+      };
     } catch (err) {
       errors.push(`${gw} → ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -85,6 +106,23 @@ export async function fetchIpfs(
   throw new Error(
     `IPFS fetch failed for ${cidStr} across ${attempts} gateway(s): ${errors.join("; ")}`,
   );
+}
+
+/**
+ * W20 content-address check. Returns "verified" when sha256(bytes) reproduces
+ * the requested CID, "mismatch" when it doesn't (tampered / MitM gateway), and
+ * "unverifiable" for codecs whose CID is over a DAG rather than the raw bytes
+ * (dag-pb / unixfs) — those need full DAG reconstruction we don't perform here.
+ */
+export async function verifyCidBytes(
+  parsedCid: CID,
+  bytes: Uint8Array,
+): Promise<"verified" | "mismatch" | "unverifiable"> {
+  if (parsedCid.multihash.code !== sha256.code) return "unverifiable";
+  if (parsedCid.code !== raw.code && parsedCid.code !== json.code) return "unverifiable";
+  const digest = await sha256.digest(bytes);
+  const expected = CID.create(parsedCid.version, parsedCid.code, digest);
+  return expected.equals(parsedCid) ? "verified" : "mismatch";
 }
 
 // ---------- CID helpers ----------
