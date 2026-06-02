@@ -6,6 +6,7 @@ import { RpcProvider } from "../rpc.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { EnvGuardResult } from "../lib/requireEnv.js";
+import { renderUntrusted } from "../lib/sanitize.js";
 
 const POOL_FACTORY_ABI = [
   "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
@@ -292,7 +293,7 @@ function registerDaoInfo(
         };
         const text =
           `GovPool ${govPool}\n` +
-          `  descriptionURL: ${descriptionURL ?? "(none)"}\n` +
+          `  descriptionURL: ${descriptionURL != null ? renderUntrusted(descriptionURL) : "(none)"}\n` +
           `  validators: ${validatorsCount ?? "?"}\n\n` +
           `Helpers:\n` +
           `  settings     : ${helpers.settings}\n` +

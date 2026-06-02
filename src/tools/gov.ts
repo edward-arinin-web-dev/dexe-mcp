@@ -7,6 +7,7 @@ import { GovAddressResolver } from "../lib/govAddresses.js";
 import { RpcProvider } from "../rpc.js";
 import { ArtifactsMissingError } from "../artifacts.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { renderUntrusted } from "../lib/sanitize.js";
 
 export function registerGovTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
@@ -212,7 +213,7 @@ function registerDecodeProposal(
         content: [
           {
             type: "text" as const,
-            text: `Proposal ${proposalId} @ ${govPool}\nState: ${PROPOSAL_STATE_NAMES[proposalState] ?? proposalState}\nDescription: ${descriptionURL}\nActions on For: ${forActions.length}\nActions on Against: ${againstActions.length}\n${formatActions(forActions)}${formatActions(againstActions)}`,
+            text: `Proposal ${proposalId} @ ${govPool}\nState: ${PROPOSAL_STATE_NAMES[proposalState] ?? proposalState}\nDescription: ${renderUntrusted(descriptionURL)}\nActions on For: ${forActions.length}\nActions on Against: ${againstActions.length}\n${formatActions(forActions)}${formatActions(againstActions)}`,
           },
         ],
         structuredContent: structured,
