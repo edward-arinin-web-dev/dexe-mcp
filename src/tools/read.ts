@@ -5,6 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { renderUntrusted } from "../lib/sanitize.js";
 
 const GOV_POOL_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -211,7 +212,7 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
           tokensOut
             .map(
               (t) =>
-                `  ${t.symbol ?? "?"} (${t.token}): ${t.balance ?? "?"}${t.decimals != null ? ` (decimals=${t.decimals})` : ""}`,
+                `  ${t.symbol != null ? renderUntrusted(t.symbol) : "?"} (${t.token}): ${t.balance ?? "?"}${t.decimals != null ? ` (decimals=${t.decimals})` : ""}`,
             )
             .join("\n");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
