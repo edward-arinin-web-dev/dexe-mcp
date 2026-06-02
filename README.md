@@ -296,6 +296,7 @@ Supply-chain hardening is enforced in CI. See [SECURITY.md](SECURITY.md) for the
 - **npm provenance.** Releases publish with `npm publish --provenance`; verify with `npm audit signatures` against an installed copy.
 - **Reproducible installs.** A `verify-lockfile` CI job installs strictly from the committed `package-lock.json` and fails on any drift.
 - **Continuous scanning.** CodeQL (SAST) runs on every PR and weekly; OSSF Scorecard runs weekly and on push to `main`; Dependency Review runs on every PR.
+- **Audit remediation (v0.9.0).** Closes the MCP-fixable findings from an independent red-team audit — numeric-input guards, RPC-key redaction, untrusted-data sanitization, recursive decode, exact-amount approvals, per-chain nonce serialization, IPFS content-hash verification, and an `--ignore-scripts` bootstrap. Contract-level findings are escalated in [`docs/ESCALATION-DEXE.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/ESCALATION-DEXE.md); per-finding detail in [`CHANGELOG.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/CHANGELOG.md).
 
 ## License
 
