@@ -18,6 +18,7 @@ import {
   verifyProof,
 } from "../lib/merkleTree.js";
 import { simulateCalldata } from "./simulate.js";
+import { parseUintString } from "../lib/amount.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -130,7 +131,7 @@ export function registerOtcTools(
               derivedMerkleRoots: built.derivedMerkleRoots,
               whitelistRequests: built.whitelistRequests,
               tierIdsAfterExecute: input.tiers.map(
-                (_, i) => (BigInt(input.latestTierId) + 1n + BigInt(i)).toString(),
+                (_, i) => (parseUintString(input.latestTierId, "latestTierId") + 1n + BigInt(i)).toString(),
               ),
             },
             metadata: built.metadata,
@@ -182,7 +183,7 @@ export function registerOtcTools(
             derivedMerkleRoots: built.derivedMerkleRoots,
             whitelistRequests: built.whitelistRequests,
             tierIdsAfterExecute: input.tiers.map(
-              (_, i) => (BigInt(input.latestTierId) + 1n + BigInt(i)).toString(),
+              (_, i) => (parseUintString(input.latestTierId, "latestTierId") + 1n + BigInt(i)).toString(),
             ),
           },
         });
@@ -226,7 +227,7 @@ export function registerOtcTools(
       // For tier params we need an offset-based getTierViews. The cheapest
       // path is a single batch query with offset=min(tierIds)-1 and limit=range,
       // then index into the result by (tierId - offset - 1).
-      const tierIdNums = tierIds.map((s) => BigInt(s));
+      const tierIdNums = tierIds.map((s) => parseUintString(s, "tierId"));
       const minTier = tierIdNums.reduce((a, b) => (a < b ? a : b));
       const maxTier = tierIdNums.reduce((a, b) => (a > b ? a : b));
       const offset = (minTier - 1n).toString();
@@ -391,7 +392,11 @@ export function registerOtcTools(
         .describe("Target chain id. Defaults to the MCP's default chain."),
       tierId: z.string(),
       tokenToBuyWith: z.string().describe("Payment token; use 0x000...000 for native BNB"),
-      amount: z.string().describe("Amount to spend in payment-token wei"),
+      amount: z
+        .string()
+        .describe(
+          "Amount to spend, as an 18-decimal-normalized quantity. On-chain buy() converts it via from18Safe(token) to the payment token's native decimals: for an 18-decimal token this equals raw wei; for a token with d<18 decimals pass rawAmount * 10^(18-d). Passing raw native wei for a non-18-decimal token under-pays by 10^(18-d).",
+        ),
       proof: z.array(z.string()).default([]),
       whitelistUsers: z.array(z.string()).default([]).describe("Optional whitelist for proof gen"),
       user: z.string().optional(),
@@ -412,8 +417,8 @@ export function registerOtcTools(
       if (!userResolved) return err(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
 
       const userAddr = getAddress(userResolved);
-      const tierIdBn = BigInt(input.tierId);
-      const amountBn = BigInt(input.amount);
+      const tierIdBn = parseUintString(input.tierId, "tierId");
+      const amountBn = parseUintString(input.amount, "amount");
       const native = isNativeSentinel(input.tokenToBuyWith);
 
       // Compute proof from whitelistUsers if needed.
@@ -562,7 +567,7 @@ export function registerOtcTools(
       if (!userResolved) return err(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
 
       const userAddr = getAddress(userResolved);
-      const tierIdBns = input.tierIds.map((s) => BigInt(s));
+      const tierIdBns = input.tierIds.map((s) => parseUintString(s, "tierId"));
 
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;
