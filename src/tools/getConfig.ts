@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 import type { SignerManager } from "../lib/signer.js";
+import { maskUrl } from "../lib/redact.js";
 
 const CHAIN_NAMES: Record<number, string> = {
   1: "Ethereum mainnet",
@@ -31,7 +32,7 @@ export function registerGetConfigTool(server: McpServer, config: DexeConfig, sig
         .sort((a, b) => a.chainId - b.chainId)
         .map(c => ({
           chainId: c.chainId,
-          rpcUrl: c.rpcUrl,
+          rpcUrl: maskUrl(c.rpcUrl),
           name: CHAIN_NAMES[c.chainId] ?? `chain ${c.chainId}`,
           isDefault: c.chainId === config.defaultChainId,
           registryOverride: c.registryOverride,

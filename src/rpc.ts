@@ -1,6 +1,7 @@
 import { JsonRpcProvider } from "ethers";
 import { resolveChain, type DexeConfig } from "./config.js";
 import type { EnvGuardResult } from "./lib/requireEnv.js";
+import { safeErrorMessage } from "./lib/redact.js";
 
 /**
  * Lazy ethers v6 provider factory. Gov tools that need an RPC endpoint call
@@ -36,7 +37,7 @@ export class RpcProvider {
       return { ok: this.requireProvider(chainId) };
     } catch (err) {
       return {
-        error: err instanceof Error ? err.message : String(err),
+        error: safeErrorMessage(err),
         remediation:
           "Set DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_<chainId> in .env, " +
           "then restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify.",
