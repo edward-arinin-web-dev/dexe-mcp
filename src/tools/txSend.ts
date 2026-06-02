@@ -6,6 +6,16 @@ import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
 
+/**
+ * Classify a transaction whose receipt is absent: a tx that exists on-chain but
+ * isn't mined yet is "pending"; a hash the node has never seen is "not_found"
+ * (typo / wrong chain) — not perpetually "pending" (H-12 cross-ref).
+ */
+export function txStatusFromLookup(hasReceipt: boolean, hasTx: boolean): "mined" | "pending" | "not_found" {
+  if (hasReceipt) return "mined";
+  return hasTx ? "pending" : "not_found";
+}
+
 export function registerTxTools(
   server: McpServer,
   config: DexeConfig,
@@ -201,13 +211,15 @@ export function registerTxTools(
         throw e;
       }
 
-      const tx = await wallet.sendTransaction({
-        to,
-        data,
-        value: BigInt(value),
-        chainId: BigInt(chain.chainId),
-        ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
-      });
+      const tx = await signer.withBroadcastLock(chain.chainId, () =>
+        wallet.sendTransaction({
+          to,
+          data,
+          value: BigInt(value),
+          chainId: BigInt(chain.chainId),
+          ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
+        }),
+      );
 
       if (waitConfirmations === 0) {
         return {
@@ -282,13 +294,28 @@ export function registerTxTools(
 
       const receipt = await provider.getTransactionReceipt(txHash);
       if (!receipt) {
+        // A null receipt is ambiguous: the tx may be genuinely pending, or the
+        // hash is a typo / on the wrong chain. Probe getTransaction to tell them
+        // apart instead of reporting a nonexistent hash as perpetually pending.
+        const tx = await provider.getTransaction(txHash);
+        const status = txStatusFromLookup(false, tx !== null);
         return {
           content: [
             {
               type: "text" as const,
-              text: JSON.stringify({ chainId: chain.chainId, status: "pending" }),
+              text: JSON.stringify(
+                status === "pending"
+                  ? { chainId: chain.chainId, txHash, status: "pending", note: "Seen in the mempool, not yet mined." }
+                  : {
+                      chainId: chain.chainId,
+                      txHash,
+                      status: "not_found",
+                      note: "No transaction with this hash on this chain — check the hash and chainId.",
+                    },
+              ),
             },
           ],
+          isError: status === "not_found",
         };
       }
 

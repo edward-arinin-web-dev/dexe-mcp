@@ -8,6 +8,8 @@ import { hintFor, type EnvGuardResult } from "./requireEnv.js";
  */
 export class SignerManager {
   private readonly cache = new Map<number, Wallet>();
+  /** Per-chain broadcast serialization queue (H-12 nonce guard). */
+  private readonly broadcastQueues = new Map<number, Promise<unknown>>();
   private readonly key: string | undefined;
   private readonly config: DexeConfig;
 
@@ -65,6 +67,30 @@ export class SignerManager {
         remediation: hintFor(["DEXE_PRIVATE_KEY"]),
       };
     }
+  }
+
+  /**
+   * Serialize broadcasts per chain. Concurrent `dexe_tx_send` / composite-flow
+   * calls that share this signer would otherwise invoke `sendTransaction` at
+   * the same time, both read the same pending nonce, and one transaction is
+   * silently dropped (or hangs until timeout) — H-12. Each task runs only after
+   * the previous one for the same chain has settled; task failures are isolated
+   * so the queue keeps flowing.
+   */
+  async withBroadcastLock<T>(chainId: number, task: () => Promise<T>): Promise<T> {
+    const prev = this.broadcastQueues.get(chainId) ?? Promise.resolve();
+    const run = prev.then(
+      () => task(),
+      () => task(),
+    );
+    this.broadcastQueues.set(
+      chainId,
+      run.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return run;
   }
 
   private failNoKey(): never {
