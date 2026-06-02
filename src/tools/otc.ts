@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Interface, ZeroAddress, MaxUint256, isAddress, getAddress } from "ethers";
+import { Interface, ZeroAddress, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { SignerManager } from "../lib/signer.js";
@@ -68,6 +68,31 @@ function bigintReplacer(_k: string, v: unknown): unknown {
 
 function isNativeSentinel(addr: string): boolean {
   return addr.toLowerCase() === ZeroAddress.toLowerCase();
+}
+
+/**
+ * W29: exact-scope ERC20 approval for an OTC purchase.
+ *
+ * The spender is a per-proposal `TokenSaleProposal` address that cannot be
+ * resolved through the pool registry (it is not a pool helper), so the builder
+ * can only `isAddress`-check it. Granting `MAX_UINT256` to an unvalidated,
+ * possibly attacker-supplied spender lets it `transferFrom` the buyer's entire
+ * payment-token balance and leaves a residual unlimited allowance after the
+ * session. Approve exactly what `buy()` will spend — never more.
+ */
+export function buildExactApproval(
+  paymentToken: string,
+  tokenSaleProposal: string,
+  amount: bigint,
+  chainId: number,
+): TxPayload {
+  return {
+    to: paymentToken,
+    data: ERC20_ABI.encodeFunctionData("approve", [tokenSaleProposal, amount]),
+    value: "0",
+    chainId,
+    description: `ERC20.approve(${tokenSaleProposal}, ${amount})`,
+  };
 }
 
 // ---------- register ----------
@@ -474,16 +499,9 @@ export function registerOtcTools(
         }
 
         if (allowance < amountBn) {
-          payloads.push({
-            to: input.tokenToBuyWith,
-            data: ERC20_ABI.encodeFunctionData("approve", [
-              input.tokenSaleProposal,
-              MaxUint256,
-            ]),
-            value: "0",
-            chainId,
-            description: `ERC20.approve(${input.tokenSaleProposal}, MAX_UINT256)`,
-          });
+          payloads.push(
+            buildExactApproval(input.tokenToBuyWith, input.tokenSaleProposal, amountBn, chainId),
+          );
         } else {
           skipped.push({ label: "ERC20.approve", reason: "Allowance sufficient" });
         }
