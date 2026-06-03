@@ -258,16 +258,10 @@ function registerBuildDeploy(
           descriptionURL: z.string().describe("ipfs://<cid> of DAO metadata JSON"),
           name: z.string().min(1),
         }),
-        acknowledgeRisk: z
-          .boolean()
-          .default(false)
-          .describe(
-            "Override the treasury-drain quorum-floor guard. Only consulted when DEXE_TREASURY_GUARD=refuse: set true to deploy a DAO whose quorum is below DEXE_MIN_SAFE_QUORUM_PCT anyway.",
-          ),
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ chainId, poolFactory, deployer, params, acknowledgeRisk = false }) => {
+    async ({ chainId, poolFactory, deployer, params }) => {
       const chain = resolveChain(ctx.config, chainId);
       const isTokenCreation = params.tokenParams.name.length > 0;
       const hasValidators = !!(params.validatorsParams && params.validatorsParams.validators.length > 0);
@@ -473,10 +467,10 @@ function registerBuildDeploy(
         );
       }
 
-      // ---------- treasury-drain guard: quorum floor (Layer 2, root cause) ----------
-      // Low quorum is the root of the treasury-drain class: a minority stake can
-      // pass any proposal — including a legitimate allowance/transfer that drains
-      // the treasury (the protocol cannot forbid allowance). Catch it at birth.
+      // ---------- treasury-safety advisory: quorum floor (Layer 2) ----------
+      // Low quorum reduces the participation required to pass a proposal — a
+      // governance-safety risk for a DAO that will hold treasury assets. Flag it
+      // at birth so the operator sets an adequate quorum.
       let quorumWarning = "";
       if (ctx.config.treasuryGuard !== "off") {
         const floor = ctx.config.minSafeQuorumPct;
@@ -495,15 +489,11 @@ function registerBuildDeploy(
         if (lowQuorum.length > 0) {
           const detail =
             `Quorum below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT): ${lowQuorum.join(", ")}. ` +
-            `A DAO with sub-floor quorum can have its treasury drained by a minority stake via a legitimate ` +
-            `allowance/transfer proposal (the protocol cannot forbid allowance). Contract-team guidance: set ` +
-            `quorum ≥50% (51%+ recommended); the safe value is DAO-specific and must be verified. ` +
-            `[protocol-property — see docs/ESCALATION-DEXE.md]`;
-          if (ctx.config.treasuryGuard === "refuse" && !acknowledgeRisk) {
-            return errorResult(
-              `Refusing to build DAO deploy: ${detail} Re-run with acknowledgeRisk:true to deploy anyway.`,
-            );
-          }
+            `Low quorum reduces the participation required to pass a proposal; for a DAO that will hold ` +
+            `treasury assets, set quorum ≥50% (51%+ recommended). The safe value is DAO-specific and must ` +
+            `be verified. [governance-safety advisory]`;
+          // Advisory only — never blocks the deploy. The durable control is an
+          // adequate on-chain quorum threshold configured per DAO.
           quorumWarning = `\n⚠️  ${detail}`;
         }
       }

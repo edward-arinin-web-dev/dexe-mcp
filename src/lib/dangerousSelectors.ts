@@ -1,28 +1,20 @@
 import { id } from "ethers";
 
 /**
- * C-2 guardrail — forbidden proposal-action selectors.
+ * Forbidden proposal-action selectors — hard guard.
  *
  * Every function below lives on `GovUserKeeper` and is `onlyOwner` (the owner is
  * the GovPool). GovPool invokes them internally on behalf of users through its
  * own deposit/withdraw/delegate entrypoints — they are NOT meant to be the
  * `executor` + `data` of a raw governance proposal action.
  *
- * They are dangerous as proposal targets because the `payer` / `delegator`
- * argument is decoupled from the funds' owner: e.g.
- * `withdrawTokens(payer, receiver, amount)` debits `_usersInfo[payer]` and pays
- * `receiver`. A proposal can therefore name an arbitrary victim as `payer` and
- * the attacker as `receiver`.
- *
- * The DeXe protocol's INTERNAL allowlist
- * (`GovPoolCreate._handleDataForInternalProposal`) is supposed to make these
- * unreachable-by-proposal, but it only runs when the *last* action's executor is
- * a registered INTERNAL executor. A proposal whose trailing action routes to
- * DEFAULT skips the allowlist entirely, so these selectors slip through —
- * finding C-2. This guard refuses to build any proposal action carrying one of
- * them, regardless of routing. It is harm-reduction at the MCP layer ONLY: the
- * root cause is in the protocol contracts, and an attacker can still hand-craft
- * the calldata. See docs/security/C2-default-routing-bypass.md.
+ * They are unsafe as proposal targets because the `payer` / `delegator`
+ * argument is decoupled from the funds' owner (e.g. `withdrawTokens(payer,
+ * receiver, amount)` debits `payer` and pays `receiver`), so a proposal could
+ * name an account other than the proposer. This guard refuses to build any
+ * proposal action carrying one of these selectors. Defense-in-depth at the MCP
+ * layer; users deposit/withdraw/delegate their OWN funds through the GovPool
+ * entrypoints, never via a proposal.
  */
 const FORBIDDEN_SIGNATURES = [
   "withdrawTokens(address,address,uint256)",
@@ -73,18 +65,16 @@ export function findForbiddenSelector(data: string): ForbiddenSelector | null {
   return FORBIDDEN_BY_SELECTOR.get(sel) ?? null;
 }
 
-/** Human-readable hard-refusal explaining why the selector is blocked (C-2). */
+/** Human-readable hard-refusal explaining why the selector is blocked. */
 export function dangerousSelectorError(match: ForbiddenSelector, target?: string): string {
   return (
     `Refusing to build: calldata selector ${match.selector} is ` +
     `GovUserKeeper.${match.signature}, a privileged onlyOwner accounting function ` +
     `that must never be a governance proposal action` +
     (target ? ` (target ${target})` : "") +
-    `. Encoding it enables finding C-2: a DEFAULT-routed proposal bypasses the ` +
-    `GovPoolCreate INTERNAL allowlist and can drain an arbitrary depositor's ` +
-    `unlocked balance — the function takes a free 'payer'/'delegator' decoupled ` +
-    `from the caller. Users deposit/withdraw/delegate their OWN funds through the ` +
-    `GovPool entrypoints, never via a proposal. Hard block, no override.`
+    `. These functions take a 'payer'/'delegator' argument decoupled from the ` +
+    `caller; users deposit/withdraw/delegate their OWN funds through the GovPool ` +
+    `entrypoints, never via a proposal. Hard block, no override.`
   );
 }
 

@@ -25,8 +25,8 @@ WalletConnect / Safe.
 
 ## 0.9.0 — red-team audit remediation
 
-`0.9.0` closes the MCP-fixable findings from the `0.7.2` red-team audit (the
-single CRITICAL, C-2, was guarded in `0.8.3`). Each fix shipped with a locking
+`0.9.0` closes the MCP-fixable findings from the `0.7.2` red-team audit (the most
+severe finding was guarded in `0.8.3`). Each fix shipped with a locking
 regression test. Highlights:
 
 - **Numeric safety** — amount/id strings validated before `BigInt()`; OTC and
@@ -47,14 +47,13 @@ regression test. Highlights:
 
 Full per-finding detail is in `CHANGELOG.md` (`0.9.0`).
 
-## Contract-level findings (not MCP-fixable)
+## Governance-safety advisories
 
-Several findings root-cause in the deployed DeXe-Protocol contracts and can only
-be **warned** about by the MCP, not fixed (C-2 default-routing drain,
-`executionDelay=0`, unbounded `durationValidators` (H-11), `changeVotePower`,
-PolynomialPower seam underflow). They are documented for the protocol team in
-[`docs/ESCALATION-DEXE.md`](ESCALATION-DEXE.md). The relevant builders emit an
-advisory in their preview.
+Some proposal/DAO configurations are governance-safety risks that depend on the
+DAO's own settings rather than the MCP (e.g. low quorum for treasury-moving
+proposals, zero execution delay, an over-long validator phase). The relevant
+builders emit a non-blocking advisory in their preview so an operator/agent can
+verify the configuration before proceeding. These are configured at the DAO level.
 
 ## Security-relevant env vars
 

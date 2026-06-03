@@ -235,6 +235,17 @@ New file: `src/tools/subgraph.ts` (uses existing `src/lib/subgraph.ts` + 3 subgr
 - DeXe backend API (off-chain-only proposal type)
 - web3.storage / alternate IPFS adapters
 
+## Ideas / product bets (unscoped)
+
+- **DAO extension marketplace ("plugins/skills for DAOs")** — a GitHub-PR-style
+  flow where external devs contribute custom proposal types / DAO add-ons; valid,
+  working contributions earn developer rewards, giving the DAO real contributors
+  and active development (Yuri, 2026-06-03). Connection to the Q-1 work: each
+  custom proposal type could ship its **own risk metadata/advisories**, so the
+  treasury-guard advisory layer is a small precursor. Needs product scoping
+  (validation/review pipeline, reward mechanism, security review of contributed
+  proposal types) before any build.
+
 ---
 
 ## How to update this doc

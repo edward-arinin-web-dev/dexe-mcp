@@ -76,7 +76,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_proposal_state` | `getProposalState` + `getProposalRequiredQuorum` in one multicall. Returns named state. | `DEXE_RPC_URL` |
 | `dexe_proposal_list` | `GovPool.getProposals(offset, limit)` → compact summaries. | `DEXE_RPC_URL` |
 | `dexe_proposal_voters` | Voter list from interactions subgraph, paginated. | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
-| `dexe_proposal_risk_assess` | Treasury-drain risk readout for a proposal (or hypothetical actions): quorum %, safe floor, treasury at risk, indicative attacker-cost, verdict (SAFE/CAUTION/DANGER). | `DEXE_RPC_URL` |
+| `dexe_proposal_risk_assess` | Treasury-safety risk readout for a proposal (or hypothetical actions): quorum %, safe floor, treasury at risk, indicative share of supply required to meet quorum, verdict (SAFE/CAUTION/DANGER). | `DEXE_RPC_URL` |
 | `dexe_read_gov_state` | Reads `getHelperContracts()` + `getNftContracts()`, returns resolved helper + NFT addresses. | `DEXE_RPC_URL` |
 | `dexe_vote_user_power` | `tokenBalance` + `nftBalance` on GovUserKeeper for every VoteType (Personal/Micropool/Delegated/Treasury). | `DEXE_RPC_URL` |
 | `dexe_vote_get_votes` | `GovPool.getUserVotes(proposalId, voter, voteType)` → VoteInfoView. Defaults to PersonalVote. | `DEXE_RPC_URL` |

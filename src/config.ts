@@ -45,18 +45,27 @@ export interface DexeConfig {
 
   /**
    * Minimum safe quorum percent (0–100). A DAO whose quorum setting is below
-   * this is flagged as a treasury-drain risk (a minority stake can pass a
-   * proposal that grants allowance/transfer and drains the treasury). Default
-   * 50. See src/lib/quorumRisk.ts + docs/ESCALATION-DEXE.md.
+   * this is flagged as a governance-safety risk for treasury-moving proposals
+   * (low quorum reduces the participation required to pass). Default 50.
+   * See src/lib/quorumRisk.ts.
    */
   minSafeQuorumPct: number;
   /**
-   * Treasury-drain guard posture. `off` = no guard; `warn` = advisories only
-   * (default); `refuse` = vote_and_execute hard-refuses auto-executing a
-   * below-floor treasury-touching proposal (and dao deploy refuses below-floor
-   * quorum) unless `acknowledgeRisk:true`.
+   * Treasury-safety advisory posture. `off` = silent; `warn` (default) =
+   * advisories / alerts everywhere (build, deploy, execute, risk_assess).
+   * **Advisory only — it never blocks.** Harm-reduction for an operator/agent
+   * configuring a DAO; the durable control is an adequate on-chain quorum
+   * threshold configured per DAO.
    */
-  treasuryGuard: "off" | "warn" | "refuse";
+  treasuryGuard: "off" | "warn";
+
+  /**
+   * Number of top token holders (by voting weight) included in the treasury-
+   * safety "controlling set" (alongside validators). The advisory checks whether
+   * ≥1 controlling member voted For. Default 5. Subgraph/mainnet-only.
+   * See src/lib/controllingVoters.ts.
+   */
+  controllingTopN: number;
 
   /**
    * B6 — destination allowlist for `dexe_tx_send`. Lowercased, checksummed-then-
@@ -278,7 +287,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     );
   }
 
-  // ---- treasury-drain guard (low-quorum harm-reduction) ------------------
+  // ---- treasury-safety advisory (low-quorum) -----------------------------
   let minSafeQuorumPct = 50;
   const minQuorumRaw = process.env.DEXE_MIN_SAFE_QUORUM_PCT?.trim();
   if (minQuorumRaw) {
@@ -288,13 +297,22 @@ export async function loadConfig(): Promise<DexeConfig> {
     }
     minSafeQuorumPct = n;
   }
-  let treasuryGuard: "off" | "warn" | "refuse" = "warn";
+  let treasuryGuard: "off" | "warn" = "warn";
   const treasuryGuardRaw = process.env.DEXE_TREASURY_GUARD?.trim().toLowerCase();
   if (treasuryGuardRaw) {
-    if (treasuryGuardRaw !== "off" && treasuryGuardRaw !== "warn" && treasuryGuardRaw !== "refuse") {
-      fatal(`DEXE_TREASURY_GUARD must be one of off|warn|refuse, got: ${treasuryGuardRaw}`);
+    if (treasuryGuardRaw !== "off" && treasuryGuardRaw !== "warn") {
+      fatal(`DEXE_TREASURY_GUARD must be one of off|warn, got: ${treasuryGuardRaw}`);
     }
     treasuryGuard = treasuryGuardRaw;
+  }
+  let controllingTopN = 5;
+  const controllingTopNRaw = process.env.DEXE_CONTROLLING_TOPN?.trim();
+  if (controllingTopNRaw) {
+    const n = Number(controllingTopNRaw);
+    if (!Number.isInteger(n) || n <= 0) {
+      fatal(`DEXE_CONTROLLING_TOPN must be a positive integer, got: ${controllingTopNRaw}`);
+    }
+    controllingTopN = n;
   }
 
   let forkBlock: number | undefined;
@@ -323,6 +341,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     privateKey,
     minSafeQuorumPct,
     treasuryGuard,
+    controllingTopN,
     signerAllowlist,
     signerMaxValueWei,
     signerMaxBroadcastsPerMin,

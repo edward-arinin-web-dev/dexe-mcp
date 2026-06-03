@@ -4,20 +4,19 @@ import {
   classifyTreasuryActions,
   quorumPctFromRaw,
   judgeQuorum,
-  attackerCost,
+  quorumConcentration,
   worstRisk,
   buildTimeTreasuryAdvisory,
   treasurySelectors,
   lowQuorumAdvisory,
-  executeRiskRefusal,
+  treasuryExecuteAdvisory,
   TREASURY_RISK_ADVISORY,
 } from "../../src/lib/quorumRisk.js";
 
 /**
- * Low-quorum treasury-drain harm-reduction (finding Q-1, see
- * docs/ESCALATION-DEXE.md). Pins the quorum-unit math, the treasury-action
- * classifier (incl. best-effort decode + never-throw), the attacker-cost model,
- * and the advisory strings.
+ * Low-quorum governance-safety advisories. Pins the quorum-unit math, the
+ * treasury-action classifier (incl. best-effort decode + never-throw), the
+ * quorum-concentration model, and the advisory strings.
  */
 
 const TO = "0x1111111111111111111111111111111111111111";
@@ -130,23 +129,23 @@ describe("classifyTreasuryActions", () => {
   });
 });
 
-describe("attackerCost", () => {
+describe("quorumConcentration", () => {
   it("uses on-chain requiredWeight / totalSupply when present", () => {
-    // requiredWeight 30 of supply 100 → 30% to pass → below 50 floor → DANGER
-    const r = attackerCost({ quorumPct: 50, floorPct: 50, totalSupply: 100n, requiredWeight: 30n });
-    expect(r.pctOfSupplyToPass).toBe(30);
+    // requiredWeight 30 of supply 100 → 30% needed → below 50 floor → DANGER
+    const r = quorumConcentration({ quorumPct: 50, floorPct: 50, totalSupply: 100n, requiredWeight: 30n });
+    expect(r.pctOfSupplyForQuorum).toBe(30);
     expect(r.verdict).toBe("DANGER");
   });
   it("derives requiredWeight from quorumPct × totalVoteWeight when no on-chain weight", () => {
     // 50% of 1000 = 500; supply 1000 → 50% → SAFE
-    const r = attackerCost({ quorumPct: 50, floorPct: 50, totalSupply: 1000n, totalVoteWeight: 1000n });
+    const r = quorumConcentration({ quorumPct: 50, floorPct: 50, totalSupply: 1000n, totalVoteWeight: 1000n });
     expect(r.requiredWeight).toBe(500n);
-    expect(r.pctOfSupplyToPass).toBe(50);
+    expect(r.pctOfSupplyForQuorum).toBe(50);
     expect(r.verdict).toBe("SAFE");
   });
   it("returns CAUTION (unknown ≠ safe) when supply unknown", () => {
-    const r = attackerCost({ quorumPct: 50, floorPct: 50 });
-    expect(r.pctOfSupplyToPass).toBeNull();
+    const r = quorumConcentration({ quorumPct: 50, floorPct: 50 });
+    expect(r.pctOfSupplyForQuorum).toBeNull();
     expect(r.verdict).toBe("CAUTION");
   });
 });
@@ -155,7 +154,6 @@ describe("buildTimeTreasuryAdvisory", () => {
   const transfer = { executor: TOKEN, value: "0", data: enc("transfer(address,uint256)", "transfer", [TO, 1n]) };
   it("returns the advisory when an action moves treasury and guard is on", () => {
     expect(buildTimeTreasuryAdvisory([transfer], "warn")).toBe(TREASURY_RISK_ADVISORY);
-    expect(buildTimeTreasuryAdvisory([transfer], "refuse")).toBe(TREASURY_RISK_ADVISORY);
   });
   it("returns null when guard is off", () => {
     expect(buildTimeTreasuryAdvisory([transfer], "off")).toBeNull();
@@ -167,15 +165,17 @@ describe("buildTimeTreasuryAdvisory", () => {
 });
 
 describe("advisory strings", () => {
-  it("lowQuorumAdvisory names the pct, floor, and escalation tag", () => {
+  it("lowQuorumAdvisory names the pct and floor", () => {
     const msg = lowQuorumAdvisory(5, 50);
     expect(msg).toContain("5%");
     expect(msg).toContain("50%");
-    expect(msg).toContain("docs/ESCALATION-DEXE.md");
+    expect(msg).toContain("governance-safety advisory");
   });
-  it("executeRiskRefusal mentions acknowledgeRisk override", () => {
-    const msg = executeRiskRefusal(["quorum below floor"]);
-    expect(msg).toContain("acknowledgeRisk");
+  it("treasuryExecuteAdvisory is advisory (no block wording) and names the reasons", () => {
+    const msg = treasuryExecuteAdvisory(["quorum below floor"]);
+    expect(msg).toContain("advisory");
     expect(msg).toContain("quorum below floor");
+    expect(msg).not.toContain("Refusing");
+    expect(msg).not.toContain("acknowledgeRisk");
   });
 });

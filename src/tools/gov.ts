@@ -238,9 +238,9 @@ const PROPOSAL_STATE_NAMES = [
 
 /**
  * Render a decoded call as indented text, printing its decoded args, a
- * ⚠ PRIVILEGED marker for C-2-class selectors, and recursively unwrapping any
+ * ⚠ PRIVILEGED marker for privileged-class selectors, and recursively unwrapping any
  * nested calls (e.g. the inner calls of a `multicall`) so a reviewer reading
- * the text sees hidden privileged actions, not just the wrapper (C-1).
+ * the text sees hidden privileged actions, not just the wrapper.
  */
 function renderDecodedCall(call: DecodedCall, indent: string): string {
   const flag = call.privileged ? "  ⚠ PRIVILEGED SELECTOR" : "";

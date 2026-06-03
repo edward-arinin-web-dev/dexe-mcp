@@ -204,7 +204,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
           detail:
             `Target: GovSettings(${govSettings}).${method}\nCalldata: ${data.slice(0, 66)}…` +
             (advisories.length > 0
-              ? `\n\nProtocol advisories (see docs/ESCALATION-DEXE.md):\n${advisories.join("\n")}`
+              ? `\n\nGovernance-safety advisories:\n${advisories.join("\n")}`
               : ""),
         });
       } catch (err) {

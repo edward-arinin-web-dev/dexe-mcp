@@ -213,7 +213,7 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 |-------|---|------|
 | **Dev tooling** | 4 | One-command Hardhat lifecycle for the DeXe-Protocol monorepo — `dexe_compile`, `_test`, `_coverage`, `_lint`. Auto-clones the repo on first call. |
 | **Contract introspection** | 10 | Ask the protocol about itself — list contracts, fetch ABIs, look up selectors, read NatSpec, view source, decode arbitrary calldata or full proposal payloads. The agent's reverse-engineer toolkit. |
-| **DAO reads** | 20 | Everything you'd see on a DAO dashboard, returned as JSON — `dao_info`, predicted helper addresses, proposal state/list/voters, voting power, treasury, settings, validators, staking, distributions, privacy policy, plus `dexe_proposal_risk_assess` (treasury-drain risk readout). |
+| **DAO reads** | 20 | Everything you'd see on a DAO dashboard, returned as JSON — `dao_info`, predicted helper addresses, proposal state/list/voters, voting power, treasury, settings, validators, staking, distributions, privacy policy, plus `dexe_proposal_risk_assess` (treasury-safety risk readout). |
 | **IPFS** | 9 | Pinata uploads for files / avatars / DAO + proposal metadata, smart metadata updates, deterministic identicon generation, gateway-fallback fetch, CID computation without uploading. |
 | **DAO deploy** | 1 | `dexe_dao_build_deploy` — encodes the full nested `PoolFactory.deployGovPool` struct with predicted helper addresses pre-wired. From idea to a live DAO in one signed tx. |
 | **Proposal catalog + primitives** | 5 | `dexe_proposal_catalog` enumerates **all 33** proposal types with metadata + gating. Primitives `_build_external`, `_build_internal`, `_build_custom_abi`, `_build_offchain` cover anything not in a named wrapper. |
@@ -296,7 +296,7 @@ Supply-chain hardening is enforced in CI. See [SECURITY.md](SECURITY.md) for the
 - **npm provenance.** Releases publish with `npm publish --provenance`; verify with `npm audit signatures` against an installed copy.
 - **Reproducible installs.** A `verify-lockfile` CI job installs strictly from the committed `package-lock.json` and fails on any drift.
 - **Continuous scanning.** CodeQL (SAST) runs on every PR and weekly; OSSF Scorecard runs weekly and on push to `main`; Dependency Review runs on every PR.
-- **Audit remediation (v0.9.0).** Closes the MCP-fixable findings from an independent red-team audit — numeric-input guards, RPC-key redaction, untrusted-data sanitization, recursive decode, exact-amount approvals, per-chain nonce serialization, IPFS content-hash verification, and an `--ignore-scripts` bootstrap. Contract-level findings are escalated in [`docs/ESCALATION-DEXE.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/ESCALATION-DEXE.md); per-finding detail in [`CHANGELOG.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/CHANGELOG.md).
+- **Audit remediation (v0.9.0).** Closes the MCP-fixable findings from an independent red-team audit — numeric-input guards, RPC-key redaction, untrusted-data sanitization, recursive decode, exact-amount approvals, per-chain nonce serialization, IPFS content-hash verification, and an `--ignore-scripts` bootstrap. Per-finding detail in [`CHANGELOG.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/CHANGELOG.md).
 
 ## License
 

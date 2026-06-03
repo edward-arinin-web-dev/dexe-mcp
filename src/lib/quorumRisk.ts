@@ -2,20 +2,13 @@ import { id, Interface } from "ethers";
 import { selectorOf } from "./dangerousSelectors.js";
 
 /**
- * Low-quorum treasury-drain harm-reduction — pure logic, no RPC.
+ * Low-quorum governance-safety advisories — pure logic, no RPC.
  *
- * The DeXe contract team flagged that a DEFAULT/external proposal can drain a
- * DAO's treasury when quorum is set too low: almost every proposal type
- * legitimately needs an ERC20 `approve`/allowance action, so the protocol
- * cannot forbid allowance at the contract layer (architectural). With low
- * quorum, an attacker buys enough governance tokens to clear quorum alone,
- * passes a proposal granting allowance/transfer to itself, and drains funds.
- *
- * This module is the keystone the MCP guard layers share. Like
- * dangerousSelectors.ts / protocolAdvisories.ts it is harm-reduction ONLY: an
- * attacker can still hand-craft calldata, and the durable fix is a
- * protocol-level minimum-quorum floor in GovSettings. See
- * docs/ESCALATION-DEXE.md.
+ * Treasury-moving proposals (ERC20 approve/transfer or native value) should pass
+ * under an adequate quorum so a true majority is required. This module flags when
+ * a DAO's quorum setting is low for such proposals, so an operator/agent verifies
+ * the quorum and stakeholder participation before executing. Advisory only — the
+ * durable control is an adequate on-chain quorum threshold configured per DAO.
  */
 
 export type RiskLevel = "SAFE" | "CAUTION" | "DANGER";
@@ -156,37 +149,36 @@ export function classifyTreasuryActions(
   return hits;
 }
 
-// ─── attacker-cost model ─────────────────────────────────────────────────────
+// ─── quorum-concentration model ──────────────────────────────────────────────
 
-export interface AttackerCost {
+export interface QuorumConcentration {
   /** Absolute voting weight needed to clear quorum, or null when unknown. */
   requiredWeight: bigint | null;
   /** Token total supply used as the denominator, or null when unknown. */
   totalSupply: bigint | null;
   /**
-   * Percent of total supply an attacker must acquire to pass alone. INDICATIVE
-   * LOWER-BOUND: ignores VotePower math, NFT multipliers, and delegation, and
-   * uses minted supply as the denominator (an attacker can deposit freshly
-   * bought tokens). Null when supply/weight unknown.
+   * Share of total supply required to meet quorum. INDICATIVE: ignores VotePower
+   * math, NFT multipliers, and delegation, and uses minted supply as the
+   * denominator. Null when supply/weight unknown. A low value indicates a DAO
+   * whose decisions need only a small share of supply — a governance-safety flag.
    */
-  pctOfSupplyToPass: number | null;
+  pctOfSupplyForQuorum: number | null;
   verdict: RiskLevel;
 }
 
 /**
- * Estimate how much of the token supply an attacker must control to pass a
- * proposal alone. Prefers the on-chain `requiredWeight`
- * (getProposalRequiredQuorum); otherwise derives it from `quorumPct ×
- * totalVoteWeight`. When the percentage cannot be computed the verdict is
- * CAUTION (unknown is never SAFE).
+ * Estimate the share of token supply required to meet a proposal's quorum.
+ * Prefers the on-chain `requiredWeight` (getProposalRequiredQuorum); otherwise
+ * derives it from `quorumPct × totalVoteWeight`. When the percentage cannot be
+ * computed the verdict is CAUTION (unknown is never SAFE).
  */
-export function attackerCost(args: {
+export function quorumConcentration(args: {
   quorumPct: number;
   floorPct?: number;
   totalSupply?: bigint;
   requiredWeight?: bigint;
   totalVoteWeight?: bigint;
-}): AttackerCost {
+}): QuorumConcentration {
   const floorPct = args.floorPct ?? 50;
 
   let requiredWeight: bigint | null = args.requiredWeight ?? null;
@@ -197,39 +189,37 @@ export function attackerCost(args: {
   }
 
   const totalSupply = args.totalSupply ?? null;
-  let pctOfSupplyToPass: number | null = null;
+  let pctOfSupplyForQuorum: number | null = null;
   if (requiredWeight !== null && totalSupply !== null && totalSupply > 0n) {
-    pctOfSupplyToPass = Number((requiredWeight * 10000n) / totalSupply) / 100;
+    pctOfSupplyForQuorum = Number((requiredWeight * 10000n) / totalSupply) / 100;
   }
 
   const verdict: RiskLevel =
-    pctOfSupplyToPass === null ? "CAUTION" : judgeQuorum(pctOfSupplyToPass, floorPct);
+    pctOfSupplyForQuorum === null ? "CAUTION" : judgeQuorum(pctOfSupplyForQuorum, floorPct);
 
-  return { requiredWeight, totalSupply, pctOfSupplyToPass, verdict };
+  return { requiredWeight, totalSupply, pctOfSupplyForQuorum, verdict };
 }
 
 // ─── advisory strings (tone mirrors protocolAdvisories.ts) ────────────────────
 
-const ESCALATION_TAG = "[protocol-property — see docs/ESCALATION-DEXE.md]";
+const ADVISORY_TAG = "[governance-safety advisory]";
 
 /** Flag a below-floor quorum SETTING (deploy / change-voting-settings). */
 export function lowQuorumAdvisory(pct: number, floorPct: number): string {
   const shown = Number.isFinite(pct) ? `${pct}%` : "unparseable";
   return (
     `⚠ quorum=${shown} is below the ${floorPct}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT). ` +
-    `With quorum this low, an actor controlling ~${shown} of the voting supply can pass ANY proposal ` +
-    `alone — including one that grants an ERC20 allowance/transfer and drains the treasury (the protocol ` +
-    `cannot forbid allowance). Contract-team guidance: set quorum ≥50% (51%+ recommended); the safe value ` +
-    `is DAO-specific and must be verified. ${ESCALATION_TAG}`
+    `Low quorum reduces the participation required to pass a proposal. For a DAO that holds ` +
+    `treasury assets, set quorum ≥50% (51%+ recommended) and verify stakeholder participation ` +
+    `before executing treasury-moving proposals; the safe value is DAO-specific. ${ADVISORY_TAG}`
   );
 }
 
 /** Flag a treasury-touching proposal at build time (static, no RPC needed). */
 export const TREASURY_RISK_ADVISORY =
-  `⚠ This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). If the DAO's ` +
-  `quorum is below the safe floor, it can pass with a minority stake and drain funds. Verify quorum ≥50% and ` +
-  `that controlling members (founders / validators / majority holders) participate before executing. Run ` +
-  `dexe_proposal_risk_assess for a full readout. ${ESCALATION_TAG}`;
+  `⚠ This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). ` +
+  `Confirm the DAO's quorum is adequate (≥50%) and that key stakeholders have participated before ` +
+  `executing. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
 
 /**
  * Build-time advisory for any builder whose actions move treasury value.
@@ -239,19 +229,23 @@ export const TREASURY_RISK_ADVISORY =
  */
 export function buildTimeTreasuryAdvisory(
   actions: { executor: string; value: string; data: string }[],
-  guard: "off" | "warn" | "refuse",
+  guard: "off" | "warn",
 ): string | null {
   if (guard === "off") return null;
   return classifyTreasuryActions(actions).length > 0 ? TREASURY_RISK_ADVISORY : null;
 }
 
-/** Hard-refusal message for the vote_and_execute gate. `reasons` are the failing checks. */
-export function executeRiskRefusal(reasons: string[]): string {
+/**
+ * Advisory message for the vote_and_execute treasury alert. `reasons` are the
+ * failing checks (below-floor quorum, no controlling-member participation).
+ * Advisory ONLY — the guard never blocks; it surfaces this and proceeds. The
+ * durable control is an adequate on-chain quorum threshold configured per DAO.
+ */
+export function treasuryExecuteAdvisory(reasons: string[]): string {
   return (
-    `Refusing to auto-execute: this proposal moves treasury value AND ${reasons.join("; ")}. Per DeXe ` +
-    `contract-team guidance, a treasury-draining proposal must not execute without adequate quorum and ` +
-    `controlling-member participation — responsibility for executing rests with whoever broadcasts it. ` +
-    `Re-run with acknowledgeRisk:true to override (you accept the risk), or call dexe_proposal_risk_assess ` +
-    `to inspect first. ${ESCALATION_TAG}`
+    `⚠ Treasury-safety advisory: this proposal moves treasury value AND ${reasons.join("; ")}. ` +
+    `Verify adequate quorum and stakeholder participation before executing — ` +
+    `responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess for a full ` +
+    `readout. ${ADVISORY_TAG}`
   );
 }

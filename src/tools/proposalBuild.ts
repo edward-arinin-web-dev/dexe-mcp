@@ -157,7 +157,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
           const forbidden = findForbiddenSelector(a.data);
           if (forbidden) return errorResult(dangerousSelectorError(forbidden, a.executor));
         }
-        // Layer 4 (treasury-drain harm-reduction): flag any value-moving /
+        // Layer 4 (treasury-safety advisory): flag any value-moving /
         // allowance-granting action so a reviewer checks quorum before voting.
         const treasuryAdvisory = buildTimeTreasuryAdvisory(
           [...on, ...against].map((a) => ({ executor: a.executor, value: a.value.toString(), data: a.data })),

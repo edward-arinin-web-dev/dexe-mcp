@@ -8,18 +8,17 @@ import {
 } from "../../src/lib/dangerousSelectors.js";
 
 /**
- * C-2 guardrail coverage. The denylist blocks GovUserKeeper onlyOwner accounting
- * functions from ever being encoded as a proposal action (see
- * docs/security/C2-default-routing-bypass.md). These tests pin the canonical
- * selectors, prove every forbidden signature is detected from realistic
- * calldata, and prove benign calls pass through.
+ * Forbidden-selector guard coverage. The denylist blocks GovUserKeeper onlyOwner
+ * accounting functions from ever being encoded as a proposal action. These tests
+ * pin the canonical selectors, prove every forbidden signature is detected from
+ * realistic calldata, and prove benign calls pass through.
  */
 
 const V = "0x1111111111111111111111111111111111111111"; // victim
 const A = "0x2222222222222222222222222222222222222222"; // attacker
 
 describe("dangerousSelectors", () => {
-  it("pins the canonical withdrawTokens selector (the C-2 primitive)", () => {
+  it("pins the canonical withdrawTokens selector", () => {
     const sig = "withdrawTokens(address,address,uint256)";
     expect(id(sig).slice(0, 10)).toBe("0x5e35359e");
     const match = findForbiddenSelector(id(sig));
@@ -75,11 +74,11 @@ describe("dangerousSelectors", () => {
     expect(findForbiddenSelector("0x")).toBeNull();
   });
 
-  it("error message names the function and references C-2", () => {
+  it("error message names the function and explains why it's blocked", () => {
     const match = findForbiddenSelector(id("withdrawTokens(address,address,uint256)"))!;
     const msg = dangerousSelectorError(match, A);
     expect(msg).toContain("withdrawTokens(address,address,uint256)");
-    expect(msg).toContain("C-2");
+    expect(msg).toContain("privileged");
     expect(msg).toContain(A);
   });
 });
