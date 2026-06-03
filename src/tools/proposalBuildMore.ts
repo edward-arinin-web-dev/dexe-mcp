@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { settingsAdvisories } from "../lib/protocolAdvisories.js";
+import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
 
 /**
  * Phase 3b named wrappers. Every wrapper returns the same scaffold shape as
@@ -129,7 +130,7 @@ export function registerProposalBuildMoreTools(
   server: McpServer,
   _ctx: ToolContext,
 ): void {
-  registerChangeVotingSettings(server);
+  registerChangeVotingSettings(server, _ctx);
   registerManageValidators(server);
   registerAddExpert(server);
   registerRemoveExpert(server);
@@ -140,7 +141,7 @@ export function registerProposalBuildMoreTools(
 
 // ---------- 1. change_voting_settings ----------
 
-function registerChangeVotingSettings(server: McpServer): void {
+function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_proposal_build_change_voting_settings",
     {
@@ -194,7 +195,7 @@ function registerChangeVotingSettings(server: McpServer): void {
           },
         };
         const advisories = settings.flatMap((s, i) =>
-          settingsAdvisories(s).map((a) => `⚠ settings[${i}]: ${a}`),
+          settingsAdvisories(s, ctx.config.minSafeQuorumPct).map((a) => `⚠ settings[${i}]: ${a}`),
         );
         return wrapperResult({
           metadata,
@@ -479,11 +480,14 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
         const tokenSeg = wantToken ? `${amount} of ${token}` : "";
         const nftSeg = wantNfts ? `${nftIds.length} NFT(s) from ${nftAddress}` : "";
         const summary = [tokenSeg, nftSeg].filter(Boolean).join(" + ");
+        const treasuryAdvisory = buildTimeTreasuryAdvisory(actions, ctx.config.treasuryGuard);
         return wrapperResult({
           metadata,
           actions,
           title: `Withdraw Treasury → ${receiver}: ${summary}`,
-          detail: `${actions.length} external action${actions.length === 1 ? "" : "s"} (token.transfer / nft.transferFrom from GovPool).${blacklistNote}`,
+          detail:
+            `${actions.length} external action${actions.length === 1 ? "" : "s"} (token.transfer / nft.transferFrom from GovPool).${blacklistNote}` +
+            (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));

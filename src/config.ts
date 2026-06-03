@@ -44,6 +44,21 @@ export interface DexeConfig {
   privateKey?: string;
 
   /**
+   * Minimum safe quorum percent (0–100). A DAO whose quorum setting is below
+   * this is flagged as a treasury-drain risk (a minority stake can pass a
+   * proposal that grants allowance/transfer and drains the treasury). Default
+   * 50. See src/lib/quorumRisk.ts + docs/ESCALATION-DEXE.md.
+   */
+  minSafeQuorumPct: number;
+  /**
+   * Treasury-drain guard posture. `off` = no guard; `warn` = advisories only
+   * (default); `refuse` = vote_and_execute hard-refuses auto-executing a
+   * below-floor treasury-touching proposal (and dao deploy refuses below-floor
+   * quorum) unless `acknowledgeRisk:true`.
+   */
+  treasuryGuard: "off" | "warn" | "refuse";
+
+  /**
    * B6 — destination allowlist for `dexe_tx_send`. Lowercased, checksummed-then-
    * lowercased addresses. Undefined/empty = no restriction.
    */
@@ -263,6 +278,25 @@ export async function loadConfig(): Promise<DexeConfig> {
     );
   }
 
+  // ---- treasury-drain guard (low-quorum harm-reduction) ------------------
+  let minSafeQuorumPct = 50;
+  const minQuorumRaw = process.env.DEXE_MIN_SAFE_QUORUM_PCT?.trim();
+  if (minQuorumRaw) {
+    const n = Number(minQuorumRaw);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      fatal(`DEXE_MIN_SAFE_QUORUM_PCT must be a number between 0 and 100, got: ${minQuorumRaw}`);
+    }
+    minSafeQuorumPct = n;
+  }
+  let treasuryGuard: "off" | "warn" | "refuse" = "warn";
+  const treasuryGuardRaw = process.env.DEXE_TREASURY_GUARD?.trim().toLowerCase();
+  if (treasuryGuardRaw) {
+    if (treasuryGuardRaw !== "off" && treasuryGuardRaw !== "warn" && treasuryGuardRaw !== "refuse") {
+      fatal(`DEXE_TREASURY_GUARD must be one of off|warn|refuse, got: ${treasuryGuardRaw}`);
+    }
+    treasuryGuard = treasuryGuardRaw;
+  }
+
   let forkBlock: number | undefined;
   if (process.env.DEXE_FORK_BLOCK) {
     const n = Number(process.env.DEXE_FORK_BLOCK);
@@ -287,6 +321,8 @@ export async function loadConfig(): Promise<DexeConfig> {
     subgraphInteractionsUrl,
     forkBlock,
     privateKey,
+    minSafeQuorumPct,
+    treasuryGuard,
     signerAllowlist,
     signerMaxValueWei,
     signerMaxBroadcastsPerMin,

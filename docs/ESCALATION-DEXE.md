@@ -44,6 +44,56 @@ DEFAULT-routing / privileged selectors.
 
 ---
 
+## Q-1 — low quorum → single-actor treasury drain via legitimate allowance/transfer 🔴 (contract-property)
+
+**Raised by the DeXe contract team (2026-06-03), not the red-team audit.**
+
+**Root cause (contracts).** Almost every proposal type legitimately needs an
+ERC20 `approve`/allowance action (token sales, distributions, treasury grants),
+so the protocol **cannot forbid allowance/transfer at the proposal layer** — it
+is architectural. The only thing standing between a treasury and an attacker is
+**quorum**. `GovSettings._validateProposalSettings` enforces only `quorum > 0`
+(no meaningful lower bound), so a DAO can run with, say, 5% quorum. An attacker
+then buys/accumulates ~quorum% of the voting supply, passes a proposal that
+grants an allowance or transfers tokens to an address they control, and drains
+the treasury — entirely through the **normal, validated** external-proposal path
+(no C-2 trick needed). The contract state machine *correctly* enforces the
+configured quorum; the vulnerability is that the configured quorum is allowed to
+be dangerously low.
+
+**Attacker-cost intuition.** Needed stake ≈ `quorum% × totalVoteWeight`. With
+quorum below ~50% and a liquid/buyable token, the cost to seize decision-making
+can be far below the treasury's value. The safe threshold is DAO-specific and
+must be checked against (a) circulating/buyable supply and (b) whether the
+controlling members (founders / validators / majority holders) actually vote.
+
+**Fix in contracts (durable).** Enforce a **minimum-quorum floor** in
+`GovSettings` at both DAO deploy and `editSettings`/`addSettings` (contract-team
+guidance: ≥50%, 51%+ recommended; optionally a per-DAO configurable floor with a
+sane default). Optionally require validator co-approval (`validatorsVote`) for
+any proposal whose actions move treasury value or grant allowance.
+
+**MCP mitigation (shipped — harm-reduction only, an attacker can hand-craft
+calldata).** Configurable via `DEXE_MIN_SAFE_QUORUM_PCT` (default 50) +
+`DEXE_TREASURY_GUARD` (off|warn|refuse, default warn):
+- `dexe_dao_build_deploy` warns (refuses under `refuse`) when any proposal-
+  settings quorum is below the floor — root-cause prevention at DAO birth.
+- `dexe_proposal_build_change_voting_settings` emits a below-floor advisory
+  (`lib/protocolAdvisories.ts` → `lib/quorumRisk.ts`).
+- Treasury-touching builders (`withdraw_treasury`, `token_transfer`,
+  `apply_to_dao`, `custom_abi`, `build_external`) flag value-moving / allowance
+  actions.
+- `dexe_proposal_vote_and_execute` HARD-REFUSES to broadcast an execute for a
+  treasury-touching proposal whose quorum is below the floor unless
+  `acknowledgeRisk:true` — putting the documented responsibility on the executor.
+- `dexe_proposal_risk_assess` gives voters/creators/executors a full readout
+  (quorum %, treasury at risk, indicative attacker-cost % of supply, verdict).
+
+Founder/validator participation enforcement is best-effort and subgraph-only
+(mainnet); on testnet the guard falls back to the quorum-floor check.
+
+---
+
 ## executionDelay = 0 → zero-delay execution (timelock bypass) 🟡 MEDIUM (protocol-property)
 
 A passed proposal with `executionDelay == 0` executes immediately — there is no

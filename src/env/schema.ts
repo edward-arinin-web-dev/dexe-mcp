@@ -69,6 +69,20 @@ export const ENV_SPEC = {
     example: "",
     doc: "Override the DeXe-Protocol checkout path. Auto-managed when unset.",
   },
+  DEXE_MIN_SAFE_QUORUM_PCT: {
+    schema: intStr.optional(),
+    category: "core",
+    required: false,
+    example: "50",
+    doc: "Minimum safe quorum percent (0–100). Quorum below this is flagged as a treasury-drain risk. Default 50.",
+  },
+  DEXE_TREASURY_GUARD: {
+    schema: z.enum(["off", "warn", "refuse"]).optional(),
+    category: "core",
+    required: false,
+    example: "warn",
+    doc: "Treasury-drain guard posture: off | warn | refuse. 'refuse' blocks auto-execute of below-floor treasury proposals. Default warn.",
+  },
 
   // ─── rpc ──────────────────────────────────────────────────────────────────
   DEXE_RPC_URL: {

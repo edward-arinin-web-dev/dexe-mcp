@@ -8,6 +8,7 @@ import { ArtifactsMissingError } from "../artifacts.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { RpcProvider } from "../rpc.js";
 import { PinataClient } from "../lib/ipfs.js";
+import { quorumPctFromRaw, judgeQuorum } from "../lib/quorumRisk.js";
 
 /**
  * Phase 5 — deploy a new DAO via `PoolFactory.deployGovPool(GovPoolDeployParams)`.
@@ -257,10 +258,16 @@ function registerBuildDeploy(
           descriptionURL: z.string().describe("ipfs://<cid> of DAO metadata JSON"),
           name: z.string().min(1),
         }),
+        acknowledgeRisk: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Override the treasury-drain quorum-floor guard. Only consulted when DEXE_TREASURY_GUARD=refuse: set true to deploy a DAO whose quorum is below DEXE_MIN_SAFE_QUORUM_PCT anyway.",
+          ),
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ chainId, poolFactory, deployer, params }) => {
+    async ({ chainId, poolFactory, deployer, params, acknowledgeRisk = false }) => {
       const chain = resolveChain(ctx.config, chainId);
       const isTokenCreation = params.tokenParams.name.length > 0;
       const hasValidators = !!(params.validatorsParams && params.validatorsParams.validators.length > 0);
@@ -466,6 +473,41 @@ function registerBuildDeploy(
         );
       }
 
+      // ---------- treasury-drain guard: quorum floor (Layer 2, root cause) ----------
+      // Low quorum is the root of the treasury-drain class: a minority stake can
+      // pass any proposal — including a legitimate allowance/transfer that drains
+      // the treasury (the protocol cannot forbid allowance). Catch it at birth.
+      let quorumWarning = "";
+      if (ctx.config.treasuryGuard !== "off") {
+        const floor = ctx.config.minSafeQuorumPct;
+        const showPct = (p: number) => (Number.isFinite(p) ? `${p}%` : "unparseable");
+        const lowQuorum: string[] = [];
+        expandedSettings.forEach((s, i) => {
+          const pct = quorumPctFromRaw(s.quorum);
+          if (judgeQuorum(pct, floor) !== "SAFE") {
+            lowQuorum.push(`proposalSettings[${i}] quorum=${showPct(pct)}`);
+          }
+        });
+        const vpct = quorumPctFromRaw(validatorsParams.proposalSettings.quorum);
+        if (judgeQuorum(vpct, floor) !== "SAFE") {
+          lowQuorum.push(`validatorsParams quorum=${showPct(vpct)}`);
+        }
+        if (lowQuorum.length > 0) {
+          const detail =
+            `Quorum below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT): ${lowQuorum.join(", ")}. ` +
+            `A DAO with sub-floor quorum can have its treasury drained by a minority stake via a legitimate ` +
+            `allowance/transfer proposal (the protocol cannot forbid allowance). Contract-team guidance: set ` +
+            `quorum ≥50% (51%+ recommended); the safe value is DAO-specific and must be verified. ` +
+            `[protocol-property — see docs/ESCALATION-DEXE.md]`;
+          if (ctx.config.treasuryGuard === "refuse" && !acknowledgeRisk) {
+            return errorResult(
+              `Refusing to build DAO deploy: ${detail} Re-run with acknowledgeRisk:true to deploy anyway.`,
+            );
+          }
+          quorumWarning = `\n⚠️  ${detail}`;
+        }
+      }
+
       // ---------- auto-upload executorDescription to IPFS (when Pinata configured) ----------
       // The frontend uploads each proposal settings object as JSON to IPFS and stores
       // the CID as `executorDescription`. Without this, DAOs display broken metadata in
@@ -663,6 +705,7 @@ function registerBuildDeploy(
           ? "⚠️  Using fallback tuple ABI. For guaranteed parity, run dexe_compile to populate artifacts."
           : "Encoded against compiled artifact — strict parity with deployed PoolFactory.";
       if (pinataWarning) note += pinataWarning;
+      if (quorumWarning) note += quorumWarning;
 
       return payloadResult(payload, { predictedGovPool, note });
     },

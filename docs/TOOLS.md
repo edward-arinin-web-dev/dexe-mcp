@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **153** across **19** groups.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **154** across **19** groups.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Three composite tools (`dexe_tx_send`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -66,7 +66,7 @@ Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. All require `dexe_compil
 
 ## 3. DAO reads
 
-Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/tools/vote.ts`, `src/tools/read.ts`, `src/tools/subgraph.ts`. All on-chain reads need `DEXE_RPC_URL`. Subgraph reads need the relevant `DEXE_SUBGRAPH_*_URL`.
+Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/tools/vote.ts`, `src/tools/read.ts`, `src/tools/risk.ts`, `src/tools/subgraph.ts`. All on-chain reads need `DEXE_RPC_URL`. Subgraph reads need the relevant `DEXE_SUBGRAPH_*_URL`.
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
@@ -76,6 +76,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_proposal_state` | `getProposalState` + `getProposalRequiredQuorum` in one multicall. Returns named state. | `DEXE_RPC_URL` |
 | `dexe_proposal_list` | `GovPool.getProposals(offset, limit)` → compact summaries. | `DEXE_RPC_URL` |
 | `dexe_proposal_voters` | Voter list from interactions subgraph, paginated. | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
+| `dexe_proposal_risk_assess` | Treasury-drain risk readout for a proposal (or hypothetical actions): quorum %, safe floor, treasury at risk, indicative attacker-cost, verdict (SAFE/CAUTION/DANGER). | `DEXE_RPC_URL` |
 | `dexe_read_gov_state` | Reads `getHelperContracts()` + `getNftContracts()`, returns resolved helper + NFT addresses. | `DEXE_RPC_URL` |
 | `dexe_vote_user_power` | `tokenBalance` + `nftBalance` on GovUserKeeper for every VoteType (Personal/Micropool/Delegated/Treasury). | `DEXE_RPC_URL` |
 | `dexe_vote_get_votes` | `GovPool.getUserVotes(proposalId, voter, voteType)` → VoteInfoView. Defaults to PersonalVote. | `DEXE_RPC_URL` |

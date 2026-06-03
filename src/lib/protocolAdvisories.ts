@@ -6,6 +6,8 @@
  * unknowingly ship a degraded-governance configuration.
  */
 
+import { quorumPctFromRaw, judgeQuorum, lowQuorumAdvisory } from "./quorumRisk.js";
+
 function toBig(s: string): bigint | null {
   return /^[0-9]+$/.test(s) ? BigInt(s) : null;
 }
@@ -19,13 +21,25 @@ export const DURATION_VALIDATORS_SANITY_CAP = 2_592_000n; // 30 days
  * freezes every voter's deposit. All three are unfixable in the MCP — the
  * deployed contracts enforce no such bounds (H-11, executionDelay=0).
  */
-export function settingsAdvisories(s: {
-  validatorsVote: boolean;
-  durationValidators: string;
-  executionDelay: string;
-  quorumValidators: string;
-}): string[] {
+export function settingsAdvisories(
+  s: {
+    validatorsVote: boolean;
+    durationValidators: string;
+    executionDelay: string;
+    quorumValidators: string;
+    quorum?: string;
+  },
+  floorPct = 50,
+): string[] {
   const out: string[] = [];
+  // Low quorum is the root of the treasury-drain class: a minority stake can
+  // pass any proposal (including allowance/transfer that drains the treasury).
+  if (s.quorum !== undefined) {
+    const pct = quorumPctFromRaw(s.quorum);
+    if (judgeQuorum(pct, floorPct) !== "SAFE") {
+      out.push(lowQuorumAdvisory(pct, floorPct));
+    }
+  }
   if (toBig(s.executionDelay) === 0n) {
     out.push(
       "executionDelay=0 → no timelock: a passed proposal executes immediately, leaving no window to react to a malicious-but-passed action (amplifies C-2). DeXe contracts enforce no minimum — set a non-zero delay.",

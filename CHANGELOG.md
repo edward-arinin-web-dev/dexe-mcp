@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Treasury-drain guard (finding Q-1 — low quorum enables single-actor drain)
+
+Raised by the DeXe contract team: almost every proposal legitimately needs an
+ERC20 `approve`/allowance action, so the protocol cannot forbid allowance — the
+only defense is quorum. A DAO with sub-50% quorum can have its treasury drained
+by an actor who buys ~quorum% of the supply and passes a legitimate
+allowance/transfer proposal. Root cause is a contract property (escalated, see
+`docs/ESCALATION-DEXE.md`); the MCP adds layered harm-reduction.
+
+- **New** `src/lib/quorumRisk.ts` — pure logic: treasury-action classifier
+  (approve/transfer/transferFrom/increaseAllowance/nft/native), quorum-pct math
+  (1e27 scale), `judgeQuorum`/`attackerCost` verdicts, advisory strings.
+- **New env** `DEXE_MIN_SAFE_QUORUM_PCT` (default 50) + `DEXE_TREASURY_GUARD`
+  (`off`|`warn`|`refuse`, default `warn`).
+- **DAO deploy** (`dexe_dao_build_deploy`) warns on any sub-floor proposal-settings
+  quorum (hard-refuses under `refuse` unless `acknowledgeRisk:true`).
+- **`change_voting_settings`** flags below-floor quorum via `settingsAdvisories`.
+- **Treasury builders** (`withdraw_treasury`, `token_transfer`, `apply_to_dao`,
+  `custom_abi`, `build_external`) attach a treasury-risk advisory.
+- **`dexe_proposal_vote_and_execute`** hard-refuses to broadcast an execute for a
+  treasury-touching proposal whose quorum is below the floor unless
+  `acknowledgeRisk:true` (the executor accepts the risk). Fail-soft on read errors.
+- **New tool** `dexe_proposal_risk_assess` (153 → **154**) — quorum %, treasury
+  at risk, indicative attacker-cost (% of supply to pass alone), verdict
+  (SAFE/CAUTION/DANGER) + recommendation, for an on-chain proposal or hypothetical
+  actions.
+- Founder/validator participation enforcement is subgraph/mainnet-only (Phase B);
+  testnet falls back to the deterministic quorum-floor check.
+
 ## 0.9.0 — 2026-06-02
 
 ### Security hardening (red-team audit remediation)

@@ -11,6 +11,15 @@ import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { runBroadcastGuards } from "../lib/broadcastGuards.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
+import {
+  classifyTreasuryActions,
+  quorumPctFromRaw,
+  judgeQuorum,
+  executeRiskRefusal,
+  TREASURY_RISK_ADVISORY,
+  type TreasuryHit,
+} from "../lib/quorumRisk.js";
+import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 
 // ---------- ABI fragments ----------
 
@@ -30,6 +39,10 @@ const GOV_POOL_ABI = new Interface([
   "function deposit(uint256 amount, uint256[] nftIds) payable",
   "function editDescriptionURL(string newDescriptionURL)",
   "function getProposalState(uint256 proposalId) view returns (uint8)",
+  "function getProposalRequiredQuorum(uint256 proposalId) view returns (uint256)",
+  // Full IGovPool.ProposalView[] — lets the execute-gate read a proposal's
+  // on-chain actions + its own quorum setting without compiled artifacts.
+  GET_PROPOSALS_FRAGMENT,
 ]);
 
 const USER_KEEPER_ABI = new Interface([
@@ -86,6 +99,99 @@ function makeTxPayload(to: string, iface: Interface, method: string, args: unkno
     chainId,
     description,
   };
+}
+
+// ---------- treasury-drain execute gate (Layer 5) ----------
+
+interface ExecuteRisk {
+  treasuryHits: TreasuryHit[];
+  quorumPct: number;
+  belowFloor: boolean;
+  /** Whether a controlling member (founder/validator/top holder) voted For. null = unknown (no subgraph / testnet). */
+  controllingHoldersVotedFor: boolean | null;
+  shouldRefuse: boolean;
+  reasons: string[];
+}
+
+/**
+ * Read a proposal's on-chain `actionsOnFor` + its own quorum setting and judge
+ * treasury-drain risk. Pure-ish: one getProposals read, then quorumRisk logic.
+ * Returns `{ error }` when the read fails (caller fails soft — never bricks
+ * execute on an RPC hiccup).
+ */
+async function assessExecuteRisk(
+  provider: JsonRpcProvider,
+  govPool: string,
+  proposalId: number,
+  cfg: DexeConfig,
+): Promise<ExecuteRisk | { error: string }> {
+  let value: unknown;
+  try {
+    const [res] = await multicall(provider, [
+      { target: govPool, iface: GOV_POOL_ABI, method: "getProposals", args: [proposalId - 1, 1] },
+    ]);
+    if (!res?.success) return { error: res?.error ?? "getProposals reverted" };
+    value = res.value;
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+  const arr = value as unknown[];
+  if (!Array.isArray(arr) || arr.length === 0) return { error: `Proposal ${proposalId} not found` };
+
+  const decoded = decodeProposalView(arr[0]);
+  if (!decoded) return { error: "failed to decode proposal view" };
+
+  const floor = cfg.minSafeQuorumPct;
+  const quorumPct = quorumPctFromRaw(decoded.quorumRaw);
+  const belowFloor = judgeQuorum(quorumPct, floor) !== "SAFE";
+  const treasuryHits = classifyTreasuryActions(decoded.actionsOnFor);
+
+  const reasons: string[] = [];
+  if (belowFloor) {
+    reasons.push(
+      `the proposal's quorum=${Number.isFinite(quorumPct) ? `${quorumPct}%` : "unparseable"} is below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT)`,
+    );
+  }
+
+  // Founder/validator participation is subgraph/mainnet-only — unknown here.
+  // null is deliberately NOT treated as a refuse trigger (absence ≠ unsafe).
+  const controllingHoldersVotedFor: boolean | null = null;
+
+  const shouldRefuse =
+    treasuryHits.length > 0 && (belowFloor || controllingHoldersVotedFor === false);
+
+  return { treasuryHits, quorumPct, belowFloor, controllingHoldersVotedFor, shouldRefuse, reasons };
+}
+
+/**
+ * Decide whether to BLOCK an execute step or just attach a warning. Blocks only
+ * when the guard is enabled, the proposal would actually broadcast, the risk
+ * warrants refusal, and the caller has not passed acknowledgeRisk. Fail-soft on
+ * read errors (warn, never block).
+ */
+async function treasuryExecuteGuard(args: {
+  provider: JsonRpcProvider;
+  govPool: string;
+  proposalId: number;
+  cfg: DexeConfig;
+  wouldBroadcast: boolean;
+  acknowledgeRisk: boolean;
+}): Promise<{ blocked: true; message: string } | { blocked: false; warning: string | null }> {
+  if (args.cfg.treasuryGuard === "off") return { blocked: false, warning: null };
+  const risk = await assessExecuteRisk(args.provider, args.govPool, args.proposalId, args.cfg);
+  if ("error" in risk) {
+    return { blocked: false, warning: `⚠ treasury-risk pre-check skipped: ${risk.error}` };
+  }
+  if (risk.treasuryHits.length === 0) return { blocked: false, warning: null };
+  if (risk.shouldRefuse) {
+    if (args.wouldBroadcast && !args.acknowledgeRisk) {
+      return { blocked: true, message: executeRiskRefusal(risk.reasons) };
+    }
+    // Acknowledged, or dry-run preview — proceed but surface the refusal text.
+    return { blocked: false, warning: `⚠ ${executeRiskRefusal(risk.reasons)}` };
+  }
+  // Treasury-touching but quorum healthy → advisory only.
+  return { blocked: false, warning: TREASURY_RISK_ADVISORY };
 }
 
 const POOL_REGISTRY_ISGOV_ABI = ["function isGovPool(address) view returns (bool)"];
@@ -668,6 +774,12 @@ export function registerFlowTools(
       depositFirst: z.boolean().default(false).describe("Deposit wallet tokens before voting"),
       autoExecute: z.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
+      acknowledgeRisk: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Override the treasury-drain execute gate. When DEXE_TREASURY_GUARD is not 'off', the tool refuses to broadcast an execute for a treasury-touching proposal whose quorum is below DEXE_MIN_SAFE_QUORUM_PCT; set true to execute anyway (you accept the drain risk).",
+        ),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
     },
     async (input) => {
@@ -700,6 +812,15 @@ export function registerFlowTools(
       // earlyCompletion, the proposal lands directly in Locked, so we must
       // recognize it here as executable.
       if ((stateNum === 4 || stateNum === 5 || stateNum === 6) && input.autoExecute) {
+        const guard = await treasuryExecuteGuard({
+          provider,
+          govPool,
+          proposalId,
+          cfg: ctx.config,
+          wouldBroadcast: signer.hasSigner() && !input.dryRun,
+          acknowledgeRisk: input.acknowledgeRisk,
+        });
+        if (guard.blocked) return err(guard.message);
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
         ], { dryRun: input.dryRun, chainId });
@@ -707,6 +828,7 @@ export function registerFlowTools(
           mode: execResult.mode,
           proposalId,
           proposalStateBefore: stateName,
+          ...(guard.warning ? { treasuryRisk: guard.warning } : {}),
           steps: [
             { label: "GovPool.vote", skipped: true, reason: `Proposal already in "${stateName}" — no vote needed` },
             ...execResult.steps,
@@ -788,7 +910,33 @@ export function registerFlowTools(
         const postStateName = STATE_NAMES[postState] ?? `Unknown(${postState})`;
 
         if (postState === 4 || postState === 5) {
-          // SucceededFor or SucceededAgainst — execute
+          // SucceededFor or SucceededAgainst — execute (treasury-drain gate first)
+          const guard = await treasuryExecuteGuard({
+            provider,
+            govPool,
+            proposalId,
+            cfg: ctx.config,
+            wouldBroadcast: signer.hasSigner() && !input.dryRun,
+            acknowledgeRisk: input.acknowledgeRisk,
+          });
+          if (guard.blocked) {
+            // Vote already sent; refuse only the execute step and report why.
+            return ok({
+              mode: result.mode,
+              proposalId,
+              proposalStateBefore: stateName,
+              treasuryRisk: guard.message,
+              steps: [
+                ...skippedSteps,
+                ...result.steps,
+                { label: "GovPool.execute", skipped: true, reason: guard.message },
+              ],
+              executed: false,
+            });
+          }
+          if (guard.warning) {
+            skippedSteps.push({ label: "treasury-risk", skipped: true, reason: guard.warning });
+          }
           const execResult = await sendOrCollect(signer, [
             makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
           ], { dryRun: input.dryRun, chainId });

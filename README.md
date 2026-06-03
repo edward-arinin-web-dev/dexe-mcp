@@ -9,7 +9,7 @@
   <a href="https://nodejs.org"><img alt="node" src="https://img.shields.io/node/v/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=E07AFF"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=FFC878"></a>
   <a href="https://modelcontextprotocol.io"><img alt="MCP-compatible" src="https://img.shields.io/badge/MCP-compatible-9BB4FF?style=flat-square&labelColor=0b0f1e"></a>
-  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-153-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
+  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-154-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="proposal types" src="https://img.shields.io/badge/proposal--types-33-E07AFF?style=flat-square&labelColor=0b0f1e"></a>
 </p>
 
@@ -40,7 +40,7 @@ That era is ending.
 
 LLMs can now reason about voting power, weigh proposals against a mandate, draft calldata, simulate execution, and ask your wallet to sign — **continuously, across every DAO you care about, all at once.** What was a UI is becoming a conversation. What was a treasurer's spreadsheet is becoming an always-on agent.
 
-**`dexe-mcp` is the substrate that makes it real for the DeXe stack — and now for external OpenZeppelin Governor DAOs as well.** One MCP server. 153 typed tools across 19 groups. Every flow the DeXe frontend exposes — plus a generic `dexe_gov_*` surface targeting Uniswap, Compound, and Optimism.
+**`dexe-mcp` is the substrate that makes it real for the DeXe stack — and now for external OpenZeppelin Governor DAOs as well.** One MCP server. 154 typed tools across 19 groups. Every flow the DeXe frontend exposes — plus a generic `dexe_gov_*` surface targeting Uniswap, Compound, and Optimism.
 
 |     | What you get |
 |-----|------|
@@ -194,7 +194,7 @@ All optional. Tools that need a missing variable fail with a clear, actionable m
 
 Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/main/docs):
 
-- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 153 tools, grouped, with one-line descriptions and required envs.
+- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 154 tools, grouped, with one-line descriptions and required envs.
 - [**`docs/GOVERNOR.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/GOVERNOR.md) — external OpenZeppelin / Bravo Governor surface (Uniswap, Compound, Optimism). Family branching, fixture map, paste-able JSON examples, Tally parity harness.
 - [**`docs/WALLETCONNECT.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/WALLETCONNECT.md) — `walletconnect` signer mode: phone-approved broadcast with no hot key. Phase A (config) + Phase B (live relay, `dexe_wc_connect` / `dexe_wc_disconnect`, per-tx phone approval) shipped in v0.7.0, validated end-to-end with a live MetaMask-mobile round-trip on BSC testnet.
 - [**`docs/USAGE.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USAGE.md) — 10 worked examples (deploy DAO, create/vote/execute proposals, delegate, validator chamber, decode calldata, off-chain proposals, multicall batching). Copy-pasteable JSON.
@@ -207,13 +207,13 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 
 ## Tool catalog
 
-**153 tools, 19 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+**154 tools, 19 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
 | Group | # | What it gives you |
 |-------|---|------|
 | **Dev tooling** | 4 | One-command Hardhat lifecycle for the DeXe-Protocol monorepo — `dexe_compile`, `_test`, `_coverage`, `_lint`. Auto-clones the repo on first call. |
 | **Contract introspection** | 10 | Ask the protocol about itself — list contracts, fetch ABIs, look up selectors, read NatSpec, view source, decode arbitrary calldata or full proposal payloads. The agent's reverse-engineer toolkit. |
-| **DAO reads** | 19 | Everything you'd see on a DAO dashboard, returned as JSON — `dao_info`, predicted helper addresses, proposal state/list/voters, voting power, treasury, settings, validators, staking, distributions, privacy policy. |
+| **DAO reads** | 20 | Everything you'd see on a DAO dashboard, returned as JSON — `dao_info`, predicted helper addresses, proposal state/list/voters, voting power, treasury, settings, validators, staking, distributions, privacy policy, plus `dexe_proposal_risk_assess` (treasury-drain risk readout). |
 | **IPFS** | 9 | Pinata uploads for files / avatars / DAO + proposal metadata, smart metadata updates, deterministic identicon generation, gateway-fallback fetch, CID computation without uploading. |
 | **DAO deploy** | 1 | `dexe_dao_build_deploy` — encodes the full nested `PoolFactory.deployGovPool` struct with predicted helper addresses pre-wired. From idea to a live DAO in one signed tx. |
 | **Proposal catalog + primitives** | 5 | `dexe_proposal_catalog` enumerates **all 33** proposal types with metadata + gating. Primitives `_build_external`, `_build_internal`, `_build_custom_abi`, `_build_offchain` cover anything not in a named wrapper. |
