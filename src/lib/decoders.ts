@@ -13,12 +13,12 @@ export interface DecodedCall {
   args: Record<string, unknown>;
   /** Raw positional args — useful for agents that want the tuple directly. */
   argsArray: unknown[];
-  /** True if this selector is a C-2-class privileged accounting function. */
+  /** True if this selector is a privileged accounting function (unsafe as a proposal action). */
   privileged?: boolean;
   /**
    * Calls discovered inside this call's calldata args — e.g. the inner calls of
    * a `multicall(bytes[])`, or the actions of a nested `createProposal`. Lets a
-   * reviewer see hidden privileged calls instead of just the wrapper (C-1).
+   * reviewer see hidden privileged calls instead of just the wrapper.
    */
   nested?: DecodedCall[];
 }
@@ -49,8 +49,8 @@ export class CalldataDecoder {
    * Decode calldata and recursively unwrap any well-formed nested calldata
    * found in its arguments — `multicall(bytes[])`, a nested `createProposal`'s
    * `ProposalAction[]`, `tryExecute`, etc. The decoded `primary` carries a
-   * `privileged` flag for C-2-class selectors and a `nested` tree so a reviewer
-   * reading the text sees hidden inner calls, not just the wrapper (C-1).
+   * `privileged` flag for privileged-class selectors and a `nested` tree so a
+   * reviewer reading the text sees hidden inner calls, not just the wrapper.
    */
   decodeCalldata(
     data: string,

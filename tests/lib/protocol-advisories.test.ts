@@ -7,8 +7,8 @@ import {
 } from "../../src/lib/protocolAdvisories.js";
 
 /**
- * Protocol-property advisories (docs/ESCALATION-DEXE.md). The MCP can't fix
- * these DeXe-contract properties, only warn — these pin the warning logic.
+ * Governance-safety advisories for risky proposal / DAO settings — these pin
+ * the warning logic.
  */
 
 const base = {
@@ -34,7 +34,7 @@ describe("settingsAdvisories", () => {
     ).toMatch(/quorumValidators=0/);
   });
 
-  it("flags an unbounded validator phase (H-11)", () => {
+  it("flags an unbounded validator phase", () => {
     const huge = (DURATION_VALIDATORS_SANITY_CAP + 1n).toString();
     const adv = settingsAdvisories({
       ...base,
@@ -43,7 +43,7 @@ describe("settingsAdvisories", () => {
       durationValidators: huge,
     }).join("\n");
     expect(adv).toMatch(/durationValidators/);
-    expect(adv).toMatch(/H-11/);
+    expect(adv).toMatch(/locked/);
   });
 
   it("does not flag a normal validator phase", () => {
@@ -59,6 +59,6 @@ describe("settingsAdvisories", () => {
 
   it("exposes the changeVotePower and custom_abi advisories", () => {
     expect(CHANGE_VOTE_POWER_ADVISORY).toMatch(/changeVotePower/);
-    expect(CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY).toMatch(/C-2/);
+    expect(CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY).toMatch(/registered executor/);
   });
 });

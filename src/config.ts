@@ -44,6 +44,30 @@ export interface DexeConfig {
   privateKey?: string;
 
   /**
+   * Minimum safe quorum percent (0–100). A DAO whose quorum setting is below
+   * this is flagged as a governance-safety risk for treasury-moving proposals
+   * (low quorum reduces the participation required to pass). Default 50.
+   * See src/lib/quorumRisk.ts.
+   */
+  minSafeQuorumPct: number;
+  /**
+   * Treasury-safety advisory posture. `off` = silent; `warn` (default) =
+   * advisories / alerts everywhere (build, deploy, execute, risk_assess).
+   * **Advisory only — it never blocks.** Harm-reduction for an operator/agent
+   * configuring a DAO; the durable control is an adequate on-chain quorum
+   * threshold configured per DAO.
+   */
+  treasuryGuard: "off" | "warn";
+
+  /**
+   * Number of top token holders (by voting weight) included in the treasury-
+   * safety "controlling set" (alongside validators). The advisory checks whether
+   * ≥1 controlling member voted For. Default 5. Subgraph/mainnet-only.
+   * See src/lib/controllingVoters.ts.
+   */
+  controllingTopN: number;
+
+  /**
    * B6 — destination allowlist for `dexe_tx_send`. Lowercased, checksummed-then-
    * lowercased addresses. Undefined/empty = no restriction.
    */
@@ -263,6 +287,34 @@ export async function loadConfig(): Promise<DexeConfig> {
     );
   }
 
+  // ---- treasury-safety advisory (low-quorum) -----------------------------
+  let minSafeQuorumPct = 50;
+  const minQuorumRaw = process.env.DEXE_MIN_SAFE_QUORUM_PCT?.trim();
+  if (minQuorumRaw) {
+    const n = Number(minQuorumRaw);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      fatal(`DEXE_MIN_SAFE_QUORUM_PCT must be a number between 0 and 100, got: ${minQuorumRaw}`);
+    }
+    minSafeQuorumPct = n;
+  }
+  let treasuryGuard: "off" | "warn" = "warn";
+  const treasuryGuardRaw = process.env.DEXE_TREASURY_GUARD?.trim().toLowerCase();
+  if (treasuryGuardRaw) {
+    if (treasuryGuardRaw !== "off" && treasuryGuardRaw !== "warn") {
+      fatal(`DEXE_TREASURY_GUARD must be one of off|warn, got: ${treasuryGuardRaw}`);
+    }
+    treasuryGuard = treasuryGuardRaw;
+  }
+  let controllingTopN = 5;
+  const controllingTopNRaw = process.env.DEXE_CONTROLLING_TOPN?.trim();
+  if (controllingTopNRaw) {
+    const n = Number(controllingTopNRaw);
+    if (!Number.isInteger(n) || n <= 0) {
+      fatal(`DEXE_CONTROLLING_TOPN must be a positive integer, got: ${controllingTopNRaw}`);
+    }
+    controllingTopN = n;
+  }
+
   let forkBlock: number | undefined;
   if (process.env.DEXE_FORK_BLOCK) {
     const n = Number(process.env.DEXE_FORK_BLOCK);
@@ -287,6 +339,9 @@ export async function loadConfig(): Promise<DexeConfig> {
     subgraphInteractionsUrl,
     forkBlock,
     privateKey,
+    minSafeQuorumPct,
+    treasuryGuard,
+    controllingTopN,
     signerAllowlist,
     signerMaxValueWei,
     signerMaxBroadcastsPerMin,

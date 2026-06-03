@@ -6,6 +6,7 @@ import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
 import { CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY } from "../lib/protocolAdvisories.js";
+import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
 import {
   PROPOSAL_CATALOG,
   EXTERNAL_METADATA_SHAPE,
@@ -156,6 +157,12 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
           const forbidden = findForbiddenSelector(a.data);
           if (forbidden) return errorResult(dangerousSelectorError(forbidden, a.executor));
         }
+        // Layer 4 (treasury-safety advisory): flag any value-moving /
+        // allowance-granting action so a reviewer checks quorum before voting.
+        const treasuryAdvisory = buildTimeTreasuryAdvisory(
+          [...on, ...against].map((a) => ({ executor: a.executor, value: a.value.toString(), data: a.data })),
+          ctx.config.treasuryGuard,
+        );
         let payload: TxPayload;
         if (andVote) {
           payload = buildPayload({
@@ -184,7 +191,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
             description: `GovPool.createProposal (${on.length} for / ${against.length} against)`,
           });
         }
-        return payloadResult(payload);
+        return payloadResult(payload, treasuryAdvisory);
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }
@@ -276,8 +283,16 @@ function registerBuildCustomAbi(server: McpServer, ctx: ToolContext): void {
         if (forbidden) return errorResult(dangerousSelectorError(forbidden, target));
         const action = { executor: target, value, data };
         const preview = `ProposalAction → ${target}.${method}(${args.length} args), value=${value}, calldata=${data.slice(0, 18)}…`;
+        const treasuryAdvisory = buildTimeTreasuryAdvisory([action], ctx.config.treasuryGuard);
         return {
-          content: [{ type: "text" as const, text: `${preview}\n\n${CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY}` }],
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `${preview}\n\n${CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY}` +
+                (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
+            },
+          ],
           structuredContent: { action, preview },
         };
       } catch (err) {
@@ -416,11 +431,14 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
         const nextStep =
           `1) dexe_ipfs_upload_proposal_metadata with { title: "${proposalName}", description, extra: changes } → get CID\n` +
           `2) dexe_proposal_build_external with govPool="${govPool}", descriptionURL=<CID>, actionsOnFor=actions`;
+        const treasuryAdvisory = buildTimeTreasuryAdvisory(actions, ctx.config.treasuryGuard);
         return {
           content: [
             {
               type: "text" as const,
-              text: `Built token-transfer proposal scaffolding.\n\nAction: ${actionLabel}\n\nNext:\n${nextStep}`,
+              text:
+                `Built token-transfer proposal scaffolding.\n\nAction: ${actionLabel}\n\nNext:\n${nextStep}` +
+                (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
             },
           ],
           structuredContent: { metadata, actions, nextStep },
@@ -444,12 +462,14 @@ function payloadSchema() {
   };
 }
 
-function payloadResult(payload: TxPayload) {
+function payloadResult(payload: TxPayload, advisory?: string | null) {
   return {
     content: [
       {
         type: "text" as const,
-        text: `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…`,
+        text:
+          `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…` +
+          (advisory ? `\n\n${advisory}` : ""),
       },
     ],
     structuredContent: { ...payload } as Record<string, unknown>,

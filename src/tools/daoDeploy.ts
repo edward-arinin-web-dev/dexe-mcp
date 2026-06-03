@@ -8,6 +8,7 @@ import { ArtifactsMissingError } from "../artifacts.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { RpcProvider } from "../rpc.js";
 import { PinataClient } from "../lib/ipfs.js";
+import { quorumPctFromRaw, judgeQuorum } from "../lib/quorumRisk.js";
 
 /**
  * Phase 5 — deploy a new DAO via `PoolFactory.deployGovPool(GovPoolDeployParams)`.
@@ -466,6 +467,37 @@ function registerBuildDeploy(
         );
       }
 
+      // ---------- treasury-safety advisory: quorum floor (Layer 2) ----------
+      // Low quorum reduces the participation required to pass a proposal — a
+      // governance-safety risk for a DAO that will hold treasury assets. Flag it
+      // at birth so the operator sets an adequate quorum.
+      let quorumWarning = "";
+      if (ctx.config.treasuryGuard !== "off") {
+        const floor = ctx.config.minSafeQuorumPct;
+        const showPct = (p: number) => (Number.isFinite(p) ? `${p}%` : "unparseable");
+        const lowQuorum: string[] = [];
+        expandedSettings.forEach((s, i) => {
+          const pct = quorumPctFromRaw(s.quorum);
+          if (judgeQuorum(pct, floor) !== "SAFE") {
+            lowQuorum.push(`proposalSettings[${i}] quorum=${showPct(pct)}`);
+          }
+        });
+        const vpct = quorumPctFromRaw(validatorsParams.proposalSettings.quorum);
+        if (judgeQuorum(vpct, floor) !== "SAFE") {
+          lowQuorum.push(`validatorsParams quorum=${showPct(vpct)}`);
+        }
+        if (lowQuorum.length > 0) {
+          const detail =
+            `Quorum below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT): ${lowQuorum.join(", ")}. ` +
+            `Low quorum reduces the participation required to pass a proposal; for a DAO that will hold ` +
+            `treasury assets, set quorum ≥50% (51%+ recommended). The safe value is DAO-specific and must ` +
+            `be verified. [governance-safety advisory]`;
+          // Advisory only — never blocks the deploy. The durable control is an
+          // adequate on-chain quorum threshold configured per DAO.
+          quorumWarning = `\n⚠️  ${detail}`;
+        }
+      }
+
       // ---------- auto-upload executorDescription to IPFS (when Pinata configured) ----------
       // The frontend uploads each proposal settings object as JSON to IPFS and stores
       // the CID as `executorDescription`. Without this, DAOs display broken metadata in
@@ -663,6 +695,7 @@ function registerBuildDeploy(
           ? "⚠️  Using fallback tuple ABI. For guaranteed parity, run dexe_compile to populate artifacts."
           : "Encoded against compiled artifact — strict parity with deployed PoolFactory.";
       if (pinataWarning) note += pinataWarning;
+      if (quorumWarning) note += quorumWarning;
 
       return payloadResult(payload, { predictedGovPool, note });
     },

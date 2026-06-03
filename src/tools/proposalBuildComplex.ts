@@ -6,6 +6,7 @@ import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { parseUintString } from "../lib/amount.js";
 import { CHANGE_VOTE_POWER_ADVISORY } from "../lib/protocolAdvisories.js";
+import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
 
 /**
  * Phase 3c — 10 complex named wrappers. Same contract as 3a/3b:
@@ -1344,11 +1345,14 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
         };
         const blacklistNote =
           bl.status === "skipped" ? `Blacklist precheck skipped: ${bl.reason}` : "Recipient not blacklisted.";
+        const treasuryAdvisory = buildTimeTreasuryAdvisory(actions, ctx.config.treasuryGuard);
         return wrapperResult({
           metadata,
           actions,
           title: `Apply to DAO: ${amount} of ${token} → ${receiver}`,
-          detail: `${actions.length} action${actions.length === 1 ? "" : "s"} (transfer${actions.length > 1 ? " + mint" : ""}). ${blacklistNote}`,
+          detail:
+            `${actions.length} action${actions.length === 1 ? "" : "s"} (transfer${actions.length > 1 ? " + mint" : ""}). ${blacklistNote}` +
+            (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));

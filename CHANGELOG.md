@@ -1,11 +1,54 @@
 # Changelog
 
+## Unreleased
+
+### Treasury-safety advisory (low-quorum governance check)
+
+Low quorum reduces the participation required to pass a proposal, which is a
+governance-safety risk for a DAO that holds treasury assets. The durable control
+is an adequate on-chain quorum threshold configured per DAO; this release adds an
+**advisory-only** layer in the MCP that flags treasury-moving proposals under a
+low quorum so an operator/agent verifies the setting and stakeholder
+participation before executing.
+
+The MCP layer **never blocks** — it surfaces a clear alert and proceeds. It is
+harm-reduction for a legit operator/agent configuring a DAO, not an access
+control.
+
+- **New** `src/lib/quorumRisk.ts` — pure logic: treasury-action classifier
+  (approve/transfer/transferFrom/increaseAllowance/nft/native), quorum-pct math
+  (1e27 scale), `judgeQuorum`/`quorumConcentration` verdicts, advisory strings.
+- **New env** `DEXE_MIN_SAFE_QUORUM_PCT` (default 50) + `DEXE_TREASURY_GUARD`
+  (`off`|`warn`, default `warn`; `warn` = advisories everywhere, `off` = silent).
+- **DAO deploy** (`dexe_dao_build_deploy`), **`change_voting_settings`**, and the
+  **treasury builders** (`withdraw_treasury`, `token_transfer`, `apply_to_dao`,
+  `custom_abi`, `build_external`) attach a below-floor / treasury-risk advisory.
+- **`dexe_proposal_vote_and_execute`** attaches a treasury-risk advisory to the
+  execute step when the proposal moves treasury value and quorum is below the
+  floor (or no controlling member voted For). It **executes regardless** — the
+  alert is informational; fail-soft on read errors.
+- **New tool** `dexe_proposal_risk_assess` (153 → **154**) — quorum %, treasury
+  at risk, the indicative share of supply required to meet quorum, verdict
+  (SAFE/CAUTION/DANGER) + recommendation, for an on-chain proposal or hypothetical
+  actions.
+- **Phase B** — founder/validator participation signal. **New**
+  `src/lib/controllingVoters.ts` (`resolveControllingHoldersVotedFor`): enumerates
+  the "controlling set" (validators ∪ top-N token holders by voting weight) via
+  subgraph, then confirms each member's vote direction **on-chain** via
+  `GovPool.getTotalVotes` (OR across Personal/Micropool/Delegated). Surfaced in
+  `dexe_proposal_risk_assess` and the execute advisory as an informational flag
+  when **no** controlling member voted For (even at healthy quorum). **New env**
+  `DEXE_CONTROLLING_TOPN` (default 5). Subgraph + mainnet (56) only; off-chain/
+  testnet/error ⇒ `null` (unknown). **Never blocks.**
+- No `acknowledgeRisk` override anywhere — there is nothing to acknowledge; the
+  guard does not block. Tool count unchanged (**154**).
+
 ## 0.9.0 — 2026-06-02
 
 ### Security hardening (red-team audit remediation)
 
-Remediates the `dexe-mcp@0.7.2` red-team audit. The 1 CRITICAL (C-2) was guarded
-in 0.8.3; this release closes the MCP-fixable HIGH/MEDIUM/LOW findings. Each fix
+Remediates the `dexe-mcp@0.7.2` red-team audit. The most severe finding was
+guarded in 0.8.3; this release closes the remaining MCP-fixable findings. Each fix
 shipped as its own PR with a locking regression test, CI green throughout.
 
 #### Fixed — builders & numeric safety
@@ -30,9 +73,9 @@ shipped as its own PR with a locking regression test, CI green throughout.
   before rendering (`src/lib/sanitize.ts`): control chars escaped, NFKC
   normalized, non-ASCII flagged — defeats prompt-injection / newline-forgery /
   homoglyph spoofing.
-- **C-1 (decode-no-recursion)** — `decode_calldata` / `decode_proposal`
-  recursively unwrap nested `multicall` / `createProposal` / … and flag
-  privileged selectors.
+- **Recursive decode** — `decode_calldata` / `decode_proposal` recursively
+  unwrap nested `multicall` / `createProposal` / … and flag privileged selectors
+  so a reviewer sees hidden inner calls.
 - **W20** — `ipfs_fetch` verifies fetched bytes against the requested CID
   (raw/json codecs) and rejects a mismatch.
 - **W21 / L-6** — the Graph API key is only sent as a Bearer to trusted
@@ -58,9 +101,6 @@ shipped as its own PR with a locking regression test, CI green throughout.
 - New env vars: `DEXE_PROTOCOL_REF`, `DEXE_MAX_DESCRIPTION_LEN`.
 
 ### Docs
-- **`docs/ESCALATION-DEXE.md`** — contract-level findings (C-2, H-11,
-  `executionDelay=0`, `changeVotePower`, PolynomialPower) for the DeXe protocol
-  team, with root cause, contract fix, and MCP mitigation.
 - **`docs/SECURITY.md`** — security posture and remediation summary.
 
 ### Notes
@@ -72,16 +112,12 @@ shipped as its own PR with a locking regression test, CI green throughout.
 
 ## 0.8.3 — 2026-06-01
 
-### Security: guardrail against C-2 (DEFAULT-routing allowlist bypass)
+### Security: guardrail for privileged proposal-action selectors
 
-Red-team finding **C-2** (against 0.7.2): a DeXe proposal can drain an arbitrary
-depositor's *unlocked* balance by calling
-`GovUserKeeper.withdrawTokens(payer, receiver, amount)` from a DEFAULT-routed
-proposal that bypasses the `GovPoolCreate` INTERNAL allowlist. The root cause is
-in the **DeXe protocol contracts** (settings keyed on the last action only;
-`withdrawTokens` takes an unbound `payer`) and is **not fixable from the MCP** —
-only a contract upgrade closes it. dexe-mcp was an amplifier: the proposal
-builders encoded the malicious action with zero checks.
+Hardening from the `0.7.2` red-team audit. Certain `GovUserKeeper` `onlyOwner`
+accounting functions are privileged and must never be encoded as a governance
+proposal action. This release adds an MCP-side guard so the proposal builders
+refuse to construct such actions. Defense-in-depth at the MCP layer.
 
 ### Added
 
@@ -93,9 +129,8 @@ builders encoded the malicious action with zero checks.
 
 - **`dexe_proposal_build_custom_abi` and `dexe_proposal_build_external` now
   hard-refuse** (no override) any action whose calldata carries a denylisted
-  selector. Harm-reduction only — an attacker can still hand-craft calldata; the
-  protocol fix is the real remediation. See
-  `docs/security/C2-default-routing-bypass.md`.
+  selector. Defense-in-depth at the MCP layer — users move their own funds
+  through the GovPool entrypoints, never via a proposal action.
 
 ### Notes
 
