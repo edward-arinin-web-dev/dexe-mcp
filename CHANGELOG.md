@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-06-03
 
 ### Treasury-safety advisory (low-quorum governance check)
 
