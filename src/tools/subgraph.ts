@@ -5,6 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall } from "../lib/multicall.js";
 import { gqlRequest } from "../lib/subgraph.js";
+import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
 
 /**
@@ -577,6 +578,8 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
             name: p.metadata.name,
             saleStartTime: p.saleStartTime.toString(),
             saleEndTime: p.saleEndTime.toString(),
+            saleStartTimeUTC: unixToUtc(p.saleStartTime),
+            saleEndTimeUTC: unixToUtc(p.saleEndTime),
             saleToken: p.saleTokenAddress,
             purchaseTokens: [...p.purchaseTokenAddresses],
             totalProvided: p.totalTokenProvided.toString(),

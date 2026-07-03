@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.1 — 2026-07-03
+
+### OTC date clarity (UTC)
+
+- **Human-readable UTC tier times** (`dexe_otc_buyer_status`,
+  `dexe_otc_list_sales_for_dao`): both tools now emit `saleStartTimeUTC` and
+  `saleEndTimeUTC` alongside the raw Unix `saleStartTime`/`saleEndTime`, e.g.
+  `"2026-07-03 17:45:59 UTC"`. Raw seconds are unambiguous to machines but
+  confuse people (and read as local time in some UIs); the explicit `UTC`
+  suffix removes any doubt. Verified against the live frontend, which labels
+  the same tier as "5:45 PM UTC". The `0` sentinel (unset time) renders as an
+  empty string rather than a misleading 1970 epoch. New `src/lib/time.ts`
+  helper `unixToUtc`, covered by `tests/lib/time.test.ts`. Additive only —
+  existing raw fields are unchanged. No tool-count change (154 tools).
+
 ## 0.11.0 — 2026-07-03
 
 ### OTC contract/frontend alignment (audit 2026-07-03)

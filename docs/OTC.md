@@ -69,6 +69,7 @@ calldata returned can be signed by any wallet (or auto-broadcast when
 | **Merkle leaf format** | OZ `StandardMerkleTree` double-hash `keccak256(keccak256(abi.encode(addr)))`. The `dexe_merkle_*` utility produces matching roots |
 | **Native BNB is `0xEeee…EEeE`, not the zero address** | `TokenSaleProposal` keys exchange rates by `ETHEREUM_ADDRESS` (Globals.sol) — a zero-address purchase token makes the tier unbuyable, and `buy()` with `0x0` reverts `TSP: incorrect token`. Buy tools accept `0x0` as an alias but always emit `0xEeee…` in calldata; the tier builder rejects `0x0` outright |
 | **Merkle tiers need their whitelist on IPFS** | app.dexe.io buyers regenerate proofs from the `{ "list": [...] }` JSON behind the tier's merkle `uri`. `dexe_otc_dao_open_sale` auto-uploads it when `uri` is empty (needs `DEXE_PINATA_JWT`); with `buildOnly: true` you own the upload |
+| **Times are UTC** | `saleStartTime`/`saleEndTime` are raw Unix seconds (timezone-agnostic). `dexe_otc_buyer_status` and `dexe_otc_list_sales_for_dao` also emit `saleStartTimeUTC`/`saleEndTimeUTC` (e.g. `"2026-07-03 17:45:59 UTC"`) so users don't misread them as local time — this matches the app.dexe.io tier labels ("… PM UTC") |
 
 ## Project-owner flow (full lifecycle)
 

@@ -21,6 +21,7 @@ import {
 } from "../lib/merkleTree.js";
 import { simulateCalldata } from "./simulate.js";
 import { parseUintString } from "../lib/amount.js";
+import { unixToUtc } from "../lib/time.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -518,6 +519,8 @@ export function registerOtcTools(
             saleTokenAddress: tier.saleTokenAddress,
             saleStartTime: tier.saleStartTime,
             saleEndTime: tier.saleEndTime,
+            saleStartTimeUTC: unixToUtc(tier.saleStartTime),
+            saleEndTimeUTC: unixToUtc(tier.saleEndTime),
             totalTokenProvided: tier.totalTokenProvided,
             totalSold: tv.tierInfo.totalSold,
             isOff: tv.tierInfo.isOff,
