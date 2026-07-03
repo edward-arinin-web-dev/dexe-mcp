@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
+import { resolveStatePath } from "./lib/stateStore.js";
 
 export interface ChainConfig {
   chainId: number;
@@ -87,6 +88,21 @@ export interface DexeConfig {
   walletConnectRelayUrl?: string;
   /** C12 — per-tx phone-approval timeout in ms. Default 120000. */
   walletConnectApprovalTimeoutMs?: number;
+
+  /**
+   * Phase 2 — active tool profiles from `DEXE_TOOLSETS` (comma list, lowercased).
+   * Default `["core","proposals"]`. An explicit `full` or any unknown set name
+   * loads every tool. Consumed by `applyToolGate` in src/tools/gate.ts.
+   */
+  toolsets: string[];
+
+  /**
+   * Phase 3 — resolved path to the persistent operational-state JSON
+   * (`DEXE_STATE_PATH` override, else `~/.dexe-mcp/state.json`). Records DAOs
+   * deployed and proposals broadcast so `dexe_context` can surface them across
+   * sessions. See src/lib/stateStore.ts.
+   */
+  statePath: string;
 }
 
 /**
@@ -324,6 +340,17 @@ export async function loadConfig(): Promise<DexeConfig> {
     forkBlock = n;
   }
 
+  // ---- Phase 2 toolset profiles (DEXE_TOOLSETS) --------------------------
+  // Comma list of profile names; default is the slim core+proposals surface.
+  // Validation (unknown names → fall back to full) happens in applyToolGate,
+  // which has the TOOLSETS registry; config.ts stays layer-clean.
+  const toolsetsRaw = process.env.DEXE_TOOLSETS?.trim();
+  const toolsets = toolsetsRaw
+    ? toolsetsRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+    : ["core", "proposals"];
+
+  const statePath = resolveStatePath();
+
   const defaultChain = chains.get(defaultChainId);
 
   return Object.freeze({
@@ -348,6 +375,8 @@ export async function loadConfig(): Promise<DexeConfig> {
     walletConnectProjectId,
     walletConnectRelayUrl,
     walletConnectApprovalTimeoutMs,
+    toolsets,
+    statePath,
   }) as DexeConfig;
 }
 

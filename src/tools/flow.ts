@@ -24,6 +24,7 @@ import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import { PROPOSAL_BUILDERS, FLOW_PROPOSAL_TYPES } from "../lib/proposalBuilders.js";
 import { PROPOSAL_CATALOG } from "../lib/proposalCatalog.js";
 import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
+import type { StateStore } from "../lib/stateStore.js";
 
 // ---------- ABI fragments ----------
 
@@ -416,6 +417,8 @@ export interface ProposalCreateDeps {
   ctx: ToolContext;
   signer: SignerManager;
   rpc: RpcProvider;
+  /** Phase 3 — when present, a broadcast proposal is recorded for dexe_context. */
+  state?: StateStore;
 }
 
 /**
@@ -741,6 +744,24 @@ export async function runProposalCreate(
       // Step 6: send or return
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
 
+      // Phase 3: record a broadcast proposal so dexe_context surfaces it next
+      // session. Best-effort — a state-write error never breaks the broadcast.
+      if (result.mode === "executed" && deps.state) {
+        try {
+          const txHash = [...result.steps].reverse().find((s) => s.txHash)?.txHash;
+          deps.state.recordProposal({
+            govPool,
+            chainId,
+            title: input.title,
+            descriptionURL,
+            txHash,
+            createdAt: new Date().toISOString(),
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+
       return ok({
         mode: result.mode,
         descriptionURL,
@@ -762,6 +783,7 @@ export function registerFlowTools(
   server: McpServer,
   ctx: ToolContext,
   signer: SignerManager,
+  state?: StateStore,
 ): void {
   const rpc = new RpcProvider(ctx.config);
 
@@ -822,7 +844,7 @@ export function registerFlowTools(
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
     },
-    (input) => runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc }),
+    (input) => runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc, state }),
   );
 
   // =============================================

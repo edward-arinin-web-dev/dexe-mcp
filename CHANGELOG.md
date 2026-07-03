@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.14.0 — 2026-07-04
+
+### Persistent state + `dexe_context`
+
+Phase 3 of the reliability/token plan: stop starting every session from zero.
+
+- **`dexe_context` (new tool; core profile; +1 → 156 tools).** One read that
+  orients an agent: signer + mode, active/configured chains, env readiness, and
+  the persisted operational state — DAOs deployed and proposals broadcast in
+  prior sessions — plus deposited voting power in the most recent DAO. Server
+  `instructions` now say to call it first.
+- **Persistent state store** (`src/lib/stateStore.ts`). Versioned JSON at
+  `DEXE_STATE_PATH` (default `~/.dexe-mcp/state.json`), atomic write (temp +
+  rename), tolerant load (missing/corrupt/newer → empty, never throws).
+  `dexe_dao_create` auto-records the deployed DAO and `dexe_proposal_create`
+  auto-records a broadcast proposal — both best-effort (a state-write error
+  never breaks a broadcast).
+- **`DEXE_STATE_PATH` env** added to `ENV_SPEC`, `loadConfig()`, `.env.example`,
+  and `docs/ENVIRONMENT.md`. `dexe_doctor` gains a writable-path check for it.
+- **Tests** — `tests/lib/stateStore.test.ts` (atomic write, dedupe, corrupt/
+  version-mismatch tolerance, wallet labels); `gate.test.ts` updated to 156 and
+  asserts `dexe_context` in the default profile.
+- Skills updated to start with `dexe_context`.
+
+## 0.13.0 — 2026-07-04
+
+### Toolset profiles — slim default (BREAKING)
+
+Phase 2 of the reliability/token plan: cut the per-session `tools/list` cost by
+gating which tools register.
+
+- **`DEXE_TOOLSETS` gating** (`src/tools/gate.ts`). Named profiles — `core`,
+  `proposals`, `read`, `vote`, `governor`, `dev`, `full` — select which of the
+  155 tools load. `TOOLSETS` maps each profile to an exact tool-name set; the
+  union of the six named sets equals the full surface (asserted in tests), so
+  every tool is reachable under some profile. Applied as a one-line proxy wrap
+  in `registerAll()` — the 30+ register files are unchanged. A typo/unknown set
+  name falls back to `full` (never silently strips).
+- **BREAKING: default is now `core,proposals`** (~71 tools), not all 155.
+  Measured `tools/list`: full **205 KB** → default **111 KB (−46%)**; the
+  max-slim `DEXE_TOOLSETS=core` is **48 KB (−77%)**, viable because
+  `dexe_dao_create` / `dexe_proposal_create` cover the common flows server-side.
+  See [MIGRATION.md](docs/MIGRATION.md#012x--0130--slim-default-toolset-breaking).
+- **`DEXE_TOOLSETS` env** added to `ENV_SPEC`, `loadConfig()`, `.env.example`,
+  and `docs/ENVIRONMENT.md`. `dexe_doctor` now reports the active profile,
+  loaded-tool count, and the `full` restore hint. Startup stderr banner states
+  the active profile.
+- **Expanded server `instructions`** (~700 chars): prefer the composite flow
+  tools, approve UserKeeper not GovPool, testnet-first deploys, the toolsets
+  hint, and the shipped-skills hint.
+- **Tests** — `tests/tools/gate.test.ts`: per-profile resolution, union==155,
+  every set-name is a real tool, default subset assertions, and a real
+  in-memory `tools/list` size measurement.
+- Note: the plan's "slim `dexe_compile` schema" item was moot — the current
+  `dexe_compile` input schema is already a single field (the 11 KB/49-field
+  figure was stale). The token win is the gating above.
+
 ## 0.12.0 — 2026-07-03
 
 ### Flow-first facade + preflight guards + shipped skills

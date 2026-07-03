@@ -21,8 +21,11 @@ user explicitly asking. Pass `chainId: 97`.
 
 ## Recipe
 
-1. **Confirm chain + signer:** `dexe_get_config`. Ensure the active/target chain
-   is 97 and `DEXE_PINATA_JWT` is set (required for metadata upload).
+0. **Orient:** call `dexe_context` first — it shows the signer, active chain,
+   env readiness, and DAOs you already deployed (so you don't re-create one).
+1. **Confirm chain + signer:** `dexe_get_config` (or the `dexe_context` output).
+   Ensure the active/target chain is 97 and `DEXE_PINATA_JWT` is set (required
+   for metadata upload).
 2. **(Optional) avatar:** `dexe_dao_generate_avatar` or `dexe_ipfs_upload_avatar`
    → take the returned `cid` as `avatarCID`. Must be a **real JPEG**, not SVG
    bytes named `.jpeg` (the frontend gateway rejects the mismatch).

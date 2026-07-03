@@ -8,6 +8,7 @@ import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
 import { sendOrCollect } from "./flow.js";
 import { buildDeployGovPool, DeployParamsSchema } from "./daoDeploy.js";
+import type { StateStore } from "../lib/stateStore.js";
 import {
   checkDeployCap,
   checkUserKeeperAsset,
@@ -43,6 +44,7 @@ export function registerDaoCreateTools(
   server: McpServer,
   ctx: ToolContext,
   signer: SignerManager,
+  state?: StateStore,
 ): void {
   const rpc = new RpcProvider(ctx.config);
 
@@ -155,6 +157,24 @@ export function registerDaoCreateTools(
         result = await sendOrCollect(signer, [res.payload], { dryRun: input.dryRun, chainId });
       } catch (e) {
         return err(`Deploy broadcast failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      // Phase 3: record the deployed DAO so dexe_context surfaces it next
+      // session. Best-effort — never fail the deploy on a state-write error.
+      if (result.mode === "executed" && state && res.predictedGovPool) {
+        try {
+          const txHash = [...result.steps].reverse().find((s) => s.txHash)?.txHash;
+          state.recordDao({
+            name: input.daoName,
+            govPool: res.predictedGovPool,
+            chainId,
+            token: res.predicted.govToken,
+            txHash,
+            deployedAt: new Date().toISOString(),
+          });
+        } catch {
+          /* ignore */
+        }
       }
 
       return ok({
