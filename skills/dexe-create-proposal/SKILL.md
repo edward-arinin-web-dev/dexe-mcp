@@ -16,6 +16,9 @@ metadata with the correct `{proposalName, proposalDescription, category, isMeta,
 changes}` shape, and calls `createProposalAndVote`. With `DEXE_PRIVATE_KEY` it
 signs+broadcasts; otherwise it returns ordered `TxPayload`s.
 
+Call **`dexe_context`** first — it returns the signer, active chain, and the
+DAOs/proposals from prior sessions (so you already have the `govPool` to target).
+
 **Do not hand-sequence** approve/deposit/create, and do not hand-build the IPFS
 metadata — the composite does both correctly. **Do not guess ABIs/selectors**;
 the wired builders encode canonical calldata. Only reach for `dexe_get_methods`

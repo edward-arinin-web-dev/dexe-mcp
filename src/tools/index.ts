@@ -26,6 +26,8 @@ import { registerDoctorTool } from "./doctor.js";
 import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
 import { registerDaoCreateTools } from "./daoCreate.js";
+import { registerOperationalContextTools } from "./operationalContext.js";
+import { StateStore } from "../lib/stateStore.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcTools } from "./otc.js";
 import { registerSafeTools } from "./safe.js";
@@ -78,13 +80,16 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
 
   const signer = new SignerManager(config);
   const wc = new WalletConnectManager(config);
+  // Phase 3 — persistent operational state (known DAOs / recent proposals).
+  const state = new StateStore(config.statePath);
   registerTxTools(server, config, signer, wc);
   registerGetConfigTool(server, config, signer);
   // Diagnostics — call dexe_doctor first when env-related failures show up.
   registerDoctorTool(server, config);
   registerWalletConnectTools(server, config, signer, wc);
-  registerFlowTools(server, ctx, signer);
-  registerDaoCreateTools(server, ctx, signer);
+  registerFlowTools(server, ctx, signer, state);
+  registerDaoCreateTools(server, ctx, signer, state);
+  registerOperationalContextTools(server, config, signer, state);
   registerOtcTools(server, ctx, signer);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);

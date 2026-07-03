@@ -50,6 +50,7 @@ async function main(): Promise<void> {
     {
       instructions:
         "Tools for DeXe Protocol governance DAOs (plus a generic dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs). " +
+        "Call dexe_context FIRST — it returns the signer, active chain, env readiness, and the DAOs/proposals from prior sessions so you don't start from zero. " +
         "Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (any proposal — pass proposalType + params), dexe_proposal_vote_and_execute. " +
         "They handle the approve→deposit→create sequence, correct IPFS metadata, and the known deploy/proposal reverts. When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
         "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. dexe_decode_proposal and dexe_read_gov_state need an RPC. " +

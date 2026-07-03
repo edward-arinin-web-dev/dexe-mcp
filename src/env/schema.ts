@@ -97,6 +97,13 @@ export const ENV_SPEC = {
     example: "core,proposals",
     doc: "Comma list of tool profiles to load: core, proposals, read, vote, governor, dev, or full. Default 'core,proposals' (slim). 'full' or an unknown name loads all tools. Reduces tools/list tokens per session.",
   },
+  DEXE_STATE_PATH: {
+    schema: z.string().optional(),
+    category: "core",
+    required: false,
+    example: "",
+    doc: "Override path for the persistent operational-state JSON (known DAOs / recent proposals surfaced by dexe_context). Default ~/.dexe-mcp/state.json. Must be in a writable directory.",
+  },
 
   // ─── rpc ──────────────────────────────────────────────────────────────────
   DEXE_RPC_URL: {

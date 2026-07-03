@@ -2,14 +2,14 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 
 /**
- * Toolset gating (Phase 2 / v0.13.0). Registering all 155 tools unconditionally
- * costs ~25–35K tokens of `tools/list` per session. `DEXE_TOOLSETS` selects
- * named profiles so a default session loads a slim subset.
+ * Toolset gating (Phase 2 / v0.13.0). Registering all 156 tools unconditionally
+ * costs ~50K tokens (~206 KB) of `tools/list` per session. `DEXE_TOOLSETS`
+ * selects named profiles so a default session loads a slim subset.
  *
  * `TOOLSETS` maps a profile name → the exact tool names it enables. Sets may
  * overlap; the active allowlist is their union. `full` is special — it bypasses
  * filtering entirely (registers everything). The union of all named sets equals
- * the full 155-tool surface (asserted in tests/tools/gate.test.ts), so every
+ * the full 156-tool surface (asserted in tests/tools/gate.test.ts), so every
  * tool is reachable under at least one non-`full` profile.
  *
  * Applied as a one-line wrap in `registerAll()` — the wrapped server proxies
@@ -19,6 +19,7 @@ import type { DexeConfig } from "../config.js";
 
 // ── core: the everyday flow surface (~one session's worth) ──────────────────
 const CORE = [
+  "dexe_context",
   "dexe_doctor",
   "dexe_get_config",
   // composite signing flows

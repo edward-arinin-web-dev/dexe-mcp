@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
+import { resolveStatePath } from "./lib/stateStore.js";
 
 export interface ChainConfig {
   chainId: number;
@@ -94,6 +95,14 @@ export interface DexeConfig {
    * loads every tool. Consumed by `applyToolGate` in src/tools/gate.ts.
    */
   toolsets: string[];
+
+  /**
+   * Phase 3 — resolved path to the persistent operational-state JSON
+   * (`DEXE_STATE_PATH` override, else `~/.dexe-mcp/state.json`). Records DAOs
+   * deployed and proposals broadcast so `dexe_context` can surface them across
+   * sessions. See src/lib/stateStore.ts.
+   */
+  statePath: string;
 }
 
 /**
@@ -340,6 +349,8 @@ export async function loadConfig(): Promise<DexeConfig> {
     ? toolsetsRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
     : ["core", "proposals"];
 
+  const statePath = resolveStatePath();
+
   const defaultChain = chains.get(defaultChainId);
 
   return Object.freeze({
@@ -365,6 +376,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     walletConnectRelayUrl,
     walletConnectApprovalTimeoutMs,
     toolsets,
+    statePath,
   }) as DexeConfig;
 }
 

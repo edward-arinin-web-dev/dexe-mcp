@@ -6,6 +6,24 @@ something on your side.
 
 ---
 
+## 0.13.x → 0.14.0 — persistent state + `dexe_context`
+
+**TL;DR.** No action required. New `dexe_context` tool (call it first each
+session) + a persistent state file. Optional `DEXE_STATE_PATH` override.
+
+### What changed
+
+- **`dexe_context`** (new, in the `core` profile) returns your signer, active
+  chain, env readiness, and the DAOs/proposals recorded in prior sessions.
+- **Persistent state** is written to `~/.dexe-mcp/state.json` when you deploy a
+  DAO (`dexe_dao_create`) or broadcast a proposal (`dexe_proposal_create`).
+  Override the location with `DEXE_STATE_PATH`; `dexe_doctor` warns if the path
+  isn't writable. Everything still works without persistence (it degrades
+  silently). No secrets are stored — only DAO addresses, chain ids, tx hashes,
+  and any wallet labels you set.
+
+---
+
 ## 0.12.x → 0.13.0 — slim default toolset (BREAKING)
 
 **TL;DR.** A default session now loads **~71 tools**, not all 155. If a tool

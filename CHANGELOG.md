@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.14.0 — 2026-07-04
+
+### Persistent state + `dexe_context`
+
+Phase 3 of the reliability/token plan: stop starting every session from zero.
+
+- **`dexe_context` (new tool; core profile; +1 → 156 tools).** One read that
+  orients an agent: signer + mode, active/configured chains, env readiness, and
+  the persisted operational state — DAOs deployed and proposals broadcast in
+  prior sessions — plus deposited voting power in the most recent DAO. Server
+  `instructions` now say to call it first.
+- **Persistent state store** (`src/lib/stateStore.ts`). Versioned JSON at
+  `DEXE_STATE_PATH` (default `~/.dexe-mcp/state.json`), atomic write (temp +
+  rename), tolerant load (missing/corrupt/newer → empty, never throws).
+  `dexe_dao_create` auto-records the deployed DAO and `dexe_proposal_create`
+  auto-records a broadcast proposal — both best-effort (a state-write error
+  never breaks a broadcast).
+- **`DEXE_STATE_PATH` env** added to `ENV_SPEC`, `loadConfig()`, `.env.example`,
+  and `docs/ENVIRONMENT.md`. `dexe_doctor` gains a writable-path check for it.
+- **Tests** — `tests/lib/stateStore.test.ts` (atomic write, dedupe, corrupt/
+  version-mismatch tolerance, wallet labels); `gate.test.ts` updated to 156 and
+  asserts `dexe_context` in the default profile.
+- Skills updated to start with `dexe_context`.
+
 ## 0.13.0 — 2026-07-04
 
 ### Toolset profiles — slim default (BREAKING)

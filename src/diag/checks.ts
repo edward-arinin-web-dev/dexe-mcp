@@ -1,4 +1,6 @@
 import { resolve as dnsResolve } from "node:dns/promises";
+import { existsSync, accessSync, constants } from "node:fs";
+import { dirname } from "node:path";
 import { ENV_REGISTRY, type EnvKey, type EnvEntry, type EnvCategory } from "../env/schema.js";
 import { parseEnv } from "../env/parse.js";
 import type { DexeConfig } from "../config.js";
@@ -47,8 +49,35 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
 
   results.push(...signerGuardConfigCheck());
   results.push(...chainConsistencyCheck(opts.config));
+  results.push(...stateStoreCheck(opts.config));
 
   return results;
+}
+
+// ─── persistent state path writability ─────────────────────────────────────
+
+function stateStoreCheck(config: DexeConfig | undefined): CheckResult[] {
+  if (!config) return [];
+  const p = config.statePath;
+  // Probe the nearest existing ancestor for write permission — the default
+  // ~/.dexe-mcp dir is created lazily on first write, so it may not exist yet.
+  let probe = dirname(p);
+  while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
+  try {
+    accessSync(probe, constants.W_OK);
+    return [{ id: "state.path", category: "process", status: "pass", message: `writable (${p})` }];
+  } catch {
+    return [
+      {
+        id: "state.path",
+        category: "process",
+        status: "warn",
+        message: `persistent-state path may not be writable: ${p}`,
+        remediation:
+          "Set DEXE_STATE_PATH to a writable location. Without it, dexe_context won't persist known DAOs / recent proposals across sessions (tools still work).",
+      },
+    ];
+  }
 }
 
 // ─── presence ───────────────────────────────────────────────────────────────

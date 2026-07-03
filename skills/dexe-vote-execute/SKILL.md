@@ -15,6 +15,9 @@ votes, and (when `autoExecute`) executes once the proposal succeeds. With
 
 ## Recipe
 
+Call **`dexe_context`** first for the signer, active chain, recent proposals,
+and your deposited power in the most recent DAO.
+
 ```jsonc
 dexe_proposal_vote_and_execute({
   govPool: "0x…",
