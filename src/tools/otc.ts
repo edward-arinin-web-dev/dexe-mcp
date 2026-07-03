@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Interface, ZeroAddress, isAddress, getAddress } from "ethers";
+import { Interface, ZeroAddress, ZeroHash, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { SignerManager } from "../lib/signer.js";
@@ -11,7 +11,9 @@ import { resolveChain } from "../config.js";
 import {
   buildTokenSaleMultiActions,
   tierSchema,
+  type TierSpec,
 } from "./proposalBuildComplex.js";
+import { PinataClient } from "../lib/ipfs.js";
 import {
   buildAddressMerkleTree,
   computeLeafHash,
@@ -32,9 +34,26 @@ const ERC20_ABI = new Interface([
   "function approve(address spender, uint256 amount) returns (bool)",
 ]);
 
+/**
+ * Exact mirror of `ITokenSaleProposal.TierView` — a NESTED struct of
+ * `{ tierInitParams, tierInfo, tierAdditionalInfo }`. The previous flat shape
+ * (saleTokenAddress before claimLockDuration, reversed VestingSettings) was
+ * the pre-Bug-#25 field order and decoded garbage against live tiers.
+ * Field order verified against
+ * `DeXe-Protocol/contracts/interfaces/gov/proposals/ITokenSaleProposal.sol`.
+ */
+export const TIER_VIEW_TUPLE =
+  "tuple(" +
+  "tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint64 saleStartTime, uint64 saleEndTime, uint64 claimLockDuration, address saleTokenAddress, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 vestingPercentage, uint64 vestingDuration, uint64 cliffPeriod, uint64 unlockStep) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails) tierInitParams, " +
+  "tuple(bool isOff, uint256 totalSold, string uri, tuple(uint64 vestingStartTime, uint64 vestingEndTime) vestingTierInfo) tierInfo, " +
+  "tuple(bytes32 merkleRoot, string merkleUri, uint256 lastModified) tierAdditionalInfo" +
+  ")";
+
+export const GET_TIER_VIEWS_FRAGMENT = `function getTierViews(uint256 offset, uint256 limit) view returns (${TIER_VIEW_TUPLE}[] tierViews)`;
+
 const TOKEN_SALE_ABI = new Interface([
   "function latestTierId() view returns (uint256)",
-  "function getTierViews(uint256 offset, uint256 limit) view returns (tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint256 saleStartTime, uint256 saleEndTime, address saleTokenAddress, uint256 claimLockDuration, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 cliffPeriod, uint256 unlockStep, uint256 vestingDuration, uint256 vestingPercentage) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
+  GET_TIER_VIEWS_FRAGMENT,
   "function getUserViews(address user, uint256[] tierIds, bytes32[][] proofs) view returns (tuple(bool canParticipate, tuple(bool isClaimed, bool canClaim, uint64 claimUnlockTime, uint256 claimTotalAmount, uint256 boughtTotalAmount, address[] lockedTokenAddresses, uint256[] lockedTokenAmounts, address[] lockedNftAddresses, uint256[][] lockedNftIds, address[] purchaseTokenAddresses, uint256[] purchaseTokenAmounts) purchaseView, tuple(uint64 latestVestingWithdraw, uint64 nextUnlockTime, uint256 nextUnlockAmount, uint256 vestingTotalAmount, uint256 vestingWithdrawnAmount, uint256 amountToWithdraw, uint256 lockedAmount) vestingUserView)[] userViews)",
   "function buy(uint256 tierId, address tokenToBuyWith, uint256 amount, bytes32[] proof) payable",
   "function claim(uint256[] tierIds)",
@@ -66,8 +85,19 @@ function bigintReplacer(_k: string, v: unknown): unknown {
   return typeof v === "bigint" ? v.toString() : v;
 }
 
-function isNativeSentinel(addr: string): boolean {
-  return addr.toLowerCase() === ZeroAddress.toLowerCase();
+/**
+ * Protocol-wide native-coin sentinel (`Globals.sol::ETHEREUM_ADDRESS`).
+ * `TokenSaleProposalBuy` keys exchange rates by this address and checks
+ * `tokenToBuyWith != ETHEREUM_ADDRESS` for the native path — passing the
+ * zero address on-chain reverts with "TSP: incorrect token". We accept the
+ * zero address as caller input for convenience, but calldata must always
+ * carry ETHEREUM_ADDRESS.
+ */
+export const ETHEREUM_ADDRESS = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+
+export function isNativeSentinel(addr: string): boolean {
+  const a = addr.toLowerCase();
+  return a === ZeroAddress || a === ETHEREUM_ADDRESS.toLowerCase();
 }
 
 /**
@@ -95,6 +125,64 @@ export function buildExactApproval(
   };
 }
 
+/**
+ * Frontend-compat (app.dexe.io): the buyer UI regenerates merkle proofs from
+ * the IPFS `{ list: [...] }` JSON referenced by the tier's MerkleWhitelist
+ * uri (`useTokenSaleWhiteListProofFetcher`). A merkle tier created with an
+ * empty uri is unbuyable through the frontend — nobody can fetch the list to
+ * derive a proof. So before encoding, upload the whitelist and inject
+ * `ipfs://<cid>` into the participation spec (matches the frontend's
+ * `IpfsEntity.path` format; addresses lowercased like the frontend does).
+ */
+async function resolveMerkleUris(
+  tiers: readonly TierSpec[],
+  pinataJwt: string | undefined,
+): Promise<{
+  tiers: TierSpec[];
+  uploaded: { tierName: string; uri: string }[];
+  warnings: string[];
+}> {
+  const uploaded: { tierName: string; uri: string }[] = [];
+  const warnings: string[] = [];
+  const out: TierSpec[] = [];
+  for (const tier of tiers) {
+    const parts = tier.participation ?? [];
+    const needsUpload = parts.some(
+      (p) => p.type === "MerkleWhitelist" && !p.uri && (p.users?.length ?? 0) > 0,
+    );
+    if (!needsUpload) {
+      out.push(tier);
+      continue;
+    }
+    if (!pinataJwt) {
+      warnings.push(
+        `Tier "${tier.name}": MerkleWhitelist uri left empty (DEXE_PINATA_JWT unset) — ` +
+          `app.dexe.io buyers cannot regenerate proofs for this tier; distribute the whitelist out-of-band.`,
+      );
+      out.push(tier);
+      continue;
+    }
+    const pinata = new PinataClient(pinataJwt);
+    const newParts: TierSpec["participation"] = [];
+    for (const p of parts) {
+      if (p.type === "MerkleWhitelist" && !p.uri && (p.users?.length ?? 0) > 0) {
+        const list = p.users.map((u) => u.toLowerCase());
+        const res = await pinata.pinJson(
+          { list },
+          { name: `otc-whitelist:${tier.name.slice(0, 24)}` },
+        );
+        const uri = `ipfs://${res.cid}`;
+        uploaded.push({ tierName: tier.name, uri });
+        newParts.push({ ...p, uri });
+      } else {
+        newParts.push(p);
+      }
+    }
+    out.push({ ...tier, participation: newParts });
+  }
+  return { tiers: out, uploaded, warnings };
+}
+
 // ---------- register ----------
 
 export function registerOtcTools(
@@ -111,7 +199,8 @@ export function registerOtcTools(
     "dexe_otc_dao_open_sale",
     "OTC composite — propose to open a multi-tier token sale on a deployed OTC DAO. " +
       "Builds the multi-tier `createTiers` envelope (deduped/summed approves, auto-merkle, " +
-      "auto-addToWhitelist for plain Whitelist tiers), then runs the full proposal_create " +
+      "auto-addToWhitelist for plain Whitelist tiers, auto-upload of merkle whitelists to " +
+      "IPFS so app.dexe.io buyers can regenerate proofs), then runs the full proposal_create " +
       "flow: balance + threshold check, ERC20 approve to UserKeeper if needed, deposit, " +
       "IPFS proposal-metadata upload, `createProposalAndVote`. " +
       "When DEXE_PRIVATE_KEY is set, signs and broadcasts each tx; otherwise returns " +
@@ -138,9 +227,22 @@ export function registerOtcTools(
     },
     async (input) => {
       try {
+        // Frontend-compat: merkle tiers must reference their whitelist on
+        // IPFS or app.dexe.io buyers cannot derive proofs. buildOnly skips
+        // uploads by design — the caller owns IPFS there.
+        let tiers: readonly TierSpec[] = input.tiers;
+        let whitelistUploads: { tierName: string; uri: string }[] = [];
+        let whitelistWarnings: string[] = [];
+        if (!input.buildOnly) {
+          const resolved = await resolveMerkleUris(input.tiers, ctx.config.pinataJwt);
+          tiers = resolved.tiers;
+          whitelistUploads = resolved.uploaded;
+          whitelistWarnings = resolved.warnings;
+        }
+
         const built = buildTokenSaleMultiActions({
           tokenSaleProposal: input.tokenSaleProposal,
-          tiers: input.tiers,
+          tiers,
           latestTierId: input.latestTierId,
           proposalName: input.proposalName,
           proposalDescription: input.proposalDescription,
@@ -207,6 +309,8 @@ export function registerOtcTools(
             tierNames: built.tierNames,
             derivedMerkleRoots: built.derivedMerkleRoots,
             whitelistRequests: built.whitelistRequests,
+            merkleWhitelistUploads: whitelistUploads,
+            ...(whitelistWarnings.length > 0 ? { warnings: whitelistWarnings } : {}),
             tierIdsAfterExecute: input.tiers.map(
               (_, i) => (parseUintString(input.latestTierId, "latestTierId") + 1n + BigInt(i)).toString(),
             ),
@@ -225,8 +329,9 @@ export function registerOtcTools(
     "dexe_otc_buyer_status",
     "OTC buyer aggregator — reads tier params + user state across N tiers and returns a " +
       "render-ready summary (purchasable status, claimable amount, vesting withdrawable, " +
-      "lockup ETA). When `whitelistUsers` is supplied per tier, computes the merkle proof " +
-      "for the user against that list. Read-only.",
+      "lockup ETA, totalSold, on-chain merkle root). When `whitelists` is supplied per tier, " +
+      "computes the user's merkle proof against that list AND passes it into getUserViews — " +
+      "so `canParticipate` is accurate for merkle-gated tiers. Read-only.",
     {
       tokenSaleProposal: z.string(),
       tierIds: z.array(z.string()).min(1),
@@ -258,24 +363,54 @@ export function registerOtcTools(
       const offset = (minTier - 1n).toString();
       const limit = (maxTier - minTier + 1n).toString();
 
-      const calls: Call[] = [
-        {
-          target: tokenSaleProposal,
-          iface: TOKEN_SALE_ABI,
-          method: "getTierViews",
-          args: [BigInt(offset), BigInt(limit)],
-          allowFailure: true,
-        },
-        {
-          target: tokenSaleProposal,
-          iface: TOKEN_SALE_ABI,
-          method: "getUserViews",
-          args: [userAddr, tierIdNums, tierIdNums.map(() => [])],
-          allowFailure: true,
-        },
-      ];
-
       try {
+        // Pre-compute merkle proofs per tier BEFORE the reads — the contract's
+        // getUserViews takes bytes32[][] proofs, and canParticipate for
+        // MerkleWhitelist tiers is proof-dependent (empty proofs => false even
+        // for included users). Mirrors the frontend's useFetchMergedTierViews.
+        const whitelistByTier = new Map(whitelists.map((w) => [w.tierId, w.users]));
+        const merkleByTier = new Map<
+          string,
+          { root: string; proof: string[]; included: boolean }
+        >();
+        for (const [tierId, wlUsers] of whitelistByTier) {
+          if (!wlUsers || wlUsers.length === 0) continue;
+          const checksummed = wlUsers.map((u) => {
+            if (!isAddress(u)) throw new Error(`whitelist user invalid: ${u}`);
+            return getAddress(u);
+          });
+          const tree = buildAddressMerkleTree(checksummed);
+          const idx = checksummed.findIndex((a) => a.toLowerCase() === userAddr.toLowerCase());
+          if (idx >= 0) {
+            const leaf = computeLeafHash([userAddr], ["address"]);
+            const proof = tree.proofs[idx]!;
+            merkleByTier.set(tierId, {
+              root: tree.root,
+              proof,
+              included: verifyProof(proof, tree.root, leaf),
+            });
+          } else {
+            merkleByTier.set(tierId, { root: tree.root, proof: [], included: false });
+          }
+        }
+
+        const calls: Call[] = [
+          {
+            target: tokenSaleProposal,
+            iface: TOKEN_SALE_ABI,
+            method: "getTierViews",
+            args: [BigInt(offset), BigInt(limit)],
+            allowFailure: true,
+          },
+          {
+            target: tokenSaleProposal,
+            iface: TOKEN_SALE_ABI,
+            method: "getUserViews",
+            args: [userAddr, tierIdNums, tierIds.map((id) => merkleByTier.get(id)?.proof ?? [])],
+            allowFailure: true,
+          },
+        ];
+
         const res = await multicall(provider, calls);
         if (!res[0]!.success) return err(`getTierViews failed: ${res[0]!.error}`);
         if (!res[1]!.success) return err(`getUserViews failed: ${res[1]!.error}`);
@@ -283,34 +418,48 @@ export function registerOtcTools(
         const tierViewsRange = res[0]!.value as unknown as unknown[];
         const userViews = res[1]!.value as unknown as unknown[];
 
-        const whitelistByTier = new Map(whitelists.map((w) => [w.tierId, w.users]));
-
         const summaries = tierIds.map((tierIdStr, i) => {
           const tierIdx = Number(BigInt(tierIdStr) - minTier);
-          const tier = tierViewsRange[tierIdx] as
+          // Contract returns nested TierView { tierInitParams, tierInfo,
+          // tierAdditionalInfo } — see TIER_VIEW_TUPLE.
+          const tv = tierViewsRange[tierIdx] as
             | undefined
             | {
-                metadata: { name: string; description: string };
-                totalTokenProvided: bigint;
-                saleStartTime: bigint;
-                saleEndTime: bigint;
-                saleTokenAddress: string;
-                claimLockDuration: bigint;
-                purchaseTokenAddresses: string[];
-                exchangeRates: bigint[];
-                minAllocationPerUser: bigint;
-                maxAllocationPerUser: bigint;
-                vestingSettings: {
-                  cliffPeriod: bigint;
-                  unlockStep: bigint;
-                  vestingDuration: bigint;
-                  vestingPercentage: bigint;
+                tierInitParams: {
+                  metadata: { name: string; description: string };
+                  totalTokenProvided: bigint;
+                  saleStartTime: bigint;
+                  saleEndTime: bigint;
+                  claimLockDuration: bigint;
+                  saleTokenAddress: string;
+                  purchaseTokenAddresses: string[];
+                  exchangeRates: bigint[];
+                  minAllocationPerUser: bigint;
+                  maxAllocationPerUser: bigint;
+                  vestingSettings: {
+                    vestingPercentage: bigint;
+                    vestingDuration: bigint;
+                    cliffPeriod: bigint;
+                    unlockStep: bigint;
+                  };
+                  participationDetails: { participationType: bigint; data: string }[];
                 };
-                participationDetails: { participationType: number; data: string }[];
+                tierInfo: {
+                  isOff: boolean;
+                  totalSold: bigint;
+                  uri: string;
+                  vestingTierInfo: { vestingStartTime: bigint; vestingEndTime: bigint };
+                };
+                tierAdditionalInfo: {
+                  merkleRoot: string;
+                  merkleUri: string;
+                  lastModified: bigint;
+                };
               };
-          if (!tier) {
+          if (!tv) {
             return { tierId: tierIdStr, error: "tier not found in range" };
           }
+          const tier = tv.tierInitParams;
 
           const uv = userViews[i] as
             | undefined
@@ -336,44 +485,56 @@ export function registerOtcTools(
             return { tierId: tierIdStr, error: "user view missing" };
           }
 
-          // Surface participation requirements + compute merkle proof for user
-          // when caller supplied a whitelist.
+          // Surface participation requirements; the merkle proof (if a
+          // whitelist was supplied) was already computed pre-read.
           const participation = tier.participationDetails.map((p) => ({
-            type: PARTICIPATION_TYPE_NAMES[p.participationType] ?? `Unknown(${p.participationType})`,
+            type:
+              PARTICIPATION_TYPE_NAMES[Number(p.participationType)] ??
+              `Unknown(${p.participationType})`,
             data: p.data,
           }));
 
-          const wlList = whitelistByTier.get(tierIdStr);
-          let merkle: { root: string; proof: string[]; included: boolean } | undefined;
-          if (wlList && wlList.length > 0) {
-            const checksummed = wlList.map((u) => {
-              if (!isAddress(u)) throw new Error(`whitelist user invalid: ${u}`);
-              return getAddress(u);
-            });
-            const tree = buildAddressMerkleTree(checksummed);
-            const idx = checksummed.findIndex((a) => a.toLowerCase() === userAddr.toLowerCase());
-            if (idx >= 0) {
-              const leaf = computeLeafHash([userAddr], ["address"]);
-              const proof = tree.proofs[idx]!;
-              merkle = { root: tree.root, proof, included: verifyProof(proof, tree.root, leaf) };
-            } else {
-              merkle = { root: tree.root, proof: [], included: false };
-            }
-          }
+          const onchainMerkleRoot =
+            tv.tierAdditionalInfo.merkleRoot === ZeroHash
+              ? null
+              : tv.tierAdditionalInfo.merkleRoot;
+          const merkleLocal = merkleByTier.get(tierIdStr);
+          const merkle = merkleLocal
+            ? {
+                ...merkleLocal,
+                onchainRoot: onchainMerkleRoot,
+                // Guards against a stale/foreign whitelist: the proof only
+                // works on-chain when the roots match.
+                rootMatchesOnchain:
+                  onchainMerkleRoot === null
+                    ? null
+                    : merkleLocal.root.toLowerCase() === onchainMerkleRoot.toLowerCase(),
+              }
+            : undefined;
 
           return {
             tierId: tierIdStr,
-            metadata: tier.metadata,
+            metadata: { name: tier.metadata.name, description: tier.metadata.description },
             saleTokenAddress: tier.saleTokenAddress,
             saleStartTime: tier.saleStartTime,
             saleEndTime: tier.saleEndTime,
             totalTokenProvided: tier.totalTokenProvided,
-            purchaseTokenAddresses: tier.purchaseTokenAddresses,
-            exchangeRates: tier.exchangeRates,
+            totalSold: tv.tierInfo.totalSold,
+            isOff: tv.tierInfo.isOff,
+            tierUri: tv.tierInfo.uri || null,
+            onchainMerkleRoot,
+            merkleUri: tv.tierAdditionalInfo.merkleUri || null,
+            purchaseTokenAddresses: [...tier.purchaseTokenAddresses],
+            exchangeRates: [...tier.exchangeRates],
             minAllocationPerUser: tier.minAllocationPerUser,
             maxAllocationPerUser: tier.maxAllocationPerUser,
             claimLockDuration: tier.claimLockDuration,
-            vestingSettings: tier.vestingSettings,
+            vestingSettings: {
+              vestingPercentage: tier.vestingSettings.vestingPercentage,
+              vestingDuration: tier.vestingSettings.vestingDuration,
+              cliffPeriod: tier.vestingSettings.cliffPeriod,
+              unlockStep: tier.vestingSettings.unlockStep,
+            },
             participation,
             user: {
               canParticipate: uv.canParticipate,
@@ -416,7 +577,12 @@ export function registerOtcTools(
         .optional()
         .describe("Target chain id. Defaults to the MCP's default chain."),
       tierId: z.string(),
-      tokenToBuyWith: z.string().describe("Payment token; use 0x000...000 for native BNB"),
+      tokenToBuyWith: z
+        .string()
+        .describe(
+          "Payment token; for native BNB pass 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE (protocol ETHEREUM_ADDRESS). " +
+            "The zero address is accepted as an alias, but calldata always carries ETHEREUM_ADDRESS — the contract keys exchange rates by it.",
+        ),
       amount: z
         .string()
         .describe(
@@ -445,6 +611,10 @@ export function registerOtcTools(
       const tierIdBn = parseUintString(input.tierId, "tierId");
       const amountBn = parseUintString(input.amount, "amount");
       const native = isNativeSentinel(input.tokenToBuyWith);
+      // Contract-canonical payment token: native buys MUST carry
+      // ETHEREUM_ADDRESS (0xEeee…EEeE) — the zero address reverts on-chain
+      // with "TSP: incorrect token".
+      const tokenArg = native ? ETHEREUM_ADDRESS : getAddress(input.tokenToBuyWith);
 
       // Compute proof from whitelistUsers if needed.
       let proof = input.proof;
@@ -474,14 +644,14 @@ export function registerOtcTools(
       if (!native) {
         const calls: Call[] = [
           {
-            target: input.tokenToBuyWith,
+            target: tokenArg,
             iface: ERC20_ABI,
             method: "balanceOf",
             args: [userAddr],
             allowFailure: true,
           },
           {
-            target: input.tokenToBuyWith,
+            target: tokenArg,
             iface: ERC20_ABI,
             method: "allowance",
             args: [userAddr, input.tokenSaleProposal],
@@ -500,7 +670,7 @@ export function registerOtcTools(
 
         if (allowance < amountBn) {
           payloads.push(
-            buildExactApproval(input.tokenToBuyWith, input.tokenSaleProposal, amountBn, chainId),
+            buildExactApproval(tokenArg, input.tokenSaleProposal, amountBn, chainId),
           );
         } else {
           skipped.push({ label: "ERC20.approve", reason: "Allowance sufficient" });
@@ -510,7 +680,7 @@ export function registerOtcTools(
       // buy()
       const buyData = TOKEN_SALE_ABI.encodeFunctionData("buy", [
         tierIdBn,
-        input.tokenToBuyWith,
+        tokenArg,
         amountBn,
         proof,
       ]);
@@ -519,7 +689,7 @@ export function registerOtcTools(
         data: buyData,
         value: native ? amountBn.toString() : "0",
         chainId,
-        description: `TokenSaleProposal.buy(tier=${tierIdBn}, ${native ? "native" : input.tokenToBuyWith}, ${amountBn})`,
+        description: `TokenSaleProposal.buy(tier=${tierIdBn}, ${native ? `native (${ETHEREUM_ADDRESS})` : tokenArg}, ${amountBn})`,
       });
 
       // Optional simulation gate: preflight the buy() against live state before

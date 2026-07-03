@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { parseUintString } from "../lib/amount.js";
+import { ETHEREUM_ADDRESS, isNativeSentinel } from "./otc.js";
 
 /**
  * Phase 4 — user-facing write calldata builders.
@@ -711,11 +712,15 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
     {
       title: "Buy tokens from a token sale tier",
       description:
-        "Builds calldata for `TokenSaleProposal.buy(tierId, tokenToBuyWith, amount, proof)`. Pass `value` for native-coin purchases. Pass Merkle `proof` if the tier is whitelisted (empty array otherwise).",
+        "Builds calldata for `TokenSaleProposal.buy(tierId, tokenToBuyWith, amount, proof)`. For native-coin purchases pass ETHEREUM_ADDRESS (0xEeee…EEeE) as `tokenToBuyWith` — `value` is auto-set to `amount` when left at 0 (the contract requires msg.value == amount). Pass Merkle `proof` if the tier is whitelisted (empty array otherwise).",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         tierId: z.string().describe("Tier ID to buy from"),
-        tokenToBuyWith: z.string().describe("Payment token address (zero address for native coin)"),
+        tokenToBuyWith: z
+          .string()
+          .describe(
+            "Payment token address. For native coin pass 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE (protocol ETHEREUM_ADDRESS); the zero address is accepted as an alias but calldata always carries ETHEREUM_ADDRESS.",
+          ),
         amount: z
           .string()
           .describe(
@@ -731,12 +736,20 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
       if (!isAddress(tokenToBuyWith)) return errorResult(`Invalid tokenToBuyWith: ${tokenToBuyWith}`);
       try {
         const iface = new Interface(TOKEN_SALE_WRITE_ABI as unknown as string[]);
+        // Contract keys exchange rates by ETHEREUM_ADDRESS for native buys —
+        // the zero address reverts "TSP: incorrect token". Native also
+        // requires msg.value == amount ("TSP: wrong native amount").
+        const native = isNativeSentinel(tokenToBuyWith);
+        const tokenArg = native ? ETHEREUM_ADDRESS : tokenToBuyWith;
+        const amountBn = parseUintString(amount, "amount");
+        let valueBn = parseUintString(value, "value");
+        if (native && valueBn === 0n) valueBn = amountBn;
         const payload = buildPayload({
           to: tokenSaleProposal,
           iface,
           method: "buy",
-          args: [parseUintString(tierId, "tierId"), tokenToBuyWith, parseUintString(amount, "amount"), proof],
-          value: parseUintString(value, "value"),
+          args: [parseUintString(tierId, "tierId"), tokenArg, amountBn, proof],
+          value: valueBn,
           chainId: ctx.config.chainId,
           contractLabel: "TokenSaleProposal",
         });

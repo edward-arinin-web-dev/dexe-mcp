@@ -46,7 +46,7 @@
         "minAllocationPerUser": "0",
         "maxAllocationPerUser": "0",
         "vestingSettings": {
-          "vestingPercentage": "250000000000000000000000000",
+          "vestingPercentage": "25",
           "vestingDuration": "2592000",
           "cliffPeriod": "604800",
           "unlockStep": "86400"

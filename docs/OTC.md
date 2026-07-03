@@ -15,8 +15,8 @@ calldata returned can be signed by any wallet (or auto-broadcast when
 | `dexe_otc_dao_open_sale` | composite — multi-tier `createTiers` envelope + IPFS metadata + deposit + `createProposalAndVote`. `buildOnly: true` skips the proposal flow and just returns the envelope |
 | `dexe_proposal_state` | poll `state` until index `4` (`SucceededFor`) — newly-passed proposals briefly land in `Locked` (idx 6) for finality before transitioning |
 | `dexe_vote_build_execute` | build the final `execute(proposalId)` payload |
-| `dexe_otc_buyer_status` | render-ready buyer view: per-tier prices + claimable + vesting + auto-merkle proof |
-| `dexe_otc_buyer_buy` | preflights balance/allowance + builds approve + buy(); native sentinel `0x0` skips approve and uses `value` |
+| `dexe_otc_buyer_status` | render-ready buyer view: per-tier prices + `totalSold`/`isOff` + claimable + vesting + auto-merkle proof (passed into `getUserViews`, so `canParticipate` is accurate for merkle tiers) |
+| `dexe_otc_buyer_buy` | preflights balance/allowance + builds approve + buy(); native sentinel `0xEeee…EEeE` (ETHEREUM_ADDRESS) skips approve and uses `value` — `0x0…0` accepted as alias |
 | `dexe_otc_buyer_claim_all` | reads `getUserViews`, picks tiers with `canClaim && !isClaimed` → `claim(...)`, tiers with `amountToWithdraw > 0` → `vestingWithdraw(...)`. `mode: "noop"` when nothing pending |
 | `dexe_proposal_build_token_sale_whitelist` | extend an existing tier's whitelist post-launch |
 | `dexe_merkle_build` / `dexe_merkle_proof` | OZ `StandardMerkleTree`-compatible utility (sorted-pair commutative keccak, double-hash leaf) |
@@ -32,12 +32,12 @@ calldata returned can be signed by any wallet (or auto-broadcast when
   "saleEndTime":   "<unix sec>",
   "claimLockDuration": "<sec>",
   "saleTokenAddress": "0x…",
-  "purchaseTokenAddresses": ["0x… (use 0x0…0 for native BNB)"],
+  "purchaseTokenAddresses": ["0x… (use 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE for native BNB — never 0x0…0)"],
   "exchangeRates": ["<wei>"],
   "minAllocationPerUser": "<wei>",
   "maxAllocationPerUser": "<wei>",
   "vestingSettings": {
-    "vestingPercentage": "<wei>",
+    "vestingPercentage": "<human percent 0-100, e.g. \"25\" — auto-scaled by 1e25>",
     "vestingDuration": "<sec>",
     "cliffPeriod": "<sec>",
     "unlockStep": "<sec>"
@@ -67,6 +67,8 @@ calldata returned can be signed by any wallet (or auto-broadcast when
 | **`runProposalCreate` defaults `voteAmount` to all wallet+deposit** | Pin `voteAmount` to existing deposit if you need to keep wallet funds for the buyer side |
 | **`dexe_proposal_vote_and_execute` only handles state 4/5/6** | If proposal lands in `Locked`, polling for `SucceededFor` then calling `dexe_vote_build_execute` is the safe path |
 | **Merkle leaf format** | OZ `StandardMerkleTree` double-hash `keccak256(keccak256(abi.encode(addr)))`. The `dexe_merkle_*` utility produces matching roots |
+| **Native BNB is `0xEeee…EEeE`, not the zero address** | `TokenSaleProposal` keys exchange rates by `ETHEREUM_ADDRESS` (Globals.sol) — a zero-address purchase token makes the tier unbuyable, and `buy()` with `0x0` reverts `TSP: incorrect token`. Buy tools accept `0x0` as an alias but always emit `0xEeee…` in calldata; the tier builder rejects `0x0` outright |
+| **Merkle tiers need their whitelist on IPFS** | app.dexe.io buyers regenerate proofs from the `{ "list": [...] }` JSON behind the tier's merkle `uri`. `dexe_otc_dao_open_sale` auto-uploads it when `uri` is empty (needs `DEXE_PINATA_JWT`); with `buildOnly: true` you own the upload |
 
 ## Project-owner flow (full lifecycle)
 
@@ -162,10 +164,16 @@ await call("dexe_otc_buyer_claim_all", {
 
 ## Native-coin (BNB) buy
 
-Pass `tokenToBuyWith: "0x0000000000000000000000000000000000000000"` and the tool will:
+Pass `tokenToBuyWith: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"` (the protocol
+`ETHEREUM_ADDRESS` sentinel; the zero address is accepted as an alias) and the tool will:
 - skip ERC20 balance/allowance preflight
 - skip the approve payload
 - set `value = amount` on the buy tx
+- emit `ETHEREUM_ADDRESS` as the calldata token arg (the contract keys exchange
+  rates by it — the zero address reverts `TSP: incorrect token`)
+
+The tier itself must list `ETHEREUM_ADDRESS` in `purchaseTokenAddresses` for
+native purchases to work.
 
 ## Whitelist extension post-launch
 

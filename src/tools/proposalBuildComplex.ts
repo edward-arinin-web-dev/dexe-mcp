@@ -418,6 +418,16 @@ export function buildTierTuple(tier: TierSpec): {
   }
   for (const pt of tier.purchaseTokenAddresses) {
     if (!isAddress(pt)) throw new Error(`Tier "${tier.name}": invalid purchase token ${pt}.`);
+    // TokenSaleProposal's native path is keyed by Globals.sol::ETHEREUM_ADDRESS —
+    // a zero-address purchase token creates a tier nobody can buy from
+    // (buy() reverts "TSP: incorrect token" for any unlisted token).
+    if (pt.toLowerCase() === ZeroAddress) {
+      throw new Error(
+        `Tier "${tier.name}": zero-address purchase token. For native BNB use the protocol ` +
+          `sentinel 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE (ETHEREUM_ADDRESS) — the contract ` +
+          `keys exchange rates by it; a zero-address entry is unbuyable.`,
+      );
+    }
   }
 
   // Normalize rates to raw 25-precision wei. Either branch produces a

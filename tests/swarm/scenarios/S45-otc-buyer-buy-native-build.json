@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [56, 97],
   "requiresBrowser": false,
-  "notes": "Phase B — exercises dexe_otc_buyer_buy native path in dryRun. ZeroAddress sentinel signals native BNB → no ERC20 approve, value=amount. Verifies the single buy() payload is returned with chainId, value, and the proof passed through (empty array for open tier).",
+  "notes": "Phase B — exercises dexe_otc_buyer_buy native path in dryRun. ETHEREUM_ADDRESS (0xEeee…EEeE, Globals.sol) signals native BNB → no ERC20 approve, value=amount. The zero address is accepted as an alias but calldata must carry ETHEREUM_ADDRESS (contract keys exchange rates by it; zero address reverts 'TSP: incorrect token'). Verifies the single buy() payload is returned with chainId, value, and the proof passed through (empty array for open tier).",
   "agents": [{ "alias": "B", "role": "Proposer", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
@@ -16,7 +16,7 @@
       "args": {
         "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
         "tierId": "1",
-        "tokenToBuyWith": "0x0000000000000000000000000000000000000000",
+        "tokenToBuyWith": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
         "amount": "100000000000000000",
         "proof": [],
         "dryRun": true,
@@ -28,6 +28,7 @@
   ],
   "successCriteria": [
     { "id": "native-mode", "check": "buy.native == true and buy.preflight is null (no ERC20 read)" },
-    { "id": "single-payload", "check": "buy.steps length == 1 and the only step is a buy() TxPayload with value == amount and chainId == 97" }
+    { "id": "single-payload", "check": "buy.steps length == 1 and the only step is a buy() TxPayload with value == amount and chainId == 97" },
+    { "id": "eth-sentinel", "check": "buy() calldata token arg == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE (never the zero address)" }
   ]
 }

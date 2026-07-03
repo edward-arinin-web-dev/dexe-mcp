@@ -29,6 +29,10 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      # Frontend↔MCP byte-diff for OTC calldata (needs dist/ from the build
+      # step). Rotted silently while it lived outside CI — see 2026-07-03
+      # OTC audit (H-10 vestingPercentage rescale broke a fixture unnoticed).
+      - run: npm run test:compat
 
   # Supply-chain guard: install strictly from the committed package-lock.json and
   # fail on any drift between package.json, the lockfile, and the resolved tree.

@@ -5,6 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall } from "../lib/multicall.js";
 import { gqlRequest } from "../lib/subgraph.js";
+import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
 
 /**
  * Subgraph-backed read tools. Each tool queries one of the three DeXe
@@ -444,9 +445,11 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
 
 // ---------- OTC discovery ----------
 
+// Nested TierView decode — single source of truth in src/tools/otc.ts
+// (mirrors ITokenSaleProposal.TierView; the old flat shape decoded garbage).
 const TOKEN_SALE_DISCOVERY_ABI = new Interface([
   "function latestTierId() view returns (uint256)",
-  "function getTierViews(uint256 offset, uint256 limit) view returns (tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint256 saleStartTime, uint256 saleEndTime, address saleTokenAddress, uint256 claimLockDuration, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 cliffPeriod, uint256 unlockStep, uint256 vestingDuration, uint256 vestingPercentage) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
+  GET_TIER_VIEWS_FRAGMENT,
 ]);
 
 const GOV_POOL_HELPERS_DISCOVERY_ABI = new Interface([
@@ -464,7 +467,7 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
     {
       title: "List OTC sale tiers for a DAO",
       description:
-        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with status (`upcoming` / `active` / `ended`) computed against current block timestamp. Works on chain 56 (mainnet) and 97 (testnet) — no subgraph required. " +
+        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with `totalSold` and status (`upcoming` / `active` / `ended` / `off`) computed against current block timestamp and the tier's on-chain isOff flag. Works on chain 56 (mainnet) and 97 (testnet) — no subgraph required. " +
         "When `tokenSaleProposal` is omitted the tool returns an error pointing at the helper-discovery follow-up; supply it explicitly until per-DAO helper discovery lands.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
@@ -549,33 +552,35 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
         const nowSec = BigInt(block?.timestamp ?? Math.floor(Date.now() / 1000));
 
         const rawTiers = tiersR.value as unknown as Array<{
-          metadata: { name: string; description: string };
-          totalTokenProvided: bigint;
-          saleStartTime: bigint;
-          saleEndTime: bigint;
-          saleTokenAddress: string;
-          purchaseTokenAddresses: string[];
+          tierInitParams: {
+            metadata: { name: string; description: string };
+            totalTokenProvided: bigint;
+            saleStartTime: bigint;
+            saleEndTime: bigint;
+            saleTokenAddress: string;
+            purchaseTokenAddresses: string[];
+          };
+          tierInfo: { isOff: boolean; totalSold: bigint; uri: string };
         }>;
 
         const tiers = rawTiers.map((t, i) => {
           const tierId = String(i + 1);
-          let status: "upcoming" | "active" | "ended";
-          if (nowSec < t.saleStartTime) status = "upcoming";
-          else if (nowSec <= t.saleEndTime) status = "active";
+          const p = t.tierInitParams;
+          let status: "upcoming" | "active" | "ended" | "off";
+          if (t.tierInfo.isOff) status = "off";
+          else if (nowSec < p.saleStartTime) status = "upcoming";
+          else if (nowSec <= p.saleEndTime) status = "active";
           else status = "ended";
 
           return {
             tierId,
-            name: t.metadata.name,
-            saleStartTime: t.saleStartTime.toString(),
-            saleEndTime: t.saleEndTime.toString(),
-            saleToken: t.saleTokenAddress,
-            purchaseTokens: t.purchaseTokenAddresses,
-            totalProvided: t.totalTokenProvided.toString(),
-            // totalSold is not exposed via getTierViews — would require an
-            // event/subgraph query. v1 leaves this null; caller can derive
-            // from getUserViews aggregation.
-            totalSold: null as string | null,
+            name: p.metadata.name,
+            saleStartTime: p.saleStartTime.toString(),
+            saleEndTime: p.saleEndTime.toString(),
+            saleToken: p.saleTokenAddress,
+            purchaseTokens: [...p.purchaseTokenAddresses],
+            totalProvided: p.totalTokenProvided.toString(),
+            totalSold: t.tierInfo.totalSold.toString() as string | null,
             status,
           };
         });
@@ -584,13 +589,14 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
           upcoming: tiers.filter((t) => t.status === "upcoming").length,
           active: tiers.filter((t) => t.status === "active").length,
           ended: tiers.filter((t) => t.status === "ended").length,
+          off: tiers.filter((t) => t.status === "off").length,
         };
 
         return {
           content: [
             {
               type: "text" as const,
-              text: `${tokenSaleProposal}: ${tiers.length} tier(s) — ${counts.active} active, ${counts.upcoming} upcoming, ${counts.ended} ended (block ts ${nowSec}).`,
+              text: `${tokenSaleProposal}: ${tiers.length} tier(s) — ${counts.active} active, ${counts.upcoming} upcoming, ${counts.ended} ended, ${counts.off} off (block ts ${nowSec}).`,
             },
           ],
           structuredContent: {

@@ -14,7 +14,7 @@
 // Usage:  node tests/compat/gen-otc-fixtures.mjs
 // Exit 0 on regenerate success, 1 on synth/helper divergence.
 
-import { Interface, AbiCoder, getAddress } from "ethers";
+import { Interface, AbiCoder, getAddress, parseUnits } from "ethers";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -85,7 +85,11 @@ function buildTierTuple(tier) {
     BigInt(tier.minAllocationPerUser ?? "0"),
     BigInt(tier.maxAllocationPerUser ?? "0"),
     [
-      BigInt(tier.vestingSettings?.vestingPercentage ?? "0"),
+      // The frontend form scales the human percent before the hook:
+      // `parseUnits(vestingPercentage, APP_DECIMALS.PERCENTAGE)` with
+      // PERCENTAGE = 25 (TokenSaleForm/index.tsx:105-108). Fixture inputs
+      // carry the human percent — same contract as the MCP helper (H-10).
+      parseUnits(tier.vestingSettings?.vestingPercentage ?? "0", 25),
       BigInt(tier.vestingSettings?.vestingDuration ?? "0"),
       BigInt(tier.vestingSettings?.cliffPeriod ?? "0"),
       BigInt(tier.vestingSettings?.unlockStep ?? "0"),
@@ -222,7 +226,9 @@ const FIX_2TIER_MERKLE = {
       minAllocationPerUser: "0",
       maxAllocationPerUser: "0",
       vestingSettings: {
-        vestingPercentage: "250000000000000000000000000",
+        // Human percent — the MCP helper (H-10) and the synthesizer both
+        // scale by 10^25 (25% => 25e25 raw).
+        vestingPercentage: "25",
         vestingDuration: "2592000",
         cliffPeriod: "604800",
         unlockStep: "86400",
