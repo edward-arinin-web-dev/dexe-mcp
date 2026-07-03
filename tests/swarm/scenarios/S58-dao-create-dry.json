@@ -1,0 +1,71 @@
+{
+  "id": "S58-dao-create-dry",
+  "title": "One-call DAO deploy via dexe_dao_create (dry-run, no broadcast)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "Exercises the dexe_dao_create composite end-to-end minus broadcast: IPFS DAO metadata upload + buildDeployGovPool (predicted-address wiring) + preflight guards. dryRun:true returns the deployGovPool TxPayload. Testnet-only — mainnet deployGovPool is broken upstream. `dao` is unused (composite deploys a fresh DAO) but kept for allowlist parity.",
+  "agents": [{ "alias": "A", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_dao_create",
+      "args": {
+        "chainId": 97,
+        "deployer": "{{agent:A:address}}",
+        "daoName": "Aurora Collective",
+        "daoDescription": "Swarm dry-run — one-call DAO create.",
+        "params": {
+          "settingsParams": {
+            "proposalSettings": [
+              {
+                "earlyCompletion": true,
+                "delegatedVotingAllowed": false,
+                "validatorsVote": false,
+                "duration": "86400",
+                "durationValidators": "86400",
+                "executionDelay": "0",
+                "quorum": "500000000000000000000000000",
+                "quorumValidators": "500000000000000000000000000",
+                "minVotesForVoting": "1000000000000000000",
+                "minVotesForCreating": "1000000000000000000",
+                "rewardsInfo": {
+                  "rewardToken": "0x0000000000000000000000000000000000000000",
+                  "creationReward": "0",
+                  "executionReward": "0",
+                  "voteRewardsCoefficient": "0"
+                },
+                "executorDescription": ""
+              }
+            ]
+          },
+          "userKeeperParams": {
+            "tokenAddress": "0x0000000000000000000000000000000000000000",
+            "nftAddress": "0x0000000000000000000000000000000000000000",
+            "individualPower": "0",
+            "nftsTotalSupply": "0"
+          },
+          "tokenParams": {
+            "name": "Aurora",
+            "symbol": "AUR",
+            "users": ["{{agent:A:address}}"],
+            "cap": "0",
+            "mintedTotal": "1000000000000000000000",
+            "amounts": ["1000000000000000000000"]
+          },
+          "votePowerParams": { "voteType": "LINEAR_VOTES" }
+        },
+        "dryRun": true
+      },
+      "broadcast": false,
+      "captureAs": "created"
+    }
+  ],
+  "successCriteria": [
+    { "id": "predicted-govpool", "check": "created.predictedGovPool is a non-zero address" },
+    { "id": "deploy-payload", "check": "created.mode == 'dryRun' and steps include a PoolFactory.deployGovPool payload" }
+  ]
+}

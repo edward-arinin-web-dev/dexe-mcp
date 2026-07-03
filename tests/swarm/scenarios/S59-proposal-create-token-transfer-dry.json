@@ -1,0 +1,38 @@
+{
+  "id": "S59-proposal-create-token-transfer-dry",
+  "title": "One-call token_transfer proposal via extended dexe_proposal_create (dry-run)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56, 97],
+  "requiresBrowser": false,
+  "notes": "Exercises dexe_proposal_create with the wired proposalType='token_transfer' (params-driven builder). dryRun:true returns the ordered approve/deposit/createProposalAndVote TxPayloads without broadcasting. Validates the 1a facade: correct calldata + IPFS metadata built server-side.",
+  "agents": [{ "alias": "A", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "proposalType": "token_transfer",
+        "title": "S59 token transfer (facade)",
+        "description": "Swarm dry-run — token_transfer via dexe_proposal_create.",
+        "params": {
+          "token": "{{firstAllowlistedToken}}",
+          "recipient": "0x0000000000000000000000000000000000000abc",
+          "amount": "1000000000000000000"
+        },
+        "user": "{{agent:A:address}}",
+        "dryRun": true
+      },
+      "broadcast": false,
+      "captureAs": "created"
+    }
+  ],
+  "successCriteria": [
+    { "id": "dry-run-mode", "check": "created.mode == 'dryRun'" },
+    { "id": "has-metadata-cid", "check": "created.proposalMetadataCID is set" },
+    { "id": "creates-proposal", "check": "steps include a GovPool.createProposalAndVote payload" }
+  ]
+}

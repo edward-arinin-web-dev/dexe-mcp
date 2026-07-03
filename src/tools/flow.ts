@@ -21,6 +21,9 @@ import {
 } from "../lib/quorumRisk.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
+import { PROPOSAL_BUILDERS, FLOW_PROPOSAL_TYPES } from "../lib/proposalBuilders.js";
+import { PROPOSAL_CATALOG } from "../lib/proposalCatalog.js";
+import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
 
 // ---------- ABI fragments ----------
 
@@ -382,7 +385,15 @@ export interface ProposalCreateInput {
   govPool: string;
   /** Target chain id. Defaults to the MCP's default chain. */
   chainId?: number;
-  proposalType?: "modify_dao_profile" | "custom";
+  /**
+   * `modify_dao_profile`, `custom`, or any wired catalog type
+   * (token_transfer, withdraw_treasury, change_voting_settings, add_expert,
+   * remove_expert, token_distribution, token_sale, custom_abi). Wired types
+   * read their inputs from `params`.
+   */
+  proposalType?: string;
+  /** Type-specific builder params for wired catalog `proposalType`s. */
+  params?: Record<string, unknown>;
   title: string;
   description?: string;
   newDaoName?: string;
@@ -418,7 +429,7 @@ export async function runProposalCreate(
   deps: ProposalCreateDeps,
 ) {
   const input = {
-    proposalType: "custom" as const,
+    proposalType: "custom" as string,
     description: "",
     actionsOnFor: [] as { executor: string; value?: string; data: string }[],
     voteNftIds: [] as string[],
@@ -441,6 +452,16 @@ export async function runProposalCreate(
         prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
       } catch (e) {
         return err(`Failed to resolve prerequisites: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      // Mode 6 guard: the auto-approve targets the UserKeeper (which does
+      // transferFrom on deposit). If the resolved keeper collapses onto the
+      // GovPool address, refuse rather than approve the wrong contract.
+      if (prereqs.userKeeper.toLowerCase() === govPool.toLowerCase()) {
+        return err(
+          "Refusing: resolved UserKeeper equals the GovPool address — the auto-approve would target GovPool, " +
+            "not the keeper (failure mode 6). Re-check the govPool address.",
+        );
       }
 
       // Step 2: check creation threshold
@@ -566,7 +587,7 @@ export async function runProposalCreate(
             currentChanges: { descriptionUrl: currentDescriptionURL },
           },
         };
-      } else {
+      } else if (input.proposalType === "custom") {
         // custom
         actionsOnFor = input.actionsOnFor.map(a => ({
           executor: a.executor,
@@ -587,6 +608,47 @@ export async function runProposalCreate(
         if (input.category === "daoProfileModification") {
           proposalExtra.isMeta = false;
         }
+      } else {
+        // wired catalog type — build actionsOnFor + metadata server-side so
+        // "create proposal X" is a single call with correct calldata + category.
+        const builder = PROPOSAL_BUILDERS[input.proposalType];
+        if (!builder) {
+          const entry = PROPOSAL_CATALOG.find((e) => e.id.endsWith(`.${input.proposalType}`));
+          if (entry && entry.mcpTool) {
+            return err(
+              `proposalType '${input.proposalType}' is not wired into dexe_proposal_create yet. ` +
+                `Build its actions with the dedicated tool '${entry.mcpTool}', then call dexe_proposal_create ` +
+                `with proposalType='custom', actionsOnFor=<its actions>, and category from that tool's metadata. ` +
+                `Wired types: ${Object.keys(PROPOSAL_BUILDERS).join(", ")}.`,
+            );
+          }
+          return err(
+            `Unknown proposalType '${input.proposalType}'. Supported: ${FLOW_PROPOSAL_TYPES.join(", ")}. See dexe_proposal_catalog.`,
+          );
+        }
+        const parsed = builder.schema.safeParse(input.params ?? {});
+        if (!parsed.success) {
+          return err(
+            `Invalid params for proposalType '${input.proposalType}': ` +
+              parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "),
+          );
+        }
+        let built: Awaited<ReturnType<typeof builder.build>>;
+        try {
+          built = await builder.build(parsed.data, { ctx, govPool, chainId });
+        } catch (e) {
+          return err(`Failed to build ${input.proposalType} actions: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        actionsOnFor = built.actionsOnFor.map((a) => ({
+          executor: a.executor,
+          value: BigInt(a.value ?? "0"),
+          data: a.data,
+        }));
+        proposalExtra = {
+          ...(built.category ? { category: built.category } : {}),
+          isMeta: false,
+          ...built.metadataExtra,
+        };
       }
 
       // Step 4: upload proposal metadata (field names must match frontend exactly)
@@ -595,6 +657,10 @@ export async function runProposalCreate(
         proposalDescription: JSON.stringify(markdownToSlate(input.description)),
         ...proposalExtra,
       };
+      // Mode 2 guard: the metadata shape is load-bearing for the frontend
+      // indexer/diff UI and immutable once pinned — validate before upload.
+      const metaCheck = checkProposalMetadata(proposalMeta);
+      if (!metaCheck.ok) return err(`Proposal metadata preflight failed: ${metaCheck.remediation}`);
       const proposalMetaRes = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
       const descriptionURL = `ipfs://${proposalMetaRes.cid}`;
 
@@ -704,15 +770,18 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_create",
-    "Create a governance proposal with full prerequisite handling. " +
-      "Automatically checks token balance, approves if needed, deposits if needed, " +
-      "uploads metadata to IPFS (with correct category/changes fields), and builds " +
-      "createProposalAndVote calldata. When DEXE_PRIVATE_KEY is set, signs and broadcasts " +
-      "all transactions. Otherwise returns ordered TxPayload list.\n\n" +
-      "Supported proposalType values: 'modify_dao_profile', 'custom'.\n\n" +
-      "For modify_dao_profile: provide newDaoDescription and/or newAvatarCID to change the DAO profile. " +
-      "Tool encodes editDescriptionURL action and uploads both DAO metadata and proposal metadata to IPFS.\n\n" +
-      "For custom: provide actionsOnFor array with {executor, value, data} objects.",
+    "Create a governance proposal in ONE call — handles the whole approve→deposit→createProposalAndVote " +
+      "sequence, uploads correct IPFS metadata (category/isMeta/changes), signs+broadcasts when " +
+      "DEXE_PRIVATE_KEY is set (else returns ordered TxPayloads).\n\n" +
+      "proposalType — pass one of:\n" +
+      "• 'modify_dao_profile' — change DAO profile (newDaoName/newDaoDescription/newAvatarCID/newWebsiteUrl/newSocialLinks).\n" +
+      "• 'custom' — pass your own actionsOnFor [{executor,value,data}] (+ optional category).\n" +
+      "• Wired catalog types (pass their inputs in `params`): 'token_transfer' {token,recipient,amount,isNative?}, " +
+      "'withdraw_treasury' {receiver,token?,amount?,nftAddress?,nftIds?}, 'change_voting_settings' {govSettings,settings[],settingsIds?}, " +
+      "'add_expert' {expertNftContract,scope,nominatedUser,uri?}, 'remove_expert' {expertNftContract,scope,nominatedUser}, " +
+      "'token_distribution' {distributionProposal,proposalId,token,amount,isNative?}, 'token_sale' {tokenSaleProposal,tiers[],latestTierId?}, " +
+      "'custom_abi' {target,signature,method,args?,value?}.\n" +
+      "Any other catalog type → error naming the dedicated dexe_proposal_build_* tool. See dexe_proposal_catalog.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z
@@ -723,7 +792,16 @@ export function registerFlowTools(
         .describe(
           "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
         ),
-      proposalType: z.enum(["modify_dao_profile", "custom"]).default("custom"),
+      proposalType: z
+        .string()
+        .default("custom")
+        .describe(
+          "'modify_dao_profile' | 'custom' | a wired catalog type (token_transfer, withdraw_treasury, change_voting_settings, add_expert, remove_expert, token_distribution, token_sale, custom_abi).",
+        ),
+      params: z
+        .record(z.unknown())
+        .optional()
+        .describe("Type-specific builder inputs for wired catalog proposalTypes (see tool description)."),
       title: z.string().describe("Proposal title"),
       description: z.string().default("").describe("Proposal description (markdown supported)"),
       newDaoName: z.string().optional(),
@@ -794,9 +872,10 @@ export function registerFlowTools(
       const stateRes = await multicall(provider, stateCalls);
       if (!stateRes[0]!.success) return err(`Failed to read proposal state: ${stateRes[0]!.error}`);
 
-      const STATE_NAMES = ["Voting", "WaitingForVotingTransfer", "ValidatorVoting", "Defeated", "SucceededFor", "SucceededAgainst", "Locked", "ExecutedFor", "ExecutedAgainst", "Undefined"];
+      // Mode 9: canonical ProposalState ordering lives in preflight.ts (a
+      // mis-ordered inline enum previously mislabeled Locked/SucceededFor).
       const stateNum = Number(stateRes[0]!.value);
-      const stateName = STATE_NAMES[stateNum] ?? `Unknown(${stateNum})`;
+      const stateName = proposalStateName(stateNum);
 
       // Already past voting — skip vote, go straight to execute. State 4 =
       // SucceededFor, 5 = SucceededAgainst, 6 = Locked (post-quorum, post-
@@ -897,7 +976,7 @@ export function registerFlowTools(
           { target: govPool, iface: GOV_POOL_ABI, method: "getProposalState", args: [proposalId] },
         ]);
         const postState = Number(postRes[0]!.value);
-        const postStateName = STATE_NAMES[postState] ?? `Unknown(${postState})`;
+        const postStateName = proposalStateName(postState);
 
         if (postState === 4 || postState === 5) {
           // SucceededFor or SucceededAgainst — execute (attach treasury advisory).

@@ -1,8 +1,8 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **154** across **19** groups.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **155** across **19** groups.
 
-The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Three composite tools (`dexe_tx_send`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
+The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Four composite tools (`dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
 Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_proposal_catalog` for the live list of supported proposal types and which builder maps to each.
 
@@ -124,6 +124,7 @@ Source: `src/tools/daoDeploy.ts`.
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
+| `dexe_dao_create` | **Composite (auto-signs):** one-call DAO deploy — uploads DAO profile metadata to IPFS, builds `deployGovPool` (reusing `dexe_dao_build_deploy`), pre-flights the deploy reverts (cap>minted, LINEAR initData, non-zero userKeeper asset, mainnet treasury remainder), then broadcasts or returns the payload. Validate on BSC testnet (chain 97). | `DEXE_PINATA_JWT`, `DEXE_RPC_URL`, `DEXE_PRIVATE_KEY` (for auto-broadcast) |
 | `dexe_dao_build_deploy` | Builds `PoolFactory.deployGovPool(GovPoolDeployParams)` calldata. Mirrors the frontend wizard at app.dexe.network/create-dao. Auto-expands proposal settings (1 → 5: default/internal/validators/distributionProposal/tokenSale). | `DEXE_RPC_URL` |
 
 ---
@@ -242,7 +243,7 @@ Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`, `src/tools/getConfig.ts`. T
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
-| `dexe_proposal_create` | End-to-end create-proposal flow: balance check, approve if needed, deposit if needed, build + broadcast `createProposalAndVote`. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL`, `DEXE_PINATA_JWT` |
+| `dexe_proposal_create` | End-to-end create-proposal flow: balance check, approve UserKeeper if needed, deposit if needed, build + broadcast `createProposalAndVote`. `proposalType` accepts `modify_dao_profile`, `custom`, or a wired catalog type (`token_transfer`, `withdraw_treasury`, `change_voting_settings`, `add_expert`, `remove_expert`, `token_distribution`, `token_sale`, `custom_abi`) — pass the type's inputs in `params` and the tool builds correct calldata + IPFS metadata. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL`, `DEXE_PINATA_JWT` |
 | `dexe_proposal_vote_and_execute` | Vote on a proposal, optionally execute when state allows. Handles deposits + state transitions. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_send` | Sign and broadcast any TxPayload from a `*_build_*` tool. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_status` | Read receipt/status of a previously submitted tx hash. | `DEXE_RPC_URL` |

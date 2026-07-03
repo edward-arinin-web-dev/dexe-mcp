@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.12.0 — 2026-07-03
+
+### Flow-first facade + preflight guards + shipped skills
+
+Phase 1 of the flow-reliability plan: "create a DAO" / "create proposal X" is now
+**one tool call** with server-side validation, and the recurring failure modes are
+encoded as guards + installable skills instead of re-derived each session.
+
+- **`dexe_dao_create` (new composite tool)** — one-call DAO deploy: uploads DAO
+  profile metadata to IPFS, builds `PoolFactory.deployGovPool` (reusing the exact
+  predicted-address wiring / settings auto-expand / executorDescription upload
+  from `dexe_dao_build_deploy`, now extracted to a shared `buildDeployGovPool`),
+  pre-flights the four silent-revert modes, then signs+broadcasts (or returns the
+  payload). Validate on BSC testnet (chain 97). Tool count 154 → **155**.
+- **`dexe_proposal_create` extended to catalog types** — `proposalType` now
+  accepts `token_transfer`, `withdraw_treasury`, `change_voting_settings`,
+  `add_expert`, `remove_expert`, `token_distribution`, `token_sale`, and
+  `custom_abi` (inputs passed in `params`); the tool builds correct calldata +
+  IPFS metadata server-side via a shared builder registry
+  (`src/lib/proposalBuilders.ts`, byte-parity-tested). Any other catalog type
+  returns an actionable error naming its dedicated `dexe_proposal_build_*` tool.
+- **Preflight guard library** (`src/lib/preflight.ts`) — named checks with
+  remediation for the 10 documented failure modes: canonical proposal-metadata
+  zod shape, approve-UserKeeper-not-GovPool, deposited-power vs votingPower,
+  locked-tokens-between-proposals, deploy cap>minted / LINEAR initData /
+  non-zero userKeeper asset / mainnet treasury remainder, single-sourced
+  ProposalState ordering, avatar-is-JPEG, off-chain type/quorum, blacklist
+  recipient. Wired into `dexe_proposal_create` and `dexe_dao_create`.
+- **Shipped skills** (`skills/` → published in the npm package) —
+  `dexe-create-dao`, `dexe-create-proposal`, `dexe-vote-execute`, `dexe-otc`,
+  `dexe-setup`: exact tool-sequence recipes with the relevant failure modes and
+  the chain-97-first rule. `npx dexe-mcp init` now offers to install them into
+  `./.claude/skills` (project) or `~/.claude/skills` (global), idempotently. New
+  [`docs/SKILLS.md`](docs/SKILLS.md).
+- **Tests** — `tests/lib/preflight.test.ts` (per-guard) and
+  `tests/lib/proposalBuilders.test.ts` (calldata byte-parity + registry coverage).
+
 ## 0.11.1 — 2026-07-03
 
 ### OTC date clarity (UTC)

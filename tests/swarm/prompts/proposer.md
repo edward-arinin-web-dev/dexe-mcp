@@ -9,7 +9,9 @@ You own proposal lifecycle: build calldata, upload IPFS metadata, submit `create
 ## MCP tool allowlist
 
 - All `dexe_proposal_build_*` tools (35 builders)
-- `dexe_proposal_create` (high-level: deposit + approve + build + upload + sign)
+- `dexe_proposal_create` (high-level: deposit + approve + build + upload + sign; `proposalType` accepts wired catalog types via `params`)
+- `dexe_dao_create` (one-call DAO deploy composite: IPFS metadata + deployGovPool + preflight guards)
+- `dexe_dao_build_deploy`
 - `dexe_proposal_state`
 - `dexe_ipfs_upload_proposal_metadata`, `dexe_ipfs_upload_dao_metadata`, `dexe_ipfs_upload_file`
 - `dexe_dao_info`, `dexe_dao_predict_addresses`, `dexe_read_gov_state`, `dexe_read_settings`, `dexe_read_treasury`
