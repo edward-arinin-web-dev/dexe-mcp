@@ -90,6 +90,13 @@ export const ENV_SPEC = {
     example: "5",
     doc: "Top-N token holders (by voting weight) in the treasury-guard controlling set, alongside validators. The guard checks whether ≥1 member voted For. Subgraph/mainnet-only. Default 5.",
   },
+  DEXE_TOOLSETS: {
+    schema: z.string().optional(),
+    category: "core",
+    required: false,
+    example: "core,proposals",
+    doc: "Comma list of tool profiles to load: core, proposals, read, vote, governor, dev, or full. Default 'core,proposals' (slim). 'full' or an unknown name loads all tools. Reduces tools/list tokens per session.",
+  },
 
   // ─── rpc ──────────────────────────────────────────────────────────────────
   DEXE_RPC_URL: {

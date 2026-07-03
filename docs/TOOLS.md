@@ -6,6 +6,24 @@ The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, v
 
 Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_proposal_catalog` for the live list of supported proposal types and which builder maps to each.
 
+## Toolset profiles
+
+Registering all 155 tools costs ~200 KB of `tools/list` per session. **`DEXE_TOOLSETS`** (comma list) gates which profiles load. **The default changed to `core,proposals` in v0.13.0** (breaking) — a slim surface instead of everything.
+
+| Profile | Tools | What it covers |
+|---------|------:|----------------|
+| `core` | 33 | Everyday flow: `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, all 5 `dexe_otc_*`, `dexe_tx_send/status`, `dexe_wc_*`, key vote builders (deposit/withdraw/vote/execute/erc20_approve) + `dexe_vote_user_power`, IPFS upload trio + avatar, `dexe_read_treasury/settings`, `dexe_proposal_state/list/catalog`, `dexe_dao_info/registry_lookup/predict_addresses`, `dexe_doctor`, `dexe_get_config`. |
+| `proposals` | 41 | Every `dexe_proposal_build_*` builder (33 types), the offchain + backend-auth surface, and proposal/DAO IPFS writes. |
+| `read` | 29 | All `dexe_read_*` (chain + subgraph), `dexe_proposal_voters`, `dexe_user_inbox`, `dexe_proposal_forecast`, `dexe_proposal_risk_assess`, IPFS reads. |
+| `vote` | 28 | Every direct `dexe_vote_build_*` builder (delegate, staking, NFT multiplier, claims, privacy policy, …) + `dexe_vote_get_votes`. |
+| `governor` | 18 | The external `dexe_gov_*` OpenZeppelin/Bravo Governor surface. |
+| `dev` | 23 | `dexe_compile/test/coverage/lint`, introspection (`dexe_get_*`, `dexe_list_*`, `dexe_find_selector`), `dexe_decode_*`, `dexe_read_gov_state`, simulator, merkle, Safe, and the low-level `dexe_dao_build_deploy`. |
+| `full` | 155 | Everything (pre-v0.13.0 behavior). |
+
+Sets union; a typo/unknown name → falls back to `full` (never silently strips). The union of the six named sets equals all 155 tools, so every tool is reachable under some profile.
+
+Measured `tools/list` sizes: **full 205 KB (155 tools)** · **default `core,proposals` 111 KB (71 tools, −46%)** · **`core` alone 48 KB (33 tools, −77%)**. Set `DEXE_TOOLSETS=core` for the deepest cut (the composites cover the common proposal types), or `DEXE_TOOLSETS=full` to restore everything. `dexe_doctor` reports the active profile.
+
 ## Table of contents
 
 1. [Dev tooling](#1-dev-tooling)

@@ -6,6 +6,7 @@ import {
   type CheckResult,
   type CheckStatus,
 } from "../diag/checks.js";
+import { resolveToolsets, TOOLSETS, DEFAULT_TOOLSETS } from "./gate.js";
 
 interface Tally {
   passed: number;
@@ -54,12 +55,26 @@ export function registerDoctorTool(server: McpServer, config: DexeConfig): void 
         .map(c => `${c.id}: ${c.remediation!.split("\n")[0]!}`);
 
       const startupTime = new Date(Date.now() - process.uptime() * 1000).toISOString();
+
+      // Phase 2 — report which tool profiles are active this session.
+      const resolvedSets = resolveToolsets(config.toolsets ?? [...DEFAULT_TOOLSETS]);
+      const toolsets = {
+        requested: resolvedSets.requested,
+        mode: resolvedSets.full ? ("full" as const) : ("filtered" as const),
+        loadedToolCount: resolvedSets.full ? null : resolvedSets.names!.size,
+        availableSets: [...Object.keys(TOOLSETS), "full"],
+        remediation:
+          "Set DEXE_TOOLSETS=full to load every tool, or add sets (read, vote, governor, dev). Restart Claude Code after editing .env.",
+        ...(resolvedSets.unknown.length ? { unknownSets: resolvedSets.unknown } : {}),
+      };
+
       const structured = {
         summary,
         checks,
         remediationSummary,
         startupTime,
         uptimeSec: Math.round(process.uptime()),
+        toolsets,
       };
 
       return {
@@ -76,6 +91,12 @@ function renderText(r: {
   remediationSummary: string[];
   startupTime: string;
   uptimeSec: number;
+  toolsets: {
+    requested: string[];
+    mode: "full" | "filtered";
+    loadedToolCount: number | null;
+    unknownSets?: string[];
+  };
 }): string {
   const lines: string[] = [];
   lines.push(
@@ -84,6 +105,11 @@ function renderText(r: {
   lines.push(
     `server started ${r.startupTime} (uptime ${r.uptimeSec}s). ` +
       `If you just edited .env, restart Claude Code so the new values load.`,
+  );
+  lines.push(
+    r.toolsets.mode === "full"
+      ? `toolsets: full — all tools loaded${r.toolsets.unknownSets?.length ? ` (unknown set(s): ${r.toolsets.unknownSets.join(", ")})` : ""}.`
+      : `toolsets: [${r.toolsets.requested.join(", ")}] → ${r.toolsets.loadedToolCount} tools loaded. Set DEXE_TOOLSETS=full for all.`,
   );
   lines.push("");
   for (const c of r.checks) {

@@ -210,6 +210,8 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 
 **155 tools, 19 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
+> **Toolset profiles (v0.13.0):** a default session loads a slim **~71 tools** (`DEXE_TOOLSETS=core,proposals`), not all 155 — cutting `tools/list` ~46%. Add profiles (`read`, `vote`, `governor`, `dev`) or set `DEXE_TOOLSETS=full` to restore everything; `DEXE_TOOLSETS=core` is the deepest cut (~77%). `dexe_doctor` shows the active profile. See [TOOLS.md § Toolset profiles](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md#toolset-profiles).
+
 | Group | # | What it gives you |
 |-------|---|------|
 | **Dev tooling** | 4 | One-command Hardhat lifecycle for the DeXe-Protocol monorepo — `dexe_compile`, `_test`, `_coverage`, `_lint`. Auto-clones the repo on first call. |

@@ -6,6 +6,41 @@ something on your side.
 
 ---
 
+## 0.12.x → 0.13.0 — slim default toolset (BREAKING)
+
+**TL;DR.** A default session now loads **~71 tools**, not all 155. If a tool
+you scripted against is "missing", set `DEXE_TOOLSETS=full` to restore the old
+behavior, or add the profile that owns it.
+
+### What changed
+
+- **`DEXE_TOOLSETS` gating.** The server registers only the tool profiles named
+  in `DEXE_TOOLSETS` (comma list). **The default is now `core,proposals`** —
+  previously every tool loaded unconditionally. This cuts `tools/list` from
+  ~205 KB to ~111 KB (−46%). Profiles: `core`, `proposals`, `read`, `vote`,
+  `governor`, `dev`, `full`. See [TOOLS.md § Toolset profiles](./TOOLS.md#toolset-profiles).
+
+### Do I need to act?
+
+- **Common flows (deploy DAO, create/vote/execute proposals, OTC, key deposits):**
+  no action — they're in `core`/`proposals`.
+- **Governor DAOs (`dexe_gov_*`):** add `governor` → `DEXE_TOOLSETS=core,proposals,governor`.
+- **Delegation / staking / claims / NFT-multiplier (`dexe_vote_build_*` beyond
+  the 5 key ones):** add `vote`.
+- **Subgraph/extended reads, inbox, forecast, risk:** add `read`.
+- **Solidity dev tooling, introspection, decode, simulate, merkle, Safe,
+  `dexe_dao_build_deploy`:** add `dev`.
+- **Want everything (old behavior):** `DEXE_TOOLSETS=full`.
+- **Want the deepest cut:** `DEXE_TOOLSETS=core` (~48 KB / 33 tools) — the
+  composites (`dexe_dao_create`, `dexe_proposal_create`) cover the common
+  proposal types server-side.
+
+Set it in `.env` (not `.claude.json`) and **restart Claude Code**. `dexe_doctor`
+reports the active profile and the restore hint. A typo/unknown set name falls
+back to `full` rather than silently stripping tools.
+
+---
+
 ## 0.10.x → 0.11.0 — OTC contract/frontend alignment
 
 **TL;DR.** No env changes. Pull/update, restart Claude Code. If you script

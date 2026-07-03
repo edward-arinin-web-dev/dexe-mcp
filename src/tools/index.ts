@@ -36,6 +36,7 @@ import { registerRiskTools } from "./risk.js";
 import { SignerManager } from "../lib/signer.js";
 import { WalletConnectManager } from "../lib/walletconnect.js";
 import { registerGovernorTools } from "../governor/index.js";
+import { applyToolGate } from "./gate.js";
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
@@ -43,6 +44,12 @@ import { registerGovernorTools } from "../governor/index.js";
  * tools share state.
  */
 export function registerAll(server: McpServer, config: DexeConfig): void {
+  // Phase 2: gate tool registration by the active DEXE_TOOLSETS profile. The
+  // wrapped server drops any tool name not in the active allowlist; `full`
+  // returns the server unchanged. Every register* call below sees the gate, so
+  // no register file changes. Reassigning the param keeps it a one-line wrap.
+  server = applyToolGate(server, config);
+
   const artifacts = new Artifacts(config);
   const runner = new HardhatRunner(config);
   const selectors = new SelectorIndex(artifacts);

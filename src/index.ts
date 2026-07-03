@@ -49,7 +49,12 @@ async function main(): Promise<void> {
     { name: "dexe-mcp", version: "0.1.5" },
     {
       instructions:
-        "Tools for the DeXe Protocol governance-DAO codebase. Before calling any dexe_get_* / dexe_list_contracts / dexe_find_selector tool, ensure artifacts exist by calling dexe_compile once per session. dexe_decode_proposal and dexe_read_gov_state require DEXE_RPC_URL to be set.",
+        "Tools for DeXe Protocol governance DAOs (plus a generic dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs). " +
+        "Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (any proposal — pass proposalType + params), dexe_proposal_vote_and_execute. " +
+        "They handle the approve→deposit→create sequence, correct IPFS metadata, and the known deploy/proposal reverts. When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
+        "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. dexe_decode_proposal and dexe_read_gov_state need an RPC. " +
+        "The tool surface is gated by DEXE_TOOLSETS (default 'core,proposals'). Set DEXE_TOOLSETS=full for every tool, or add sets: read, vote, governor, dev. " +
+        "Recipe skills ship in the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc); install them with `npx dexe-mcp init`.",
     },
   );
 
