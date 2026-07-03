@@ -96,7 +96,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_read_validator_list` | Paginated validators ordered by balance descending. | `DEXE_SUBGRAPH_VALIDATORS_URL` |
 | `dexe_read_user_activity` | Paginated tx history per user — proposals/votes/delegations/claims by timestamp desc. | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
 | `dexe_read_delegation_map` | Outgoing or incoming delegation pairs for a user. | `DEXE_SUBGRAPH_POOLS_URL` |
-| `dexe_otc_list_sales_for_dao` | Reads `latestTierId()` + `getTierViews(0, latestTierId)` on a DAO's TokenSaleProposal helper. Returns tiers with `upcoming`/`active`/`ended` status vs current block. Works chain 56 + 97, no subgraph needed. Pass `tokenSaleProposal` explicitly until per-DAO helper discovery lands. | `DEXE_RPC_URL` |
+| `dexe_otc_list_sales_for_dao` | Reads `latestTierId()` + `getTierViews(0, latestTierId)` on a DAO's TokenSaleProposal helper. Returns tiers with `totalSold` and `upcoming`/`active`/`ended`/`off` status (block timestamp + on-chain `isOff`). Works chain 56 + 97, no subgraph needed. Pass `tokenSaleProposal` explicitly until per-DAO helper discovery lands. | `DEXE_RPC_URL` |
 
 ---
 
@@ -222,7 +222,7 @@ Source: `src/tools/voteBuild.ts`. All return calldata `TxPayload`. None require 
 | `dexe_vote_build_claim_micropool_rewards` | `GovPool.claimMicropoolRewards(proposalIds, delegator, delegatee)`. | (none) |
 | `dexe_vote_build_nft_multiplier_lock` | `ERC721Multiplier.lock(tokenId)` — apply multiplier bonus to caller's voting power. | (none) |
 | `dexe_vote_build_nft_multiplier_unlock` | `ERC721Multiplier.unlock()` — release locked multiplier NFT. | (none) |
-| `dexe_vote_build_token_sale_buy` | `TokenSaleProposal.buy(tierId, tokenToBuyWith, amount, proof)`. Native: pass `value`. Whitelisted: pass merkle proof. | (none) |
+| `dexe_vote_build_token_sale_buy` | `TokenSaleProposal.buy(tierId, tokenToBuyWith, amount, proof)`. Native: pass ETHEREUM_ADDRESS (0xEeee...EEeE) as token (0x0 aliased); `value` auto-set to `amount` when left 0. Whitelisted: pass merkle proof. | (none) |
 | `dexe_vote_build_token_sale_claim` | `TokenSaleProposal.claim(tierIds)` — after claim lock duration. | (none) |
 | `dexe_vote_build_token_sale_vesting_withdraw` | `TokenSaleProposal.vestingWithdraw(tierIds)` — withdraw currently unlocked vested portion. | (none) |
 | `dexe_vote_build_distribution_claim` | `DistributionProposal.claim(voter, proposalIds)` — claim proportional share. | (none) |
@@ -268,8 +268,8 @@ Source: `src/tools/otc.ts`. Composites that orchestrate `proposal_create` + `Tok
 | Tool | What it does | Required env |
 |------|--------------|--------------|
 | `dexe_otc_dao_open_sale` | Project-owner composite. Builds the multi-tier `createTiers` envelope (deduped approves, auto-merkle, auto-`addToWhitelist`) and runs the full proposal_create flow (balance/threshold check, IPFS metadata, approve, deposit, `createProposalAndVote`). Flags: `buildOnly` (skip proposal flow, return envelope only), `dryRun` (return TxPayloads even with key set). | `DEXE_RPC_URL`, `DEXE_PINATA_JWT`, `DEXE_PRIVATE_KEY` for broadcast |
-| `dexe_otc_buyer_status` | Read-only aggregator. Multicalls `getTierViews` + `getUserViews(user, tierIds, proofs)`, surfaces participation requirements + pre-computed `claimable` and `vestingWithdrawable`. Optional per-tier `whitelists[]` triggers merkle root + proof + verifyProof for the user. | `DEXE_RPC_URL` |
-| `dexe_otc_buyer_buy` | Buyer composite. Preflights ERC20 balance + allowance (skipped on native sentinel `0x0`), prepends approve when needed, builds `buy(tierId, paymentToken, amount, proof)`. Auto-derives merkle proof when `whitelistUsers[]` supplied. Native path sets `value=amount`. Optional `simulateFirst` runs sim before broadcast. | `DEXE_RPC_URL`, `DEXE_PRIVATE_KEY` for broadcast |
+| `dexe_otc_buyer_status` | Read-only aggregator. Multicalls `getTierViews` + `getUserViews(user, tierIds, proofs)`, surfaces participation requirements + pre-computed `claimable` and `vestingWithdrawable`. Optional per-tier `whitelists[]` triggers merkle root + proof + verifyProof for the user, and the proof is passed into `getUserViews` so `canParticipate` is accurate for merkle tiers. | `DEXE_RPC_URL` |
+| `dexe_otc_buyer_buy` | Buyer composite. Preflights ERC20 balance + allowance (skipped on native sentinel ETHEREUM_ADDRESS 0xEeee...EEeE; 0x0 accepted as alias, calldata always carries ETHEREUM_ADDRESS), prepends approve when needed, builds `buy(tierId, paymentToken, amount, proof)`. Auto-derives merkle proof when `whitelistUsers[]` supplied. Native path sets `value=amount`. Optional `simulateFirst` runs sim before broadcast. | `DEXE_RPC_URL`, `DEXE_PRIVATE_KEY` for broadcast |
 | `dexe_otc_buyer_claim_all` | Picks tiers with `canClaim && !isClaimed` → `claim`, tiers with `amountToWithdraw > 0` → `vestingWithdraw`. `mode='noop'` when nothing pending. | `DEXE_RPC_URL`, `DEXE_PRIVATE_KEY` for broadcast |
 
 ---

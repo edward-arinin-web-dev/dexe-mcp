@@ -6,6 +6,36 @@ something on your side.
 
 ---
 
+## 0.10.x → 0.11.0 — OTC contract/frontend alignment
+
+**TL;DR.** No env changes. Pull/update, restart Claude Code. If you script
+against the OTC tools, read the three behavior changes below.
+
+### What changed
+
+- **Native BNB sentinel.** `dexe_otc_buyer_buy` and
+  `dexe_vote_build_token_sale_buy` now emit the protocol's
+  `ETHEREUM_ADDRESS` (`0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`) in
+  calldata for native purchases. The zero address is still accepted as
+  *input* (aliased), but if you byte-compare payloads, expect `0xEeee…`.
+  The low-level builder also auto-sets `value = amount` for native buys.
+- **Zero-address purchase token now rejected** by
+  `dexe_proposal_build_token_sale`/`_multi`/`dexe_otc_dao_open_sale` —
+  previously accepted and produced an unbuyable tier. Use
+  `ETHEREUM_ADDRESS` for native BNB.
+- **Read-tool output extended.** `dexe_otc_list_sales_for_dao` now returns
+  real `totalSold` (was `null`) and an `off` status;
+  `dexe_otc_buyer_status` adds `totalSold`, `isOff`, `tierUri`,
+  `onchainMerkleRoot`, `merkleUri`, and `merkle.rootMatchesOnchain`.
+  These were previously decoding garbage against live tiers (flat vs
+  nested `TierView` — fixed).
+- **`dexe_otc_dao_open_sale`** auto-uploads merkle whitelists to IPFS
+  (`{ "list": [...] }`, `ipfs://<cid>`) so app.dexe.io buyers can
+  regenerate proofs. Needs `DEXE_PINATA_JWT`; warns and continues
+  without it. `buildOnly: true` skips uploads as before.
+
+---
+
 ## 0.7.x → 0.8.0 — env onboarding overhaul
 
 **TL;DR.** No breaking env changes. Pull, restart Claude Code, optionally

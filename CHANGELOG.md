@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.11.0 — 2026-07-03
+
+### OTC contract/frontend alignment (audit 2026-07-03)
+
+Cross-checked every OTC tool against `ITokenSaleProposal.sol` and the
+app.dexe.io frontend (`investing-dashboard`). Four bugs fixed, one guard and
+one compat gap closed:
+
+- **Native-coin sentinel** (`dexe_otc_buyer_buy`,
+  `dexe_vote_build_token_sale_buy`): the contract keys exchange rates by
+  `Globals.sol::ETHEREUM_ADDRESS` (`0xEeee…EEeE`); the tools previously
+  encoded the zero address, which reverts `TSP: incorrect token`. The zero
+  address is still accepted as caller input but calldata now always carries
+  `ETHEREUM_ADDRESS`; the low-level builder also auto-sets `value = amount`
+  for native buys (contract requires `msg.value == amount`).
+- **`getTierViews` decode ABI** (`dexe_otc_buyer_status`,
+  `dexe_otc_list_sales_for_dao`): the contract returns the nested
+  `TierView { tierInitParams, tierInfo, tierAdditionalInfo }`; the tools
+  declared a flat pre-Bug-#25 layout that decoded garbage on live tiers.
+  Both now share one canonical fragment (`TIER_VIEW_TUPLE`), and
+  `list_sales_for_dao` gains real `totalSold` plus an `off` status from the
+  tier's on-chain `isOff` flag.
+- **Merkle proofs in `dexe_otc_buyer_status`**: supplied whitelists are now
+  turned into proofs *before* the read and passed into
+  `getUserViews(user, tierIds, proofs)` — previously empty proofs made
+  `canParticipate` false for whitelisted users of merkle tiers. The response
+  also surfaces the on-chain merkle root and a `rootMatchesOnchain` check.
+- **Zero-address purchase token rejected** in the tier builders: such a tier
+  is unbuyable on-chain; the error points at `ETHEREUM_ADDRESS`.
+- **Merkle whitelist IPFS upload** in `dexe_otc_dao_open_sale`: app.dexe.io
+  buyers regenerate proofs from the `{ list }` JSON behind the tier's merkle
+  `uri`; tiers created with an empty uri were unbuyable through the frontend.
+  The composite now auto-uploads the list (`ipfs://<cid>`, frontend
+  `IpfsEntity.path` format) and reports it under `otc.merkleWhitelistUploads`.
+- **Compat harness un-rotted**: the H-10 human-percent `vestingPercentage`
+  change had broken `tests/compat` fixture replay unnoticed (the script was
+  not in CI). Generator + fixture updated; `npm run test:compat` now runs in
+  the CI build job.
+
 ## 0.10.0 — 2026-06-03
 
 ### Treasury-safety advisory (low-quorum governance check)
