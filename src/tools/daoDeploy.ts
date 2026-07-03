@@ -196,6 +196,427 @@ function payloadOutputSchema() {
   };
 }
 
+// ---------- shared deploy params schema (reused by dexe_dao_create) ----------
+
+/**
+ * Full `deployGovPool` parameter object. `descriptionURL` and `name` are the
+ * two fields `dexe_dao_create` derives itself (from the uploaded DAO metadata
+ * + daoName), so it consumes `DeployParamsSchema.omit({ descriptionURL, name })`.
+ */
+export const DeployParamsSchema = z.object({
+  settingsParams: SettingsDeployParamsSchema,
+  validatorsParams: ValidatorsDeployParamsSchema.optional(),
+  userKeeperParams: UserKeeperDeployParamsSchema,
+  tokenParams: TokenParamsSchema,
+  votePowerParams: VotePowerDeployParamsSchema,
+  verifier: z.string().default("0x0000000000000000000000000000000000000000"),
+  onlyBABTHolders: z.boolean().default(false),
+  descriptionURL: z.string().describe("ipfs://<cid> of DAO metadata JSON"),
+  name: z.string().min(1),
+});
+
+export type DeployParams = z.infer<typeof DeployParamsSchema>;
+
+export interface DeployBuildInput {
+  chainId?: number;
+  poolFactory?: string;
+  deployer: string;
+  params: DeployParams;
+}
+
+export type DeployBuildResult =
+  | {
+      ok: true;
+      payload: TxPayload;
+      predictedGovPool?: string;
+      note: string;
+      predicted: {
+        govPool?: string;
+        govToken?: string;
+        distributionProposal?: string;
+        govTokenSale?: string;
+      };
+    }
+  | { ok: false; error: string };
+
+/**
+ * Pure builder for the `PoolFactory.deployGovPool` tx. Extracted from the
+ * `dexe_dao_build_deploy` handler so the `dexe_dao_create` composite reuses the
+ * exact same predicted-address wiring, settings auto-expand, cap/minted guard,
+ * executorDescription IPFS upload, and encoding. Returns a discriminated result
+ * instead of tool-shaped content.
+ */
+export async function buildDeployGovPool(
+  input: DeployBuildInput,
+  ctx: ToolContext,
+  rpc: RpcProvider,
+): Promise<DeployBuildResult> {
+  const { chainId, poolFactory, deployer, params } = input;
+  const fail = (error: string): DeployBuildResult => ({ ok: false, error });
+  const chain = resolveChain(ctx.config, chainId);
+  const isTokenCreation = params.tokenParams.name.length > 0;
+  const hasValidators = !!(params.validatorsParams && params.validatorsParams.validators.length > 0);
+
+  // ---------- auto-encode vote power initData ----------
+  let votePowerInitData: string;
+  try {
+    if (params.votePowerParams.voteType === "CUSTOM_VOTES") {
+      votePowerInitData = params.votePowerParams.initData ?? "0x";
+    } else {
+      votePowerInitData = encodeVotePowerInitData(
+        params.votePowerParams.voteType,
+        params.votePowerParams.polynomialCoefficients,
+      );
+    }
+  } catch (err) {
+    return fail(`Failed to encode vote power initData: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // ---------- default validatorsParams when omitted ----------
+  const VT_SUFFIX = "-VT";
+  const rawValidatorsParams = params.validatorsParams ?? {
+    name: "Validator Token",
+    symbol: "VT",
+    proposalSettings: {
+      duration: params.settingsParams.proposalSettings[0]!.duration,
+      executionDelay: params.settingsParams.proposalSettings[0]!.executionDelay,
+      quorum: params.settingsParams.proposalSettings[0]!.quorum,
+    },
+    validators: [],
+    balances: [],
+  };
+  const validatorsParams = {
+    ...rawValidatorsParams,
+    name: rawValidatorsParams.name.endsWith(VT_SUFFIX) ? rawValidatorsParams.name : rawValidatorsParams.name + VT_SUFFIX,
+    symbol: rawValidatorsParams.symbol.endsWith(VT_SUFFIX) ? rawValidatorsParams.symbol : rawValidatorsParams.symbol + VT_SUFFIX,
+  };
+
+  // ---------- validate leaf addresses ----------
+  if (poolFactory && !isAddress(poolFactory)) return fail(`Invalid poolFactory: ${poolFactory}`);
+  if (!isAddress(deployer)) return fail(`Invalid deployer: ${deployer}`);
+  if (isTokenCreation && params.tokenParams.users.length === 0)
+    return fail("tokenParams.users must have at least one recipient when creating a new token");
+  if (!isAddress(params.verifier)) return fail(`Invalid verifier: ${params.verifier}`);
+  if (!isAddress(params.userKeeperParams.tokenAddress)) return fail(`Invalid userKeeperParams.tokenAddress`);
+  if (!isAddress(params.userKeeperParams.nftAddress)) return fail(`Invalid userKeeperParams.nftAddress`);
+  if (!isAddress(params.votePowerParams.presetAddress)) return fail(`Invalid votePowerParams.presetAddress`);
+  for (const v of validatorsParams.validators) {
+    if (!isAddress(v)) return fail(`Invalid validator: ${v}`);
+  }
+  if (validatorsParams.validators.length !== validatorsParams.balances.length) {
+    return fail("validatorsParams.validators and .balances must be the same length");
+  }
+  for (const u of params.tokenParams.users) {
+    if (!isAddress(u)) return fail(`Invalid tokenParams.users entry: ${u}`);
+  }
+  if (params.tokenParams.users.length !== params.tokenParams.amounts.length) {
+    return fail("tokenParams.users and .amounts must be the same length");
+  }
+  // Bug #28: ERC20Gov init reverts silently when cap == mintedTotal.
+  if (isTokenCreation) {
+    const capBn = BigInt(params.tokenParams.cap);
+    const mintedBn = BigInt(params.tokenParams.mintedTotal);
+    if (capBn > 0n && capBn <= mintedBn) {
+      return fail(
+        `tokenParams.cap (${capBn}) must be strictly greater than tokenParams.mintedTotal (${mintedBn}). ERC20Gov requires headroom for future minting; pass cap=0 for uncapped, or cap > mintedTotal.`,
+      );
+    }
+  }
+
+  // ---------- resolve PoolFactory address ----------
+  let factoryAddress = poolFactory;
+  if (!factoryAddress) {
+    try {
+      const pr = rpc.tryProvider(chain.chainId);
+      if ("error" in pr) return fail(`${pr.error}\n${pr.remediation}`);
+      const provider = pr.ok;
+      const book = new AddressBook({
+        provider,
+        chainId: chain.chainId,
+        registryOverride: chain.registryOverride ?? ctx.config.registryOverride,
+      });
+      factoryAddress = await book.resolve(CONTRACT_NAMES.POOL_FACTORY);
+    } catch (err) {
+      return fail(
+        `poolFactory address needed: pass it explicitly, or configure DEXE_RPC_URL so the ContractsRegistry lookup works. (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
+
+  // ---------- predict addresses (always required — wires executors) ----------
+  let predictedGovPool: string | undefined;
+  let predictedGovToken: string | undefined;
+  let predictedDistribution: string | undefined;
+  let predictedTokenSale: string | undefined;
+  try {
+    const pr = rpc.tryProvider(chain.chainId);
+    if ("error" in pr) return fail(`${pr.error}\n${pr.remediation}`);
+    const provider = pr.ok;
+    const predictIface = new Interface([
+      "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
+    ]);
+    const { Contract } = await import("ethers");
+    const factory = new Contract(factoryAddress, predictIface, provider);
+    const res = await factory.getFunction("predictGovAddresses").staticCall(deployer, params.name);
+    predictedGovPool = res.govPool as string;
+    predictedGovToken = res.govToken as string;
+    predictedDistribution = res.distributionProposal as string;
+    predictedTokenSale = res.govTokenSale as string;
+  } catch (err) {
+    return fail(`Failed to predict gov addresses: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const ZERO = "0x0000000000000000000000000000000000000000";
+
+  const effectiveTokenAddress =
+    isTokenCreation && predictedGovToken ? predictedGovToken : params.userKeeperParams.tokenAddress;
+
+  // Bug #12: substitute predicted govToken as rewardToken when reward amounts set.
+  if (isTokenCreation && predictedGovToken) {
+    const hasRewardAmounts = (r: { creationReward: string; executionReward: string; voteRewardsCoefficient: string }) =>
+      BigInt(r.creationReward) > 0n || BigInt(r.executionReward) > 0n || BigInt(r.voteRewardsCoefficient) > 0n;
+    for (const s of params.settingsParams.proposalSettings) {
+      if ((s.rewardsInfo.rewardToken === ZERO || s.rewardsInfo.rewardToken === "") && hasRewardAmounts(s.rewardsInfo)) {
+        s.rewardsInfo.rewardToken = predictedGovToken;
+      }
+    }
+  }
+
+  const effectiveExecutors = [...params.settingsParams.additionalProposalExecutors];
+  if (predictedDistribution && !effectiveExecutors.includes(predictedDistribution))
+    effectiveExecutors.push(predictedDistribution);
+  if (predictedTokenSale && !effectiveExecutors.includes(predictedTokenSale))
+    effectiveExecutors.push(predictedTokenSale);
+
+  if (effectiveTokenAddress === ZERO && params.userKeeperParams.nftAddress === ZERO) {
+    return fail(
+      "GovUK requires at least one governance asset: set userKeeperParams.tokenAddress (existing ERC20), userKeeperParams.nftAddress (existing ERC721), or provide tokenParams.name to create a new token",
+    );
+  }
+
+  // ---------- auto-expand proposal settings (1 → 5) ----------
+  let expandedSettings = params.settingsParams.proposalSettings;
+  if (expandedSettings.length === 1) {
+    const base = expandedSettings[0]!;
+    const baseWithValidatorFallback = {
+      ...base,
+      validatorsVote: true,
+      durationValidators: hasValidators ? base.durationValidators : base.duration,
+      quorumValidators: hasValidators ? base.quorumValidators : base.quorum,
+    };
+    const dpSettings = { ...baseWithValidatorFallback, delegatedVotingAllowed: false, earlyCompletion: false };
+    expandedSettings = [
+      baseWithValidatorFallback,
+      baseWithValidatorFallback,
+      baseWithValidatorFallback,
+      dpSettings,
+      baseWithValidatorFallback,
+    ];
+  } else if (expandedSettings.length !== 5) {
+    return fail(`proposalSettings must be 1 (auto-expand to 5) or exactly 5. Got ${expandedSettings.length}.`);
+  }
+
+  // ---------- treasury-safety advisory: quorum floor ----------
+  let quorumWarning = "";
+  if (ctx.config.treasuryGuard !== "off") {
+    const floor = ctx.config.minSafeQuorumPct;
+    const showPct = (p: number) => (Number.isFinite(p) ? `${p}%` : "unparseable");
+    const lowQuorum: string[] = [];
+    expandedSettings.forEach((s, i) => {
+      const pct = quorumPctFromRaw(s.quorum);
+      if (judgeQuorum(pct, floor) !== "SAFE") lowQuorum.push(`proposalSettings[${i}] quorum=${showPct(pct)}`);
+    });
+    const vpct = quorumPctFromRaw(validatorsParams.proposalSettings.quorum);
+    if (judgeQuorum(vpct, floor) !== "SAFE") lowQuorum.push(`validatorsParams quorum=${showPct(vpct)}`);
+    if (lowQuorum.length > 0) {
+      quorumWarning =
+        `\n⚠️  Quorum below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT): ${lowQuorum.join(", ")}. ` +
+        `Low quorum reduces the participation required to pass a proposal; for a DAO that will hold ` +
+        `treasury assets, set quorum ≥50% (51%+ recommended). The safe value is DAO-specific and must ` +
+        `be verified. [governance-safety advisory]`;
+    }
+  }
+
+  // ---------- auto-upload executorDescription to IPFS ----------
+  let pinataWarning = "";
+  if (ctx.config.pinataJwt) {
+    const pinata = new PinataClient(ctx.config.pinataJwt);
+    const settingsToUpload: Array<{ index: number; label: string }> = [
+      { index: 0, label: "default" },
+      { index: 3, label: "distributionProposal" },
+    ];
+    for (const { index, label } of settingsToUpload) {
+      const s = expandedSettings[index]!;
+      if (!s.executorDescription || s.executorDescription === "") {
+        try {
+          const settingsJson = {
+            earlyCompletion: s.earlyCompletion,
+            delegatedVotingAllowed: s.delegatedVotingAllowed,
+            validatorsVote: s.validatorsVote,
+            duration: s.duration,
+            durationValidators: s.durationValidators,
+            quorum: s.quorum,
+            quorumValidators: s.quorumValidators,
+            minVotesForVoting: s.minVotesForVoting,
+            minVotesForCreating: s.minVotesForCreating,
+            executionDelay: s.executionDelay,
+            rewardsInfo: {
+              rewardToken: s.rewardsInfo.rewardToken,
+              creationReward: s.rewardsInfo.creationReward,
+              executionReward: s.rewardsInfo.executionReward,
+              voteRewardsCoefficient: s.rewardsInfo.voteRewardsCoefficient,
+            },
+            minVotesForReadProposalDiscussion: "0",
+            minVotesForCreatingComment: "1000000000000000000",
+          };
+          const res = await pinata.pinJson(settingsJson, { name: `dao-settings-${label}:${params.name.slice(0, 40)}` });
+          const cid = `ipfs://${res.cid}`;
+          if (index === 0) {
+            expandedSettings[0] = { ...expandedSettings[0]!, executorDescription: cid };
+            expandedSettings[1] = { ...expandedSettings[1]!, executorDescription: cid };
+            expandedSettings[2] = { ...expandedSettings[2]!, executorDescription: cid };
+            expandedSettings[4] = { ...expandedSettings[4]!, executorDescription: cid };
+          } else {
+            expandedSettings[3] = { ...expandedSettings[3]!, executorDescription: cid };
+          }
+        } catch (err) {
+          pinataWarning += `\n⚠️  Failed to upload ${label} executorDescription: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+    }
+  } else {
+    const missingDesc = expandedSettings.some((s) => !s.executorDescription || s.executorDescription === "");
+    if (missingDesc) {
+      pinataWarning =
+        "\n⚠️  DEXE_PINATA_JWT not configured — executorDescription fields are empty. " +
+        "DAOs created without executorDescription will display broken proposal settings in the frontend UI. " +
+        "Set DEXE_PINATA_JWT to enable auto-upload.";
+    }
+  }
+
+  // ---------- build the tuple arg ----------
+  const paramsTuple = [
+    [
+      expandedSettings.map((s) => [
+        s.earlyCompletion,
+        s.delegatedVotingAllowed,
+        s.validatorsVote,
+        BigInt(s.duration),
+        BigInt(s.durationValidators),
+        BigInt(s.executionDelay),
+        BigInt(s.quorum),
+        BigInt(s.quorumValidators),
+        BigInt(s.minVotesForVoting),
+        BigInt(s.minVotesForCreating),
+        [
+          s.rewardsInfo.rewardToken,
+          BigInt(s.rewardsInfo.creationReward),
+          BigInt(s.rewardsInfo.executionReward),
+          BigInt(s.rewardsInfo.voteRewardsCoefficient),
+        ],
+        s.executorDescription,
+      ]),
+      effectiveExecutors,
+    ],
+    [
+      validatorsParams.name,
+      validatorsParams.symbol,
+      [
+        BigInt(validatorsParams.proposalSettings.duration),
+        BigInt(validatorsParams.proposalSettings.executionDelay),
+        BigInt(validatorsParams.proposalSettings.quorum),
+      ],
+      validatorsParams.validators,
+      validatorsParams.balances.map((b) => BigInt(b)),
+    ],
+    [
+      effectiveTokenAddress,
+      params.userKeeperParams.nftAddress,
+      BigInt(params.userKeeperParams.individualPower),
+      BigInt(params.userKeeperParams.nftsTotalSupply),
+    ],
+    [
+      params.tokenParams.name,
+      params.tokenParams.symbol,
+      params.tokenParams.users,
+      BigInt(params.tokenParams.cap),
+      BigInt(params.tokenParams.mintedTotal),
+      params.tokenParams.amounts.map((a) => BigInt(a)),
+    ],
+    [
+      VOTE_POWER_TYPES.indexOf(params.votePowerParams.voteType),
+      votePowerInitData,
+      params.votePowerParams.presetAddress,
+    ],
+    params.verifier,
+    params.onlyBABTHolders,
+    params.descriptionURL.replace(/^ipfs:\/\//, ""),
+    params.name,
+  ];
+
+  // ---------- get ABI (artifact > fallback) ----------
+  let iface: Interface;
+  let ifaceSource: string;
+  try {
+    const records = ctx.artifacts.get("PoolFactory");
+    if (records.length > 0) {
+      iface = new Interface(records[0]!.abi as never[]);
+      ifaceSource = "compiled artifact";
+      try {
+        iface.getFunction("deployGovPool");
+      } catch {
+        iface = new Interface(FALLBACK_POOL_FACTORY_ABI as unknown as string[]);
+        ifaceSource = "fallback (compiled artifact missing deployGovPool)";
+      }
+    } else {
+      iface = new Interface(FALLBACK_POOL_FACTORY_ABI as unknown as string[]);
+      ifaceSource = "fallback (artifacts not loaded — run dexe_compile for strict parity)";
+    }
+  } catch (err) {
+    if (err instanceof ArtifactsMissingError) {
+      iface = new Interface(FALLBACK_POOL_FACTORY_ABI as unknown as string[]);
+      ifaceSource = "fallback (no artifacts — run dexe_compile for strict parity)";
+    } else {
+      return fail(`Failed to load PoolFactory ABI: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // ---------- encode ----------
+  let payload: TxPayload;
+  try {
+    payload = buildPayload({
+      to: factoryAddress,
+      iface,
+      method: "deployGovPool",
+      args: [paramsTuple],
+      chainId: chain.chainId,
+      contractLabel: "PoolFactory",
+      description: `PoolFactory.deployGovPool("${params.name}") via ${ifaceSource}`,
+    });
+  } catch (err) {
+    return fail(`deployGovPool encoding failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  let note = ifaceSource.includes("fallback")
+    ? "⚠️  Using fallback tuple ABI. For guaranteed parity, run dexe_compile to populate artifacts."
+    : "Encoded against compiled artifact — strict parity with deployed PoolFactory.";
+  if (pinataWarning) note += pinataWarning;
+  if (quorumWarning) note += quorumWarning;
+
+  return {
+    ok: true,
+    payload,
+    predictedGovPool,
+    note,
+    predicted: {
+      govPool: predictedGovPool,
+      govToken: predictedGovToken,
+      distributionProposal: predictedDistribution,
+      govTokenSale: predictedTokenSale,
+    },
+  };
+}
+
 // ---------- dexe_dao_build_deploy ----------
 
 function registerBuildDeploy(
@@ -247,457 +668,14 @@ function registerBuildDeploy(
         deployer: z
           .string()
           .describe("tx.origin that will send the deploy tx — required for address prediction"),
-        params: z.object({
-          settingsParams: SettingsDeployParamsSchema,
-          validatorsParams: ValidatorsDeployParamsSchema.optional(),
-          userKeeperParams: UserKeeperDeployParamsSchema,
-          tokenParams: TokenParamsSchema,
-          votePowerParams: VotePowerDeployParamsSchema,
-          verifier: z.string().default("0x0000000000000000000000000000000000000000"),
-          onlyBABTHolders: z.boolean().default(false),
-          descriptionURL: z.string().describe("ipfs://<cid> of DAO metadata JSON"),
-          name: z.string().min(1),
-        }),
+        params: DeployParamsSchema,
       },
       outputSchema: payloadOutputSchema(),
     },
     async ({ chainId, poolFactory, deployer, params }) => {
-      const chain = resolveChain(ctx.config, chainId);
-      const isTokenCreation = params.tokenParams.name.length > 0;
-      const hasValidators = !!(params.validatorsParams && params.validatorsParams.validators.length > 0);
-
-      // ---------- auto-encode vote power initData ----------
-      let votePowerInitData: string;
-      try {
-        if (params.votePowerParams.voteType === "CUSTOM_VOTES") {
-          // CUSTOM_VOTES: use caller-provided initData (contract skips .call for custom)
-          votePowerInitData = params.votePowerParams.initData ?? "0x";
-        } else {
-          // LINEAR / POLYNOMIAL: auto-encode the correct initializer
-          votePowerInitData = encodeVotePowerInitData(
-            params.votePowerParams.voteType,
-            params.votePowerParams.polynomialCoefficients,
-          );
-        }
-      } catch (err) {
-        return errorResult(
-          `Failed to encode vote power initData: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
-      // ---------- default validatorsParams when omitted ----------
-      const VT_SUFFIX = "-VT";
-      const rawValidatorsParams = params.validatorsParams ?? {
-        name: "Validator Token",
-        symbol: "VT",
-        proposalSettings: {
-          duration: params.settingsParams.proposalSettings[0]!.duration,
-          executionDelay: params.settingsParams.proposalSettings[0]!.executionDelay,
-          quorum: params.settingsParams.proposalSettings[0]!.quorum,
-        },
-        validators: [],
-        balances: [],
-      };
-      // Bug #11: Frontend appends "-VT" suffix to validator token name and symbol.
-      // The form UI always stores name/symbol with the suffix already included.
-      // Replicate that here: if the suffix isn't already present, append it.
-      const validatorsParams = {
-        ...rawValidatorsParams,
-        name: rawValidatorsParams.name.endsWith(VT_SUFFIX)
-          ? rawValidatorsParams.name
-          : rawValidatorsParams.name + VT_SUFFIX,
-        symbol: rawValidatorsParams.symbol.endsWith(VT_SUFFIX)
-          ? rawValidatorsParams.symbol
-          : rawValidatorsParams.symbol + VT_SUFFIX,
-      };
-
-      // ---------- validate leaf addresses ----------
-      if (poolFactory && !isAddress(poolFactory)) return errorResult(`Invalid poolFactory: ${poolFactory}`);
-      if (!isAddress(deployer)) return errorResult(`Invalid deployer: ${deployer}`);
-      if (isTokenCreation && params.tokenParams.users.length === 0)
-        return errorResult(
-          "tokenParams.users must have at least one recipient when creating a new token",
-        );
-      if (!isAddress(params.verifier)) return errorResult(`Invalid verifier: ${params.verifier}`);
-      if (!isAddress(params.userKeeperParams.tokenAddress))
-        return errorResult(`Invalid userKeeperParams.tokenAddress`);
-      if (!isAddress(params.userKeeperParams.nftAddress))
-        return errorResult(`Invalid userKeeperParams.nftAddress`);
-      if (!isAddress(params.votePowerParams.presetAddress))
-        return errorResult(`Invalid votePowerParams.presetAddress`);
-      for (const v of validatorsParams.validators) {
-        if (!isAddress(v)) return errorResult(`Invalid validator: ${v}`);
-      }
-      if (
-        validatorsParams.validators.length !== validatorsParams.balances.length
-      ) {
-        return errorResult("validatorsParams.validators and .balances must be the same length");
-      }
-      for (const u of params.tokenParams.users) {
-        if (!isAddress(u)) return errorResult(`Invalid tokenParams.users entry: ${u}`);
-      }
-      if (params.tokenParams.users.length !== params.tokenParams.amounts.length) {
-        return errorResult("tokenParams.users and .amounts must be the same length");
-      }
-      // Bug #28: ERC20Gov init reverts inside _initGovPool with the generic
-      // "Address: low-level delegate call failed" when cap == mintedTotal.
-      // The token contract requires strict headroom (cap > minted) or cap=0
-      // (uncapped). Pre-flight reject so callers get a clear error instead of
-      // a 10M-gas revert hiding the real cause.
-      if (isTokenCreation) {
-        const capBn = BigInt(params.tokenParams.cap);
-        const mintedBn = BigInt(params.tokenParams.mintedTotal);
-        if (capBn > 0n && capBn <= mintedBn) {
-          return errorResult(
-            `tokenParams.cap (${capBn}) must be strictly greater than tokenParams.mintedTotal (${mintedBn}). ERC20Gov requires headroom for future minting; pass cap=0 for uncapped, or cap > mintedTotal.`,
-          );
-        }
-      }
-
-      // ---------- resolve PoolFactory address ----------
-      let factoryAddress = poolFactory;
-      if (!factoryAddress) {
-        try {
-          const pr = rpc.tryProvider(chain.chainId);
-          if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
-          const provider = pr.ok;
-          const book = new AddressBook({
-            provider,
-            chainId: chain.chainId,
-            registryOverride: chain.registryOverride ?? ctx.config.registryOverride,
-          });
-          factoryAddress = await book.resolve(CONTRACT_NAMES.POOL_FACTORY);
-        } catch (err) {
-          return errorResult(
-            `poolFactory address needed: pass it explicitly, or configure DEXE_RPC_URL so the ContractsRegistry lookup works. (${err instanceof Error ? err.message : String(err)})`,
-          );
-        }
-      }
-
-      // ---------- predict addresses (always required — wires executors) ----------
-      let predictedGovPool: string | undefined;
-      let predictedGovToken: string | undefined;
-      let predictedDistribution: string | undefined;
-      let predictedTokenSale: string | undefined;
-
-      try {
-        const pr = rpc.tryProvider(chain.chainId);
-        if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
-        const provider = pr.ok;
-        const predictIface = new Interface([
-          "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
-        ]);
-        const { Contract } = await import("ethers");
-        const factory = new Contract(factoryAddress, predictIface, provider);
-        const res = await factory.getFunction("predictGovAddresses").staticCall(deployer, params.name);
-        predictedGovPool = res.govPool as string;
-        predictedGovToken = res.govToken as string;
-        predictedDistribution = res.distributionProposal as string;
-        predictedTokenSale = res.govTokenSale as string;
-      } catch (err) {
-        return errorResult(
-          `Failed to predict gov addresses: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
-      const ZERO = "0x0000000000000000000000000000000000000000";
-
-      // Wire predicted govToken into userKeeperParams when creating a new token
-      const effectiveTokenAddress = isTokenCreation && predictedGovToken
-        ? predictedGovToken
-        : params.userKeeperParams.tokenAddress;
-
-      // Bug #12: When "use governance token for rewards" is checked, the frontend
-      // sets rewardToken to the predicted govToken address. When creating a new
-      // token, the address isn't known at input time, so callers pass ZERO_ADDR.
-      // Detect this case: rewardToken is zero BUT reward amounts are non-zero
-      // → substitute the predicted govToken address (matching frontend behavior).
-      if (isTokenCreation && predictedGovToken) {
-        const hasRewardAmounts = (r: { creationReward: string; executionReward: string; voteRewardsCoefficient: string }) =>
-          BigInt(r.creationReward) > 0n || BigInt(r.executionReward) > 0n || BigInt(r.voteRewardsCoefficient) > 0n;
-        for (const s of params.settingsParams.proposalSettings) {
-          if (
-            (s.rewardsInfo.rewardToken === ZERO || s.rewardsInfo.rewardToken === "") &&
-            hasRewardAmounts(s.rewardsInfo)
-          ) {
-            s.rewardsInfo.rewardToken = predictedGovToken;
-          }
-        }
-      }
-
-      // Always wire predicted distribution + tokenSale into additionalProposalExecutors
-      const effectiveExecutors = [...params.settingsParams.additionalProposalExecutors];
-      if (predictedDistribution && !effectiveExecutors.includes(predictedDistribution))
-        effectiveExecutors.push(predictedDistribution);
-      if (predictedTokenSale && !effectiveExecutors.includes(predictedTokenSale))
-        effectiveExecutors.push(predictedTokenSale);
-
-      // Validate: after wiring, at least one governance asset must be non-zero
-      if (effectiveTokenAddress === ZERO && params.userKeeperParams.nftAddress === ZERO) {
-        return errorResult(
-          "GovUK requires at least one governance asset: set userKeeperParams.tokenAddress (existing ERC20), userKeeperParams.nftAddress (existing ERC721), or provide tokenParams.name to create a new token",
-        );
-      }
-
-      // ---------- auto-expand proposal settings (1 → 5) ----------
-      let expandedSettings = params.settingsParams.proposalSettings;
-      if (expandedSettings.length === 1) {
-        const base = expandedSettings[0]!;
-        const baseWithValidatorFallback = {
-          ...base,
-          validatorsVote: true,
-          durationValidators: hasValidators ? base.durationValidators : base.duration,
-          quorumValidators: hasValidators ? base.quorumValidators : base.quorum,
-        };
-        const dpSettings = {
-          ...baseWithValidatorFallback,
-          delegatedVotingAllowed: false,
-          earlyCompletion: false,
-        };
-        expandedSettings = [
-          baseWithValidatorFallback, // [0] default
-          baseWithValidatorFallback, // [1] internal
-          baseWithValidatorFallback, // [2] validators
-          dpSettings,                // [3] distributionProposal
-          baseWithValidatorFallback, // [4] tokenSale
-        ];
-      } else if (expandedSettings.length !== 5) {
-        return errorResult(
-          `proposalSettings must be 1 (auto-expand to 5) or exactly 5. Got ${expandedSettings.length}.`,
-        );
-      }
-
-      // ---------- treasury-safety advisory: quorum floor (Layer 2) ----------
-      // Low quorum reduces the participation required to pass a proposal — a
-      // governance-safety risk for a DAO that will hold treasury assets. Flag it
-      // at birth so the operator sets an adequate quorum.
-      let quorumWarning = "";
-      if (ctx.config.treasuryGuard !== "off") {
-        const floor = ctx.config.minSafeQuorumPct;
-        const showPct = (p: number) => (Number.isFinite(p) ? `${p}%` : "unparseable");
-        const lowQuorum: string[] = [];
-        expandedSettings.forEach((s, i) => {
-          const pct = quorumPctFromRaw(s.quorum);
-          if (judgeQuorum(pct, floor) !== "SAFE") {
-            lowQuorum.push(`proposalSettings[${i}] quorum=${showPct(pct)}`);
-          }
-        });
-        const vpct = quorumPctFromRaw(validatorsParams.proposalSettings.quorum);
-        if (judgeQuorum(vpct, floor) !== "SAFE") {
-          lowQuorum.push(`validatorsParams quorum=${showPct(vpct)}`);
-        }
-        if (lowQuorum.length > 0) {
-          const detail =
-            `Quorum below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT): ${lowQuorum.join(", ")}. ` +
-            `Low quorum reduces the participation required to pass a proposal; for a DAO that will hold ` +
-            `treasury assets, set quorum ≥50% (51%+ recommended). The safe value is DAO-specific and must ` +
-            `be verified. [governance-safety advisory]`;
-          // Advisory only — never blocks the deploy. The durable control is an
-          // adequate on-chain quorum threshold configured per DAO.
-          quorumWarning = `\n⚠️  ${detail}`;
-        }
-      }
-
-      // ---------- auto-upload executorDescription to IPFS (when Pinata configured) ----------
-      // The frontend uploads each proposal settings object as JSON to IPFS and stores
-      // the CID as `executorDescription`. Without this, DAOs display broken metadata in
-      // the UI. We replicate the frontend's behavior: for each settings slot, if
-      // executorDescription is empty and Pinata is available, upload the settings JSON
-      // and set executorDescription = "ipfs://<cid>".
-      //
-      // The uploaded JSON shape matches the frontend exactly:
-      // { earlyCompletion, delegatedVotingAllowed, validatorsVote, duration, durationValidators,
-      //   quorum, quorumValidators, minVotesForVoting, minVotesForCreating, executionDelay,
-      //   rewardsInfo: { rewardToken, creationReward, executionReward, voteRewardsCoefficient } }
-      let pinataWarning = "";
-      if (ctx.config.pinataJwt) {
-        const pinata = new PinataClient(ctx.config.pinataJwt);
-        // We only auto-upload for default (index 0) and DP (index 3) settings,
-        // matching the frontend which shares the same CID across default/internal/validators/tokenSale
-        // and a separate CID for DP settings.
-        const settingsToUpload: Array<{ index: number; label: string }> = [
-          { index: 0, label: "default" },
-          { index: 3, label: "distributionProposal" },
-        ];
-        for (const { index, label } of settingsToUpload) {
-          const s = expandedSettings[index]!;
-          if (!s.executorDescription || s.executorDescription === "") {
-            try {
-              // Bug #13: Frontend includes minVotesForReadProposalDiscussion and
-              // minVotesForCreatingComment in the settings JSON uploaded to IPFS.
-              // Defaults from frontend: 0 (read) and 1e18 (comment = 1 token).
-              const settingsJson = {
-                earlyCompletion: s.earlyCompletion,
-                delegatedVotingAllowed: s.delegatedVotingAllowed,
-                validatorsVote: s.validatorsVote,
-                duration: s.duration,
-                durationValidators: s.durationValidators,
-                quorum: s.quorum,
-                quorumValidators: s.quorumValidators,
-                minVotesForVoting: s.minVotesForVoting,
-                minVotesForCreating: s.minVotesForCreating,
-                executionDelay: s.executionDelay,
-                rewardsInfo: {
-                  rewardToken: s.rewardsInfo.rewardToken,
-                  creationReward: s.rewardsInfo.creationReward,
-                  executionReward: s.rewardsInfo.executionReward,
-                  voteRewardsCoefficient: s.rewardsInfo.voteRewardsCoefficient,
-                },
-                minVotesForReadProposalDiscussion: "0",
-                minVotesForCreatingComment: "1000000000000000000",
-              };
-              const res = await pinata.pinJson(settingsJson, {
-                name: `dao-settings-${label}:${params.name.slice(0, 40)}`,
-              });
-              const cid = `ipfs://${res.cid}`;
-              // Apply the CID to the relevant slots (frontend shares CIDs across slots)
-              if (index === 0) {
-                // Default CID shared across: default(0), internal(1), validators(2), tokenSale(4)
-                expandedSettings[0] = { ...expandedSettings[0]!, executorDescription: cid };
-                expandedSettings[1] = { ...expandedSettings[1]!, executorDescription: cid };
-                expandedSettings[2] = { ...expandedSettings[2]!, executorDescription: cid };
-                expandedSettings[4] = { ...expandedSettings[4]!, executorDescription: cid };
-              } else {
-                // DP settings get their own CID
-                expandedSettings[3] = { ...expandedSettings[3]!, executorDescription: cid };
-              }
-            } catch (err) {
-              pinataWarning += `\n⚠️  Failed to upload ${label} executorDescription: ${err instanceof Error ? err.message : String(err)}`;
-            }
-          }
-        }
-      } else {
-        // Check if any executorDescription is missing — warn about UI impact
-        const missingDesc = expandedSettings.some((s) => !s.executorDescription || s.executorDescription === "");
-        if (missingDesc) {
-          pinataWarning =
-            "\n⚠️  DEXE_PINATA_JWT not configured — executorDescription fields are empty. " +
-            "DAOs created without executorDescription will display broken proposal settings in the frontend UI. " +
-            "Set DEXE_PINATA_JWT to enable auto-upload.";
-        }
-      }
-
-      // ---------- build the tuple arg ----------
-      const paramsTuple = [
-        // settingsParams
-        [
-          expandedSettings.map((s) => [
-            s.earlyCompletion,
-            s.delegatedVotingAllowed,
-            s.validatorsVote,
-            BigInt(s.duration),
-            BigInt(s.durationValidators),
-            BigInt(s.executionDelay),
-            BigInt(s.quorum),
-            BigInt(s.quorumValidators),
-            BigInt(s.minVotesForVoting),
-            BigInt(s.minVotesForCreating),
-            [
-              s.rewardsInfo.rewardToken,
-              BigInt(s.rewardsInfo.creationReward),
-              BigInt(s.rewardsInfo.executionReward),
-              BigInt(s.rewardsInfo.voteRewardsCoefficient),
-            ],
-            s.executorDescription,
-          ]),
-          effectiveExecutors,
-        ],
-        // validatorsParams
-        [
-          validatorsParams.name,
-          validatorsParams.symbol,
-          [
-            BigInt(validatorsParams.proposalSettings.duration),
-            BigInt(validatorsParams.proposalSettings.executionDelay),
-            BigInt(validatorsParams.proposalSettings.quorum),
-          ],
-          validatorsParams.validators,
-          validatorsParams.balances.map((b) => BigInt(b)),
-        ],
-        // userKeeperParams
-        [
-          effectiveTokenAddress,
-          params.userKeeperParams.nftAddress,
-          BigInt(params.userKeeperParams.individualPower),
-          BigInt(params.userKeeperParams.nftsTotalSupply),
-        ],
-        // tokenParams
-        [
-          params.tokenParams.name,
-          params.tokenParams.symbol,
-          params.tokenParams.users,
-          BigInt(params.tokenParams.cap),
-          BigInt(params.tokenParams.mintedTotal),
-          params.tokenParams.amounts.map((a) => BigInt(a)),
-        ],
-        // votePowerParams
-        [
-          VOTE_POWER_TYPES.indexOf(params.votePowerParams.voteType), // uint8 enum
-          votePowerInitData,
-          params.votePowerParams.presetAddress,
-        ],
-        params.verifier,
-        params.onlyBABTHolders,
-        params.descriptionURL.replace(/^ipfs:\/\//, ""),
-        params.name,
-      ];
-
-      // ---------- get ABI (artifact > fallback) ----------
-      let iface: Interface;
-      let ifaceSource: string;
-      try {
-        const records = ctx.artifacts.get("PoolFactory");
-        if (records.length > 0) {
-          iface = new Interface(records[0]!.abi as never[]);
-          ifaceSource = "compiled artifact";
-          // Sanity: ensure it has deployGovPool
-          try {
-            iface.getFunction("deployGovPool");
-          } catch {
-            iface = new Interface(FALLBACK_POOL_FACTORY_ABI as unknown as string[]);
-            ifaceSource = "fallback (compiled artifact missing deployGovPool)";
-          }
-        } else {
-          iface = new Interface(FALLBACK_POOL_FACTORY_ABI as unknown as string[]);
-          ifaceSource = "fallback (artifacts not loaded — run dexe_compile for strict parity)";
-        }
-      } catch (err) {
-        if (err instanceof ArtifactsMissingError) {
-          iface = new Interface(FALLBACK_POOL_FACTORY_ABI as unknown as string[]);
-          ifaceSource = "fallback (no artifacts — run dexe_compile for strict parity)";
-        } else {
-          return errorResult(
-            `Failed to load PoolFactory ABI: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-
-      // ---------- encode ----------
-      let payload: TxPayload;
-      try {
-        payload = buildPayload({
-          to: factoryAddress,
-          iface,
-          method: "deployGovPool",
-          args: [paramsTuple],
-          chainId: chain.chainId,
-          contractLabel: "PoolFactory",
-          description: `PoolFactory.deployGovPool("${params.name}") via ${ifaceSource}`,
-        });
-      } catch (err) {
-        return errorResult(
-          `deployGovPool encoding failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
-      let note =
-        ifaceSource.includes("fallback")
-          ? "⚠️  Using fallback tuple ABI. For guaranteed parity, run dexe_compile to populate artifacts."
-          : "Encoded against compiled artifact — strict parity with deployed PoolFactory.";
-      if (pinataWarning) note += pinataWarning;
-      if (quorumWarning) note += quorumWarning;
-
-      return payloadResult(payload, { predictedGovPool, note });
+      const res = await buildDeployGovPool({ chainId, poolFactory, deployer, params }, ctx, rpc);
+      if (!res.ok) return errorResult(res.error);
+      return payloadResult(res.payload, { predictedGovPool: res.predictedGovPool, note: res.note });
     },
   );
 }

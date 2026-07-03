@@ -45,7 +45,7 @@ const RewardsInfoSchema = z.object({
   voteRewardsCoefficient: z.string().default("0"),
 });
 
-const ProposalSettingsSchema = z.object({
+export const ProposalSettingsSchema = z.object({
   earlyCompletion: z.boolean(),
   delegatedVotingAllowed: z.boolean(),
   validatorsVote: z.boolean(),
@@ -60,9 +60,11 @@ const ProposalSettingsSchema = z.object({
   executorDescription: z.string().default(""),
 });
 
-type ProposalSettingsInput = z.infer<typeof ProposalSettingsSchema>;
+export type ProposalSettingsInput = z.infer<typeof ProposalSettingsSchema>;
 
-function toSettingsTuple(s: ProposalSettingsInput) {
+export const GOV_SETTINGS_EDIT_ABI = GOV_SETTINGS_ABI;
+
+export function toSettingsTuple(s: ProposalSettingsInput) {
   return [
     s.earlyCompletion,
     s.delegatedVotingAllowed,

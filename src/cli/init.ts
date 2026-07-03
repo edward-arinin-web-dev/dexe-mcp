@@ -1,7 +1,16 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  copyFileSync,
+} from "node:fs";
+import { resolve, dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -185,6 +194,9 @@ export async function run(): Promise<void> {
     output.write(line(`✔ Wrote ${envPath} (${Object.keys(updates).length} key${Object.keys(updates).length === 1 ? "" : "s"} set).`));
     output.write(line(""));
 
+    // ---- Offer to install the shipped skills ---------------------------
+    await maybeInstallSkills(rl, repoRoot);
+
     // ---- Print .claude.json snippet ------------------------------------
     output.write(line("Paste this into your ~/.claude.json under `mcpServers`:"));
     output.write(line(""));
@@ -194,6 +206,78 @@ export async function run(): Promise<void> {
   } finally {
     rl.close();
   }
+}
+
+// ─── skill installer ─────────────────────────────────────────────────────
+
+/**
+ * Offer to copy the package's `skills/` (dexe-create-dao, dexe-create-proposal,
+ * dexe-vote-execute, dexe-otc, dexe-setup) into a Claude Code skills dir so the
+ * exact tool-sequence recipes reach the model. Idempotent: unchanged skills are
+ * skipped, changed ones are overwritten with an "(updated)" note.
+ */
+async function maybeInstallSkills(
+  rl: ReturnType<typeof createInterface>,
+  repoRoot: string,
+): Promise<void> {
+  const skillsSrc = resolve(repoRoot, "skills");
+  if (!existsSync(skillsSrc)) return; // not packaged (dev without build) — skip silently
+
+  output.write(line(""));
+  const want = await yn(
+    rl,
+    "Install dexe-mcp Claude Code skills (create-dao / create-proposal / vote-execute / otc / setup)?",
+    true,
+  );
+  if (!want) return;
+
+  const scope = await pickOne(
+    rl,
+    "Where should the skills go?",
+    [
+      ["p", "project — ./.claude/skills (this repo only, recommended)"],
+      ["g", "global  — ~/.claude/skills (all your projects)"],
+    ],
+    "p",
+  );
+  const targetRoot =
+    scope === "g" ? resolve(homedir(), ".claude", "skills") : resolve(process.cwd(), ".claude", "skills");
+
+  const summary = installSkills(skillsSrc, targetRoot);
+  output.write(line(`✔ Skills → ${targetRoot}`));
+  for (const s of summary) output.write(line(`    ${s}`));
+}
+
+/**
+ * Copy every skill folder (containing a SKILL.md) from `srcRoot` into
+ * `targetRoot`. Returns a per-skill status line. Pure fs — no prompts — so it is
+ * unit-testable and reusable.
+ */
+export function installSkills(srcRoot: string, targetRoot: string): string[] {
+  const out: string[] = [];
+  mkdirSync(targetRoot, { recursive: true });
+  for (const entry of readdirSync(srcRoot)) {
+    const srcDir = join(srcRoot, entry);
+    if (!statSync(srcDir).isDirectory()) continue;
+    const srcSkill = join(srcDir, "SKILL.md");
+    if (!existsSync(srcSkill)) continue;
+    const destDir = join(targetRoot, entry);
+    const destSkill = join(destDir, "SKILL.md");
+    const next = readFileSync(srcSkill, "utf8");
+    let status: string;
+    if (!existsSync(destSkill)) {
+      status = "installed";
+    } else {
+      const prev = readFileSync(destSkill, "utf8");
+      status = prev === next ? "unchanged" : "updated";
+    }
+    if (status !== "unchanged") {
+      mkdirSync(destDir, { recursive: true });
+      copyFileSync(srcSkill, destSkill);
+    }
+    out.push(`${entry} (${status})`);
+  }
+  return out;
 }
 
 // ─── prompt helpers ──────────────────────────────────────────────────────

@@ -25,6 +25,7 @@ import { registerGetConfigTool } from "./getConfig.js";
 import { registerDoctorTool } from "./doctor.js";
 import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
+import { registerDaoCreateTools } from "./daoCreate.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcTools } from "./otc.js";
 import { registerSafeTools } from "./safe.js";
@@ -76,6 +77,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerDoctorTool(server, config);
   registerWalletConnectTools(server, config, signer, wc);
   registerFlowTools(server, ctx, signer);
+  registerDaoCreateTools(server, ctx, signer);
   registerOtcTools(server, ctx, signer);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
