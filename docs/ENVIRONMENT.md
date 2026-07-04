@@ -26,6 +26,13 @@ message naming exactly which var to set.
 
 ## 1. Quick start — minimum env block
 
+> **Reads need zero env.** With no RPC configured the server falls back to
+> public BSC endpoints (chains 56 + 97, default **56**), so on-chain reads work
+> out of the box — this is what powers the Claude Code plugin's zero-setup
+> install. Public dataseed nodes rate-limit and lack archive history; set your
+> own RPC below for anything serious, or `DEXE_DISABLE_PUBLIC_RPC=1` to turn the
+> fallback off. Everything in this section is about going *beyond* free reads.
+
 Read-only operation against BSC mainnet (proposal lists, state reads, decode):
 
 ```env
@@ -75,7 +82,8 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_RPC_URL_TESTNET` | Multi-chain mode (testnet) | RPC for chain 97 (BSC testnet). Optional — set when you want the MCP to broadcast on testnet without restart. | `https://data-seed-prebsc-1-s1.binance.org:8545` |
 | `DEXE_RPC_URL_MAINNET` | Multi-chain mode (mainnet) | RPC for chain 56 (BSC mainnet). Optional — set when you want to broadcast on mainnet without restart. | `https://bsc-dataseed.binance.org` |
 | `DEXE_RPC_URL_<chainId>` | Generic per-chain RPC | RPC for any chain by numeric id. Registered automatically. Needed for the external Governor DAOs — Ethereum (`DEXE_RPC_URL_1`) and Optimism (`DEXE_RPC_URL_10`). Coexists with the BSC vars. | `DEXE_RPC_URL_1=https://eth.llamarpc.com` |
-| `DEXE_DEFAULT_CHAIN_ID` | Multi-chain mode (default selection) | Which configured chain is used when a tool call omits `chainId`. Defaults to testnet when both are configured. | `97`, `56` |
+| `DEXE_DEFAULT_CHAIN_ID` | Multi-chain mode (default selection) | Which configured chain is used when a tool call omits `chainId`. Defaults to testnet when both are configured explicitly; the zero-config public fallback defaults to mainnet (56). | `97`, `56` |
+| `DEXE_DISABLE_PUBLIC_RPC` | Zero-config read fallback | Set to `1` to disable the built-in public BSC RPC fallback that activates when **no** RPC is configured. Unset (default) = fallback on (chains 56 + 97, default 56). | `1` |
 | `DEXE_CONTRACTS_REGISTRY` | Custom chain / non-default registry | Override the `ContractsRegistry` root address. Defaults to the per-chain known address from `src/lib/addresses.ts`. | `0x...` |
 | `DEXE_PINATA_JWT` | All `dexe_ipfs_upload_*` tools, auto-upload of `executorDescription` in `dexe_dao_build_deploy`, `dexe_proposal_create` flow | Pinata JWT for pinning JSON / files. | `eyJhbGciOi...` |
 | `DEXE_IPFS_GATEWAY` | `dexe_ipfs_fetch`, any tool that re-reads metadata from IPFS | **Dedicated** gateway URL (Pinata bundles one with the JWT; Filebase / QuickNode / self-hosted also fine). Public gateways throttle and disagree on CIDs — not defaulted. | `https://my-sub.mypinata.cloud` |
@@ -191,7 +199,7 @@ Recommended signer-mode block for a single-DAO operator:
 "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN": "10"
 ```
 
-`DEXE_PRIVATE_KEY` requires at least one of `DEXE_RPC_URL` / `DEXE_RPC_URL_TESTNET` / `DEXE_RPC_URL_MAINNET` — startup fails fast otherwise.
+`DEXE_PRIVATE_KEY` requires an RPC. When the zero-config public-RPC fallback is active (no RPC configured), the key signs against public BSC endpoints — set your own `DEXE_RPC_URL_MAINNET` / `DEXE_RPC_URL_TESTNET` for reliable broadcasting. If you additionally set `DEXE_DISABLE_PUBLIC_RPC=1` with a key but no RPC, startup fails fast.
 
 ---
 

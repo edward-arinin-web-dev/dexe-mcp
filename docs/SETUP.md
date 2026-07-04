@@ -4,11 +4,30 @@ This is the consolidated quickstart. The full env reference lives in
 [`ENVIRONMENT.md`](./ENVIRONMENT.md); the diagnostic reference is in
 [`DOCTOR.md`](./DOCTOR.md).
 
-There are three paths to a working setup. Pick one.
+There are four paths to a working setup. Pick one. For a friendlier,
+non-technical walkthrough see [`INSTALL.md`](./INSTALL.md).
 
 ---
 
-## Path A — `npx dexe-mcp init` (recommended for new installs)
+## Path A — Claude Code plugin (no terminal, recommended)
+
+Inside Claude Code, type:
+
+```
+/plugin marketplace add edward-arinin-web-dev/dexe-mcp
+/plugin install dexe@dexe-mcp
+```
+
+This registers the MCP server and installs the governance skills — no npm,
+no `.claude.json` editing. **Reads work immediately** (the server falls back
+to public BSC RPC when no RPC is configured). For writes, type `/dexe-setup`
+(Path D) and Claude adds the missing keys for you.
+
+Update later with `/plugin marketplace update` then `/plugin install dexe@dexe-mcp`.
+
+---
+
+## Path B — `npx dexe-mcp init` (for other MCP clients)
 
 ```sh
 npm install -g dexe-mcp        # or: npm install dexe-mcp
@@ -30,9 +49,14 @@ After `init`:
 
 ---
 
-## Path B — manual `.env` edit
+## Path C — manual `.env` edit
 
-Copy `.env.example` to `.env` and fill in the values you need. The canonical
+Copy `.env.example` to `.env` and fill in the values you need.
+
+> Reads no longer require any env: with no RPC configured the server falls
+> back to public BSC endpoints (chains 56 + 97, default 56). Set your own
+> `DEXE_RPC_URL_MAINNET` for reliability, or `DEXE_DISABLE_PUBLIC_RPC=1` to
+> turn the fallback off. The canonical
 schema for every recognized env var lives at
 [`src/env/schema.ts`](../src/env/schema.ts) — every key has a category,
 one-line doc, and zod validator. The doctor reads from there.
@@ -64,7 +88,7 @@ Run `npx dexe-mcp doctor` to verify each leg.
 
 ---
 
-## Path C — `/dexe-setup` (from inside Claude Code)
+## Path D — `/dexe-setup` (from inside Claude Code)
 
 If you're already in a Claude Code session and tools are failing, type
 `/dexe-setup`. The skill calls `dexe_doctor`, parses the report, asks you
@@ -127,6 +151,8 @@ See [`DOCTOR.md`](./DOCTOR.md) for the full check reference. Summary:
 - Subgraph reachability (`{ __typename }` introspection)
 - Signer broadcast-guard config (allowlist, max value, rate limit)
 - Chain consistency (default chain in configured set; signer needs RPC)
+- Public-RPC fallback advisory (raised when no RPC is configured and the
+  built-in BSC fallback is in use)
 
 Status legend:
 

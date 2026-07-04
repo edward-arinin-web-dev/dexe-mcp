@@ -1,0 +1,17 @@
+{
+  "name": "dexe-mcp",
+  "description": "DeXe Protocol governance for Claude Code — one plugin to deploy DAOs, draft and vote on proposals, run OTC sales, and read on-chain state.",
+  "owner": {
+    "name": "Edward Arinin",
+    "email": "edward.arinin@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "dexe",
+      "source": "./dexe-plugin",
+      "description": "DeXe Protocol DAO governance for Claude — deploy DAOs, draft/vote/execute proposals, OTC sales, IPFS metadata. Reads work with zero setup; add keys only for writes.",
+      "version": "0.15.0",
+      "author": { "name": "Edward Arinin", "email": "edward.arinin@gmail.com" }
+    }
+  ]
+}

@@ -69,7 +69,10 @@ describe("@walletconnect/universal-provider — export shape", () => {
       (def as { init?: unknown } | undefined);
     expect(candidate).toBeTruthy();
     expect(typeof candidate?.init).toBe("function");
-  });
+    // 30s timeout: this dynamically imports the heavy @walletconnect/universal-
+    // provider CJS bundle, which can exceed the 5s default on a cold cache (CI,
+    // first run) even though it resolves in ~150ms warm.
+  }, 30000);
 });
 
 describe("WalletConnectManager — CAIP-10 account parsing", () => {

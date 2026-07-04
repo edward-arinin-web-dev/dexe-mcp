@@ -7,8 +7,9 @@ from scratch every session. They are the primary channel for the recurring
 shape, the deploy revert-guards, ProposalState ordering, treasury/blacklist
 edge cases).
 
-They live in [`skills/`](../skills) in the published package and install into a
-Claude Code skills directory.
+They live in [`dexe-plugin/skills/`](../dexe-plugin/skills) and ship in the
+published npm package. They install into a Claude Code skills directory
+automatically with the plugin, or on demand via the CLI.
 
 ## The skills
 
@@ -22,19 +23,27 @@ Claude Code skills directory.
 
 ## Installing
 
-Run the onboarding wizard — it offers to copy the skills after writing `.env`:
+**With the Claude Code plugin (automatic).** `/plugin install dexe@dexe-mcp`
+discovers and loads all five skills — no copy step, no env questions. Plugin
+skills are namespaced, e.g. `dexe:dexe-create-dao`.
+
+**Standalone CLI** — copy the skills with no setup interview (for other MCP
+clients, or a manual top-up):
 
 ```bash
-npx dexe-mcp init
+npx dexe-mcp skills            # into ./.claude/skills (this project)
+npx dexe-mcp skills --global   # into ~/.claude/skills (all projects)
 ```
 
-You choose **project** (`./.claude/skills`) or **global** (`~/.claude/skills`).
-Re-running is idempotent: unchanged skills are skipped, changed ones are
-overwritten with an `(updated)` note, so upgrading the package and re-running
-init keeps the installed recipes current.
+**Via the onboarding wizard.** `npx dexe-mcp init` now opens with a choice —
+pick **"just the Claude skills"** (or run `npx dexe-mcp init --skills-only`) to
+copy the skills and skip the `.env` interview entirely; pick **both** to do
+skills + env.
 
-Skills can also be copied by hand — each is a folder with a single `SKILL.md`.
-Claude Code auto-discovers them from the skills directory.
+All paths are idempotent: unchanged skills are skipped, changed ones are
+overwritten with an `(updated)` note, so upgrading the package and re-running
+keeps the installed recipes current. Each skill is a folder with a single
+`SKILL.md`; Claude Code auto-discovers them from the skills directory.
 
 ## Why skills, not MCP prompts/resources
 
