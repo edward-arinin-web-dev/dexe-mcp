@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.16.0 — 2026-07-04
+
+### Backend-powered treasury + holder/stats/NFT reads (156 → 159 tools)
+
+`dexe_read_treasury` used to require an on-chain multicall with an explicit
+token list and reverted ("missing revert data") on any address that wasn't a
+GovPool — useless for reading a real DAO treasury. The app.dexe.io UI never
+does this; it reads balances from the DeXe backend
+(`api-proxy-cache/<chain>/wallet-balances/<addr>`, Moralis-backed). We now copy
+that logic and expose the sibling backend endpoints too.
+
+- **`dexe_read_treasury` (rewritten).** Backend-first: auto-discovers every
+  token, returns `symbol`/`name`/`decimals`/`balance` + `usdPrice`/`usdValue`
+  per token and a `totalUsd`, following `next_page_token`. Adds a `chainId`
+  input and `source: backend|rpc` to the output. RPC multicall retained as
+  fallback for testnet 97, explicit `tokens`, or unset/unreachable
+  `DEXE_BACKEND_API_URL`. Works on any address, not just GovPools.
+- **`dexe_read_token_holders` (new).** Holders + raw balances of any ERC20 via
+  `token-holders-balances/<token>`, sorted descending. Backend-only.
+- **`dexe_read_dao_stats` (new).** DAO TVL + member/proposal/delegation time
+  series via `tracker/<chain>/pools/gov/<dao>/stats/<period>`. `period` is a
+  human duration (`'7 days'`). Backend-only.
+- **`dexe_read_nfts` (new).** NFTs held by any address via
+  `nfts-by-wallet/<addr>` (Moralis), optional contract filter. Backend-only.
+- Shared `backendGetJson()` helper (`DEXE_BACKEND_API_URL`, 8s timeout,
+  paste-ready error when unset). All three new tools join the `read` toolset
+  (29 → 32).
+
 ## 0.15.0 — 2026-07-04
 
 ### One-command install — Claude Code plugin + zero-config reads

@@ -9,7 +9,7 @@
   <a href="https://nodejs.org"><img alt="node" src="https://img.shields.io/node/v/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=E07AFF"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/dexe-mcp.svg?style=flat-square&labelColor=0b0f1e&color=FFC878"></a>
   <a href="https://modelcontextprotocol.io"><img alt="MCP-compatible" src="https://img.shields.io/badge/MCP-compatible-9BB4FF?style=flat-square&labelColor=0b0f1e"></a>
-  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-156-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
+  <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="tools" src="https://img.shields.io/badge/tools-159-7CF2D1?style=flat-square&labelColor=0b0f1e"></a>
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp"><img alt="proposal types" src="https://img.shields.io/badge/proposal--types-33-E07AFF?style=flat-square&labelColor=0b0f1e"></a>
 </p>
 
@@ -62,7 +62,7 @@ That era is ending.
 
 LLMs can now reason about voting power, weigh proposals against a mandate, draft calldata, simulate execution, and ask your wallet to sign — **continuously, across every DAO you care about, all at once.** What was a UI is becoming a conversation. What was a treasurer's spreadsheet is becoming an always-on agent.
 
-**`dexe-mcp` is the substrate that makes it real for the DeXe stack — and now for external OpenZeppelin Governor DAOs as well.** One MCP server. 156 typed tools across 19 groups. Every flow the DeXe frontend exposes — plus a generic `dexe_gov_*` surface targeting Uniswap, Compound, and Optimism.
+**`dexe-mcp` is the substrate that makes it real for the DeXe stack — and now for external OpenZeppelin Governor DAOs as well.** One MCP server. 159 typed tools across 19 groups. Every flow the DeXe frontend exposes — plus a generic `dexe_gov_*` surface targeting Uniswap, Compound, and Optimism.
 
 |     | What you get |
 |-----|------|
@@ -218,7 +218,7 @@ All optional. Tools that need a missing variable fail with a clear, actionable m
 
 Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/main/docs):
 
-- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 156 tools, grouped, with one-line descriptions and required envs.
+- [**`docs/TOOLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) — complete catalog of all 159 tools, grouped, with one-line descriptions and required envs.
 - [**`docs/SKILLS.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/SKILLS.md) — shipped Claude Code skills (create-dao / create-proposal / vote-execute / otc / setup) and how `npx dexe-mcp init` installs them.
 - [**`docs/GOVERNOR.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/GOVERNOR.md) — external OpenZeppelin / Bravo Governor surface (Uniswap, Compound, Optimism). Family branching, fixture map, paste-able JSON examples, Tally parity harness.
 - [**`docs/WALLETCONNECT.md`**](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/WALLETCONNECT.md) — `walletconnect` signer mode: phone-approved broadcast with no hot key. Phase A (config) + Phase B (live relay, `dexe_wc_connect` / `dexe_wc_disconnect`, per-tx phone approval) shipped in v0.7.0, validated end-to-end with a live MetaMask-mobile round-trip on BSC testnet.
@@ -232,9 +232,9 @@ Full docs in [`docs/`](https://github.com/edward-arinin-web-dev/dexe-mcp/tree/ma
 
 ## Tool catalog
 
-**156 tools, 19 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+**159 tools, 19 groups.** Run `dexe_proposal_catalog` at runtime for the live proposal-type map. Full per-tool reference → [`docs/TOOLS.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
-> **Toolset profiles (v0.13.0):** a default session loads a slim **~72 tools** (`DEXE_TOOLSETS=core,proposals`), not all 156 — cutting `tools/list` ~46%. Add profiles (`read`, `vote`, `governor`, `dev`) or set `DEXE_TOOLSETS=full` to restore everything; `DEXE_TOOLSETS=core` is the deepest cut (~76%). `dexe_doctor` shows the active profile. See [TOOLS.md § Toolset profiles](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md#toolset-profiles).
+> **Toolset profiles (v0.13.0):** a default session loads a slim **~72 tools** (`DEXE_TOOLSETS=core,proposals`), not all 159 — cutting `tools/list` ~46%. Add profiles (`read`, `vote`, `governor`, `dev`) or set `DEXE_TOOLSETS=full` to restore everything; `DEXE_TOOLSETS=core` is the deepest cut (~76%). `dexe_doctor` shows the active profile. See [TOOLS.md § Toolset profiles](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md#toolset-profiles).
 >
 > **Persistent context (v0.14.0):** `dexe_context` (call first) returns your signer, active chain, env readiness, and the DAOs/proposals recorded in prior sessions (state at `~/.dexe-mcp/state.json`, override `DEXE_STATE_PATH`).
 
