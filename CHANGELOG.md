@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.15.0 — 2026-07-04
+
+### One-command install — Claude Code plugin + zero-config reads
+
+Onboarding overhaul: an average user should install dexe-mcp from inside Claude
+with no terminal, no JSON editing, and no env vars until they actually want to
+write. No new MCP tools (still 156); this is packaging, CLI, and docs.
+
+- **Claude Code plugin + marketplace.** New `.claude-plugin/marketplace.json`
+  (repo root) and `dexe-plugin/` (`.claude-plugin/plugin.json` + `mcp.json` +
+  the shipped skills). Users install in-session:
+
+  ```
+  /plugin marketplace add edward-arinin-web-dev/dexe-mcp
+  /plugin install dexe@dexe-mcp
+  ```
+
+  The plugin registers the MCP server (launched via `npx -y dexe-mcp@0.15.0`,
+  version pinned) and auto-discovers the governance skills — namespaced
+  `dexe:<skill>`. Both manifests pass `claude plugin validate`.
+- **Zero-config reads (server-side public-RPC fallback).** When no RPC is
+  configured, `loadConfig()` seeds public BSC endpoints (chains 56 + 97, default
+  **56**) so `dao_info` / `read_treasury` / etc. work out of the box — the plugin
+  ships **no env**, so there is no `.claude.json`-shadow trap. Public dataseed
+  nodes rate-limit and lack archive history: a startup banner + a
+  `chain.publicRpcFallback` doctor advisory nudge users to set their own RPC.
+  Opt out with `DEXE_DISABLE_PUBLIC_RPC=1`. `DexeConfig` gains
+  `usingPublicRpcFallback`. (A private key set without an RPC now signs against
+  the public fallback rather than erroring; guards still apply — set your own RPC
+  for reliable broadcasting.)
+- **Project `.env` reaches the server (writes path).** `src/index.ts` now loads
+  the **project (cwd) `.env` first**, then the package-relative `.env`. This is
+  what makes `/dexe-setup` (which edits the project `.env`) reach a server
+  launched via `npx` from the plugin, whose package dir sits in the npx cache.
+- **`npx dexe-mcp skills` — skills-only, no env interview.** New non-interactive
+  subcommand (`--global` for `~/.claude/skills`), reusing `installSkills()`. And
+  `init` now opens with a top-level choice — *just skills* / *full setup* /
+  *both* (or `init --skills-only`) — so it never dives into the env wizard
+  unasked. Fixes the reported "I only wanted the skills" onboarding surprise.
+- **Skills relocated** to `dexe-plugin/skills/` (single source of truth for both
+  the plugin and the CLI copy). `package.json` `files` updated accordingly.
+- **Docs.** README leads with a no-terminal **Install in Claude Code** block;
+  new [`docs/INSTALL.md`](docs/INSTALL.md) (non-technical, plugin-first);
+  `SETUP.md` / `SKILLS.md` / `ENVIRONMENT.md` updated for the plugin path, the
+  `skills` subcommand, the public-RPC fallback, and the project-`.env` load.
+
 ## 0.14.0 — 2026-07-04
 
 ### Persistent state + `dexe_context`

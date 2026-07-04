@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -19,9 +20,22 @@ import { envKeys } from "./env/schema.js";
 // doctor` invoked directly from a shell needs the same env as the MCP
 // startup path, otherwise the diagnostic sees an empty config.
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const dotenvPath = resolve(__dirname, "..", ".env");
 const prevSnapshot = new Set<string>(envKeys().filter(k => !!process.env[k]?.trim()));
-const envReport = loadEnvFile(dotenvPath, prevSnapshot);
+// Two possible .env locations: the user's PROJECT (cwd — Claude Code spawns
+// the MCP server with the project dir as cwd) and the PACKAGE dir
+// (`dist/../.env`). Load the project .env FIRST so it wins —
+// `process.loadEnvFile()` never overrides already-set keys, so whichever file
+// loads first is authoritative. This is what makes `/dexe-setup` (which edits
+// the project .env) reach a server launched via `npx dexe-mcp` from the plugin,
+// whose package dir sits in the npx cache and holds no .env. When both paths
+// resolve to the same file (running from the repo) we load it once.
+const cwdEnvPath = resolve(process.cwd(), ".env");
+const pkgEnvPath = resolve(__dirname, "..", ".env");
+const primaryEnvPath = existsSync(cwdEnvPath) ? cwdEnvPath : pkgEnvPath;
+const envReport = loadEnvFile(primaryEnvPath, prevSnapshot);
+if (primaryEnvPath !== pkgEnvPath && existsSync(pkgEnvPath)) {
+  loadEnvFile(pkgEnvPath, prevSnapshot); // fill keys the project .env didn't set
+}
 writeStartupBanner(envReport);
 
 // CLI subcommand dispatch. `npx dexe-mcp` (no args) → MCP server.
@@ -41,6 +55,13 @@ if (subcommand === "init") {
   await mod.run();
   process.exit(0);
 }
+if (subcommand === "skills") {
+  // `npx dexe-mcp skills [--global]` → copy the shipped skills only, no env
+  // interview. The lightweight path for users who just want the Claude recipes.
+  const mod = await import("./cli/skills.js");
+  await mod.run(process.argv.slice(3));
+  process.exit(0);
+}
 
 async function main(): Promise<void> {
   const config = await loadConfig();
@@ -55,7 +76,7 @@ async function main(): Promise<void> {
         "They handle the approve→deposit→create sequence, correct IPFS metadata, and the known deploy/proposal reverts. When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
         "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. dexe_decode_proposal and dexe_read_gov_state need an RPC. " +
         "The tool surface is gated by DEXE_TOOLSETS (default 'core,proposals'). Set DEXE_TOOLSETS=full for every tool, or add sets: read, vote, governor, dev. " +
-        "Recipe skills ship in the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc); install them with `npx dexe-mcp init`.",
+        "Recipe skills ship with the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc). Installed automatically with the Claude Code plugin (`/plugin install dexe@dexe-mcp`), or copy them standalone with `npx dexe-mcp skills`.",
     },
   );
 

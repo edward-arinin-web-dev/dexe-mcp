@@ -433,6 +433,17 @@ function chainConsistencyCheck(config: DexeConfig | undefined): CheckResult[] {
       remediation: "Set DEXE_RPC_URL_TESTNET or DEXE_RPC_URL_MAINNET in .env.",
     });
   }
+  if (config.usingPublicRpcFallback) {
+    out.push({
+      id: "chain.publicRpcFallback",
+      category: "rpc",
+      status: "warn",
+      message:
+        "No RPC configured — using public BSC fallback (chains 56 + 97, default 56). Reads work; public dataseed nodes rate-limit and lack archive history.",
+      remediation:
+        "Set DEXE_RPC_URL_MAINNET (and DEXE_RPC_URL_TESTNET) for reliability, or DEXE_DISABLE_PUBLIC_RPC=1 to turn the fallback off.",
+    });
+  }
   if (config.chains.size > 0) {
     const ids = [...config.chains.keys()].sort((a, b) => a - b);
     out.push({

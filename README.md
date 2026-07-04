@@ -22,13 +22,35 @@
 </p>
 
 <p align="center">
-  <a href="#quickstart"><b>Quickstart</b></a> &nbsp;·&nbsp;
+  <a href="#install-in-claude-code-no-terminal"><b>Install</b></a> &nbsp;·&nbsp;
+  <a href="#quickstart">Quickstart</a> &nbsp;·&nbsp;
   <a href="#what-you-can-build">What you can build</a> &nbsp;·&nbsp;
   <a href="#built-for-whats-next">Built for what's next</a> &nbsp;·&nbsp;
   <a href="#tool-catalog">Tool catalog</a> &nbsp;·&nbsp;
   <a href="#swarm-test-harness">Swarm tests</a> &nbsp;·&nbsp;
   <a href="https://github.com/edward-arinin-web-dev/dexe-mcp/tree/main/docs">Docs</a>
 </p>
+
+---
+
+## Install in Claude Code (no terminal)
+
+Two lines, typed inside Claude Code. No npm, no JSON to edit, no keys:
+
+```
+/plugin marketplace add edward-arinin-web-dev/dexe-mcp
+/plugin install dexe@dexe-mcp
+```
+
+Then just ask:
+
+> *"Show the treasury of `0x…` on BSC."*
+
+Reads work with **zero setup** — the server falls back to public BSC RPC out of the box, and the governance skills (create DAO, create proposal, vote & execute, OTC) install with the plugin.
+
+**Want to create DAOs or proposals, or broadcast transactions?** Type **`/dexe-setup`** and Claude walks you through adding your keys (a Pinata token for IPFS, a wallet for signing) — one guided step, nothing to hand-edit.
+
+> Using **Cursor, ChatGPT, or another MCP client**, or prefer the terminal? → [**docs/INSTALL.md**](./docs/INSTALL.md)
 
 ---
 
@@ -86,6 +108,8 @@ The next generation of DAOs will be **operated by language, not by clicks.**
 ---
 
 ## Quickstart
+
+> **In Claude Code?** Skip this — use the [two-line plugin install](#install-in-claude-code-no-terminal) above. The steps below are for **other MCP clients** (Cursor, ChatGPT, custom agents) and terminal/manual setups. Reads need no env at all; env is only for IPFS uploads and broadcasting.
 
 **Fastest path — wizard + diagnostic:**
 

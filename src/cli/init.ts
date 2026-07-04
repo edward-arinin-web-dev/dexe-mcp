@@ -46,6 +46,31 @@ export async function run(): Promise<void> {
     output.write(line("use WalletConnect or readonly mode if that worries you."));
     output.write("\n");
 
+    const repoRoot = findRepoRoot();
+
+    // ---- Top-level intent -----------------------------------------------
+    // Don't drag a user who only wants the Claude skills through the whole env
+    // interview (a real onboarding complaint). `--skills-only` skips the prompt.
+    const skillsOnly = process.argv.includes("--skills-only");
+    const mode = skillsOnly
+      ? "s"
+      : await pickOne(
+          rl,
+          "What do you want to set up?",
+          [
+            ["b", "both — install the Claude skills + configure .env (recommended)"],
+            ["s", "just the Claude skills — no env, no keys"],
+            ["f", "full setup — configure .env only"],
+          ],
+          "b",
+        );
+    if (mode === "s") {
+      await maybeInstallSkills(rl, repoRoot);
+      output.write(line(""));
+      output.write(line("Done. Restart Claude Code if it was already running."));
+      return;
+    }
+
     // ---- Network selection ----------------------------------------------
     const network = await pickOne(
       rl,
@@ -153,7 +178,6 @@ export async function run(): Promise<void> {
     if (privateKey) updates.DEXE_PRIVATE_KEY = privateKey;
     if (wcProjectId) updates.DEXE_WALLETCONNECT_PROJECT_ID = wcProjectId;
 
-    const repoRoot = findRepoRoot();
     const envPath = resolve(repoRoot, ".env");
 
     // Read the file once up-front (or treat ENOENT as "no existing .env") so
@@ -194,8 +218,10 @@ export async function run(): Promise<void> {
     output.write(line(`✔ Wrote ${envPath} (${Object.keys(updates).length} key${Object.keys(updates).length === 1 ? "" : "s"} set).`));
     output.write(line(""));
 
-    // ---- Offer to install the shipped skills ---------------------------
-    await maybeInstallSkills(rl, repoRoot);
+    // ---- Offer to install the shipped skills (skipped in env-only mode) --
+    if (mode === "b") {
+      await maybeInstallSkills(rl, repoRoot);
+    }
 
     // ---- Print .claude.json snippet ------------------------------------
     output.write(line("Paste this into your ~/.claude.json under `mcpServers`:"));
@@ -220,7 +246,7 @@ async function maybeInstallSkills(
   rl: ReturnType<typeof createInterface>,
   repoRoot: string,
 ): Promise<void> {
-  const skillsSrc = resolve(repoRoot, "skills");
+  const skillsSrc = resolve(repoRoot, "dexe-plugin", "skills");
   if (!existsSync(skillsSrc)) return; // not packaged (dev without build) — skip silently
 
   output.write(line(""));
@@ -401,7 +427,7 @@ async function deriveAddress(pk: string): Promise<string> {
 
 // ─── path + snippet helpers ──────────────────────────────────────────────
 
-function findRepoRoot(): string {
+export function findRepoRoot(): string {
   // `dist/index.js` → `..` is repo root. Walk up if running from src/cli/.
   const here = dirname(fileURLToPath(import.meta.url));
   // Two known layouts: dist/cli/init.js → up 2; dist/index.js's import → up 1 from dist.

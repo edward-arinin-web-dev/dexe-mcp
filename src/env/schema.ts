@@ -151,6 +151,13 @@ export const ENV_SPEC = {
     example: "",
     doc: "Override ContractsRegistry address for the default chain. Rarely needed.",
   },
+  DEXE_DISABLE_PUBLIC_RPC: {
+    schema: z.string().optional(),
+    category: "rpc",
+    required: false,
+    example: "1",
+    doc: "Set to 1 to disable the built-in public BSC RPC fallback (which activates only when no RPC is configured).",
+  },
 
   // ─── signer ──────────────────────────────────────────────────────────────
   DEXE_PRIVATE_KEY: {

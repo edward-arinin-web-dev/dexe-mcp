@@ -24,6 +24,15 @@ export interface DexeConfig {
   defaultChainId: number;
 
   /**
+   * True when the user configured NO RPC and the server seeded public BSC
+   * endpoints (chains 56 + 97, default 56) so on-chain reads work zero-config.
+   * Public dataseed nodes rate-limit and lack archive history — `dexe_doctor`
+   * surfaces this as an advisory. Opt out with `DEXE_DISABLE_PUBLIC_RPC=1`.
+   * See the fallback block in `loadConfig`.
+   */
+  usingPublicRpcFallback: boolean;
+
+  /**
    * Back-compat alias for `chains.get(defaultChainId)?.rpcUrl`. Always reflects
    * the default chain's RPC. New code should call `getProvider(chainId)` instead.
    */
@@ -180,6 +189,26 @@ export async function loadConfig(): Promise<DexeConfig> {
     });
   }
 
+  // ---- zero-config read fallback -----------------------------------------
+  // When the user configured NO RPC at all, seed known BSC public endpoints so
+  // read tools (dao_info, read_treasury, …) work out of the box — the plugin
+  // install path and any client that skips env setup. Calldata builders never
+  // needed an RPC; this only helps on-chain reads. Public dataseed nodes
+  // rate-limit and lack archive history, so we surface a hint (below) nudging
+  // the user to set their own RPC for anything serious. Opt out entirely with
+  // DEXE_DISABLE_PUBLIC_RPC=1. When the user set any RPC, this does nothing.
+  const PUBLIC_RPC_FALLBACK: Record<number, string> = {
+    56: "https://bsc-dataseed.bnbchain.org",
+    97: "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+  };
+  let usedPublicFallback = false;
+  if (process.env.DEXE_DISABLE_PUBLIC_RPC?.trim() !== "1" && chains.size === 0) {
+    for (const [cid, url] of Object.entries(PUBLIC_RPC_FALLBACK)) {
+      chains.set(Number(cid), { chainId: Number(cid), rpcUrl: url });
+    }
+    usedPublicFallback = true;
+  }
+
   // ---- resolve default chain ---------------------------------------------
   let defaultChainId: number;
   const explicitDefault = process.env.DEXE_DEFAULT_CHAIN_ID?.trim();
@@ -198,12 +227,23 @@ export async function loadConfig(): Promise<DexeConfig> {
   } else if (chains.size === 1) {
     defaultChainId = [...chains.keys()][0]!;
   } else if (chains.size > 1) {
-    // Multi-chain without explicit default → prefer testnet for safety, else lowest chainId.
     const sorted = [...chains.keys()].sort((a, b) => a - b);
-    defaultChainId = chains.has(97) ? 97 : sorted[0]!;
-    process.stderr.write(
-      `[dexe-mcp] multiple chains configured without DEXE_DEFAULT_CHAIN_ID; defaulting to ${defaultChainId === 97 ? "testnet (97)" : `chain ${defaultChainId}`} for safety. Set DEXE_DEFAULT_CHAIN_ID to override.\n`,
-    );
+    if (usedPublicFallback) {
+      // Zero-config fallback seeded both BSC chains → default to mainnet (56),
+      // where real DAOs live; reading them is the point of the fallback.
+      defaultChainId = 56;
+      process.stderr.write(
+        "[dexe-mcp] no RPC configured — using public BSC RPC fallback (default chain 56). " +
+          "Public dataseed nodes rate-limit and lack archive history; set DEXE_RPC_URL_MAINNET " +
+          "(and DEXE_RPC_URL_TESTNET) for reliability, or DEXE_DISABLE_PUBLIC_RPC=1 to turn it off.\n",
+      );
+    } else {
+      // Multi-chain without explicit default → prefer testnet for safety, else lowest chainId.
+      defaultChainId = chains.has(97) ? 97 : sorted[0]!;
+      process.stderr.write(
+        `[dexe-mcp] multiple chains configured without DEXE_DEFAULT_CHAIN_ID; defaulting to ${defaultChainId === 97 ? "testnet (97)" : `chain ${defaultChainId}`} for safety. Set DEXE_DEFAULT_CHAIN_ID to override.\n`,
+      );
+    }
   } else {
     // No chains configured — keep legacy fallback so non-RPC tools still load.
     defaultChainId = legacyChainId ?? 56;
@@ -357,6 +397,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     protocolPath,
     chains: Object.freeze(new Map(chains)),
     defaultChainId,
+    usingPublicRpcFallback: usedPublicFallback,
     chainId: defaultChainId,
     rpcUrl: defaultChain?.rpcUrl,
     registryOverride: defaultChain?.registryOverride ?? registryOverride,
