@@ -60,9 +60,9 @@ describe("tool gating (real server)", () => {
     ({ names: defaultNames, bytes: defaultBytes } = await listTools(undefined));
   });
 
-  it("full loads every registered tool (156)", () => {
-    expect(fullNames.length).toBe(156);
-    expect(new Set(fullNames).size).toBe(156); // no dupes
+  it("full loads every registered tool (159)", () => {
+    expect(fullNames.length).toBe(159);
+    expect(new Set(fullNames).size).toBe(159); // no dupes
   });
 
   it("every name in every TOOLSET is a real registered tool (no typos)", () => {
@@ -79,7 +79,7 @@ describe("tool gating (real server)", () => {
     for (const names of Object.values(TOOLSETS)) for (const n of names) union.add(n);
     const missing = fullNames.filter((n) => !union.has(n));
     expect(missing, `tools reachable only under full: ${missing.join(", ")}`).toEqual([]);
-    expect(union.size).toBe(156);
+    expect(union.size).toBe(159);
   });
 
   it("default profile is a strict, slim subset", () => {
