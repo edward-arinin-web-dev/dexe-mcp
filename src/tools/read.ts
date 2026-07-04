@@ -69,6 +69,9 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
   registerMulticall(server, rpc);
   registerTreasury(server, rpc);
+  registerTokenHolders(server, rpc);
+  registerDaoStats(server, rpc);
+  registerNftsByWallet(server, rpc);
   registerValidators(server, rpc);
   registerSettings(server, rpc);
   registerExpertStatus(server, rpc);
@@ -352,6 +355,188 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         return errorResult(
           `read_treasury failed: ${safeErrorMessage(err)}`,
         );
+      }
+    },
+  );
+}
+
+/**
+ * Generic GET against the DeXe backend (`DEXE_BACKEND_API_URL`, e.g.
+ * https://api.dexe.io). Same host the app.dexe.io UI uses. Throws a
+ * paste-ready message when the env var is unset so the tool can surface it.
+ */
+async function backendGetJson<T>(path: string, timeoutMs = 8000): Promise<T> {
+  const base = process.env.DEXE_BACKEND_API_URL?.trim()?.replace(/\/+$/, "");
+  if (!base) {
+    throw new Error(
+      "DEXE_BACKEND_API_URL is not set — backend reads unavailable. Add it to .env (e.g. https://api.dexe.io) and restart.",
+    );
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${base}${path}`, {
+      signal: ctrl.signal,
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`backend HTTP ${res.status} for ${path}`);
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function registerTokenHolders(server: McpServer, rpc: RpcProvider): void {
+  server.registerTool(
+    "dexe_read_token_holders",
+    {
+      title: "Top holders of an ERC20 token (with balances)",
+      description:
+        "Lists holders + raw balances for any ERC20 via the DeXe backend (same source as app.dexe.io holder lists). Sorted by balance desc. Backend-only — mainnets, not testnet 97.",
+      inputSchema: {
+        token: z.string().describe("ERC20 token contract address"),
+        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
+        pageSize: z.number().int().positive().max(1000).default(100).describe("Max holders to return"),
+      },
+      outputSchema: {
+        token: z.string(),
+        chainId: z.number(),
+        count: z.number(),
+        nextPageToken: z.string(),
+        holders: z.array(z.object({ holder: z.string(), balance: z.string() })),
+      },
+    },
+    async ({ token, chainId: chainIdArg, pageSize = 100 }) => {
+      if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
+      const chainId = rpc.resolveChainId(chainIdArg);
+      try {
+        const json = await backendGetJson<{
+          next_page_token?: string;
+          holders_balances?: Record<string, string>;
+        }>(`/integrations/api-proxy-cache/${chainId}/token-holders-balances/${token}?page_size=${pageSize}`);
+        const holders = Object.entries(json.holders_balances ?? {})
+          .map(([holder, balance]) => ({ holder, balance }))
+          .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : -1));
+        const structured = {
+          token,
+          chainId,
+          count: holders.length,
+          nextPageToken: json.next_page_token ?? "",
+          holders,
+        };
+        const text =
+          `Holders of ${token} (chain ${chainId}): ${holders.length}\n` +
+          holders
+            .slice(0, 20)
+            .map((h, i) => `  ${String(i + 1).padStart(2)}. ${h.holder}  ${h.balance}`)
+            .join("\n") +
+          (holders.length > 20 ? `\n  … +${holders.length - 20} more` : "");
+        return { content: [{ type: "text" as const, text }], structuredContent: structured };
+      } catch (err) {
+        return errorResult(`read_token_holders failed: ${safeErrorMessage(err)}`);
+      }
+    },
+  );
+}
+
+function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
+  server.registerTool(
+    "dexe_read_dao_stats",
+    {
+      title: "DAO TVL + activity stats time series",
+      description:
+        "Time series of DAO stats (tvl_usd, member counts, proposal counts, delegations) from the DeXe tracker — the app.dexe.io profile chart source. `period` is a human duration like '24 hours', '7 days', '1 months'. Backend-only — mainnets.",
+      inputSchema: {
+        govPool: z.string().describe("GovPool / DAO address"),
+        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
+        period: z.string().default("7 days").describe("Duration window, e.g. '24 hours', '7 days', '1 months'"),
+      },
+      outputSchema: {
+        govPool: z.string(),
+        chainId: z.number(),
+        period: z.string(),
+        points: z.number(),
+        data: z.array(z.record(z.unknown())),
+      },
+    },
+    async ({ govPool, chainId: chainIdArg, period = "7 days" }) => {
+      if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
+      const chainId = rpc.resolveChainId(chainIdArg);
+      try {
+        const json = await backendGetJson<{
+          data?: Array<{ id?: number; attributes?: Record<string, unknown> }>;
+          status?: string;
+        }>(`/integrations/tracker/${chainId}/pools/gov/${govPool}/stats/${encodeURIComponent(period)}`);
+        const rows = (json.data ?? []).map((d) => d.attributes ?? {});
+        const structured = { govPool, chainId, period, points: rows.length, data: rows };
+        const latest = rows[rows.length - 1] as Record<string, unknown> | undefined;
+        const text =
+          `DAO stats ${govPool} (chain ${chainId}, period '${period}'): ${rows.length} point(s)\n` +
+          (latest
+            ? `  latest → tvl_usd: ${latest.tvl_usd ?? "?"}, active_members: ${latest.active_members_count ?? "?"}, ` +
+              `external_proposals: ${latest.external_proposals_count ?? "?"}`
+            : "  (no data — DAO may have no tracked activity in this window)");
+        return { content: [{ type: "text" as const, text }], structuredContent: structured };
+      } catch (err) {
+        return errorResult(`read_dao_stats failed: ${safeErrorMessage(err)}`);
+      }
+    },
+  );
+}
+
+function registerNftsByWallet(server: McpServer, rpc: RpcProvider): void {
+  server.registerTool(
+    "dexe_read_nfts",
+    {
+      title: "NFTs held by an address",
+      description:
+        "Lists NFTs owned by any address via the DeXe backend (Moralis-backed, same source as app.dexe.io). Backend-only — mainnets, not testnet 97.",
+      inputSchema: {
+        holder: z.string().describe("Address whose NFTs we read"),
+        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
+        tokens: z.array(z.string()).default([]).describe("Optional NFT contract addresses to filter by"),
+        pageSize: z.number().int().positive().max(1000).default(100).describe("Max NFTs to return"),
+      },
+      outputSchema: {
+        holder: z.string(),
+        chainId: z.number(),
+        count: z.number(),
+        nextPageToken: z.string(),
+        nfts: z.array(z.record(z.unknown())),
+      },
+    },
+    async ({ holder, chainId: chainIdArg, tokens = [], pageSize = 100 }) => {
+      if (!isAddress(holder)) return errorResult(`Invalid holder: ${holder}`);
+      for (const t of tokens) if (!isAddress(t)) return errorResult(`Invalid token: ${t}`);
+      const chainId = rpc.resolveChainId(chainIdArg);
+      try {
+        const qs = new URLSearchParams({ format: "decimal", page_size: String(pageSize) });
+        if (tokens.length) qs.set("token_addresses", tokens.join(","));
+        const json = await backendGetJson<{
+          next_page_token?: string;
+          nft_data?: Array<Record<string, unknown>>;
+        }>(`/integrations/api-proxy-cache/${chainId}/nfts-by-wallet/${holder}?${qs.toString()}`);
+        const nfts = json.nft_data ?? [];
+        const structured = {
+          holder,
+          chainId,
+          count: nfts.length,
+          nextPageToken: json.next_page_token ?? "",
+          nfts,
+        };
+        const text =
+          `NFTs for ${holder} (chain ${chainId}): ${nfts.length}\n` +
+          nfts
+            .slice(0, 20)
+            .map((n) => {
+              const name = (n.name ?? n.symbol ?? "?") as string;
+              return `  ${renderUntrusted(String(name))}  #${n.token_id ?? "?"} (${n.token_address ?? "?"})`;
+            })
+            .join("\n") +
+          (nfts.length > 20 ? `\n  … +${nfts.length - 20} more` : "");
+        return { content: [{ type: "text" as const, text }], structuredContent: structured };
+      } catch (err) {
+        return errorResult(`read_nfts failed: ${safeErrorMessage(err)}`);
       }
     },
   );

@@ -117,6 +117,9 @@ const READ = [
   // read.ts
   "dexe_read_multicall",
   "dexe_read_treasury",
+  "dexe_read_token_holders",
+  "dexe_read_dao_stats",
+  "dexe_read_nfts",
   "dexe_read_validators",
   "dexe_read_settings",
   "dexe_read_expert_status",
