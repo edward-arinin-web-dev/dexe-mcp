@@ -52,10 +52,14 @@ export const TIER_VIEW_TUPLE =
 
 export const GET_TIER_VIEWS_FRAGMENT = `function getTierViews(uint256 offset, uint256 limit) view returns (${TIER_VIEW_TUPLE}[] tierViews)`;
 
+/** Authoritative `getUserViews` fragment — shared with read.ts so both decode the same nested UserView shape. */
+export const GET_USER_VIEWS_FRAGMENT =
+  "function getUserViews(address user, uint256[] tierIds, bytes32[][] proofs) view returns (tuple(bool canParticipate, tuple(bool isClaimed, bool canClaim, uint64 claimUnlockTime, uint256 claimTotalAmount, uint256 boughtTotalAmount, address[] lockedTokenAddresses, uint256[] lockedTokenAmounts, address[] lockedNftAddresses, uint256[][] lockedNftIds, address[] purchaseTokenAddresses, uint256[] purchaseTokenAmounts) purchaseView, tuple(uint64 latestVestingWithdraw, uint64 nextUnlockTime, uint256 nextUnlockAmount, uint256 vestingTotalAmount, uint256 vestingWithdrawnAmount, uint256 amountToWithdraw, uint256 lockedAmount) vestingUserView)[] userViews)";
+
 const TOKEN_SALE_ABI = new Interface([
   "function latestTierId() view returns (uint256)",
   GET_TIER_VIEWS_FRAGMENT,
-  "function getUserViews(address user, uint256[] tierIds, bytes32[][] proofs) view returns (tuple(bool canParticipate, tuple(bool isClaimed, bool canClaim, uint64 claimUnlockTime, uint256 claimTotalAmount, uint256 boughtTotalAmount, address[] lockedTokenAddresses, uint256[] lockedTokenAmounts, address[] lockedNftAddresses, uint256[][] lockedNftIds, address[] purchaseTokenAddresses, uint256[] purchaseTokenAmounts) purchaseView, tuple(uint64 latestVestingWithdraw, uint64 nextUnlockTime, uint256 nextUnlockAmount, uint256 vestingTotalAmount, uint256 vestingWithdrawnAmount, uint256 amountToWithdraw, uint256 lockedAmount) vestingUserView)[] userViews)",
+  GET_USER_VIEWS_FRAGMENT,
   "function buy(uint256 tierId, address tokenToBuyWith, uint256 amount, bytes32[] proof) payable",
   "function claim(uint256[] tierIds)",
   "function vestingWithdraw(uint256[] tierIds)",

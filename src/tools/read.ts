@@ -6,6 +6,7 @@ import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted } from "../lib/sanitize.js";
+import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "./otc.js";
 
 const GOV_POOL_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -37,10 +38,13 @@ const BABT_ABI = [
   "function balanceOf(address) view returns (uint256)",
 ] as const;
 
+// Authoritative TokenSaleProposal read ABI. `getTierViews` uses the NESTED
+// TierView shape (Bug #25) shared from otc.ts — a private flat copy here used
+// to decode garbage / revert (BAD_DATA) against live tiers.
 const TOKEN_SALE_READ_ABI = [
   "function latestTierId() view returns (uint256)",
-  "function getTierViews(uint256 offset, uint256 limit) view returns (tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint256 saleStartTime, uint256 saleEndTime, address saleTokenAddress, uint256 claimLockDuration, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 cliffPeriod, uint256 unlockStep, uint256 vestingDuration, uint256 vestingPercentage) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
-  "function getUserViews(address user, uint256[] tierIds, bytes32[][] proofs) view returns (tuple(bool canParticipate, tuple(bool isClaimed, bool canClaim, uint64 claimUnlockTime, uint256 claimTotalAmount, uint256 boughtTotalAmount, address[] lockedTokenAddresses, uint256[] lockedTokenAmounts, address[] lockedNftAddresses, uint256[][] lockedNftIds, address[] purchaseTokenAddresses, uint256[] purchaseTokenAmounts) purchaseView, tuple(uint64 latestVestingWithdraw, uint64 nextUnlockTime, uint256 nextUnlockAmount, uint256 vestingTotalAmount, uint256 vestingWithdrawnAmount, uint256 amountToWithdraw, uint256 lockedAmount) vestingUserView)[] userViews)",
+  GET_TIER_VIEWS_FRAGMENT,
+  GET_USER_VIEWS_FRAGMENT,
 ] as const;
 
 const DISTRIBUTION_READ_ABI = [
