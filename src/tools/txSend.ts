@@ -5,6 +5,7 @@ import type { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
+import { ENABLE_WRITES_HINT } from "./flow.js";
 
 /**
  * Classify a transaction whose receipt is absent: a tx that exists on-chain but
@@ -168,6 +169,7 @@ export function registerTxTools(
                   status: "rejected",
                   reason: sg.error,
                   remediation: sg.remediation,
+                  enableWrites: ENABLE_WRITES_HINT,
                   chainId: chain.chainId,
                 },
                 null,

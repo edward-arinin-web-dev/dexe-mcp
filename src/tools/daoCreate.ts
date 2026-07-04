@@ -187,6 +187,7 @@ export function registerDaoCreateTools(
         predicted: res.predicted,
         note: res.note,
         steps: result.steps,
+        ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
       });
     },
   );

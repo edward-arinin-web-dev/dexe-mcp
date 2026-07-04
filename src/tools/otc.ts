@@ -726,6 +726,7 @@ export function registerOtcTools(
         preflight: native ? null : { balance: balance.toString(), allowance: allowance.toString() },
         ...(simulation ? { simulation } : {}),
         steps: [...skipped, ...result.steps],
+        ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
       });
     },
   );
@@ -854,6 +855,7 @@ export function registerOtcTools(
         vestingWithdrawTierIds: vestingReady,
         summary,
         steps: [...skipped, ...result.steps],
+        ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
       });
     },
   );

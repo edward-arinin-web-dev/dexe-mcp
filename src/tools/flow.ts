@@ -317,11 +317,26 @@ async function resolvePrereqs(
   };
 }
 
+/**
+ * Guidance surfaced whenever a write flow could not broadcast because the
+ * session has no local signer. Tells the user the two ways to enable writes —
+ * WalletConnect (preferred, keys stay on their device) or a hot private key
+ * (⚠️ plaintext on disk). Consumed by every composite so the advice is uniform.
+ */
+export const ENABLE_WRITES_HINT =
+  "⚠️ Read-only session — the steps below are UNSIGNED transaction payloads; nothing was broadcast. " +
+  "To actually execute this write:\n" +
+  "  • Recommended — connect a wallet: run `dexe_wc_connect`, scan the WalletConnect QR, approve on your phone. " +
+  "Your keys never touch this machine.\n" +
+  "  • Or set `DEXE_PRIVATE_KEY` in .env so the server auto-signs — ⚠️ a hot key then lives in plaintext on disk; " +
+  "use only a throwaway/test wallet, never a treasury or personal key. Restart Claude Code after editing .env.\n" +
+  "Then re-run this call to broadcast.";
+
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
   opts?: { dryRun?: boolean; chainId?: number },
-): Promise<{ mode: "executed" | "payloads" | "dryRun"; steps: FlowStep[] }> {
+): Promise<{ mode: "executed" | "payloads" | "dryRun"; steps: FlowStep[]; enableWrites?: string }> {
   const steps: FlowStep[] = [];
 
   // `dryRun` and "no signer" both return calldata without broadcasting, but
@@ -339,7 +354,7 @@ export async function sendOrCollect(
     for (const p of payloads) {
       steps.push({ label: p.description, skipped: false, payload: p });
     }
-    return { mode: "payloads", steps };
+    return { mode: "payloads", steps, enableWrites: ENABLE_WRITES_HINT };
   }
 
   const sg = signer.trySigner(opts?.chainId);
@@ -774,6 +789,7 @@ export async function runProposalCreate(
           tokenAddress: prereqs.tokenAddress,
         },
         steps: [...skippedSteps, ...result.steps],
+        ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
       });
 }
 
@@ -925,6 +941,7 @@ export function registerFlowTools(
             ...execResult.steps,
           ],
           executed: execResult.mode === "executed",
+          ...(execResult.enableWrites ? { enableWrites: execResult.enableWrites } : {}),
         });
       }
 
@@ -1031,6 +1048,7 @@ export function registerFlowTools(
         proposalStateBefore: stateName,
         steps: [...skippedSteps, ...result.steps],
         executed,
+        ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
       });
     },
   );
