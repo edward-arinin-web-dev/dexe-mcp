@@ -42,3 +42,29 @@ export function formatAmount(raw: bigint, decimals: number, symbol?: string): st
   const human = formatUnits(raw, decimals);
   return `${human}${symbol ? ` ${symbol}` : ""} (raw ${raw.toString()})`;
 }
+
+/**
+ * Convert an 18-decimal-normalized amount to a token's native raw units —
+ * mirrors the protocol's from18Safe (DecimalsConverter). Used by the OTC buy
+ * preflight: `TokenSaleProposal.buy` takes the 18-dec-normalized amount but
+ * `transferFrom` pulls the converted RAW amount, so balance checks and the
+ * exact-amount approve must use this value (R9).
+ *
+ * Throws on precision loss for <18-dec tokens (the contract's Safe variant
+ * rejects those too — better to fail here with a readable message).
+ */
+export function from18(normalized: bigint, decimals: number): bigint {
+  if (decimals === 18) return normalized;
+  if (decimals < 18) {
+    const factor = 10n ** BigInt(18 - decimals);
+    if (normalized % factor !== 0n) {
+      throw new Error(
+        `Amount ${normalized.toString()} (18-dec normalized) cannot be represented in the payment token's ` +
+          `${decimals} decimals without precision loss — the contract's from18Safe would revert. ` +
+          `Use a multiple of 10^${18 - decimals}.`,
+      );
+    }
+    return normalized / factor;
+  }
+  return normalized * 10n ** BigInt(decimals - 18);
+}

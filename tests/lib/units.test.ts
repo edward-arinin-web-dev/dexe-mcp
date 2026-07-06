@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAmount, formatAmount } from "../../src/lib/units.js";
+import { parseAmount, formatAmount, from18 } from "../../src/lib/units.js";
 
 describe("parseAmount (A8 dual mode)", () => {
   it("digits-only string passes through as raw wei (back-compat)", () => {
@@ -33,5 +33,20 @@ describe("formatAmount", () => {
   it("renders human + raw", () => {
     expect(formatAmount(12500000000000000000n, 18, "GEC")).toBe("12.5 GEC (raw 12500000000000000000)");
     expect(formatAmount(1n, 6)).toBe("0.000001 (raw 1)");
+  });
+});
+
+describe("from18 (R9 — OTC payment-token decimals)", () => {
+  it("identity for 18-dec tokens", () => {
+    expect(from18(12500000000000000000n, 18)).toBe(12500000000000000000n);
+  });
+  it("scales down for 6-dec tokens (100 USDT)", () => {
+    expect(from18(100_000000000000000000n, 6)).toBe(100_000000n);
+  });
+  it("rejects precision loss like the contract's from18Safe", () => {
+    expect(() => from18(1n, 6)).toThrow(/precision loss/);
+  });
+  it("scales up for >18-dec tokens", () => {
+    expect(from18(5n, 20)).toBe(500n);
   });
 });

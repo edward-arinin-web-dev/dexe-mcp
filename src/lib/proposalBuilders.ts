@@ -39,6 +39,40 @@ import {
 } from "../tools/proposalBuildComplex.js";
 import { VALIDATORS_EXEC_ABI } from "../tools/proposalBuildInternal.js";
 import { parseUintString } from "./amount.js";
+import { parseAmount } from "./units.js";
+import { RpcProvider } from "../rpc.js";
+import { multicall } from "./multicall.js";
+
+const DECIMALS_IFACE = new Interface(["function decimals() view returns (uint8)"]);
+
+/**
+ * A8 — amount resolution for the money-mover builders. Digits-only strings are
+ * raw smallest units (unchanged back-compat). A decimal string ("12.5") is
+ * human units: the token's real decimals are read on-chain and the value is
+ * scaled. Needs an RPC only for the human form.
+ */
+async function resolveTokenAmount(
+  amount: string,
+  token: string,
+  deps: BuilderDeps,
+  opts?: { isNative?: boolean },
+): Promise<bigint> {
+  const s = amount.trim();
+  if (/^\d+$/.test(s)) return BigInt(s);
+  if (opts?.isNative) return parseAmount(s, 18);
+  const pr = new RpcProvider(deps.ctx.config).tryProvider(deps.chainId);
+  if ("error" in pr) {
+    throw new Error(
+      `Amount '${amount}' is in human units, which needs an RPC to read the token's decimals — and no RPC is ` +
+        `configured for chain ${deps.chainId}. Either pass the raw smallest-unit amount (digits only) or configure an RPC. ${pr.remediation}`,
+    );
+  }
+  const res = await multicall(pr.ok, [
+    { target: token, iface: DECIMALS_IFACE, method: "decimals", args: [], allowFailure: true },
+  ]);
+  const decimals = res[0]!.success ? Number(res[0]!.value) : 18;
+  return parseAmount(s, decimals);
+}
 
 // ---------- ABI fragments (identical strings to the build tools) ----------
 
@@ -96,29 +130,34 @@ const tokenTransferBuilder: CatalogBuilder = {
   schema: z.object({
     token: z.string().default("").describe("ERC20 token contract (ignored when isNative=true)"),
     recipient: z.string().describe("Recipient address"),
-    amount: z.string().describe("Amount in wei / smallest unit"),
+    amount: z
+      .string()
+      .describe("Amount: raw smallest units (digits-only) OR human units with a decimal point ('12.5', scaled by the token's real decimals)"),
     isNative: z.boolean().default(false).describe("True for native BNB/ETH transfer"),
   }),
-  async build(raw, { ctx }) {
+  async build(raw, deps) {
+    const { ctx } = deps;
     const p = raw as { token: string; recipient: string; amount: string; isNative: boolean };
     if (!isAddress(p.recipient)) throw new Error(`Invalid recipient: ${p.recipient}`);
     if (p.isNative) {
+      const amt = (await resolveTokenAmount(p.amount, "", deps, { isNative: true })).toString();
       return {
-        actionsOnFor: [{ executor: p.recipient, value: p.amount, data: "0x" }],
+        actionsOnFor: [{ executor: p.recipient, value: amt, data: "0x" }],
         category: "tokenTransfer",
-        metadataExtra: changes({ data: [{ tokenAmount: p.amount, receiverAddress: p.recipient }], tokenAddress: ZeroAddress }),
-        summary: `Native transfer → ${p.recipient} (${p.amount} wei)`,
+        metadataExtra: changes({ data: [{ tokenAmount: amt, receiverAddress: p.recipient }], tokenAddress: ZeroAddress }),
+        summary: `Native transfer → ${p.recipient} (${amt} wei)`,
       };
     }
     if (!isAddress(p.token)) throw new Error(`Invalid token: ${p.token}`);
     const bl = await checkBlacklist(ctx.config, p.token, p.recipient);
     if (bl.status === "blacklisted") throw new Error(blacklistError(p.token, p.recipient));
-    const data = ERC20_TRANSFER_ABI.encodeFunctionData("transfer", [p.recipient, BigInt(p.amount)]);
+    const amount = await resolveTokenAmount(p.amount, p.token, deps);
+    const data = ERC20_TRANSFER_ABI.encodeFunctionData("transfer", [p.recipient, amount]);
     return {
       actionsOnFor: [{ executor: p.token, value: "0", data }],
       category: "tokenTransfer",
-      metadataExtra: changes({ data: [{ tokenAmount: p.amount, receiverAddress: p.recipient }], tokenAddress: p.token }),
-      summary: `ERC20(${p.token}).transfer(${p.recipient}, ${p.amount})`,
+      metadataExtra: changes({ data: [{ tokenAmount: amount.toString(), receiverAddress: p.recipient }], tokenAddress: p.token }),
+      summary: `ERC20(${p.token}).transfer(${p.recipient}, ${amount})`,
     };
   },
 };
@@ -127,14 +166,20 @@ const withdrawTreasuryBuilder: CatalogBuilder = {
   schema: z.object({
     receiver: z.string().describe("Treasury withdrawal recipient"),
     token: z.string().default("").describe("ERC20 token contract (omit for NFT-only)"),
-    amount: z.string().default("0").describe("ERC20 amount in wei (omit/0 for NFT-only)"),
+    amount: z
+      .string()
+      .default("0")
+      .describe("ERC20 amount: raw smallest units (digits-only) or human units ('12.5'). Omit/0 for NFT-only."),
     nftAddress: z.string().default("").describe("ERC721 contract (omit for token-only)"),
     nftIds: z.array(z.string()).default([]).describe("NFT ids; one transferFrom per id"),
   }),
-  async build(raw, { ctx, govPool }) {
+  async build(raw, deps) {
+    const { ctx, govPool } = deps;
     const p = raw as { receiver: string; token: string; amount: string; nftAddress: string; nftIds: string[] };
     if (!isAddress(p.receiver)) throw new Error(`Invalid receiver: ${p.receiver}`);
-    const wantToken = p.token.length > 0 && BigInt(p.amount) > 0n;
+    const rawAmount =
+      p.token.length > 0 && isAddress(p.token) ? await resolveTokenAmount(p.amount, p.token, deps) : BigInt(/^\d+$/.test(p.amount) ? p.amount : "0");
+    const wantToken = p.token.length > 0 && rawAmount > 0n;
     const wantNfts = p.nftAddress.length > 0 && p.nftIds.length > 0;
     if (!wantToken && !wantNfts) {
       throw new Error("Nothing to withdraw — supply `token` + non-zero `amount`, and/or `nftAddress` + `nftIds`.");
@@ -151,7 +196,7 @@ const withdrawTreasuryBuilder: CatalogBuilder = {
       actionsOnFor.push({
         executor: p.token,
         value: "0",
-        data: ERC20_TRANSFER_ABI.encodeFunctionData("transfer", [p.receiver, BigInt(p.amount)]),
+        data: ERC20_TRANSFER_ABI.encodeFunctionData("transfer", [p.receiver, rawAmount]),
       });
     }
     if (wantNfts) {
@@ -166,7 +211,13 @@ const withdrawTreasuryBuilder: CatalogBuilder = {
     return {
       actionsOnFor,
       category: "withdrawDeposit",
-      metadataExtra: changes({ receiver: p.receiver, token: p.token, amount: p.amount, nftAddress: p.nftAddress, nftIds: p.nftIds }),
+      metadataExtra: changes({
+        receiver: p.receiver,
+        token: p.token,
+        amount: rawAmount.toString(),
+        nftAddress: p.nftAddress,
+        nftIds: p.nftIds,
+      }),
       summary: `Withdraw treasury → ${p.receiver} (${actionsOnFor.length} action${actionsOnFor.length === 1 ? "" : "s"})`,
     };
   },
@@ -630,13 +681,14 @@ const applyToDaoBuilder: CatalogBuilder = {
   schema: z.object({
     token: z.string().describe("The DAO token contract (ERC20 or ERC20Gov)"),
     receiver: z.string(),
-    amount: z.string().describe("Total amount to grant, in wei"),
+    amount: z.string().describe("Total amount to grant: raw smallest units (digits-only) or human units ('12.5')"),
     treasuryBalance: z
       .string()
       .default("0")
-      .describe("Current treasury balance of `token` in wei (dexe_read_treasury). If >= amount a single transfer is used, else transfer + mint shortfall."),
+      .describe("Current treasury balance of `token` in RAW smallest units (dexe_read_treasury). If >= amount a single transfer is used, else transfer + mint shortfall."),
   }),
-  async build(raw, { ctx }) {
+  async build(raw, deps) {
+    const { ctx } = deps;
     const p = raw as { token: string; receiver: string; amount: string; treasuryBalance: string };
     if (!isAddress(p.token)) throw new Error(`Invalid token: ${p.token}`);
     if (!isAddress(p.receiver)) throw new Error(`Invalid receiver: ${p.receiver}`);
@@ -644,7 +696,7 @@ const applyToDaoBuilder: CatalogBuilder = {
     if (bl.status === "blacklisted") throw new Error(blacklistError(p.token, p.receiver));
     const iface = new Interface(ERC20_GOV_FULL_ABI as unknown as string[]);
     const actionsOnFor: { executor: string; value?: string; data: string }[] = [];
-    const total = parseUintString(p.amount, "amount");
+    const total = await resolveTokenAmount(p.amount, p.token, deps);
     const have = parseUintString(p.treasuryBalance, "treasuryBalance");
     if (have >= total) {
       actionsOnFor.push({ executor: p.token, value: "0", data: iface.encodeFunctionData("transfer", [p.receiver, total]) });
@@ -660,11 +712,11 @@ const applyToDaoBuilder: CatalogBuilder = {
       category: "applyToDao",
       metadataExtra: {
         changes: {
-          proposedChanges: { receiver: p.receiver, tokenAmount: p.amount, tokenAddress: p.token },
+          proposedChanges: { receiver: p.receiver, tokenAmount: total.toString(), tokenAddress: p.token },
           currentChanges: { treasuryBalance: p.treasuryBalance },
         },
       },
-      summary: `Apply to DAO: ${p.amount} of ${p.token} → ${p.receiver}`,
+      summary: `Apply to DAO: ${total} of ${p.token} → ${p.receiver}`,
     };
   },
 };
