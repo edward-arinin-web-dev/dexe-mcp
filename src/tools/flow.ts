@@ -38,6 +38,7 @@ import { PROPOSAL_CATALOG } from "../lib/proposalCatalog.js";
 import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
 import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/errors.js";
+import { parseAmount, formatAmount } from "../lib/units.js";
 import type { StateStore } from "../lib/stateStore.js";
 
 // ---------- ABI fragments ----------
@@ -46,6 +47,8 @@ const ERC20_ABI = new Interface([
   "function balanceOf(address) view returns (uint256)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
 ]);
 
 const GOV_POOL_ABI = new Interface([
@@ -92,6 +95,10 @@ interface Prereqs {
   depositedPower: bigint;
   minVotesForCreating: bigint;
   minVotesForVoting: bigint;
+  /** Gov-token decimals (best-effort read, defaults 18) — used to render amounts in human units. */
+  tokenDecimals: number;
+  /** Gov-token symbol (best-effort read, may be ""). */
+  tokenSymbol: string;
 }
 
 // ---------- helpers ----------
@@ -332,15 +339,19 @@ async function resolvePrereqs(
     depositedPower = balance - ownedBalance;
   }
 
-  // Batch 3: ERC20 balance + allowance
+  // Batch 3: ERC20 balance + allowance + display metadata (best-effort)
   const batch3: Call[] = [
     { target: tokenAddress, iface: ERC20_ABI, method: "balanceOf", args: [user] },
     { target: tokenAddress, iface: ERC20_ABI, method: "allowance", args: [user, userKeeper] },
+    { target: tokenAddress, iface: ERC20_ABI, method: "decimals", args: [], allowFailure: true },
+    { target: tokenAddress, iface: ERC20_ABI, method: "symbol", args: [], allowFailure: true },
   ];
   const res3 = await multicall(provider, batch3);
 
   const walletBalance = res3[0]!.success ? (res3[0]!.value as bigint) : 0n;
   const currentAllowance = res3[1]!.success ? (res3[1]!.value as bigint) : 0n;
+  const tokenDecimals = res3[2]!.success ? Number(res3[2]!.value) : 18;
+  const tokenSymbol = res3[3]!.success ? String(res3[3]!.value) : "";
 
   return {
     userKeeper,
@@ -351,6 +362,8 @@ async function resolvePrereqs(
     depositedPower,
     minVotesForCreating: defaultSettings.minVotesForCreating,
     minVotesForVoting: defaultSettings.minVotesForVoting,
+    tokenDecimals,
+    tokenSymbol,
   };
 }
 
@@ -664,7 +677,12 @@ export async function runProposalCreate(
       try {
         prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
       } catch (e) {
-        return err(`Failed to resolve prerequisites: ${e instanceof Error ? e.message : String(e)}`);
+        const a = toActionableError(e, "resolve DAO prerequisites");
+        return err(
+          a.slug
+            ? a.message
+            : `${a.message}\nIf this repeats, verify the govPool address is a DeXe GovPool on chain ${chainId} (dexe_dao_info) — a wrong address or chain yields exactly this read failure.`,
+        );
       }
 
       // Mode 6 guard: the auto-approve targets the UserKeeper (which does
@@ -680,8 +698,13 @@ export async function runProposalCreate(
       // Step 2: check creation threshold
       const totalAvailable = prereqs.walletBalance + prereqs.depositedPower;
       if (prereqs.minVotesForCreating > 0n && totalAvailable < prereqs.minVotesForCreating) {
+        const d = prereqs.tokenDecimals;
+        const sym = prereqs.tokenSymbol;
         return err(
-          `Insufficient tokens for proposal creation. Need ${prereqs.minVotesForCreating} but have ${totalAvailable} (wallet: ${prereqs.walletBalance}, deposited: ${prereqs.depositedPower}).`,
+          `Insufficient tokens to create a proposal on this DAO. The DAO requires ${formatAmount(prereqs.minVotesForCreating, d, sym)} ` +
+            `but ${user} has ${formatAmount(totalAvailable, d, sym)} total (wallet ${formatAmount(prereqs.walletBalance, d, sym)}, ` +
+            `deposited ${formatAmount(prereqs.depositedPower, d, sym)}). ` +
+            `Next step: acquire more ${sym || "gov tokens"} (token ${prereqs.tokenAddress}), or have a holder with enough tokens create the proposal.`,
         );
       }
 
@@ -869,7 +892,7 @@ export async function runProposalCreate(
         try {
           built = await builder.build(parsed.data, { ctx, govPool, chainId });
         } catch (e) {
-          return err(`Failed to build ${input.proposalType} actions: ${e instanceof Error ? e.message : String(e)}`);
+          return err(toActionableError(e, `build ${input.proposalType} actions`).message);
         }
         actionsOnFor = built.actionsOnFor.map((a) => ({
           executor: a.executor,
@@ -900,16 +923,31 @@ export async function runProposalCreate(
       const payloads: TxPayload[] = [];
       const skippedSteps: FlowStep[] = [];
 
-      // Determine how much to deposit
-      const voteAmount = input.voteAmount ? BigInt(input.voteAmount) : prereqs.depositedPower + prereqs.walletBalance;
+      // Determine how much to deposit. voteAmount accepts raw wei (digits-only)
+      // or human units with a decimal point, scaled by the gov token's decimals.
+      let voteAmount: bigint;
+      try {
+        voteAmount = input.voteAmount
+          ? parseAmount(input.voteAmount, prereqs.tokenDecimals)
+          : prereqs.depositedPower + prereqs.walletBalance;
+      } catch (e) {
+        return err(e instanceof Error ? e.message : String(e));
+      }
       if (voteAmount === 0n) {
-        return err("No voting power available (wallet + deposited = 0). Deposit tokens first.");
+        return err(
+          `No voting power available — ${user} holds 0 ${prereqs.tokenSymbol || "gov tokens"} (wallet + deposited). ` +
+            `Acquire the DAO's gov token (${prereqs.tokenAddress}) first, then re-run.`,
+        );
       }
       const needDeposit = voteAmount > prereqs.depositedPower ? voteAmount - prereqs.depositedPower : 0n;
 
       if (needDeposit > prereqs.walletBalance) {
+        const d = prereqs.tokenDecimals;
+        const sym = prereqs.tokenSymbol;
         return err(
-          `Need to deposit ${needDeposit} but wallet only has ${prereqs.walletBalance}. Missing ${needDeposit - prereqs.walletBalance}.`,
+          `Not enough tokens: voting with ${formatAmount(voteAmount, d, sym)} needs a deposit of ${formatAmount(needDeposit, d, sym)} ` +
+            `but the wallet only holds ${formatAmount(prereqs.walletBalance, d, sym)}. ` +
+            `Next step: lower voteAmount to at most ${formatAmount(prereqs.depositedPower + prereqs.walletBalance, d, sym)}, or acquire more tokens.`,
         );
       }
 
@@ -1224,7 +1262,12 @@ export function registerFlowTools(
       })).default([]).describe("Actions for custom proposals"),
       category: z.string().optional().describe("Proposal category (included in IPFS metadata)."),
       proposalMetadataExtra: z.record(z.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
-      voteAmount: z.string().optional().describe("Auto-vote amount (18-dec wei). Defaults to all deposited power."),
+      voteAmount: z
+        .string()
+        .optional()
+        .describe(
+          "Auto-vote amount: raw wei (digits-only) OR human units with a decimal point ('12.5', scaled by the gov token's decimals). Defaults to all available power.",
+        ),
       voteNftIds: z.array(z.string()).default([]),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
@@ -1237,10 +1280,10 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_vote_and_execute",
-    "Vote on a proposal and optionally execute it. " +
-      "Checks proposal state, deposits tokens if needed, votes, and when autoExecute is true " +
-      "attempts to execute after voting. When DEXE_PRIVATE_KEY is set, signs and broadcasts. " +
-      "Otherwise returns ordered TxPayload list.",
+    "Vote on a proposal and optionally execute it — the ONE call for 'vote on / pass / execute proposal N'. " +
+      "Checks proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → vote, " +
+      "matching the frontend's bundled deposit+vote), and when autoExecute is true executes after the vote passes. " +
+      "Signs+broadcasts when a signer is configured; otherwise returns ordered TxPayloads + a WalletConnect QR.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z
@@ -1253,9 +1296,21 @@ export function registerFlowTools(
         ),
       proposalId: z.number().int().min(1).describe("Proposal ID (1-indexed)"),
       isVoteFor: z.boolean().default(true).describe("Vote for (true) or against (false)"),
-      voteAmount: z.string().optional().describe("Vote amount (18-dec wei). Defaults to all deposited power."),
+      voteAmount: z
+        .string()
+        .optional()
+        .describe(
+          "Vote amount: raw wei (digits-only string) OR human units with a decimal point ('12.5', scaled by the gov " +
+            "token's decimals). Defaults to ALL available power (deposited + wallet).",
+        ),
       voteNftIds: z.array(z.string()).default([]),
-      depositFirst: z.boolean().default(false).describe("Deposit wallet tokens before voting"),
+      depositFirst: z
+        .union([z.boolean(), z.literal("auto")])
+        .default("auto")
+        .describe(
+          "'auto' (default): deposit exactly the missing amount from the wallet when deposited power is short of " +
+            "voteAmount. true: deposit the full wallet balance. false: never deposit (vote with already-deposited power only).",
+        ),
       autoExecute: z.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
@@ -1319,54 +1374,98 @@ export function registerFlowTools(
       }
 
       if (stateNum !== 0) {
-        return err(`Proposal #${proposalId} is in state "${stateName}" — voting requires "Voting" state.`);
+        const remedies: Record<number, string> = {
+          1: "It is waiting for the validator-voting transfer — check again shortly with dexe_proposal_state.",
+          2: "It is in validator voting — only the DAO's validators can act now; wait for their vote.",
+          3: "It was DEFEATED — voting is over. Create a new proposal if the change is still wanted.",
+          4: "It already PASSED — re-run this call with autoExecute:true (the default) to execute it, no vote needed.",
+          5: "It already passed AGAINST — re-run this call with autoExecute:true to execute the against-actions.",
+          6: "It is Locked (passed, execution delay running) — re-run this call with autoExecute:true once the delay elapses.",
+          7: "It was already EXECUTED (for) — nothing left to do.",
+          8: "It was already EXECUTED (against) — nothing left to do.",
+        };
+        return err(
+          `Proposal #${proposalId} is in state "${stateName}" — voting is only possible in "Voting". ` +
+            (remedies[stateNum] ?? "Check dexe_proposal_state for details."),
+        );
       }
 
-      // Step 2: resolve prereqs for deposit check
-      let prereqs: Prereqs | undefined;
-      if (input.depositFirst) {
-        prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
-      }
+      // Step 2: resolve prereqs — always needed now (auto-deposit detection +
+      // minVotes threshold + human-unit rendering).
+      const prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
+      const d = prereqs.tokenDecimals;
+      const sym = prereqs.tokenSymbol;
 
       const payloads: TxPayload[] = [];
       const skippedSteps: FlowStep[] = [];
 
-      // Step 3: optional deposit
-      if (input.depositFirst && prereqs && prereqs.walletBalance > 0n) {
-        // Approve if needed
-        if (prereqs.currentAllowance < prereqs.walletBalance) {
-          // W10: exact-amount approve, never MAX_UINT256.
-          payloads.push(makeTxPayload(
-            prereqs.tokenAddress, ERC20_ABI, "approve",
-            [prereqs.userKeeper, prereqs.walletBalance], chainId,
-            `ERC20.approve(${prereqs.userKeeper}, ${prereqs.walletBalance})`,
-          ));
-        }
-        // Deposit
-        payloads.push(makeTxPayload(
-          govPool, GOV_POOL_ABI, "deposit",
-          [prereqs.walletBalance, []], chainId,
-          `GovPool.deposit(${prereqs.walletBalance})`,
-        ));
+      // Step 3: target vote amount (raw wei digits-only, or human decimal).
+      let voteAmt: bigint;
+      try {
+        voteAmt = input.voteAmount
+          ? parseAmount(input.voteAmount, d)
+          : input.depositFirst === false
+            ? prereqs.depositedPower
+            : prereqs.depositedPower + prereqs.walletBalance;
+      } catch (e) {
+        return err(e instanceof Error ? e.message : String(e));
       }
-
-      // Step 4: vote
-      const voteAmt = input.voteAmount
-        ? BigInt(input.voteAmount)
-        : (prereqs ? prereqs.depositedPower + prereqs.walletBalance : 0n);
 
       if (voteAmt === 0n) {
-        return err("No voting power available. Deposit tokens before voting.");
+        return err(
+          input.depositFirst === false
+            ? `No deposited voting power (wallet holds ${formatAmount(prereqs.walletBalance, d, sym)}, deposited 0). ` +
+              `Re-run with depositFirst:'auto' (the default) to deposit-and-vote in one call.`
+            : `No voting power available — ${user} holds 0 ${sym || "gov tokens"} (wallet + deposited). ` +
+              `Acquire the DAO's gov token (${prereqs.tokenAddress}) first.`,
+        );
       }
 
-      // Check minVotesForVoting threshold
-      if (!prereqs && !input.voteAmount) {
-        // Need prereqs to validate threshold — fetch them
-        prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
+      // Step 4: deposit decision.
+      //   'auto'  → deposit exactly the shortfall (frontend-equivalent bundled deposit+vote)
+      //   true    → legacy explicit: deposit the full wallet balance
+      //   false   → never deposit
+      let depositAmount = 0n;
+      if (input.depositFirst === true) {
+        depositAmount = prereqs.walletBalance;
+      } else if (input.depositFirst !== false && voteAmt > prereqs.depositedPower) {
+        const shortfall = voteAmt - prereqs.depositedPower;
+        if (shortfall > prereqs.walletBalance) {
+          return err(
+            `Not enough tokens: voting with ${formatAmount(voteAmt, d, sym)} needs ${formatAmount(shortfall, d, sym)} more deposited, ` +
+              `but the wallet only holds ${formatAmount(prereqs.walletBalance, d, sym)} ` +
+              `(deposited ${formatAmount(prereqs.depositedPower, d, sym)}). ` +
+              `Lower voteAmount to at most ${formatAmount(prereqs.depositedPower + prereqs.walletBalance, d, sym)}, or acquire more tokens.`,
+          );
+        }
+        depositAmount = shortfall;
       }
-      if (prereqs && prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
+
+      if (depositAmount > 0n) {
+        // Approve if needed — W10: exact-amount approve to the UserKeeper
+        // (never GovPool, never MAX_UINT256).
+        if (prereqs.currentAllowance < depositAmount) {
+          payloads.push(makeTxPayload(
+            prereqs.tokenAddress, ERC20_ABI, "approve",
+            [prereqs.userKeeper, depositAmount], chainId,
+            `ERC20.approve(${prereqs.userKeeper}, ${depositAmount})`,
+          ));
+        }
+        payloads.push(makeTxPayload(
+          govPool, GOV_POOL_ABI, "deposit",
+          [depositAmount, []], chainId,
+          `GovPool.deposit(${depositAmount})`,
+        ));
+      } else if (input.depositFirst !== false) {
+        skippedSteps.push({ label: "GovPool.deposit", skipped: true, reason: "Deposited power already covers voteAmount" });
+      }
+
+      // Step 5: minVotesForVoting threshold
+      if (prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
         return err(
-          `Insufficient voting power. Need ${prereqs.minVotesForVoting} but voting with ${voteAmt}.`,
+          `Vote below this DAO's minimum: voting requires at least ${formatAmount(prereqs.minVotesForVoting, d, sym)} ` +
+            `but this vote would cast ${formatAmount(voteAmt, d, sym)}. ` +
+            `Raise voteAmount (you have ${formatAmount(prereqs.depositedPower + prereqs.walletBalance, d, sym)} total) or acquire more tokens.`,
         );
       }
 
