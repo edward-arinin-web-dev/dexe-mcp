@@ -1,22 +1,34 @@
 # dexe-mcp — Usage Guide
 
-Worked examples for end users integrating **dexe-mcp** into an AI agent, Claude Code, or
-any custom MCP client.
+Long-form usage guide for integrating **dexe-mcp** into an AI agent, Claude Code,
+or any custom MCP client.
+
+> **Quick map first.** [`PLAYBOOK.md`](./PLAYBOOK.md) — also served as the MCP
+> resource `dexe://playbook` — is the one-page intent → call table. This document
+> is the narrative version: the same journeys with full inputs/outputs, plus the
+> deep-dive material (signing modes, tx layer, toolsets, off-chain flow).
 
 ## What this is
 
-`dexe-mcp` is a Model Context Protocol server that gives an AI agent the ability to
-operate **DeXe Protocol** DAOs end-to-end:
+`dexe-mcp` is a Model Context Protocol server that operates **DeXe Protocol**
+DAOs end-to-end — **159 tools** across 19 groups
+(catalog: [`TOOLS.md`](./TOOLS.md)):
 
-- Deploy a new DAO (full `PoolFactory.deployGovPool` flow).
-- Build any of the 33 supported proposal types (token transfers, voting-settings changes,
-  validators, off-chain, etc.).
-- Vote, delegate, escalate to validators, and execute proposals.
-- Read DAO/proposal state, decode calldata, and pin metadata to IPFS.
+- Deploy a DAO with one call (`dexe_dao_create`).
+- Create **any of the 33 catalog proposal types** with one call
+  (`dexe_proposal_create`).
+- Vote + execute with one call (`dexe_proposal_vote_and_execute`).
+- Run an OTC token sale end-to-end (the `dexe_otc_*` composites).
+- Read DAO/proposal state, decode calldata, pin metadata to IPFS.
+
+**Composite-first.** The composite tools handle the approve→deposit→create
+ordering, the exact IPFS metadata shape, prerequisite detection, and the known
+revert traps server-side. Hand-sequencing the low-level `*_build_*` tools is
+only for custom wallets and pipelines — see [§10](#10-build-only-primitives).
 
 ### Two execution modes
 
-Almost every tool returns calldata in the canonical `TxPayload` shape:
+Every write tool produces transactions in the canonical `TxPayload` shape:
 
 ```json
 {
@@ -28,858 +40,486 @@ Almost every tool returns calldata in the canonical `TxPayload` shape:
 }
 ```
 
-The agent hands this to the user's wallet (frontend, hardware signer, etc.) for signature.
+- **No signer configured** → composites return `mode: "build"` with the ordered
+  `TxPayload[]` **plus a WalletConnect pairing QR** (scan, approve on the phone,
+  re-run). Nothing is lost.
+- **Signer configured** (WalletConnect session or `DEXE_PRIVATE_KEY`) →
+  composites sign and broadcast end-to-end and return the tx hashes per step.
 
-A few **composite** tools — `dexe_proposal_create`, `dexe_proposal_vote_and_execute`,
-`dexe_tx_send` — additionally **sign and broadcast** when `DEXE_PRIVATE_KEY` is set in
-the MCP server env. This unlocks one-shot flows for autonomous agents.
+### Environment in 30 seconds
 
-### Common environment variables
+Reads and WalletConnect signing work with **zero config** (baked public
+defaults). Startup **schema-validates every `DEXE_*` var** — an invalid value
+is a clear fatal at boot that names the offending var, instead of a confusing
+mid-session failure (`dexe_doctor` flags the same problems).
 
-| Var | Required for | Notes |
-|-----|--------------|-------|
-| `DEXE_RPC_URL` | every read & every send | BSC mainnet or testnet RPC |
-| `DEXE_CHAIN_ID` | calldata builders (sets `chainId` field) | `56` mainnet, `97` testnet |
-| `DEXE_PINATA_JWT` | every IPFS upload tool, every wrapper that auto-uploads | Pinata JWT |
-| `DEXE_IPFS_GATEWAY` | `dexe_ipfs_fetch`, `dexe_ipfs_cid_info` | Dedicated gateway, e.g. `https://<sub>.mypinata.cloud` |
-| `DEXE_PRIVATE_KEY` | signed-mode composite tools, `dexe_tx_send` | Hex private key — only set when you want the server to sign |
-| `DEXE_BACKEND_API_URL` | off-chain proposal tools (S38–S40) | DeXe backend, mainnet only |
-| `DEXE_SUBGRAPH_URL` | subgraph readers (`dexe_proposal_voters`, `dexe_read_user_activity`) | Per-chain endpoint |
+| Var | Why set it |
+|-----|------------|
+| `DEXE_RPC_URL_MAINNET` / `DEXE_RPC_URL_TESTNET` | Your own BSC RPC for chain 56 / 97. Both accept a **comma-separated URL list** — the first is primary, the rest rotate automatically on transport failures. The zero-config public fallback already ships multiple endpoints per chain. |
+| `DEXE_RPC_URL_<chainId>` | Any other chain by numeric id (e.g. `DEXE_RPC_URL_1` for the Governor tools). Comma lists work here too. |
+| `DEXE_DEFAULT_CHAIN_ID` | Which configured chain is used when a call omits `chainId`. |
+| `DEXE_PINATA_JWT` | **The only hard blocker for the create flows** — DAO/proposal metadata pins to IPFS. A missing key now errors with a numbered 3-step guide (get key → `.env` → restart). |
+| `DEXE_PRIVATE_KEY` | Opt-in hot key (**NOT SAFE** — plaintext on disk). WalletConnect is the recommended signer — see [§6](#6-walletconnect-signing). |
+| `DEXE_TX_WAIT_TIMEOUT_MS` | Per-broadcast mining-wait budget (default `180000` = 3 min). On timeout you get a check-`dexe_tx_status` error, never a hang. |
+| `DEXE_TOOLSETS` | Tool gating. Default `core,proposals` = 72 tools — see [§11](#11-toolsets). |
 
-> Composite tools fall back to "build only" (return ordered `TxPayload[]`) when
-> `DEXE_PRIVATE_KEY` is unset — pass `user` so the tool knows whose prerequisites to
-> resolve.
+Full reference — including `DEXE_MAX_DESCRIPTION_LEN`, `DEXE_PROTOCOL_REF`,
+subgraph/IPFS/signer-guard vars — in [`ENVIRONMENT.md`](./ENVIRONMENT.md).
+Env edits go in `.env` (never `.claude.json`); restart Claude Code afterwards;
+`dexe_doctor` diagnoses anything env-shaped.
+
+### Amount conventions (apply everywhere)
+
+- **Digits-only string** (`"1000000000000000000"`) = **raw** smallest units (wei).
+- **String with a decimal point** (`"12.5"`) = **human** units, scaled by the
+  token's **real on-chain decimals** (read live — never assumed to be 18).
+
+Both forms work everywhere an amount is accepted: proposal `params` amounts,
+`voteAmount`, OTC buys. Durations/delays are plain **seconds**; quorum/percent
+params on composites are plain percent numbers (`51`).
 
 ---
 
-## 1. Deploy a new DAO
+## 1. Deploy a new DAO — `dexe_dao_create`
 
-End-to-end DAO creation: predict addresses, pin metadata, then build the `deployGovPool`
-calldata. Mirrors the frontend wizard at `app.dexe.network/create-dao`.
+One call replaces the old three-step predict → upload-metadata → build-deploy
+chain. SIMPLE mode takes high-level fields and synthesizes a coherent,
+frontend-equivalent config.
 
-**Required env**
+**Required env:** `DEXE_PINATA_JWT` (+ a signer to broadcast).
 
-```
-DEXE_RPC_URL, DEXE_CHAIN_ID, DEXE_PINATA_JWT
-```
-
-**Step 1 — predict CREATE2 addresses**
+**Step 1 — preview** (no broadcast):
 
 ```json
 {
-  "tool": "dexe_dao_predict_addresses",
+  "tool": "dexe_dao_create",
   "args": {
-    "deployer": "0xYourDeployerEOA",
-    "poolName": "Glacier Cooperative"
-  }
-}
-```
-
-Output:
-
-```json
-{
-  "govPool":              "0xGOVPOOL...",
-  "govTokenSale":         "0xSALE...",
-  "govToken":             "0xTOKEN...",
-  "distributionProposal": "0xDP...",
-  "expertNft":            "0xEXPERT...",
-  "nftMultiplier":        "0xMULT..."
-}
-```
-
-**Step 2 — upload DAO metadata to IPFS**
-
-```json
-{
-  "tool": "dexe_ipfs_upload_dao_metadata",
-  "args": {
+    "chainId": 97,
     "daoName": "Glacier Cooperative",
-    "description": "# Glacier\n\nResearch funding co-op. *Markdown supported.*",
-    "websiteUrl": "https://glacier.example",
-    "socialLinks": [["twitter", "https://x.com/glacier"]]
+    "symbol": "GLC",
+    "totalSupply": "1000000",
+    "daoDescription": "Research funding co-op.",
+    "treasuryPercent": 49,
+    "quorumPercent": 51,
+    "durationSeconds": 86400
   }
 }
 ```
 
-Output (abbreviated):
+Returns `mode: "preview"` with the **resolved config** (who holds what) and a
+**safety proof** (votable %, quorum reachable?, floor ≥ 50%?). Show it to the
+user.
 
-```json
-{
-  "cid": "Qm...outerCID",
-  "descriptionCid": "Qm...descCID",
-  "descriptionURL": "Qm...outerCID"
-}
-```
+**Step 2 — confirm:** re-call with the same args plus `confirm: true` →
+broadcasts and returns `predictedGovPool`.
 
-**Step 3 — build the deploy calldata**
+**One-call path:** when the user has *already* approved the deploy (they told
+you exactly what to launch and to go ahead), pass `confirm: true` on the
+**first** call — preview and broadcast collapse into one call.
 
-```json
-{
-  "tool": "dexe_dao_build_deploy",
-  "args": {
-    "deployer": "0xYourDeployerEOA",
-    "params": {
-      "name": "Glacier Cooperative",
-      "descriptionURL": "Qm...outerCID",
-      "settingsParams": {
-        "proposalSettings": [{
-          "earlyCompletion":         true,
-          "delegatedVotingAllowed":  false,
-          "validatorsVote":          true,
-          "duration":                "86400",
-          "durationValidators":      "43200",
-          "executionDelay":          "0",
-          "quorum":                  "500000000000000000000000000",
-          "quorumValidators":        "510000000000000000000000000",
-          "minVotesForVoting":       "1000000000000000000",
-          "minVotesForCreating":     "10000000000000000000",
-          "rewardsInfo": {
-            "rewardToken":            "0x0000000000000000000000000000000000000000",
-            "creationReward":         "0",
-            "executionReward":        "0",
-            "voteRewardsCoefficient": "0"
-          },
-          "executorDescription": ""
-        }]
-      },
-      "validatorsParams": {
-        "name": "Glacier Validators",
-        "symbol": "GVAL",
-        "proposalSettings": {
-          "duration": "43200",
-          "executionDelay": "0",
-          "quorum": "510000000000000000000000000"
-        },
-        "validators": ["0xValidator1", "0xValidator2"],
-        "balances":   ["1000000000000000000000", "1000000000000000000000"]
-      },
-      "userKeeperParams": {
-        "tokenAddress":   "0x0000000000000000000000000000000000000000",
-        "nftAddress":     "0x0000000000000000000000000000000000000000",
-        "individualPower":"0",
-        "nftsTotalSupply":"0"
-      },
-      "tokenParams": {
-        "name":        "Glacier Token",
-        "symbol":      "GLC",
-        "users":       ["0xRecipient1", "0xRecipient2"],
-        "cap":         "1000000000000000000000000",
-        "mintedTotal": "100000000000000000000000",
-        "amounts":     ["50000000000000000000000", "50000000000000000000000"]
-      },
-      "votePowerParams": {
-        "voteType": "LINEAR_VOTES"
-      },
-      "verifier":       "0x0000000000000000000000000000000000000000",
-      "onlyBABTHolders": false
-    }
-  }
-}
-```
+**What you get out of the box.** DAOs deployed by `dexe_dao_create` have had
+the **TokenSale + Distribution executors and all 5 settings groups auto-wired
+since v0.19** — the OTC journey ([§4](#4-otc-token-sales)) works immediately
+after a deploy, no extra settings proposal needed.
 
-Output (abbreviated):
+**Guards** (mirror the frontend's blocking validation, enforced in both SIMPLE
+and ADVANCED mode):
 
-```json
-{
-  "payload": {
-    "to":          "0xPoolFactory",
-    "data":        "0x6f5a3da7...",
-    "value":       "0",
-    "chainId":     56,
-    "description": "PoolFactory.deployGovPool(...)"
-  },
-  "predictedGovPool": "0xGOVPOOL..."
-}
-```
+- Quorum must be **reachable**: `quorum% × supply ≤ votable tokens` — treasury
+  tokens can't vote. Hard block.
+- `minVotesForVoting/Creating` ≤ the largest single recipient. Hard block.
+- Token cap rule: `cap ≥ mintedTotal > 0` (no uncapped mode; `cap == minted`
+  is a valid fixed supply).
+- Treasury is an **implicit remainder** — `sum(amounts) < mintedTotal` is
+  correct; the predicted govPool must never appear in `tokenParams.users[]`.
+- For `LINEAR_VOTES` never pass `initData` — auto-encoded as
+  `__LinearPower_init()`.
 
-**Notes / gotchas**
+**ADVANCED mode:** pass a full `params` struct (same shape as
+`dexe_dao_build_deploy`, which remains available in the `dev` toolset). Pass
+**1** `proposalSettings` entry → auto-expands to 5. `delegatedVotingAllowed`
+is inverted at the contract (`true` DISABLES delegation).
 
-- Pass **1** `proposalSettings` entry → the tool auto-expands to **5** (default,
-  internal, validators, distributionProposal, tokenSale). Pass exactly 5 to override.
-- `delegatedVotingAllowed` is **inverted** at the contract: `true` DISABLES delegation,
-  `false` ALLOWS it. The schema docstring matches the frontend.
-- Decimal conventions: `quorum` is **25-decimal wei** (50% =
-  `500000000000000000000000000`). Token amounts are **18-decimal wei**. Durations are
-  plain seconds.
-- The tool auto-wires the predicted `govToken` into `userKeeperParams.tokenAddress` when
-  creating a new token — you can leave that field as the zero address.
-- For `LINEAR_VOTES` you **must not** pass `initData` — it is auto-encoded as
-  `__LinearPower_init()`. Pass `polynomialCoefficients` for `POLYNOMIAL_VOTES`. Only
-  `CUSTOM_VOTES` accepts raw `initData`.
+Validate on **testnet (chain 97) first** — mainnet (56) works but spends real
+BNB and always requires `confirm: true`.
 
 ---
 
-## 2. Create a Token Transfer proposal (build-only flow)
+## 2. Create a proposal — `dexe_proposal_create`
 
-Three-step external proposal: build the action body, pin metadata, build the
-`createProposalAndVote` tx.
-
-**Required env**
-
-```
-DEXE_RPC_URL, DEXE_CHAIN_ID, DEXE_PINATA_JWT
-```
-
-**Step 1 — build the action**
-
-```json
-{
-  "tool": "dexe_proposal_build_token_transfer",
-  "args": {
-    "govPool":             "0xGovPool",
-    "token":               "0xERC20",
-    "recipient":           "0xRecipient",
-    "amount":              "1000000000000000000",
-    "proposalName":        "Treasury grant: Q3 research",
-    "proposalDescription": "# Q3 grant\n\nFund the research workgroup with 1 token."
-  }
-}
-```
-
-Output:
-
-```json
-{
-  "metadata": {
-    "proposalName": "Treasury grant: Q3 research",
-    "proposalDescription": "[{...slate nodes...}]",
-    "category": "Token Transfer",
-    "isMeta": false,
-    "changes": { "proposedChanges": "...", "currentChanges": "..." }
-  },
-  "actions": [{
-    "executor": "0xERC20",
-    "value":    "0",
-    "data":     "0xa9059cbb..."
-  }],
-  "instructions": "1) dexe_ipfs_upload_proposal_metadata ... 2) dexe_proposal_build_external ..."
-}
-```
-
-**Step 2 — pin metadata to IPFS**
-
-```json
-{
-  "tool": "dexe_ipfs_upload_proposal_metadata",
-  "args": {
-    "title":       "Treasury grant: Q3 research",
-    "description": "# Q3 grant\n\nFund the research workgroup with 1 token.",
-    "extra": {
-      "category": "Token Transfer",
-      "isMeta": false,
-      "changes": { "proposedChanges": "...", "currentChanges": "..." }
-    }
-  }
-}
-```
-
-Output:
-
-```json
-{ "cid": "QmProp...", "descriptionURL": "QmProp..." }
-```
-
-**Step 3 — build createProposalAndVote calldata**
-
-```json
-{
-  "tool": "dexe_proposal_build_external",
-  "args": {
-    "govPool":        "0xGovPool",
-    "descriptionURL": "QmProp...",
-    "actionsOnFor":   [{ "executor": "0xERC20", "value": "0", "data": "0xa9059cbb..." }],
-    "andVote":        true,
-    "voteAmount":     "100000000000000000000"
-  }
-}
-```
-
-Output:
-
-```json
-{
-  "payload": {
-    "to":          "0xGovPool",
-    "data":        "0xda1c6cfa...",
-    "value":       "0",
-    "chainId":     56,
-    "description": "GovPool.createProposalAndVote (1 for / 0 against)"
-  }
-}
-```
-
-**Notes**
-
-- The user must already have `voteAmount` deposited (or use the composite tool below).
-- `descriptionURL` accepts either the bare CID or `ipfs://<cid>`.
-- Set `andVote: false` to use `createProposal` (no auto-vote).
-
----
-
-## 3. One-shot composite create (signed mode)
-
-Collapse the entire prereq + approve + deposit + IPFS + create chain into a single call.
-Requires a private key in the server env.
-
-**Required env**
-
-```
-DEXE_RPC_URL, DEXE_CHAIN_ID, DEXE_PINATA_JWT, DEXE_PRIVATE_KEY
-```
+One call for **all 33 catalog proposal types**: it checks balances, approves
+the **UserKeeper** (never GovPool), deposits, uploads correctly-shaped IPFS
+metadata, and calls `createProposalAndVote`.
 
 ```json
 {
   "tool": "dexe_proposal_create",
   "args": {
-    "govPool":            "0xGovPool",
-    "proposalType":       "modify_dao_profile",
-    "title":              "Update DAO description",
-    "description":        "Refresh the public-facing copy.",
-    "newDaoDescription":  "Glacier — funding cold-region research, year 2 mandate.",
-    "category":           "DAO Profile"
+    "govPool":      "0xGovPool",
+    "chainId":      97,
+    "proposalType": "token_transfer",
+    "title":        "Treasury grant: Q3 research",
+    "description":  "# Q3 grant\n\nFund the research workgroup.",
+    "params": { "token": "0xERC20", "recipient": "0xAlice", "amount": "1000.0" }
   }
 }
 ```
 
-Output (signed mode):
+Note `"amount": "1000.0"` — the decimal point makes it a human-unit amount,
+scaled by the token's real decimals. `"1000000000000000000000"` (digits only)
+would be the raw-wei equivalent for an 18-dec token.
 
-```json
-{
-  "mode":        "signed",
-  "proposalId":  "13",
-  "txHash":      "0xabc...",
-  "steps":       [
-    { "label": "GovPool.createProposalAndVote", "txHash": "0xabc..." }
-  ]
-}
-```
+`proposalType` is a **strict enum** — an unknown string is rejected at
+validation time with the list of valid types (previously it errored mid-flow).
+Discover every type + params with `dexe_proposal_catalog` or the
+[`PLAYBOOK.md`](./PLAYBOOK.md) type reference.
 
-**Build-only mode** (omit `DEXE_PRIVATE_KEY`, pass `user`):
+### The type catalog (params go in `params` unless noted)
+
+**Treasury / tokens** — `token_transfer`, `withdraw_treasury`, `apply_to_dao`
+(grant; mints shortfall when the treasury is short), `token_distribution`
+(pro-rata airdrop to a proposal's voters).
+
+**Governance config** — `change_voting_settings`, `new_proposal_type`,
+`enable_staking`, `change_math_model` (swap LINEAR/POLYNOMIAL/custom power
+contract), `manage_validators` / `validators_allocation` (`changes:[{user,
+balance}]`; balance 0 removes).
+
+**Experts / delegation** — `add_expert` / `remove_expert`
+(`scope:"local"|"global"`; catalog aliases `add_local_expert`,
+`add_global_expert`, `remove_local_expert`, `remove_global_expert` skip the
+scope param), `delegate_to_expert` / `revoke_from_expert` (aliases
+`delegate_tokens_to_expert` / `revoke_tokens_from_expert`).
+
+**Token sale / staking** — `token_sale` (prefer `dexe_otc_dao_open_sale`,
+[§4](#4-otc-token-sales)), `token_sale_whitelist` (extend a live tier's
+whitelist), `token_sale_recover` (recover unsold tokens),
+`create_staking_tier`.
+
+**Token controls** — `blacklist` (`erc20Gov`, add/remove address lists),
+`reward_multiplier` (`mode:"set_address"|"mint"|"change_token"|"set_token_uri"`).
+
+**Profile / raw** — `modify_dao_profile` (top-level `newDaoName` /
+`newDaoDescription` / `newWebsiteUrl` / `newSocialLinks` / `newAvatarPath` —
+partial updates merge with current metadata), `custom` (your own
+`actionsOnFor:[{executor, value?, data}]`), `custom_abi` (one encoded call from
+`target` + `signature`).
+
+**Internal (validators-only)** — `change_validator_balances`,
+`change_validator_settings`, `monthly_withdraw`, `offchain_internal_proposal`.
+These **auto-route to `GovValidators.createInternalProposal`** — no deposit, no
+UserKeeper approve. Only a **current validator** can create them; validators
+vote with their own balances.
+
+**Off-chain (backend)** — `offchain_single_option`, `offchain_multi_option`,
+`offchain_for_against` live on the DeXe backend, not on-chain.
+`dexe_proposal_create` **rejects them with exact instructions** for the backend
+flow: `dexe_proposal_build_offchain_*` → auth ([§9](#9-off-chain-proposals-mainnet-only))
+→ authorized POST.
+
+### One-call avatar update
 
 ```json
 {
   "tool": "dexe_proposal_create",
-  "args": {
-    "govPool":           "0xGovPool",
-    "proposalType":      "custom",
-    "title":             "Treasury grant",
-    "description":       "Fund team alpha.",
-    "user":              "0xUserEOA",
-    "actionsOnFor":      [{ "executor": "0xERC20", "value": "0", "data": "0xa9059cbb..." }],
-    "category":          "Token Transfer",
-    "proposalMetadataExtra": {
-      "isMeta":  false,
-      "changes": { "proposedChanges": "...", "currentChanges": "..." }
-    },
-    "voteAmount":        "100000000000000000000"
-  }
-}
-```
-
-Output (build-only):
-
-```json
-{
-  "mode": "build",
-  "steps": [
-    { "label": "ERC20.approve",                  "payload": { "to":"0xToken","data":"0x095ea7b3..." } },
-    { "label": "GovPool.deposit",                "payload": { "to":"0xGovPool","data":"0x47e7ef24..." } },
-    { "label": "GovPool.createProposalAndVote", "payload": { "to":"0xGovPool","data":"0xda1c6cfa..." } }
-  ]
-}
-```
-
-**Notes**
-
-- `proposalType` is `'modify_dao_profile' | 'custom'`. For other named types, build the
-  action with `dexe_proposal_build_*`, then pass it through `actionsOnFor` +
-  `proposalMetadataExtra` here.
-- Approval / deposit steps are skipped automatically when the user already has enough
-  deposited power.
-
----
-
-## 4. Vote on a proposal (build-only)
-
-Three independent calldata builds. The wallet sends them in order.
-
-**Required env**
-
-```
-DEXE_RPC_URL, DEXE_CHAIN_ID
-```
-
-**Step 1 — approve token spend (skip for native-coin DAOs)**
-
-```json
-{
-  "tool": "dexe_vote_build_erc20_approve",
-  "args": {
-    "token":   "0xGovToken",
-    "spender": "0xUserKeeper",
-    "amount":  "100000000000000000000"
-  }
-}
-```
-
-> Spender is the **UserKeeper** address (read it from `dexe_dao_info → helpers.userKeeper`).
-
-**Step 2 — deposit into the DAO**
-
-```json
-{
-  "tool": "dexe_vote_build_deposit",
   "args": {
     "govPool": "0xGovPool",
-    "amount":  "100000000000000000000",
-    "nftIds":  []
+    "proposalType": "modify_dao_profile",
+    "title": "New DAO avatar",
+    "newAvatarPath": "C:/Users/me/Pictures/logo.png"
   }
 }
 ```
 
-**Step 3 — vote**
+The server reads the image from disk, magic-byte-validates it (SVG/HTML are
+rejected — they never render on app.dexe.io), pins it, rebuilds the metadata,
+and creates the proposal. Do not upload the avatar separately and do not read
+the file into the conversation.
+
+### Build-only preview
+
+Pass `dryRun: true` (or run with no signer) to get the ordered `TxPayload`s —
+`ERC20.approve` → `GovPool.deposit` → `GovPool.createProposalAndVote` — without
+broadcasting. Steps the chain shows as already satisfied are omitted.
+
+---
+
+## 3. Vote and execute — `dexe_proposal_vote_and_execute`
 
 ```json
 {
-  "tool": "dexe_vote_build_vote",
+  "tool": "dexe_proposal_vote_and_execute",
   "args": {
     "govPool":    "0xGovPool",
-    "proposalId": "13",
-    "isVoteFor":  true,
-    "amount":     "100000000000000000000",
-    "nftIds":     []
+    "chainId":    97,
+    "proposalId": 13,
+    "isVoteFor":  true
   }
 }
 ```
 
-Each output is a `TxPayload`. Send in this order: **approve → deposit → vote**.
+Reads the proposal state, deposits if needed, votes, and (with `autoExecute`,
+the default) executes once the proposal succeeds.
 
-**Notes / gotchas**
+**`depositFirst` is `boolean | 'auto'`, default `'auto'`.** When your deposited
+power is short of `voteAmount`, the tool deposits **exactly the missing amount**
+from your wallet (approve UserKeeper → deposit → vote) automatically. Pass
+`depositFirst: false` to restore never-deposit behavior (the pre-0.22 default),
+or `true` to force a deposit.
 
-- For native-coin DAOs (BNB/ETH), skip step 1 and pass `value` to the deposit call.
-- The user's voting power becomes "locked" while a vote is active — to vote on the next
-  proposal you may need to `dexe_vote_build_withdraw` first.
-- Deposit can be combined with delegate + claim using `dexe_vote_build_multicall` —
-  see example 10.
+- `voteAmount` defaults to all available power; accepts human units (`"250.5"`).
+- Already past voting (`SucceededFor` / `SucceededAgainst` / `Locked`) → the
+  vote is skipped and the tool goes straight to execute.
+- Voting on a proposal in any other non-`Voting` state errors with a
+  **per-state remedy** (execute it / wait out the delay / create a new
+  proposal) instead of a bare revert.
+
+**Canonical `ProposalState` order** (never hardcode a different one):
+
+```
+0 Voting  1 WaitingForVotingTransfer  2 ValidatorVoting  3 Defeated
+4 SucceededFor  5 SucceededAgainst  6 Locked  7 ExecutedFor  8 ExecutedAgainst  9 Undefined
+```
+
+Executable states: **4, 5, 6** (when `executionDelay > 0` a proposal sits in
+`Locked` until the delay passes).
+
+**The locked-tokens trap.** After you vote/execute, your deposited tokens stay
+**locked** for that proposal. Available power for the *next* proposal reads 0
+until you withdraw: `dexe_vote_build_withdraw` between proposals, then let
+`depositFirst: 'auto'` re-deposit.
 
 ---
 
-## 5. Validator chamber lifecycle
+## 4. OTC token sales
 
-After a proposal hits main-quorum, push it to the validators tier and finish it there.
+Five composites cover the whole journey (deep dive: [`OTC.md`](./OTC.md)):
 
-**Required env**
+| Tool | Role |
+|------|------|
+| `dexe_otc_dao_open_sale` | multi-tier `createTiers` envelope + IPFS metadata + deposit + `createProposalAndVote` |
+| `dexe_otc_list_sales_for_dao` | list a DAO's tiers (prices, `totalSold`, `isOff`, UTC times) |
+| `dexe_otc_buyer_status` | render-ready buyer view: prices, claimable, vesting, auto-merkle proof |
+| `dexe_otc_buyer_buy` | preflight balance/allowance + approve + `buy()` |
+| `dexe_otc_buyer_claim_all` | claims every tier with `canClaim && !isClaimed` |
 
-```
-DEXE_RPC_URL, DEXE_CHAIN_ID
-```
+Owner flow: `dexe_dao_create` (executors pre-wired since v0.19) →
+`dexe_otc_dao_open_sale` → `dexe_proposal_vote_and_execute` → sale is live.
 
-**Step 1 — escalate**
+Buyer flow: `dexe_otc_buyer_status` → `dexe_otc_buyer_buy` → (after the sale
+window closes) `dexe_otc_buyer_claim_all`.
 
-```json
-{
-  "tool": "dexe_vote_build_move_to_validators",
-  "args": { "govPool": "0xGovPool", "proposalId": "13" }
-}
-```
+**Buyer amounts are decimals-safe.** `dexe_otc_buyer_buy` accepts human units
+(`"50.0"`), and converts the 18-dec-normalized buy amount to the **payment
+token's native decimals** for the balance check and the exact `approve` — no
+silent under-pay on <18-dec payment tokens (e.g. USDT/USDC variants).
 
-**Step 2 — each validator votes** (note `govValidators` and `scope: "external"`)
-
-```json
-{
-  "tool": "dexe_vote_build_validator_vote",
-  "args": {
-    "govValidators": "0xGovValidators",
-    "scope":         "external",
-    "proposalId":    "13",
-    "amount":        "1000000000000000000000",
-    "isVoteFor":     true
-  }
-}
-```
-
-> `govValidators` is the validators-helper contract — read it via
-> `dexe_dao_info → helpers.validators`.
-
-**Step 3 — execute**
-
-```json
-{
-  "tool": "dexe_vote_build_execute",
-  "args": { "govPool": "0xGovPool", "proposalId": "13" }
-}
-```
-
-**Notes**
-
-- Validator-vote arg order is `(proposalId, amount, isVoteFor)` — **different** from
-  `GovPool.vote`'s `(proposalId, isVoteFor, amount, nftIds)`.
-- `scope: "internal"` selects validator-internal proposals (DAO-config changes inside the
-  validators contract). External proposals coming from the main pool always use
-  `"external"`.
-- When `executionDelay > 0`, expect state `Locked` between `SucceededFor` and
-  `ExecutedFor` — wait the delay before calling execute.
+Gotchas: exchange rates are PRECISION **1e25** (1:1 =
+`"10000000000000000000000000"`); native BNB is the sentinel
+`0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` (never the zero address);
+`maxAllocationPerUser == 0` means *unlimited*; claiming needs
+`block.timestamp ≥ saleEndTime + claimLockDuration`.
 
 ---
 
-## 6. Delegation chain
+## 5. Reliability and failure semantics
 
-Two users delegate to the same expert; read aggregate power on the expert.
+What happens when things go wrong — and what your integration should check.
 
-**Required env**
+- **Transport-level RPC retry + failover.** Every RPC call retries transient
+  failures and rotates across the configured fallback URLs
+  (`DEXE_RPC_URL_MAINNET/_TESTNET/_<id>` accept comma-separated lists; the
+  zero-config public fallback ships multiple endpoints). `429 / SERVER_ERROR`
+  in a result means the rotation was already exhausted — re-run, or set your
+  own RPC list.
+- **Mining wait timeout.** A broadcast that doesn't mine within
+  `DEXE_TX_WAIT_TIMEOUT_MS` (default 180 s) returns an error telling you to
+  check `dexe_tx_status {txHash}` — the MCP request never hangs. Re-broadcast
+  only if status is `not_found`.
+- **Reverted ≠ success.** A mined-but-reverted tx (`receipt.status === 0`) is
+  reported as a **failure everywhere**, including `dexe_tx_send`
+  (`isError: true` + `reverted: true`). Scripts that treated any mined receipt
+  as success must check these fields.
+- **Composite failure ledger.** When a step of a composite flow fails, the
+  result is `mode: "failed"` with a `failure` object:
+  - `failedStep` — which step broke;
+  - `error` — the actionable cause;
+  - `landedSteps` — the txs that **did** land (gas already spent);
+  - `resume` — how to continue.
 
-```
-DEXE_RPC_URL, DEXE_CHAIN_ID
-```
-
-**A → C**
-
-```json
-{
-  "tool": "dexe_vote_build_delegate",
-  "args": {
-    "govPool":   "0xGovPool",
-    "delegatee": "0xExpertC",
-    "amount":    "10000000000000000000000",
-    "nftIds":    []
-  }
-}
-```
-
-**B → C**
-
-```json
-{
-  "tool": "dexe_vote_build_delegate",
-  "args": {
-    "govPool":   "0xGovPool",
-    "delegatee": "0xExpertC",
-    "amount":    "8000000000000000000000",
-    "nftIds":    []
-  }
-}
-```
-
-**Read C's aggregate power**
-
-```json
-{
-  "tool": "dexe_vote_user_power",
-  "args": { "govPool": "0xGovPool", "user": "0xExpertC" }
-}
-```
-
-Output:
-
-```json
-{
-  "govPool":    "0xGovPool",
-  "user":       "0xExpertC",
-  "userKeeper": "0xUserKeeper",
-  "power": {
-    "PersonalVote":  { "tokenBalance": "0",                    "tokenOwned": "0",  "nftBalance":"0", "nftOwned":"0" },
-    "MicropoolVote": { "tokenBalance": "18000000000000000000000", "tokenOwned": "0", "nftBalance":"0", "nftOwned":"0" },
-    "DelegatedVote": { "tokenBalance": "0", "tokenOwned": "0", "nftBalance":"0", "nftOwned":"0" },
-    "TreasuryVote":  { "tokenBalance": "0", "tokenOwned": "0", "nftBalance":"0", "nftOwned":"0" }
-  }
-}
-```
-
-**Notes**
-
-- `MicropoolVote` is what arriving delegations from other users add up to; A and B's
-  10k + 8k = 18k tokens land here.
-- A and B keep the tokens **deposited but locked** until they undelegate — they cannot
-  vote with the same tokens themselves while delegated.
-- Use `dexe_vote_build_undelegate` to reverse.
+  Fix the cause and **re-run the same call** — completed steps (approve,
+  deposit) are detected on-chain and skipped, so you never double-pay them.
 
 ---
 
-## 7. Read DAO state
+## 6. WalletConnect signing
 
-Three read-only tools — useful for an agent walking active proposals.
+The recommended signer: keys never touch the machine running the MCP server.
+Deep dive: [`WALLETCONNECT.md`](./WALLETCONNECT.md).
 
-**Required env**
+- **Zero config** — a shared WalletConnect project id is baked in (set
+  `DEXE_WALLETCONNECT_PROJECT_ID` for your own).
+- `dexe_wc_connect` renders a **scannable QR** — terminal ASCII *and* an
+  `image/png` MCP content block — scan with a mobile wallet (MetaMask, Trust,
+  SafePal) and approve each tx on the phone.
+- **Auto-print on writes.** `dexe_tx_send` with no session starts pairing and
+  prints the QR instead of erroring; the composite flows attach the pairing QR
+  to their build-mode response as real content blocks.
+- Per-tx phone approval has a timeout (`DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`,
+  default 120 s) — an unanswered prompt returns `{status:'timeout'}` rather
+  than hanging.
+- `dexe_wc_status` reports the live session; `dexe_wc_disconnect` ends it.
+  Sessions are in-memory — re-scan after an MCP server restart.
+- Precedence: a configured `DEXE_PRIVATE_KEY` wins over a WalletConnect
+  session until removed.
 
-```
-DEXE_RPC_URL
-```
-
-**DAO overview**
-
-```json
-{
-  "tool": "dexe_dao_info",
-  "args": { "govPool": "0xGovPool" }
-}
-```
-
-Output (abbreviated):
-
-```json
-{
-  "govPool": "0xGovPool",
-  "descriptionURL": "ipfs://Qm...",
-  "helpers": {
-    "settings":     "0xSettings",
-    "userKeeper":   "0xUserKeeper",
-    "validators":   "0xGovValidators",
-    "poolRegistry": "0xPoolRegistry",
-    "votePower":    "0xVotePower"
-  },
-  "nftContracts": {
-    "nftMultiplier":  "0xMult",
-    "expertNft":      "0xExpert",
-    "dexeExpertNft":  "0xDexeExpert",
-    "babt":           "0xBABT"
-  },
-  "validatorsCount": "3"
-}
-```
-
-**Single proposal state**
-
-```json
-{
-  "tool": "dexe_proposal_state",
-  "args": { "govPool": "0xGovPool", "proposalId": "13" }
-}
-```
-
-Output:
-
-```json
-{
-  "govPool":         "0xGovPool",
-  "proposalId":      "13",
-  "state":           "Voting",
-  "stateIndex":      0,
-  "requiredQuorum":  "500000000000000000000000000"
-}
-```
-
-State enum order: `Voting, WaitingForVotingTransfer, ValidatorVoting, Defeated,
-SucceededFor, SucceededAgainst, Locked, ExecutedFor, ExecutedAgainst, Undefined`.
-
-**Paged list**
-
-```json
-{
-  "tool": "dexe_proposal_list",
-  "args": { "govPool": "0xGovPool", "offset": 0, "limit": 20 }
-}
-```
-
-Output (abbreviated):
-
-```json
-{
-  "proposals": [
-    {
-      "proposalId":     "1",
-      "descriptionURL": "ipfs://Qm...",
-      "state":          "ExecutedFor",
-      "stateIndex":     7,
-      "votesFor":       "5000000000000000000000",
-      "votesAgainst":   "0",
-      "voteEnd":        "1745596800",
-      "executed":       true,
-      "requiredQuorum": "500000000000000000000000000"
-    }
-  ]
-}
-```
-
-**Walking active proposals (pseudocode)**
-
-```text
-list = dexe_proposal_list(govPool, offset=0, limit=100)
-for p in list.proposals:
-  if p.state in ("Voting", "WaitingForVotingTransfer", "ValidatorVoting"):
-    # take action
-```
+**Hot key mode** (`DEXE_PRIVATE_KEY` in `.env`) is opt-in and flagged
+**NOT SAFE** throughout: the key lives in plaintext on disk and in process
+memory. Use a throwaway wallet, never a treasury key.
 
 ---
 
-## 8. Decode arbitrary calldata
+## 7. The tx layer — `dexe_tx_send` / `dexe_tx_status`
 
-Useful when reviewing on-chain proposals or transactions you didn't build yourself.
+`dexe_tx_send` broadcasts any `TxPayload` (from a composite's build mode or a
+low-level builder) through the active signer. `dexe_tx_status {txHash}` reports
+`pending / mined / reverted / not_found` keylessly.
 
-**Required env**
+In signer mode four guards run before anything is broadcast — each a no-op
+unless its env var is set (see [`ENVIRONMENT.md` §4](./ENVIRONMENT.md)):
 
-_(none — works on local artifacts)_
+| Guard | Env var | Effect |
+|-------|---------|--------|
+| B6 destination allowlist | `DEXE_SIGNER_ALLOWLIST` | Rejects any `to` not listed. **List the GovPool _and_ the gov token** — deposit flows broadcast an `ERC20.approve` whose `to` is the token. |
+| B7 value cap | `DEXE_SIGNER_MAX_VALUE_WEI` | Rejects `value` above the cap. |
+| B9 auto-simulation | *(always on)* | `eth_call` preflight; aborts with the decoded revert reason instead of paying gas for a doomed tx. |
+| B10 rate limit | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | Caps broadcasts per rolling 60 s. |
 
-```json
-{
-  "tool": "dexe_decode_calldata",
-  "args": {
-    "contract": "GovPool",
-    "data":     "0xfe0d94c1000000000000000000000000000000000000000000000000000000000000000d"
-  }
-}
-```
-
-Output:
-
-```json
-{
-  "contract":     "GovPool",
-  "selector":     "0xfe0d94c1",
-  "functionName": "execute",
-  "args":         ["13"]
-}
-```
-
-**Companion tools**
-
-- `dexe_find_selector` — reverse-lookup a 4-byte selector across all DeXe contracts.
-- `dexe_get_methods` / `dexe_get_selectors` — list read/write methods for any contract.
-- `dexe_decode_proposal` — fetch + decode a proposal body from the chain.
-
-> Run `dexe_compile` once per session before any introspection tool — they read from
-> Hardhat artifacts.
+Results honor the reliability contract from [§5](#5-reliability-and-failure-semantics):
+mined-but-reverted returns `isError` + `reverted: true`; a slow tx returns the
+check-`dexe_tx_status` timeout error instead of hanging.
 
 ---
 
-## 9. Off-chain proposal (mainnet only)
+## 8. Reading state
 
-Off-chain proposals POST to the DeXe backend (`/integrations/voting/proposals`). Two-step
-auth, then submit. Backend exists for **chain 56 only**.
+Start every session with **`dexe_context`** — it returns the signer, active
+chain, env readiness, the DAOs/proposals recorded in prior sessions, and the
+toolset report (`{enabled, hidden: [{set, unlocks}], enableHint}` — so an agent
+can see which gated tools exist and how to enable them).
 
-**Required env**
-
-```
-DEXE_RPC_URL, DEXE_CHAIN_ID=56, DEXE_BACKEND_API_URL
-```
-
-**Step 1 — request a nonce**
-
-```json
-{
-  "tool": "dexe_auth_request_nonce",
-  "args": { "address": "0xUserEOA" }
-}
-```
-
-Returns the HTTP request descriptor; agent fires it, gets back `{ message: "..." }`.
-
-**Step 2 — sign the message** (in the user's wallet) and trade for an `access_token`
+**Every relevant read tool takes an optional `chainId`** — the same session can
+read testnet and mainnet without a restart. This covers `dexe_proposal_state` /
+`_list` / `_voters`, `dexe_vote_user_power` / `_get_votes`, the `dexe_read_*`
+family (validators, settings, expert status, token-sale tiers/user,
+distribution, staking, privacy policy, gov state), `dexe_decode_proposal`,
+`dexe_user_inbox`, `dexe_otc_buyer_status` / `dexe_otc_list_sales_for_dao`,
+`dexe_dao_info` / `_registry_lookup` / `_predict_addresses`, and
+`dexe_proposal_forecast`.
 
 ```json
-{
-  "tool": "dexe_auth_login_request",
-  "args": {
-    "address":       "0xUserEOA",
-    "signedMessage": "0xSignedMessageFromWallet"
-  }
-}
+{ "tool": "dexe_dao_info",       "args": { "govPool": "0xGovPool", "chainId": 97 } }
+{ "tool": "dexe_proposal_state", "args": { "govPool": "0xGovPool", "proposalId": "13" } }
+{ "tool": "dexe_proposal_list",  "args": { "govPool": "0xGovPool", "offset": 0, "limit": 20 } }
 ```
 
-Backend response: `{ access_token: { id: "..." }, refresh_token: { id: "..." } }`.
-Use `access_token.id` as a `Bearer` header for the proposal POST.
+`dexe_dao_info` returns the helper addresses (`settings`, `userKeeper`,
+`validators`, `votePower`) the low-level tools need. `dexe_proposal_list`
+returns per-proposal `state` / `votesFor` / `votesAgainst` / `voteEnd` /
+`requiredQuorum` — walk it and act on anything in `Voting`,
+`WaitingForVotingTransfer`, or `ValidatorVoting`.
 
-**Step 3 — build the proposal**
+Treasury and holders come backend-first via `dexe_read_treasury`,
+`dexe_read_token_holders`, `dexe_read_dao_stats` (mainnet backend), with
+on-chain fallbacks.
+
+---
+
+## 9. Off-chain proposals (mainnet only)
+
+Off-chain proposal types POST to the DeXe backend — they are **not** on-chain
+transactions, which is why `dexe_proposal_create` rejects them with these
+instructions. Backend exists for **chain 56 only**.
+
+**Step 1 — build** the request descriptor:
 
 ```json
 {
   "tool": "dexe_proposal_build_offchain_for_against",
   "args": {
-    "poolAddress":          "0xGovPool",
-    "chainId":              56,
-    "title":                "Should we adopt the Q3 roadmap?",
-    "votingDurationSeconds":"86400",
-    "voteOptions":          ["For", "Against"],
-    "useDelegated":         true,
-    "forPercent":           50,
-    "againstPercent":       50
+    "poolAddress": "0xGovPool",
+    "chainId": 56,
+    "title": "Adopt the Q3 roadmap?",
+    "votingDurationSeconds": "86400",
+    "voteOptions": ["For", "Against"],
+    "forPercent": 50,
+    "againstPercent": 50
   }
 }
 ```
 
-The output is an HTTP request descriptor (`method`, `url`, `headers`, `body`); the agent
-fires the POST with `Authorization: Bearer <access_token.id>`.
+**Step 2 — authenticate:** `dexe_auth_request_nonce {address}` → sign the
+returned message in the user's wallet → `dexe_auth_login_request {address,
+signedMessage}` → backend returns `access_token.id`.
 
-**Notes**
+**Step 3 — send** the HTTP request from step 1 with
+`Authorization: Bearer <access_token.id>`.
 
-- Companion off-chain builders: `dexe_proposal_build_offchain_single_option`,
-  `dexe_proposal_build_offchain_multi_option`, `dexe_proposal_build_offchain_settings`,
-  `dexe_proposal_build_offchain_internal_proposal`.
-- The MCP `dexe_offchain_build_vote` / `dexe_offchain_build_cancel_vote` tools build
-  the corresponding vote requests.
+Companions: `dexe_proposal_build_offchain_single_option` / `_multi_option` /
+`_settings` / `_internal_proposal`, and `dexe_offchain_build_vote` /
+`_cancel_vote` for voting on them.
 
 ---
 
-## 10. Multi-tx batch (atomic multicall)
+## 10. Build-only primitives
 
-Bundle multiple GovPool writes into a single tx. Common pattern: `execute + claimRewards`
-or `deposit + delegate`.
+For custom wallets/pipelines that sign externally, every step of the composite
+flows exists as a standalone builder returning one `TxPayload`:
 
-**Required env**
+- **Proposal actions:** `dexe_proposal_build_<type>` for every catalog type,
+  plus the raw `dexe_proposal_build_external` / `_internal` / `_custom_abi`
+  primitives and `dexe_ipfs_upload_proposal_metadata` for the metadata pin.
+- **Vote lifecycle:** `dexe_vote_build_erc20_approve` (spender is the
+  **UserKeeper**, from `dexe_dao_info → helpers.userKeeper`) →
+  `dexe_vote_build_deposit` → `dexe_vote_build_vote`; later
+  `dexe_vote_build_execute` and `dexe_vote_build_withdraw`.
+- **Validator chamber** (`vote` toolset): `dexe_vote_build_move_to_validators`,
+  then `dexe_vote_build_validator_vote` — note its arg order is
+  `(proposalId, amount, isVoteFor)`, different from `GovPool.vote`.
+- **Delegation** (`vote` toolset): `dexe_vote_build_delegate` /
+  `_undelegate`; delegated tokens land in the delegatee's `MicropoolVote`
+  bucket (read with `dexe_vote_user_power`) and stay locked for the delegator
+  until undelegated.
+- **Atomic batches** (`vote` toolset): `dexe_vote_build_multicall` wraps
+  multiple GovPool calldatas (e.g. `execute` + `claimRewards`) into one tx —
+  inner calls must all target the same GovPool.
+- **Raw DAO deploy** (`dev` toolset): `dexe_dao_predict_addresses` +
+  `dexe_ipfs_upload_dao_metadata` + `dexe_dao_build_deploy` — the manual path
+  `dexe_dao_create` automates. The same coherence guards run.
 
-```
-DEXE_RPC_URL, DEXE_CHAIN_ID
-```
+Decode/introspection (`dev` toolset): `dexe_decode_calldata`,
+`dexe_decode_proposal`, `dexe_find_selector`, `dexe_get_methods` — run
+`dexe_compile` once per session first.
 
-**Step 1 — build each inner call**, then strip out just the `data` fields.
+---
 
-```json
-{
-  "tool": "dexe_vote_build_execute",
-  "args": { "govPool": "0xGovPool", "proposalId": "13" }
-}
-```
-→ `payload.data = "0xfe0d94c1...0d"`
+## 11. Toolsets
 
-```json
-{
-  "tool": "dexe_vote_build_claim_rewards",
-  "args": {
-    "govPool":     "0xGovPool",
-    "proposalIds": ["13"],
-    "user":        "0xUserEOA"
-  }
-}
-```
-→ `payload.data = "0x76b8f6dc..."`
+The registered surface is gated by `DEXE_TOOLSETS` (default `core,proposals` =
+**72 tools** of the 159):
 
-**Step 2 — wrap in multicall**
+| Set | Unlocks |
+|-----|---------|
+| `core` (default) | context, doctor, dao_create, dao_info, treasury/settings reads, tx_send/status, WalletConnect, OTC composites, IPFS uploads |
+| `proposals` (default) | proposal_create (all types), every proposal_build_*, vote_and_execute, proposal state/list, vote-power reads |
+| `read` | subgraph reads (members, delegation map, validators), forecast, risk assess, inbox |
+| `vote` | delegate/undelegate, claims, staking, NFT multiplier, validator votes, multicall |
+| `governor` | `dexe_gov_*` for external OZ/Compound Governor DAOs |
+| `dev` | compile + ABI introspection, raw deploy, simulate/decode, merkle, Safe |
 
-```json
-{
-  "tool": "dexe_vote_build_multicall",
-  "args": {
-    "govPool": "0xGovPool",
-    "calls": [
-      "0xfe0d94c1...0d",
-      "0x76b8f6dc..."
-    ],
-    "value":   "0"
-  }
-}
-```
-
-Output:
-
-```json
-{
-  "payload": {
-    "to":          "0xGovPool",
-    "data":        "0xac9650d8...",
-    "value":       "0",
-    "chainId":     56,
-    "description": "GovPool.multicall(2 calls)"
-  }
-}
-```
-
-**Notes**
-
-- `multicall` only works for inner calls **targeting the same GovPool** — you can't mix
-  in ERC20 approves or external-contract calls.
-- For atomic `approve+deposit` you'll typically do two separate txs; the approve target
-  is a different contract.
-- All inner calldatas must be `0x`-prefixed hex strings.
+`DEXE_TOOLSETS=full` loads everything. A tool-not-found error usually means a
+gated set: `dexe_context` lists the hidden sets and the exact `enableHint`.
+Changes require a Claude Code restart.
 
 ---
 
@@ -887,25 +527,21 @@ Output:
 
 | Need | Tool |
 |------|------|
-| Predict DAO addresses | `dexe_dao_predict_addresses` |
-| Build deploy tx | `dexe_dao_build_deploy` |
-| Pin DAO metadata | `dexe_ipfs_upload_dao_metadata` |
-| Pin proposal metadata | `dexe_ipfs_upload_proposal_metadata` |
-| Pin raw bytes (avatar) | `dexe_ipfs_upload_file` |
-| Build any of the 33 proposal types | `dexe_proposal_build_*` |
-| Raw create-proposal primitive | `dexe_proposal_build_external`, `dexe_proposal_build_internal` |
-| Composite create (signed/build) | `dexe_proposal_create` |
-| Composite vote+execute | `dexe_proposal_vote_and_execute` |
-| Approve / deposit / withdraw | `dexe_vote_build_erc20_approve`, `dexe_vote_build_deposit`, `dexe_vote_build_withdraw` |
-| Vote / cancel-vote | `dexe_vote_build_vote`, `dexe_vote_build_cancel_vote` |
-| Delegate / undelegate | `dexe_vote_build_delegate`, `dexe_vote_build_undelegate` |
-| Validators chamber | `dexe_vote_build_move_to_validators`, `dexe_vote_build_validator_vote` |
-| Execute, claim rewards | `dexe_vote_build_execute`, `dexe_vote_build_claim_rewards` |
-| Atomic batch | `dexe_vote_build_multicall` |
+| Orient (signer, chain, DAOs, toolsets) | `dexe_context` |
+| Diagnose env problems | `dexe_doctor` |
+| Deploy a DAO (preview → confirm) | `dexe_dao_create` |
+| Create any of the 33 proposal types | `dexe_proposal_create` |
+| Vote + execute (auto-deposit) | `dexe_proposal_vote_and_execute` |
+| Open / inspect / buy / claim an OTC sale | `dexe_otc_dao_open_sale`, `dexe_otc_list_sales_for_dao`, `dexe_otc_buyer_status`, `dexe_otc_buyer_buy`, `dexe_otc_buyer_claim_all` |
 | Read DAO/proposal state | `dexe_dao_info`, `dexe_proposal_state`, `dexe_proposal_list`, `dexe_vote_user_power` |
-| Decode/introspect | `dexe_decode_calldata`, `dexe_decode_proposal`, `dexe_get_methods`, `dexe_find_selector` |
-| Off-chain auth + propose | `dexe_auth_request_nonce`, `dexe_auth_login_request`, `dexe_proposal_build_offchain_*` |
-| Sign + broadcast | `dexe_tx_send`, `dexe_tx_status` |
+| Pin metadata / avatars | `dexe_ipfs_upload_proposal_metadata`, `dexe_ipfs_upload_dao_metadata`, `dexe_ipfs_upload_avatar` (or just pass `newAvatarPath` / `avatarPath`) |
+| Build one action / one tx | `dexe_proposal_build_*`, `dexe_vote_build_*` |
+| Sign + broadcast / check a tx | `dexe_tx_send`, `dexe_tx_status` |
+| WalletConnect pairing | `dexe_wc_connect`, `dexe_wc_status`, `dexe_wc_disconnect` |
+| Off-chain (backend) proposals | `dexe_proposal_build_offchain_*`, `dexe_auth_request_nonce`, `dexe_auth_login_request` |
+| Decode / introspect | `dexe_decode_calldata`, `dexe_decode_proposal`, `dexe_find_selector` |
+| External Governor DAOs | `dexe_gov_*` (`governor` toolset) |
 
-For the full per-tool schema (153 tools total), browse `src/tools/*.ts` or call the
-tool — every input/output is a Zod schema MCP exposes via `tools/list`.
+For the full per-tool schema (**159 tools** across 19 groups) see
+[`TOOLS.md`](./TOOLS.md) — every input/output is a Zod schema exposed via MCP
+`tools/list`.

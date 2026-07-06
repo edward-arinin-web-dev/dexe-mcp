@@ -24,14 +24,27 @@ dexe_proposal_vote_and_execute({
   chainId: 97,
   proposalId: 1,            // 1-indexed
   isVoteFor: true,
-  depositFirst: false,      // set true to deposit wallet tokens before voting
+  depositFirst: "auto",     // the default — deposits the shortfall automatically
   autoExecute: true         // execute automatically once it passes
 })
 ```
 
+- **`depositFirst` is `boolean | "auto"`, default `"auto"`:** when your deposited
+  power is short of `voteAmount`, the tool deposits **exactly the missing
+  amount** from your wallet (approve UserKeeper → deposit → vote). Pass `false`
+  to never deposit (the old behavior), `true` to force a deposit.
 - Already past voting (state `SucceededFor` / `SucceededAgainst` / `Locked`) →
-  the tool skips the vote and goes straight to execute.
-- `voteAmount` defaults to all available deposited power. Pass it to vote with less.
+  the tool skips the vote and goes straight to execute. Any other non-`Voting`
+  state errors with a **per-state remedy** (execute / wait / new proposal).
+- `voteAmount` defaults to all available deposited power. Pass it to vote with
+  less — human units (`"250.5"`) or raw wei both work.
+
+## Partial failure → fix and re-run the SAME call
+
+A failed step returns `mode: "failed"` with a `failure` ledger:
+`failedStep`, an actionable `error`, `landedSteps` (txs that DID land — gas
+already spent), and `resume` guidance. Fix the cause and re-run the same call —
+completed steps (approve/deposit) are detected on-chain and skipped.
 
 ## Canonical ProposalState ordering (failure mode 9)
 

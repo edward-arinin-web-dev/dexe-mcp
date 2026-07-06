@@ -112,7 +112,7 @@ approval is an *additional* human gate, not a replacement for the guards.
 - ✅ `eth_sendTransaction` branch wired into `dexe_tx_send`; `dexe_tx_status` reworked to
   a read-only provider so it works keyless. Guards B6/B7/B9/B10 still run on the WC path.
 - ✅ Unit tests (`tests/walletconnect.test.ts`): config gating, CAIP-10 parsing, no-session
-  guards. typecheck / build / test green (153 tools / 19 groups).
+  guards. typecheck / build / test green (159 tools / 19 groups).
 - ⬜ **Remaining gate:** one live round-trip against a phone wallet on BSC testnet (chain
   97) before tagging — human action.
 

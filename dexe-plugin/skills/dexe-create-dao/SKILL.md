@@ -75,6 +75,9 @@ This returns `mode: "preview"` with the **resolved config** (who holds what) and
 4. **Confirm:** re-call with the **same arguments plus `confirm: true`** to broadcast.
    The deployer holds the entire distributed portion; the treasury is an **implicit
    remainder** (the govPool address is never a token recipient).
+   When the user has **already approved** the deploy up front, pass
+   `confirm: true` on the **first** call — preview and broadcast collapse into
+   one call.
 
 ## Recipe — ADVANCED mode (full control)
 
@@ -121,5 +124,10 @@ SIMPLE fields. The coherence guards still run. Key rules for hand-built params:
 
 The result includes `predictedGovPool` — the DAO's GovPool address once the tx
 confirms. Use it for `dexe_proposal_create` / `dexe_proposal_vote_and_execute`.
+
+DAOs deployed by `dexe_dao_create` have the **TokenSale + Distribution
+executors and all 5 settings groups auto-wired** (since v0.19) — the OTC
+journey ([[dexe-otc]]) works immediately after deploy, no extra settings
+proposal needed.
 
 Related: [[dexe-create-proposal]], [[dexe-vote-execute]].

@@ -41,6 +41,11 @@ Validate on **BSC testnet (chain 97)** first. Full recipe + runnable proof:
 
 ## Critical gotchas
 
+- **Buyer amounts accept human units** — a decimal string (`"50.0"`) is scaled
+  by the token's real on-chain decimals; digits-only stays raw wei.
+  `dexe_otc_buyer_buy` converts the 18-dec-normalized buy amount to the
+  **payment token's native decimals** for the balance check and the exact
+  approve — no silent under-pay on <18-dec payment tokens.
 - **Exchange rate is PRECISION 1e25**, not 1e18. 1:1 = `"10000000000000000000000000"`.
 - **Native BNB = `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`** (ETHEREUM_ADDRESS),
   never `0x0…0` — a zero-address purchase token makes the tier unbuyable. Buy
