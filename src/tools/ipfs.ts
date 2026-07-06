@@ -84,6 +84,16 @@ async function warmDexeIpfsCache(cidV0: string): Promise<{ ok: boolean; status?:
   }
 }
 
+/** Lowercased hostname of a gateway URL (scheme optional), or null if unparseable. */
+function gatewayHostname(u: string): string | null {
+  try {
+    const withScheme = /^https?:\/\//i.test(u) ? u : `https://${u}`;
+    return new URL(withScheme).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 function resolveGateways(_ctx: ToolContext): string[] {
   const out: string[] = [];
   const normalize = (raw: string): string => {
@@ -117,7 +127,12 @@ function resolveGateways(_ctx: ToolContext): string[] {
   // key is configured, anonymous reads return 403 and tools like
   // dexe_ipfs_update_dao_metadata hang. Append `https://ipfs.io` as a
   // last-resort public reader so flows keep working out of the box.
-  const usesRestrictedPinata = out.some((g) => /\.mypinata\.cloud(\/|$)/i.test(g));
+  // Parse the hostname (not a substring match) so a URL whose *path* contains
+  // "mypinata.cloud" isn't misclassified (js/incomplete-url-substring-sanitization).
+  const usesRestrictedPinata = out.some((g) => {
+    const host = gatewayHostname(g);
+    return host === "mypinata.cloud" || (host?.endsWith(".mypinata.cloud") ?? false);
+  });
   const haveGatewayKey = !!process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
   if (!disablePublic && usesRestrictedPinata && !haveGatewayKey) {
     const publicFallback = "https://ipfs.io";

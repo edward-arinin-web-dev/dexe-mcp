@@ -111,9 +111,21 @@ export async function fetchIpfs(
 
   // When every gateway tried was a shared public reader, the failure is almost
   // always public-gateway flakiness, not a bad CID — nudge toward a dedicated one.
+  // Match by parsed hostname, not a URL substring (js/incomplete-url-substring-sanitization).
+  const PUBLIC_READ_HOSTS = new Set(["ipfs.io", "dweb.link", "cloudflare-ipfs.com", "cf-ipfs.com"]);
+  const hostOf = (u: string): string | null => {
+    try {
+      return new URL(/^https?:\/\//i.test(u) ? u : `https://${u}`).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+  };
   const allPublic =
     cfg.gateways.length > 0 &&
-    cfg.gateways.every((g) => /(^|\/\/)(ipfs\.io|dweb\.link|(cf-|cloudflare-)ipfs\.com)/i.test(g));
+    cfg.gateways.every((g) => {
+      const h = hostOf(g);
+      return h != null && PUBLIC_READ_HOSTS.has(h);
+    });
   const hint = allPublic
     ? " — the shared public IPFS gateways are failing. Set DEXE_IPFS_GATEWAY to a dedicated " +
       "gateway (a free Pinata dedicated gateway takes ~2 min; Filebase / Quicknode also work), " +
