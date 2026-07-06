@@ -1,12 +1,22 @@
 import { z } from "zod";
-import { JsonRpcProvider } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
+import { createChainProvider } from "../rpc.js";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
+import { waitWithTimeout, waitForHashWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
+import { toActionableError } from "../lib/errors.js";
 import { ENABLE_WRITES_HINT } from "./flow.js";
 import { wcPairingContent } from "../lib/qr.js";
+
+/**
+ * R3 — receipt.status===0 (mined but REVERTED) must surface as a failure, not
+ * a normal result the model reads as success.
+ */
+const REVERTED_NOTE =
+  "⚠️ REVERTED — the transaction was mined but FAILED on-chain (status 0). State was NOT changed. " +
+  "Inspect the tx on the explorer for the revert reason before retrying.";
 
 /** Flagged on every hot-key broadcast — a plaintext key on disk is not safe. */
 const HOT_KEY_SAFETY =
@@ -159,8 +169,20 @@ export function registerTxTools(
           };
         }
         // Wait via a read provider — WC returned the hash, the wallet broadcast it.
-        const provider = new JsonRpcProvider(chain.rpcUrl);
-        const receipt = await provider.waitForTransaction(txHash, waitConfirmations);
+        const provider = createChainProvider(chain, config);
+        let receipt;
+        try {
+          receipt = await waitForHashWithTimeout(provider, txHash, chain.chainId, {
+            confirmations: waitConfirmations,
+            timeoutMs: txWaitTimeoutMs(),
+          });
+        } catch (e) {
+          return {
+            content: [{ type: "text" as const, text: toActionableError(e, "dexe_tx_send wait").message }],
+            isError: true,
+          };
+        }
+        const reverted = receipt?.status === 0;
         const result = receipt
           ? {
               txHash: receipt.hash,
@@ -170,9 +192,13 @@ export function registerTxTools(
               blockNumber: receipt.blockNumber,
               gasUsed: receipt.gasUsed.toString(),
               status: receipt.status,
+              ...(reverted ? { reverted: true, note: REVERTED_NOTE } : {}),
             }
           : { txHash, from, chainId: chain.chainId, signer: "walletconnect", status: "unknown" };
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+          ...(reverted ? { isError: true } : {}),
+        };
       }
 
       // ---- hot-key (EOA) dispatch path -----------------------------------
@@ -263,7 +289,18 @@ export function registerTxTools(
         };
       }
 
-      const receipt = await tx.wait(waitConfirmations);
+      let receipt;
+      try {
+        receipt = await waitWithTimeout(tx, {
+          confirmations: waitConfirmations,
+          timeoutMs: txWaitTimeoutMs(),
+        });
+      } catch (e) {
+        return {
+          content: [{ type: "text" as const, text: toActionableError(e, "dexe_tx_send wait").message }],
+          isError: true,
+        };
+      }
       if (!receipt) {
         return {
           content: [
@@ -279,6 +316,7 @@ export function registerTxTools(
         };
       }
 
+      const reverted = receipt.status === 0;
       const result = {
         txHash: receipt.hash,
         from: wallet.address,
@@ -287,11 +325,13 @@ export function registerTxTools(
         blockNumber: receipt.blockNumber,
         gasUsed: receipt.gasUsed.toString(),
         status: receipt.status,
+        ...(reverted ? { reverted: true, note: REVERTED_NOTE } : {}),
         safety: HOT_KEY_SAFETY,
       };
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        ...(reverted ? { isError: true } : {}),
       };
     },
   );
@@ -314,7 +354,7 @@ export function registerTxTools(
       const chain = resolveChain(config, chainId);
       // Read-only lookup — no signer needed, so this works in WalletConnect/
       // readonly modes too.
-      const provider = new JsonRpcProvider(chain.rpcUrl);
+      const provider = createChainProvider(chain, config);
 
       const receipt = await provider.getTransactionReceipt(txHash);
       if (!receipt) {

@@ -7,7 +7,7 @@ import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { TxPayload } from "../lib/calldata.js";
-import { attachPairingQr, runProposalCreate, sendOrCollect, type ProposalCreateInput } from "./flow.js";
+import { attachPairingQr, runProposalCreate, sendOrCollect, flowFailureResult, type ProposalCreateInput } from "./flow.js";
 import { resolveChain } from "../config.js";
 import {
   buildTokenSaleMultiActions,
@@ -732,6 +732,9 @@ export function registerOtcTools(
       }
 
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      if (result.mode === "failed") {
+        return flowFailureResult(result, { tierId: input.tierId, user: userAddr });
+      }
 
       return attachPairingQr(ok({
         mode: result.mode,
@@ -864,6 +867,9 @@ export function registerOtcTools(
       }
 
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      if (result.mode === "failed") {
+        return flowFailureResult(result, { user: userAddr, tokenSaleProposal: input.tokenSaleProposal });
+      }
 
       return attachPairingQr(ok({
         mode: result.mode,

@@ -30,6 +30,8 @@ import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import { PROPOSAL_BUILDERS, FLOW_PROPOSAL_TYPES } from "../lib/proposalBuilders.js";
 import { PROPOSAL_CATALOG } from "../lib/proposalCatalog.js";
 import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
+import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/txWait.js";
+import { toActionableError } from "../lib/errors.js";
 import type { StateStore } from "../lib/stateStore.js";
 
 // ---------- ABI fragments ----------
@@ -100,6 +102,29 @@ function ok(data: Record<string, unknown>) {
 
 function bigintReplacer(_k: string, v: unknown): unknown {
   return typeof v === "bigint" ? v.toString() : v;
+}
+
+/**
+ * Uniform composite-failure response (R7): failed step + actionable error +
+ * ledger of steps that already landed (gas spent) + how to resume.
+ */
+export function flowFailureResult(
+  result: { steps: FlowStep[]; failure?: FlowFailure },
+  extra?: Record<string, unknown>,
+) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(
+          { mode: "failed", ...(extra ?? {}), failure: result.failure, steps: result.steps },
+          bigintReplacer,
+          2,
+        ),
+      },
+    ],
+    isError: true,
+  };
 }
 
 function makeTxPayload(to: string, iface: Interface, method: string, args: unknown[], chainId: number, description: string, value?: bigint): TxPayload {
@@ -410,13 +435,27 @@ export function attachPairingQr(
   return { ...res, content: [...pairingContent, ...res.content] };
 }
 
+/**
+ * Partial-failure record (R7): which steps landed on-chain (gas spent), which
+ * step failed, and how to proceed. Composites surface this verbatim so a
+ * mid-sequence failure is never a bare "broadcast failed".
+ */
+export interface FlowFailure {
+  failedStep: string;
+  error: string;
+  /** Steps that DID land before the failure — their txHashes are real, gas was spent. */
+  landedSteps: FlowStep[];
+  resume: string;
+}
+
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
   opts?: { dryRun?: boolean; chainId?: number; wc?: WalletConnectManager },
 ): Promise<{
-  mode: "executed" | "payloads" | "dryRun";
+  mode: "executed" | "payloads" | "dryRun" | "failed";
   steps: FlowStep[];
+  failure?: FlowFailure;
   enableWrites?: string;
   pairing?: FlowPairing;
   /** QR content blocks (ASCII + PNG) — pass to `attachPairingQr` so the QR renders inline. */
@@ -457,35 +496,61 @@ export async function sendOrCollect(
   const wallet = sg.ok;
   const cfg = signer.getConfig();
   for (const p of payloads) {
-    // Same B6/B7/B10 broadcast guards as dexe_tx_send. B9 simulation is skipped:
-    // these payloads are an ordered, *dependent* sequence, so simming a later
-    // step against pre-sequence state would falsely revert. A BroadcastGuardError
-    // aborts the flow before the offending send (gas spent only on prior steps).
-    await runBroadcastGuards(
-      {
-        to: p.to,
-        data: p.data,
-        value: p.value,
-        chainId: Number(p.chainId),
-        from: wallet.address,
-      },
-      cfg,
-      { skipSimulation: true },
-    );
-    const tx = await signer.withBroadcastLock(Number(p.chainId), () =>
-      wallet.sendTransaction({
-        to: p.to,
-        data: p.data,
-        value: BigInt(p.value),
-        chainId: BigInt(p.chainId),
-      }),
-    );
-    const receipt = await tx.wait(1);
-    steps.push({
-      label: p.description,
-      skipped: false,
-      txHash: receipt?.hash ?? tx.hash,
-    });
+    // Any step failing mid-sequence: STOP (dependent steps must not run on top
+    // of unchanged state — R3), report which steps already landed (gas spent),
+    // and tell the caller how to resume (R7). Composites re-check completed
+    // work (allowance, deposited power, proposal state) on re-run, so "fix the
+    // cause and re-run this same call" is the correct resume for every flow.
+    try {
+      // Same B6/B7/B10 broadcast guards as dexe_tx_send. B9 simulation is skipped:
+      // these payloads are an ordered, *dependent* sequence, so simming a later
+      // step against pre-sequence state would falsely revert. A BroadcastGuardError
+      // aborts the flow before the offending send (gas spent only on prior steps).
+      await runBroadcastGuards(
+        {
+          to: p.to,
+          data: p.data,
+          value: p.value,
+          chainId: Number(p.chainId),
+          from: wallet.address,
+        },
+        cfg,
+        { skipSimulation: true },
+      );
+      const tx = await signer.withBroadcastLock(Number(p.chainId), () =>
+        wallet.sendTransaction({
+          to: p.to,
+          data: p.data,
+          value: BigInt(p.value),
+          chainId: BigInt(p.chainId),
+        }),
+      );
+      const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
+      assertReceiptSuccess(receipt, p.description);
+      steps.push({
+        label: p.description,
+        skipped: false,
+        txHash: receipt?.hash ?? tx.hash,
+      });
+    } catch (e) {
+      const landed = steps.filter((s) => s.txHash);
+      const actionable = toActionableError(e, p.description);
+      return {
+        mode: "failed",
+        steps,
+        failure: {
+          failedStep: p.description,
+          error: actionable.message,
+          landedSteps: landed,
+          resume:
+            landed.length > 0
+              ? `${landed.length} earlier step(s) already landed on-chain (see landedSteps txHashes). ` +
+                "Fix the cause above and re-run this same call — already-satisfied steps (approve / deposit / vote) " +
+                "are detected on-chain and skipped automatically."
+              : "No steps landed on-chain. Fix the cause above and re-run this same call.",
+        },
+      };
+    }
   }
   return { mode: "executed", steps };
 }
@@ -878,6 +943,9 @@ export async function runProposalCreate(
 
       // Step 6: send or return
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc: deps.wc });
+      if (result.mode === "failed") {
+        return flowFailureResult(result, { descriptionURL, proposalMetadataCID: proposalMetaRes.cid });
+      }
 
       // Phase 3: record a broadcast proposal so dexe_context surfaces it next
       // session. Best-effort — a state-write error never breaks the broadcast.
@@ -1062,6 +1130,9 @@ export function registerFlowTools(
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
         ], { dryRun: input.dryRun, chainId, wc });
+        if (execResult.mode === "failed") {
+          return flowFailureResult(execResult, { proposalId, proposalStateBefore: stateName });
+        }
         return attachPairingQr(ok({
           mode: execResult.mode,
           proposalId,
@@ -1138,6 +1209,9 @@ export function registerFlowTools(
 
       // Step 5: send or collect
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      if (result.mode === "failed") {
+        return flowFailureResult(result, { proposalId, proposalStateBefore: stateName });
+      }
 
       // Step 6: auto-execute (only in executed mode)
       let executed = false;
@@ -1164,6 +1238,14 @@ export function registerFlowTools(
             makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
           ], { dryRun: input.dryRun, chainId, wc });
           result.steps.push(...execResult.steps);
+          if (execResult.mode === "failed") {
+            // The vote landed; only the execute failed. Surface the ledger —
+            // the proposal stays executable via a re-run or dexe_vote_build_execute.
+            return flowFailureResult(
+              { steps: result.steps, failure: execResult.failure },
+              { proposalId, proposalStateBefore: stateName, voteLanded: true },
+            );
+          }
           executed = true;
         } else {
           skippedSteps.push({
