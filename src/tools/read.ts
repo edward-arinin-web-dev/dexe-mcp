@@ -8,6 +8,7 @@ import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted } from "../lib/sanitize.js";
 import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "./otc.js";
 import { DEFAULTS } from "../config.js";
+import { chainIdParam } from "../lib/params.js";
 
 const GOV_POOL_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -555,6 +556,7 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         candidate: z.string().optional().describe("Optional address to check validator status for"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -564,11 +566,11 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
         isValidator: z.boolean().nullable(),
       },
     },
-    async ({ govPool, candidate }) => {
+    async ({ govPool, candidate, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (candidate && !isAddress(candidate)) return errorResult(`Invalid candidate: ${candidate}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const gp = new Interface(GOV_POOL_ABI as unknown as string[]);
@@ -623,6 +625,7 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
         "Reads `GovSettings.getDefaultSettings()` and `getInternalSettings()` on the DAO's settings contract.",
       inputSchema: {
         govPool: z.string(),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -631,10 +634,10 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
         internalSettings: z.unknown(),
       },
     },
-    async ({ govPool }) => {
+    async ({ govPool, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const gp = new Interface(GOV_POOL_ABI as unknown as string[]);
@@ -686,6 +689,7 @@ function registerExpertStatus(server: McpServer, rpc: RpcProvider): void {
       inputSchema: {
         govPool: z.string(),
         user: z.string(),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -695,11 +699,11 @@ function registerExpertStatus(server: McpServer, rpc: RpcProvider): void {
         hasBabt: z.boolean().nullable(),
       },
     },
-    async ({ govPool, user }) => {
+    async ({ govPool, user, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const gp = new Interface(GOV_POOL_ABI as unknown as string[]);
@@ -751,12 +755,13 @@ function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         offset: z.number().default(0).describe("Pagination offset"),
         limit: z.number().default(10).describe("Max tiers to return"),
+        chainId: chainIdParam,
       },
     },
-    async ({ tokenSaleProposal, offset = 0, limit = 10 }) => {
+    async ({ tokenSaleProposal, offset = 0, limit = 10, chainId }) => {
       if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(TOKEN_SALE_READ_ABI as unknown as string[]);
@@ -797,13 +802,14 @@ function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         user: z.string().describe("User address to query"),
         tierIds: z.array(z.string()).min(1).describe("Tier IDs to check"),
+        chainId: chainIdParam,
       },
     },
-    async ({ tokenSaleProposal, user, tierIds }) => {
+    async ({ tokenSaleProposal, user, tierIds, chainId }) => {
       if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(TOKEN_SALE_READ_ABI as unknown as string[]);
@@ -842,13 +848,14 @@ function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
         distributionProposal: z.string().describe("DistributionProposal contract address"),
         voter: z.string().describe("Voter address to check"),
         proposalIds: z.array(z.string()).min(1).describe("Proposal IDs to check"),
+        chainId: chainIdParam,
       },
     },
-    async ({ distributionProposal, voter, proposalIds }) => {
+    async ({ distributionProposal, voter, proposalIds, chainId }) => {
       if (!isAddress(distributionProposal)) return errorResult(`Invalid distributionProposal: ${distributionProposal}`);
       if (!isAddress(voter)) return errorResult(`Invalid voter: ${voter}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(DISTRIBUTION_READ_ABI as unknown as string[]);
@@ -891,13 +898,14 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
       inputSchema: {
         stakingProposal: z.string().describe("StakingProposal contract address"),
         user: z.string().optional().describe("Optional user address to get their staking details"),
+        chainId: chainIdParam,
       },
     },
-    async ({ stakingProposal, user }) => {
+    async ({ stakingProposal, user, chainId }) => {
       if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
       if (user && !isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(STAKING_READ_ABI as unknown as string[]);
@@ -961,13 +969,14 @@ function registerPrivacyPolicyStatus(server: McpServer, rpc: RpcProvider): void 
       inputSchema: {
         userRegistry: z.string().describe("UserRegistry contract address"),
         user: z.string().describe("User address to check"),
+        chainId: chainIdParam,
       },
     },
-    async ({ userRegistry, user }) => {
+    async ({ userRegistry, user, chainId }) => {
       if (!isAddress(userRegistry)) return errorResult(`Invalid userRegistry: ${userRegistry}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(USER_REGISTRY_READ_ABI as unknown as string[]);

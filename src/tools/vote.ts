@@ -5,6 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { voteTypeFromString, VOTE_TYPE_NAMES } from "../lib/govEnums.js";
+import { chainIdParam } from "../lib/params.js";
 
 const GOV_POOL_HELPERS_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -37,6 +38,7 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         user: z.string().describe("User wallet address"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -52,11 +54,11 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
         ),
       },
     },
-    async ({ govPool, user }) => {
+    async ({ govPool, user, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool: ${govPool}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const gp = new Interface(GOV_POOL_HELPERS_ABI as unknown as string[]);
@@ -156,6 +158,7 @@ function registerGetVotes(server: McpServer, rpc: RpcProvider): void {
         voteType: z
           .enum(["PersonalVote", "MicropoolVote", "DelegatedVote", "TreasuryVote"])
           .default("PersonalVote"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -169,11 +172,11 @@ function registerGetVotes(server: McpServer, rpc: RpcProvider): void {
         nftsVoted: z.array(z.string()),
       },
     },
-    async ({ govPool, proposalId, voter, voteType = "PersonalVote" }) => {
+    async ({ govPool, proposalId, voter, voteType = "PersonalVote", chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(voter)) return errorResult(`Invalid voter: ${voter}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(GOV_POOL_HELPERS_ABI as unknown as string[]);

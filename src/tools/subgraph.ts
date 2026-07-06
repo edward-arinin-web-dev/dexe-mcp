@@ -7,6 +7,7 @@ import { multicall } from "../lib/multicall.js";
 import { gqlRequest } from "../lib/subgraph.js";
 import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
+import { chainIdParam } from "../lib/params.js";
 
 /**
  * Subgraph-backed read tools. Each tool queries one of the three DeXe
@@ -468,22 +469,23 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
     {
       title: "List OTC sale tiers for a DAO",
       description:
-        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with `totalSold` and status (`upcoming` / `active` / `ended` / `off`) computed against current block timestamp and the tier's on-chain isOff flag. Works on chain 56 (mainnet) and 97 (testnet) — no subgraph required. " +
+        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with `totalSold` and status (`upcoming` / `active` / `ended` / `off`) computed against current block timestamp and the tier's on-chain isOff flag. On-chain reads follow the optional `chainId` param (defaults to the MCP's default chain); no subgraph required, though subgraph indexing only exists on mainnet. " +
         "When `tokenSaleProposal` is omitted the tool returns an error pointing at the helper-discovery follow-up; supply it explicitly until per-DAO helper discovery lands.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         tokenSaleProposal: z
           .string()
           .describe("TokenSaleProposal helper address. Look up via dexe_dao_predict_addresses or DAO deploy receipt."),
+        chainId: chainIdParam,
       },
     },
-    async ({ govPool, tokenSaleProposal }) => {
+    async ({ govPool, tokenSaleProposal, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(tokenSaleProposal))
         return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
 
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
 

@@ -6,6 +6,7 @@ import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 import { gqlRequest, PROPOSAL_INTERACTIONS_QUERY } from "../lib/subgraph.js";
+import { chainIdParam } from "../lib/params.js";
 
 const GOV_POOL_READ_ABI = [
   "function getProposalState(uint256 proposalId) view returns (uint8)",
@@ -34,6 +35,7 @@ function registerProposalState(server: McpServer, ctx: ToolContext, rpc: RpcProv
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         proposalId: z.union([z.string(), z.number()]).describe("Proposal id (uint256)"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -43,11 +45,11 @@ function registerProposalState(server: McpServer, ctx: ToolContext, rpc: RpcProv
         requiredQuorum: z.string(),
       },
     },
-    async ({ govPool, proposalId }) => {
+    async ({ govPool, proposalId, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
       const id = BigInt(proposalId as string);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(GOV_POOL_READ_ABI as unknown as string[]);
@@ -98,6 +100,7 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
         govPool: z.string().describe("GovPool contract address"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -118,10 +121,10 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
         ),
       },
     },
-    async ({ govPool, offset = 0, limit = 20 }) => {
+    async ({ govPool, offset = 0, limit = 20, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(GOV_POOL_READ_ABI as unknown as string[]);
@@ -195,6 +198,7 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
         proposalId: z.union([z.string(), z.number()]),
         first: z.number().int().min(1).max(200).default(50),
         skip: z.number().int().min(0).default(0),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
