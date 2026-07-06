@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Contract } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
+import { DEFAULTS } from "../config.js";
 import type { SignerManager } from "../lib/signer.js";
 import type { StateStore, KnownDao } from "../lib/stateStore.js";
 import { RpcProvider } from "../rpc.js";
@@ -129,9 +130,24 @@ export function registerOperationalContextTools(
         },
         env: {
           rpcConfigured: config.chains.size > 0,
+          usingPublicRpcFallback: config.usingPublicRpcFallback,
           ipfsUploads: !!config.pinataJwt,
+          ipfsReads:
+            process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1"
+              ? !!(process.env.DEXE_IPFS_GATEWAY?.trim() || process.env.DEXE_IPFS_GATEWAYS_FALLBACK?.trim())
+              : true,
           subgraphReads: !!config.subgraphPoolsUrl,
-          backendOffchain: !!process.env.DEXE_BACKEND_API_URL?.trim(),
+          backendOffchain: !!config.backendApiUrl,
+          walletConnectAvailable: !!config.walletConnectProjectId,
+          // Surfaces running on the shared PUBLIC defaults (not the user's own
+          // keys/endpoints). Fine for light use; heavy users should set their
+          // own — dexe_doctor advises this. Empty = everything is user-configured.
+          usingSharedDefaults: [
+            config.usingPublicRpcFallback ? "rpc" : null,
+            config.subgraphPoolsUrl === DEFAULTS.subgraphPoolsUrl ? "subgraph" : null,
+            config.backendApiUrl === DEFAULTS.backendApiUrl ? "backend" : null,
+            config.walletConnectProjectId === DEFAULTS.walletConnectProjectId ? "walletconnect" : null,
+          ].filter(Boolean),
           toolsets: config.toolsets,
         },
         knownDaos: st.knownDaos,

@@ -6,6 +6,7 @@ import { SignerManager } from "../lib/signer.js";
 import { PinataClient } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
+import { pinataUploadHint } from "../lib/requireEnv.js";
 import { sendOrCollect } from "./flow.js";
 import { buildDeployGovPool, DeployParamsSchema } from "./daoDeploy.js";
 import type { StateStore } from "../lib/stateStore.js";
@@ -78,7 +79,7 @@ export function registerDaoCreateTools(
       dryRun: z.boolean().default(false).describe("If true, return the deploy TxPayload even when DEXE_PRIVATE_KEY is set."),
     },
     async (input) => {
-      if (!ctx.config.pinataJwt) return err("DEXE_PINATA_JWT required for DAO creation (IPFS metadata upload).");
+      if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a DAO"));
 
       const deployer = input.deployer ?? (signer.hasSigner() ? signer.getAddress() : undefined);
       if (!deployer) return err("Provide 'deployer' address or set DEXE_PRIVATE_KEY.");

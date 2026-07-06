@@ -1,108 +1,152 @@
 ---
 name: dexe-setup
 description: |
-  Onboard a user to dexe-mcp. Runs `dexe_doctor`, parses the report, asks the
-  user only for what is missing, edits `.env` (NEVER `.claude.json`), and
-  tells them to restart Claude Code. Triggered by `/dexe-setup`, or
-  proactively when the user reports an env-related MCP tool failure
-  ("DEXE_PINATA_JWT not set", "RPC unreachable", "subgraph 401", etc.).
+  Guided setup journey for dexe-mcp. Explains that reads work with ZERO config,
+  then walks the user through only the keys that unlock more — signing, DAO/
+  proposal creation (Pinata JWT), and optional reliability upgrades — telling
+  them for each one exactly what breaks if they skip it. Drives from
+  `dexe_doctor`, edits `.env` (NEVER `.claude.json`), and tells them to restart.
+  Triggered by `/dexe-setup`, or proactively when a tool reports a missing key
+  ("DEXE_PINATA_JWT is required…", "public RPC unstable", "shared public defaults").
 ---
 
 # dexe-setup
 
 ## What this does
 
-Iterative env-setup loop for `dexe-mcp`. Replaces the brittle workflow where
-Claude guesses which file to edit and which keys are needed. Drives entirely
-from the `dexe_doctor` tool — no guessing.
+A guided onboarding journey for `dexe-mcp`. The plugin ships with sane public
+defaults, so **reads work the moment it's installed** — no keys required. This
+skill's job is to explain that reality and then help the user unlock the parts
+that *do* need a key, one tier at a time, always saying what they lose by
+skipping. It drives from the `dexe_doctor` tool — no guessing which file or key.
+
+## The two-tier reality (say this first)
+
+Open by orienting the user:
+
+> **Reads already work** — DAO info, treasury, holders, proposals, subgraph
+> queries, IPFS reads all run on shared public defaults with zero setup.
+> You only need to configure something to **write** or to **create DAOs/
+> proposals**. Want me to walk you through it, or are reads all you need?
+
+If reads are all they need: confirm they're done, mention `dexe_doctor` is there
+if anything misbehaves, and stop.
 
 ## When to invoke
 
 - The user types `/dexe-setup`.
-- The user reports any of:
-  - "dexe-mcp not working", "tools failing", "RPC error", "missing env"
-  - A specific MCP tool error mentioning a `DEXE_*` env var
-  - "How do I configure dexe-mcp?"
-- You see a tool result containing `"Missing required env: DEXE_*"` or
-  `"DEXE_* is not set"` — invoke proactively.
+- The user says "set up dexe", "enable writes", "I want to create a DAO/
+  proposal", "how do I configure dexe-mcp?".
+- You see a tool result containing any of: `"DEXE_PINATA_JWT is required"`,
+  `"Missing required env"`, `"public RPC unstable"`, `"public IPFS gateways
+  are failing"`, `env.sharedDefaults` — invoke proactively.
 
 ## Hard rules (do not violate)
 
 1. **Never write `DEXE_*` values to `.claude.json`.** The MCP host's env block
    SHADOWS `.env` silently. Edits go in `.env` at the dexe-mcp repo root.
-2. **Never write `DEXE_PRIVATE_KEY` without explicit user opt-in.** Default
-   to readonly mode. If the user says "I want to broadcast", first suggest
-   WalletConnect (`DEXE_WALLETCONNECT_PROJECT_ID`); only fall back to
-   `DEXE_PRIVATE_KEY` if the user insists, and warn them that the key
-   lives in plaintext on disk.
+2. **Never write `DEXE_PRIVATE_KEY` without explicit user opt-in.** Signing is
+   available by default via WalletConnect (below) — reach for a hot key only if
+   the user insists, and warn it lives in plaintext on disk.
 3. **Always tell the user to restart Claude Code after editing `.env`.**
-   `process.loadEnvFile()` runs once at startup; mid-session edits do
-   nothing until restart.
-4. **Cap the loop at 3 iterations.** If `dexe_doctor` still shows failures
-   after three doctor → fix → restart cycles, stop and present the full
-   report to the user — the remaining issues need manual investigation.
+   `process.loadEnvFile()` runs once at startup; mid-session edits do nothing
+   until restart.
+4. **Cap the doctor loop at 3 iterations.** After three doctor → fix → restart
+   cycles still failing, stop and present the full report for manual triage.
+
+## The setup tiers (walk in order; for each, state what breaks if skipped)
+
+### Tier 0 — Reads (nothing to do)
+On-chain reads, subgraph reads, backend reads, IPFS reads all work on shared
+public defaults. **Skip cost: none.** The only downside is the shared Graph API
+key + public RPC/IPFS gateways are rate-limited and billable-shared — fine for
+light use, upgrade under Tier 3 for heavy use.
+
+### Tier 1 — Signing (to vote / execute / broadcast)
+WalletConnect is **available by default** (shared project id). To sign: run
+`dexe_wc_connect`, scan the QR with a wallet, approve each tx on your phone. No
+key touches disk.
+- **Skip cost:** you can build calldata and read, but can't broadcast.
+- Optional: set your own `DEXE_WALLETCONNECT_PROJECT_ID` (free at
+  cloud.reown.com) to stop sharing the default id.
+- Only if the user *insists* on unattended/CI signing → hot key ladder below.
+
+### Tier 2 — Creating DAOs / proposals (the one hard blocker)
+Creating a DAO or proposal pins metadata to IPFS, which needs a **Pinata JWT**
+(`DEXE_PINATA_JWT`). This is the only thing reads/signing can't default around.
+- **Skip cost:** `dexe_dao_create`, `dexe_proposal_create`, and metadata uploads
+  refuse up front (no on-chain tx is attempted).
+- How to get one (say this to non-technical users): sign up free at
+  https://app.pinata.cloud → API Keys → New Key → enable `pinJSONToIPFS` and
+  `pinFileToIPFS` → copy the JWT.
+- Validate it before saving: `GET https://api.pinata.cloud/data/testAuthentication`
+  with header `Authorization: Bearer <jwt>` should return `{"message":
+  "Congratulations! ..."}`. (The `npx dexe-mcp init` wizard does this check for you.)
+
+### Tier 3 — Reliability upgrades (optional, offer when errors appear)
+- **Private RPC** — if a read fails with *"public RPC unstable"*: set
+  `DEXE_RPC_URL_MAINNET` (chain 56) / `DEXE_RPC_URL_TESTNET` (chain 97) to an
+  Alchemy / QuickNode / Ankr URL. **Skip cost:** occasional rate-limit flakiness.
+- **Dedicated IPFS gateway** — if a read fails with *"public IPFS gateways are
+  failing"*: set `DEXE_IPFS_GATEWAY` (a free Pinata dedicated gateway comes with
+  your JWT — `https://<subdomain>.mypinata.cloud`). **Skip cost:** slower/flaky
+  metadata reads.
+- **Own Graph key** — if `dexe_doctor` shows `env.sharedDefaults`: set your own
+  `DEXE_SUBGRAPH_*_URL` (with your Graph key embedded, or `DEXE_GRAPH_API_KEY`).
+  **Skip cost:** you share a rate-limited, billable key.
 
 ## Algorithm
 
 1. Call `dexe_doctor` (no input).
-2. Read the `summary` and `checks` arrays from the structured response.
-   - If `summary.status === "pass"`, congratulate the user — no work to do.
-   - If only `warnings`, surface them but don't block.
-3. For every `fail`:
-   - If it is an env presence/validation issue: collect the env key.
-   - If it is a network reachability issue (RPC unreachable, Pinata 401):
-     use the `remediation` field verbatim; ask the user for a replacement
-     value.
-4. Batch the questions by category (RPC, IPFS, subgraph, signer) using
-   `AskUserQuestion`. One question per category, not one per key.
-5. Locate the `.env` file. The startup banner in the doctor response shows
-   `environment.envFile`; if absent, look at the repo root (where
-   `package.json` lives — usually `D:\dev\dexe-mcp\.env`).
-6. Edit `.env` with the Edit tool. For each provided value:
-   - If the key already exists, replace its line.
-   - Otherwise, append `KEY=value` at the bottom (preserve trailing newline).
+2. Read `summary` and `checks` from the structured response.
+   - `summary.status === "pass"` (only warnings) → reads are healthy. Ask which
+     tier (if any) the user wants; don't block on warnings.
+   - Treat `warn` checks (`chain.publicRpcFallback`, `env.sharedDefaults`) as
+     *offers*, not problems.
+3. For each `fail` or the user's chosen tier, collect the env key(s). Use the
+   check's `remediation` verbatim for network failures.
+4. Batch questions by tier/category with `AskUserQuestion` — one question per
+   tier, not one per key. Only ask for what the chosen tier needs.
+5. Locate `.env` at the repo root (where `package.json` lives — usually
+   `D:\dev\dexe-mcp\.env`). The doctor/banner shows the env-file path.
+6. Edit `.env` with the Edit tool: replace the key's line if present, else
+   append `KEY=value` (preserve the trailing newline).
 7. Tell the user, verbatim:
    > Edits saved to `.env`. **Restart Claude Code** so the new values load
-   > (`Ctrl+R` rebuilds the session, or quit and relaunch). Then I will
-   > re-run `dexe_doctor` to confirm.
-8. After restart, call `dexe_doctor` again. If still failing, go to step 3.
-   Iterate at most 3 times.
-9. If after 3 iterations there are still failures, present the full
-   `checks` array and tell the user the remaining issues need manual
-   investigation (likely: bad credentials, account suspended, paid plan
-   required, or a corporate proxy blocking the relevant host).
+   > (quit and relaunch). Then I'll re-run `dexe_doctor` to confirm.
+8. After restart, re-run `dexe_doctor`. If still failing, go to step 3. Iterate
+   at most 3 times.
+9. After 3 iterations still failing, present the full `checks` array — remaining
+   issues need manual triage (bad credentials, suspended account, paid-plan
+   required, corporate proxy).
 
 ## Signer mode escalation
 
-If a user wants broadcast capability, walk this ladder (top = safest):
+If the user wants signing beyond phone-approval WalletConnect, walk this ladder
+(top = safest):
 
-1. **WalletConnect (`DEXE_WALLETCONNECT_PROJECT_ID`).** Key stays on phone.
-   Every tx is approved manually.
-2. **Safe multisig (`DEXE_SAFE_TX_SERVICE_URL`).** Proposes tx to a Safe;
-   owners co-sign separately.
-3. **Hot key (`DEXE_PRIVATE_KEY`).** Plaintext on disk. Convenient for CI
-   bots, dangerous for humans. Show this warning before writing:
-   > Setting `DEXE_PRIVATE_KEY` stores your key in plaintext at `.env`.
-   > Anyone who reads the file can drain that wallet. Are you sure you
-   > don't want WalletConnect (above) or a Safe multisig instead?
-4. Refuse to proceed past step 3 without an explicit "yes" confirming
-   the user understands the trade-off.
+1. **WalletConnect (default).** `dexe_wc_connect` → approve on phone. No key on
+   disk. This is already available; prefer it.
+2. **Safe multisig (`DEXE_SAFE_TX_SERVICE_URL`).** Proposes tx to a Safe; owners
+   co-sign separately.
+3. **Hot key (`DEXE_PRIVATE_KEY`).** Plaintext on disk. Convenient for CI bots,
+   dangerous for humans. Show this before writing:
+   > Setting `DEXE_PRIVATE_KEY` stores your key in plaintext at `.env`. Anyone
+   > who reads the file can drain that wallet. Are you sure you don't want
+   > WalletConnect (already available) or a Safe multisig instead?
+4. Refuse to proceed to a hot key without an explicit "yes" confirming the
+   trade-off.
 
 ## .env precedence trap
 
-If `dexe_doctor` returns a check named `env.<KEY>` with the message
-"shadowed by host env block", the user has the same key defined in BOTH
-`.env` AND `.claude.json`. The host wins. Tell them to either:
-  - remove the key from `.claude.json` `env` block (use `.env`), OR
-  - update it in `.claude.json` instead of `.env`.
-
-Whichever they pick, restart Claude Code after.
+If `dexe_doctor` returns a check named `env.<KEY>` with "shadowed by host env
+block", the same key is defined in BOTH `.env` and `.claude.json`. The host
+wins. Tell them to keep it in one place (prefer `.env`) and restart.
 
 ## Useful tools (reference)
 
 - `dexe_doctor` — diagnostic (read-only, safe to call repeatedly).
-- `dexe_get_config` — current chain/signer state (lower detail than doctor).
-- `npx dexe-mcp doctor` — CLI form of the same diagnostic. Useful when the
-  MCP server itself failed to start.
-- `npx dexe-mcp init` — fresh-start wizard. Overwrites `.env`. Use for new
-  installations, not for fixing an existing setup.
+- `dexe_context` — signer/mode + env readiness + `usingSharedDefaults` list.
+- `npx dexe-mcp doctor` — CLI form; useful when the MCP server failed to start.
+- `npx dexe-mcp init` — fresh-start wizard (prompts + live-validates Pinata JWT).
+  Overwrites `.env`; use for new installs, not for fixing an existing setup.

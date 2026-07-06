@@ -7,6 +7,7 @@ import { multicall, type Call } from "../lib/multicall.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted } from "../lib/sanitize.js";
 import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "./otc.js";
+import { DEFAULTS } from "../config.js";
 
 const GOV_POOL_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -259,10 +260,13 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
     async ({ holder, tokens = [], chainId: chainIdArg }) => {
       if (!isAddress(holder)) return errorResult(`Invalid holder: ${holder}`);
       const chainId = rpc.resolveChainId(chainIdArg);
-      const backendBase = process.env.DEXE_BACKEND_API_URL?.trim()?.replace(/\/+$/, "");
+      const backendBase = (process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl).replace(
+        /\/+$/,
+        "",
+      );
       // Backend covers only chains it caches (mainnets). Testnet 97 and explicit
       // token reads must go on-chain.
-      const useBackend = !!backendBase && chainId !== 97 && tokens.length === 0;
+      const useBackend = chainId !== 97 && tokens.length === 0;
 
       if (useBackend) {
         try {
@@ -365,17 +369,12 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
 }
 
 /**
- * Generic GET against the DeXe backend (`DEXE_BACKEND_API_URL`, e.g.
- * https://api.dexe.io). Same host the app.dexe.io UI uses. Throws a
- * paste-ready message when the env var is unset so the tool can surface it.
+ * Generic GET against the DeXe backend (`DEXE_BACKEND_API_URL`, defaults to
+ * https://api.dexe.io — the same host the app.dexe.io UI uses). Always resolves
+ * a base URL (env override or baked default) so backend reads work zero-config.
  */
 async function backendGetJson<T>(path: string, timeoutMs = 8000): Promise<T> {
-  const base = process.env.DEXE_BACKEND_API_URL?.trim()?.replace(/\/+$/, "");
-  if (!base) {
-    throw new Error(
-      "DEXE_BACKEND_API_URL is not set — backend reads unavailable. Add it to .env (e.g. https://api.dexe.io) and restart.",
-    );
-  }
+  const base = (process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl).replace(/\/+$/, "");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {

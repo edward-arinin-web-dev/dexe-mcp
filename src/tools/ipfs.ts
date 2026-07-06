@@ -4,12 +4,14 @@ import type { ToolContext } from "./context.js";
 import {
   cidForBytes,
   cidForJson,
+  DEFAULT_PUBLIC_READ_GATEWAYS,
   fetchIpfs,
   parseCid,
   PinataClient,
   toCidV1,
 } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
+import { pinataUploadHint } from "../lib/requireEnv.js";
 
 export function registerIpfsTools(server: McpServer, ctx: ToolContext): void {
   const gateways = resolveGateways(ctx);
@@ -82,6 +84,16 @@ async function warmDexeIpfsCache(cidV0: string): Promise<{ ok: boolean; status?:
   }
 }
 
+/** Lowercased hostname of a gateway URL (scheme optional), or null if unparseable. */
+function gatewayHostname(u: string): string | null {
+  try {
+    const withScheme = /^https?:\/\//i.test(u) ? u : `https://${u}`;
+    return new URL(withScheme).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 function resolveGateways(_ctx: ToolContext): string[] {
   const out: string[] = [];
   const normalize = (raw: string): string => {
@@ -104,13 +116,23 @@ function resolveGateways(_ctx: ToolContext): string[] {
       if (g && !out.includes(g)) out.push(g);
     }
   }
-  // Auto-fallback: if the primary is a Pinata dedicated gateway AND no
-  // gateway key is configured, anonymous reads return 403 and tools like
+  const disablePublic = process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1";
+  // Zero-config default: no dedicated gateway configured → seed the public read
+  // gateways so IPFS reads work out of the box. Best-effort; dexe_doctor nudges
+  // toward a dedicated gateway. Opt out via DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1.
+  if (out.length === 0 && !disablePublic) {
+    out.push(...DEFAULT_PUBLIC_READ_GATEWAYS);
+  }
+  // Auto-fallback: if the primary is a Pinata dedicated gateway AND no gateway
+  // key is configured, anonymous reads return 403 and tools like
   // dexe_ipfs_update_dao_metadata hang. Append `https://ipfs.io` as a
   // last-resort public reader so flows keep working out of the box.
-  // Opt-out via DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1.
-  const disablePublic = process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1";
-  const usesRestrictedPinata = out.some((g) => /\.mypinata\.cloud(\/|$)/i.test(g));
+  // Parse the hostname (not a substring match) so a URL whose *path* contains
+  // "mypinata.cloud" isn't misclassified (js/incomplete-url-substring-sanitization).
+  const usesRestrictedPinata = out.some((g) => {
+    const host = gatewayHostname(g);
+    return host === "mypinata.cloud" || (host?.endsWith(".mypinata.cloud") ?? false);
+  });
   const haveGatewayKey = !!process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
   if (!disablePublic && usesRestrictedPinata && !haveGatewayKey) {
     const publicFallback = "https://ipfs.io";
@@ -120,18 +142,16 @@ function resolveGateways(_ctx: ToolContext): string[] {
 }
 
 const NO_GATEWAY_HINT =
-  "No IPFS gateway configured. Set DEXE_IPFS_GATEWAY to a dedicated gateway " +
-  "(Pinata gives one free with your JWT — e.g. https://<your-subdomain>.mypinata.cloud — " +
-  "or use Filebase / Quicknode / a self-hosted gateway). " +
-  "Public gateways (dweb.link, ipfs.io) are unreliable and not defaulted. " +
-  "Optional best-effort fallback: DEXE_IPFS_GATEWAYS_FALLBACK=https://dweb.link,https://ipfs.io.";
+  "No IPFS gateway available — the public read gateways are disabled " +
+  "(DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1) and no dedicated gateway is set. " +
+  "Set DEXE_IPFS_GATEWAY to a dedicated gateway (Pinata gives one free with your " +
+  "JWT — e.g. https://<your-subdomain>.mypinata.cloud — or use Filebase / Quicknode / " +
+  "a self-hosted gateway), or remove DEXE_IPFS_DISABLE_PUBLIC_FALLBACK to re-enable " +
+  "the public default (ipfs.io, dweb.link, cloudflare-ipfs.com).";
 
 function requirePinata(ctx: ToolContext): PinataClient | { error: string } {
   if (!ctx.config.pinataJwt) {
-    return {
-      error:
-        "DEXE_PINATA_JWT is not set. Add your Pinata JWT to the MCP env block to enable uploads.",
-    };
+    return { error: pinataUploadHint("to upload to IPFS") };
   }
   return new PinataClient(ctx.config.pinataJwt);
 }

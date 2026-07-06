@@ -121,6 +121,9 @@ describe("runAllChecks", () => {
     globalThis.fetch = fetchMock;
     const results = await runAllChecks({ timeoutMs: 100 });
     expect(results.find(r => r.id === "pinata.jwt")).toBeUndefined();
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Pinata endpoint must not be hit. (Subgraph + backend checks DO fire now —
+    // they validate the baked public defaults even with no env set.)
+    const calledUrls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(calledUrls.some((u) => u.includes("api.pinata.cloud"))).toBe(false);
   });
 });

@@ -60,3 +60,19 @@ export function hintFor(keys: readonly EnvKey[]): string {
   );
   return parts.join("\n");
 }
+
+/**
+ * Consistent, actionable message for the one env var that reads can't default
+ * around: the Pinata JWT needed to pin metadata to IPFS. Used by every upload
+ * site (dao create, proposal create, direct IPFS uploads) so the guidance —
+ * and the /dexe-setup pointer — is identical everywhere.
+ */
+export function pinataUploadHint(context: string): string {
+  return (
+    `DEXE_PINATA_JWT is required ${context}. Reads work without it, but pinning ` +
+    `metadata to IPFS needs a Pinata JWT.\n` +
+    hintFor(["DEXE_PINATA_JWT"]) +
+    "\nGuided setup: run /dexe-setup. Get a free JWT at https://app.pinata.cloud " +
+    "(API Keys → New Key, grant pinJSONToIPFS + pinFileToIPFS)."
+  );
+}

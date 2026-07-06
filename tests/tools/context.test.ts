@@ -59,7 +59,11 @@ describe("dexe_context persistence (Phase 3 acceptance)", () => {
     expect(ctx.knownDaos).toHaveLength(1);
     expect(ctx.knownDaos[0].name).toBe("Meridian Collective");
     expect(ctx.chain.lastUsedChainId).toBe(97);
-    expect(ctx.signer.mode).toBe("readonly"); // no key in tests
+    // No hot key in tests, but the baked default WalletConnect project id makes
+    // WC signing available out of the box → mode is "walletconnect" with no
+    // wallet connected yet (address null; actual signing still gated on connect).
+    expect(ctx.signer.mode).toBe("walletconnect");
+    expect(ctx.signer.address).toBeNull();
     expect(ctx.env).toHaveProperty("toolsets");
     expect(ctx.hint).toContain("Meridian Collective");
   });

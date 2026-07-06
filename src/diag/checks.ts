@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { ENV_REGISTRY, type EnvKey, type EnvEntry, type EnvCategory } from "../env/schema.js";
 import { parseEnv } from "../env/parse.js";
 import type { DexeConfig } from "../config.js";
+import { DEFAULTS } from "../config.js";
 import { maskUrl, redactUrlCredentials } from "../lib/redact.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
@@ -49,6 +50,7 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
 
   results.push(...signerGuardConfigCheck());
   results.push(...chainConsistencyCheck(opts.config));
+  results.push(...sharedDefaultsCheck(opts.config));
   results.push(...stateStoreCheck(opts.config));
 
   return results;
@@ -269,8 +271,15 @@ function subgraphChecks(timeoutMs: number): Promise<CheckResult | null>[] {
     { key: "DEXE_SUBGRAPH_INTERACTIONS_URL", id: "subgraph.interactions" },
   ];
   const apiKey = process.env.DEXE_GRAPH_API_KEY?.trim();
+  // Baked defaults (key embedded in the URL path) so the doctor validates the
+  // endpoints that reads actually use when the operator sets none.
+  const DEFAULT_SUBGRAPH_URLS: Record<string, string> = {
+    DEXE_SUBGRAPH_POOLS_URL: DEFAULTS.subgraphPoolsUrl,
+    DEXE_SUBGRAPH_VALIDATORS_URL: DEFAULTS.subgraphValidatorsUrl,
+    DEXE_SUBGRAPH_INTERACTIONS_URL: DEFAULTS.subgraphInteractionsUrl,
+  };
   for (const t of targets) {
-    const url = process.env[t.key]?.trim();
+    const url = process.env[t.key]?.trim() || DEFAULT_SUBGRAPH_URLS[t.key];
     if (!url) continue;
     out.push(
       (async (): Promise<CheckResult | null> => {
@@ -322,8 +331,9 @@ function subgraphChecks(timeoutMs: number): Promise<CheckResult | null>[] {
 // ─── backend ─────────────────────────────────────────────────────────────
 
 async function backendCheck(timeoutMs: number): Promise<CheckResult | null> {
-  const url = process.env.DEXE_BACKEND_API_URL?.trim();
-  if (!url) return null;
+  // Defaults to https://api.dexe.io so the doctor validates the endpoint reads
+  // actually use when the operator sets none.
+  const url = process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl;
   const target = url.replace(/\/+$/, "") + "/";
   const res = await fetchJsonWithTimeout(target, { method: "GET" }, timeoutMs);
   if (res.kind === "timeout") {
@@ -454,6 +464,33 @@ function chainConsistencyCheck(config: DexeConfig | undefined): CheckResult[] {
     });
   }
   return out;
+}
+
+// ─── shared public-default advisory ──────────────────────────────────────
+
+/**
+ * Warn (never fail) when read surfaces run on the shared PUBLIC defaults rather
+ * than the operator's own keys/endpoints. Fine for light use, but the Graph key
+ * is billable-shared and the endpoints rate-limit — heavy users should bring
+ * their own. Purely advisory.
+ */
+function sharedDefaultsCheck(config: DexeConfig | undefined): CheckResult[] {
+  if (!config) return [];
+  const shared: string[] = [];
+  if (config.subgraphPoolsUrl === DEFAULTS.subgraphPoolsUrl) shared.push("subgraph (shared Graph API key)");
+  if (config.walletConnectProjectId === DEFAULTS.walletConnectProjectId) shared.push("WalletConnect project id");
+  if (config.backendApiUrl === DEFAULTS.backendApiUrl) shared.push("backend API");
+  if (shared.length === 0) return [];
+  return [
+    {
+      id: "env.sharedDefaults",
+      category: "core",
+      status: "warn",
+      message: `Using shared public defaults for: ${shared.join(", ")}. Fine for light use; rate-limited and billable-shared.`,
+      remediation:
+        "For production / heavy use set your own: your DEXE_SUBGRAPH_*_URL (with your Graph key, or DEXE_GRAPH_API_KEY) and DEXE_WALLETCONNECT_PROJECT_ID. Run /dexe-setup for a guided walkthrough. See docs/ENVIRONMENT.md.",
+    },
+  ];
 }
 
 // ─── fetch helper with bounded timeout ──────────────────────────────────

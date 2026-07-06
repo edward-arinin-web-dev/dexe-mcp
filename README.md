@@ -46,7 +46,7 @@ Then just ask:
 
 > *"Show the treasury of `0x…` on BSC."*
 
-Reads work with **zero setup** — the server falls back to public BSC RPC out of the box, and the governance skills (create DAO, create proposal, vote & execute, OTC) install with the plugin.
+Reads work with **zero setup** — on-chain data, subgraphs, the DeXe backend, and IPFS all run on public defaults out of the box, and WalletConnect signing is available immediately (connect a wallet with `dexe_wc_connect`). The governance skills (create DAO, create proposal, vote & execute, OTC) install with the plugin.
 
 **Want to create DAOs or proposals, or broadcast transactions?** Type **`/dexe-setup`** and Claude walks you through adding your keys (a Pinata token for IPFS, a wallet for signing) — one guided step, nothing to hand-edit.
 

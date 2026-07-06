@@ -42,8 +42,10 @@ export async function run(): Promise<void> {
   try {
     output.write(line("dexe-mcp init — onboarding wizard"));
     output.write(line("─".repeat(64)));
-    output.write(line("Builds a minimal .env. Answers are stored in plaintext;"));
-    output.write(line("use WalletConnect or readonly mode if that worries you."));
+    output.write(line("Reads already work with ZERO config (RPC, subgraphs, backend,"));
+    output.write(line("IPFS reads, WalletConnect). This only overrides a default or"));
+    output.write(line("enables writes. Answers are stored in plaintext; use WalletConnect"));
+    output.write(line("or readonly mode if that worries you."));
     output.write("\n");
 
     const repoRoot = findRepoRoot();
@@ -118,8 +120,9 @@ export async function run(): Promise<void> {
       : "";
 
     // ---- Subgraph (optional) -------------------------------------------
-    output.write(line("Subgraph reads need a Graph API key (free at thegraph.com)."));
-    const graphKey = (await ask(rl, "Graph API key (blank to skip subgraph reads)", "")).trim();
+    output.write(line("Subgraph reads work by default via a shared DeXe Graph key."));
+    output.write(line("Set your own only for heavy use (blank keeps the default)."));
+    const graphKey = (await ask(rl, "Graph API key (blank = use shared default)", "")).trim();
 
     // ---- Signer mode ---------------------------------------------------
     output.write(line(""));

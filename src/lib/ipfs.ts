@@ -6,14 +6,20 @@ import { base32 } from "multiformats/bases/base32";
 import { base58btc } from "multiformats/bases/base58";
 
 /**
- * Public IPFS gateways (dweb.link, ipfs.io, cf-ipfs.com, …) are unreliable —
- * frequent 502s, rate limits, and extended outages in 2025/2026. We do NOT
- * ship a default public-gateway chain. Callers must configure a dedicated
- * gateway via `DEXE_IPFS_GATEWAY` (e.g. the user's Pinata dedicated gateway,
- * Filebase, Quicknode, or a self-hosted one). Public gateways may be
- * opted-in as a best-effort fallback via `DEXE_IPFS_GATEWAYS_FALLBACK`.
+ * Public IPFS read gateways seeded as a zero-config default when the operator
+ * configures no dedicated gateway. Public gateways (ipfs.io, dweb.link,
+ * cloudflare) are best-effort — they rate-limit and occasionally 5xx — so
+ * `fetchIpfs` tries them in order and `dexe_doctor` nudges heavy users toward a
+ * dedicated gateway (a free Pinata dedicated gateway, Filebase, Quicknode, or a
+ * self-hosted one) via `DEXE_IPFS_GATEWAY`. Opt out of the public default with
+ * `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1`. This covers READS only — uploads still
+ * require a Pinata JWT.
  */
-export const NO_DEFAULT_GATEWAYS: readonly string[] = [];
+export const DEFAULT_PUBLIC_READ_GATEWAYS: readonly string[] = [
+  "https://ipfs.io",
+  "https://dweb.link",
+  "https://cloudflare-ipfs.com",
+];
 
 export interface IpfsFetchConfig {
   gateways: readonly string[];
@@ -103,8 +109,30 @@ export async function fetchIpfs(
     }
   }
 
+  // When every gateway tried was a shared public reader, the failure is almost
+  // always public-gateway flakiness, not a bad CID — nudge toward a dedicated one.
+  // Match by parsed hostname, not a URL substring (js/incomplete-url-substring-sanitization).
+  const PUBLIC_READ_HOSTS = new Set(["ipfs.io", "dweb.link", "cloudflare-ipfs.com", "cf-ipfs.com"]);
+  const hostOf = (u: string): string | null => {
+    try {
+      return new URL(/^https?:\/\//i.test(u) ? u : `https://${u}`).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+  };
+  const allPublic =
+    cfg.gateways.length > 0 &&
+    cfg.gateways.every((g) => {
+      const h = hostOf(g);
+      return h != null && PUBLIC_READ_HOSTS.has(h);
+    });
+  const hint = allPublic
+    ? " — the shared public IPFS gateways are failing. Set DEXE_IPFS_GATEWAY to a dedicated " +
+      "gateway (a free Pinata dedicated gateway takes ~2 min; Filebase / Quicknode also work), " +
+      "then restart. Run /dexe-setup for a guided walkthrough."
+    : "";
   throw new Error(
-    `IPFS fetch failed for ${cidStr} across ${attempts} gateway(s): ${errors.join("; ")}`,
+    `IPFS fetch failed for ${cidStr} across ${attempts} gateway(s): ${errors.join("; ")}${hint}`,
   );
 }
 

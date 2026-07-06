@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.17.0 — 2026-07-06
+
+### Zero-config public defaults + guided setup
+
+A fresh install is now useful immediately — **reads and WalletConnect signing
+work with no `.env` at all.** The plugin ships public defaults, all overridable
+by a user `.env` (env value always wins).
+
+- **Baked defaults** (`src/config.ts` `DEFAULTS`): DeXe backend (`api.dexe.io`),
+  a shared WalletConnect project id, and the three DeXe subgraph URLs (The Graph
+  decentralized network, modern `gateway.thegraph.com` host, key embedded in the
+  path — no standalone `DEXE_GRAPH_API_KEY` needed, which also removes the old
+  Bearer-vs-URL key mismatch). RPC public fallback + the chain-56 registry were
+  already baked.
+- **IPFS reads default to public gateways** (ipfs.io, dweb.link, cloudflare) when
+  no dedicated gateway is set. New `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1` opt-out.
+- **Behavior change:** with no hot key, `signerMode` is now `walletconnect`
+  (WalletConnect available) instead of `readonly`. Signing is still gated on an
+  actual `dexe_wc_connect`; `address` stays `null` until you connect.
+- **Runtime hints instead of bare errors.** A failing public-RPC call now carries
+  a "set a private RPC" nudge (only for the public fallback, never your own RPC;
+  contract reverts pass through untouched). A failing all-public IPFS fetch nudges
+  toward a dedicated gateway. The Pinata-JWT block on create flows now uses a
+  shared, actionable message pointing at `/dexe-setup`.
+- **`dexe_doctor`** validates the *default* subgraph + backend endpoints (no
+  longer skipped when unset) and adds an `env.sharedDefaults` advisory — the
+  shared Graph key + WC id are billable-shared, so heavy users should bring their
+  own. `dexe_context.env` gains `usingSharedDefaults`, `ipfsReads`,
+  `walletConnectAvailable`, and `usingPublicRpcFallback`.
+- **`/dexe-setup` rewritten** as a tiered "skip → what breaks" journey, plus a
+  once-only SessionStart onboarding nudge shipped with the plugin.
+- Docs: `docs/ENVIRONMENT.md` gains a baked-defaults table + key-rotation note;
+  `.env.example` reframed around optional overrides with current var names.
+
+No new tools (159). No breaking config changes — every default is overridable.
+
 ## 0.16.0 — 2026-07-04
 
 ### Backend-powered treasury + holder/stats/NFT reads (156 → 159 tools)
