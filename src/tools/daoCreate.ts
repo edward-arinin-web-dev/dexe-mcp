@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
-import { PinataClient } from "../lib/ipfs.js";
+import { PinataClient, toCidV1 } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
@@ -22,6 +22,7 @@ import {
 } from "../lib/preflight.js";
 import { quorumPctFromRaw } from "../lib/quorumRisk.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
+import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
 import { resolveGateways } from "./ipfs.js";
 
 /**
@@ -226,6 +227,10 @@ export function registerDaoCreateTools(
       socialLinks: z.array(z.tuple([z.string(), z.string()])).default([]).describe("[[network, url], ...]"),
       avatarCID: z.string().default("").describe("IPFS CID of an already-pinned JPEG avatar (dexe_ipfs_upload_avatar)"),
       avatarFileName: z.string().default("avatar.jpeg"),
+      avatarPath: z.string().default("").describe(
+        "Local image path for the DAO avatar (JPEG/PNG/WebP/GIF, max 10 MB) — the server uploads + validates it. " +
+        "Preferred over avatarCID; replaces the separate upload call.",
+      ),
       // ---- SIMPLE mode fields (used when `params` is omitted) ----
       symbol: z.string().optional().describe("SIMPLE mode: gov token symbol (e.g. 'GENA'). Required when `params` is omitted."),
       totalSupply: z
@@ -399,18 +404,32 @@ export function registerDaoCreateTools(
         socialLinks: input.socialLinks,
         documents: [],
       };
-      if (input.avatarCID) {
+      if (input.avatarPath && input.avatarCID) {
+        return err("Pass either `avatarCID` or `avatarPath`, not both.");
+      }
+      if (input.avatarPath) {
+        // One-call path: read + validate (magic bytes) + pin server-side.
+        try {
+          const pinned = await pinAvatarFromInput({ filePath: input.avatarPath, pinata });
+          daoMeta.avatarCID = pinned.avatarCID;
+          daoMeta.avatarFileName = pinned.avatarFileName;
+          daoMeta.avatarUrl = pinned.avatarUrl;
+        } catch (e) {
+          return err(e instanceof Error ? e.message : String(e));
+        }
+      } else if (input.avatarCID) {
         // avatarCID arrives by reference — the upload tools validate their own
         // bytes, but nothing forces the caller to have used them. Best-effort
         // fetch + sniff; hard-block only on confirmed non-raster bytes (an SVG
         // here becomes a permanently broken avatar on app.dexe.io).
-        const avatarCheck = await checkAvatarCidBytes(input.avatarCID, input.avatarFileName, resolveGateways(ctx));
+        const avatarCidV1 = toCidV1(input.avatarCID);
+        const avatarCheck = await checkAvatarCidBytes(avatarCidV1, input.avatarFileName, resolveGateways(ctx));
         if (!avatarCheck.ok) {
           return err(avatarCheck.error ?? "avatarCID failed raster validation");
         }
-        daoMeta.avatarCID = input.avatarCID;
+        daoMeta.avatarCID = avatarCidV1;
         daoMeta.avatarFileName = input.avatarFileName;
-        daoMeta.avatarUrl = `https://${input.avatarCID}.ipfs.dweb.link/${input.avatarFileName}`;
+        daoMeta.avatarUrl = buildAvatarUrl(avatarCidV1, input.avatarFileName);
       }
       let descriptionURL: string;
       try {

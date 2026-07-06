@@ -14,6 +14,8 @@ import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
 import { renderAvatarJpeg } from "../lib/avatarImage.js";
 import { assertRasterAvatar, checkAvatarCidBytes } from "../lib/imageSniff.js";
+import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
+import { readFile } from "node:fs/promises";
 
 export function registerIpfsTools(server: McpServer, ctx: ToolContext): void {
   const gateways = resolveGateways(ctx);
@@ -39,28 +41,8 @@ function errorResult(message: string) {
  * the user opts in via `DEXE_IPFS_GATEWAYS_FALLBACK`. Returns an empty array
  * if nothing is configured; the fetch tool fails clean in that case.
  */
-/**
- * Subdomain-gateway host used to build the `avatarUrl` field stored inside
- * DAO metadata. Must speak the `<cidV1>.ipfs.<host>/<filename>` schema so the
- * DeXe frontend's `parseAvatarFromIpfsResponse` can round-trip the URL.
- *
- * Default is `dweb.link`. The frontend historically hardcoded `4everland.io`,
- * but 4everland fails to discover freshly-pinned CIDs for tens of minutes —
- * during that window the backend cache (`ipfs-cache.dexe.io`) can't fetch
- * the avatar and serves 404 for `<CID>.jpeg`, leaving the profile image
- * broken on app.dexe.io. dweb.link / w3s.link / gateway.pinata.cloud all
- * resolve the same pins immediately.
- *
- * Configurable via `DEXE_IPFS_AVATAR_GATEWAY` (host, no scheme).
- */
-function avatarSubdomainHost(): string {
-  const override = process.env.DEXE_IPFS_AVATAR_GATEWAY?.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "");
-  return override || "dweb.link";
-}
-
-function buildAvatarUrl(cidV1: string, fileName: string): string {
-  return `https://${cidV1}.ipfs.${avatarSubdomainHost()}/${fileName}`;
-}
+// avatarSubdomainHost/buildAvatarUrl live in ../lib/avatarUpload.ts (shared
+// with the proposal_create and dao_create composites).
 
 /**
  * Best-effort POST to the DeXe IPFS cache service so the next reader hit on
@@ -379,14 +361,18 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
     {
       title: "Upload raw bytes (avatar, attachment, etc.) to IPFS (Pinata)",
       description:
-        "Pins a file to IPFS. Accepts base64-encoded bytes; returns the CID v1 (base32) and the (possibly normalized) filename. " +
+        "Pins a file to IPFS. PREFER `filePath` for local files — the server reads it itself; base64 only for non-file content. " +
+        "Returns the CID v1 (base32) and the (possibly normalized) filename. " +
         "For images (contentType: image/*) the filename extension is normalized to `.jpeg` to match what the DeXe frontend stores — " +
         "this is what `dexe_ipfs_upload_dao_metadata` and the DAO profile reader expect. Set `normalizeImageExt: false` to opt out. " +
         "On the normalized (avatar-contract) path the bytes are also magic-byte-checked: only real rasters (JPEG/PNG/WebP/GIF) pass — " +
         "SVG/HTML bytes are rejected because the DeXe avatar pipeline serves them as broken images. " +
         "`normalizeImageExt: false` skips both the rename and the raster gate (for generic image attachments like SVG logos).",
       inputSchema: {
-        base64: z.string().min(1).describe("Base64-encoded file bytes"),
+        filePath: z.string().optional().describe(
+          "Absolute path to a local file — the server reads it itself (max 25 MB). Preferred over base64.",
+        ),
+        base64: z.string().optional().describe("Base64-encoded file bytes — only when the content isn't a local file."),
         fileName: z.string().default("file"),
         contentType: z.string().default("application/octet-stream"),
         normalizeImageExt: z
@@ -403,6 +389,7 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({
+      filePath,
       base64,
       fileName = "file",
       contentType = "application/octet-stream",
@@ -411,12 +398,31 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
       const client = requirePinata(ctx);
       if ("error" in client) return errorResult(client.error);
       try {
+        if (filePath && base64) return errorResult("Pass either `filePath` or `base64`, not both.");
+        if (!filePath && !base64) return errorResult("Provide the file as `filePath` (preferred for local files) or `base64`.");
+        let bytes: Uint8Array;
+        if (filePath) {
+          let buf: Buffer;
+          try {
+            buf = await readFile(filePath);
+          } catch (e) {
+            return errorResult(
+              `Cannot read file at "${filePath}": ${e instanceof Error ? e.message : String(e)}. Pass an absolute path to an existing file.`,
+            );
+          }
+          const MAX_FILE_BYTES = 25 * 1024 * 1024;
+          if (buf.length > MAX_FILE_BYTES) {
+            return errorResult(`File is ${(buf.length / 1024 / 1024).toFixed(1)} MB — max 25 MB for this tool.`);
+          }
+          bytes = Uint8Array.from(buf);
+        } else {
+          bytes = Uint8Array.from(Buffer.from(base64!, "base64"));
+        }
         const isImage = contentType.toLowerCase().startsWith("image/");
         const effectiveFileName =
           normalizeImageExt && isImage
             ? `${fileName.includes(".") ? fileName.substring(0, fileName.lastIndexOf(".")) : fileName}.jpeg`
             : fileName;
-        const bytes = Uint8Array.from(Buffer.from(base64, "base64"));
         // On the .jpeg-normalized path the file is destined for the DeXe
         // avatar pipeline, so hold the caller to real raster bytes and pin
         // with the sniffed MIME (SVG named .jpeg renders as a permanently
@@ -612,11 +618,15 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
       description:
         "Uploads an image and returns the {avatarCID, avatarFileName, avatarUrl} triple ready to feed into `dexe_ipfs_upload_dao_metadata` " +
         "(for DAO creation) or `dexe_proposal_build_modify_dao_profile` (for profile updates). " +
+        "PREFER `filePath` for local images — the server reads the file itself; never read the image and pass base64 through the conversation. " +
         "Validates the actual bytes by magic number — only real rasters (JPEG/PNG/WebP/GIF) are accepted; SVG/HTML/garbage is rejected " +
         "because the app.dexe.io serving chain renders it as a permanently broken image. " +
         "Normalizes the filename to `.jpeg` (matching the frontend) and returns a CID v1 base32 string that resolves on the subdomain gateway.",
       inputSchema: {
-        base64: z.string().min(1).describe("Base64-encoded image bytes (raster: JPEG/PNG/WebP/GIF — validated by magic bytes)"),
+        filePath: z.string().optional().describe(
+          "Absolute path to a local image file (JPEG/PNG/WebP/GIF, max 10 MB). Preferred over base64.",
+        ),
+        base64: z.string().optional().describe("Base64-encoded image bytes — only when the image isn't a local file."),
         fileName: z.string().default("avatar").describe("Base filename; extension will be normalized to .jpeg"),
         contentType: z
           .string()
@@ -632,36 +642,24 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
         pinnedAt: z.string(),
       },
     },
-    async ({ base64, fileName = "avatar" }) => {
+    async ({ filePath, base64, fileName = "avatar" }) => {
       const client = requirePinata(ctx);
       if ("error" in client) return errorResult(client.error);
       try {
-        const base = fileName.includes(".") ? fileName.substring(0, fileName.lastIndexOf(".")) : fileName;
-        const normalized = `${base || "avatar"}.jpeg`;
-        const bytes = Uint8Array.from(Buffer.from(base64, "base64"));
-        // Trust the bytes, not the caller's contentType — SVG named .jpeg is
-        // exactly how the Generative Collective avatar broke (bug #34).
-        const sniffed = assertRasterAvatar(bytes);
-        const res = await client.pinFile(bytes, {
-          fileName: normalized,
-          contentType: sniffed.mime,
-          name: normalized,
-        });
-        const avatarCID = toCidV1(res.cid);
-        const avatarUrl = buildAvatarUrl(avatarCID, normalized);
+        const pinned = await pinAvatarFromInput({ filePath, base64, fileName, pinata: client });
         const structured = {
-          avatarCID,
-          avatarFileName: normalized,
-          avatarUrl,
-          detectedFormat: sniffed.format,
-          size: res.size,
-          pinnedAt: res.pinnedAt,
+          avatarCID: pinned.avatarCID,
+          avatarFileName: pinned.avatarFileName,
+          avatarUrl: pinned.avatarUrl,
+          detectedFormat: pinned.detectedFormat,
+          size: pinned.size,
+          pinnedAt: pinned.pinnedAt,
         };
         return {
           content: [
             {
               type: "text" as const,
-              text: `Avatar pinned: ${avatarUrl} (cidV1=${avatarCID}, ${bytes.length} bytes, detected ${sniffed.format})`,
+              text: `Avatar pinned: ${pinned.avatarUrl} (cidV1=${pinned.avatarCID}, ${pinned.byteLength} bytes, detected ${pinned.detectedFormat})`,
             },
           ],
           structuredContent: structured,

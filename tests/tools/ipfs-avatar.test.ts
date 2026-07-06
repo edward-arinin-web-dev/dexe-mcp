@@ -64,6 +64,31 @@ describe("avatar tool pipeline", () => {
     expect(String(res.structuredContent?.avatarCID)).toMatch(/^bafy/);
   });
 
+  it("dexe_ipfs_upload_avatar accepts a local filePath and pins the real bytes", async () => {
+    const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "ipfs-avatar-"));
+    const p = join(dir, "logo.jpeg");
+    await writeFile(p, Buffer.from(JPEG_BASE64, "base64"));
+    try {
+      const res = await tools.get("dexe_ipfs_upload_avatar")!({ filePath: p });
+      expect(res.isError).toBeFalsy();
+      const { bytes, fileName } = await pinnedFileBytes();
+      expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xff, 0xd8, 0xff]);
+      expect(fileName).toBe("avatar.jpeg");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("dexe_ipfs_upload_avatar rejects both filePath and base64 at once", async () => {
+    const res = await tools.get("dexe_ipfs_upload_avatar")!({ filePath: "C:/x.jpeg", base64: JPEG_BASE64 });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/not both/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("dexe_ipfs_upload_avatar rejects SVG bytes without pinning", async () => {
     const res = await tools.get("dexe_ipfs_upload_avatar")!({ base64: SVG_BASE64, contentType: "image/jpeg" });
     expect(res.isError).toBe(true);

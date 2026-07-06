@@ -5,7 +5,10 @@ import type { ToolContext } from "./context.js";
 import type { TxPayload } from "../lib/calldata.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { PinataClient, fetchIpfs } from "../lib/ipfs.js";
+import { PinataClient, fetchIpfs, toCidV1 } from "../lib/ipfs.js";
+import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
+import { checkAvatarCidBytes } from "../lib/imageSniff.js";
+import { resolveGateways } from "./ipfs.js";
 import { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
@@ -509,6 +512,10 @@ export interface ProposalCreateInput {
   newWebsiteUrl?: string;
   newAvatarCID?: string;
   newAvatarFileName?: string;
+  /** Local image path — the server uploads + validates it, no separate upload call needed. */
+  newAvatarPath?: string;
+  /** Base64 image bytes — only when the image isn't a local file. */
+  newAvatarBase64?: string;
   newSocialLinks?: [string, string][];
   actionsOnFor?: { executor: string; value?: string; data: string }[];
   category?: string;
@@ -649,7 +656,7 @@ export async function runProposalCreate(
             " to merge partial update — refusing to broadcast (would blank unspecified fields). " +
             (currentMetaFetchError ? `Last error: ${currentMetaFetchError}. ` : "") +
             "Either set DEXE_IPFS_GATEWAY to a reachable gateway or pass all fields explicitly " +
-            "(newDaoName, newWebsiteUrl, newDaoDescription, newSocialLinks, newAvatarCID/newAvatarFileName).",
+            "(newDaoName, newWebsiteUrl, newDaoDescription, newSocialLinks, newAvatarPath or newAvatarCID/newAvatarFileName).",
           );
         }
 
@@ -673,14 +680,33 @@ export async function runProposalCreate(
           socialLinks: input.newSocialLinks ?? (Array.isArray(currentMeta.socialLinks) ? currentMeta.socialLinks : []),
           documents: Array.isArray(currentMeta.documents) ? currentMeta.documents : [],
         };
-        if (input.newAvatarCID) {
-          daoMeta.avatarCID = input.newAvatarCID;
-          daoMeta.avatarFileName = input.newAvatarFileName ?? "avatar.jpeg";
-          // dweb.link + path-style resolves directory pins reliably across
-          // gateways. The frontend rebuilds the URL itself (see
-          // parseAvatarFromIpfsResponse) so the field is informational only,
-          // but the CID + filename pair is load-bearing.
-          daoMeta.avatarUrl = `https://${input.newAvatarCID}.ipfs.dweb.link/${daoMeta.avatarFileName}`;
+        if ((input.newAvatarPath || input.newAvatarBase64) && input.newAvatarCID) {
+          return err("Pass either `newAvatarCID` or `newAvatarPath`/`newAvatarBase64`, not both.");
+        }
+        if (input.newAvatarPath || input.newAvatarBase64) {
+          // One-call avatar rotation: read + validate (magic bytes) + pin the
+          // image server-side. The agent should never read image files itself.
+          const pinned = await pinAvatarFromInput({
+            filePath: input.newAvatarPath,
+            base64: input.newAvatarBase64,
+            pinata,
+          });
+          daoMeta.avatarCID = pinned.avatarCID;
+          daoMeta.avatarFileName = pinned.avatarFileName;
+          daoMeta.avatarUrl = pinned.avatarUrl;
+        } else if (input.newAvatarCID) {
+          // By-reference CID — the local byte gate never saw these bytes, so
+          // best-effort fetch + sniff (hard-block only on confirmed non-raster).
+          const avatarCidV1 = toCidV1(input.newAvatarCID);
+          const avatarFileName = input.newAvatarFileName ?? "avatar.jpeg";
+          const check = await checkAvatarCidBytes(avatarCidV1, avatarFileName, resolveGateways(ctx));
+          if (!check.ok) return err(check.error ?? "newAvatarCID failed raster validation");
+          daoMeta.avatarCID = avatarCidV1;
+          daoMeta.avatarFileName = avatarFileName;
+          // The frontend rebuilds the URL itself (parseAvatarFromIpfsResponse)
+          // so the field is informational, but the CID + filename pair is
+          // load-bearing.
+          daoMeta.avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
         }
         const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${govPool.slice(0, 10)}` });
         const newDescriptionURL = `ipfs://${daoMetaRes.cid}`;
@@ -911,7 +937,8 @@ export function registerFlowTools(
       "sequence, uploads correct IPFS metadata (category/isMeta/changes), signs+broadcasts when " +
       "DEXE_PRIVATE_KEY is set (else returns ordered TxPayloads).\n\n" +
       "proposalType — pass one of:\n" +
-      "• 'modify_dao_profile' — change DAO profile (newDaoName/newDaoDescription/newAvatarCID/newWebsiteUrl/newSocialLinks).\n" +
+      "• 'modify_dao_profile' — change DAO profile (newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks; avatar via " +
+      "newAvatarPath — a local image path the server uploads itself — or newAvatarCID for an already-pinned image).\n" +
       "• 'custom' — pass your own actionsOnFor [{executor,value,data}] (+ optional category).\n" +
       "• Wired catalog types (pass their inputs in `params`): 'token_transfer' {token,recipient,amount,isNative?}, " +
       "'withdraw_treasury' {receiver,token?,amount?,nftAddress?,nftIds?}, 'change_voting_settings' {govSettings,settings[],settingsIds?}, " +
@@ -946,6 +973,11 @@ export function registerFlowTools(
       newWebsiteUrl: z.string().optional(),
       newAvatarCID: z.string().optional(),
       newAvatarFileName: z.string().optional(),
+      newAvatarPath: z.string().optional().describe(
+        "Local image path for the new avatar (JPEG/PNG/WebP/GIF, max 10 MB) — the server uploads + validates it. " +
+        "Preferred over reading the file yourself; replaces the separate dexe_ipfs_upload_avatar call.",
+      ),
+      newAvatarBase64: z.string().optional().describe("Base64 image bytes — only when the image isn't a local file."),
       newSocialLinks: z.array(z.tuple([z.string(), z.string()])).optional(),
       actionsOnFor: z.array(z.object({
         executor: z.string(),

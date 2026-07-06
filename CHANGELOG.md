@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.21.0 — 2026-07-06
+
+### One-call avatar updates + file-path uploads
+
+"Update the DAO avatar, here's the image" used to take three tools and a
+context-busting file read: the agent had to read the image from disk, base64
+it through the conversation, call `dexe_ipfs_upload_avatar`, then thread the
+CID into `dexe_proposal_create`. Now the server reads local files itself.
+
+- **`newAvatarPath` on `dexe_proposal_create`** (modify_dao_profile) and
+  **`avatarPath` on `dexe_dao_create`**: pass a local image path; the server
+  reads, magic-byte-validates, pins, and wires the CID — one call total.
+  `newAvatarBase64` also accepted; combining path and CID inputs errors.
+- **`filePath` on `dexe_ipfs_upload_avatar` (10 MB cap) and
+  `dexe_ipfs_upload_file` (25 MB cap)** as the preferred alternative to base64.
+- Shared implementation in `src/lib/avatarUpload.ts`
+  (`pinAvatarFromInput` / `readAvatarInput`; `buildAvatarUrl` moved here).
+- `modify_dao_profile` with a by-reference `newAvatarCID` now gets the same
+  best-effort fetch-and-sniff gate as the other by-CID paths (v0.20.0), and
+  `dexe_dao_create` honours `DEXE_IPFS_AVATAR_GATEWAY` instead of hardcoding
+  dweb.link.
+- De-escalated agent guidance: server instructions and the
+  `dexe-create-proposal` skill no longer mandate `dexe_context` first when the
+  user already named the target; both now tell agents to pass image paths
+  instead of reading files.
+
 ## 0.20.1 — 2026-07-06
 
 ### Composite flows render the WalletConnect QR inline

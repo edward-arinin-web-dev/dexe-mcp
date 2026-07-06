@@ -93,12 +93,23 @@ metadata from IPFS and merges the caller's inputs on top. Pass only the
 field(s) you want to change:
 
 ```ts
+// One call — the server reads, validates (magic bytes), and pins the image:
 dexe_proposal_create({
   proposalType: "modify_dao_profile",
   govPool: "0xCAe3…",
   chainId: 56,
   title: "Rotate avatar",
-  newAvatarCID: "<dir cid from dexe_dao_generate_avatar>",
+  newAvatarPath: "C:/Users/me/Pictures/logo.png",
+})
+
+// Or with an already-pinned CID (from dexe_ipfs_upload_avatar /
+// dexe_dao_generate_avatar) — the CID's bytes are best-effort re-sniffed:
+dexe_proposal_create({
+  proposalType: "modify_dao_profile",
+  govPool: "0xCAe3…",
+  chainId: 56,
+  title: "Rotate avatar",
+  newAvatarCID: "<dir cid>",
   newAvatarFileName: "avatar.jpeg",
 })
 ```

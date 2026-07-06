@@ -16,8 +16,10 @@ metadata with the correct `{proposalName, proposalDescription, category, isMeta,
 changes}` shape, and calls `createProposalAndVote`. With `DEXE_PRIVATE_KEY` it
 signs+broadcasts; otherwise it returns ordered `TxPayload`s.
 
-Call **`dexe_context`** first — it returns the signer, active chain, and the
-DAOs/proposals from prior sessions (so you already have the `govPool` to target).
+If you don't already know the target `govPool`/chain, call **`dexe_context`** —
+it returns the signer, active chain, and the DAOs/proposals from prior sessions.
+When the user already told you the DAO and what to do, go straight to
+`dexe_proposal_create`.
 
 **Do not hand-sequence** approve/deposit/create, and do not hand-build the IPFS
 metadata — the composite does both correctly. **Do not guess ABIs/selectors**;
@@ -38,7 +40,7 @@ Pass `proposalType` + the type's inputs in `params`:
 | `token_distribution` | `{ distributionProposal, proposalId, token, amount, isNative? }` |
 | `token_sale` | `{ tokenSaleProposal, tiers:[…], latestTierId? }` |
 | `custom_abi` | `{ target, signature, method, args?, value? }` |
-| `modify_dao_profile` | top-level `newDaoName/newDaoDescription/newAvatarCID/newWebsiteUrl/newSocialLinks` |
+| `modify_dao_profile` | top-level `newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks`; avatar via `newAvatarPath` (local image path — the server uploads + validates it; do NOT read the file yourself) or `newAvatarCID` |
 | `custom` | top-level `actionsOnFor:[{executor,value,data}]` (+ optional `category`) |
 
 Any other catalog type → the tool errors and names the dedicated
@@ -56,6 +58,22 @@ dexe_proposal_create({
   params: { token: "0xGovToken", recipient: "0xAlice", amount: "1000000000000000000" }
 })
 ```
+
+## Example: update the DAO avatar (ONE call — no upload step, no file reading)
+
+```jsonc
+dexe_proposal_create({
+  govPool: "0x…",
+  proposalType: "modify_dao_profile",
+  title: "New DAO avatar",
+  newAvatarPath: "C:/Users/me/Pictures/logo.png"   // server reads, validates, pins
+})
+```
+
+The server reads the image from disk, rejects non-raster bytes (SVG never
+renders on app.dexe.io), pins it, rebuilds the metadata, and creates the
+proposal. Do not call `dexe_ipfs_upload_avatar` first and do not read the
+image file into the conversation.
 
 ## Failure modes this guards against
 
