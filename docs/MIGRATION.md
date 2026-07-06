@@ -6,6 +6,38 @@ something on your side.
 
 ---
 
+## 0.16.x → 0.17.0 — zero-config public defaults
+
+**TL;DR.** No action required. Reads + WalletConnect signing now work with no
+`.env`. One behavior change to be aware of: `signerMode` reports `walletconnect`
+(not `readonly`) by default.
+
+### What changed
+
+- **Reads work with zero config.** Backend, the three subgraphs, IPFS reads, and
+  the WalletConnect project id now have baked public defaults (RPC fallback + the
+  registry already did). Set the matching `DEXE_*` var to override any of them —
+  your value always wins.
+- **`signerMode` default is now `walletconnect`, not `readonly`** (when no
+  `DEXE_PRIVATE_KEY` is set), because WalletConnect is available out of the box.
+  Nothing signs until you run `dexe_wc_connect`; `dexe_context.signer.address`
+  stays `null` until then. If you asserted `readonly` in scripts, update the
+  expectation.
+- **IPFS reads default to public gateways.** If you relied on `dexe_ipfs_fetch`
+  erroring when no gateway was set, it now tries ipfs.io / dweb.link / cloudflare
+  first. Restore the old behavior with `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1`.
+- **Shared defaults are billable-shared.** The default Graph key + WC id ship
+  publicly and are rate-limited. For production/heavy use set your own
+  (`DEXE_SUBGRAPH_*_URL` / `DEXE_GRAPH_API_KEY`, `DEXE_WALLETCONNECT_PROJECT_ID`);
+  `dexe_doctor` flags this via `env.sharedDefaults`.
+
+### Action required
+
+None. Optionally set your own RPC / Graph key / WC id / Pinata JWT via
+`/dexe-setup` for reliability and to stop sharing the public defaults.
+
+---
+
 ## 0.13.x → 0.14.0 — persistent state + `dexe_context`
 
 **TL;DR.** No action required. New `dexe_context` tool (call it first each

@@ -11,6 +11,34 @@ work.
 All vars are **optional**. A tool that needs a missing var fails with a
 message naming exactly which var to set.
 
+## What works with zero config (baked defaults, since 0.17.0)
+
+`dexe-mcp` ships public defaults so a fresh install is useful immediately —
+**reads and WalletConnect signing work with no `.env` at all.** Every default is
+overridable: set the matching var and your value wins.
+
+| Surface | Baked default | Override with |
+|---------|---------------|---------------|
+| On-chain RPC | Public BSC nodes, chains 56 + 97 (default 56) | `DEXE_RPC_URL_MAINNET` / `_TESTNET` (or `DEXE_DISABLE_PUBLIC_RPC=1`) |
+| ContractsRegistry (56) | canonical BSC address | `DEXE_CONTRACTS_REGISTRY` |
+| Subgraph reads | shared DeXe gateway URLs (The Graph decentralized network, key in path) | `DEXE_SUBGRAPH_*_URL` (+ `DEXE_GRAPH_API_KEY`) |
+| Backend API | `https://api.dexe.io` | `DEXE_BACKEND_API_URL` |
+| IPFS reads | public gateways (ipfs.io, dweb.link, cloudflare) | `DEXE_IPFS_GATEWAY` (or `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1`) |
+| Signing | WalletConnect (shared project id) — connect via `dexe_wc_connect` | `DEXE_WALLETCONNECT_PROJECT_ID` (your own) or `DEXE_PRIVATE_KEY` |
+
+**Not defaulted — you must provide:**
+
+- `DEXE_PINATA_JWT` — IPFS *uploads* (creating DAOs/proposals pin metadata).
+  Reads don't need it. This is the only hard blocker for the create flows.
+- `DEXE_PRIVATE_KEY` — hot-key signing (opt-in; WalletConnect is the safer default).
+
+**Shared defaults are billable-shared / rate-limited.** The default Graph API
+key and WalletConnect project id ship publicly; fine for light use, but heavy
+users should set their own. `dexe_doctor` flags this via the `env.sharedDefaults`
+advisory, and `dexe_context.env.usingSharedDefaults` lists which surfaces are on
+the shared defaults in the current session. Operators publishing their own fork
+should **rotate** these keys — see [§8 Subgraph configuration](#8-subgraph-configuration).
+
 > **For AI assistants and new users.** If a tool reports an env-related
 > failure, **call `dexe_doctor` first** — it walks every recognized var,
 > checks RPC / Pinata / subgraph reachability, and returns paste-ready
@@ -86,12 +114,14 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_DISABLE_PUBLIC_RPC` | Zero-config read fallback | Set to `1` to disable the built-in public BSC RPC fallback that activates when **no** RPC is configured. Unset (default) = fallback on (chains 56 + 97, default 56). | `1` |
 | `DEXE_CONTRACTS_REGISTRY` | Custom chain / non-default registry | Override the `ContractsRegistry` root address. Defaults to the per-chain known address from `src/lib/addresses.ts`. | `0x...` |
 | `DEXE_PINATA_JWT` | All `dexe_ipfs_upload_*` tools, auto-upload of `executorDescription` in `dexe_dao_build_deploy`, `dexe_proposal_create` flow | Pinata JWT for pinning JSON / files. | `eyJhbGciOi...` |
-| `DEXE_IPFS_GATEWAY` | `dexe_ipfs_fetch`, any tool that re-reads metadata from IPFS | **Dedicated** gateway URL (Pinata bundles one with the JWT; Filebase / QuickNode / self-hosted also fine). Public gateways throttle and disagree on CIDs — not defaulted. | `https://my-sub.mypinata.cloud` |
-| `DEXE_IPFS_GATEWAYS_FALLBACK` | `dexe_ipfs_fetch` (optional) | Comma-separated public gateways tried sequentially after the primary fails. Best-effort opt-in. | `https://dweb.link,https://ipfs.io` |
-| `DEXE_SUBGRAPH_POOLS_URL` | `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`, `dexe_read_dao_experts`, `dexe_proposal_voters` | The Graph endpoint for the DeXe pools subgraph. | `https://gateway-arbitrum.network.thegraph.com/api/<key>/subgraphs/id/<id>` |
-| `DEXE_SUBGRAPH_VALIDATORS_URL` | `dexe_read_validator_list` | The Graph endpoint for the validators subgraph. | same shape |
-| `DEXE_SUBGRAPH_INTERACTIONS_URL` | `dexe_read_user_activity`, `dexe_proposal_voters` (interactions composite ID lookup) | The Graph endpoint for the interactions subgraph. | same shape |
-| `DEXE_BACKEND_API_URL` | `dexe_proposal_build_offchain*`, `dexe_offchain_build_*`, `dexe_auth_*` | DeXe backend root. | `https://api.dexe.io`, `https://api.beta.dexe.io` |
+| `DEXE_IPFS_GATEWAY` | Reliability (optional) | Override the default public read gateways with a **dedicated** one (Pinata bundles one with the JWT; Filebase / QuickNode / self-hosted also fine). Reads default to public gateways since 0.17.0; set this for anything beyond light use. | `https://my-sub.mypinata.cloud` |
+| `DEXE_IPFS_GATEWAYS_FALLBACK` | `dexe_ipfs_fetch` (optional) | Extra comma-separated public gateways appended to the list, tried sequentially. | `https://dweb.link,https://ipfs.io` |
+| `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK` | opt-out (optional) | Set to `1` to disable the built-in public IPFS read-gateway default. Reads then require `DEXE_IPFS_GATEWAY`. | `1` |
+| `DEXE_SUBGRAPH_POOLS_URL` | Optional override | The Graph endpoint for the DeXe pools subgraph. **Defaults** to the shared DeXe gateway URL; set your own for heavy use. Used by `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`, `dexe_read_dao_experts`, `dexe_proposal_voters`. | `https://gateway.thegraph.com/api/<key>/subgraphs/id/<id>` |
+| `DEXE_SUBGRAPH_VALIDATORS_URL` | Optional override | Validators subgraph. Defaults to the shared DeXe URL. Used by `dexe_read_validator_list`. | same shape |
+| `DEXE_SUBGRAPH_INTERACTIONS_URL` | Optional override | Interactions subgraph. Defaults to the shared DeXe URL. Used by `dexe_read_user_activity`, `dexe_proposal_voters`. | same shape |
+| `DEXE_GRAPH_API_KEY` | Bearer-only subgraph URLs | The Graph API key sent as `Authorization: Bearer`. Not needed with the default URLs (key is embedded in the path). | `abc123...` |
+| `DEXE_BACKEND_API_URL` | Optional override | DeXe backend root. **Defaults** to `https://api.dexe.io`. Used by `dexe_read_treasury`/holders/stats, `dexe_proposal_build_offchain*`, `dexe_offchain_build_*`, `dexe_auth_*`. | `https://api.dexe.io`, `https://api.beta.dexe.io` |
 | `DEXE_PROTOCOL_PATH` | dev tooling (optional) | Use an existing DeXe-Protocol checkout instead of the auto-managed cache directory; disables auto clone/install. Must be a Hardhat project (`hardhat.config.{js,ts}`) with `node_modules/`. | `D:/dev/DeXe-Protocol` |
 | `DEXE_FORK_BLOCK` | reserved (Phase B) | Pin a fork block for deterministic state reads. Non-negative integer. | `38123456` |
 | `DEXE_MIN_SAFE_QUORUM_PCT` | treasury-safety advisory | Minimum safe quorum percent (0–100). Proposals/DAOs whose quorum is below this are **flagged** in advisories (`dexe_proposal_vote_and_execute`, `dexe_proposal_risk_assess`, `dexe_dao_build_deploy`, treasury builders). **Advisory only — never blocks.** Default `50` (recommends 51%+). | `50`, `51`, `66` |
@@ -103,7 +133,7 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_SIGNER_ALLOWLIST` | `dexe_tx_send` (signer mode, optional) | **B6 guard.** Comma-separated destination addresses; `dexe_tx_send` rejects any `to` not on the list. Unset = no restriction. Validated + lowercased at startup; invalid address aborts startup. | `0xAbc...,0xDef...` |
 | `DEXE_SIGNER_MAX_VALUE_WEI` | `dexe_tx_send` (signer mode, optional) | **B7 guard.** Hard cap on the `value` (wei) of any single broadcast; over-cap is rejected. Unset = no cap. | `100000000000000000` (0.1 BNB) |
 | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | `dexe_tx_send` (signer mode, optional) | **B10 guard.** Max broadcasts per rolling 60s window across the process; over-limit is rejected with a retry hint. Unset = no limit. | `10` |
-| `DEXE_WALLETCONNECT_PROJECT_ID` | WalletConnect signer mode (C12) | Free project id from <https://cloud.reown.com>. Activates `signerMode: walletconnect` when set **and** `DEXE_PRIVATE_KEY` is **absent** (mutually exclusive — hot key wins). Phase A (config-only) just reports it via `dexe_wc_status`. | `abc123...` |
+| `DEXE_WALLETCONNECT_PROJECT_ID` | WalletConnect signer mode (C12) | Free project id from <https://cloud.reown.com>. **Defaults** to a shared project id, so `signerMode` is `walletconnect` (not `readonly`) out of the box when `DEXE_PRIVATE_KEY` is absent — connect via `dexe_wc_connect`. Set your own to stop sharing the default. Hot key wins when both are set. | `abc123...` |
 | `DEXE_WALLETCONNECT_RELAY_URL` | WalletConnect (optional) | Override the relay websocket. | `wss://relay.walletconnect.com` (default) |
 | `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS` | WalletConnect (optional) | Per-tx phone-approval timeout; over-timeout returns `{status:'timeout'}` instead of hanging the MCP request. Validated `> 0`. | `120000` (default) |
 | `DEXE_PRIVACY_POLICY_HASH` | `dexe_vote_build_privacy_policy_*` (optional) | Default privacy-policy bytes32 hash. Otherwise read live from `UserRegistry.documentHash()`. | `0x...` |
@@ -280,12 +310,16 @@ arb1, sep, …). `DEXE_SAFE_TX_SERVICE_URL` always wins when set.
 
 ## 7. IPFS configuration
 
-### Why a dedicated gateway is required
+### Why a dedicated gateway is recommended
 
-Public gateways (`ipfs.io`, `dweb.link`, `cloudflare-ipfs.com`) throttle
-aggressively, occasionally CID-disagree on freshly pinned content, and rate-
-limit bursts. The MCP intentionally has **no public default** — `dexe_ipfs_fetch`
-errors out unless you set one.
+Since 0.17.0, IPFS reads default to a chain of public gateways (`ipfs.io`,
+`dweb.link`, `cloudflare-ipfs.com`) so `dexe_ipfs_fetch` works with zero config.
+But public gateways throttle aggressively, occasionally CID-disagree on freshly
+pinned content, and rate-limit bursts — so for anything beyond light use set a
+**dedicated** gateway via `DEXE_IPFS_GATEWAY`. When all gateways are the shared
+public ones and a fetch fails, the error nudges you to configure a dedicated
+one. Disable the public default entirely with `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1`
+(reads then require `DEXE_IPFS_GATEWAY`).
 
 ### Recommended: Pinata
 
@@ -321,15 +355,28 @@ parallel — see [`src/lib/ipfs.ts`](../src/lib/ipfs.ts)).
 
 ## 8. Subgraph configuration
 
-DeXe migrated from The Graph **Hosted Service / Studio** to the
-**decentralized network**. Studio URLs are dead. Use the gateway form with
-your API key embedded in the path:
+**Subgraph reads work with no config** — they default to shared DeXe endpoints
+on The Graph's decentralized network (key embedded in the URL path). You only
+set these vars to use your **own** Graph key (recommended for heavy use, since
+the shared key is rate-limited and billable-shared).
+
+DeXe migrated from The Graph **Hosted Service / Studio** to the **decentralized
+network**. Studio URLs are dead. Use the gateway form (modern host
+`gateway.thegraph.com`; the older `gateway-arbitrum.network.thegraph.com` still
+resolves) with your API key embedded in the path:
 
 ```
-https://gateway-arbitrum.network.thegraph.com/api/<API_KEY>/subgraphs/id/<SUBGRAPH_ID>
+https://gateway.thegraph.com/api/<API_KEY>/subgraphs/id/<SUBGRAPH_ID>
 ```
 
 A 401 response almost always means the API key is missing from the URL.
+
+### Rotating the shared default keys (fork operators)
+
+If you publish your own fork, the baked default Graph key + WalletConnect project
+id in `src/config.ts` (`DEFAULTS`) ship publicly. Replace them with your own, or
+rotate them if abused — anyone can otherwise spend against your Graph query
+budget. Light first-party use is fine on the shared defaults.
 
 ### Three subgraphs, three URLs
 

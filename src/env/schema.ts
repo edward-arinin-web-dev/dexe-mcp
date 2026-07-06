@@ -216,6 +216,13 @@ export const ENV_SPEC = {
     example: "",
     doc: "Comma-separated public IPFS gateway fallbacks for reads.",
   },
+  DEXE_IPFS_DISABLE_PUBLIC_FALLBACK: {
+    schema: z.string().optional(),
+    category: "ipfs",
+    required: false,
+    example: "1",
+    doc: "Set to 1 to disable the built-in public IPFS read-gateway default (ipfs.io, dweb.link, cloudflare). Reads then require DEXE_IPFS_GATEWAY.",
+  },
   DEXE_PINATA_GATEWAY_TOKEN: {
     schema: z.string().optional(),
     category: "ipfs",
