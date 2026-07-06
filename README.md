@@ -177,8 +177,9 @@ No variable is required to start the server; tools that need a missing one fail 
 
 ## Documentation
 
+- [docs/PLAYBOOK.md](./docs/PLAYBOOK.md) — the AI playbook: intent → exact call, per-type params, error → remedy. Also served as the MCP resource `dexe://playbook`.
 - [docs/TOOLS.md](./docs/TOOLS.md) — all 159 tools, grouped, with one-line descriptions and required env vars.
-- [docs/USAGE.md](./docs/USAGE.md) — ten worked examples with copy-pasteable JSON.
+- [docs/USAGE.md](./docs/USAGE.md) — worked examples with copy-pasteable JSON.
 - [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) — full env-var reference and common pitfalls.
 - [docs/INSTALL.md](./docs/INSTALL.md) — install instructions per MCP client.
 - [docs/SETUP.md](./docs/SETUP.md) / [docs/DOCTOR.md](./docs/DOCTOR.md) — setup wizard and diagnostic reference.
