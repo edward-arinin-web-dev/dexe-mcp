@@ -3,6 +3,32 @@ import { resolve } from "node:path";
 import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
 import { resolveStatePath } from "./lib/stateStore.js";
 
+/**
+ * Baked zero-config defaults — public, non-secret endpoints (plus a semi-public
+ * WalletConnect project id) so a fresh install works cold with no `.env`. A user
+ * `.env` always overrides: each is applied as `process.env.X?.trim() || DEFAULT`.
+ *
+ * The Graph API key rides INSIDE the subgraph URLs (`extractGraphApiKey` in
+ * lib/subgraph.ts picks it up). Do NOT add a separate `DEXE_GRAPH_API_KEY`
+ * default — a standalone key that differs from the URL-embedded one produces a
+ * Bearer-vs-URL mismatch at the gateway.
+ *
+ * These ship publicly on npm + GitHub. The Graph key is billable and the WC id
+ * is shared; heavy users should set their own (dexe_doctor advises this).
+ * Rotate if abused. See docs/ENVIRONMENT.md.
+ */
+export const DEFAULTS = {
+  backendApiUrl: "https://api.dexe.io",
+  walletConnectProjectId: "d3b16069bf12d7cdb9acbc4947b5ed33",
+  // The Graph decentralized gateway (modern host); key embedded in the path.
+  subgraphPoolsUrl:
+    "https://gateway.thegraph.com/api/b860428fe3ef79a961556cf763ef2b2a/subgraphs/id/2XDP2ZxHc25n4xeDqKWTGBy5FJojS6dw4WM79oof2YLn",
+  subgraphInteractionsUrl:
+    "https://gateway.thegraph.com/api/b860428fe3ef79a961556cf763ef2b2a/subgraphs/id/CPsXn5AcuVTd48sb3uRuPbxcheLEnWCeoXJkARDoWxoP",
+  subgraphValidatorsUrl:
+    "https://gateway.thegraph.com/api/b860428fe3ef79a961556cf763ef2b2a/subgraphs/id/9xpPF9EWtSJJUwVYZb7f6D1xcMCyLbmR6ujgnYG8fbQA",
+} as const;
+
 export interface ChainConfig {
   chainId: number;
   rpcUrl: string;
@@ -44,10 +70,20 @@ export interface DexeConfig {
 
   /** Pinata JWT for IPFS uploads (reads work without it via gateway). */
   pinataJwt?: string;
-  /** GraphQL endpoint URLs for The Graph subgraphs (chain-agnostic in env). */
+  /**
+   * GraphQL endpoint URLs for The Graph subgraphs (chain-agnostic in env).
+   * Default to the shared DeXe public gateway endpoints (`DEFAULTS.subgraph*`)
+   * so reads work zero-config; a user `.env` overrides. Always set.
+   */
   subgraphPoolsUrl?: string;
   subgraphValidatorsUrl?: string;
   subgraphInteractionsUrl?: string;
+  /**
+   * DeXe backend API root for off-chain proposal flows + backend-first reads
+   * (treasury, holders, stats). Defaults to `DEFAULTS.backendApiUrl`
+   * (https://api.dexe.io); a user `.env` overrides. Always set.
+   */
+  backendApiUrl: string;
   /** Optional fork block pin (Phase B). */
   forkBlock?: number;
   /** Private key for tx signing. When set, `dexe_tx_send` can broadcast. */
@@ -263,9 +299,15 @@ export async function loadConfig(): Promise<DexeConfig> {
   }
 
   const pinataJwt = process.env.DEXE_PINATA_JWT?.trim() || undefined;
-  const subgraphPoolsUrl = process.env.DEXE_SUBGRAPH_POOLS_URL?.trim() || undefined;
-  const subgraphValidatorsUrl = process.env.DEXE_SUBGRAPH_VALIDATORS_URL?.trim() || undefined;
-  const subgraphInteractionsUrl = process.env.DEXE_SUBGRAPH_INTERACTIONS_URL?.trim() || undefined;
+  // Subgraph endpoints + backend URL fall back to the baked public defaults so
+  // reads work zero-config. A user `.env` (or a private Graph key embedded in
+  // their own URL) overrides.
+  const subgraphPoolsUrl = process.env.DEXE_SUBGRAPH_POOLS_URL?.trim() || DEFAULTS.subgraphPoolsUrl;
+  const subgraphValidatorsUrl =
+    process.env.DEXE_SUBGRAPH_VALIDATORS_URL?.trim() || DEFAULTS.subgraphValidatorsUrl;
+  const subgraphInteractionsUrl =
+    process.env.DEXE_SUBGRAPH_INTERACTIONS_URL?.trim() || DEFAULTS.subgraphInteractionsUrl;
+  const backendApiUrl = process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl;
 
   const privateKey = process.env.DEXE_PRIVATE_KEY?.trim() || undefined;
   if (privateKey && chains.size === 0) {
@@ -324,8 +366,11 @@ export async function loadConfig(): Promise<DexeConfig> {
   }
 
   // ---- C12 WalletConnect signer mode ------------------------------------
-  // Phase A: parse + expose config only. No relay connection, no dependency.
-  const walletConnectProjectId = process.env.DEXE_WALLETCONNECT_PROJECT_ID?.trim() || undefined;
+  // Parse + expose config only. No relay connection until dexe_wc_connect.
+  // Falls back to the baked shared project id so phone-approval signing is
+  // available out of the box; a user `.env` overrides with their own.
+  const wcFromEnv = process.env.DEXE_WALLETCONNECT_PROJECT_ID?.trim() || undefined;
+  const walletConnectProjectId = wcFromEnv || DEFAULTS.walletConnectProjectId;
   const walletConnectRelayUrl =
     process.env.DEXE_WALLETCONNECT_RELAY_URL?.trim() || "wss://relay.walletconnect.com";
   let walletConnectApprovalTimeoutMs = 120000;
@@ -337,9 +382,14 @@ export async function loadConfig(): Promise<DexeConfig> {
     }
     walletConnectApprovalTimeoutMs = n;
   }
-  if (walletConnectProjectId) {
+  if (privateKey) {
+    // WC id present (env or default) but a hot key takes precedence — stay quiet
+    // beyond the "signing enabled" line already emitted above.
+  } else if (wcFromEnv) {
+    process.stderr.write("[dexe-mcp] WalletConnect signing available (project id from env)\n");
+  } else {
     process.stderr.write(
-      `[dexe-mcp] WalletConnect project id configured${privateKey ? " (inactive — DEXE_PRIVATE_KEY takes precedence)" : ""}\n`,
+      "[dexe-mcp] WalletConnect signing available (shared default project id) — connect a wallet with dexe_wc_connect; set DEXE_WALLETCONNECT_PROJECT_ID to use your own.\n",
     );
   }
 
@@ -405,6 +455,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     subgraphPoolsUrl,
     subgraphValidatorsUrl,
     subgraphInteractionsUrl,
+    backendApiUrl,
     forkBlock,
     privateKey,
     minSafeQuorumPct,

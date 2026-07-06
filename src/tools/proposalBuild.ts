@@ -7,6 +7,7 @@ import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
 import { CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
+import { DEFAULTS } from "../config.js";
 import {
   PROPOSAL_CATALOG,
   EXTERNAL_METADATA_SHAPE,
@@ -328,12 +329,8 @@ function registerBuildOffchain(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ endpoint, body, method = "POST" }) => {
-      const base = process.env.DEXE_BACKEND_API_URL?.trim();
-      if (!base) {
-        return errorResult(
-          "DEXE_BACKEND_API_URL is not set. Add it to the MCP env block to build off-chain proposal requests.",
-        );
-      }
+      // Always resolves — env override or baked default (https://api.dexe.io).
+      const base = process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl;
       const url = `${base.replace(/\/$/, "")}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
       const req = {
         method,

@@ -9,6 +9,7 @@ import { PinataClient, fetchIpfs } from "../lib/ipfs.js";
 import { SignerManager } from "../lib/signer.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain, type DexeConfig } from "../config.js";
+import { pinataUploadHint } from "../lib/requireEnv.js";
 import { runBroadcastGuards } from "../lib/broadcastGuards.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import {
@@ -454,7 +455,7 @@ export async function runProposalCreate(
     ...inputRaw,
   };
   const { ctx, signer, rpc } = deps;
-      if (!ctx.config.pinataJwt) return err("DEXE_PINATA_JWT required for proposal creation (IPFS metadata upload).");
+      if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a proposal"));
 
       const user = input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
       if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");

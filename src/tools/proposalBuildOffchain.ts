@@ -3,6 +3,7 @@ import { isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
+import { DEFAULTS } from "../config.js";
 
 /**
  * Phase 3d — off-chain proposals via the DeXe backend API.
@@ -38,13 +39,8 @@ function errorResult(message: string) {
 }
 
 function requireBase(): string | { error: string } {
-  const base = process.env.DEXE_BACKEND_API_URL?.trim();
-  if (!base) {
-    return {
-      error:
-        "DEXE_BACKEND_API_URL is not set. Add it to the MCP env block (e.g. https://api.dexe.io or https://api.beta.dexe.io).",
-    };
-  }
+  // Always resolves — env override or baked default (https://api.dexe.io).
+  const base = process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl;
   return base.replace(/\/$/, "");
 }
 
