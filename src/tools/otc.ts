@@ -211,8 +211,10 @@ export function registerOtcTools(
       "flow: balance + threshold check, ERC20 approve to UserKeeper if needed, deposit, " +
       "IPFS proposal-metadata upload, `createProposalAndVote`. " +
       "When DEXE_PRIVATE_KEY is set, signs and broadcasts each tx; otherwise returns " +
-      "an ordered TxPayload list. The DAO must already have TokenSaleProposal wired as " +
-      "an executor (set at deploy time via `dexe_dao_build_deploy`).",
+      "an ordered TxPayload list. Every DAO deployed with `dexe_dao_create` (v0.19+) already has " +
+      "TokenSaleProposal wired as an executor, so this works right after a deploy. Only DAOs deployed " +
+      "by other/older tooling without that executor need a `new_proposal_type` proposal " +
+      "(dexe_proposal_create, executors=[tokenSaleProposal]) or a redeploy first.",
     {
       govPool: z.string().describe("GovPool address"),
       chainId: z

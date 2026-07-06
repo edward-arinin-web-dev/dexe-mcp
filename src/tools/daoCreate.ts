@@ -261,7 +261,11 @@ export function registerDaoCreateTools(
       confirm: z
         .boolean()
         .default(false)
-        .describe("Set true to actually broadcast. Without it, SIMPLE mode and any mainnet deploy return a review-only preview."),
+        .describe(
+          "Set true to actually broadcast. Without it, SIMPLE mode and any mainnet deploy return a review-only preview. " +
+            "ONE-CALL PATH: when the user has already explicitly approved deploying (they said 'deploy it' / confirmed the " +
+            "parameters), pass confirm:true on the FIRST call — no preview round-trip needed.",
+        ),
       dryRun: z.boolean().default(false).describe("If true, return the deploy TxPayload even when DEXE_PRIVATE_KEY is set."),
     },
     async (input) => {
