@@ -20,9 +20,10 @@ const GOV_POOL_ABI = [
   "function createProposalAndVote(string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst, uint256 voteAmount, uint256[] voteNftIds)",
 ] as const;
 
-const GOV_VALIDATORS_ABI = [
+export const GOV_VALIDATORS_CREATE_ABI = [
   "function createInternalProposal(uint8 proposalType, string descriptionURL, bytes data)",
 ] as const;
+const GOV_VALIDATORS_ABI = GOV_VALIDATORS_CREATE_ABI;
 
 const ERC20_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",

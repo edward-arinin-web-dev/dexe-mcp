@@ -27,7 +27,13 @@ import {
 } from "../lib/quorumRisk.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
-import { PROPOSAL_BUILDERS, FLOW_PROPOSAL_TYPES } from "../lib/proposalBuilders.js";
+import {
+  PROPOSAL_BUILDERS,
+  INTERNAL_PROPOSAL_BUILDERS,
+  OFFCHAIN_FLOW_TYPES,
+  FLOW_PROPOSAL_TYPES,
+} from "../lib/proposalBuilders.js";
+import { GOV_VALIDATORS_CREATE_ABI } from "./proposalBuild.js";
 import { PROPOSAL_CATALOG } from "../lib/proposalCatalog.js";
 import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
 import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/txWait.js";
@@ -620,6 +626,29 @@ export async function runProposalCreate(
     ...inputRaw,
   };
   const { ctx, signer, rpc } = deps;
+
+      // Off-chain proposal types live on the DeXe backend, not on any contract —
+      // reject with the exact alternative flow instead of a dead-end.
+      if ((OFFCHAIN_FLOW_TYPES as readonly string[]).includes(input.proposalType)) {
+        const buildTool = `dexe_proposal_build_${input.proposalType}`;
+        return err(
+          `proposalType '${input.proposalType}' is an OFF-CHAIN proposal — it is created on the DeXe backend ` +
+            `(api.dexe.io), not on-chain, so this composite cannot broadcast it. Flow instead:\n` +
+            `1) ${buildTool} → returns the ready-to-send HTTP request (JSON:API body).\n` +
+            `2) Authenticate: dexe_auth_request_nonce (get the message), sign it with the user's wallet, ` +
+            `dexe_auth_login_request (exchange for access_token).\n` +
+            `3) Send the request with 'Authorization: Bearer <access_token>'.\n` +
+            `Note: the backend indexes BSC mainnet (56) DAOs only.`,
+        );
+      }
+
+      // Internal proposal types are created on GovValidators (validators-only
+      // voting, no token deposit) — a different single-tx path.
+      const internalBuilder = INTERNAL_PROPOSAL_BUILDERS[input.proposalType];
+      if (internalBuilder) {
+        return runInternalProposalCreate(input, deps, internalBuilder);
+      }
+
       if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a proposal"));
 
       const user = input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
@@ -985,6 +1014,139 @@ export async function runProposalCreate(
       );
 }
 
+/**
+ * v0.22 — internal-proposal path of `dexe_proposal_create`. Internal proposals
+ * (change_validator_balances / change_validator_settings / monthly_withdraw /
+ * offchain_internal_proposal) are created on GovValidators via
+ * `createInternalProposal(uint8, descriptionURL, bytes)` — validators vote with
+ * their own balances, so there is no approve/deposit sequence. Only a current
+ * validator can create one; the response notes that requirement.
+ */
+async function runInternalProposalCreate(
+  inputRaw: ProposalCreateInput,
+  deps: ProposalCreateDeps,
+  builder: (typeof INTERNAL_PROPOSAL_BUILDERS)[string],
+) {
+  const input = { proposalType: "custom", description: "", ...inputRaw };
+  const { ctx, signer, rpc } = deps;
+  if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create an internal proposal"));
+
+  const parsed = builder.schema.safeParse(input.params ?? {});
+  if (!parsed.success) {
+    return err(
+      `Invalid params for proposalType '${input.proposalType}': ` +
+        parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "),
+    );
+  }
+  let built: ReturnType<typeof builder.build>;
+  try {
+    built = builder.build(parsed.data);
+  } catch (e) {
+    return err(toActionableError(e, `build ${input.proposalType}`).message);
+  }
+
+  const chain = resolveChain(ctx.config, input.chainId);
+  const chainId = chain.chainId;
+  const govPool = input.govPool;
+  const pr = rpc.tryProvider(chainId);
+  if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+  const provider = pr.ok;
+
+  // W10: same registered-pool check as the external flow.
+  try {
+    await assertRegisteredGovPool(provider, rpc, ctx.config, chainId, govPool);
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e));
+  }
+
+  // Resolve the GovValidators helper from the pool.
+  let validators: string;
+  try {
+    const res = await multicall(provider, [
+      { target: govPool, iface: GOV_POOL_ABI, method: "getHelperContracts", args: [] },
+    ]);
+    if (!res[0]!.success) throw new Error(res[0]!.error ?? "getHelperContracts reverted");
+    const helpers = res[0]!.value as [string, string, string, string, string];
+    validators = helpers[2]!;
+  } catch (e) {
+    return err(toActionableError(e, "resolve GovValidators").message);
+  }
+
+  // Metadata shape mirrors dexe_proposal_build_change_validator_* exactly
+  // (internal metadata carries no isMeta field).
+  const pinata = new PinataClient(ctx.config.pinataJwt);
+  const proposalMeta = {
+    proposalName: input.title,
+    proposalDescription: JSON.stringify(markdownToSlate(input.description)),
+    category: built.category,
+    ...built.metadataExtra,
+  };
+  let cid: string;
+  try {
+    const res = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
+    cid = res.cid;
+  } catch (e) {
+    return err(toActionableError(e, "upload internal-proposal metadata").message);
+  }
+  const descriptionURL = `ipfs://${cid}`;
+
+  const validatorsIface = new Interface(GOV_VALIDATORS_CREATE_ABI as unknown as string[]);
+  const payloads: TxPayload[] = [
+    makeTxPayload(
+      validators,
+      validatorsIface,
+      "createInternalProposal",
+      [built.internalType, descriptionURL, built.data],
+      chainId,
+      `GovValidators.createInternalProposal(${built.summary})`,
+    ),
+  ];
+
+  const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc: deps.wc });
+  if (result.mode === "failed") {
+    return flowFailureResult(result, {
+      proposalKind: "internal",
+      descriptionURL,
+      note: "Internal proposals can only be created by a CURRENT validator of this DAO — a non-validator sender reverts.",
+    });
+  }
+
+  if (result.mode === "executed" && deps.state) {
+    try {
+      const txHash = [...result.steps].reverse().find((s) => s.txHash)?.txHash;
+      deps.state.recordProposal({
+        govPool,
+        chainId,
+        title: input.title,
+        descriptionURL,
+        txHash,
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return attachPairingQr(
+    ok({
+      mode: result.mode,
+      proposalKind: "internal",
+      validators,
+      internalType: built.internalType,
+      descriptionURL,
+      proposalMetadataCID: cid,
+      summary: built.summary,
+      steps: result.steps,
+      note:
+        "Internal proposals are created and voted on by the DAO's validators only (their own validator balances — " +
+        "no token deposit). The sender must be a current validator or the tx reverts.",
+      ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
+      ...(result.pairing ? { pairing: result.pairing } : {}),
+    }),
+    result.pairingContent,
+  );
+}
+
 // ---------- register ----------
 
 export function registerFlowTools(
@@ -1001,19 +1163,27 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_create",
-    "Create a governance proposal in ONE call — handles the whole approve→deposit→createProposalAndVote " +
-      "sequence, uploads correct IPFS metadata (category/isMeta/changes), signs+broadcasts when " +
-      "DEXE_PRIVATE_KEY is set (else returns ordered TxPayloads).\n\n" +
-      "proposalType — pass one of:\n" +
-      "• 'modify_dao_profile' — change DAO profile (newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks; avatar via " +
-      "newAvatarPath — a local image path the server uploads itself — or newAvatarCID for an already-pinned image).\n" +
-      "• 'custom' — pass your own actionsOnFor [{executor,value,data}] (+ optional category).\n" +
-      "• Wired catalog types (pass their inputs in `params`): 'token_transfer' {token,recipient,amount,isNative?}, " +
+    "Create ANY governance proposal in ONE call — handles the whole approve→deposit→createProposalAndVote " +
+      "sequence, uploads correct IPFS metadata (category/isMeta/changes), signs+broadcasts when a signer is " +
+      "configured (else returns ordered TxPayloads + a WalletConnect QR).\n\n" +
+      "proposalType (every DeXe catalog type is wired):\n" +
+      "• 'modify_dao_profile' — top-level fields (newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks; avatar via " +
+      "newAvatarPath — a local image path the server uploads itself — or newAvatarCID).\n" +
+      "• 'custom' — your own actionsOnFor [{executor,value,data}] (+ optional category).\n" +
+      "• On-chain external types (inputs go in `params`): 'token_transfer' {token,recipient,amount,isNative?}, " +
       "'withdraw_treasury' {receiver,token?,amount?,nftAddress?,nftIds?}, 'change_voting_settings' {govSettings,settings[],settingsIds?}, " +
-      "'add_expert' {expertNftContract,scope,nominatedUser,uri?}, 'remove_expert' {expertNftContract,scope,nominatedUser}, " +
-      "'token_distribution' {distributionProposal,proposalId,token,amount,isNative?}, 'token_sale' {tokenSaleProposal,tiers[],latestTierId?}, " +
-      "'custom_abi' {target,signature,method,args?,value?}.\n" +
-      "Any other catalog type → error naming the dedicated dexe_proposal_build_* tool. See dexe_proposal_catalog.",
+      "'add_expert'/'remove_expert' {expertNftContract,scope,nominatedUser,uri?}, 'token_distribution', 'token_sale', " +
+      "'token_sale_whitelist' {tokenSaleProposal,requests[]}, 'token_sale_recover' {tokenSaleProposal,tierIds[]}, " +
+      "'manage_validators'/'validators_allocation' {govValidators,changes[{user,balance}]}, " +
+      "'delegate_to_expert'/'revoke_from_expert' {expert,amount,nftIds?}, 'create_staking_tier', " +
+      "'change_math_model' {newVotePower}, 'blacklist' {erc20Gov,addAddresses?,removeAddresses?}, " +
+      "'reward_multiplier' {mode,...}, 'apply_to_dao' {token,receiver,amount,treasuryBalance?}, " +
+      "'new_proposal_type'/'enable_staking' {govSettings,settings,executors,newSettingId}, 'custom_abi' {target,signature,method,args?}.\n" +
+      "• Internal (validators-only, auto-routed to GovValidators.createInternalProposal): " +
+      "'change_validator_balances' {changes[]}, 'change_validator_settings' {duration,executionDelay,quorum}, " +
+      "'monthly_withdraw' {withdrawals[],destination}, 'offchain_internal_proposal' {}.\n" +
+      "• Off-chain backend types ('offchain_single_option' etc.) are rejected with the exact backend flow to use instead.\n" +
+      "Full per-type recipes with examples: docs/PLAYBOOK.md (dexe://playbook resource) or dexe_proposal_catalog.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z
@@ -1025,15 +1195,15 @@ export function registerFlowTools(
           "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
         ),
       proposalType: z
-        .string()
+        .enum(FLOW_PROPOSAL_TYPES as unknown as [string, ...string[]])
         .default("custom")
         .describe(
-          "'modify_dao_profile' | 'custom' | a wired catalog type (token_transfer, withdraw_treasury, change_voting_settings, add_expert, remove_expert, token_distribution, token_sale, custom_abi).",
+          "One of the wired types listed in the tool description. Unknown values are rejected with the valid list.",
         ),
       params: z
         .record(z.unknown())
         .optional()
-        .describe("Type-specific builder inputs for wired catalog proposalTypes (see tool description)."),
+        .describe("Type-specific builder inputs for the chosen proposalType (recipes: tool description / dexe://playbook)."),
       title: z.string().describe("Proposal title"),
       description: z.string().default("").describe("Proposal description (markdown supported)"),
       newDaoName: z.string().optional(),
