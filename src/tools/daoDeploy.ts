@@ -9,6 +9,14 @@ import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { RpcProvider } from "../rpc.js";
 import { PinataClient } from "../lib/ipfs.js";
 import { quorumPctFromRaw, judgeQuorum } from "../lib/quorumRisk.js";
+import {
+  firstFailure,
+  checkTreasuryRemainder,
+  checkQuorumReachable,
+  checkMinVotesVsDistribution,
+  checkSettingsBounds,
+  checkNoTreasuryRecipient,
+} from "../lib/preflight.js";
 
 /**
  * Phase 5 — deploy a new DAO via `PoolFactory.deployGovPool(GovPoolDeployParams)`.
@@ -312,13 +320,19 @@ export async function buildDeployGovPool(
   if (params.tokenParams.users.length !== params.tokenParams.amounts.length) {
     return fail("tokenParams.users and .amounts must be the same length");
   }
-  // Bug #28: ERC20Gov init reverts silently when cap == mintedTotal.
+  // cap rules (verified live on mainnet): cap > 0 (ERC20Capped rejects cap=0) and
+  // cap >= mintedTotal (cap==minted is a valid fixed supply). See checkDeployCap.
   if (isTokenCreation) {
     const capBn = BigInt(params.tokenParams.cap);
     const mintedBn = BigInt(params.tokenParams.mintedTotal);
-    if (capBn > 0n && capBn <= mintedBn) {
+    if (capBn <= 0n) {
       return fail(
-        `tokenParams.cap (${capBn}) must be strictly greater than tokenParams.mintedTotal (${mintedBn}). ERC20Gov requires headroom for future minting; pass cap=0 for uncapped, or cap > mintedTotal.`,
+        `tokenParams.cap must be > 0 — the gov token is ERC20Capped and cap=0 reverts ("ERC20Capped: cap is 0"). Set cap ≥ mintedTotal (${mintedBn}); cap == mintedTotal is a valid fixed supply.`,
+      );
+    }
+    if (capBn < mintedBn) {
+      return fail(
+        `tokenParams.cap (${capBn}) must be ≥ tokenParams.mintedTotal (${mintedBn}) — otherwise deployGovPool reverts "ERC20Gov: mintedTotal should not be greater than cap". cap == mintedTotal is allowed.`,
       );
     }
   }
@@ -414,6 +428,41 @@ export async function buildDeployGovPool(
     ];
   } else if (expandedSettings.length !== 5) {
     return fail(`proposalSettings must be 1 (auto-expand to 5) or exactly 5. Got ${expandedSettings.length}.`);
+  }
+
+  // ---------- governance coherence guards (frontend parity) ----------
+  // Single chokepoint for BOTH dexe_dao_create and dexe_dao_build_deploy. Blocks
+  // configs the frontend blocks: unreachable quorum, min-votes above every
+  // holder, out-of-range settings, treasury jammed into the voter list. Votable
+  // power excludes any amount sent to the predicted govPool (treasury).
+  const gpLower = predictedGovPool?.toLowerCase();
+  let votable = 0n;
+  params.tokenParams.users.forEach((u, i) => {
+    if (!gpLower || u.toLowerCase() !== gpLower) votable += BigInt(params.tokenParams.amounts[i] ?? "0");
+  });
+  const base0 = expandedSettings[0]!;
+  const coherence = firstFailure([
+    checkNoTreasuryRecipient(params.tokenParams.users, predictedGovPool),
+    checkTreasuryRemainder(params.tokenParams.mintedTotal, params.tokenParams.amounts, isTokenCreation),
+    checkSettingsBounds({
+      quorum: base0.quorum,
+      quorumValidators: base0.quorumValidators,
+      duration: base0.duration,
+      durationValidators: base0.durationValidators,
+    }),
+    checkMinVotesVsDistribution(base0.minVotesForVoting, base0.minVotesForCreating, params.tokenParams.amounts, isTokenCreation),
+    checkQuorumReachable({
+      voteType: params.votePowerParams.voteType,
+      quorumRaw: base0.quorum,
+      mintedTotal: params.tokenParams.mintedTotal,
+      votable: votable.toString(),
+      isTokenCreation,
+    }),
+  ]);
+  if (coherence) {
+    return fail(
+      `Preflight [${coherence.check}] failed: ${coherence.remediation}${coherence.detail ? ` (${coherence.detail})` : ""}`,
+    );
   }
 
   // ---------- treasury-safety advisory: quorum floor ----------

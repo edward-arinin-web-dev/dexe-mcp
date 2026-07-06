@@ -3,6 +3,7 @@ import { Interface, ZeroAddress, ZeroHash, isAddress, getAddress } from "ethers"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { SignerManager } from "../lib/signer.js";
+import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { TxPayload } from "../lib/calldata.js";
@@ -194,6 +195,7 @@ export function registerOtcTools(
   server: McpServer,
   ctx: ToolContext,
   signer: SignerManager,
+  wc: WalletConnectManager,
 ): void {
   const rpc = new RpcProvider(ctx.config);
 
@@ -292,7 +294,7 @@ export function registerOtcTools(
           user: input.user,
           dryRun: input.dryRun,
         };
-        const result = await runProposalCreate(proposalInput, { ctx, signer, rpc });
+        const result = await runProposalCreate(proposalInput, { ctx, signer, rpc, wc });
 
         // Surface the OTC-specific extras alongside the proposal_create body.
         // Tool result already carries content[0].text → JSON; we wrap with an
@@ -718,7 +720,7 @@ export function registerOtcTools(
         }
       }
 
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
 
       return ok({
         mode: result.mode,
@@ -731,6 +733,7 @@ export function registerOtcTools(
         ...(simulation ? { simulation } : {}),
         steps: [...skipped, ...result.steps],
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
+        ...(result.pairing ? { pairing: result.pairing } : {}),
       });
     },
   );
@@ -849,7 +852,7 @@ export function registerOtcTools(
         });
       }
 
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
 
       return ok({
         mode: result.mode,
@@ -860,6 +863,7 @@ export function registerOtcTools(
         summary,
         steps: [...skipped, ...result.steps],
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
+        ...(result.pairing ? { pairing: result.pairing } : {}),
       });
     },
   );

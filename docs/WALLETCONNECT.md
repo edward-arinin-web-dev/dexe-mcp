@@ -3,6 +3,14 @@
 > Status: **Phase B shipped** (2026-05-26) — live relay session implemented and
 > unit-tested; targets `v0.7.0`. The final gate before tag/publish is one live
 > round-trip against a real phone wallet (`DEXE_WALLETCONNECT_PROJECT_ID` is set).
+>
+> **v0.18.0 UX update:** WalletConnect is now the clearly-primary signer.
+> `dexe_wc_connect` renders a **scannable QR** (terminal ASCII + `image/png`
+> block) instead of a raw URI; `dexe_tx_send` and the composite flows
+> **auto-print that QR** when a write needs a wallet and no session exists; and
+> hot keys are flagged `⚠️ NOT SAFE` on every write. `dexe_wc_connect` now pairs
+> even when `DEXE_PRIVATE_KEY` is set (the key just keeps signing precedence until
+> unset). See `src/lib/qr.ts`.
 
 ## Why
 
@@ -40,7 +48,7 @@ session. Lifecycle is driven by explicit tools, not implicitly per-call:
 
 | Tool | Action |
 |------|--------|
-| `dexe_wc_connect` | init provider (if needed), start `connect()`, return the pairing `uri`. Non-blocking — returns the URI as soon as the relay emits it; the session-approval handshake completes in the background. Poll `dexe_wc_status` until `connected`. |
+| `dexe_wc_connect` | init provider (if needed), start `connect()`, render the pairing URI as a **QR** (ASCII + `image/png`, via `src/lib/qr.ts`). Non-blocking — returns the QR as soon as the relay emits the URI; the session-approval handshake completes in the background. Poll `dexe_wc_status` until `connected`. |
 | `dexe_wc_status` | report `{ connected, connecting, account, chainId, topic, peerName, expiry, lastError }` plus the resolved config. |
 | `dexe_wc_disconnect` | `provider.disconnect()`, clear session state. Safe no-op when not connected. |
 
@@ -52,10 +60,13 @@ mandatory; on timeout it returns `{status:'rejected', reason:'…timed out…'}`
 of hanging the MCP request. The wallet signs **and broadcasts**, so the response carries
 the tx hash; `waitConfirmations` is honoured via a read-only RPC provider.
 
-> **Scope note (v0.7.0):** only `dexe_tx_send` / `dexe_tx_status` route through
-> WalletConnect. The composite broadcast flows (`sendOrCollect` in `flow.ts` / OTC) still
-> require a hot key — they broadcast multi-step dependent sequences where per-step phone
-> approval is impractical. Routing them through WC is deferred.
+> **Scope note (v0.7.0, updated v0.18.0):** only `dexe_tx_send` / `dexe_tx_status`
+> *broadcast* through WalletConnect. The composite flows (`sendOrCollect` in `flow.ts` /
+> OTC) still emit ordered `TxPayload`s for you to feed to `dexe_tx_send` (per-step phone
+> approval of a multi-step dependent sequence is impractical to auto-drive) — but as of
+> v0.18.0 they **auto-attach the pairing QR** (`pairing` field) so you can connect first
+> with a single scan, then broadcast each payload. Routing full multi-step sequences
+> through WC is still deferred.
 
 ### Guard interaction
 
@@ -94,7 +105,8 @@ approval is an *additional* human gate, not a replacement for the guards.
 - ✅ `WalletConnectManager` (`src/lib/walletconnect.ts`): init / connect / request /
   disconnect, CAIP-10 account parsing, per-tx approval timeout.
 - ✅ `dexe_wc_connect` + `dexe_wc_disconnect` tools; `dexe_wc_status` now reports live
-  session state. URI returned raw (client renders the QR).
+  session state. (v0.18.0: `dexe_wc_connect` now renders the QR server-side — ASCII +
+  PNG — rather than returning the URI raw.)
 - ✅ `eth_sendTransaction` branch wired into `dexe_tx_send`; `dexe_tx_status` reworked to
   a read-only provider so it works keyless. Guards B6/B7/B9/B10 still run on the WC path.
 - ✅ Unit tests (`tests/walletconnect.test.ts`): config gating, CAIP-10 parsing, no-session

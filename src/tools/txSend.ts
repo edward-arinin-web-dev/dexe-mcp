@@ -6,6 +6,12 @@ import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
 import { ENABLE_WRITES_HINT } from "./flow.js";
+import { wcPairingContent } from "../lib/qr.js";
+
+/** Flagged on every hot-key broadcast — a plaintext key on disk is not safe. */
+const HOT_KEY_SAFETY =
+  "⚠️ NOT SAFE — signed with a hot key (DEXE_PRIVATE_KEY) in plaintext on disk. " +
+  "Prefer WalletConnect: run dexe_wc_connect and the phone signs, so the key never touches this machine.";
 
 /**
  * Classify a transaction whose receipt is absent: a tx that exists on-chain but
@@ -66,24 +72,36 @@ export function registerTxTools(
       // (B6/B7/B9/B10) still run, keyed on the connected account as `from`.
       if (wcActive()) {
         if (!wc.isConnected()) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(
-                  {
-                    status: "rejected",
-                    reason:
-                      "WalletConnect mode is active but no session is connected. Call dexe_wc_connect and approve on your phone first.",
-                    chainId: chain.chainId,
-                  },
-                  null,
-                  2,
-                ),
-              },
-            ],
-            isError: true,
-          };
+          // Auto-pair: instead of erroring, start the session and print the QR
+          // right here so the user just scans, approves, and re-runs.
+          try {
+            const pr = await wc.ensurePairing(chain.chainId);
+            if (!pr.connected && pr.uri) {
+              return {
+                content: await wcPairingContent(pr.uri, pr.chainId, {
+                  next: "Scan the QR, approve the session on your phone, then re-run dexe_tx_send to broadcast.",
+                }),
+              };
+            }
+          } catch (e) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(
+                    {
+                      status: "rejected",
+                      reason: `WalletConnect pairing failed: ${e instanceof Error ? e.message : String(e)}`,
+                      chainId: chain.chainId,
+                    },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+              isError: true,
+            };
+          }
         }
         const from = wc.account()!;
         try {
@@ -233,7 +251,9 @@ export function registerTxTools(
                   txHash: tx.hash,
                   from: wallet.address,
                   chainId: chain.chainId,
+                  signer: "eoa",
                   status: "submitted",
+                  safety: HOT_KEY_SAFETY,
                 },
                 null,
                 2,
@@ -250,7 +270,7 @@ export function registerTxTools(
             {
               type: "text" as const,
               text: JSON.stringify(
-                { txHash: tx.hash, chainId: chain.chainId, status: "unknown" },
+                { txHash: tx.hash, chainId: chain.chainId, signer: "eoa", status: "unknown", safety: HOT_KEY_SAFETY },
                 null,
                 2,
               ),
@@ -263,9 +283,11 @@ export function registerTxTools(
         txHash: receipt.hash,
         from: wallet.address,
         chainId: chain.chainId,
+        signer: "eoa",
         blockNumber: receipt.blockNumber,
         gasUsed: receipt.gasUsed.toString(),
         status: receipt.status,
+        safety: HOT_KEY_SAFETY,
       };
 
       return {

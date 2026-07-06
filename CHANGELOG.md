@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.19.0 — 2026-07-06
+
+### DAO creation: governance coherence guards + frontend parity
+
+`dexe_dao_create` could ship broken/reverting DAOs — it invented no defaults, ran
+no coherence checks, and carried assumptions that diverged from the frontend
+(`investing-dashboard`, the 3-year production source of truth that deploys to BSC
+mainnet daily). Reconciled the whole path to the frontend.
+
+- **SIMPLE mode.** `dexe_dao_create` now takes high-level fields (`symbol`,
+  `totalSupply`, optional `treasuryPercent`/`quorumPercent`/`voteModel`/
+  `durationSeconds`) and synthesizes a coherent, frontend-equivalent deploy
+  config — LINEAR power, treasury as an **implicit remainder**, a reachable
+  quorum. It returns a `mode:"preview"` (resolved config + safety proof) and only
+  broadcasts on a second call with `confirm:true`. ADVANCED mode (full `params`)
+  still works. `params` is now optional.
+- **Governance coherence guards** (`src/lib/preflight.ts`, enforced in
+  `buildDeployGovPool` for both `dexe_dao_create` and `dexe_dao_build_deploy`),
+  mirroring the frontend's blocking validation:
+  - `checkQuorumReachable` — `quorum% × supply ≤ votable tokens` (treasury/
+    undistributed tokens can't vote). LINEAR exact; POLYNOMIAL via a port of the
+    frontend `calcMeritocraticVotingPower`. **Hard block.**
+  - `checkMinVotesVsDistribution` — `minVotesForVoting/Creating ≤ largest
+    recipient`. **Hard block.**
+  - `checkSettingsBounds` — `0<quorum≤1e27`, `duration>0`, etc. (`GovSettings.sol`).
+  - `checkNoTreasuryRecipient` — the predicted govPool must never be in
+    `tokenParams.users[]`.
+- **Corrected the cap rule (verified live on mainnet via eth_call).** The gov
+  token is `ERC20Capped`: `cap = 0` reverts (`ERC20Capped: cap is 0`) — there is
+  **no uncapped mode** — and `cap < mintedTotal` reverts. `cap == mintedTotal` is
+  a valid fixed supply (old bug #28 "cap==minted reverts" is outdated). New rule:
+  `cap ≥ mintedTotal > 0`. `checkDeployCap` + the deploy builder now enforce it;
+  SIMPLE mode sets `cap = totalSupply`.
+- **Reversed the treasury-remainder rule (old bug #32 was wrong — verified live).**
+  A treasury remainder (`sum(amounts) < mintedTotal`) deploys fine on mainnet — the
+  contract mints the remainder to the DAO. `checkTreasuryRemainder` now only rejects
+  OVER-distribution (`sum > minted`), on all chains. The prior "mainnet needs
+  `mintedTotal == sum(amounts)`" belief forced the treasury address into the voter list.
+- **Mainnet is NOT broken.** Dropped the false "mainnet deployGovPool reverts /
+  `require(false)`" gating text. Mainnet (56) is a supported target; it just
+  requires `confirm:true` (spends real BNB). Testnet-first is a recommendation.
+- Default vote model = **LINEAR**; default quorum **51%** with a ≥50% advisory
+  floor. No new tools.
+
+## 0.18.0 — 2026-07-06
+
+### WalletConnect QR + hot-key "NOT SAFE" warnings
+
+WalletConnect is now the clearly-primary signer, and pairing takes zero copy-paste.
+
+- **`dexe_wc_connect` renders a scannable QR**, not a raw URI. It returns both a
+  terminal ASCII QR (scannable in a bare terminal, no browser, no external
+  service) **and** an `image/png` MCP content block (crisp QR in GUI clients).
+  The raw `uri` + an `api.qrserver.com` fallback URL are still included. New
+  helper `src/lib/qr.ts` (lazy-imports `qrcode`, so read-only installs pay
+  nothing and a missing install degrades gracefully).
+- **Auto-print QR when a write needs a wallet.** `dexe_tx_send` in WalletConnect
+  mode with no session now *starts pairing and prints the QR* instead of
+  erroring "call dexe_wc_connect". The composite flows (`dexe_dao_create`,
+  `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, OTC) attach a live
+  `pairing` QR to their read-only response. (Composites still emit payloads to
+  feed to `dexe_tx_send` — no WC broadcast routing inside composites.)
+- **Hot keys are flagged "⚠️ NOT SAFE" everywhere.** Every `dexe_tx_send`
+  hot-key broadcast carries a `safety` field; `dexe_get_config` reports
+  `recommendedSigner: "walletconnect"` + a `safety` note; `dexe_doctor` adds a
+  `signer.hotKey` advisory; the startup log warns about the plaintext key.
+- **`dexe_wc_connect` no longer refuses when `DEXE_PRIVATE_KEY` is set** — it
+  pairs and tells you the hot key still takes signing precedence until removed
+  (non-breaking: key-wins precedence is unchanged).
+- New: `WalletConnectManager.ensurePairing()` (reuses an in-flight URI / live
+  session). No new tools — tool count unchanged.
+
 ## 0.17.0 — 2026-07-06
 
 ### Zero-config public defaults + guided setup

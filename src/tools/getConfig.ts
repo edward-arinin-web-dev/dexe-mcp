@@ -59,11 +59,20 @@ export function registerGetConfigTool(server: McpServer, config: DexeConfig, sig
           ? "walletconnect"
           : "readonly";
 
+      // Flag a hot key as unsafe and steer toward WalletConnect (the phone
+      // signs, so the key never touches disk).
+      const safety =
+        signerMode === "eoa" || signerMode === "safe"
+          ? "⚠️ NOT SAFE — hot key (DEXE_PRIVATE_KEY) in plaintext on disk. Recommended: unset it and run dexe_wc_connect so the phone signs."
+          : null;
+
       const result = {
         defaultChainId: config.defaultChainId,
         defaultChainName: CHAIN_NAMES[config.defaultChainId] ?? `chain ${config.defaultChainId}`,
         chains,
         signerMode,
+        recommendedSigner: "walletconnect",
+        ...(safety ? { safety } : {}),
         signer: signerInfo,
         safe: {
           txServiceConfigured: !!safeServiceUrl,

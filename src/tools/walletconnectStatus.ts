@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 import type { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
+import { wcPairingContent } from "../lib/qr.js";
 
 /**
  * C12 — WalletConnect tools.
@@ -67,10 +68,12 @@ export function registerWalletConnectTools(
 
   server.tool(
     "dexe_wc_connect",
-    "Start a WalletConnect session. Returns a pairing URI to render as a QR code or paste into " +
-      "the phone wallet (MetaMask / Trust / Rainbow). The session is approved on the phone; this " +
-      "tool returns as soon as the URI is ready — poll dexe_wc_status until `connected` is true. " +
-      "Requires WalletConnect to be the active signerMode (project id set, no private key).",
+    "Start a WalletConnect session and render a scannable QR (ASCII + PNG) for the phone wallet " +
+      "(MetaMask / Trust / Rainbow). This is the RECOMMENDED signer — the phone signs and " +
+      "broadcasts, so no private key ever touches this machine. The session is approved on the " +
+      "phone; this tool returns as soon as the QR is ready — poll dexe_wc_status until `connected` " +
+      "is true. Works even if DEXE_PRIVATE_KEY is set (a hot key just keeps signing precedence " +
+      "until you unset it).",
     {
       chainId: z
         .number()
@@ -99,43 +102,19 @@ export function registerWalletConnectTools(
           isError: true,
         };
       }
-      if (signer.hasSigner()) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(
-                {
-                  status: "error",
-                  reason:
-                    "DEXE_PRIVATE_KEY is set, so WalletConnect is inactive (hot key takes precedence). Unset the key to use WalletConnect mode.",
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-          isError: true,
-        };
-      }
+      // A hot key no longer blocks pairing — but be honest that it still signs
+      // until removed (we keep key-wins precedence to avoid a breaking change).
+      const keyPrecedenceNote = signer.hasSigner()
+        ? "⚠️ DEXE_PRIVATE_KEY is set and still takes signing precedence — dexe_tx_send will use the hot key, not this session, until you unset the key. Unset it to make WalletConnect the active signer."
+        : undefined;
       try {
         const { uri, chainId: resolved } = await wc.connect(chainId);
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(
-                {
-                  status: "pairing",
-                  uri,
-                  chainId: resolved,
-                  next: "Render `uri` as a QR (e.g. https://api.qrserver.com/v1/create-qr-code/?data=<uri>) or paste into the wallet, approve, then poll dexe_wc_status.",
-                },
-                null,
-                2,
-              ),
-            },
-          ],
+          content: await wcPairingContent(
+            uri,
+            resolved,
+            keyPrecedenceNote ? { keyPrecedenceNote } : undefined,
+          ),
         };
       } catch (e) {
         return {

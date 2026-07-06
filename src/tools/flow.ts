@@ -7,6 +7,8 @@ import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { PinataClient, fetchIpfs } from "../lib/ipfs.js";
 import { SignerManager } from "../lib/signer.js";
+import type { WalletConnectManager } from "../lib/walletconnect.js";
+import { renderQr } from "../lib/qr.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
@@ -327,17 +329,75 @@ async function resolvePrereqs(
 export const ENABLE_WRITES_HINT =
   "⚠️ Read-only session — the steps below are UNSIGNED transaction payloads; nothing was broadcast. " +
   "To actually execute this write:\n" +
-  "  • Recommended — connect a wallet: run `dexe_wc_connect`, scan the WalletConnect QR, approve on your phone. " +
-  "Your keys never touch this machine.\n" +
-  "  • Or set `DEXE_PRIVATE_KEY` in .env so the server auto-signs — ⚠️ a hot key then lives in plaintext on disk; " +
-  "use only a throwaway/test wallet, never a treasury or personal key. Restart Claude Code after editing .env.\n" +
+  "  • ✅ RECOMMENDED — connect a wallet: run `dexe_wc_connect` and scan the QR (it auto-prints), approve on " +
+  "your phone. Your keys never touch this machine. If WalletConnect is configured, a QR is already attached " +
+  "below under `pairing` — just scan it.\n" +
+  "  • ⚠️ NOT SAFE — set `DEXE_PRIVATE_KEY` in .env so the server auto-signs: a hot key then lives in " +
+  "PLAINTEXT on disk. Use only a throwaway/test wallet, never a treasury or personal key. Restart Claude Code " +
+  "after editing .env.\n" +
   "Then re-run this call to broadcast.";
+
+/**
+ * Best-effort WalletConnect auto-pairing for no-signer write flows. Returns
+ * `undefined` (never throws) when WC isn't configured or the relay is
+ * unreachable, so a pairing failure can never break the payloads response.
+ * When a session is already live it returns `{ connected: true }` with a hint
+ * to feed the payloads to dexe_tx_send.
+ */
+async function tryAutoPair(
+  wc: WalletConnectManager | undefined,
+  chainId?: number,
+): Promise<FlowPairing | undefined> {
+  if (!wc?.isConfigured()) return undefined;
+  try {
+    const pr = await wc.ensurePairing(chainId);
+    if (pr.connected) {
+      return {
+        connected: true,
+        account: pr.account,
+        chainId: pr.chainId,
+        note: "WalletConnect session is live — feed each payload above to dexe_tx_send to broadcast via your phone wallet.",
+      };
+    }
+    if (pr.uri) {
+      const { ascii } = await renderQr(pr.uri);
+      return {
+        connected: false,
+        uri: pr.uri,
+        chainId: pr.chainId,
+        ascii: ascii ?? undefined,
+        renderHint: ascii
+          ? "Echo the `ascii` QR VERBATIM in a code block so the user can scan it, then re-run once connected."
+          : "Show the user `uri` to paste into their wallet.",
+      };
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** WalletConnect pairing info surfaced alongside no-signer `payloads` responses. */
+export interface FlowPairing {
+  connected: boolean;
+  account?: string | null;
+  uri?: string;
+  chainId?: number;
+  ascii?: string;
+  note?: string;
+  renderHint?: string;
+}
 
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
-  opts?: { dryRun?: boolean; chainId?: number },
-): Promise<{ mode: "executed" | "payloads" | "dryRun"; steps: FlowStep[]; enableWrites?: string }> {
+  opts?: { dryRun?: boolean; chainId?: number; wc?: WalletConnectManager },
+): Promise<{
+  mode: "executed" | "payloads" | "dryRun";
+  steps: FlowStep[];
+  enableWrites?: string;
+  pairing?: FlowPairing;
+}> {
   const steps: FlowStep[] = [];
 
   // `dryRun` and "no signer" both return calldata without broadcasting, but
@@ -355,7 +415,17 @@ export async function sendOrCollect(
     for (const p of payloads) {
       steps.push({ label: p.description, skipped: false, payload: p });
     }
-    return { mode: "payloads", steps, enableWrites: ENABLE_WRITES_HINT };
+    // Auto-print the WalletConnect QR so the user can connect and then feed
+    // these payloads to dexe_tx_send (which broadcasts via the phone). This is
+    // best-effort: `mode` and `steps` stay byte-identical whether or not
+    // pairing succeeds, so the swarm mcpFallbackDispatcher is unaffected.
+    const pairing = await tryAutoPair(opts?.wc, opts?.chainId);
+    return {
+      mode: "payloads",
+      steps,
+      enableWrites: ENABLE_WRITES_HINT,
+      ...(pairing ? { pairing } : {}),
+    };
   }
 
   const sg = signer.trySigner(opts?.chainId);
@@ -435,6 +505,8 @@ export interface ProposalCreateDeps {
   rpc: RpcProvider;
   /** Phase 3 — when present, a broadcast proposal is recorded for dexe_context. */
   state?: StateStore;
+  /** When present, no-signer responses auto-attach a WalletConnect pairing QR. */
+  wc?: WalletConnectManager;
 }
 
 /**
@@ -758,7 +830,7 @@ export async function runProposalCreate(
       }
 
       // Step 6: send or return
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc: deps.wc });
 
       // Phase 3: record a broadcast proposal so dexe_context surfaces it next
       // session. Best-effort — a state-write error never breaks the broadcast.
@@ -791,6 +863,7 @@ export async function runProposalCreate(
         },
         steps: [...skippedSteps, ...result.steps],
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
+        ...(result.pairing ? { pairing: result.pairing } : {}),
       });
 }
 
@@ -800,6 +873,7 @@ export function registerFlowTools(
   server: McpServer,
   ctx: ToolContext,
   signer: SignerManager,
+  wc: WalletConnectManager,
   state?: StateStore,
 ): void {
   const rpc = new RpcProvider(ctx.config);
@@ -861,7 +935,7 @@ export function registerFlowTools(
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
     },
-    (input) => runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc, state }),
+    (input) => runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc, state, wc }),
   );
 
   // =============================================
@@ -931,7 +1005,7 @@ export function registerFlowTools(
         });
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-        ], { dryRun: input.dryRun, chainId });
+        ], { dryRun: input.dryRun, chainId, wc });
         return ok({
           mode: execResult.mode,
           proposalId,
@@ -943,6 +1017,7 @@ export function registerFlowTools(
           ],
           executed: execResult.mode === "executed",
           ...(execResult.enableWrites ? { enableWrites: execResult.enableWrites } : {}),
+          ...(execResult.pairing ? { pairing: execResult.pairing } : {}),
         });
       }
 
@@ -1006,7 +1081,7 @@ export function registerFlowTools(
       ));
 
       // Step 5: send or collect
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
 
       // Step 6: auto-execute (only in executed mode)
       let executed = false;
@@ -1031,7 +1106,7 @@ export function registerFlowTools(
           }
           const execResult = await sendOrCollect(signer, [
             makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-          ], { dryRun: input.dryRun, chainId });
+          ], { dryRun: input.dryRun, chainId, wc });
           result.steps.push(...execResult.steps);
           executed = true;
         } else {
@@ -1050,6 +1125,7 @@ export function registerFlowTools(
         steps: [...skippedSteps, ...result.steps],
         executed,
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
+        ...(result.pairing ? { pairing: result.pairing } : {}),
       });
     },
   );

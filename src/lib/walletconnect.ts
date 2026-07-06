@@ -57,6 +57,8 @@ export class WalletConnectManager {
   private connecting = false;
   private connectedChainId?: number;
   private lastError?: string;
+  /** Most recent pairing URI, kept so a concurrent auto-pairing can reuse it. */
+  private lastUri?: string;
 
   constructor(config: DexeConfig) {
     this.config = config;
@@ -145,6 +147,7 @@ export class WalletConnectManager {
     // Clear local session state when the phone ends the session out-of-band.
     provider.on("session_delete", () => {
       this.connectedChainId = undefined;
+      this.lastUri = undefined;
     });
     this.provider = provider;
     return provider;
@@ -173,6 +176,7 @@ export class WalletConnectManager {
         const uri = (arg as { uri?: string })?.uri ?? (arg as unknown as string);
         if (typeof uri === "string" && !uriEmitted) {
           uriEmitted = true;
+          this.lastUri = uri;
           resolveUri({ uri, chainId: chain.chainId });
         }
       };
@@ -192,6 +196,7 @@ export class WalletConnectManager {
           // Session approved by the phone wallet.
           this.connecting = false;
           this.connectedChainId = chain.chainId;
+          this.lastUri = undefined;
         })
         .catch((e: unknown) => {
           this.connecting = false;
@@ -203,12 +208,36 @@ export class WalletConnectManager {
     });
   }
 
+  /**
+   * Ergonomic wrapper for auto-pairing from a write path (dexe_tx_send, the
+   * composite flows): return the connected state if a session already exists,
+   * reuse an in-flight pairing URI if one is mid-handshake, else start a fresh
+   * pairing. Unlike `connect()` this never throws for the already-connected /
+   * already-connecting cases — the caller just wants "a URI or the account".
+   */
+  async ensurePairing(
+    chainId?: number,
+  ): Promise<{ connected: boolean; account: string | null; uri?: string; chainId: number }> {
+    const chain = resolveChain(this.config, chainId);
+    if (this.isConnected()) {
+      return { connected: true, account: this.account(), chainId: this.connectedChainId ?? chain.chainId };
+    }
+    // A pairing is already in flight and we captured its URI — reuse it rather
+    // than opening a second relay session.
+    if (this.connecting && this.lastUri) {
+      return { connected: false, account: null, uri: this.lastUri, chainId: chain.chainId };
+    }
+    const { uri, chainId: resolved } = await this.connect(chainId);
+    return { connected: false, account: null, uri, chainId: resolved };
+  }
+
   /** Tear down the active session. No-op (returns false) when not connected. */
   async disconnect(): Promise<boolean> {
     if (!this.provider?.session) return false;
     await this.provider.disconnect();
     this.connectedChainId = undefined;
     this.connecting = false;
+    this.lastUri = undefined;
     return true;
   }
 

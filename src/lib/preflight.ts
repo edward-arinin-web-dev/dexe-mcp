@@ -19,6 +19,7 @@ import { z } from "zod";
 import { isAddress, ZeroAddress } from "ethers";
 import type { DexeConfig } from "../config.js";
 import { checkBlacklist, blacklistError } from "./blacklist.js";
+import { quorumPctFromRaw } from "./quorumRisk.js";
 
 export interface PreflightResult {
   /** Stable check id, e.g. "deploy.cap-gt-minted". */
@@ -172,17 +173,34 @@ export function checkTokensUnlocked(depositedPower: bigint, availablePower: bigi
 // Mode 7 — DAO deploy silent reverts
 // ==========================================================================
 
-/** cap must be 0 (uncapped) or strictly greater than mintedTotal. */
+/**
+ * cap rules (verified live on BSC mainnet via eth_call, 2026-07-06):
+ *   - `cap = 0` reverts — the gov token is ERC20Capped: "ERC20Capped: cap is 0".
+ *     There is NO uncapped mode (the old "cap=0 = uncapped" belief was wrong).
+ *   - `cap < mintedTotal` reverts: "ERC20Gov: mintedTotal should not be greater than cap".
+ *   - `cap == mintedTotal` is VALID (fixed supply) — the old bug #28 ("cap==minted
+ *     reverts") is outdated; it succeeds live.
+ * So the rule is simply: `cap ≥ mintedTotal` and `cap > 0`.
+ */
 export function checkDeployCap(cap: string, mintedTotal: string, isTokenCreation: boolean): PreflightResult {
   if (!isTokenCreation) return pass("deploy.cap");
   const capBn = BigInt(cap);
   const mintedBn = BigInt(mintedTotal);
-  if (capBn === 0n || capBn > mintedBn) return pass("deploy.cap", `cap=${capBn} minted=${mintedBn}`);
-  return fail(
-    "deploy.cap",
-    `tokenParams.cap (${capBn}) must be 0 (uncapped) or strictly greater than mintedTotal (${mintedBn}). ` +
-      "ERC20Gov init reverts silently otherwise (bug #28).",
-  );
+  if (capBn <= 0n) {
+    return fail(
+      "deploy.cap",
+      `tokenParams.cap must be > 0 — the gov token is ERC20Capped and cap=0 reverts ("ERC20Capped: cap is 0"). ` +
+        `There is no uncapped mode. Set cap ≥ mintedTotal (${mintedBn}); cap == mintedTotal is a valid fixed supply.`,
+    );
+  }
+  if (capBn < mintedBn) {
+    return fail(
+      "deploy.cap",
+      `tokenParams.cap (${capBn}) must be ≥ mintedTotal (${mintedBn}) — otherwise deployGovPool reverts ` +
+        `"ERC20Gov: mintedTotal should not be greater than cap". cap == mintedTotal is allowed (fixed supply).`,
+    );
+  }
+  return pass("deploy.cap", `cap=${capBn} minted=${mintedBn}`);
 }
 
 /** LINEAR vote power needs the `__LinearPower_init()` selector, never 0x. */
@@ -217,28 +235,174 @@ export function checkUserKeeperAsset(tokenAddress: string, nftAddress: string, i
 }
 
 /**
- * Mode 7 / bug #32 — on mainnet (chain 56) deployGovPool reverts if
- * mintedTotal ≠ sum(amounts). Testnet tolerates a remainder; warn only there.
+ * Treasury is an IMPLICIT remainder. `sum(amounts)` may be LESS than
+ * `mintedTotal`: the contract mints the difference to the DAO (govPool) itself.
+ * This is the frontend's proven pattern (`useCreateDAO.ts` — `users`/`amounts`
+ * cover only the wallet distribution; the treasury is never an explicit
+ * recipient), shipped to BSC mainnet daily. The earlier "mainnet needs
+ * mintedTotal == sum(amounts)" belief (old bug #32) was wrong and forced the
+ * treasury address into `users[]`. Only OVER-distribution (sum > minted) is
+ * invalid. See also `checkNoTreasuryRecipient`.
  */
 export function checkTreasuryRemainder(
   mintedTotal: string,
   amounts: string[],
-  chainId: number,
   isTokenCreation: boolean,
 ): PreflightResult {
   if (!isTokenCreation) return pass("deploy.treasury-remainder");
   const minted = BigInt(mintedTotal);
   const sum = amounts.reduce((a, b) => a + BigInt(b), 0n);
-  if (minted === sum) return pass("deploy.treasury-remainder", `minted=${minted}`);
-  if (chainId === 56) {
+  if (sum > minted) {
     return fail(
       "deploy.treasury-remainder",
-      `On BSC mainnet, tokenParams.mintedTotal (${minted}) must equal sum(amounts) (${sum}) — a treasury remainder ` +
-        "reverts deployGovPool (bug #32). Distribute the full mintedTotal across recipients.",
-      `remainder=${minted - sum}`,
+      `sum(amounts) (${sum}) exceeds tokenParams.mintedTotal (${minted}) — cannot distribute more than the total ` +
+        "mint. Lower the recipient amounts or raise mintedTotal.",
+      `over=${sum - minted}`,
     );
   }
-  return { check: "deploy.treasury-remainder", ok: true, detail: `remainder=${minted - sum} tolerated on chain ${chainId} (advisory)` };
+  return pass("deploy.treasury-remainder", `treasuryRemainder=${minted - sum}`);
+}
+
+// ==========================================================================
+// DAO governance coherence — frontend parity (never ship a broken/unusable DAO)
+// ==========================================================================
+//
+// The frontend (C:/dev/investing-dashboard, source of truth) BLOCKS DAO configs
+// where governance can never function. dexe-mcp had none of these, so the model
+// could (and did) ship a DAO whose quorum was unreachable or whose treasury was
+// jammed into the voter list. These guards mirror the frontend's create-DAO
+// validation (`DefaultProposalStep`, `TokenCreationStep`, `GovSettings.sol`).
+
+/** DeXe percentage base: 100% = 1e27 (a quorum setting is pct × 1e25). */
+const PERCENTAGE_100 = 10n ** 27n;
+
+/**
+ * Meritocratic (polynomial) voting power for `votes` at a given `totalSupply`,
+ * ported from the frontend `calcMeritocraticVotingPower`
+ * (`utils/votePowerMath.ts`) with the default holder coefficient k3 = 0.97.
+ * Below the 7%-of-supply threshold, power is linear (== votes); above it the
+ * cubic curve applies. Token-amount math stays in bigint (wei); only the
+ * dimensionless percentage `t` uses float, at 6-decimal precision.
+ */
+export function meritocraticVotingPower(votes: bigint, totalSupply: bigint): bigint {
+  if (totalSupply <= 0n) return votes;
+  const threshold = (totalSupply * 7n) / 100n - 7n;
+  if (votes < threshold) return votes;
+  // t = (votes/totalSupply)×100 − 7, in percentage points, 6-dec precision.
+  const t = Number((votes * 1_000_000n) / totalSupply) / 1_000_000 * 100 - 7;
+  let poly = t * 1.041 + t * t * -0.007211 + t * t * t * 0.00001994;
+  poly = poly * 0.97; // k3 (holders)
+  // power above threshold = poly% of totalSupply (poly scaled ×1e6 to stay integer).
+  const aboveWei = (BigInt(Math.round(poly * 1_000_000)) * totalSupply) / (100n * 1_000_000n);
+  const above = aboveWei > 0n ? aboveWei : 0n;
+  return above + threshold;
+}
+
+/**
+ * Quorum must be REACHABLE by the votable (wallet-held) token distribution —
+ * treasury/undistributed tokens can't vote. Mirrors the frontend's blocking
+ * `isLteThanInitialDistribution` (LINEAR) / `isDistributionCanReachQuorum`
+ * (POLYNOMIAL). Token-creation only (an external token's supply/distribution
+ * is unknown at deploy time, so the frontend skips it too).
+ */
+export function checkQuorumReachable(args: {
+  voteType: string;
+  quorumRaw: string;
+  mintedTotal: string;
+  votable: string;
+  isTokenCreation: boolean;
+}): PreflightResult {
+  if (!args.isTokenCreation) return pass("deploy.quorum-reachable", "external token");
+  const quorum = BigInt(args.quorumRaw);
+  const supply = BigInt(args.mintedTotal);
+  const votable = BigInt(args.votable);
+  if (supply <= 0n) return pass("deploy.quorum-reachable", "no supply");
+  const quorumInTokens = (quorum * supply) / PERCENTAGE_100;
+  const power = args.voteType === "POLYNOMIAL_VOTES" ? meritocraticVotingPower(votable, supply) : votable;
+  if (power >= quorumInTokens) {
+    return pass("deploy.quorum-reachable", `quorumTokens=${quorumInTokens} ≤ votablePower=${power}`);
+  }
+  const quorumPct = quorumPctFromRaw(args.quorumRaw);
+  const reachablePct = Number((power * 10000n) / supply) / 100;
+  return fail(
+    "deploy.quorum-reachable",
+    `Quorum ${quorumPct}% is UNREACHABLE: it requires ${quorumInTokens} vote-power but the votable token ` +
+      `distribution only provides ${power} (~${reachablePct}% of supply). Treasury/undistributed tokens cannot ` +
+      `vote. Fix: lower quorum to ≤ ${reachablePct}%, distribute more tokens to voters, or shrink the treasury ` +
+      `share. The frontend blocks this exact config (DefaultProposalStep isLteThanInitialDistribution).`,
+    `voteType=${args.voteType}`,
+  );
+}
+
+/**
+ * `minVotesForVoting` / `minVotesForCreating` must not exceed the largest single
+ * recipient's balance — otherwise no holder can ever create or vote. Mirrors the
+ * frontend `value-lower-than-distribution` rule. Token-creation only.
+ */
+export function checkMinVotesVsDistribution(
+  minVotesForVoting: string,
+  minVotesForCreating: string,
+  amounts: string[],
+  isTokenCreation: boolean,
+): PreflightResult {
+  if (!isTokenCreation || amounts.length === 0) return pass("deploy.min-votes");
+  const largest = amounts.reduce((m, a) => (BigInt(a) > m ? BigInt(a) : m), 0n);
+  const bad: string[] = [];
+  if (BigInt(minVotesForVoting) > largest) bad.push(`minVotesForVoting (${minVotesForVoting})`);
+  if (BigInt(minVotesForCreating) > largest) bad.push(`minVotesForCreating (${minVotesForCreating})`);
+  if (bad.length === 0) return pass("deploy.min-votes", `largestRecipient=${largest}`);
+  return fail(
+    "deploy.min-votes",
+    `${bad.join(" and ")} exceed the largest single recipient's balance (${largest}). No holder could then create ` +
+      "or vote on a proposal. Set these ≤ the biggest voter's token balance (frontend: value-lower-than-distribution).",
+  );
+}
+
+/**
+ * Contract-level init bounds (`GovSettings.sol:94-106`, `GovValidators.sol`):
+ * `0 < quorum ≤ 1e27`, `0 < quorumValidators ≤ 1e27`, `duration > 0`,
+ * `durationValidators > 0`. Violations revert `deployGovPool` with an empty
+ * reason — catch them here with a readable message.
+ */
+export function checkSettingsBounds(s: {
+  quorum: string;
+  quorumValidators: string;
+  duration: string;
+  durationValidators: string;
+}): PreflightResult {
+  const q = BigInt(s.quorum);
+  const qv = BigInt(s.quorumValidators);
+  const d = BigInt(s.duration);
+  const dv = BigInt(s.durationValidators);
+  const bad: string[] = [];
+  if (q <= 0n || q > PERCENTAGE_100) bad.push(`quorum must be 0 < q ≤ 1e27 (got ${q})`);
+  if (qv <= 0n || qv > PERCENTAGE_100) bad.push(`quorumValidators must be 0 < q ≤ 1e27 (got ${qv})`);
+  if (d <= 0n) bad.push(`duration must be > 0 (got ${d})`);
+  if (dv <= 0n) bad.push(`durationValidators must be > 0 (got ${dv})`);
+  if (bad.length === 0) return pass("deploy.settings-bounds");
+  return fail("deploy.settings-bounds", `GovSettings/GovValidators init would revert: ${bad.join("; ")}.`);
+}
+
+/**
+ * The DAO treasury (predicted govPool) must NEVER be a token recipient in
+ * `tokenParams.users` — treasury tokens can't vote, and the frontend never
+ * lists it (the remainder is minted to the DAO implicitly). Listing it inflates
+ * `sum(amounts)`, hides an unreachable quorum, and diverges from the frontend
+ * calldata shape.
+ */
+export function checkNoTreasuryRecipient(users: string[], predictedGovPool?: string): PreflightResult {
+  if (!predictedGovPool) return pass("deploy.no-treasury-recipient");
+  const gp = predictedGovPool.toLowerCase();
+  if (users.some((u) => u.toLowerCase() === gp)) {
+    return fail(
+      "deploy.no-treasury-recipient",
+      `Do not list the DAO treasury (predicted govPool ${predictedGovPool}) in tokenParams.users. Treasury tokens ` +
+        "cannot vote. Leave the treasury as an IMPLICIT remainder: set mintedTotal = full supply and users/amounts = " +
+        "external holders only (sum(amounts) < mintedTotal); the contract mints the remainder to the DAO. " +
+        "(matches frontend useCreateDAO — govPool is never in users[])",
+    );
+  }
+  return pass("deploy.no-treasury-recipient");
 }
 
 // ==========================================================================

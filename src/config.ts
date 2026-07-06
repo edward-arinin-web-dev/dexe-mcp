@@ -319,6 +319,9 @@ export async function loadConfig(): Promise<DexeConfig> {
     const { Wallet } = await import("ethers");
     const addr = new Wallet(privateKey).address;
     process.stderr.write(`[dexe-mcp] signing enabled for ${addr}\n`);
+    process.stderr.write(
+      `[dexe-mcp] ⚠️ NOT SAFE: hot key in plaintext on disk — prefer WalletConnect (dexe_wc_connect); use only a throwaway wallet\n`,
+    );
   }
 
   // ---- signer broadcast guard B6 (destination allowlist) -----------------

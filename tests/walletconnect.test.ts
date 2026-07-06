@@ -109,4 +109,25 @@ describe("WalletConnectManager — CAIP-10 account parsing", () => {
       expiry: 1234,
     });
   });
+
+  it("ensurePairing short-circuits to the live session when already connected", async () => {
+    const wc = withSession();
+    const pr = await wc.ensurePairing();
+    expect(pr).toMatchObject({
+      connected: true,
+      account: "0xAbC0000000000000000000000000000000000001",
+      chainId: 56,
+    });
+    expect(pr.uri).toBeUndefined();
+  });
+
+  it("ensurePairing reuses an in-flight URI instead of opening a second session", async () => {
+    const wc = new WalletConnectManager(makeConfig({ walletConnectProjectId: "abc" }));
+    // Simulate a pairing mid-handshake: connecting + a captured display_uri,
+    // no session yet. ensurePairing must return that URI, not call connect().
+    (wc as unknown as { connecting: boolean; lastUri: string }).connecting = true;
+    (wc as unknown as { lastUri: string }).lastUri = "wc:reused@2?relay-protocol=irn";
+    const pr = await wc.ensurePairing(56);
+    expect(pr).toMatchObject({ connected: false, uri: "wc:reused@2?relay-protocol=irn", chainId: 56 });
+  });
 });

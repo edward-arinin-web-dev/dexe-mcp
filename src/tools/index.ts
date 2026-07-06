@@ -87,10 +87,10 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   // Diagnostics — call dexe_doctor first when env-related failures show up.
   registerDoctorTool(server, config);
   registerWalletConnectTools(server, config, signer, wc);
-  registerFlowTools(server, ctx, signer, state);
-  registerDaoCreateTools(server, ctx, signer, state);
+  registerFlowTools(server, ctx, signer, wc, state);
+  registerDaoCreateTools(server, ctx, signer, wc, state);
   registerOperationalContextTools(server, config, signer, state);
-  registerOtcTools(server, ctx, signer);
+  registerOtcTools(server, ctx, signer, wc);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
 

@@ -365,6 +365,20 @@ async function backendCheck(timeoutMs: number): Promise<CheckResult | null> {
 function signerGuardConfigCheck(): CheckResult[] {
   const out: CheckResult[] = [];
 
+  // Advisory: a hot key is the active signer. Warn (never fail) and steer to
+  // WalletConnect, where the phone signs and the key never touches disk.
+  if (process.env.DEXE_PRIVATE_KEY?.trim()) {
+    out.push({
+      id: "signer.hotKey",
+      category: "signer",
+      status: "warn",
+      message:
+        "⚠️ NOT SAFE — DEXE_PRIVATE_KEY is the active signer: a hot key in plaintext on disk.",
+      remediation:
+        "Prefer WalletConnect: unset DEXE_PRIVATE_KEY and run dexe_wc_connect (the phone signs, key never on disk). If you must keep a hot key, use only a throwaway/test wallet.",
+    });
+  }
+
   const allow = process.env.DEXE_SIGNER_ALLOWLIST?.trim();
   if (allow) {
     const entries = allow.split(",").map(s => s.trim()).filter(Boolean);

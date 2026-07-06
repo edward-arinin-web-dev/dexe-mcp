@@ -22,7 +22,7 @@ signed Safe transaction, and posts it to the queue.
 | `dexe_safe_info` | no | Read the live Safe (`nonce`, `threshold`, `owners`, version), check whether your signer is an owner, and see which service endpoint this chain resolves to. |
 | `dexe_safe_propose_tx` | POST (opt-in) | Build → sign (`safeTxHash`) → assemble the create-multisig-transaction body. **Dry-run by default**; `dryRun: false` POSTs to the service. |
 
-Both mirror the `registerOtcTools(server, ctx, signer)` wiring and accept an
+Both mirror the `registerOtcTools(server, ctx, signer, wc)` wiring and accept an
 optional `chainId` (defaults to the MCP's default chain).
 
 ---

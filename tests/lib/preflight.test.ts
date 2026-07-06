@@ -12,6 +12,11 @@ import {
   LINEAR_POWER_INIT_SELECTOR,
   checkUserKeeperAsset,
   checkTreasuryRemainder,
+  checkQuorumReachable,
+  checkMinVotesVsDistribution,
+  checkSettingsBounds,
+  checkNoTreasuryRecipient,
+  meritocraticVotingPower,
   checkAvatarIsJpeg,
   checkOffchainMetadata,
 } from "../../src/lib/preflight.js";
@@ -19,6 +24,10 @@ import {
 const A = "0x1111111111111111111111111111111111111111";
 const B = "0x2222222222222222222222222222222222222222";
 const ZERO = "0x0000000000000000000000000000000000000000";
+
+// 1e18-scaled token helpers for the coherence tests.
+const T = (whole: number | bigint) => (BigInt(whole) * 10n ** 18n).toString();
+const PCT = (p: number) => (BigInt(Math.round(p * 100)) * 10n ** 25n / 100n).toString(); // pct → quorum raw (1e27=100%)
 
 describe("mode 9 — ProposalState ordering", () => {
   it("keeps Locked after SucceededFor", () => {
@@ -86,11 +95,11 @@ describe("mode 5 — locked tokens", () => {
 });
 
 describe("mode 7 — deploy guards", () => {
-  it("cap must be 0 or > minted", () => {
-    expect(checkDeployCap("0", "100", true).ok).toBe(true);
-    expect(checkDeployCap("200", "100", true).ok).toBe(true);
-    expect(checkDeployCap("100", "100", true).ok).toBe(false);
-    expect(checkDeployCap("50", "100", true).ok).toBe(false);
+  it("cap must be > 0 and ≥ minted (cap==minted OK; cap=0 and cap<minted revert live)", () => {
+    expect(checkDeployCap("0", "100", true).ok).toBe(false); // ERC20Capped: cap is 0
+    expect(checkDeployCap("200", "100", true).ok).toBe(true); // cap > minted
+    expect(checkDeployCap("100", "100", true).ok).toBe(true); // cap == minted (fixed supply) — valid live
+    expect(checkDeployCap("50", "100", true).ok).toBe(false); // cap < minted → ERC20Gov revert
     expect(checkDeployCap("100", "100", false).ok).toBe(true); // no token creation
   });
   it("LINEAR omitted/empty initData passes (builder auto-encodes)", () => {
@@ -109,11 +118,77 @@ describe("mode 7 — deploy guards", () => {
     expect(checkUserKeeperAsset(ZERO, ZERO, false).ok).toBe(false);
     expect(checkUserKeeperAsset(ZERO, ZERO, true).ok).toBe(true);
   });
-  it("mainnet treasury remainder must be zero", () => {
-    expect(checkTreasuryRemainder("100", ["60", "40"], 56, true).ok).toBe(true);
-    expect(checkTreasuryRemainder("100", ["60", "30"], 56, true).ok).toBe(false);
-    // testnet tolerates a remainder
-    expect(checkTreasuryRemainder("100", ["60", "30"], 97, true).ok).toBe(true);
+  it("treasury remainder is allowed (implicit); only over-distribution fails", () => {
+    // full distribution (sum == minted) — fine
+    expect(checkTreasuryRemainder("100", ["60", "40"], true).ok).toBe(true);
+    // implicit treasury remainder (sum < minted) — the frontend pattern, now allowed
+    expect(checkTreasuryRemainder("100", ["60", "30"], true).ok).toBe(true);
+    expect(checkTreasuryRemainder("100", ["51"], true).ok).toBe(true);
+    // over-distribution (sum > minted) — invalid on any chain
+    expect(checkTreasuryRemainder("100", ["60", "50"], true).ok).toBe(false);
+    // not creating a token — skip
+    expect(checkTreasuryRemainder("100", ["999"], false).ok).toBe(true);
+  });
+});
+
+describe("DAO governance coherence (frontend parity)", () => {
+  it("blocks an unreachable quorum (LINEAR): quorum > votable share", () => {
+    // supply 1M, 49% treasury (implicit) → 510k votable. quorum 51% needs 510k → reachable (boundary).
+    const okCase = checkQuorumReachable({
+      voteType: "LINEAR_VOTES",
+      quorumRaw: PCT(51),
+      mintedTotal: T(1_000_000),
+      votable: T(510_000),
+      isTokenCreation: true,
+    });
+    expect(okCase.ok).toBe(true);
+    // The Generative Automative shape: 70% treasury / 30% votable, quorum 50% → UNREACHABLE.
+    const bad = checkQuorumReachable({
+      voteType: "LINEAR_VOTES",
+      quorumRaw: PCT(50),
+      mintedTotal: T(1_000_000),
+      votable: T(300_000),
+      isTokenCreation: true,
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.remediation).toMatch(/UNREACHABLE/);
+    // external token (not creation) is skipped, like the frontend.
+    expect(
+      checkQuorumReachable({ voteType: "LINEAR_VOTES", quorumRaw: PCT(99), mintedTotal: "0", votable: "0", isTokenCreation: false }).ok,
+    ).toBe(true);
+  });
+
+  it("min-votes must not exceed the largest recipient", () => {
+    expect(checkMinVotesVsDistribution(T(1), T(1), [T(500_000)], true).ok).toBe(true);
+    // minVotesForCreating above every holder → nobody can create a proposal.
+    const bad = checkMinVotesVsDistribution(T(1), T(600_000), [T(500_000)], true);
+    expect(bad.ok).toBe(false);
+    expect(bad.remediation).toMatch(/minVotesForCreating/);
+  });
+
+  it("settings bounds: quorum 0<q≤1e27, durations > 0", () => {
+    const good = { quorum: PCT(51), quorumValidators: PCT(51), duration: "86400", durationValidators: "86400" };
+    expect(checkSettingsBounds(good).ok).toBe(true);
+    expect(checkSettingsBounds({ ...good, quorum: "0" }).ok).toBe(false);
+    expect(checkSettingsBounds({ ...good, quorum: (10n ** 27n + 1n).toString() }).ok).toBe(false);
+    expect(checkSettingsBounds({ ...good, duration: "0" }).ok).toBe(false);
+  });
+
+  it("rejects the treasury (govPool) as a token recipient", () => {
+    expect(checkNoTreasuryRecipient([A, B], B).ok).toBe(false);
+    expect(checkNoTreasuryRecipient([A], B).ok).toBe(true);
+    expect(checkNoTreasuryRecipient([A, B], undefined).ok).toBe(true); // unknown govPool → skip
+  });
+
+  it("meritocratic power is linear below the 7% threshold, curved above", () => {
+    const supply = 1_000_000n * 10n ** 18n;
+    // 1% of supply is below the ~7% threshold → power == votes (linear region)
+    const small = 10_000n * 10n ** 18n;
+    expect(meritocraticVotingPower(small, supply)).toBe(small);
+    // 60% of supply is above threshold → curved power, still positive and ≤ votes
+    const big = 600_000n * 10n ** 18n;
+    const power = meritocraticVotingPower(big, supply);
+    expect(power > 0n).toBe(true);
   });
 });
 
