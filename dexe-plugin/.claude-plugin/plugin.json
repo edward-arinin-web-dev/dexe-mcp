@@ -1,7 +1,7 @@
 {
   "name": "dexe",
   "displayName": "DeXe MCP — DAO governance",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "description": "Deploy DAOs, build every proposal type, vote/delegate/execute, OTC sales, IPFS metadata — the DeXe Protocol as MCP tools. Reads work with zero setup; add keys only for writes.",
   "author": {
     "name": "Edward Arinin",
