@@ -52,7 +52,7 @@ Each row links to the runtime schema. Args, return shapes, and zod input validat
 
 ## 1. Dev tooling
 
-Source: `src/tools/build.ts`. All four require `DEXE_PROTOCOL_PATH` (path to a checked-out DeXe-Protocol Hardhat workspace).
+Source: `src/tools/build.ts`. All four operate on a DeXe-Protocol Hardhat workspace — auto-cloned (shallow) on first use, or set `DEXE_PROTOCOL_PATH` to an existing checkout.
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
@@ -128,11 +128,11 @@ Source: `src/tools/ipfs.ts`. Pinata-backed; reads use the configured gateway wit
 | Tool | What it does | Required env |
 |------|--------------|--------------|
 | `dexe_ipfs_upload_proposal_metadata` | Pins `{proposalName, proposalDescription, ...}` (proposal-shaped) to IPFS via Pinata. Returns CID for `descriptionURL`. | `DEXE_PINATA_JWT` |
-| `dexe_ipfs_upload_dao_metadata` | Nested upload chain: description content → IPFS, outer metadata → IPFS. Returns outer CID for `deployGovPool.descriptionURL`. Auto-normalizes input `avatarCID` to v1 base32. | `DEXE_PINATA_JWT` |
-| `dexe_ipfs_update_dao_metadata` | Fetches current DAO metadata, applies partial overrides (avatar/name/website/socialLinks/etc.), re-uploads. Returns new outer CID for `dexe_proposal_build_modify_dao_profile`. Unspecified fields preserved. | `DEXE_PINATA_JWT`, `DEXE_IPFS_GATEWAY` |
-| `dexe_ipfs_upload_file` | Pins raw bytes (base64 input). Returns CID **v1 base32** (subdomain-gateway compatible) + the original v0. Image filenames normalized to `.jpeg`. | `DEXE_PINATA_JWT` |
-| `dexe_ipfs_upload_avatar` | One-shot avatar upload: returns the `{avatarCID, avatarFileName, avatarUrl}` triple ready for `dexe_ipfs_upload_dao_metadata` or `*_update_dao_metadata`. | `DEXE_PINATA_JWT` |
-| `dexe_dao_generate_avatar` | Generates a deterministic SVG identicon (initials over hash-coloured gradient — no external provider) and pins it. Same `{avatarCID, avatarFileName, avatarUrl}` shape. | `DEXE_PINATA_JWT` |
+| `dexe_ipfs_upload_dao_metadata` | Nested upload chain: description content → IPFS, outer metadata → IPFS. Returns outer CID for `deployGovPool.descriptionURL`. Auto-normalizes input `avatarCID` to v1 base32 and best-effort sniffs the avatar bytes (confirmed SVG/HTML hard-blocks). | `DEXE_PINATA_JWT` |
+| `dexe_ipfs_update_dao_metadata` | Fetches current DAO metadata, applies partial overrides (avatar/name/website/socialLinks/etc.), re-uploads. Returns new outer CID for `dexe_proposal_build_modify_dao_profile`. Unspecified fields preserved. New `avatarCID` overrides are byte-sniffed (raster only). | `DEXE_PINATA_JWT`, `DEXE_IPFS_GATEWAY` |
+| `dexe_ipfs_upload_file` | Pins raw bytes (base64 input). Returns CID **v1 base32** (subdomain-gateway compatible) + the original v0. Image filenames normalized to `.jpeg`; bytes claiming `image/*` are magic-byte-checked (raster only). | `DEXE_PINATA_JWT` |
+| `dexe_ipfs_upload_avatar` | One-shot avatar upload: returns the `{avatarCID, avatarFileName, avatarUrl}` triple ready for `dexe_ipfs_upload_dao_metadata` or `*_update_dao_metadata`. Magic-byte-validated: only real rasters (JPEG/PNG/WebP/GIF) pass; SVG/HTML is rejected. | `DEXE_PINATA_JWT` |
+| `dexe_dao_generate_avatar` | Generates a deterministic JPEG identicon (pixel initials over hash-coloured gradient — no external provider) and pins it. Same `{avatarCID, avatarFileName, avatarUrl}` shape. | `DEXE_PINATA_JWT` |
 | `dexe_ipfs_fetch` | Fetches CID via `DEXE_IPFS_GATEWAY` (recommended dedicated gateway). Public fallbacks opt-in via `DEXE_IPFS_GATEWAYS_FALLBACK`. | `DEXE_IPFS_GATEWAY` |
 | `dexe_ipfs_cid_info` | Parses CIDv0/v1, reports codec + multihash, converts between versions, emits gateway URLs. | (none) |
 | `dexe_ipfs_cid_for_json` | Computes deterministic CIDv1 (json codec, sha-256) locally — no network. Useful for dry-run flows. | (none) |

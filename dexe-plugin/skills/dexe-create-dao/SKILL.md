@@ -48,7 +48,9 @@ asking.
    DAOs you already deployed.
 1. **Env:** ensure the target chain is 97 and `DEXE_PINATA_JWT` is set (metadata).
 2. **(Optional) avatar:** `dexe_dao_generate_avatar` / `dexe_ipfs_upload_avatar`
-   → pass the `cid` as `avatarCID` (a real JPEG, not SVG named `.jpeg`).
+   → pass the `cid` as `avatarCID`. Since v0.20.0 both enforce real raster
+   bytes (generate renders a true JPEG; upload rejects SVG/HTML by magic-byte
+   check), so any CID they return is safe to use.
 3. **Preview:** call `dexe_dao_create` with just the essentials:
 
 ```jsonc

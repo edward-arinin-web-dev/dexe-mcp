@@ -121,6 +121,16 @@ gateway is flaky.
   2. Confirm directory pin: fetch
      `https://<avatarCID>.ipfs.dweb.link/<avatarFileName>` — must return
      image bytes, not a JSON dir listing or 404.
+- Avatar loads (HTTP 200) but renders as a **broken image icon** (no
+  jazzicon fallback — the frontend only falls back when the GET fails):
+  the bytes aren't a raster. `curl -s <url> | head -c 3 | xxd` must show
+  `ff d8 ff` (JPEG). If you see `<?xml`/`<svg`, the avatar was pinned as
+  SVG under a `.jpeg` name — `dexe_dao_generate_avatar` did exactly this
+  before v0.20.0 (the ipfs-cache service re-serves avatar bytes with a
+  hardcoded `image/jpeg` content-type, and browsers never content-sniff
+  SVG). Regenerate with v0.20.0+ and rotate via a modify_dao_profile
+  proposal; since v0.20.0 all avatar upload paths reject non-raster
+  bytes by magic-byte check.
 - Proposal-detail page shows no "Proposed changes" diff:
   - Check the uploaded proposal metadata has `isMeta: false` and
     `category: "daoProfileModification"` (lowercase `o` in

@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.20.0 — 2026-07-06
+
+### Avatars: real JPEG generation + magic-byte validation (bug #34)
+
+`dexe_dao_generate_avatar` pinned **SVG bytes under an `avatar.jpeg` name**.
+The DeXe serving chain makes that unrenderable: the Go `ipfs-cache` service
+copies avatar bytes to R2 as `<descCid>.jpeg` with a hardcoded `image/jpeg`
+content-type (no byte inspection), the app.dexe.io `<img>` has no error
+fallback after a successful GET, and browsers never content-sniff SVG — so
+every generated avatar showed as a permanently broken image (hit live on the
+Generative Collective DAO, `0x3910…d622`).
+
+- **`dexe_dao_generate_avatar` now renders a real JPEG** (`src/lib/avatarImage.ts`):
+  pixel initials (embedded 8x8 font, public-domain font8x8) over the same
+  hash-coloured diagonal gradient, encoded with `jpeg-js` (pure JS, no native
+  deps). Colour hash unchanged (djb2), so re-generated avatars keep their
+  palette. Deterministic: same `daoName` → byte-identical file.
+- **Magic-byte validation on every avatar upload path**
+  (`src/lib/imageSniff.ts`): only real rasters — JPEG/PNG/WebP/GIF — are
+  accepted; SVG, HTML, and unrecognized bytes are rejected with an actionable
+  error. Applied to `dexe_ipfs_upload_avatar` (which now also pins with the
+  *sniffed* MIME, not the caller's claim, and returns `detectedFormat`) and to
+  `dexe_ipfs_upload_file` on its `.jpeg`-normalized (avatar-contract) path —
+  `normalizeImageExt: false` is the escape hatch for generic image attachments
+  (e.g. a legitimate SVG logo pinned as `image/svg+xml`).
+- **By-reference avatar CIDs are validated too.** `dexe_ipfs_upload_dao_metadata`,
+  `dexe_ipfs_update_dao_metadata`, and `dexe_dao_create` accept an `avatarCID`
+  pinned elsewhere; they now fetch the first KB of `<cid>/<fileName>` off the
+  gateway chain and sniff it — confirmed non-raster bytes hard-block, an
+  unreachable pin (fresh, not yet propagated) proceeds with a warning.
+- Docs: `docs/PROFILE.md` gains a troubleshooting entry for the
+  "HTTP 200 but broken image" case; `docs/TOOLS.md` rows updated.
+- New dep: `jpeg-js@0.4.4`. Tool count unchanged.
+
+Existing DAOs with an SVG avatar stay broken until rotated: re-generate with
+v0.20.0+, then `dexe_ipfs_update_dao_metadata` → `modify_dao_profile`
+proposal → vote + execute.
+
 ## 0.19.0 — 2026-07-06
 
 ### DAO creation: governance coherence guards + frontend parity

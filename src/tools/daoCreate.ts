@@ -21,6 +21,8 @@ import {
   assertPreflight,
 } from "../lib/preflight.js";
 import { quorumPctFromRaw } from "../lib/quorumRisk.js";
+import { checkAvatarCidBytes } from "../lib/imageSniff.js";
+import { resolveGateways } from "./ipfs.js";
 
 /**
  * `dexe_dao_create` — the one-call DAO deploy composite. Two ways to call it:
@@ -398,6 +400,14 @@ export function registerDaoCreateTools(
         documents: [],
       };
       if (input.avatarCID) {
+        // avatarCID arrives by reference — the upload tools validate their own
+        // bytes, but nothing forces the caller to have used them. Best-effort
+        // fetch + sniff; hard-block only on confirmed non-raster bytes (an SVG
+        // here becomes a permanently broken avatar on app.dexe.io).
+        const avatarCheck = await checkAvatarCidBytes(input.avatarCID, input.avatarFileName, resolveGateways(ctx));
+        if (!avatarCheck.ok) {
+          return err(avatarCheck.error ?? "avatarCID failed raster validation");
+        }
         daoMeta.avatarCID = input.avatarCID;
         daoMeta.avatarFileName = input.avatarFileName;
         daoMeta.avatarUrl = `https://${input.avatarCID}.ipfs.dweb.link/${input.avatarFileName}`;

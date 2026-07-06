@@ -12,6 +12,8 @@ import {
 } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
+import { renderAvatarJpeg } from "../lib/avatarImage.js";
+import { assertRasterAvatar, checkAvatarCidBytes } from "../lib/imageSniff.js";
 
 export function registerIpfsTools(server: McpServer, ctx: ToolContext): void {
   const gateways = resolveGateways(ctx);
@@ -94,7 +96,7 @@ function gatewayHostname(u: string): string | null {
   }
 }
 
-function resolveGateways(_ctx: ToolContext): string[] {
+export function resolveGateways(_ctx: ToolContext): string[] {
   const out: string[] = [];
   const normalize = (raw: string): string => {
     const trimmed = raw.trim().replace(/\/$/, "");
@@ -307,10 +309,16 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
         // Step 2: Build the outer metadata wrapper (matches frontend schema exactly)
         let avatarUrl = "";
         let avatarCidV1: string | undefined;
+        let avatarWarning: string | undefined;
         if (avatarCID && avatarFileName) {
           // Normalize to CID v1 base32 — subdomain gateway only resolves v1.
           avatarCidV1 = toCidV1(avatarCID);
           avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
+          // By-reference CID: the local byte gate never saw these bytes, so
+          // best-effort fetch + sniff. Confirmed non-raster → hard block.
+          const check = await checkAvatarCidBytes(avatarCidV1, avatarFileName, resolveGateways(ctx));
+          if (!check.ok) return errorResult(check.error ?? "avatarCID failed raster validation");
+          avatarWarning = check.warning;
         }
 
         const outerPayload = {
@@ -350,6 +358,7 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
                 `  description content → ${descriptionRes.cid}\n` +
                 `  outer metadata      → ${metadataRes.cid} (${metadataRes.size} bytes)\n` +
                 `  ipfs-cache.dexe.io prewarm → ${warmed.ok ? "ok" : `skipped (${warmed.status ?? warmed.error})`}\n` +
+                (avatarWarning ? `  ⚠ ${avatarWarning}\n` : "") +
                 `Use "${metadataRes.cid}" as descriptionURL in deployGovPool.`,
             },
           ],
@@ -372,7 +381,10 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
       description:
         "Pins a file to IPFS. Accepts base64-encoded bytes; returns the CID v1 (base32) and the (possibly normalized) filename. " +
         "For images (contentType: image/*) the filename extension is normalized to `.jpeg` to match what the DeXe frontend stores — " +
-        "this is what `dexe_ipfs_upload_dao_metadata` and the DAO profile reader expect. Set `normalizeImageExt: false` to opt out.",
+        "this is what `dexe_ipfs_upload_dao_metadata` and the DAO profile reader expect. Set `normalizeImageExt: false` to opt out. " +
+        "On the normalized (avatar-contract) path the bytes are also magic-byte-checked: only real rasters (JPEG/PNG/WebP/GIF) pass — " +
+        "SVG/HTML bytes are rejected because the DeXe avatar pipeline serves them as broken images. " +
+        "`normalizeImageExt: false` skips both the rename and the raster gate (for generic image attachments like SVG logos).",
       inputSchema: {
         base64: z.string().min(1).describe("Base64-encoded file bytes"),
         fileName: z.string().default("file"),
@@ -405,9 +417,16 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
             ? `${fileName.includes(".") ? fileName.substring(0, fileName.lastIndexOf(".")) : fileName}.jpeg`
             : fileName;
         const bytes = Uint8Array.from(Buffer.from(base64, "base64"));
+        // On the .jpeg-normalized path the file is destined for the DeXe
+        // avatar pipeline, so hold the caller to real raster bytes and pin
+        // with the sniffed MIME (SVG named .jpeg renders as a permanently
+        // broken avatar on app.dexe.io). normalizeImageExt:false is the
+        // generic-attachment escape hatch — no rename, no gate.
+        const gateAsAvatar = isImage && normalizeImageExt;
+        const effectiveContentType = gateAsAvatar ? assertRasterAvatar(bytes).mime : contentType;
         const res = await client.pinFile(bytes, {
           fileName: effectiveFileName,
-          contentType,
+          contentType: effectiveContentType,
           name: effectiveFileName,
         });
         const cidV1 = toCidV1(res.cid);
@@ -593,36 +612,39 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
       description:
         "Uploads an image and returns the {avatarCID, avatarFileName, avatarUrl} triple ready to feed into `dexe_ipfs_upload_dao_metadata` " +
         "(for DAO creation) or `dexe_proposal_build_modify_dao_profile` (for profile updates). " +
+        "Validates the actual bytes by magic number — only real rasters (JPEG/PNG/WebP/GIF) are accepted; SVG/HTML/garbage is rejected " +
+        "because the app.dexe.io serving chain renders it as a permanently broken image. " +
         "Normalizes the filename to `.jpeg` (matching the frontend) and returns a CID v1 base32 string that resolves on the subdomain gateway.",
       inputSchema: {
-        base64: z.string().min(1).describe("Base64-encoded image bytes"),
+        base64: z.string().min(1).describe("Base64-encoded image bytes (raster: JPEG/PNG/WebP/GIF — validated by magic bytes)"),
         fileName: z.string().default("avatar").describe("Base filename; extension will be normalized to .jpeg"),
         contentType: z
           .string()
           .default("image/jpeg")
-          .describe("MIME type; must start with image/. Defaults to image/jpeg."),
+          .describe("Caller-claimed MIME type. Informational only — the pinned MIME comes from byte sniffing."),
       },
       outputSchema: {
         avatarCID: z.string().describe("CID v1 base32 — pass to upload_dao_metadata as avatarCID."),
         avatarFileName: z.string().describe("Filename (always ends with .jpeg)."),
         avatarUrl: z.string().describe("Full subdomain-gateway URL — what the frontend stores verbatim."),
+        detectedFormat: z.string().describe("Raster format detected from magic bytes (jpeg|png|webp|gif)."),
         size: z.number(),
         pinnedAt: z.string(),
       },
     },
-    async ({ base64, fileName = "avatar", contentType = "image/jpeg" }) => {
-      if (!contentType.toLowerCase().startsWith("image/")) {
-        return errorResult(`contentType must be image/* (got: ${contentType})`);
-      }
+    async ({ base64, fileName = "avatar" }) => {
       const client = requirePinata(ctx);
       if ("error" in client) return errorResult(client.error);
       try {
         const base = fileName.includes(".") ? fileName.substring(0, fileName.lastIndexOf(".")) : fileName;
         const normalized = `${base || "avatar"}.jpeg`;
         const bytes = Uint8Array.from(Buffer.from(base64, "base64"));
+        // Trust the bytes, not the caller's contentType — SVG named .jpeg is
+        // exactly how the Generative Collective avatar broke (bug #34).
+        const sniffed = assertRasterAvatar(bytes);
         const res = await client.pinFile(bytes, {
           fileName: normalized,
-          contentType,
+          contentType: sniffed.mime,
           name: normalized,
         });
         const avatarCID = toCidV1(res.cid);
@@ -631,6 +653,7 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
           avatarCID,
           avatarFileName: normalized,
           avatarUrl,
+          detectedFormat: sniffed.format,
           size: res.size,
           pinnedAt: res.pinnedAt,
         };
@@ -638,7 +661,7 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
           content: [
             {
               type: "text" as const,
-              text: `Avatar pinned: ${avatarUrl} (cidV1=${avatarCID}, ${bytes.length} bytes)`,
+              text: `Avatar pinned: ${avatarUrl} (cidV1=${avatarCID}, ${bytes.length} bytes, detected ${sniffed.format})`,
             },
           ],
           structuredContent: structured,
@@ -654,8 +677,9 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
 
 /**
  * Deterministic placeholder avatar: 1–2 letter initials over a hash-coloured
- * gradient. Pure SVG → uploaded as image/svg+xml then served via the same
- * subdomain gateway frontend uses. No third-party generator required.
+ * gradient, rasterized to a real JPEG (`renderAvatarJpeg`). Must be raster:
+ * the DeXe ipfs-cache service re-serves avatar bytes as hardcoded image/jpeg
+ * and browsers refuse SVG bytes under that label (bug #34).
  */
 function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
@@ -663,13 +687,13 @@ function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
     {
       title: "Generate a deterministic placeholder avatar for a DAO",
       description:
-        "Builds an SVG avatar with the DAO's initials over a hash-coloured gradient (no external generator) and pins it to IPFS. " +
+        "Renders a real JPEG avatar with the DAO's initials over a hash-coloured gradient (no external generator) and pins it to IPFS. " +
         "Returns the same {avatarCID, avatarFileName, avatarUrl} shape as `dexe_ipfs_upload_avatar`, " +
         "ready to feed into `dexe_ipfs_upload_dao_metadata` or `dexe_proposal_build_modify_dao_profile`. " +
-        "Same input always produces the same colours (great for re-deploys).",
+        "Same input always produces the same image (great for re-deploys).",
       inputSchema: {
         daoName: z.string().min(1).describe("DAO name; first 1–2 alphanumeric chars become the avatar initials."),
-        size: z.number().int().min(64).max(2048).default(512).describe("SVG viewBox size (square)."),
+        size: z.number().int().min(64).max(2048).default(512).describe("Output image size in px (square)."),
       },
       outputSchema: {
         avatarCID: z.string(),
@@ -683,16 +707,11 @@ function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
       const client = requirePinata(ctx);
       if ("error" in client) return errorResult(client.error);
       try {
-        const svg = buildIdenticonSvg(daoName, size);
-        const bytes = Buffer.from(svg, "utf8");
-        // Frontend reader looks for an extension; we keep .jpeg to stay
-        // consistent with what `dexe_ipfs_upload_avatar` returns even though
-        // the bytes themselves are SVG. The subdomain gateway serves it by
-        // CID; content negotiation handles the type.
+        const bytes = renderAvatarJpeg(daoName, size);
         const fileName = "avatar.jpeg";
         const res = await client.pinFile(bytes, {
           fileName,
-          contentType: "image/svg+xml",
+          contentType: "image/jpeg",
           name: fileName,
         });
         const avatarCID = toCidV1(res.cid);
@@ -718,26 +737,6 @@ function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
       }
     },
   );
-}
-
-/** djb2-style hash → unsigned 32-bit. */
-function hashString(s: string): number {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return h >>> 0;
-}
-
-function buildIdenticonSvg(daoName: string, size: number): string {
-  const cleaned = daoName.replace(/[^\p{L}\p{N}]/gu, "");
-  const initials = (cleaned.slice(0, 2) || "?").toUpperCase();
-  const h = hashString(daoName);
-  const hue1 = h % 360;
-  const hue2 = (hue1 + 40 + ((h >>> 8) % 80)) % 360;
-  const c1 = `hsl(${hue1} 70% 55%)`;
-  const c2 = `hsl(${hue2} 70% 35%)`;
-  const fontSize = Math.round(size * 0.46);
-  // Plain SVG — no <foreignObject>, no JS. Safe to pin and serve via subdomain gateway.
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">\n  <defs>\n    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">\n      <stop offset="0%" stop-color="${c1}"/>\n      <stop offset="100%" stop-color="${c2}"/>\n    </linearGradient>\n  </defs>\n  <rect width="100%" height="100%" fill="url(#g)"/>\n  <text x="50%" y="50%" dy=".35em" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="white">${initials}</text>\n</svg>\n`;
 }
 
 // ---------- dexe_ipfs_update_dao_metadata (fetch + merge + re-upload) ----------
@@ -843,6 +842,11 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
           avatarCidV1 = toCidV1(overrides.avatarCID);
           avatarFileName = overrides.avatarFileName;
           avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
+          // New avatar passed by reference — best-effort fetch + sniff so an
+          // SVG/HTML CID can't be wired into the profile (hard block only on
+          // confirmed non-raster bytes; unreachable → proceed).
+          const check = await checkAvatarCidBytes(avatarCidV1, avatarFileName, gateways);
+          if (!check.ok) return errorResult(check.error ?? "avatarCID failed raster validation");
         } else if (overrides.avatarCID === "") {
           // Explicit clear.
           avatarUrl = "";
