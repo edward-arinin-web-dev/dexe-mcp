@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.20.1 — 2026-07-06
+
+### Composite flows render the WalletConnect QR inline
+
+The v0.18.0 "instant QR" only covered `dexe_wc_connect` / `dexe_tx_send` /
+`dexe_wc_status` — those return the QR as real MCP content blocks (ASCII +
+`image/png`), which clients render inline. The composite write flows
+(`dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_dao_create`,
+OTC buy/claim/open-sale) buried the pairing QR inside the JSON `pairing`
+field instead, so no client could render it and assistants fell back to
+hand-rolled PNG files and deep-link strings.
+
+- `sendOrCollect`'s no-signer branch now also returns ready-to-attach QR
+  content blocks; all six composite return sites prepend them via a shared
+  `attachPairingQr` helper — identical presentation to `dexe_wc_connect`.
+- New `wcQrBlocks()` in `src/lib/qr.ts` (the scannable blocks without the
+  JSON envelope); `wcPairingContent()` now composes it.
+- The JSON `pairing` field stays for programmatic callers but drops the
+  escaped `ascii` dump in favour of `qrFallbackUrl` + an accurate `renderHint`.
+- `dexe_otc_dao_open_sale` re-parses the proposal_create envelope from the
+  last text block (it may now lead with QR blocks) and preserves them.
+
 ## 0.20.0 — 2026-07-06
 
 ### Avatars: real JPEG generation + magic-byte validation (bug #34)

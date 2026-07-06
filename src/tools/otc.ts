@@ -7,7 +7,7 @@ import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { TxPayload } from "../lib/calldata.js";
-import { runProposalCreate, sendOrCollect, type ProposalCreateInput } from "./flow.js";
+import { attachPairingQr, runProposalCreate, sendOrCollect, type ProposalCreateInput } from "./flow.js";
 import { resolveChain } from "../config.js";
 import {
   buildTokenSaleMultiActions,
@@ -297,18 +297,28 @@ export function registerOtcTools(
         const result = await runProposalCreate(proposalInput, { ctx, signer, rpc, wc });
 
         // Surface the OTC-specific extras alongside the proposal_create body.
-        // Tool result already carries content[0].text → JSON; we wrap with an
-        // augmented response that prepends the OTC extras into the same JSON.
+        // The proposal_create response may lead with WalletConnect QR blocks
+        // (ASCII text + PNG image); its JSON envelope is the LAST text block.
+        // Parse that, merge the OTC extras in, and keep the QR blocks intact.
+        const content = result.content ?? [];
         let resultJson: Record<string, unknown> = {};
-        try {
-          const txt = result.content?.[0]?.text ?? "{}";
-          resultJson = JSON.parse(txt) as Record<string, unknown>;
-        } catch {
-          // proposal_create returned an error string — pass through unchanged.
-          return result;
+        let jsonIdx = -1;
+        for (let i = content.length - 1; i >= 0; i--) {
+          const c = content[i];
+          if (c && c.type === "text" && "text" in c) {
+            try {
+              resultJson = JSON.parse(c.text) as Record<string, unknown>;
+              jsonIdx = i;
+            } catch {
+              // proposal_create returned an error string — pass through unchanged.
+            }
+            break;
+          }
         }
+        if (jsonIdx < 0) return result;
 
-        return ok({
+        const qrBlocks = content.filter((_, i) => i !== jsonIdx);
+        const merged = ok({
           ...resultJson,
           otc: {
             tokenSaleProposal: input.tokenSaleProposal,
@@ -323,6 +333,7 @@ export function registerOtcTools(
             ),
           },
         });
+        return { content: [...qrBlocks, ...merged.content] };
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
       }
@@ -722,7 +733,7 @@ export function registerOtcTools(
 
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
 
-      return ok({
+      return attachPairingQr(ok({
         mode: result.mode,
         tierId: input.tierId,
         user: userAddr,
@@ -734,7 +745,7 @@ export function registerOtcTools(
         steps: [...skipped, ...result.steps],
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
-      });
+      }), result.pairingContent);
     },
   );
 
@@ -854,7 +865,7 @@ export function registerOtcTools(
 
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
 
-      return ok({
+      return attachPairingQr(ok({
         mode: result.mode,
         user: userAddr,
         tokenSaleProposal: input.tokenSaleProposal,
@@ -864,7 +875,7 @@ export function registerOtcTools(
         steps: [...skipped, ...result.steps],
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
-      });
+      }), result.pairingContent);
     },
   );
 }

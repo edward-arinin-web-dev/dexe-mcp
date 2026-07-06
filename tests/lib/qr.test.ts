@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderQr, wcPairingContent, qrFallbackUrl } from "../../src/lib/qr.js";
+import { renderQr, wcPairingContent, wcQrBlocks, qrFallbackUrl } from "../../src/lib/qr.js";
+import { attachPairingQr } from "../../src/tools/flow.js";
 
 const SAMPLE_URI =
   "wc:7f6e2a1b3c4d5e6f@2?relay-protocol=irn&symKey=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
@@ -55,5 +56,38 @@ describe("wcPairingContent", () => {
     });
     expect(json.qrFallbackUrl).toContain("api.qrserver.com");
     expect(String(json.renderHint)).toMatch(/verbatim/i);
+  });
+});
+
+describe("wcQrBlocks", () => {
+  it("returns just the scannable blocks (ASCII caption + PNG image), no JSON envelope", async () => {
+    const blocks = await wcQrBlocks(SAMPLE_URI);
+    expect(blocks).toHaveLength(2);
+    const text = blocks.find((b) => b.type === "text") as { type: "text"; text: string };
+    const image = blocks.find((b) => b.type === "image") as { type: "image"; data: string; mimeType: string };
+    expect(text.text).toContain("📱 Scan with your phone wallet");
+    expect(image.mimeType).toBe("image/png");
+    expect(image.data.startsWith("iVBORw0KGgo")).toBe(true);
+    // no block should parse as the pairing JSON envelope
+    expect(blocks.some((b) => b.type === "text" && b.text.trimStart().startsWith("{"))).toBe(false);
+  });
+});
+
+describe("attachPairingQr (composite no-signer responses)", () => {
+  const jsonRes = { content: [{ type: "text" as const, text: '{"mode":"payloads"}' }] };
+
+  it("prepends the QR blocks so the image renders before the JSON body", async () => {
+    const blocks = await wcQrBlocks(SAMPLE_URI);
+    const res = attachPairingQr(jsonRes, blocks);
+    expect(res.content).toHaveLength(jsonRes.content.length + blocks.length);
+    expect(res.content[0]).toBe(blocks[0]);
+    expect(res.content.some((c) => c.type === "image")).toBe(true);
+    const last = res.content[res.content.length - 1] as { type: "text"; text: string };
+    expect(last.text).toBe('{"mode":"payloads"}');
+  });
+
+  it("is a no-op when there is nothing to attach", () => {
+    expect(attachPairingQr(jsonRes, undefined)).toBe(jsonRes);
+    expect(attachPairingQr(jsonRes, [])).toBe(jsonRes);
   });
 });

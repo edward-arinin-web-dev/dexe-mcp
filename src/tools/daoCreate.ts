@@ -9,7 +9,7 @@ import { PinataClient } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
-import { sendOrCollect } from "./flow.js";
+import { attachPairingQr, sendOrCollect } from "./flow.js";
 import { buildDeployGovPool, DeployParamsSchema, type DeployParams } from "./daoDeploy.js";
 import type { StateStore } from "../lib/stateStore.js";
 import {
@@ -459,7 +459,7 @@ export function registerDaoCreateTools(
         }
       }
 
-      return ok({
+      return attachPairingQr(ok({
         mode: result.mode,
         daoName: input.daoName,
         chainId,
@@ -471,7 +471,7 @@ export function registerDaoCreateTools(
         steps: result.steps,
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
-      });
+      }), result.pairingContent);
     },
   );
 }

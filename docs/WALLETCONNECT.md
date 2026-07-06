@@ -60,13 +60,15 @@ mandatory; on timeout it returns `{status:'rejected', reason:'…timed out…'}`
 of hanging the MCP request. The wallet signs **and broadcasts**, so the response carries
 the tx hash; `waitConfirmations` is honoured via a read-only RPC provider.
 
-> **Scope note (v0.7.0, updated v0.18.0):** only `dexe_tx_send` / `dexe_tx_status`
+> **Scope note (v0.7.0, updated v0.20.1):** only `dexe_tx_send` / `dexe_tx_status`
 > *broadcast* through WalletConnect. The composite flows (`sendOrCollect` in `flow.ts` /
 > OTC) still emit ordered `TxPayload`s for you to feed to `dexe_tx_send` (per-step phone
-> approval of a multi-step dependent sequence is impractical to auto-drive) — but as of
-> v0.18.0 they **auto-attach the pairing QR** (`pairing` field) so you can connect first
-> with a single scan, then broadcast each payload. Routing full multi-step sequences
-> through WC is still deferred.
+> approval of a multi-step dependent sequence is impractical to auto-drive) — but they
+> **auto-attach the pairing QR as real MCP content blocks** (ASCII + `image/png`, same
+> rendering as `dexe_wc_connect`, since v0.20.1; v0.18.0 only embedded it in the JSON
+> `pairing` field, which clients could not render) so you can connect with a single scan,
+> then broadcast each payload. Routing full multi-step sequences through WC is still
+> deferred.
 
 ### Guard interaction
 

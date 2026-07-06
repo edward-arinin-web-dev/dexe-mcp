@@ -70,9 +70,31 @@ export function qrFallbackUrl(uri: string): string {
 }
 
 /** One MCP `content[]` item — text or image. Kept loose to match the tool call sites. */
-type PairingContent =
+export type PairingContent =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
+
+/**
+ * Just the scannable part of a pairing response: a captioned ASCII QR text
+ * block plus an `image/png` block. Composite write flows attach these to
+ * their no-signer responses so the QR renders inline exactly like
+ * `dexe_wc_connect` — the JSON envelope stays the caller's business.
+ * Empty array when QR rendering is unavailable.
+ */
+export async function wcQrBlocks(uri: string): Promise<PairingContent[]> {
+  const { ascii, pngBase64 } = await renderQr(uri);
+  const blocks: PairingContent[] = [];
+  if (ascii) {
+    blocks.push({
+      type: "text",
+      text: `📱 Scan with your phone wallet (MetaMask / Trust / Rainbow):\n\n${ascii}`,
+    });
+  }
+  if (pngBase64) {
+    blocks.push({ type: "image", data: pngBase64, mimeType: "image/png" });
+  }
+  return blocks;
+}
 
 /**
  * Build the MCP `content[]` for a WalletConnect pairing response, shared by
@@ -89,18 +111,8 @@ export async function wcPairingContent(
   chainId: number,
   extra?: Record<string, unknown>,
 ): Promise<PairingContent[]> {
-  const { ascii, pngBase64 } = await renderQr(uri);
-  const content: PairingContent[] = [];
-
-  if (ascii) {
-    content.push({
-      type: "text",
-      text: `📱 Scan with your phone wallet (MetaMask / Trust / Rainbow):\n\n${ascii}`,
-    });
-  }
-  if (pngBase64) {
-    content.push({ type: "image", data: pngBase64, mimeType: "image/png" });
-  }
+  const content = await wcQrBlocks(uri);
+  const hasAscii = content.some((c) => c.type === "text");
 
   content.push({
     type: "text",
@@ -110,7 +122,7 @@ export async function wcPairingContent(
         chainId,
         uri,
         qrFallbackUrl: qrFallbackUrl(uri),
-        renderHint: ascii
+        renderHint: hasAscii
           ? "Echo the ASCII QR block above VERBATIM in a code block so the user can scan it. Do not summarize or redraw it."
           : "QR rendering unavailable — show the user `qrFallbackUrl` to open a scannable image, or `uri` to paste into their wallet.",
         next: "Approve the session on your phone, then poll dexe_wc_status until `connected` is true.",

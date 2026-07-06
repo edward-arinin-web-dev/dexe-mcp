@@ -8,7 +8,7 @@ import { multicall, type Call } from "../lib/multicall.js";
 import { PinataClient, fetchIpfs } from "../lib/ipfs.js";
 import { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
-import { renderQr } from "../lib/qr.js";
+import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
@@ -329,9 +329,9 @@ async function resolvePrereqs(
 export const ENABLE_WRITES_HINT =
   "⚠️ Read-only session — the steps below are UNSIGNED transaction payloads; nothing was broadcast. " +
   "To actually execute this write:\n" +
-  "  • ✅ RECOMMENDED — connect a wallet: run `dexe_wc_connect` and scan the QR (it auto-prints), approve on " +
-  "your phone. Your keys never touch this machine. If WalletConnect is configured, a QR is already attached " +
-  "below under `pairing` — just scan it.\n" +
+  "  • ✅ RECOMMENDED — connect a wallet: if WalletConnect is configured, a scannable QR is already attached " +
+  "to this response — just scan it and approve on your phone (keys never touch this machine). Otherwise run " +
+  "`dexe_wc_connect` to print one.\n" +
   "  • ⚠️ NOT SAFE — set `DEXE_PRIVATE_KEY` in .env so the server auto-signs: a hot key then lives in " +
   "PLAINTEXT on disk. Use only a throwaway/test wallet, never a treasury or personal key. Restart Claude Code " +
   "after editing .env.\n" +
@@ -347,28 +347,34 @@ export const ENABLE_WRITES_HINT =
 async function tryAutoPair(
   wc: WalletConnectManager | undefined,
   chainId?: number,
-): Promise<FlowPairing | undefined> {
+): Promise<{ pairing: FlowPairing; content: PairingContent[] } | undefined> {
   if (!wc?.isConfigured()) return undefined;
   try {
     const pr = await wc.ensurePairing(chainId);
     if (pr.connected) {
       return {
-        connected: true,
-        account: pr.account,
-        chainId: pr.chainId,
-        note: "WalletConnect session is live — feed each payload above to dexe_tx_send to broadcast via your phone wallet.",
+        pairing: {
+          connected: true,
+          account: pr.account,
+          chainId: pr.chainId,
+          note: "WalletConnect session is live — feed each payload above to dexe_tx_send to broadcast via your phone wallet.",
+        },
+        content: [],
       };
     }
     if (pr.uri) {
-      const { ascii } = await renderQr(pr.uri);
+      const content = await wcQrBlocks(pr.uri);
       return {
-        connected: false,
-        uri: pr.uri,
-        chainId: pr.chainId,
-        ascii: ascii ?? undefined,
-        renderHint: ascii
-          ? "Echo the `ascii` QR VERBATIM in a code block so the user can scan it, then re-run once connected."
-          : "Show the user `uri` to paste into their wallet.",
+        pairing: {
+          connected: false,
+          uri: pr.uri,
+          chainId: pr.chainId,
+          qrFallbackUrl: qrFallbackUrl(pr.uri),
+          renderHint: content.length
+            ? "A scannable QR (PNG image + ASCII) is attached to this tool response — show it so the user can scan it. After phone approval, re-run this call or feed the payloads to dexe_tx_send."
+            : "QR rendering unavailable — open `qrFallbackUrl` for a scannable image, or paste `uri` into the wallet.",
+        },
+        content,
       };
     }
     return undefined;
@@ -383,9 +389,22 @@ export interface FlowPairing {
   account?: string | null;
   uri?: string;
   chainId?: number;
-  ascii?: string;
+  qrFallbackUrl?: string;
   note?: string;
   renderHint?: string;
+}
+
+/**
+ * Prepend the WalletConnect QR content blocks (ASCII + PNG image) to a tool
+ * response so the QR renders inline in MCP clients — identical presentation
+ * to `dexe_wc_connect`. No-op when there is nothing to attach.
+ */
+export function attachPairingQr(
+  res: { content: Array<{ type: "text"; text: string }>; isError?: boolean },
+  pairingContent?: PairingContent[],
+): { content: PairingContent[]; isError?: boolean } {
+  if (!pairingContent?.length) return res;
+  return { ...res, content: [...pairingContent, ...res.content] };
 }
 
 export async function sendOrCollect(
@@ -397,6 +416,8 @@ export async function sendOrCollect(
   steps: FlowStep[];
   enableWrites?: string;
   pairing?: FlowPairing;
+  /** QR content blocks (ASCII + PNG) — pass to `attachPairingQr` so the QR renders inline. */
+  pairingContent?: PairingContent[];
 }> {
   const steps: FlowStep[] = [];
 
@@ -419,12 +440,12 @@ export async function sendOrCollect(
     // these payloads to dexe_tx_send (which broadcasts via the phone). This is
     // best-effort: `mode` and `steps` stay byte-identical whether or not
     // pairing succeeds, so the swarm mcpFallbackDispatcher is unaffected.
-    const pairing = await tryAutoPair(opts?.wc, opts?.chainId);
+    const paired = await tryAutoPair(opts?.wc, opts?.chainId);
     return {
       mode: "payloads",
       steps,
       enableWrites: ENABLE_WRITES_HINT,
-      ...(pairing ? { pairing } : {}),
+      ...(paired ? { pairing: paired.pairing, pairingContent: paired.content } : {}),
     };
   }
 
@@ -850,21 +871,24 @@ export async function runProposalCreate(
         }
       }
 
-      return ok({
-        mode: result.mode,
-        descriptionURL,
-        proposalMetadataCID: proposalMetaRes.cid,
-        prereqs: {
-          walletBalance: prereqs.walletBalance.toString(),
-          depositedPower: prereqs.depositedPower.toString(),
-          allowance: prereqs.currentAllowance.toString(),
-          minVotesForCreating: prereqs.minVotesForCreating.toString(),
-          tokenAddress: prereqs.tokenAddress,
-        },
-        steps: [...skippedSteps, ...result.steps],
-        ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
-        ...(result.pairing ? { pairing: result.pairing } : {}),
-      });
+      return attachPairingQr(
+        ok({
+          mode: result.mode,
+          descriptionURL,
+          proposalMetadataCID: proposalMetaRes.cid,
+          prereqs: {
+            walletBalance: prereqs.walletBalance.toString(),
+            depositedPower: prereqs.depositedPower.toString(),
+            allowance: prereqs.currentAllowance.toString(),
+            minVotesForCreating: prereqs.minVotesForCreating.toString(),
+            tokenAddress: prereqs.tokenAddress,
+          },
+          steps: [...skippedSteps, ...result.steps],
+          ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
+          ...(result.pairing ? { pairing: result.pairing } : {}),
+        }),
+        result.pairingContent,
+      );
 }
 
 // ---------- register ----------
@@ -1006,7 +1030,7 @@ export function registerFlowTools(
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
         ], { dryRun: input.dryRun, chainId, wc });
-        return ok({
+        return attachPairingQr(ok({
           mode: execResult.mode,
           proposalId,
           proposalStateBefore: stateName,
@@ -1018,7 +1042,7 @@ export function registerFlowTools(
           executed: execResult.mode === "executed",
           ...(execResult.enableWrites ? { enableWrites: execResult.enableWrites } : {}),
           ...(execResult.pairing ? { pairing: execResult.pairing } : {}),
-        });
+        }), execResult.pairingContent);
       }
 
       if (stateNum !== 0) {
@@ -1118,7 +1142,7 @@ export function registerFlowTools(
         }
       }
 
-      return ok({
+      return attachPairingQr(ok({
         mode: result.mode,
         proposalId,
         proposalStateBefore: stateName,
@@ -1126,7 +1150,7 @@ export function registerFlowTools(
         executed,
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
-      });
+      }), result.pairingContent);
     },
   );
 }
