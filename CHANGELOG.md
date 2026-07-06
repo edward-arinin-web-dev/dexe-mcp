@@ -40,6 +40,16 @@ and every failure tells you exactly what to do next.
   payment token's native decimals for the balance check and the exact-amount
   approve — a <18-decimals payment token can no longer silently under-pay.
 
+**Protocol compatibility**
+- **SphereX fix (bug #35)**: newly deployed GovPools ship with SphereX
+  protection that rejects the old `multicall([deposit, createProposalAndVote])`
+  bundle with `"SphereX error: disallowed tx pattern"` — proposal creation on
+  any fresh DAO was broken. `dexe_proposal_create` (and the OTC open-sale
+  composite that rides it) now sends deposit and createProposalAndVote as
+  separate sequential transactions; the partial-failure ledger makes the
+  two-step sequence safely resumable. Caught by the new testnet golden-path
+  E2E (`scripts/e2e-testnet.mjs`), verified live on chain 97.
+
 **Reliability (the P1 batch)**
 - Transport-level **RPC retry + fallback rotation**: all RPC env vars accept
   comma-separated URL lists; the zero-config public fallback ships multiple

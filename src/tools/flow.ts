@@ -965,48 +965,29 @@ export async function runProposalCreate(
         skippedSteps.push({ label: "ERC20.approve", skipped: true, reason: "Allowance sufficient" });
       }
 
-      // Build GovPool calls to batch via multicall
-      const govPoolCalls: string[] = [];
-
-      // Deposit (if needed)
+      // Deposit (if needed) — a SEPARATE tx, never bundled. Newly deployed
+      // pools ship with SphereX protection that rejects the old
+      // multicall([deposit, createProposalAndVote]) wrap with
+      // "SphereX error: disallowed tx pattern" (verified live on chain 97,
+      // v0.22). Sequential txs pass, and the failure ledger makes the
+      // two-step sequence safely resumable.
       if (needDeposit > 0n) {
-        govPoolCalls.push(
-          GOV_POOL_ABI.encodeFunctionData("deposit", [needDeposit, []]),
-        );
+        payloads.push(makeTxPayload(
+          govPool, GOV_POOL_ABI, "deposit",
+          [needDeposit, []], chainId,
+          `GovPool.deposit(${needDeposit})`,
+        ));
       } else {
         skippedSteps.push({ label: "GovPool.deposit", skipped: true, reason: "Sufficient deposited power" });
       }
 
-      // createProposalAndVote
       const actionsForTuple = actionsOnFor.map(a => [a.executor, a.value, a.data]);
-      govPoolCalls.push(
-        GOV_POOL_ABI.encodeFunctionData("createProposalAndVote", [
-          descriptionURL,
-          actionsForTuple,
-          [], // actionsOnAgainst
-          voteAmount,
-          input.voteNftIds.map(id => BigInt(id)),
-        ]),
-      );
-
-      // Wrap in multicall if >1 call, otherwise single tx
-      if (govPoolCalls.length > 1) {
-        payloads.push({
-          to: govPool,
-          data: GOV_POOL_ABI.encodeFunctionData("multicall", [govPoolCalls]),
-          value: "0",
-          chainId,
-          description: `GovPool.multicall([deposit, createProposalAndVote])`,
-        });
-      } else {
-        payloads.push({
-          to: govPool,
-          data: govPoolCalls[0]!,
-          value: "0",
-          chainId,
-          description: `GovPool.createProposalAndVote("${input.title}")`,
-        });
-      }
+      payloads.push(makeTxPayload(
+        govPool, GOV_POOL_ABI, "createProposalAndVote",
+        [descriptionURL, actionsForTuple, [], voteAmount, input.voteNftIds.map(id => BigInt(id))],
+        chainId,
+        `GovPool.createProposalAndVote("${input.title}")`,
+      ));
 
       // Step 6: send or return
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc: deps.wc });
