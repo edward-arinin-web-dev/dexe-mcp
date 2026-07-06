@@ -2,7 +2,7 @@
   "mcpServers": {
     "dexe": {
       "command": "npx",
-      "args": ["-y", "dexe-mcp@0.15.0"]
+      "args": ["-y", "dexe-mcp@0.16.0"]
     }
   }
 }
