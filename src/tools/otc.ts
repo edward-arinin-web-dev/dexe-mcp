@@ -7,7 +7,7 @@ import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { TxPayload } from "../lib/calldata.js";
-import { attachPairingQr, runProposalCreate, sendOrCollect, type ProposalCreateInput } from "./flow.js";
+import { attachPairingQr, runProposalCreate, sendOrCollect, flowFailureResult, type ProposalCreateInput } from "./flow.js";
 import { resolveChain } from "../config.js";
 import {
   buildTokenSaleMultiActions,
@@ -22,6 +22,8 @@ import {
 } from "../lib/merkleTree.js";
 import { simulateCalldata } from "./simulate.js";
 import { parseUintString } from "../lib/amount.js";
+import { parseAmount, formatAmount, from18 } from "../lib/units.js";
+import { chainIdParam } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
 
 function errorResult(message: string) {
@@ -34,6 +36,8 @@ const ERC20_ABI = new Interface([
   "function balanceOf(address) view returns (uint256)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
 ]);
 
 /**
@@ -211,8 +215,10 @@ export function registerOtcTools(
       "flow: balance + threshold check, ERC20 approve to UserKeeper if needed, deposit, " +
       "IPFS proposal-metadata upload, `createProposalAndVote`. " +
       "When DEXE_PRIVATE_KEY is set, signs and broadcasts each tx; otherwise returns " +
-      "an ordered TxPayload list. The DAO must already have TokenSaleProposal wired as " +
-      "an executor (set at deploy time via `dexe_dao_build_deploy`).",
+      "an ordered TxPayload list. Every DAO deployed with `dexe_dao_create` (v0.19+) already has " +
+      "TokenSaleProposal wired as an executor, so this works right after a deploy. Only DAOs deployed " +
+      "by other/older tooling without that executor need a `new_proposal_type` proposal " +
+      "(dexe_proposal_create, executors=[tokenSaleProposal]) or a redeploy first.",
     {
       govPool: z.string().describe("GovPool address"),
       chainId: z
@@ -352,6 +358,7 @@ export function registerOtcTools(
       "so `canParticipate` is accurate for merkle-gated tiers. Read-only.",
     {
       tokenSaleProposal: z.string(),
+      chainId: chainIdParam,
       tierIds: z.array(z.string()).min(1),
       user: z.string(),
       whitelists: z
@@ -364,10 +371,10 @@ export function registerOtcTools(
         .default([])
         .describe("Optional per-tier whitelist (for MerkleWhitelist proof generation)."),
     },
-    async ({ tokenSaleProposal, tierIds, user, whitelists }) => {
+    async ({ tokenSaleProposal, chainId, tierIds, user, whitelists }) => {
       if (!isAddress(tokenSaleProposal)) return err(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       if (!isAddress(user)) return err(`Invalid user: ${user}`);
-      const pr = rpc.tryProvider();
+      const pr = rpc.tryProvider(chainId);
       if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
       const userAddr = getAddress(user);
@@ -606,7 +613,10 @@ export function registerOtcTools(
       amount: z
         .string()
         .describe(
-          "Amount to spend, as an 18-decimal-normalized quantity. On-chain buy() converts it via from18Safe(token) to the payment token's native decimals: for an 18-decimal token this equals raw wei; for a token with d<18 decimals pass rawAmount * 10^(18-d). Passing raw native wei for a non-18-decimal token under-pays by 10^(18-d).",
+          "Amount to spend. Human units with a decimal point ('100.5') are handled for you regardless of the " +
+            "payment token's decimals (recommended). A digits-only string is treated as the 18-decimal-normalized " +
+            "quantity buy() expects (back-compat) — the tool converts it to the token's native decimals for the " +
+            "balance check and approve.",
         ),
       proof: z.array(z.string()).default([]),
       whitelistUsers: z.array(z.string()).default([]).describe("Optional whitelist for proof gen"),
@@ -629,7 +639,15 @@ export function registerOtcTools(
 
       const userAddr = getAddress(userResolved);
       const tierIdBn = parseUintString(input.tierId, "tierId");
-      const amountBn = parseUintString(input.amount, "amount");
+      // buy() takes the 18-dec-NORMALIZED amount regardless of the payment
+      // token's decimals; parseAmount treats digits-only as already normalized
+      // (back-compat) and a decimal string ("100.5") as human units.
+      let amountBn: bigint;
+      try {
+        amountBn = parseAmount(input.amount, 18);
+      } catch (e) {
+        return err(e instanceof Error ? e.message : String(e));
+      }
       const native = isNativeSentinel(input.tokenToBuyWith);
       // Contract-canonical payment token: native buys MUST carry
       // ETHEREUM_ADDRESS (0xEeee…EEeE) — the zero address reverts on-chain
@@ -657,10 +675,14 @@ export function registerOtcTools(
       const payloads: TxPayload[] = [];
       const skipped: { label: string; reason: string }[] = [];
 
-      // Balance + allowance preflight (ERC20 path only). In dryRun the
-      // values are still surfaced for diagnostics but never block the build.
+      // Balance + allowance preflight (ERC20 path only). R9: `balanceOf` /
+      // `allowance` / `transferFrom` all operate in the token's NATIVE raw
+      // units, while buy() carries the 18-dec-normalized amount — read the
+      // token's real decimals and compare/approve the CONVERTED raw amount
+      // (an 18-dec comparison silently mis-judges any <18-dec stable).
       let balance = 0n;
       let allowance = 0n;
+      let rawNeeded = amountBn;
       if (!native) {
         const calls: Call[] = [
           {
@@ -677,20 +699,31 @@ export function registerOtcTools(
             args: [userAddr, input.tokenSaleProposal],
             allowFailure: true,
           },
+          { target: tokenArg, iface: ERC20_ABI, method: "decimals", args: [], allowFailure: true },
+          { target: tokenArg, iface: ERC20_ABI, method: "symbol", args: [], allowFailure: true },
         ];
         const res = await multicall(provider, calls);
         balance = res[0]!.success ? (res[0]!.value as bigint) : 0n;
         allowance = res[1]!.success ? (res[1]!.value as bigint) : 0n;
+        const payDecimals = res[2]!.success ? Number(res[2]!.value) : 18;
+        const paySymbol = res[3]!.success ? String(res[3]!.value) : "";
 
-        if (!input.dryRun && balance < amountBn) {
+        try {
+          rawNeeded = from18(amountBn, payDecimals);
+        } catch (e) {
+          return err(e instanceof Error ? e.message : String(e));
+        }
+
+        if (!input.dryRun && balance < rawNeeded) {
           return err(
-            `Insufficient ${input.tokenToBuyWith} balance: have ${balance}, need ${amountBn}.`,
+            `Insufficient payment-token balance: have ${formatAmount(balance, payDecimals, paySymbol)}, ` +
+              `need ${formatAmount(rawNeeded, payDecimals, paySymbol)} (token ${tokenArg}).`,
           );
         }
 
-        if (allowance < amountBn) {
+        if (allowance < rawNeeded) {
           payloads.push(
-            buildExactApproval(tokenArg, input.tokenSaleProposal, amountBn, chainId),
+            buildExactApproval(tokenArg, input.tokenSaleProposal, rawNeeded, chainId),
           );
         } else {
           skipped.push({ label: "ERC20.approve", reason: "Allowance sufficient" });
@@ -732,6 +765,9 @@ export function registerOtcTools(
       }
 
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      if (result.mode === "failed") {
+        return flowFailureResult(result, { tierId: input.tierId, user: userAddr });
+      }
 
       return attachPairingQr(ok({
         mode: result.mode,
@@ -864,6 +900,9 @@ export function registerOtcTools(
       }
 
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      if (result.mode === "failed") {
+        return flowFailureResult(result, { user: userAddr, tokenSaleProposal: input.tokenSaleProposal });
+      }
 
       return attachPairingQr(ok({
         mode: result.mode,

@@ -1,5 +1,6 @@
-import { JsonRpcProvider, Wallet } from "ethers";
+import { Wallet } from "ethers";
 import { resolveChain, type DexeConfig } from "../config.js";
+import { createChainProvider } from "../rpc.js";
 import { hintFor, type EnvGuardResult } from "./requireEnv.js";
 
 /**
@@ -45,7 +46,11 @@ export class SignerManager {
     const chain = resolveChain(this.config, chainId);
     let wallet = this.cache.get(chain.chainId);
     if (!wallet) {
-      const provider = new JsonRpcProvider(chain.rpcUrl);
+      // Shared resilient factory (R1): the signer's reads (nonce, gas
+      // estimate, receipt polling) get the same retry + URL-rotation + hint
+      // behavior as every read tool. Broadcasts themselves are never retried
+      // at the transport layer (see ResilientRpcProvider).
+      const provider = createChainProvider(chain, this.config);
       wallet = new Wallet(this.key, provider);
       this.cache.set(chain.chainId, wallet);
     }

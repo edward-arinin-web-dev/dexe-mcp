@@ -7,6 +7,45 @@ import type { SignerManager } from "../lib/signer.js";
 import type { StateStore, KnownDao } from "../lib/stateStore.js";
 import { RpcProvider } from "../rpc.js";
 import { maskUrl } from "../lib/redact.js";
+import { resolveToolsets, TOOLSETS } from "./gate.js";
+
+/** One-line "what you're missing" summary per gateable set (U5 discoverability). */
+const TOOLSET_UNLOCKS: Record<string, string> = {
+  core: "context/doctor/dao_create/tx_send/wc + OTC composites",
+  proposals: "dexe_proposal_create + every dexe_proposal_build_* + vote_and_execute",
+  read: "subgraph reads (dao members, delegation map, validator list), proposal_forecast, risk_assess, user_inbox",
+  vote: "delegate/undelegate to experts, claim_rewards, staking, NFT multiplier, cancel_vote, validator_vote",
+  governor: "dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs (Uniswap, Compound, Optimism…)",
+  dev: "dexe_compile + contract introspection (get_abi/get_methods/find_selector), dao_build_deploy, simulate/decode, merkle, safe",
+};
+
+/**
+ * Report enabled vs hidden toolsets + what each hidden set unlocks, so the
+ * model can tell the user exactly which DEXE_TOOLSETS value fixes a missing
+ * capability instead of dead-ending on an invisible tool.
+ */
+function describeToolsets(requested: readonly string[]): {
+  enabled: string[];
+  hidden: { set: string; unlocks: string }[];
+  enableHint?: string;
+} {
+  const resolved = resolveToolsets(requested);
+  const enabled = resolved.full ? Object.keys(TOOLSETS) : resolved.requested;
+  const hidden = Object.keys(TOOLSETS)
+    .filter((s) => !enabled.includes(s))
+    .map((s) => ({ set: s, unlocks: TOOLSET_UNLOCKS[s] ?? "" }));
+  return {
+    enabled,
+    hidden,
+    ...(hidden.length
+      ? {
+          enableHint:
+            `Hidden sets need DEXE_TOOLSETS in .env (e.g. DEXE_TOOLSETS=${[...enabled, hidden[0]!.set].join(",")} ` +
+            `or DEXE_TOOLSETS=full) + a Claude Code restart.`,
+        }
+      : {}),
+  };
+}
 
 /**
  * `dexe_context` (Phase 3 / v0.14.0) — the "who/where am I" call. One read that
@@ -84,10 +123,12 @@ export function registerOperationalContextTools(
 
   server.tool(
     "dexe_context",
-    "Operational context for the current session — CALL THIS FIRST. Returns the signer address + mode, " +
-      "the active/configured chains, env-readiness (RPC/IPFS/subgraph/signer), and the persisted state: DAOs you " +
-      "deployed and proposals you broadcast in prior sessions (via dexe_dao_create / dexe_proposal_create), plus your " +
-      "deposited voting power in the most recent DAO. Read-only; never writes.",
+    "Operational context for the current session — call this first when you need orientation (skip it when the " +
+      "user already gave you the target DAO and chain). Returns the signer address + mode, the active/configured " +
+      "chains, env-readiness (RPC/IPFS/subgraph/signer), which toolsets are enabled/hidden and what the hidden ones " +
+      "unlock, and the persisted state: DAOs you deployed and proposals you broadcast in prior sessions (via " +
+      "dexe_dao_create / dexe_proposal_create), plus your deposited voting power in the most recent DAO. " +
+      "Read-only; never writes.",
     {
       includeDepositedPower: z
         .boolean()
@@ -148,7 +189,7 @@ export function registerOperationalContextTools(
             config.backendApiUrl === DEFAULTS.backendApiUrl ? "backend" : null,
             config.walletConnectProjectId === DEFAULTS.walletConnectProjectId ? "walletconnect" : null,
           ].filter(Boolean),
-          toolsets: config.toolsets,
+          toolsets: describeToolsets(config.toolsets),
         },
         knownDaos: st.knownDaos,
         recentProposals: st.recentProposals,

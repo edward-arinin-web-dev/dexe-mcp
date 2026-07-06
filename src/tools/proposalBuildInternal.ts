@@ -24,7 +24,7 @@ import type { ToolContext } from "./context.js";
  * (2) calls dexe_proposal_build_internal with validators + type + CID + data.
  */
 
-const VALIDATORS_EXEC_ABI = [
+export const VALIDATORS_EXEC_ABI = [
   "function changeBalances(uint256[] balances, address[] users)",
   "function changeSettings(uint64 duration, uint64 executionDelay, uint128 quorum)",
   "function monthlyWithdraw(address[] tokens, uint256[] amounts, address destination)",

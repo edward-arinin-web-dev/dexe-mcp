@@ -59,6 +59,18 @@ const hex64 = /^0x[0-9a-fA-F]{64}$/;
 const hex40 = /^0x[0-9a-fA-F]{40}$/;
 const intStr = z.string().regex(/^\d+$/);
 const optionalUrl = z.string().url().optional();
+/**
+ * One URL, or a comma-separated list of URLs. The first is the primary
+ * endpoint; the rest are transport-failure fallbacks rotated by
+ * ResilientRpcProvider (src/rpc.ts).
+ */
+const optionalUrlList = z
+  .string()
+  .refine(
+    (v) => v.split(",").map((s) => s.trim()).filter(Boolean).every((u) => z.string().url().safeParse(u).success),
+    { message: "must be a URL or a comma-separated list of URLs" },
+  )
+  .optional();
 
 export const ENV_SPEC = {
   // ─── core / dev ───────────────────────────────────────────────────────────
@@ -107,11 +119,11 @@ export const ENV_SPEC = {
 
   // ─── rpc ──────────────────────────────────────────────────────────────────
   DEXE_RPC_URL: {
-    schema: optionalUrl,
+    schema: optionalUrlList,
     category: "rpc",
     required: false,
     example: "https://bsc-dataseed.binance.org",
-    doc: "Legacy single-chain RPC. Prefer DEXE_RPC_URL_TESTNET / _MAINNET / _<chainId>.",
+    doc: "Legacy single-chain RPC. Prefer DEXE_RPC_URL_TESTNET / _MAINNET / _<chainId>. Accepts a comma-separated fallback list.",
     enablesFlows: ["read", "broadcast"],
   },
   DEXE_CHAIN_ID: {
@@ -122,20 +134,27 @@ export const ENV_SPEC = {
     doc: "Chain id for legacy DEXE_RPC_URL. Inferred from hostname when unset.",
   },
   DEXE_RPC_URL_TESTNET: {
-    schema: optionalUrl,
+    schema: optionalUrlList,
     category: "rpc",
     required: false,
     example: "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
-    doc: "RPC URL for BSC testnet (chain 97).",
+    doc: "RPC URL for BSC testnet (chain 97). Accepts a comma-separated fallback list — the first is primary, the rest rotate on transport failures.",
     enablesFlows: ["read", "broadcast"],
   },
   DEXE_RPC_URL_MAINNET: {
-    schema: optionalUrl,
+    schema: optionalUrlList,
     category: "rpc",
     required: false,
     example: "https://bsc-dataseed.bnbchain.org",
-    doc: "RPC URL for BSC mainnet (chain 56).",
+    doc: "RPC URL for BSC mainnet (chain 56). Accepts a comma-separated fallback list — the first is primary, the rest rotate on transport failures.",
     enablesFlows: ["read", "broadcast"],
+  },
+  DEXE_TX_WAIT_TIMEOUT_MS: {
+    schema: intStr.optional(),
+    category: "rpc",
+    required: false,
+    example: "180000",
+    doc: "Max milliseconds to wait for a broadcast tx to mine before returning a check-with-dexe_tx_status error. Default 180000 (3 min).",
   },
   DEXE_DEFAULT_CHAIN_ID: {
     schema: intStr.optional(),
@@ -332,6 +351,20 @@ export const ENV_SPEC = {
     required: false,
     example: "",
     doc: "Optional fork block pin (Phase B).",
+  },
+  DEXE_MAX_DESCRIPTION_LEN: {
+    schema: intStr.optional(),
+    category: "core",
+    required: false,
+    example: "20000",
+    doc: "Max characters accepted for proposal/DAO description markdown before conversion (guards IPFS payload size). Default 20000.",
+  },
+  DEXE_PROTOCOL_REF: {
+    schema: z.string().optional(),
+    category: "dev",
+    required: false,
+    example: "",
+    doc: "Git ref (branch/tag/commit) checked out for the auto-managed DeXe-Protocol clone. Default: the pinned release the MCP ships with.",
   },
 } as const satisfies Record<string, EnvEntry>;
 

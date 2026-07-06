@@ -2,6 +2,15 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
 import { resolveStatePath } from "./lib/stateStore.js";
+import { parseEnv } from "./env/parse.js";
+
+/**
+ * Split an RPC env value into its endpoint list: `url` or `url1,url2,…`.
+ * First entry is the primary; the rest are transport-failure fallbacks.
+ */
+function splitRpcUrls(raw: string): string[] {
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
 
 /**
  * Baked zero-config defaults — public, non-secret endpoints (plus a semi-public
@@ -31,7 +40,14 @@ export const DEFAULTS = {
 
 export interface ChainConfig {
   chainId: number;
+  /** Primary RPC endpoint — always `rpcUrls[0]`. Kept for back-compat reads. */
   rpcUrl: string;
+  /**
+   * Full endpoint list for this chain: primary first, then transport-failure
+   * fallbacks (comma-separated in env, or the baked public list). Consumed by
+   * `createChainProvider` (src/rpc.ts) for retry + rotation.
+   */
+  rpcUrls: string[];
   /** Optional `ContractsRegistry` override scoped to this chain. */
   registryOverride?: string;
 }
@@ -157,6 +173,24 @@ export interface DexeConfig {
  * that lazily from inside build/test tools.
  */
 export async function loadConfig(): Promise<DexeConfig> {
+  // ---- schema-validate the DEXE_* env surface up front (R5) ---------------
+  // parse.ts walks ENV_SPEC; an invalid value (malformed URL, non-integer,
+  // bad enum) is a config error the user should see at startup, not a
+  // confusing late failure deep inside a tool call. Doctor performs the same
+  // validation; this makes startup honest about it too.
+  {
+    const { issues } = parseEnv();
+    const errors = issues.filter((i) => i.severity === "error");
+    for (const issue of issues) {
+      process.stderr.write(`[dexe-mcp] env ${issue.severity}: ${issue.message}\n`);
+    }
+    if (errors.length > 0) {
+      fatal(
+        `invalid environment: ${errors.map((i) => i.key).join(", ")} — fix the value(s) in .env and restart. Run 'npx dexe-mcp doctor' for details.`,
+      );
+    }
+  }
+
   const protocolPath = resolve(resolveProtocolPath());
 
   // Soft warning only — don't block startup. The lazy bootstrap will either
@@ -183,11 +217,13 @@ export async function loadConfig(): Promise<DexeConfig> {
 
   const rpcTestnet = process.env.DEXE_RPC_URL_TESTNET?.trim() || undefined;
   if (rpcTestnet) {
-    chains.set(97, { chainId: 97, rpcUrl: rpcTestnet });
+    const urls = splitRpcUrls(rpcTestnet);
+    chains.set(97, { chainId: 97, rpcUrl: urls[0]!, rpcUrls: urls });
   }
   const rpcMainnet = process.env.DEXE_RPC_URL_MAINNET?.trim() || undefined;
   if (rpcMainnet) {
-    chains.set(56, { chainId: 56, rpcUrl: rpcMainnet });
+    const urls = splitRpcUrls(rpcMainnet);
+    chains.set(56, { chainId: 56, rpcUrl: urls[0]!, rpcUrls: urls });
   }
 
   // Generic per-chain RPC: DEXE_RPC_URL_<chainId> (e.g. DEXE_RPC_URL_1,
@@ -200,7 +236,8 @@ export async function loadConfig(): Promise<DexeConfig> {
     const url = val?.trim();
     if (!url) continue;
     const cid = Number(m[1]);
-    chains.set(cid, { chainId: cid, rpcUrl: url });
+    const urls = splitRpcUrls(url);
+    chains.set(cid, { chainId: cid, rpcUrl: urls[0]!, rpcUrls: urls });
   }
 
   // Legacy single-chain env (still supported)
@@ -214,13 +251,15 @@ export async function loadConfig(): Promise<DexeConfig> {
     legacyChainId = n;
   }
   if (legacyRpc) {
+    const legacyUrls = splitRpcUrls(legacyRpc);
     // Resolve legacy chainId. If unset, infer from URL hostname; fall back to 56.
-    const inferred = legacyChainId ?? inferChainIdFromRpcUrl(legacyRpc) ?? 56;
+    const inferred = legacyChainId ?? inferChainIdFromRpcUrl(legacyUrls[0]!) ?? 56;
     // Apply registryOverride only when this is the legacy chain (per-chain
     // override via DEXE_CONTRACTS_REGISTRY has always been single-chain).
     chains.set(inferred, {
       chainId: inferred,
-      rpcUrl: legacyRpc,
+      rpcUrl: legacyUrls[0]!,
+      rpcUrls: legacyUrls,
       registryOverride,
     });
   }
@@ -233,14 +272,26 @@ export async function loadConfig(): Promise<DexeConfig> {
   // rate-limit and lack archive history, so we surface a hint (below) nudging
   // the user to set their own RPC for anything serious. Opt out entirely with
   // DEXE_DISABLE_PUBLIC_RPC=1. When the user set any RPC, this does nothing.
-  const PUBLIC_RPC_FALLBACK: Record<number, string> = {
-    56: "https://bsc-dataseed.bnbchain.org",
-    97: "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+  // Multiple public endpoints per chain: ResilientRpcProvider rotates to the
+  // next one when the primary rate-limits (R1), so zero-config reads survive a
+  // single flaky dataseed node.
+  const PUBLIC_RPC_FALLBACK: Record<number, string[]> = {
+    56: [
+      "https://bsc-dataseed.bnbchain.org",
+      "https://bsc-dataseed1.bnbchain.org",
+      "https://bsc-dataseed2.bnbchain.org",
+      "https://bsc-rpc.publicnode.com",
+    ],
+    97: [
+      "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+      "https://data-seed-prebsc-2-s1.bnbchain.org:8545",
+      "https://bsc-testnet-rpc.publicnode.com",
+    ],
   };
   let usedPublicFallback = false;
   if (process.env.DEXE_DISABLE_PUBLIC_RPC?.trim() !== "1" && chains.size === 0) {
-    for (const [cid, url] of Object.entries(PUBLIC_RPC_FALLBACK)) {
-      chains.set(Number(cid), { chainId: Number(cid), rpcUrl: url });
+    for (const [cid, urls] of Object.entries(PUBLIC_RPC_FALLBACK)) {
+      chains.set(Number(cid), { chainId: Number(cid), rpcUrl: urls[0]!, rpcUrls: urls });
     }
     usedPublicFallback = true;
   }

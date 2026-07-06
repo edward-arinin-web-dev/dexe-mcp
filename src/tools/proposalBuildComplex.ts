@@ -87,34 +87,34 @@ const participationSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const STAKING_PROPOSAL_ABI = [
+export const STAKING_PROPOSAL_ABI = [
   "function createStaking(address rewardToken, uint256 rewardAmount, uint256 startedAt, uint256 deadline, string metadata)",
 ] as const;
 
-const GOV_POOL_EXT_ABI = [
+export const GOV_POOL_EXT_ABI = [
   "function changeVotePower(address newVotePower)",
   "function editDescriptionURL(string descriptionURL)",
   "function setNftMultiplierAddress(address nftMultiplier)",
 ] as const;
 
-const ERC20_GOV_ABI = [
+export const ERC20_GOV_ABI = [
   "function blacklist(address[] users, bool isBlacklisted)",
   "function transfer(address to, uint256 amount) returns (bool)",
   "function mint(address to, uint256 amount)",
   "function approve(address spender, uint256 amount) returns (bool)",
 ] as const;
 
-const ERC721_MULTIPLIER_ABI = [
+export const ERC721_MULTIPLIER_ABI = [
   "function setTokenURI(uint256 tokenId, string uri)",
   "function mint(address to, uint256 multiplier, uint64 duration, string uri_)",
   "function changeToken(uint256 tokenId, uint256 multiplier, uint64 duration)",
 ] as const;
 
 // ERC721Multiplier multiplier scale = PRECISION = 10**25. So 1.5x = 1.5e25.
-const ERC721_MULTIPLIER_PRECISION = 10n ** 25n;
-const UINT64_MAX = (1n << 64n) - 1n;
+export const ERC721_MULTIPLIER_PRECISION = 10n ** 25n;
+export const UINT64_MAX = (1n << 64n) - 1n;
 
-const GOV_SETTINGS_FULL_ABI = [
+export const GOV_SETTINGS_FULL_ABI = [
   "function addSettings(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)[] settings)",
   "function changeExecutors(address[] executors, uint256[] settingsIds)",
 ] as const;

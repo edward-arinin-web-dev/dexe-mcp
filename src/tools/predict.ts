@@ -6,6 +6,7 @@ import { RpcProvider } from "../rpc.js";
 import { multicall } from "../lib/multicall.js";
 import { gqlRequest } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
+import { chainIdParam } from "../lib/params.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -95,12 +96,14 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
           .boolean()
           .default(false)
           .describe("Bypass mainnet-only guard; forecast purely from on-chain getProposals"),
+        chainId: chainIdParam,
       },
     },
-    async ({ govPool, draft, forceRpcOnly = false }) => {
+    async ({ govPool, draft, forceRpcOnly = false, chainId }) => {
       if (!isAddress(govPool)) return err(`Invalid govPool: ${govPool}`);
 
-      const isMainnet = ctx.config.chainId === 56;
+      const resolvedChainId = rpc.resolveChainId(chainId);
+      const isMainnet = resolvedChainId === 56;
       if (!isMainnet && !forceRpcOnly) {
         return ok({
           error: "subgraph required",
@@ -108,7 +111,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         });
       }
 
-      const pr = rpc.tryProvider();
+      const pr = rpc.tryProvider(chainId);
       if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
 
@@ -216,7 +219,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
 
       return ok({
         govPool,
-        chain: ctx.config.chainId,
+        chain: resolvedChainId,
         quorum: {
           required: requiredQuorum.toString(),
           projectedFor: projectedFor.toString(),

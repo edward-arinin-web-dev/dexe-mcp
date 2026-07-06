@@ -7,6 +7,7 @@ import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { EnvGuardResult } from "../lib/requireEnv.js";
 import { renderUntrusted } from "../lib/sanitize.js";
+import { chainIdParam } from "../lib/params.js";
 
 const POOL_FACTORY_ABI = [
   "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
@@ -30,13 +31,13 @@ const GOV_VALIDATORS_ABI = [
 export function registerDaoTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
 
-  function requireBook(): EnvGuardResult<AddressBook> {
-    const pr = rpc.tryProvider();
+  function requireBook(chainId?: number): EnvGuardResult<AddressBook> {
+    const pr = rpc.tryProvider(chainId);
     if ("error" in pr) return pr;
     return {
       ok: new AddressBook({
         provider: pr.ok,
-        chainId: ctx.config.chainId,
+        chainId: rpc.resolveChainId(chainId),
         registryOverride: ctx.config.registryOverride,
       }),
     };
@@ -56,7 +57,7 @@ function errorResult(message: string) {
 function registerPredictAddresses(
   server: McpServer,
   ctx: ToolContext,
-  requireBook: () => EnvGuardResult<AddressBook>,
+  requireBook: (chainId?: number) => EnvGuardResult<AddressBook>,
 ): void {
   server.registerTool(
     "dexe_dao_predict_addresses",
@@ -67,6 +68,7 @@ function registerPredictAddresses(
       inputSchema: {
         deployer: z.string().describe("Address that will send the deployGovPool tx (tx.origin)"),
         poolName: z.string().describe("Unique pool name — part of the CREATE2 salt"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -77,12 +79,12 @@ function registerPredictAddresses(
         nftMultiplier: z.string(),
       },
     },
-    async ({ deployer, poolName }) => {
+    async ({ deployer, poolName, chainId }) => {
       if (!isAddress(deployer)) return errorResult(`Invalid deployer address: ${deployer}`);
       if (!poolName || poolName.length === 0) return errorResult("poolName must be non-empty");
 
       try {
-        const ab = requireBook();
+        const ab = requireBook(chainId);
         if ("error" in ab) return errorResult(`${ab.error}\n${ab.remediation}`);
         const book = ab.ok;
         const factoryAddr = await book.resolve(CONTRACT_NAMES.POOL_FACTORY);
@@ -122,7 +124,7 @@ function registerPredictAddresses(
 function registerRegistryLookup(
   server: McpServer,
   ctx: ToolContext,
-  requireBook: () => EnvGuardResult<AddressBook>,
+  requireBook: (chainId?: number) => EnvGuardResult<AddressBook>,
 ): void {
   server.registerTool(
     "dexe_dao_registry_lookup",
@@ -132,6 +134,7 @@ function registerRegistryLookup(
         "Calls `PoolRegistry.isGovPool(address)` on the configured chain. Returns true if the address is a registered DeXe DAO GovPool.",
       inputSchema: {
         address: z.string().describe("Candidate GovPool address"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         address: z.string(),
@@ -140,10 +143,10 @@ function registerRegistryLookup(
         chainId: z.number(),
       },
     },
-    async ({ address }) => {
+    async ({ address, chainId }) => {
       if (!isAddress(address)) return errorResult(`Invalid address: ${address}`);
       try {
-        const ab = requireBook();
+        const ab = requireBook(chainId);
         if ("error" in ab) return errorResult(`${ab.error}\n${ab.remediation}`);
         const book = ab.ok;
         const registryAddr = await book.resolve(CONTRACT_NAMES.POOL_REGISTRY);
@@ -153,13 +156,13 @@ function registerRegistryLookup(
           address,
           isGovPool: isGov,
           poolRegistry: registryAddr,
-          chainId: ctx.config.chainId,
+          chainId: book.chainId,
         };
         return {
           content: [
             {
               type: "text" as const,
-              text: `${address} ${isGov ? "IS" : "is NOT"} a GovPool on chainId=${ctx.config.chainId} (PoolRegistry=${registryAddr}).`,
+              text: `${address} ${isGov ? "IS" : "is NOT"} a GovPool on chainId=${book.chainId} (PoolRegistry=${registryAddr}).`,
             },
           ],
           structuredContent: structured,
@@ -179,7 +182,7 @@ function registerDaoInfo(
   server: McpServer,
   ctx: ToolContext,
   rpc: RpcProvider,
-  requireBook: () => EnvGuardResult<AddressBook>,
+  requireBook: (chainId?: number) => EnvGuardResult<AddressBook>,
 ): void {
   server.registerTool(
     "dexe_dao_info",
@@ -189,6 +192,7 @@ function registerDaoInfo(
         "Given a GovPool address, batch-reads helper addresses (settings/userKeeper/validators/poolRegistry/votePower), NFT contract addresses, description URL, and live validator count. One multicall RPC round-trip.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -209,10 +213,10 @@ function registerDaoInfo(
         validatorsCount: z.string().nullable(),
       },
     },
-    async ({ govPool }) => {
+    async ({ govPool, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const gpIface = new Interface(GOV_POOL_ABI as unknown as string[]);
@@ -281,7 +285,7 @@ function registerDaoInfo(
 
         // Use requireBook so we fail clearly if chain support is missing — even
         // though dao_info doesn't otherwise need the registry.
-        const abCheck = requireBook();
+        const abCheck = requireBook(chainId);
         if ("error" in abCheck) return errorResult(`${abCheck.error}\n${abCheck.remediation}`);
 
         const structured = {

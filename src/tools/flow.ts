@@ -27,9 +27,18 @@ import {
 } from "../lib/quorumRisk.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
-import { PROPOSAL_BUILDERS, FLOW_PROPOSAL_TYPES } from "../lib/proposalBuilders.js";
+import {
+  PROPOSAL_BUILDERS,
+  INTERNAL_PROPOSAL_BUILDERS,
+  OFFCHAIN_FLOW_TYPES,
+  FLOW_PROPOSAL_TYPES,
+} from "../lib/proposalBuilders.js";
+import { GOV_VALIDATORS_CREATE_ABI } from "./proposalBuild.js";
 import { PROPOSAL_CATALOG } from "../lib/proposalCatalog.js";
 import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
+import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/txWait.js";
+import { toActionableError } from "../lib/errors.js";
+import { parseAmount, formatAmount } from "../lib/units.js";
 import type { StateStore } from "../lib/stateStore.js";
 
 // ---------- ABI fragments ----------
@@ -38,6 +47,8 @@ const ERC20_ABI = new Interface([
   "function balanceOf(address) view returns (uint256)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
 ]);
 
 const GOV_POOL_ABI = new Interface([
@@ -84,6 +95,10 @@ interface Prereqs {
   depositedPower: bigint;
   minVotesForCreating: bigint;
   minVotesForVoting: bigint;
+  /** Gov-token decimals (best-effort read, defaults 18) — used to render amounts in human units. */
+  tokenDecimals: number;
+  /** Gov-token symbol (best-effort read, may be ""). */
+  tokenSymbol: string;
 }
 
 // ---------- helpers ----------
@@ -100,6 +115,29 @@ function ok(data: Record<string, unknown>) {
 
 function bigintReplacer(_k: string, v: unknown): unknown {
   return typeof v === "bigint" ? v.toString() : v;
+}
+
+/**
+ * Uniform composite-failure response (R7): failed step + actionable error +
+ * ledger of steps that already landed (gas spent) + how to resume.
+ */
+export function flowFailureResult(
+  result: { steps: FlowStep[]; failure?: FlowFailure },
+  extra?: Record<string, unknown>,
+) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(
+          { mode: "failed", ...(extra ?? {}), failure: result.failure, steps: result.steps },
+          bigintReplacer,
+          2,
+        ),
+      },
+    ],
+    isError: true,
+  };
 }
 
 function makeTxPayload(to: string, iface: Interface, method: string, args: unknown[], chainId: number, description: string, value?: bigint): TxPayload {
@@ -301,15 +339,19 @@ async function resolvePrereqs(
     depositedPower = balance - ownedBalance;
   }
 
-  // Batch 3: ERC20 balance + allowance
+  // Batch 3: ERC20 balance + allowance + display metadata (best-effort)
   const batch3: Call[] = [
     { target: tokenAddress, iface: ERC20_ABI, method: "balanceOf", args: [user] },
     { target: tokenAddress, iface: ERC20_ABI, method: "allowance", args: [user, userKeeper] },
+    { target: tokenAddress, iface: ERC20_ABI, method: "decimals", args: [], allowFailure: true },
+    { target: tokenAddress, iface: ERC20_ABI, method: "symbol", args: [], allowFailure: true },
   ];
   const res3 = await multicall(provider, batch3);
 
   const walletBalance = res3[0]!.success ? (res3[0]!.value as bigint) : 0n;
   const currentAllowance = res3[1]!.success ? (res3[1]!.value as bigint) : 0n;
+  const tokenDecimals = res3[2]!.success ? Number(res3[2]!.value) : 18;
+  const tokenSymbol = res3[3]!.success ? String(res3[3]!.value) : "";
 
   return {
     userKeeper,
@@ -320,6 +362,8 @@ async function resolvePrereqs(
     depositedPower,
     minVotesForCreating: defaultSettings.minVotesForCreating,
     minVotesForVoting: defaultSettings.minVotesForVoting,
+    tokenDecimals,
+    tokenSymbol,
   };
 }
 
@@ -410,13 +454,27 @@ export function attachPairingQr(
   return { ...res, content: [...pairingContent, ...res.content] };
 }
 
+/**
+ * Partial-failure record (R7): which steps landed on-chain (gas spent), which
+ * step failed, and how to proceed. Composites surface this verbatim so a
+ * mid-sequence failure is never a bare "broadcast failed".
+ */
+export interface FlowFailure {
+  failedStep: string;
+  error: string;
+  /** Steps that DID land before the failure — their txHashes are real, gas was spent. */
+  landedSteps: FlowStep[];
+  resume: string;
+}
+
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
   opts?: { dryRun?: boolean; chainId?: number; wc?: WalletConnectManager },
 ): Promise<{
-  mode: "executed" | "payloads" | "dryRun";
+  mode: "executed" | "payloads" | "dryRun" | "failed";
   steps: FlowStep[];
+  failure?: FlowFailure;
   enableWrites?: string;
   pairing?: FlowPairing;
   /** QR content blocks (ASCII + PNG) — pass to `attachPairingQr` so the QR renders inline. */
@@ -457,35 +515,61 @@ export async function sendOrCollect(
   const wallet = sg.ok;
   const cfg = signer.getConfig();
   for (const p of payloads) {
-    // Same B6/B7/B10 broadcast guards as dexe_tx_send. B9 simulation is skipped:
-    // these payloads are an ordered, *dependent* sequence, so simming a later
-    // step against pre-sequence state would falsely revert. A BroadcastGuardError
-    // aborts the flow before the offending send (gas spent only on prior steps).
-    await runBroadcastGuards(
-      {
-        to: p.to,
-        data: p.data,
-        value: p.value,
-        chainId: Number(p.chainId),
-        from: wallet.address,
-      },
-      cfg,
-      { skipSimulation: true },
-    );
-    const tx = await signer.withBroadcastLock(Number(p.chainId), () =>
-      wallet.sendTransaction({
-        to: p.to,
-        data: p.data,
-        value: BigInt(p.value),
-        chainId: BigInt(p.chainId),
-      }),
-    );
-    const receipt = await tx.wait(1);
-    steps.push({
-      label: p.description,
-      skipped: false,
-      txHash: receipt?.hash ?? tx.hash,
-    });
+    // Any step failing mid-sequence: STOP (dependent steps must not run on top
+    // of unchanged state — R3), report which steps already landed (gas spent),
+    // and tell the caller how to resume (R7). Composites re-check completed
+    // work (allowance, deposited power, proposal state) on re-run, so "fix the
+    // cause and re-run this same call" is the correct resume for every flow.
+    try {
+      // Same B6/B7/B10 broadcast guards as dexe_tx_send. B9 simulation is skipped:
+      // these payloads are an ordered, *dependent* sequence, so simming a later
+      // step against pre-sequence state would falsely revert. A BroadcastGuardError
+      // aborts the flow before the offending send (gas spent only on prior steps).
+      await runBroadcastGuards(
+        {
+          to: p.to,
+          data: p.data,
+          value: p.value,
+          chainId: Number(p.chainId),
+          from: wallet.address,
+        },
+        cfg,
+        { skipSimulation: true },
+      );
+      const tx = await signer.withBroadcastLock(Number(p.chainId), () =>
+        wallet.sendTransaction({
+          to: p.to,
+          data: p.data,
+          value: BigInt(p.value),
+          chainId: BigInt(p.chainId),
+        }),
+      );
+      const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
+      assertReceiptSuccess(receipt, p.description);
+      steps.push({
+        label: p.description,
+        skipped: false,
+        txHash: receipt?.hash ?? tx.hash,
+      });
+    } catch (e) {
+      const landed = steps.filter((s) => s.txHash);
+      const actionable = toActionableError(e, p.description);
+      return {
+        mode: "failed",
+        steps,
+        failure: {
+          failedStep: p.description,
+          error: actionable.message,
+          landedSteps: landed,
+          resume:
+            landed.length > 0
+              ? `${landed.length} earlier step(s) already landed on-chain (see landedSteps txHashes). ` +
+                "Fix the cause above and re-run this same call — already-satisfied steps (approve / deposit / vote) " +
+                "are detected on-chain and skipped automatically."
+              : "No steps landed on-chain. Fix the cause above and re-run this same call.",
+        },
+      };
+    }
   }
   return { mode: "executed", steps };
 }
@@ -555,6 +639,29 @@ export async function runProposalCreate(
     ...inputRaw,
   };
   const { ctx, signer, rpc } = deps;
+
+      // Off-chain proposal types live on the DeXe backend, not on any contract —
+      // reject with the exact alternative flow instead of a dead-end.
+      if ((OFFCHAIN_FLOW_TYPES as readonly string[]).includes(input.proposalType)) {
+        const buildTool = `dexe_proposal_build_${input.proposalType}`;
+        return err(
+          `proposalType '${input.proposalType}' is an OFF-CHAIN proposal — it is created on the DeXe backend ` +
+            `(api.dexe.io), not on-chain, so this composite cannot broadcast it. Flow instead:\n` +
+            `1) ${buildTool} → returns the ready-to-send HTTP request (JSON:API body).\n` +
+            `2) Authenticate: dexe_auth_request_nonce (get the message), sign it with the user's wallet, ` +
+            `dexe_auth_login_request (exchange for access_token).\n` +
+            `3) Send the request with 'Authorization: Bearer <access_token>'.\n` +
+            `Note: the backend indexes BSC mainnet (56) DAOs only.`,
+        );
+      }
+
+      // Internal proposal types are created on GovValidators (validators-only
+      // voting, no token deposit) — a different single-tx path.
+      const internalBuilder = INTERNAL_PROPOSAL_BUILDERS[input.proposalType];
+      if (internalBuilder) {
+        return runInternalProposalCreate(input, deps, internalBuilder);
+      }
+
       if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a proposal"));
 
       const user = input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
@@ -570,7 +677,12 @@ export async function runProposalCreate(
       try {
         prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
       } catch (e) {
-        return err(`Failed to resolve prerequisites: ${e instanceof Error ? e.message : String(e)}`);
+        const a = toActionableError(e, "resolve DAO prerequisites");
+        return err(
+          a.slug
+            ? a.message
+            : `${a.message}\nIf this repeats, verify the govPool address is a DeXe GovPool on chain ${chainId} (dexe_dao_info) — a wrong address or chain yields exactly this read failure.`,
+        );
       }
 
       // Mode 6 guard: the auto-approve targets the UserKeeper (which does
@@ -586,8 +698,13 @@ export async function runProposalCreate(
       // Step 2: check creation threshold
       const totalAvailable = prereqs.walletBalance + prereqs.depositedPower;
       if (prereqs.minVotesForCreating > 0n && totalAvailable < prereqs.minVotesForCreating) {
+        const d = prereqs.tokenDecimals;
+        const sym = prereqs.tokenSymbol;
         return err(
-          `Insufficient tokens for proposal creation. Need ${prereqs.minVotesForCreating} but have ${totalAvailable} (wallet: ${prereqs.walletBalance}, deposited: ${prereqs.depositedPower}).`,
+          `Insufficient tokens to create a proposal on this DAO. The DAO requires ${formatAmount(prereqs.minVotesForCreating, d, sym)} ` +
+            `but ${user} has ${formatAmount(totalAvailable, d, sym)} total (wallet ${formatAmount(prereqs.walletBalance, d, sym)}, ` +
+            `deposited ${formatAmount(prereqs.depositedPower, d, sym)}). ` +
+            `Next step: acquire more ${sym || "gov tokens"} (token ${prereqs.tokenAddress}), or have a holder with enough tokens create the proposal.`,
         );
       }
 
@@ -775,7 +892,7 @@ export async function runProposalCreate(
         try {
           built = await builder.build(parsed.data, { ctx, govPool, chainId });
         } catch (e) {
-          return err(`Failed to build ${input.proposalType} actions: ${e instanceof Error ? e.message : String(e)}`);
+          return err(toActionableError(e, `build ${input.proposalType} actions`).message);
         }
         actionsOnFor = built.actionsOnFor.map((a) => ({
           executor: a.executor,
@@ -806,16 +923,31 @@ export async function runProposalCreate(
       const payloads: TxPayload[] = [];
       const skippedSteps: FlowStep[] = [];
 
-      // Determine how much to deposit
-      const voteAmount = input.voteAmount ? BigInt(input.voteAmount) : prereqs.depositedPower + prereqs.walletBalance;
+      // Determine how much to deposit. voteAmount accepts raw wei (digits-only)
+      // or human units with a decimal point, scaled by the gov token's decimals.
+      let voteAmount: bigint;
+      try {
+        voteAmount = input.voteAmount
+          ? parseAmount(input.voteAmount, prereqs.tokenDecimals)
+          : prereqs.depositedPower + prereqs.walletBalance;
+      } catch (e) {
+        return err(e instanceof Error ? e.message : String(e));
+      }
       if (voteAmount === 0n) {
-        return err("No voting power available (wallet + deposited = 0). Deposit tokens first.");
+        return err(
+          `No voting power available — ${user} holds 0 ${prereqs.tokenSymbol || "gov tokens"} (wallet + deposited). ` +
+            `Acquire the DAO's gov token (${prereqs.tokenAddress}) first, then re-run.`,
+        );
       }
       const needDeposit = voteAmount > prereqs.depositedPower ? voteAmount - prereqs.depositedPower : 0n;
 
       if (needDeposit > prereqs.walletBalance) {
+        const d = prereqs.tokenDecimals;
+        const sym = prereqs.tokenSymbol;
         return err(
-          `Need to deposit ${needDeposit} but wallet only has ${prereqs.walletBalance}. Missing ${needDeposit - prereqs.walletBalance}.`,
+          `Not enough tokens: voting with ${formatAmount(voteAmount, d, sym)} needs a deposit of ${formatAmount(needDeposit, d, sym)} ` +
+            `but the wallet only holds ${formatAmount(prereqs.walletBalance, d, sym)}. ` +
+            `Next step: lower voteAmount to at most ${formatAmount(prereqs.depositedPower + prereqs.walletBalance, d, sym)}, or acquire more tokens.`,
         );
       }
 
@@ -833,51 +965,35 @@ export async function runProposalCreate(
         skippedSteps.push({ label: "ERC20.approve", skipped: true, reason: "Allowance sufficient" });
       }
 
-      // Build GovPool calls to batch via multicall
-      const govPoolCalls: string[] = [];
-
-      // Deposit (if needed)
+      // Deposit (if needed) — a SEPARATE tx, never bundled. Newly deployed
+      // pools ship with SphereX protection that rejects the old
+      // multicall([deposit, createProposalAndVote]) wrap with
+      // "SphereX error: disallowed tx pattern" (verified live on chain 97,
+      // v0.22). Sequential txs pass, and the failure ledger makes the
+      // two-step sequence safely resumable.
       if (needDeposit > 0n) {
-        govPoolCalls.push(
-          GOV_POOL_ABI.encodeFunctionData("deposit", [needDeposit, []]),
-        );
+        payloads.push(makeTxPayload(
+          govPool, GOV_POOL_ABI, "deposit",
+          [needDeposit, []], chainId,
+          `GovPool.deposit(${needDeposit})`,
+        ));
       } else {
         skippedSteps.push({ label: "GovPool.deposit", skipped: true, reason: "Sufficient deposited power" });
       }
 
-      // createProposalAndVote
       const actionsForTuple = actionsOnFor.map(a => [a.executor, a.value, a.data]);
-      govPoolCalls.push(
-        GOV_POOL_ABI.encodeFunctionData("createProposalAndVote", [
-          descriptionURL,
-          actionsForTuple,
-          [], // actionsOnAgainst
-          voteAmount,
-          input.voteNftIds.map(id => BigInt(id)),
-        ]),
-      );
-
-      // Wrap in multicall if >1 call, otherwise single tx
-      if (govPoolCalls.length > 1) {
-        payloads.push({
-          to: govPool,
-          data: GOV_POOL_ABI.encodeFunctionData("multicall", [govPoolCalls]),
-          value: "0",
-          chainId,
-          description: `GovPool.multicall([deposit, createProposalAndVote])`,
-        });
-      } else {
-        payloads.push({
-          to: govPool,
-          data: govPoolCalls[0]!,
-          value: "0",
-          chainId,
-          description: `GovPool.createProposalAndVote("${input.title}")`,
-        });
-      }
+      payloads.push(makeTxPayload(
+        govPool, GOV_POOL_ABI, "createProposalAndVote",
+        [descriptionURL, actionsForTuple, [], voteAmount, input.voteNftIds.map(id => BigInt(id))],
+        chainId,
+        `GovPool.createProposalAndVote("${input.title}")`,
+      ));
 
       // Step 6: send or return
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc: deps.wc });
+      if (result.mode === "failed") {
+        return flowFailureResult(result, { descriptionURL, proposalMetadataCID: proposalMetaRes.cid });
+      }
 
       // Phase 3: record a broadcast proposal so dexe_context surfaces it next
       // session. Best-effort — a state-write error never breaks the broadcast.
@@ -917,6 +1033,139 @@ export async function runProposalCreate(
       );
 }
 
+/**
+ * v0.22 — internal-proposal path of `dexe_proposal_create`. Internal proposals
+ * (change_validator_balances / change_validator_settings / monthly_withdraw /
+ * offchain_internal_proposal) are created on GovValidators via
+ * `createInternalProposal(uint8, descriptionURL, bytes)` — validators vote with
+ * their own balances, so there is no approve/deposit sequence. Only a current
+ * validator can create one; the response notes that requirement.
+ */
+async function runInternalProposalCreate(
+  inputRaw: ProposalCreateInput,
+  deps: ProposalCreateDeps,
+  builder: (typeof INTERNAL_PROPOSAL_BUILDERS)[string],
+) {
+  const input = { proposalType: "custom", description: "", ...inputRaw };
+  const { ctx, signer, rpc } = deps;
+  if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create an internal proposal"));
+
+  const parsed = builder.schema.safeParse(input.params ?? {});
+  if (!parsed.success) {
+    return err(
+      `Invalid params for proposalType '${input.proposalType}': ` +
+        parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "),
+    );
+  }
+  let built: ReturnType<typeof builder.build>;
+  try {
+    built = builder.build(parsed.data);
+  } catch (e) {
+    return err(toActionableError(e, `build ${input.proposalType}`).message);
+  }
+
+  const chain = resolveChain(ctx.config, input.chainId);
+  const chainId = chain.chainId;
+  const govPool = input.govPool;
+  const pr = rpc.tryProvider(chainId);
+  if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+  const provider = pr.ok;
+
+  // W10: same registered-pool check as the external flow.
+  try {
+    await assertRegisteredGovPool(provider, rpc, ctx.config, chainId, govPool);
+  } catch (e) {
+    return err(e instanceof Error ? e.message : String(e));
+  }
+
+  // Resolve the GovValidators helper from the pool.
+  let validators: string;
+  try {
+    const res = await multicall(provider, [
+      { target: govPool, iface: GOV_POOL_ABI, method: "getHelperContracts", args: [] },
+    ]);
+    if (!res[0]!.success) throw new Error(res[0]!.error ?? "getHelperContracts reverted");
+    const helpers = res[0]!.value as [string, string, string, string, string];
+    validators = helpers[2]!;
+  } catch (e) {
+    return err(toActionableError(e, "resolve GovValidators").message);
+  }
+
+  // Metadata shape mirrors dexe_proposal_build_change_validator_* exactly
+  // (internal metadata carries no isMeta field).
+  const pinata = new PinataClient(ctx.config.pinataJwt);
+  const proposalMeta = {
+    proposalName: input.title,
+    proposalDescription: JSON.stringify(markdownToSlate(input.description)),
+    category: built.category,
+    ...built.metadataExtra,
+  };
+  let cid: string;
+  try {
+    const res = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
+    cid = res.cid;
+  } catch (e) {
+    return err(toActionableError(e, "upload internal-proposal metadata").message);
+  }
+  const descriptionURL = `ipfs://${cid}`;
+
+  const validatorsIface = new Interface(GOV_VALIDATORS_CREATE_ABI as unknown as string[]);
+  const payloads: TxPayload[] = [
+    makeTxPayload(
+      validators,
+      validatorsIface,
+      "createInternalProposal",
+      [built.internalType, descriptionURL, built.data],
+      chainId,
+      `GovValidators.createInternalProposal(${built.summary})`,
+    ),
+  ];
+
+  const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc: deps.wc });
+  if (result.mode === "failed") {
+    return flowFailureResult(result, {
+      proposalKind: "internal",
+      descriptionURL,
+      note: "Internal proposals can only be created by a CURRENT validator of this DAO — a non-validator sender reverts.",
+    });
+  }
+
+  if (result.mode === "executed" && deps.state) {
+    try {
+      const txHash = [...result.steps].reverse().find((s) => s.txHash)?.txHash;
+      deps.state.recordProposal({
+        govPool,
+        chainId,
+        title: input.title,
+        descriptionURL,
+        txHash,
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return attachPairingQr(
+    ok({
+      mode: result.mode,
+      proposalKind: "internal",
+      validators,
+      internalType: built.internalType,
+      descriptionURL,
+      proposalMetadataCID: cid,
+      summary: built.summary,
+      steps: result.steps,
+      note:
+        "Internal proposals are created and voted on by the DAO's validators only (their own validator balances — " +
+        "no token deposit). The sender must be a current validator or the tx reverts.",
+      ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
+      ...(result.pairing ? { pairing: result.pairing } : {}),
+    }),
+    result.pairingContent,
+  );
+}
+
 // ---------- register ----------
 
 export function registerFlowTools(
@@ -933,19 +1182,27 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_create",
-    "Create a governance proposal in ONE call — handles the whole approve→deposit→createProposalAndVote " +
-      "sequence, uploads correct IPFS metadata (category/isMeta/changes), signs+broadcasts when " +
-      "DEXE_PRIVATE_KEY is set (else returns ordered TxPayloads).\n\n" +
-      "proposalType — pass one of:\n" +
-      "• 'modify_dao_profile' — change DAO profile (newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks; avatar via " +
-      "newAvatarPath — a local image path the server uploads itself — or newAvatarCID for an already-pinned image).\n" +
-      "• 'custom' — pass your own actionsOnFor [{executor,value,data}] (+ optional category).\n" +
-      "• Wired catalog types (pass their inputs in `params`): 'token_transfer' {token,recipient,amount,isNative?}, " +
+    "Create ANY governance proposal in ONE call — handles the whole approve→deposit→createProposalAndVote " +
+      "sequence, uploads correct IPFS metadata (category/isMeta/changes), signs+broadcasts when a signer is " +
+      "configured (else returns ordered TxPayloads + a WalletConnect QR).\n\n" +
+      "proposalType (every DeXe catalog type is wired):\n" +
+      "• 'modify_dao_profile' — top-level fields (newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks; avatar via " +
+      "newAvatarPath — a local image path the server uploads itself — or newAvatarCID).\n" +
+      "• 'custom' — your own actionsOnFor [{executor,value,data}] (+ optional category).\n" +
+      "• On-chain external types (inputs go in `params`): 'token_transfer' {token,recipient,amount,isNative?}, " +
       "'withdraw_treasury' {receiver,token?,amount?,nftAddress?,nftIds?}, 'change_voting_settings' {govSettings,settings[],settingsIds?}, " +
-      "'add_expert' {expertNftContract,scope,nominatedUser,uri?}, 'remove_expert' {expertNftContract,scope,nominatedUser}, " +
-      "'token_distribution' {distributionProposal,proposalId,token,amount,isNative?}, 'token_sale' {tokenSaleProposal,tiers[],latestTierId?}, " +
-      "'custom_abi' {target,signature,method,args?,value?}.\n" +
-      "Any other catalog type → error naming the dedicated dexe_proposal_build_* tool. See dexe_proposal_catalog.",
+      "'add_expert'/'remove_expert' {expertNftContract,scope,nominatedUser,uri?}, 'token_distribution', 'token_sale', " +
+      "'token_sale_whitelist' {tokenSaleProposal,requests[]}, 'token_sale_recover' {tokenSaleProposal,tierIds[]}, " +
+      "'manage_validators'/'validators_allocation' {govValidators,changes[{user,balance}]}, " +
+      "'delegate_to_expert'/'revoke_from_expert' {expert,amount,nftIds?}, 'create_staking_tier', " +
+      "'change_math_model' {newVotePower}, 'blacklist' {erc20Gov,addAddresses?,removeAddresses?}, " +
+      "'reward_multiplier' {mode,...}, 'apply_to_dao' {token,receiver,amount,treasuryBalance?}, " +
+      "'new_proposal_type'/'enable_staking' {govSettings,settings,executors,newSettingId}, 'custom_abi' {target,signature,method,args?}.\n" +
+      "• Internal (validators-only, auto-routed to GovValidators.createInternalProposal): " +
+      "'change_validator_balances' {changes[]}, 'change_validator_settings' {duration,executionDelay,quorum}, " +
+      "'monthly_withdraw' {withdrawals[],destination}, 'offchain_internal_proposal' {}.\n" +
+      "• Off-chain backend types ('offchain_single_option' etc.) are rejected with the exact backend flow to use instead.\n" +
+      "Full per-type recipes with examples: docs/PLAYBOOK.md (dexe://playbook resource) or dexe_proposal_catalog.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z
@@ -957,15 +1214,15 @@ export function registerFlowTools(
           "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
         ),
       proposalType: z
-        .string()
+        .enum(FLOW_PROPOSAL_TYPES as unknown as [string, ...string[]])
         .default("custom")
         .describe(
-          "'modify_dao_profile' | 'custom' | a wired catalog type (token_transfer, withdraw_treasury, change_voting_settings, add_expert, remove_expert, token_distribution, token_sale, custom_abi).",
+          "One of the wired types listed in the tool description. Unknown values are rejected with the valid list.",
         ),
       params: z
         .record(z.unknown())
         .optional()
-        .describe("Type-specific builder inputs for wired catalog proposalTypes (see tool description)."),
+        .describe("Type-specific builder inputs for the chosen proposalType (recipes: tool description / dexe://playbook)."),
       title: z.string().describe("Proposal title"),
       description: z.string().default("").describe("Proposal description (markdown supported)"),
       newDaoName: z.string().optional(),
@@ -986,7 +1243,12 @@ export function registerFlowTools(
       })).default([]).describe("Actions for custom proposals"),
       category: z.string().optional().describe("Proposal category (included in IPFS metadata)."),
       proposalMetadataExtra: z.record(z.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
-      voteAmount: z.string().optional().describe("Auto-vote amount (18-dec wei). Defaults to all deposited power."),
+      voteAmount: z
+        .string()
+        .optional()
+        .describe(
+          "Auto-vote amount: raw wei (digits-only) OR human units with a decimal point ('12.5', scaled by the gov token's decimals). Defaults to all available power.",
+        ),
       voteNftIds: z.array(z.string()).default([]),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
@@ -999,10 +1261,10 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_vote_and_execute",
-    "Vote on a proposal and optionally execute it. " +
-      "Checks proposal state, deposits tokens if needed, votes, and when autoExecute is true " +
-      "attempts to execute after voting. When DEXE_PRIVATE_KEY is set, signs and broadcasts. " +
-      "Otherwise returns ordered TxPayload list.",
+    "Vote on a proposal and optionally execute it — the ONE call for 'vote on / pass / execute proposal N'. " +
+      "Checks proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → vote, " +
+      "matching the frontend's bundled deposit+vote), and when autoExecute is true executes after the vote passes. " +
+      "Signs+broadcasts when a signer is configured; otherwise returns ordered TxPayloads + a WalletConnect QR.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z
@@ -1015,9 +1277,21 @@ export function registerFlowTools(
         ),
       proposalId: z.number().int().min(1).describe("Proposal ID (1-indexed)"),
       isVoteFor: z.boolean().default(true).describe("Vote for (true) or against (false)"),
-      voteAmount: z.string().optional().describe("Vote amount (18-dec wei). Defaults to all deposited power."),
+      voteAmount: z
+        .string()
+        .optional()
+        .describe(
+          "Vote amount: raw wei (digits-only string) OR human units with a decimal point ('12.5', scaled by the gov " +
+            "token's decimals). Defaults to ALL available power (deposited + wallet).",
+        ),
       voteNftIds: z.array(z.string()).default([]),
-      depositFirst: z.boolean().default(false).describe("Deposit wallet tokens before voting"),
+      depositFirst: z
+        .union([z.boolean(), z.literal("auto")])
+        .default("auto")
+        .describe(
+          "'auto' (default): deposit exactly the missing amount from the wallet when deposited power is short of " +
+            "voteAmount. true: deposit the full wallet balance. false: never deposit (vote with already-deposited power only).",
+        ),
       autoExecute: z.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
@@ -1062,6 +1336,9 @@ export function registerFlowTools(
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
         ], { dryRun: input.dryRun, chainId, wc });
+        if (execResult.mode === "failed") {
+          return flowFailureResult(execResult, { proposalId, proposalStateBefore: stateName });
+        }
         return attachPairingQr(ok({
           mode: execResult.mode,
           proposalId,
@@ -1078,54 +1355,98 @@ export function registerFlowTools(
       }
 
       if (stateNum !== 0) {
-        return err(`Proposal #${proposalId} is in state "${stateName}" — voting requires "Voting" state.`);
+        const remedies: Record<number, string> = {
+          1: "It is waiting for the validator-voting transfer — check again shortly with dexe_proposal_state.",
+          2: "It is in validator voting — only the DAO's validators can act now; wait for their vote.",
+          3: "It was DEFEATED — voting is over. Create a new proposal if the change is still wanted.",
+          4: "It already PASSED — re-run this call with autoExecute:true (the default) to execute it, no vote needed.",
+          5: "It already passed AGAINST — re-run this call with autoExecute:true to execute the against-actions.",
+          6: "It is Locked (passed, execution delay running) — re-run this call with autoExecute:true once the delay elapses.",
+          7: "It was already EXECUTED (for) — nothing left to do.",
+          8: "It was already EXECUTED (against) — nothing left to do.",
+        };
+        return err(
+          `Proposal #${proposalId} is in state "${stateName}" — voting is only possible in "Voting". ` +
+            (remedies[stateNum] ?? "Check dexe_proposal_state for details."),
+        );
       }
 
-      // Step 2: resolve prereqs for deposit check
-      let prereqs: Prereqs | undefined;
-      if (input.depositFirst) {
-        prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
-      }
+      // Step 2: resolve prereqs — always needed now (auto-deposit detection +
+      // minVotes threshold + human-unit rendering).
+      const prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
+      const d = prereqs.tokenDecimals;
+      const sym = prereqs.tokenSymbol;
 
       const payloads: TxPayload[] = [];
       const skippedSteps: FlowStep[] = [];
 
-      // Step 3: optional deposit
-      if (input.depositFirst && prereqs && prereqs.walletBalance > 0n) {
-        // Approve if needed
-        if (prereqs.currentAllowance < prereqs.walletBalance) {
-          // W10: exact-amount approve, never MAX_UINT256.
-          payloads.push(makeTxPayload(
-            prereqs.tokenAddress, ERC20_ABI, "approve",
-            [prereqs.userKeeper, prereqs.walletBalance], chainId,
-            `ERC20.approve(${prereqs.userKeeper}, ${prereqs.walletBalance})`,
-          ));
-        }
-        // Deposit
-        payloads.push(makeTxPayload(
-          govPool, GOV_POOL_ABI, "deposit",
-          [prereqs.walletBalance, []], chainId,
-          `GovPool.deposit(${prereqs.walletBalance})`,
-        ));
+      // Step 3: target vote amount (raw wei digits-only, or human decimal).
+      let voteAmt: bigint;
+      try {
+        voteAmt = input.voteAmount
+          ? parseAmount(input.voteAmount, d)
+          : input.depositFirst === false
+            ? prereqs.depositedPower
+            : prereqs.depositedPower + prereqs.walletBalance;
+      } catch (e) {
+        return err(e instanceof Error ? e.message : String(e));
       }
-
-      // Step 4: vote
-      const voteAmt = input.voteAmount
-        ? BigInt(input.voteAmount)
-        : (prereqs ? prereqs.depositedPower + prereqs.walletBalance : 0n);
 
       if (voteAmt === 0n) {
-        return err("No voting power available. Deposit tokens before voting.");
+        return err(
+          input.depositFirst === false
+            ? `No deposited voting power (wallet holds ${formatAmount(prereqs.walletBalance, d, sym)}, deposited 0). ` +
+              `Re-run with depositFirst:'auto' (the default) to deposit-and-vote in one call.`
+            : `No voting power available — ${user} holds 0 ${sym || "gov tokens"} (wallet + deposited). ` +
+              `Acquire the DAO's gov token (${prereqs.tokenAddress}) first.`,
+        );
       }
 
-      // Check minVotesForVoting threshold
-      if (!prereqs && !input.voteAmount) {
-        // Need prereqs to validate threshold — fetch them
-        prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
+      // Step 4: deposit decision.
+      //   'auto'  → deposit exactly the shortfall (frontend-equivalent bundled deposit+vote)
+      //   true    → legacy explicit: deposit the full wallet balance
+      //   false   → never deposit
+      let depositAmount = 0n;
+      if (input.depositFirst === true) {
+        depositAmount = prereqs.walletBalance;
+      } else if (input.depositFirst !== false && voteAmt > prereqs.depositedPower) {
+        const shortfall = voteAmt - prereqs.depositedPower;
+        if (shortfall > prereqs.walletBalance) {
+          return err(
+            `Not enough tokens: voting with ${formatAmount(voteAmt, d, sym)} needs ${formatAmount(shortfall, d, sym)} more deposited, ` +
+              `but the wallet only holds ${formatAmount(prereqs.walletBalance, d, sym)} ` +
+              `(deposited ${formatAmount(prereqs.depositedPower, d, sym)}). ` +
+              `Lower voteAmount to at most ${formatAmount(prereqs.depositedPower + prereqs.walletBalance, d, sym)}, or acquire more tokens.`,
+          );
+        }
+        depositAmount = shortfall;
       }
-      if (prereqs && prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
+
+      if (depositAmount > 0n) {
+        // Approve if needed — W10: exact-amount approve to the UserKeeper
+        // (never GovPool, never MAX_UINT256).
+        if (prereqs.currentAllowance < depositAmount) {
+          payloads.push(makeTxPayload(
+            prereqs.tokenAddress, ERC20_ABI, "approve",
+            [prereqs.userKeeper, depositAmount], chainId,
+            `ERC20.approve(${prereqs.userKeeper}, ${depositAmount})`,
+          ));
+        }
+        payloads.push(makeTxPayload(
+          govPool, GOV_POOL_ABI, "deposit",
+          [depositAmount, []], chainId,
+          `GovPool.deposit(${depositAmount})`,
+        ));
+      } else if (input.depositFirst !== false) {
+        skippedSteps.push({ label: "GovPool.deposit", skipped: true, reason: "Deposited power already covers voteAmount" });
+      }
+
+      // Step 5: minVotesForVoting threshold
+      if (prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
         return err(
-          `Insufficient voting power. Need ${prereqs.minVotesForVoting} but voting with ${voteAmt}.`,
+          `Vote below this DAO's minimum: voting requires at least ${formatAmount(prereqs.minVotesForVoting, d, sym)} ` +
+            `but this vote would cast ${formatAmount(voteAmt, d, sym)}. ` +
+            `Raise voteAmount (you have ${formatAmount(prereqs.depositedPower + prereqs.walletBalance, d, sym)} total) or acquire more tokens.`,
         );
       }
 
@@ -1138,6 +1459,9 @@ export function registerFlowTools(
 
       // Step 5: send or collect
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      if (result.mode === "failed") {
+        return flowFailureResult(result, { proposalId, proposalStateBefore: stateName });
+      }
 
       // Step 6: auto-execute (only in executed mode)
       let executed = false;
@@ -1164,6 +1488,14 @@ export function registerFlowTools(
             makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
           ], { dryRun: input.dryRun, chainId, wc });
           result.steps.push(...execResult.steps);
+          if (execResult.mode === "failed") {
+            // The vote landed; only the execute failed. Surface the ledger —
+            // the proposal stays executable via a re-run or dexe_vote_build_execute.
+            return flowFailureResult(
+              { steps: result.steps, failure: execResult.failure },
+              { proposalId, proposalStateBefore: stateName, voteLanded: true },
+            );
+          }
           executed = true;
         } else {
           skippedSteps.push({

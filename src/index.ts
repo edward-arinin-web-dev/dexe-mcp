@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -63,25 +63,53 @@ if (subcommand === "skills") {
   process.exit(0);
 }
 
+/** Real package version — the MCP handshake previously hardcoded "0.1.5". */
+function packageVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, "..", "package.json"), "utf8")) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
 async function main(): Promise<void> {
   const config = await loadConfig();
 
   const server = new McpServer(
-    { name: "dexe-mcp", version: "0.1.5" },
+    { name: "dexe-mcp", version: packageVersion() },
     {
       instructions:
         "Tools for DeXe Protocol governance DAOs (plus a generic dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs). " +
         "Call dexe_context first WHEN you need orientation (signer, active chain, env readiness, DAOs/proposals from prior sessions) — skip it when the user already gave you the target DAO and chain. " +
-        "Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (any proposal — pass proposalType + params), dexe_proposal_vote_and_execute. " +
+        "Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (ANY of the 33 catalog proposal types — pass proposalType + params), dexe_proposal_vote_and_execute (auto-deposits when power is short). " +
+        "Amounts accept raw wei (digits-only) or human units with a decimal point ('12.5'); durations are seconds. " +
         "For images (DAO avatars): pass a LOCAL FILE PATH (avatarPath / newAvatarPath / filePath) and the server reads, validates, and pins it — never read image files or pass base64 through the conversation. " +
-        "They handle the approve→deposit→create sequence, correct IPFS metadata, and the known deploy/proposal reverts. When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
-        "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. dexe_decode_proposal and dexe_read_gov_state need an RPC. " +
-        "The tool surface is gated by DEXE_TOOLSETS (default 'core,proposals'). Set DEXE_TOOLSETS=full for every tool, or add sets: read, vote, governor, dev. " +
+        "The composites handle approve→deposit→create sequencing, correct IPFS metadata, and the known deploy/proposal reverts; on partial failure they return the landed-steps ledger — fix the cause and re-run the same call (completed steps are skipped). " +
+        "When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
+        "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. " +
+        "The tool surface is gated by DEXE_TOOLSETS (default 'core,proposals'); dexe_context reports which sets are off and what they unlock. " +
+        "Full intent→call recipes + error→remedy table: docs/PLAYBOOK.md (shipped in the package). " +
         "Recipe skills ship with the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc). Installed automatically with the Claude Code plugin (`/plugin install dexe@dexe-mcp`), or copy them standalone with `npx dexe-mcp skills`.",
     },
   );
 
   registerAll(server, config);
+
+  // The AI-efficiency guide, on demand (docs/PLAYBOOK.md ships in the package).
+  // Kept out of `instructions` so it doesn't cost tokens every session.
+  const playbookPath = resolve(__dirname, "..", "docs", "PLAYBOOK.md");
+  if (existsSync(playbookPath)) {
+    server.resource("playbook", "dexe://playbook", async () => ({
+      contents: [
+        {
+          uri: "dexe://playbook",
+          mimeType: "text/markdown",
+          text: readFileSync(playbookPath, "utf8"),
+        },
+      ],
+    }));
+  }
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

@@ -70,9 +70,12 @@ export function hintFor(keys: readonly EnvKey[]): string {
 export function pinataUploadHint(context: string): string {
   return (
     `DEXE_PINATA_JWT is required ${context}. Reads work without it, but pinning ` +
-    `metadata to IPFS needs a Pinata JWT.\n` +
-    hintFor(["DEXE_PINATA_JWT"]) +
-    "\nGuided setup: run /dexe-setup. Get a free JWT at https://app.pinata.cloud " +
-    "(API Keys → New Key, grant pinJSONToIPFS + pinFileToIPFS)."
+    `metadata to IPFS needs a Pinata JWT. Three steps to fix (~2 minutes):\n` +
+    `1) Create a free API key at https://app.pinata.cloud → API Keys → New Key — ` +
+    `grant it pinJSONToIPFS + pinFileToIPFS, copy the JWT (the long eyJ… string).\n` +
+    `2) Add a line 'DEXE_PINATA_JWT=<jwt>' to the .env file at the dexe-mcp root — ` +
+    `NEVER to .claude.json (the MCP env block silently shadows .env). No spaces around '=', file must end with a newline.\n` +
+    `3) Restart Claude Code (quit + relaunch) — .env is read once at startup, so the key does nothing until restart.\n` +
+    `Prefer a guided walkthrough? Run /dexe-setup. Verify afterwards with dexe_doctor.`
   );
 }

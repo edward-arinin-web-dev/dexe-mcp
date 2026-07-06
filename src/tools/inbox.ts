@@ -6,6 +6,7 @@ import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { gqlRequest } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
+import { chainIdParam } from "../lib/params.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -112,11 +113,12 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
           .max(100)
           .default(20)
           .describe("Per-DAO recent-proposal scan window for unvoted/rewards detection"),
+        chainId: chainIdParam,
       },
     },
-    async ({ user, daos, proposalScanLimit = 20 }) => {
+    async ({ user, daos, proposalScanLimit = 20, chainId }) => {
       if (!isAddress(user)) return err(`Invalid user: ${user}`);
-      const pr = rpc.tryProvider();
+      const pr = rpc.tryProvider(chainId);
       if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
       const userAddr = getAddress(user);

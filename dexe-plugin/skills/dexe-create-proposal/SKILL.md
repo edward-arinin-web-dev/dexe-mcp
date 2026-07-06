@@ -23,8 +23,13 @@ When the user already told you the DAO and what to do, go straight to
 
 **Do not hand-sequence** approve/deposit/create, and do not hand-build the IPFS
 metadata — the composite does both correctly. **Do not guess ABIs/selectors**;
-the wired builders encode canonical calldata. Only reach for `dexe_get_methods`
-when composing a truly custom call.
+the wired builders encode canonical calldata. For a truly custom call use the
+`custom_abi` type; `dexe_proposal_catalog` (or the playbook — MCP resource
+`dexe://playbook`, `docs/PLAYBOOK.md`) lists every type and its params.
+
+**Amounts:** a digits-only string is raw wei; a string with a decimal point
+(`"1000.0"`) is human units, scaled by the token's **real on-chain decimals**
+(never assumed 18). Both forms work in every `params` amount and `voteAmount`.
 
 ## Pick a proposalType
 
@@ -43,8 +48,24 @@ Pass `proposalType` + the type's inputs in `params`:
 | `modify_dao_profile` | top-level `newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks`; avatar via `newAvatarPath` (local image path — the server uploads + validates it; do NOT read the file yourself) or `newAvatarCID` |
 | `custom` | top-level `actionsOnFor:[{executor,value,data}]` (+ optional `category`) |
 
-Any other catalog type → the tool errors and names the dedicated
-`dexe_proposal_build_*` tool. Discover all 33 types with `dexe_proposal_catalog`.
+**All 33 catalog types are wired** — `proposalType` is a strict enum; an
+unknown string is rejected at validation with the list of valid types. Beyond
+the table above: treasury/tokens (`apply_to_dao`, `token_sale_recover`,
+`token_sale_whitelist`), governance config (`new_proposal_type`,
+`enable_staking`, `change_math_model`, `manage_validators` /
+`validators_allocation`), experts/delegation (`delegate_to_expert` /
+`revoke_from_expert`, plus catalog-style aliases like
+`delegate_tokens_to_expert` and `add_local_expert` / `add_global_expert`),
+token controls (`blacklist`, `reward_multiplier`), and staking
+(`create_staking_tier`).
+
+Internal validator types (`change_validator_balances`,
+`change_validator_settings`, `monthly_withdraw`, `offchain_internal_proposal`)
+**auto-route to `GovValidators.createInternalProposal`** — validators only, no
+deposit or UserKeeper approve. Off-chain types (`offchain_single_option` /
+`_multi_option` / `_for_against`) are rejected with the exact backend flow
+(`dexe_proposal_build_offchain_*` → auth nonce/login → authorized POST).
+Discover every type + params with `dexe_proposal_catalog`.
 
 ## Example: transfer treasury tokens
 
@@ -55,7 +76,7 @@ dexe_proposal_create({
   proposalType: "token_transfer",
   title: "Pay contributor grant",
   description: "Q3 grant to @alice.",
-  params: { token: "0xGovToken", recipient: "0xAlice", amount: "1000000000000000000" }
+  params: { token: "0xGovToken", recipient: "0xAlice", amount: "1000.0" }  // human units
 })
 ```
 

@@ -22,7 +22,7 @@ const GOV_SETTINGS_ABI = [
   "function addSettings(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)[] settings)",
 ] as const;
 
-const GOV_VALIDATORS_ABI = [
+export const GOV_VALIDATORS_ABI = [
   "function changeBalances(uint256[] balances, address[] users)",
 ] as const;
 
@@ -31,7 +31,7 @@ const EXPERT_NFT_ABI = [
   "function burn(address from)",
 ] as const;
 
-const GOV_POOL_TREASURY_ABI = [
+export const GOV_POOL_TREASURY_ABI = [
   "function delegateTreasury(address delegatee, uint256 amount, uint256[] nftIds)",
   "function undelegateTreasury(address delegatee, uint256 amount, uint256[] nftIds)",
 ] as const;

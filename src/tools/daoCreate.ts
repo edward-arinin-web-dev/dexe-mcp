@@ -9,7 +9,7 @@ import { PinataClient, toCidV1 } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
-import { attachPairingQr, sendOrCollect } from "./flow.js";
+import { attachPairingQr, sendOrCollect, flowFailureResult } from "./flow.js";
 import { buildDeployGovPool, DeployParamsSchema, type DeployParams } from "./daoDeploy.js";
 import type { StateStore } from "../lib/stateStore.js";
 import {
@@ -261,7 +261,11 @@ export function registerDaoCreateTools(
       confirm: z
         .boolean()
         .default(false)
-        .describe("Set true to actually broadcast. Without it, SIMPLE mode and any mainnet deploy return a review-only preview."),
+        .describe(
+          "Set true to actually broadcast. Without it, SIMPLE mode and any mainnet deploy return a review-only preview. " +
+            "ONE-CALL PATH: when the user has already explicitly approved deploying (they said 'deploy it' / confirmed the " +
+            "parameters), pass confirm:true on the FIRST call — no preview round-trip needed.",
+        ),
       dryRun: z.boolean().default(false).describe("If true, return the deploy TxPayload even when DEXE_PRIVATE_KEY is set."),
     },
     async (input) => {
@@ -458,6 +462,15 @@ export function registerDaoCreateTools(
         result = await sendOrCollect(signer, [res.payload], { dryRun: input.dryRun, chainId, wc });
       } catch (e) {
         return err(`Deploy broadcast failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (result.mode === "failed") {
+        // R3/R7: a mined-but-reverted (or timed-out) deploy must not read as
+        // success — and must never be recorded as a known DAO.
+        return flowFailureResult(result, {
+          daoName: input.daoName,
+          chainId,
+          predictedGovPool: res.predictedGovPool ?? null,
+        });
       }
 
       // Phase 3: record the deployed DAO so dexe_context surfaces it next

@@ -9,6 +9,20 @@ import { ArtifactsMissingError } from "../artifacts.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted } from "../lib/sanitize.js";
 
+/**
+ * Chain id param for the gov tools. Custom wording (no BSC examples) because
+ * these tools also serve external Governor DAOs on chains like 1 or 10.
+ */
+const govChainIdParam = z
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .describe(
+    "Chain id to read from. Defaults to the MCP's default chain. " +
+      "Rejects if no RPC is configured for the requested chain.",
+  );
+
 export function registerGovTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
   const decoder = new CalldataDecoder(ctx.artifacts, ctx.selectors);
@@ -120,6 +134,7 @@ function registerDecodeProposal(
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         proposalId: z.number().int().positive().describe("Proposal ID (1-indexed)"),
+        chainId: govChainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -142,7 +157,7 @@ function registerDecodeProposal(
         againstActions: z.array(z.unknown()),
       },
     },
-    async ({ govPool, proposalId }) => {
+    async ({ govPool, proposalId, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
       try {
         ctx.artifacts.requireArtifactsExist();
@@ -151,7 +166,7 @@ function registerDecodeProposal(
         throw err;
       }
 
-      const pr = rpc.tryProvider();
+      const pr = rpc.tryProvider(chainId);
       if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
 
@@ -289,6 +304,7 @@ function registerReadGovState(
         "For a given GovPool address, reads `getHelperContracts()` and `getNftContracts()` on-chain and returns the resolved helper + nft addresses. Requires DEXE_RPC_URL.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
+        chainId: govChainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -307,9 +323,9 @@ function registerReadGovState(
         }),
       },
     },
-    async ({ govPool }) => {
+    async ({ govPool, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
-      const pr = rpc.tryProvider();
+      const pr = rpc.tryProvider(chainId);
       if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
 

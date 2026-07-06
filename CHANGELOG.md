@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.22.0 — 2026-07-07
+
+### "Works like charm": full proposal-type coverage, auto-deposit voting, reliability hardening, AI playbook
+
+The production-readiness release. Goal: an AI assistant serves "create a DAO /
+create a proposal / vote / run an OTC sale" without investigating anything —
+and every failure tells you exactly what to do next.
+
+**Every proposal type, one call**
+- `dexe_proposal_create` now wires **all 33 catalog types** (was 10):
+  new external builders `manage_validators`, `validators_allocation`,
+  `delegate_to_expert`/`revoke_from_expert` (+ catalog-style aliases),
+  `add/remove_local/global_expert`, `token_sale_recover`, `token_sale_whitelist`,
+  `create_staking_tier`, `change_math_model`, `blacklist`, `reward_multiplier`,
+  `apply_to_dao`, `new_proposal_type`/`enable_staking` — byte-parity with the
+  `dexe_proposal_build_*` tools (shared ABI fragments, no copies).
+- Internal proposals (`change_validator_balances`, `change_validator_settings`,
+  `monthly_withdraw`, `offchain_internal_proposal`) auto-route to
+  `GovValidators.createInternalProposal` — the correct validators-only path.
+- Off-chain types are rejected with the exact backend flow to run instead.
+- `proposalType` is a **strict enum**: unknown values fail at validation with
+  the full valid list (previously errored mid-flow).
+
+**Voting that just works**
+- `dexe_proposal_vote_and_execute`: `depositFirst` is now `boolean|'auto'`,
+  **default `'auto'`** — deposits exactly the missing amount from the wallet
+  (approve UserKeeper → deposit → vote), matching the frontend's bundled flow.
+  `false` restores never-deposit.
+- Non-Voting state errors name the per-state remedy (Defeated → new proposal;
+  Succeeded/Locked → re-run with autoExecute; Executed → done).
+
+**Human units everywhere**
+- Every amount accepts raw smallest units (digits-only, unchanged) **or**
+  human units with a decimal point (`"12.5"`), scaled by the token's REAL
+  on-chain decimals — `voteAmount`, `token_transfer`/`withdraw_treasury`/
+  `apply_to_dao` params, OTC buy.
+- OTC `dexe_otc_buyer_buy` now converts the 18-dec-normalized amount to the
+  payment token's native decimals for the balance check and the exact-amount
+  approve — a <18-decimals payment token can no longer silently under-pay.
+
+**Protocol compatibility**
+- **SphereX fix (bug #35)**: newly deployed GovPools ship with SphereX
+  protection that rejects the old `multicall([deposit, createProposalAndVote])`
+  bundle with `"SphereX error: disallowed tx pattern"` — proposal creation on
+  any fresh DAO was broken. `dexe_proposal_create` (and the OTC open-sale
+  composite that rides it) now sends deposit and createProposalAndVote as
+  separate sequential transactions; the partial-failure ledger makes the
+  two-step sequence safely resumable. Caught by the new testnet golden-path
+  E2E (`scripts/e2e-testnet.mjs`), verified live on chain 97.
+
+**Reliability (the P1 batch)**
+- Transport-level **RPC retry + fallback rotation**: all RPC env vars accept
+  comma-separated URL lists; the zero-config public fallback ships multiple
+  endpoints per chain; the signer path uses the same resilient factory (it
+  previously bypassed even the flaky-RPC hint).
+- **Mining-wait timeout** (`DEXE_TX_WAIT_TIMEOUT_MS`, default 180 s): a stuck
+  tx returns "check dexe_tx_status" instead of hanging the tool forever.
+- **Reverted ≠ success**: `receipt.status === 0` now surfaces as a failure
+  everywhere (`dexe_tx_send` sets `isError` + `reverted:true`; composites stop
+  before dependent steps run on unchanged state).
+- **Partial-failure ledger**: composite flows return `mode:"failed"` with
+  `failure.{failedStep, error, landedSteps, resume}` — fix the cause and
+  re-run the same call; completed steps are detected on-chain and skipped.
+- **Startup env validation**: invalid `DEXE_*` values now fail fast at boot
+  with the var name (doctor already flagged them). New schema vars:
+  `DEXE_TX_WAIT_TIMEOUT_MS`, `DEXE_MAX_DESCRIPTION_LEN`, `DEXE_PROTOCOL_REF`.
+- **`chainId` on every read**: 19 read tools no longer hardcode the default
+  chain (proposal/vote/read_*/gov/inbox/dao/forecast/OTC status + list).
+
+**AI ergonomics**
+- **`docs/PLAYBOOK.md`** (new): intent → exact-call table, all-33 proposalType
+  params reference, error → remedy table, unit conventions, toolset map,
+  signer bootstrap + faucets. Served as MCP resource `dexe://playbook`;
+  drift-guarded by tests.
+- `dexe_context` reports enabled vs hidden toolsets and what each hidden set
+  unlocks, plus the exact `DEXE_TOOLSETS` fix.
+- MCP handshake now reports the real package version (was hardcoded `0.1.5`).
+- Missing-Pinata errors are a numbered 3-step guide; the OTC open-sale
+  description stops pointing at a dev-gated tool.
+
+**Migration notes** (details in `docs/MIGRATION.md`)
+- Unknown `proposalType` strings are rejected at validation.
+- Scripts that treated mined-but-reverted txs as success must check
+  `isError`/`reverted`.
+- `depositFirst` default changed `false` → `'auto'` (may broadcast
+  approve+deposit when power is short; pass `false` for the old behavior).
+- Invalid `.env` values now stop startup.
+
 ## 0.21.0 — 2026-07-06
 
 ### One-call avatar updates + file-path uploads

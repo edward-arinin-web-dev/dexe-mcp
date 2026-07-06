@@ -6,6 +6,152 @@ something on your side.
 
 ---
 
+## 0.21.x → 0.22.0 — composite-first everywhere (4 behavior changes)
+
+**TL;DR.** Docs overhaul + reliability release. Tool count unchanged (159 / 19
+groups, default `core,proposals` = 72). Four behavior changes can affect
+scripts; everything else is additive. New quick map:
+[`docs/PLAYBOOK.md`](./PLAYBOOK.md) (also the MCP resource `dexe://playbook`).
+
+### The 4 migration-worthy changes
+
+1. **`proposalType` is a strict enum.** `dexe_proposal_create` rejects unknown
+   type strings **at validation time** with the list of valid types
+   (previously an unknown type errored mid-flow, sometimes after a deposit
+   landed). All 33 catalog types are now wired — if you routed some types to
+   `dexe_proposal_build_*` because the composite refused them, you can send
+   them through `dexe_proposal_create` directly. Internal validator types
+   auto-route to `GovValidators.createInternalProposal`; off-chain types are
+   rejected with exact backend-flow instructions.
+2. **Reverted txs surface as failures.** A mined-but-reverted tx
+   (`receipt.status === 0`) is now reported as a failure everywhere, including
+   `dexe_tx_send` (`isError: true` + `reverted: true`). Scripts that treated
+   any mined receipt as success must check `isError` / `reverted`.
+3. **`depositFirst` default changed `false` → `'auto'`.**
+   `dexe_proposal_vote_and_execute` now deposits exactly the missing amount
+   from the wallet (approve UserKeeper → deposit → vote) when deposited power
+   is short — i.e. it **may broadcast an approve + deposit you didn't ask
+   for**. Pass `depositFirst: false` to restore the old never-deposit
+   behavior.
+4. **Invalid `.env` values fail fast at startup.** Every `DEXE_*` var is
+   schema-validated at boot; an invalid value is a clear fatal naming the var.
+   `dexe_doctor` already flagged these — now they block startup instead of
+   failing later mid-tool.
+
+### Also new (no action required)
+
+- **Human-unit amounts everywhere.** A decimal string (`"12.5"`) is scaled by
+  the token's real on-chain decimals; digits-only stays raw wei. OTC
+  `dexe_otc_buyer_buy` additionally converts to the payment token's native
+  decimals for the balance check + exact approve (fixes silent under-pay on
+  <18-dec payment tokens).
+- **19 read tools gained optional `chainId`** (proposal state/list/voters,
+  vote power, the `dexe_read_*` family, decode, inbox, OTC reads, dao info /
+  registry / predict, forecast) — read both chains in one session.
+- **RPC retry + failover:** `DEXE_RPC_URL_MAINNET/_TESTNET/_<id>` accept
+  comma-separated URL lists; transport failures rotate automatically.
+- **Tx wait timeout:** `DEXE_TX_WAIT_TIMEOUT_MS` (default 180000) returns a
+  check-`dexe_tx_status` error instead of hanging.
+- **Composite failure ledger:** failed flows return `mode:'failed'` with
+  `{failedStep, error, landedSteps, resume}` — fix the cause, re-run the same
+  call, completed steps are skipped.
+- New env vars `DEXE_MAX_DESCRIPTION_LEN`, `DEXE_PROTOCOL_REF`;
+  `dexe_context` reports toolsets `{enabled, hidden, enableHint}`; the MCP
+  handshake now reports the real package version (was hardcoded `0.1.5` —
+  update anything that pinned on that); missing-Pinata errors are a numbered
+  3-step guide.
+
+---
+
+## 0.20.x → 0.21.0 — one-call avatar updates + file-path uploads
+
+**TL;DR.** No action required. Additive: the server now reads local image
+files itself.
+
+- **`newAvatarPath` on `dexe_proposal_create`** (modify_dao_profile) and
+  **`avatarPath` on `dexe_dao_create`**: pass a local image path; the server
+  reads, magic-byte-validates, pins, and wires the CID — one call, no base64
+  through the conversation. Combining path and CID inputs errors.
+- **`filePath` on `dexe_ipfs_upload_avatar`** (10 MB cap) **and
+  `dexe_ipfs_upload_file`** (25 MB cap) as the preferred alternative to base64.
+- `dexe_dao_create` honours `DEXE_IPFS_AVATAR_GATEWAY` (previously hardcoded
+  dweb.link); by-reference `newAvatarCID` gets the same fetch-and-sniff gate
+  as the other by-CID paths.
+
+---
+
+## 0.19.x → 0.20.0 — real JPEG avatars + magic-byte validation
+
+**TL;DR.** One behavior change: avatar uploads now **reject non-raster bytes**
+(SVG/HTML). If you pinned SVG avatars before, they were never renderable on
+app.dexe.io anyway (bug #34).
+
+- `dexe_dao_generate_avatar` renders a real JPEG (pixel initials over a
+  hash-coloured gradient; deterministic per `daoName`).
+- Every avatar upload path validates magic bytes: only JPEG/PNG/WebP/GIF pass.
+  `dexe_ipfs_upload_avatar` pins with the *sniffed* MIME and returns
+  `detectedFormat`. For generic (non-avatar) image attachments,
+  `dexe_ipfs_upload_file` with `normalizeImageExt: false` is the escape hatch
+  (e.g. a legitimate SVG logo).
+- By-reference avatar CIDs (`avatarCID` on the metadata/dao tools) are fetched
+  and sniffed too — confirmed non-raster bytes hard-block; an unreachable
+  fresh pin proceeds with a warning.
+- **Existing DAOs with an SVG avatar stay broken until rotated:** re-generate
+  with 0.20.0+, then `modify_dao_profile` → vote + execute.
+
+---
+
+## 0.18.x → 0.19.0 — `dexe_dao_create` preview/confirm + coherence guards
+
+**TL;DR.** Two behavior changes for scripted DAO deploys; interactive use just
+gets safer.
+
+- **Preview-then-confirm.** `dexe_dao_create` returns `mode: "preview"`
+  (resolved config + safety proof) and only broadcasts on a call with
+  `confirm: true`. Scripts that expected an immediate deploy must add
+  `confirm: true`. New SIMPLE mode: pass `symbol` + `totalSupply` (+ optional
+  `treasuryPercent`/`quorumPercent`/`voteModel`/`durationSeconds`) and the
+  tool synthesizes a coherent, frontend-equivalent config; full `params`
+  (ADVANCED) still works.
+- **Deploys that would ship a broken DAO are now hard-blocked** (both
+  `dexe_dao_create` and `dexe_dao_build_deploy`): unreachable quorum
+  (`quorum% × supply > votable tokens`), `minVotesForVoting/Creating` above
+  the largest recipient, settings out of contract bounds, the predicted
+  govPool listed as a token recipient, and over-distribution
+  (`sum(amounts) > mintedTotal`). If a previously "working" param set now
+  errors, the deploy would have reverted or produced an ungovernable DAO.
+- **Corrected rules** (verified live on mainnet): cap rule is
+  `cap ≥ mintedTotal > 0` — `cap == minted` is a valid fixed supply, `cap = 0`
+  reverts; a treasury **remainder is valid** (the contract mints
+  `mintedTotal − sum(amounts)` to the DAO) — do not force them equal.
+- **Mainnet deploys are supported** (the old "mainnet reverts" gating text was
+  wrong); mainnet always requires `confirm: true`. Defaults: LINEAR vote
+  model, 51% quorum. Since this release DAOs deployed by `dexe_dao_create`
+  have the TokenSale + Distribution executors and all 5 settings groups
+  auto-wired — OTC works right after deploy.
+
+---
+
+## 0.17.x → 0.18.0 — WalletConnect QR + hot-key warnings
+
+**TL;DR.** No action required. Pairing takes zero copy-paste.
+
+- **`dexe_wc_connect` renders a scannable QR** (terminal ASCII + `image/png`
+  MCP content block) instead of a raw URI. The raw `uri` + a fallback URL are
+  still in the JSON.
+- **Auto-print on writes.** `dexe_tx_send` in WalletConnect mode with no
+  session starts pairing and prints the QR instead of erroring; composite
+  flows attach a live `pairing` QR to their build-mode response.
+- **Hot keys are flagged "NOT SAFE" everywhere** — `dexe_tx_send` hot-key
+  broadcasts carry a `safety` field, `dexe_get_config` reports
+  `recommendedSigner: "walletconnect"`, `dexe_doctor` adds a `signer.hotKey`
+  advisory. If you parse `dexe_tx_send` output strictly, tolerate the new
+  field.
+- `dexe_wc_connect` no longer refuses when `DEXE_PRIVATE_KEY` is set — it
+  pairs and reminds you the hot key keeps signing precedence until removed.
+
+---
+
 ## 0.16.x → 0.17.0 — zero-config public defaults
 
 **TL;DR.** No action required. Reads + WalletConnect signing now work with no
@@ -58,7 +204,8 @@ session) + a persistent state file. Optional `DEXE_STATE_PATH` override.
 
 ## 0.12.x → 0.13.0 — slim default toolset (BREAKING)
 
-**TL;DR.** A default session now loads **~71 tools**, not all 155. If a tool
+**TL;DR.** A default session now loads a slim subset (**72 tools** as of the
+current 159-tool surface), not everything. If a tool
 you scripted against is "missing", set `DEXE_TOOLSETS=full` to restore the old
 behavior, or add the profile that owns it.
 
