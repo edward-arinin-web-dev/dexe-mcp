@@ -77,6 +77,8 @@ export interface SimpleConfig {
   voteModel: "LINEAR" | "POLYNOMIAL";
   durationSeconds: number;
   executionDelaySeconds: number;
+  minVotesTokens: string; // whole tokens; applies to both voting and creating
+  earlyCompletion: boolean;
 }
 
 /**
@@ -89,16 +91,20 @@ export function synthesizeParams(c: SimpleConfig, deployer: string): DaoCreatePa
   const treasuryWei = (supplyWei * BigInt(Math.round(c.treasuryPercent * 100))) / 10000n;
   const distributable = supplyWei - treasuryWei;
   const quorumRaw = (BigInt(Math.round(c.quorumPercent * 1_000_000)) * PCT_25DEC) / 1_000_000n;
-  // min-votes: 1 token, clamped to the distributed amount so it can never exceed
-  // the largest (only) recipient's balance.
-  const minVotes = distributable < ONE_TOKEN ? distributable : ONE_TOKEN;
+  // min-votes: the default (1 token) is clamped to the distributed amount so it
+  // can never exceed the largest (only) recipient's balance; an explicit value
+  // passes through — the builder's min-votes guard rejects it with remediation
+  // if no holder could ever vote or create.
+  const requestedMinVotes = parseUnits(c.minVotesTokens, 18);
+  const minVotes =
+    requestedMinVotes === ONE_TOKEN && distributable < ONE_TOKEN ? distributable : requestedMinVotes;
   const dur = String(c.durationSeconds);
   const isPoly = c.voteModel === "POLYNOMIAL";
   return {
     settingsParams: {
       proposalSettings: [
         {
-          earlyCompletion: true,
+          earlyCompletion: c.earlyCompletion,
           delegatedVotingAllowed: false, // contract semantics: false = delegation ALLOWED (frontend default)
           validatorsVote: true,
           duration: dur,
@@ -201,7 +207,7 @@ export function registerDaoCreateTools(
   server.tool(
     "dexe_dao_create",
     "Create (deploy) a new DeXe DAO in ONE call. SIMPLE mode (recommended): pass `symbol` + `totalSupply` " +
-      "(+ optional `treasuryPercent`/`quorumPercent`/`voteModel`) and the tool synthesizes a coherent, " +
+      "(+ optional `treasuryPercent`/`quorumPercent`/`voteModel`/`minVotesTokens`/`earlyCompletion`) and the tool synthesizes a coherent, " +
       "frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a reachable quorum). It " +
       "returns a `preview` of the resolved config + a safety proof and only broadcasts on a second call with " +
       "`confirm: true`. ADVANCED mode: pass a full `params` deploy struct. Either way the deploy runs governance " +
@@ -255,6 +261,17 @@ export function registerDaoCreateTools(
         .describe("SIMPLE mode: vote-power model. LINEAR = 1 token = 1 vote (default). POLYNOMIAL = meritocratic curve."),
       durationSeconds: z.number().int().positive().default(86400).describe("SIMPLE mode: voting duration. Default 86400 (1 day)."),
       executionDelaySeconds: z.number().int().min(0).default(0).describe("SIMPLE mode: delay before execution. Default 0."),
+      minVotesTokens: z
+        .string()
+        .default("1")
+        .describe(
+          "SIMPLE mode: minimum token balance to vote AND to create proposals, in WHOLE tokens (e.g. '100'). " +
+            "Default '1'. Must be ≤ the largest single holder's allocation or the deploy is blocked.",
+        ),
+      earlyCompletion: z
+        .boolean()
+        .default(true)
+        .describe("SIMPLE mode: end voting as soon as the quorum is reached. Default true."),
       params: DaoCreateDeployParams.optional().describe(
         "ADVANCED mode: full deployGovPool params. Omit to use SIMPLE mode (symbol + totalSupply).",
       ),
@@ -303,6 +320,8 @@ export function registerDaoCreateTools(
               voteModel: input.voteModel,
               durationSeconds: input.durationSeconds,
               executionDelaySeconds: input.executionDelaySeconds,
+              minVotesTokens: input.minVotesTokens,
+              earlyCompletion: input.earlyCompletion,
             },
             deployer,
           );

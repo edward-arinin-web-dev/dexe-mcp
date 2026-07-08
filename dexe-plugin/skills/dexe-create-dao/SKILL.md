@@ -64,8 +64,10 @@ dexe_dao_create({
   quorumPercent: 51,          // must be ≥50 AND ≤ (100 − treasuryPercent)
   voteModel: "LINEAR",        // 1 token = 1 vote (default); or "POLYNOMIAL"
   durationSeconds: 86400,     // 1 day
+  minVotesTokens: "1",        // min balance to vote AND create, whole tokens (≤ largest holder)
+  earlyCompletion: true,      // end voting as soon as quorum is reached
   daoDescription: "A community treasury DAO.",
-  avatarCID: "bafy…"          // optional
+  avatarCID: "bafy…"          // optional; or avatarPath: local image path the server uploads
 })
 ```
 

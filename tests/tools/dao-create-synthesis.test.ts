@@ -12,6 +12,8 @@ const base: SimpleConfig = {
   voteModel: "LINEAR",
   durationSeconds: 86400,
   executionDelaySeconds: 0,
+  minVotesTokens: "1",
+  earlyCompletion: true,
 };
 
 describe("dexe_dao_create — SIMPLE synthesis (frontend-equivalent shape)", () => {
@@ -58,5 +60,37 @@ describe("dexe_dao_create — SIMPLE synthesis (frontend-equivalent shape)", () 
     const p = synthesizeParams({ ...base, voteModel: "POLYNOMIAL" }, DEPLOYER);
     expect(p.votePowerParams.voteType).toBe("POLYNOMIAL_VOTES");
     expect(p.votePowerParams.polynomialCoefficients?.coefficient3).toBe((97n * 10n ** 23n).toString());
+  });
+
+  it("default min-votes is 1 token, applied to both voting and creating", () => {
+    const s = synthesizeParams(base, DEPLOYER).settingsParams.proposalSettings[0]!;
+    expect(s.minVotesForVoting).toBe((10n ** 18n).toString());
+    expect(s.minVotesForCreating).toBe((10n ** 18n).toString());
+  });
+
+  it("explicit minVotesTokens passes through in 18-dec wei", () => {
+    const s = synthesizeParams({ ...base, minVotesTokens: "100" }, DEPLOYER).settingsParams.proposalSettings[0]!;
+    expect(s.minVotesForVoting).toBe((100n * 10n ** 18n).toString());
+    expect(s.minVotesForCreating).toBe((100n * 10n ** 18n).toString());
+  });
+
+  it("default 1-token min-votes clamps to the distributed amount on dust supplies", () => {
+    // supply 1 token, 49% treasury → distributable 0.51 token < 1 token
+    const s = synthesizeParams({ ...base, totalSupply: "1" }, DEPLOYER).settingsParams.proposalSettings[0]!;
+    expect(s.minVotesForVoting).toBe((51n * 10n ** 16n).toString());
+  });
+
+  it("explicit minVotesTokens is NOT clamped — left for the builder guard to reject", () => {
+    const s = synthesizeParams({ ...base, totalSupply: "1", minVotesTokens: "100" }, DEPLOYER)
+      .settingsParams.proposalSettings[0]!;
+    expect(s.minVotesForVoting).toBe((100n * 10n ** 18n).toString());
+  });
+
+  it("earlyCompletion flag is threaded through", () => {
+    expect(synthesizeParams(base, DEPLOYER).settingsParams.proposalSettings[0]!.earlyCompletion).toBe(true);
+    expect(
+      synthesizeParams({ ...base, earlyCompletion: false }, DEPLOYER).settingsParams.proposalSettings[0]!
+        .earlyCompletion,
+    ).toBe(false);
   });
 });

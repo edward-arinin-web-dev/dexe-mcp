@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.23.0 — 2026-07-08
+
+### SIMPLE-mode DAO creation: configurable min-votes and early completion
+
+`dexe_dao_create` SIMPLE mode gains two optional fields, so common governance
+requirements no longer force a hand-built ADVANCED `params` struct:
+
+- **`minVotesTokens`** (whole tokens, default `"1"`) — the minimum token balance
+  to both vote and create proposals (sets `minVotesForVoting` =
+  `minVotesForCreating`). Scaled to 18-dec wei. The deploy's existing min-votes
+  guard still rejects a value above the largest holder's allocation, with
+  remediation. The default `"1"` is clamped to the distributed amount on dust
+  supplies — unchanged behavior.
+- **`earlyCompletion`** (default `true`) — end voting as soon as quorum is
+  reached.
+
+Both thread through the synthesized, coherence-checked config; the reachable-
+quorum and ≥50%-floor safety proofs are unchanged. ADVANCED mode already exposed
+these via the full `params` struct. No tool-count change (159 / 19 groups).
+
 ## 0.22.0 — 2026-07-07
 
 ### "Works like charm": full proposal-type coverage, auto-deposit voting, reliability hardening, AI playbook

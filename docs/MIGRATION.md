@@ -6,6 +6,16 @@ something on your side.
 
 ---
 
+## 0.22.x → 0.23.0 — no action
+
+Additive only. `dexe_dao_create` SIMPLE mode accepts two new optional fields:
+`minVotesTokens` (default `"1"`) and `earlyCompletion` (default `true`).
+Omitting both reproduces 0.22.0 behavior exactly — min-votes = 1 token clamped
+to the distributed supply, early completion on. Tool count unchanged
+(159 / 19 groups).
+
+---
+
 ## 0.21.x → 0.22.0 — composite-first everywhere (4 behavior changes)
 
 **TL;DR.** Docs overhaul + reliability release. Tool count unchanged (159 / 19

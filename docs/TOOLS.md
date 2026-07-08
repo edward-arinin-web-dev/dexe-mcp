@@ -145,7 +145,7 @@ Source: `src/tools/daoDeploy.ts`.
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
-| `dexe_dao_create` | **Composite (auto-signs):** one-call DAO deploy — uploads DAO profile metadata to IPFS (avatar via `avatarPath`, a local image path pinned + validated server-side, or `avatarCID`), builds `deployGovPool` (reusing `dexe_dao_build_deploy`), pre-flights the deploy reverts (cap>minted, LINEAR initData, non-zero userKeeper asset, mainnet treasury remainder), then broadcasts or returns the payload. Validate on BSC testnet (chain 97). | `DEXE_PINATA_JWT`, `DEXE_RPC_URL`, `DEXE_PRIVATE_KEY` (for auto-broadcast) |
+| `dexe_dao_create` | **Composite (auto-signs):** one-call DAO deploy — uploads DAO profile metadata to IPFS (avatar via `avatarPath`, a local image path pinned + validated server-side, or `avatarCID`), builds `deployGovPool` (reusing `dexe_dao_build_deploy`), pre-flights the deploy reverts (cap>minted, LINEAR initData, non-zero userKeeper asset, mainnet treasury remainder), then broadcasts or returns the payload. SIMPLE mode also takes `minVotesTokens` (min balance to vote + create, whole tokens, default 1) and `earlyCompletion` (default true). Validate on BSC testnet (chain 97). | `DEXE_PINATA_JWT`, `DEXE_RPC_URL`, `DEXE_PRIVATE_KEY` (for auto-broadcast) |
 | `dexe_dao_build_deploy` | Builds `PoolFactory.deployGovPool(GovPoolDeployParams)` calldata. Mirrors the frontend wizard at app.dexe.network/create-dao. Auto-expands proposal settings (1 → 5: default/internal/validators/distributionProposal/tokenSale). | `DEXE_RPC_URL` |
 
 ---
