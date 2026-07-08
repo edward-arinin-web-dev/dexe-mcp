@@ -6,7 +6,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { registerAll } from "./tools/index.js";
-import { loadEnvFile, writeStartupBanner } from "./env/loader.js";
+import { homedir } from "node:os";
+import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadReport } from "./env/loader.js";
 import { envKeys } from "./env/schema.js";
 
 // Snapshot DEXE_* schema keys already in process.env BEFORE we load .env.
@@ -21,22 +22,29 @@ import { envKeys } from "./env/schema.js";
 // startup path, otherwise the diagnostic sees an empty config.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const prevSnapshot = new Set<string>(envKeys().filter(k => !!process.env[k]?.trim()));
-// Two possible .env locations: the user's PROJECT (cwd — Claude Code spawns
-// the MCP server with the project dir as cwd) and the PACKAGE dir
-// (`dist/../.env`). Load the project .env FIRST so it wins —
-// `process.loadEnvFile()` never overrides already-set keys, so whichever file
-// loads first is authoritative. This is what makes `/dexe-setup` (which edits
-// the project .env) reach a server launched via `npx dexe-mcp` from the plugin,
-// whose package dir sits in the npx cache and holds no .env. When both paths
-// resolve to the same file (running from the repo) we load it once.
-const cwdEnvPath = resolve(process.cwd(), ".env");
-const pkgEnvPath = resolve(__dirname, "..", ".env");
-const primaryEnvPath = existsSync(cwdEnvPath) ? cwdEnvPath : pkgEnvPath;
-const envReport = loadEnvFile(primaryEnvPath, prevSnapshot);
-if (primaryEnvPath !== pkgEnvPath && existsSync(pkgEnvPath)) {
-  loadEnvFile(pkgEnvPath, prevSnapshot); // fill keys the project .env didn't set
+// .env resolution MUST be cwd-independent: an MCP host (e.g. the Claude Code
+// plugin) launches `npx dexe-mcp` with an arbitrary working directory, so a
+// cwd-relative .env is silently missed and every DEXE_* var looks unset — on
+// every OS. We load each candidate that exists, in order (see
+// resolveEnvCandidates): $DEXE_ENV_FILE → <cwd>/.env → ~/.dexe-mcp/.env →
+// <pkgdir>/.env. `process.loadEnvFile()` never overrides an already-set key, so
+// the FIRST existing file wins per key and host-injected OS env beats them all.
+const homeEnvPath = resolve(homedir(), ".dexe-mcp", ".env");
+const envCandidates = resolveEnvCandidates({
+  cwd: process.cwd(),
+  home: homedir(),
+  pkgDir: __dirname,
+  explicit: process.env.DEXE_ENV_FILE,
+});
+let envReport: EnvLoadReport | undefined;
+for (const candidate of envCandidates) {
+  if (!existsSync(candidate)) continue;
+  const report = loadEnvFile(candidate, prevSnapshot);
+  if (!envReport) envReport = report; // first existing file drives the banner
 }
-writeStartupBanner(envReport);
+// Nothing on disk anywhere — still emit a banner naming the recommended home
+// location so the user knows exactly where to create their config.
+writeStartupBanner(envReport ?? loadEnvFile(homeEnvPath, prevSnapshot));
 
 // CLI subcommand dispatch. `npx dexe-mcp` (no args) → MCP server.
 // `npx dexe-mcp doctor` → run diagnostics and exit.

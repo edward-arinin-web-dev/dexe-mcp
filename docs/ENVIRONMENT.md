@@ -3,10 +3,22 @@
 Reference for integrators configuring `dexe-mcp` in `.mcp.json`,
 `claude_desktop_config.json`, or a custom MCP client.
 
-The server self-loads `.env` from the directory containing `dist/index.js` via
-`process.loadEnvFile()` ([`src/index.ts`](../src/index.ts)). You can either
-populate that `.env` or pass vars through the MCP client's `env` block — both
-work.
+The server self-loads `.env` via `process.loadEnvFile()`
+([`src/index.ts`](../src/index.ts)), searching **cwd-independent** locations so
+it works even when an MCP host launches it from an arbitrary directory (as the
+Claude Code plugin does). It loads each of these that exists, in order — the
+first file wins per key, and vars already in the process environment (e.g. the
+MCP client's `env` block) beat all files:
+
+1. `$DEXE_ENV_FILE` — an absolute path you set in the real environment.
+2. `<cwd>/.env` — the working directory (convenient when run from the repo).
+3. `~/.dexe-mcp/.env` — the **universal home config** (per-OS via `os.homedir()`;
+   the same directory as `state.json`). Put your config here for plugin/`npx`
+   use — it loads from any folder on macOS, Linux, and Windows.
+4. `<pkgdir>/.env` — the installed package directory (npx cache; rarely present).
+
+So you can populate any of those files, or pass vars through the MCP client's
+`env` block — all work.
 
 All vars are **optional**. A tool that needs a missing var fails with a
 message naming exactly which var to set.
@@ -132,6 +144,7 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_CONTROLLING_TOPN` | treasury-safety advisory | Top-N token holders (by voting weight) in the "controlling set" alongside validators. `dexe_proposal_risk_assess` and the execute advisory **flag** a treasury proposal where **no** controlling member voted For (even at healthy quorum). Needs `DEXE_SUBGRAPH_*_URL` + mainnet (56); off-chain ⇒ unknown. **Informational, never blocks.** Positive integer, default `5`. | `5`, `3`, `10` |
 | `DEXE_TOOLSETS` | tool gating (`tools/list` size) | Comma list of tool profiles to register: `core`, `proposals`, `read`, `vote`, `governor`, `dev`, or `full`. **Default `core,proposals`** (72 tools) — a breaking slim from the old all-159 default. `full` or any unknown name loads everything. `dexe_doctor` reports the active set; restart Claude Code after editing. See [TOOLS.md § Toolset profiles](./TOOLS.md#toolset-profiles). | `core,proposals`, `full`, `core,proposals,vote,read` |
 | `DEXE_STATE_PATH` | `dexe_context` persistence | Override path for the persistent operational-state JSON (DAOs deployed and proposals broadcast, surfaced by `dexe_context` across sessions). Default `~/.dexe-mcp/state.json`. Must be in a writable directory — `dexe_doctor` warns if not. Tools still work without persistence. | `~/.dexe-mcp/state.json`, `/data/dexe-state.json` |
+| `DEXE_ENV_FILE` | env-file location | Absolute path to a `.env` loaded **first**, before the default cwd/home search. For CI/containers/hosts that can inject one variable but not a working directory. Must be set in the real process environment (it is read before any file loads), not inside a `.env`. | `/etc/dexe/prod.env`, `C:\config\dexe.env` |
 | `DEXE_PRIVATE_KEY` | `dexe_tx_send`, signed branch of `dexe_proposal_create` / `dexe_proposal_vote_and_execute` | 0x-prefixed 64-hex EOA key. Requires `DEXE_RPC_URL`. **Process-resident — see §4.** | `0xabc...` |
 | `DEXE_SIGNER_ALLOWLIST` | `dexe_tx_send` (signer mode, optional) | **B6 guard.** Comma-separated destination addresses; `dexe_tx_send` rejects any `to` not on the list. Unset = no restriction. Validated + lowercased at startup; invalid address aborts startup. | `0xAbc...,0xDef...` |
 | `DEXE_SIGNER_MAX_VALUE_WEI` | `dexe_tx_send` (signer mode, optional) | **B7 guard.** Hard cap on the `value` (wei) of any single broadcast; over-cap is rejected. Unset = no cap. | `100000000000000000` (0.1 BNB) |

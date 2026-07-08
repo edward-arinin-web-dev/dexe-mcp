@@ -44,7 +44,14 @@ if anything misbehaves, and stop.
 ## Hard rules (do not violate)
 
 1. **Never write `DEXE_*` values to `.claude.json`.** The MCP host's env block
-   SHADOWS `.env` silently. Edits go in `.env` at the dexe-mcp repo root.
+   SHADOWS `.env` silently. Write env to a `.env` file the server actually
+   loads. For a **plugin / `npx` install** that is **`~/.dexe-mcp/.env`** (the
+   cwd-independent home config — works from any folder on any OS; same dir as
+   `state.json`). Only a **source checkout** uses the repo-root `.env`. Since
+   0.23.1 the server loads `$DEXE_ENV_FILE` → `<cwd>/.env` → `~/.dexe-mcp/.env`
+   → `<pkgdir>/.env`; the doctor/banner shows which file it loaded. Do NOT put
+   config in a project `.env` for plugin use — the plugin's working directory is
+   not your project, so it is silently missed.
 2. **Never write `DEXE_PRIVATE_KEY` without explicit user opt-in.** Signing is
    available by default via WalletConnect (below) — reach for a hot key only if
    the user insists, and warn it lives in plaintext on disk.
@@ -107,9 +114,12 @@ Creating a DAO or proposal pins metadata to IPFS, which needs a **Pinata JWT**
    check's `remediation` verbatim for network failures.
 4. Batch questions by tier/category with `AskUserQuestion` — one question per
    tier, not one per key. Only ask for what the chosen tier needs.
-5. Locate `.env` at the repo root (where `package.json` lives — usually
-   `D:\dev\dexe-mcp\.env`). The doctor/banner shows the env-file path.
-6. Edit `.env` with the Edit tool: replace the key's line if present, else
+5. Locate the `.env` the server loads (the doctor/banner shows the path). For a
+   plugin/`npx` install use `~/.dexe-mcp/.env` (create the `.dexe-mcp` dir if
+   absent); for a source checkout use the repo-root `.env` (where `package.json`
+   lives). When unsure, prefer `~/.dexe-mcp/.env` — it loads on every OS from any
+   folder.
+6. Edit that `.env` with the Edit tool: replace the key's line if present, else
    append `KEY=value` (preserve the trailing newline).
 7. Tell the user, verbatim:
    > Edits saved to `.env`. **Restart Claude Code** so the new values load

@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.23.1 — 2026-07-08
+
+### Fix: env config now loads regardless of working directory (all OSes)
+
+The server self-loads `.env`, but only from `process.cwd()` and the package
+dir. An MCP host (the Claude Code plugin) launches `npx dexe-mcp` with an
+arbitrary working directory — **not** the user's project — so a project `.env`
+was silently missed and every `DEXE_*` var looked unset: `dexe_context` /
+`dexe_doctor` showed `readonly`, `rpcConfigured:false`, `ipfsUploads:false`, and
+no restart fixed it (there was no cwd where the plugin ever found the file).
+This affected macOS, Linux, and Windows identically.
+
+- **New universal location: `~/.dexe-mcp/.env`.** The server now also loads
+  `.env` from the home config directory it already uses for `state.json` —
+  resolved per-OS via `os.homedir()`, so it works from any folder on any
+  platform. Load order (first existing file wins per key; host-injected OS env
+  still beats all files): `$DEXE_ENV_FILE` → `<cwd>/.env` → `~/.dexe-mcp/.env`
+  → `<pkgdir>/.env`.
+- **New `DEXE_ENV_FILE`** — absolute-path override for CI/containers/hosts that
+  can inject one variable but not a working directory.
+- **`npx dexe-mcp init` / `/dexe-setup` now write to `~/.dexe-mcp/.env`** when
+  running as an installed package (the previous target was the ephemeral npx
+  cache dir, so the wizard's config vanished). A source checkout still uses the
+  repo-local `.env`.
+
+No action for setups that already worked; if a project `.env` wasn't being
+picked up under the plugin, move it to `~/.dexe-mcp/.env`. Tool count unchanged.
+
 ## 0.23.0 — 2026-07-08
 
 ### SIMPLE-mode DAO creation: configurable min-votes and early completion

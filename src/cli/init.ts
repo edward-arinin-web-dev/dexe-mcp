@@ -181,7 +181,20 @@ export async function run(): Promise<void> {
     if (privateKey) updates.DEXE_PRIVATE_KEY = privateKey;
     if (wcProjectId) updates.DEXE_WALLETCONNECT_PROJECT_ID = wcProjectId;
 
-    const envPath = resolve(repoRoot, ".env");
+    // Where to write config. A source checkout (has `src/`) keeps the
+    // repo-local `.env` — that's what devs hand-edit and the local `dexe-dev`
+    // server loads via cwd. An INSTALLED package (npx/plugin) has `repoRoot`
+    // pointing at the ephemeral npx cache, so we write the stable, cwd-
+    // independent home config the server now loads (`~/.dexe-mcp/.env`) —
+    // otherwise the wizard's `.env` vanishes and the plugin sees no env at all.
+    let envPath: string;
+    if (existsSync(resolve(repoRoot, "src"))) {
+      envPath = resolve(repoRoot, ".env");
+    } else {
+      const homeConfigDir = resolve(homedir(), ".dexe-mcp");
+      mkdirSync(homeConfigDir, { recursive: true });
+      envPath = resolve(homeConfigDir, ".env");
+    }
 
     // Read the file once up-front (or treat ENOENT as "no existing .env") so
     // the later write isn't a check-then-act TOCTOU: every decision below

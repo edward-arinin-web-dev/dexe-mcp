@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   ENV_REGISTRY,
   DYNAMIC_PER_CHAIN_RPC_RE,
@@ -29,6 +30,44 @@ export interface EnvLoadReport {
    * SHADOW the .env file. Subtle precedence trap.
    */
   preExistingVars: EnvKey[];
+}
+
+/**
+ * The ordered list of `.env` locations the server tries, deliberately
+ * cwd-INDEPENDENT so a plugin launched by an MCP host from an arbitrary working
+ * directory — on macOS, Linux, or Windows — still finds the user's config.
+ * Callers load each returned path that exists, in order; because
+ * `process.loadEnvFile()` never overrides an already-set key, the FIRST file
+ * wins per key (and any host-injected OS env beats all files).
+ *
+ * Order:
+ *   1. `explicit` (`$DEXE_ENV_FILE`) — absolute path, for CI/containers/hosts
+ *      that can inject one var but not a working directory.
+ *   2. `<cwd>/.env`               — dev convenience when run from the repo.
+ *   3. `<home>/.dexe-mcp/.env`    — the universal home config (same dir as
+ *      `state.json`); works from any folder on any OS. `dexe-mcp init` /
+ *      `/dexe-setup` write here for installed (npx/plugin) usage.
+ *   4. `<pkgDir>/../.env`         — the npm package dir (npx cache; ~never present).
+ *
+ * Duplicates are removed so running from the repo (where cwd and pkgDir may
+ * resolve to the same file) loads it once.
+ */
+export function resolveEnvCandidates(opts: {
+  cwd: string;
+  home: string;
+  pkgDir: string;
+  explicit?: string;
+}): string[] {
+  const out: string[] = [];
+  const push = (p: string): void => {
+    if (!out.includes(p)) out.push(p);
+  };
+  const explicit = opts.explicit?.trim();
+  if (explicit) push(resolve(explicit));
+  push(resolve(opts.cwd, ".env"));
+  push(resolve(opts.home, ".dexe-mcp", ".env"));
+  push(resolve(opts.pkgDir, "..", ".env"));
+  return out;
 }
 
 /**

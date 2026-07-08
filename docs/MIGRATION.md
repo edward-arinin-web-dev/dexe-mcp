@@ -6,6 +6,30 @@ something on your side.
 
 ---
 
+## 0.23.0 → 0.23.1 — move config to `~/.dexe-mcp/.env` if the plugin saw no env
+
+Fix release. The server now loads `.env` from a **cwd-independent** home
+location — `~/.dexe-mcp/.env` (per-OS via `os.homedir()`) — in addition to the
+project `.env`. This closes the bug where the Claude Code plugin, launched with
+a working directory that isn't your project, never found your `.env` and ran
+with zero `DEXE_*` config (`readonly` / `ipfsUploads:false`) on every OS.
+
+- **If your setup already worked, do nothing.**
+- **If the plugin showed no env** (`dexe_doctor` → only `state.path`, everything
+  else missing): put your config at `~/.dexe-mcp/.env` — e.g.
+  `~/.dexe-mcp/.env` on macOS/Linux, `C:\Users\<you>\.dexe-mcp\.env` on Windows.
+  `npx dexe-mcp init` now writes there automatically for installed packages.
+- New `DEXE_ENV_FILE` env var: absolute path to a `.env`, loaded first — for
+  CI/containers that can inject one variable but not a working directory.
+- For WalletConnect signing, leave `DEXE_PRIVATE_KEY` out of that file (a hot
+  key takes precedence over WC).
+
+Restart Claude Code after creating the file (env loads once at startup), and do
+not `/mcp` reconnect or `/plugin` mid-session — that relaunches the server and
+drops any live WalletConnect session.
+
+---
+
 ## 0.22.x → 0.23.0 — no action
 
 Additive only. `dexe_dao_create` SIMPLE mode accepts two new optional fields:

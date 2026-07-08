@@ -116,6 +116,13 @@ export const ENV_SPEC = {
     example: "",
     doc: "Override path for the persistent operational-state JSON (known DAOs / recent proposals surfaced by dexe_context). Default ~/.dexe-mcp/state.json. Must be in a writable directory.",
   },
+  DEXE_ENV_FILE: {
+    schema: z.string().optional(),
+    category: "core",
+    required: false,
+    example: "",
+    doc: "Absolute path to a .env file to load first, for hosts/CI/containers that can inject one variable but not a working directory. Must be set in the real process environment (not inside a .env), since it is read before any file loads. The default cwd-independent search (<cwd>/.env, then ~/.dexe-mcp/.env) needs no override.",
+  },
 
   // ─── rpc ──────────────────────────────────────────────────────────────────
   DEXE_RPC_URL: {
