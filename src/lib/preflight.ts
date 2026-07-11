@@ -221,6 +221,89 @@ export function checkLinearInitData(voteType: string, initData: string | undefin
   );
 }
 
+/** `__PolynomialPower_init(uint256,uint256,uint256)` selector (frontend PolynomialPower.json). */
+export const POLYNOMIAL_POWER_INIT_SELECTOR = "0x4064b0fa";
+
+/**
+ * CUSTOM vote power ships an operator-provided contract: the factory calls
+ * `presetAddress.call(initData)` and reverts "PoolFactory: power init failed"
+ * on any mismatch. Nothing else validates this path (the builder auto-encodes
+ * initData only for LINEAR/POLYNOMIAL), so guard the leaves here:
+ *   - CUSTOM requires a non-zero presetAddress and well-formed hex initData
+ *     ("0x" is allowed — some presets are init-free).
+ *   - POLYNOMIAL with a raw initData override that isn't the
+ *     __PolynomialPower_init selector is a mistake (generalizes
+ *     checkLinearInitData; the builder auto-encodes from coefficients).
+ */
+export function checkCustomVotePower(
+  voteType: string,
+  initData: string | undefined,
+  presetAddress: string,
+): PreflightResult {
+  const d = (initData ?? "").toLowerCase();
+  if (voteType === "CUSTOM_VOTES") {
+    if (!isAddress(presetAddress) || presetAddress === ZeroAddress) {
+      return fail(
+        "deploy.custom-vote-power",
+        "CUSTOM_VOTES requires votePowerParams.presetAddress = the deployed custom vote-power contract " +
+          "(non-zero). LINEAR/POLYNOMIAL use presetAddress 0x0 and auto-encoded initData instead.",
+      );
+    }
+    if (d !== "" && d !== "0x" && !/^0x[0-9a-f]{8,}$/.test(d)) {
+      return fail(
+        "deploy.custom-vote-power",
+        `CUSTOM_VOTES initData '${initData}' is not valid call data (0x-prefixed hex, 4-byte selector minimum, ` +
+          'or "0x" for init-free presets). The factory calls presetAddress with exactly these bytes and reverts ' +
+          '"PoolFactory: power init failed" on a mismatch.',
+      );
+    }
+    return pass("deploy.custom-vote-power");
+  }
+  if (voteType === "POLYNOMIAL_VOTES" && d !== "" && d !== "0x" && !d.startsWith(POLYNOMIAL_POWER_INIT_SELECTOR)) {
+    return fail(
+      "deploy.custom-vote-power",
+      `POLYNOMIAL_VOTES initData override '${initData}' is not the __PolynomialPower_init selector ` +
+        `(${POLYNOMIAL_POWER_INIT_SELECTOR}). The deploy tool auto-encodes this from polynomialCoefficients — ` +
+        "do NOT override initData; omit it.",
+    );
+  }
+  return pass("deploy.custom-vote-power");
+}
+
+/**
+ * Validators-side coherence — GovValidators init (`GovValidatorsUtils.sol:63-76`)
+ * requires duration > 0, 0 < quorum ≤ 1e27, and non-zero validator addresses;
+ * beyond the contract, a duplicate validator or a zero balance ships a
+ * governance-dead validator seat (it can never vote). Address format and
+ * validators/balances length parity are checked by the deploy builder already.
+ */
+export function checkValidatorsCoherence(args: {
+  validators: string[];
+  balances: string[];
+  duration: string;
+  quorum: string;
+}): PreflightResult {
+  const bad: string[] = [];
+  const dur = BigInt(args.duration);
+  const q = BigInt(args.quorum);
+  if (dur <= 0n) bad.push(`validatorsParams.proposalSettings.duration must be > 0 (got ${dur})`);
+  if (q <= 0n || q > PERCENTAGE_100) bad.push(`validatorsParams.proposalSettings.quorum must be 0 < q ≤ 1e27 (got ${q})`);
+  const seen = new Set<string>();
+  args.validators.forEach((v, i) => {
+    const lower = v.toLowerCase();
+    if (lower === ZeroAddress) bad.push(`validators[${i}] is the zero address`);
+    else if (seen.has(lower)) bad.push(`validators[${i}] (${v}) is a duplicate`);
+    seen.add(lower);
+    if (BigInt(args.balances[i] ?? "0") <= 0n) bad.push(`balances[${i}] is 0 — validator ${v} could never vote`);
+  });
+  if (bad.length === 0) return pass("deploy.validators", `${args.validators.length} validator(s)`);
+  return fail(
+    "deploy.validators",
+    `Validator config would revert GovValidators init or ship a dead validator seat: ${bad.join("; ")}. ` +
+      "(GovValidatorsUtils validateProposalSettings/validateChangeBalances; durations in seconds, quorum at 1e25-per-percent scale)",
+  );
+}
+
 /** UserKeeper needs at least one non-zero governance asset (token or NFT). */
 export function checkUserKeeperAsset(tokenAddress: string, nftAddress: string, isTokenCreation: boolean): PreflightResult {
   if (isTokenCreation) return pass("deploy.userkeeper-asset", "new token creation");

@@ -16,6 +16,8 @@ import {
   checkMinVotesVsDistribution,
   checkSettingsBounds,
   checkNoTreasuryRecipient,
+  checkValidatorsCoherence,
+  checkCustomVotePower,
 } from "../lib/preflight.js";
 import { roundTripDeployCalldata, type DeployStructView } from "../lib/deployGuard.js";
 
@@ -377,8 +379,36 @@ export async function buildDeployGovPool(
     predictedGovToken = res.govToken as string;
     predictedDistribution = res.distributionProposal as string;
     predictedTokenSale = res.govTokenSale as string;
+
+    // Name-collision pre-check: the create2 salt is deployer+name, so code at
+    // the predicted govPool means this exact name was already deployed by this
+    // deployer — the factory would revert "PoolFactory: pool name is already
+    // taken" after burning gas. One getCode converts that into a build error.
+    const existing = await provider.getCode(predictedGovPool);
+    if (existing !== "0x") {
+      return fail(
+        `DAO name '${params.name}' is already deployed by ${deployer} on chain ${chain.chainId} ` +
+          `(govPool ${predictedGovPool} has code). deployGovPool would revert "PoolFactory: pool name is ` +
+          `already taken". Pick a different daoName — any change works.`,
+      );
+    }
+
+    // CUSTOM vote power: the preset must be a deployed contract, or the factory
+    // reverts "PoolFactory: power init failed" with the reason swallowed.
+    if (params.votePowerParams.voteType === "CUSTOM_VOTES") {
+      const presetCode = await provider.getCode(params.votePowerParams.presetAddress);
+      if (presetCode === "0x") {
+        return fail(
+          `votePowerParams.presetAddress ${params.votePowerParams.presetAddress} has no contract code on ` +
+            `chain ${chain.chainId}. CUSTOM_VOTES requires a deployed vote-power contract; the factory calls ` +
+            `its init and reverts "PoolFactory: power init failed" otherwise.`,
+        );
+      }
+    }
   } catch (err) {
-    return fail(`Failed to predict gov addresses: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(
+      `Failed to predict gov addresses / run pre-deploy checks: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   const ZERO = "0x0000000000000000000000000000000000000000";
@@ -443,6 +473,17 @@ export async function buildDeployGovPool(
   });
   const base0 = expandedSettings[0]!;
   const coherence = firstFailure([
+    checkCustomVotePower(
+      params.votePowerParams.voteType,
+      params.votePowerParams.initData,
+      params.votePowerParams.presetAddress,
+    ),
+    checkValidatorsCoherence({
+      validators: validatorsParams.validators,
+      balances: validatorsParams.balances,
+      duration: validatorsParams.proposalSettings.duration,
+      quorum: validatorsParams.proposalSettings.quorum,
+    }),
     checkNoTreasuryRecipient(params.tokenParams.users, predictedGovPool),
     checkTreasuryRemainder(params.tokenParams.mintedTotal, params.tokenParams.amounts, isTokenCreation),
     checkSettingsBounds({

@@ -17,6 +17,7 @@ import {
   checkUserKeeperAsset,
   checkTreasuryRemainder,
   checkLinearInitData,
+  checkCustomVotePower,
   checkQuorumReachable,
   assertPreflight,
 } from "../lib/preflight.js";
@@ -342,6 +343,11 @@ export function registerDaoCreateTools(
           ),
           checkTreasuryRemainder(deployParams.tokenParams.mintedTotal, deployParams.tokenParams.amounts, isTokenCreation),
           checkLinearInitData(deployParams.votePowerParams.voteType, deployParams.votePowerParams.initData),
+          checkCustomVotePower(
+            deployParams.votePowerParams.voteType,
+            deployParams.votePowerParams.initData,
+            deployParams.votePowerParams.presetAddress,
+          ),
         ]);
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
