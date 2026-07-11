@@ -17,6 +17,7 @@ import {
   checkSettingsBounds,
   checkNoTreasuryRecipient,
 } from "../lib/preflight.js";
+import { roundTripDeployCalldata, type DeployStructView } from "../lib/deployGuard.js";
 
 /**
  * Phase 5 — deploy a new DAO via `PoolFactory.deployGovPool(GovPoolDeployParams)`.
@@ -646,9 +647,70 @@ export async function buildDeployGovPool(
     return fail(`deployGovPool encoding failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // ---------- round-trip self-check (offline encoding guard) ----------
+  // Decode the calldata we just built and assert every load-bearing field
+  // survived encoding. Catches ABI/positional drift — the exact class of bug
+  // that shifts fields and empties `name` → "PoolFactory: pool name cannot be
+  // empty" revert — at build time, before the B9 eth_call sim runs. See
+  // lib/deployGuard.ts.
+  {
+    const expected: DeployStructView = {
+      name: params.name,
+      descriptionURL: params.descriptionURL.replace(/^ipfs:\/\//, ""),
+      verifier: params.verifier,
+      onlyBABTHolders: params.onlyBABTHolders,
+      votePowerParams: {
+        voteType: VOTE_POWER_TYPES.indexOf(params.votePowerParams.voteType),
+        initData: votePowerInitData,
+        presetAddress: params.votePowerParams.presetAddress,
+      },
+      settingsParams: {
+        proposalSettings: expandedSettings as unknown as DeployStructView["settingsParams"]["proposalSettings"],
+        additionalProposalExecutors: effectiveExecutors,
+      },
+      validatorsParams: {
+        name: validatorsParams.name,
+        symbol: validatorsParams.symbol,
+        proposalSettings: validatorsParams.proposalSettings,
+        validators: validatorsParams.validators,
+        balances: validatorsParams.balances,
+      },
+      userKeeperParams: {
+        tokenAddress: effectiveTokenAddress,
+        nftAddress: params.userKeeperParams.nftAddress,
+        individualPower: params.userKeeperParams.individualPower,
+        nftsTotalSupply: params.userKeeperParams.nftsTotalSupply,
+      },
+      tokenParams: params.tokenParams as unknown as DeployStructView["tokenParams"],
+    };
+    let rt;
+    try {
+      rt = roundTripDeployCalldata(payload.data, iface, expected);
+    } catch (err) {
+      return fail(
+        `deployGovPool calldata self-check could not decode the built calldata (${err instanceof Error ? err.message : String(err)}). ` +
+          `This is an ABI/encoding mismatch — run dexe_compile to refresh the PoolFactory ABI. Refusing to emit un-decodable calldata.`,
+      );
+    }
+    if (!rt.ok) {
+      const detail = rt.mismatches
+        .slice(0, 8)
+        .map((m) => `${m.field}: expected "${m.expected}" got "${m.got}"`)
+        .join("; ");
+      return fail(
+        `deployGovPool calldata self-check FAILED — the encoded calldata does not match the intended params ` +
+          `(ABI/positional drift; this is the class of bug that empties \`name\` and reverts ` +
+          `"PoolFactory: pool name cannot be empty"). Mismatches: ${detail}` +
+          `${rt.mismatches.length > 8 ? ` (+${rt.mismatches.length - 8} more)` : ""}. ` +
+          `Run dexe_compile to refresh the PoolFactory ABI (current source: ${ifaceSource}).`,
+      );
+    }
+  }
+
   let note = ifaceSource.includes("fallback")
     ? "⚠️  Using fallback tuple ABI. For guaranteed parity, run dexe_compile to populate artifacts."
     : "Encoded against compiled artifact — strict parity with deployed PoolFactory.";
+  note += "\n✓ Calldata round-trip self-check passed (decoded == intended params).";
   if (pinataWarning) note += pinataWarning;
   if (quorumWarning) note += quorumWarning;
 
