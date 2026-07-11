@@ -19,6 +19,7 @@ import {
   checkValidatorsCoherence,
   checkCustomVotePower,
 } from "../lib/preflight.js";
+import { simulateDeployGovPool } from "../lib/deploySim.js";
 import { roundTripDeployCalldata, type DeployStructView } from "../lib/deployGuard.js";
 
 /**
@@ -802,7 +803,10 @@ function registerBuildDeploy(
         "**executorDescription auto-upload:** When `DEXE_PINATA_JWT` is configured and `executorDescription` is empty, " +
         "the tool auto-uploads proposal settings JSON to IPFS and sets the CID (matching frontend behavior). " +
         "Without this, the DAO's proposal settings won't display correctly in the frontend UI.\n\n" +
-        "**Token cap constraint:** When creating a new gov token (`tokenParams.name` non-empty), `cap` MUST be either 0 (uncapped) or strictly greater than `mintedTotal`. ERC20Gov init reverts silently otherwise. The tool pre-flight-rejects with a clear error.\n\n" +
+        "**Token cap constraint:** When creating a new gov token (`tokenParams.name` non-empty), `cap` MUST be > 0 and ≥ `mintedTotal` (cap == mintedTotal is a valid fixed supply; there is NO uncapped mode). The tool pre-flight-rejects violations with a clear error.\n\n" +
+        "**Pre-sign simulation:** After building, the calldata is simulated via eth_call from the deployer against live chain state. " +
+        "A provable revert → the tool REFUSES to emit the payload and returns the cause + fix (no gas can be wasted on it). " +
+        "Pass `skipSimulation: true` only to deliberately bypass (e.g. offline/flaky RPC). RPC transport failures never block — the payload is returned with a warning.\n\n" +
         "Prefer running `dexe_compile` first for strict ABI parity.",
       inputSchema: {
         chainId: z
@@ -821,13 +825,41 @@ function registerBuildDeploy(
           .string()
           .describe("tx.origin that will send the deploy tx — required for address prediction"),
         params: DeployParamsSchema,
+        skipSimulation: z
+          .boolean()
+          .optional()
+          .describe(
+            "Bypass the pre-sign eth_call simulation (deliberate override for offline/flaky-RPC use). " +
+              "Default false: a provably-reverting payload is refused with cause + fix.",
+          ),
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ chainId, poolFactory, deployer, params }) => {
+    async ({ chainId, poolFactory, deployer, params, skipSimulation }) => {
       const res = await buildDeployGovPool({ chainId, poolFactory, deployer, params }, ctx, rpc);
       if (!res.ok) return errorResult(res.error);
-      return payloadResult(res.payload, { predictedGovPool: res.predictedGovPool, note: res.note });
+
+      // Pre-sign simulation: never hand out a payload that provably reverts —
+      // the caller would sign and burn gas on it. Transport failures fail open
+      // (verdict lands in the note); `skipSimulation` is the deliberate bypass.
+      let note = res.note;
+      if (!skipSimulation) {
+        const verdict = await simulateDeployGovPool({
+          to: res.payload.to,
+          data: res.payload.data,
+          deployer,
+          chainId: Number(res.payload.chainId),
+          config: ctx.config,
+        });
+        if (verdict.status === "reverted") {
+          return errorResult(
+            `Refusing to emit a payload that provably reverts. ${verdict.summary} ` +
+              "(pass skipSimulation: true only if you are certain the simulation is wrong)",
+          );
+        }
+        note = `${note}\n${verdict.summary}`;
+      }
+      return payloadResult(res.payload, { predictedGovPool: res.predictedGovPool, note });
     },
   );
 }

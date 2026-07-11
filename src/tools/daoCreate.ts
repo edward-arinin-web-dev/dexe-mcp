@@ -21,6 +21,8 @@ import {
   checkQuorumReachable,
   assertPreflight,
 } from "../lib/preflight.js";
+import { simulateDeployGovPool } from "../lib/deploySim.js";
+import { mapDeployRevert } from "../lib/deployRevertMap.js";
 import { quorumPctFromRaw } from "../lib/quorumRisk.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
@@ -481,6 +483,28 @@ export function registerDaoCreateTools(
       );
       if (!res.ok) return err(res.error);
 
+      // ---------- pre-sign simulation (the one on-chain check) ----------
+      // The deploy is a single independent payload, so eth_call against live
+      // state proves the exact calldata would not revert BEFORE the wallet
+      // signs. Genuine revert → refuse (fail-closed). RPC transport failure →
+      // proceed with a warning (fail-open) — an infra hiccup must not wedge a
+      // valid deploy. sendOrCollect's blanket B9 skip stays (composites are
+      // dependent sequences; this deploy is not).
+      let simSummary = "";
+      if (willBroadcast) {
+        const verdict = await simulateDeployGovPool({
+          to: res.payload.to,
+          data: res.payload.data,
+          deployer,
+          chainId,
+          config: ctx.config,
+        });
+        if (verdict.status === "reverted") {
+          return err(`Deploy refused — ${verdict.summary}`);
+        }
+        simSummary = verdict.summary;
+      }
+
       // ---------- send or collect ----------
       let result;
       try {
@@ -490,11 +514,15 @@ export function registerDaoCreateTools(
       }
       if (result.mode === "failed") {
         // R3/R7: a mined-but-reverted (or timed-out) deploy must not read as
-        // success — and must never be recorded as a known DAO.
+        // success — and must never be recorded as a known DAO. Layer the deploy
+        // revert knowledge base over the raw failure so the caller gets
+        // cause + fix, not just an ethers dump.
+        const kb = mapDeployRevert(result.failure?.error);
         return flowFailureResult(result, {
           daoName: input.daoName,
           chainId,
           predictedGovPool: res.predictedGovPool ?? null,
+          ...(kb.known ? { knownCause: { slug: kb.slug, cause: kb.cause, fix: kb.fix } } : {}),
         });
       }
 
@@ -516,6 +544,30 @@ export function registerDaoCreateTools(
         }
       }
 
+      // ---------- post-deploy readiness probe (best-effort) ----------
+      // Confirm the pool actually exists at the predicted address, and hand
+      // the caller the safe first-proposal path (bug #35: fresh pools reject
+      // the multicall(deposit,create) pattern — dexe_proposal_create already
+      // sends approve→deposit→createProposalAndVote as separate txs).
+      let readiness: { govPoolLive: boolean } | undefined;
+      let nextSteps: string | undefined;
+      if (result.mode === "executed" && res.predictedGovPool) {
+        try {
+          const pr = rpc.tryProvider(chainId);
+          if (!("error" in pr)) {
+            const code = await pr.ok.getCode(res.predictedGovPool);
+            readiness = { govPoolLive: code !== "0x" };
+          }
+        } catch {
+          /* best-effort — never fail a landed deploy on a read error */
+        }
+        nextSteps =
+          `DAO is live at ${res.predictedGovPool}. First proposal: use dexe_proposal_create — it runs ` +
+          "approve→deposit→createProposalAndVote as separate transactions (fresh pools reject the bundled " +
+          "multicall pattern). If the first create reverts 'low creating power', re-run the same call — " +
+          "the flow resumes from the deposit.";
+      }
+
       return attachPairingQr(ok({
         mode: result.mode,
         daoName: input.daoName,
@@ -524,8 +576,10 @@ export function registerDaoCreateTools(
         descriptionURL,
         predictedGovPool: res.predictedGovPool ?? null,
         predicted: res.predicted,
-        note: res.note,
+        note: simSummary ? `${res.note}\n${simSummary}` : res.note,
         steps: result.steps,
+        ...(readiness ? { readiness } : {}),
+        ...(nextSteps ? { nextSteps } : {}),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);
