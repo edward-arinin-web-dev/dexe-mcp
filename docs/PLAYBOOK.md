@@ -108,6 +108,29 @@ returned HTTP request with the Bearer token. Mainnet DAOs only.
 | `tokens locked` after an execute | Voted tokens stay locked per proposal | `dexe_vote_build_withdraw` between proposals, then proceed |
 | tool not found (`dexe_…`) | Toolset gated off | `dexe_context` lists hidden sets; set `DEXE_TOOLSETS` in `.env` + restart |
 
+## DAO deploy reverts → fix (v0.24: the pre-sign simulation catches these BEFORE gas is spent)
+
+`dexe_dao_create` simulates the exact deploy calldata (eth_call from the deployer)
+before signing. A provable revert is refused with one of these classified causes —
+apply the fix verbatim. Mirrors `src/lib/deployRevertMap.ts` (single source).
+
+| Revert contains | Slug | Fix |
+|---|---|---|
+| `pool name cannot be empty` | name-empty | Pass a non-empty daoName; if it WAS non-empty, run `dexe_compile` (ABI drift — the round-trip self-check pinpoints the field) |
+| `pool name is already taken` | name-taken | This deployer already used this name on this chain (create2 salt = deployer+name). Pick a different daoName |
+| `unexpected pool address` | predicted-address-drift | Protocol upgraded between predict and deploy — re-run; if persistent, `dexe_compile` |
+| `power init failed` | vote-power-init | Don't override votePower initData (auto-encoded for LINEAR/POLYNOMIAL); for CUSTOM verify presetAddress + initData |
+| `can't initialize token` | token-init-failed | Inner token-init revert (reason swallowed): check cap > 0, cap ≥ mintedTotal, users/amounts parity, sum(amounts) ≤ mintedTotal |
+| `ERC20Capped: cap is 0` | cap-zero | Set cap ≥ mintedTotal (cap == mintedTotal = fixed supply; no uncapped mode) |
+| `mintedTotal should not be greater than cap` | cap-lt-minted | Raise cap or lower mintedTotal |
+| `ERC20Gov: overminting` | over-distribution | sum(amounts) must be ≤ mintedTotal (treasury = remainder) |
+| `users and amounts lengths mismatch` | users-amounts-mismatch | One amount per recipient |
+| `GovSettings: invalid …` | settings-bounds | duration/durationValidators > 0; 0 < quorum ≤ 1e27 (1% = 1e25) |
+| `GovUK: zero addresses` | userkeeper-asset | Set a gov token, an NFT, or tokenParams.name (new token) |
+| `Validators: …` | validators-init | duration > 0, 0 < quorum ≤ 1e27, no zero addresses, balances parity |
+| `SphereX error` / `disallowed tx pattern` | spherex-pattern | Send plain single txs (dexe_dao_create already does); re-run once if it persists |
+| (no reason string) | opaque | Likely: settings bounds, name taken, cap conflict, validator params — re-run through dexe_dao_create's preflights; `dexe_compile` if ABI may be stale |
+
 ## Toolsets (DEXE_TOOLSETS, default `core,proposals`)
 
 | Set | Unlocks |

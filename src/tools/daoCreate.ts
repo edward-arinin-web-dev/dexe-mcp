@@ -215,9 +215,14 @@ export function registerDaoCreateTools(
       "returns a `preview` of the resolved config + a safety proof and only broadcasts on a second call with " +
       "`confirm: true`. ADVANCED mode: pass a full `params` deploy struct. Either way the deploy runs governance " +
       "coherence guards (unreachable quorum, min-votes above every holder, treasury in the voter list, out-of-range " +
-      "settings) that block any config the frontend blocks. Mainnet (chain 56) is supported (the frontend ships there " +
-      "daily) but requires `confirm: true` since it spends real BNB; testnet (97) is the recommended place to validate. " +
-      "`deployer` defaults to the configured signer. Pass avatarCID from dexe_ipfs_upload_avatar / dexe_dao_generate_avatar.",
+      "settings, validator/CUSTOM vote-power coherence, name collision) that block any config the frontend blocks, " +
+      "a calldata round-trip self-check, and — right before signing — an eth_call SIMULATION of the exact calldata " +
+      "from the deployer: a provable revert is refused with a classified cause + fix BEFORE any gas is spent " +
+      "(apply the fix verbatim and re-run); an RPC outage only downgrades to a warning. On success the result " +
+      "includes readiness (govPool code verified) and nextSteps for the first proposal. Mainnet (chain 56) is " +
+      "supported (the frontend ships there daily) but requires `confirm: true` since it spends real BNB; testnet (97) " +
+      "is the recommended place to validate. `deployer` defaults to the configured signer. Pass avatarCID from " +
+      "dexe_ipfs_upload_avatar / dexe_dao_generate_avatar.",
     {
       chainId: z
         .number()

@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.24.0 — 2026-07-11
+
+### One-shot DAO deploys: simulate before signing, classify every revert
+
+The DAO deploy path is now guarded end-to-end so `dexe_dao_create` lands
+first-try — no more signed transactions reverting because params were built
+wrong. Every guard returns a concrete fix the calling model can apply verbatim.
+
+- **Pre-sign eth_call simulation** (`src/lib/deploySim.ts`). The deploy is a
+  single independent payload, so right before the wallet signs, the exact
+  calldata is simulated from the deployer against live chain state. A provable
+  revert **blocks the broadcast** with a classified cause + fix (no gas spent);
+  an RPC transport failure only downgrades to a warning (fail-open).
+  `dexe_dao_build_deploy` likewise **refuses to emit a provably-reverting
+  payload** — new `skipSimulation: true` input is the deliberate bypass.
+- **Deploy revert knowledge base** (`src/lib/deployRevertMap.ts`). Every known
+  `deployGovPool` revert string (PoolFactory, ERC20Gov, GovSettings,
+  GovValidators, SphereX — verified against the contract sources) maps to a
+  stable slug + cause + fix. Used by the simulation verdict, the
+  mined-but-reverted failure path (`knownCause` in the output), and the new
+  PLAYBOOK "DAO deploy reverts → fix" table.
+- **Calldata round-trip self-check** (`src/lib/deployGuard.ts`). The built
+  calldata is decoded with the same Interface and field-diffed against the
+  intended params — catches encode-time ABI/positional drift (the historical
+  "pool name cannot be empty" revert) before anything is signed.
+- **Name-collision pre-check.** `getCode(predictedGovPool)` before building:
+  a name this deployer already used on this chain is now a deterministic build
+  error instead of an on-chain "pool name is already taken" revert.
+- **New coherence guards**: `checkValidatorsCoherence` (duplicate validators,
+  zero balances, validator-settings bounds) and `checkCustomVotePower`
+  (CUSTOM requires a deployed preset contract — verified via getCode — and
+  well-formed initData; POLYNOMIAL initData overrides must match
+  `__PolynomialPower_init`).
+- **Post-deploy readiness probe.** On success, `dexe_dao_create` verifies the
+  new govPool has code (`readiness.govPoolLive`) and returns `nextSteps` with
+  the deposit-first first-proposal guidance (fresh pools reject the bundled
+  multicall pattern — bug #35).
+- **Golden-vector parity test** (`tests/lib/deployParity.test.ts` +
+  `tests/fixtures/deploy-golden.json`). Builder output is byte-compared against
+  an independently-declared frontend-order encoding (useCreateDAO.ts rules) and
+  a frozen fixture — any future ABI or transform drift fails with a field-level
+  diff.
+- Docs: `dexe-create-dao` skill (simulation verdict semantics, new gotchas),
+  tool descriptions, PLAYBOOK revert table, TOOLS.md. Fixed the stale
+  "cap=0 = uncapped" line in the `dexe_dao_build_deploy` description
+  (correct rule: cap ≥ mintedTotal > 0).
+
+Tool count unchanged (159); `dexe_dao_build_deploy` gains the `skipSimulation`
+input.
+
 ## 0.23.1 — 2026-07-08
 
 ### Fix: env config now loads regardless of working directory (all OSes)

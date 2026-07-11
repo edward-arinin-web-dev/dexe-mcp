@@ -13,7 +13,16 @@ description: |
 
 Deploy a DeXe governance DAO in **one tool call**. `dexe_dao_create` handles
 avatar → DAO IPFS metadata → `PoolFactory.deployGovPool` (predicted-address
-wiring, 1→5 settings auto-expand, executorDescription upload) → broadcast.
+wiring, 1→5 settings auto-expand, executorDescription upload) → **pre-sign
+eth_call simulation** → broadcast.
+
+Since v0.24.0 the deploy path is guarded end-to-end: offline coherence checks,
+a calldata round-trip self-check (decoded == intended params), a name-collision
+pre-check, and a live simulation of the exact calldata from the deployer right
+before signing. **A provable revert is refused before any gas is spent** and
+comes back with a classified cause + fix. If a tool error arrives with a
+`Fix:` line — apply that fix verbatim and re-run; do not improvise
+alternative parameters.
 
 **Do NOT hand-fabricate token splits or quorum numbers.** That is exactly how you
 ship a broken DAO. Use SIMPLE mode and let the tool synthesize + verify a coherent
@@ -80,6 +89,16 @@ This returns `mode: "preview"` with the **resolved config** (who holds what) and
    When the user has **already approved** the deploy up front, pass
    `confirm: true` on the **first** call — preview and broadcast collapse into
    one call.
+5. **Simulation verdict:** on broadcast, the tool simulates the exact calldata
+   (eth_call from the deployer) first. Three outcomes:
+   - `✓ simulated OK` in the note → the tx was proven against live state before signing.
+   - **refused with `WOULD REVERT` + cause + fix** → no gas was spent; apply
+     the fix verbatim and re-run.
+   - `⚠️ simulation unavailable` → the RPC failed, the deploy proceeded
+     unverified (offline guards still ran). Not an error.
+6. **After success:** the result includes `readiness.govPoolLive` (the pool's
+   code was verified on-chain) and `nextSteps` — follow it for the first
+   proposal (deposit-first; fresh pools reject the bundled multicall pattern).
 
 ## Recipe — ADVANCED mode (full control)
 
@@ -107,6 +126,11 @@ SIMPLE fields. The coherence guards still run. Key rules for hand-built params:
    `userKeeperParams.tokenAddress` or `.nftAddress`.
 6. **Over-distribution** — `sum(amounts)` must be ≤ `mintedTotal`. (An implicit
    treasury remainder is correct and expected — do NOT force them equal.)
+7. **Name collision** — a deployer can use each DAO name once per chain
+   (create2 salt = deployer + name). The tool pre-checks and tells you to pick
+   a different name. (hard block, v0.24)
+8. **Validators** — no duplicates, no zero balances, validator quorum
+   0 < q ≤ 1e27, duration > 0. (hard block, v0.24)
 
 ## Decimal conventions (must match the frontend)
 
