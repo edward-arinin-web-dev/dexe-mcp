@@ -47,6 +47,16 @@ wrong. Every guard returns a concrete fix the calling model can apply verbatim.
   "cap=0 = uncapped" line in the `dexe_dao_build_deploy` description
   (correct rule: cap ≥ mintedTotal > 0).
 
+### Plugin: self-contained bundle, launched by `node` (no more `npx`)
+
+The Claude Code plugin now ships a single esbuild bundle
+(`dexe-plugin/server/index.mjs`, built by `npm run bundle:plugin`) and launches
+it with plain `node` instead of `npx -y dexe-mcp@…`. This clears the Windows
+`-32000` spawn failure of the npx launcher and drops the launch-time network
+fetch — the plugin runs offline with no `node_modules` on the user's machine.
+The bundle carries a trimmed `package.json` (version for the MCP handshake) and
+`docs/PLAYBOOK.md` (backs the `dexe://playbook` resource) beside it.
+
 Tool count unchanged (159); `dexe_dao_build_deploy` gains the `skipSimulation`
 input.
 
