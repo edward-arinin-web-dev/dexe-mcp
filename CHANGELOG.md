@@ -46,6 +46,13 @@ wrong. Every guard returns a concrete fix the calling model can apply verbatim.
   tool descriptions, PLAYBOOK revert table, TOOLS.md. Fixed the stale
   "cap=0 = uncapped" line in the `dexe_dao_build_deploy` description
   (correct rule: cap ≥ mintedTotal > 0).
+- Live testnet acceptance (2026-07-19, chain 97): one-shot deploy (SIMPLE +
+  full ERC20/rewards/validators), 4/4 negative guards pre-sign, proposal
+  create→vote→execute, full OTC cycle — green. PLAYBOOK fixes from the run:
+  `change_voting_settings` settingsIds semantics (0 = default, 1 = internal)
+  and the SphereX KB row now covers the execute-path block on
+  `GovSettings.addSettings` for fresh pools (deterministic — use editSettings;
+  affects `new_proposal_type`/`enable_staking`).
 
 ### Plugin: self-contained bundle, launched by `node` (no more `npx`)
 
