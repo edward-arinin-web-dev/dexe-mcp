@@ -32,7 +32,7 @@ source to figure out parameters. Also served as the MCP resource `dexe://playboo
 | "Show DAO info / treasury / settings" | `dexe_dao_info` / `dexe_read_treasury` / `dexe_read_settings` | `{govPool}` (+ `chainId`) |
 | "Create a proposal to …" (ANY type) | `dexe_proposal_create` | `{govPool, title, proposalType, params:{…}}` (see type table) |
 | "Send/transfer treasury tokens to X" | `dexe_proposal_create` | `proposalType:"token_transfer"`, `params:{token, recipient, amount:"1000.0"}` |
-| "Change voting settings/quorum/duration" | `dexe_proposal_create` | `proposalType:"change_voting_settings"`, `params:{govSettings, settings:[…], settingsIds:["1"]}` |
+| "Change voting settings/quorum/duration" | `dexe_proposal_create` | `proposalType:"change_voting_settings"`, `params:{govSettings, settings:[…], settingsIds:["0"]}` — id 0 = default settings, 1 = internal |
 | "Add/remove an expert" | `dexe_proposal_create` | `proposalType:"add_expert"/"remove_expert"`, `params:{expertNftContract, scope, nominatedUser}` |
 | "Delegate treasury to an expert" | `dexe_proposal_create` | `proposalType:"delegate_to_expert"`, `params:{expert, amount}` |
 | "Vote on / pass / execute proposal N" | `dexe_proposal_vote_and_execute` | `{govPool, proposalId}` — auto-deposits, auto-executes |
@@ -55,7 +55,7 @@ Pass type-specific inputs in `params`. Wired types (all 33 catalog entries):
 - `token_distribution` `{distributionProposal, proposalId, token, amount, isNative?}` — pro-rata airdrop to voters.
 
 **Governance config**
-- `change_voting_settings` `{govSettings, settings:[fullSettingsStruct], settingsIds?}` — edit (with ids) or add.
+- `change_voting_settings` `{govSettings, settings:[fullSettingsStruct], settingsIds?}` — edit (with ids: 0 = default, 1 = internal) or add. ⚠ On fresh (SphereX-guarded) pools, executing an ADD (`addSettings`, no ids) reverts "SphereX error: disallowed tx pattern" — pass `settingsIds` to EDIT instead; `new_proposal_type`/`enable_staking` hit the same wall.
 - `new_proposal_type` / `enable_staking` `{govSettings, settings, executors, newSettingId}` — newSettingId = current settings length (`dexe_read_settings`).
 - `change_math_model` `{newVotePower}` — swap LINEAR/POLYNOMIAL/custom power contract.
 - `manage_validators` / `validators_allocation` `{govValidators, changes:[{user, balance}]}` — balance 0 removes.
@@ -107,6 +107,29 @@ returned HTTP request with the Bearer token. Mainnet DAOs only.
 | `rate-limit / 429 / SERVER_ERROR` | Public RPC flaked (already retried) | Re-run; set own RPC in `.env` (`DEXE_RPC_URL_MAINNET/_TESTNET`, comma-list = auto-failover) |
 | `tokens locked` after an execute | Voted tokens stay locked per proposal | `dexe_vote_build_withdraw` between proposals, then proceed |
 | tool not found (`dexe_…`) | Toolset gated off | `dexe_context` lists hidden sets; set `DEXE_TOOLSETS` in `.env` + restart |
+
+## DAO deploy reverts → fix (v0.24: the pre-sign simulation catches these BEFORE gas is spent)
+
+`dexe_dao_create` simulates the exact deploy calldata (eth_call from the deployer)
+before signing. A provable revert is refused with one of these classified causes —
+apply the fix verbatim. Mirrors `src/lib/deployRevertMap.ts` (single source).
+
+| Revert contains | Slug | Fix |
+|---|---|---|
+| `pool name cannot be empty` | name-empty | Pass a non-empty daoName; if it WAS non-empty, run `dexe_compile` (ABI drift — the round-trip self-check pinpoints the field) |
+| `pool name is already taken` | name-taken | This deployer already used this name on this chain (create2 salt = deployer+name). Pick a different daoName |
+| `unexpected pool address` | predicted-address-drift | Protocol upgraded between predict and deploy — re-run; if persistent, `dexe_compile` |
+| `power init failed` | vote-power-init | Don't override votePower initData (auto-encoded for LINEAR/POLYNOMIAL); for CUSTOM verify presetAddress + initData |
+| `can't initialize token` | token-init-failed | Inner token-init revert (reason swallowed): check cap > 0, cap ≥ mintedTotal, users/amounts parity, sum(amounts) ≤ mintedTotal |
+| `ERC20Capped: cap is 0` | cap-zero | Set cap ≥ mintedTotal (cap == mintedTotal = fixed supply; no uncapped mode) |
+| `mintedTotal should not be greater than cap` | cap-lt-minted | Raise cap or lower mintedTotal |
+| `ERC20Gov: overminting` | over-distribution | sum(amounts) must be ≤ mintedTotal (treasury = remainder) |
+| `users and amounts lengths mismatch` | users-amounts-mismatch | One amount per recipient |
+| `GovSettings: invalid …` | settings-bounds | duration/durationValidators > 0; 0 < quorum ≤ 1e27 (1% = 1e25) |
+| `GovUK: zero addresses` | userkeeper-asset | Set a gov token, an NFT, or tokenParams.name (new token) |
+| `Validators: …` | validators-init | duration > 0, 0 < quorum ≤ 1e27, no zero addresses, balances parity |
+| `SphereX error` / `disallowed tx pattern` | spherex-pattern | On deploy/create: send plain single txs (dexe_dao_create already does); re-run once if it persists. On `execute`: the proposal's ACTION pattern is blocked — known case: `GovSettings.addSettings` on fresh pools (change_voting_settings without settingsIds, new_proposal_type, enable_staking). Deterministic — re-running won't help; use editSettings (settingsIds) or run on an older pool |
+| (no reason string) | opaque | Likely: settings bounds, name taken, cap conflict, validator params — re-run through dexe_dao_create's preflights; `dexe_compile` if ABI may be stale |
 
 ## Toolsets (DEXE_TOOLSETS, default `core,proposals`)
 

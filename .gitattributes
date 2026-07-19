@@ -1,0 +1,4 @@
+# Generated, committed on purpose so the marketplace plugin ships a runnable
+# server (see scripts/bundle-plugin.mjs). Suppress diffs and mark as generated
+# so it doesn't drown code review — regenerate with `npm run bundle:plugin`.
+dexe-plugin/server/index.mjs -text -diff linguist-generated

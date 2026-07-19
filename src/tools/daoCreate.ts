@@ -17,9 +17,12 @@ import {
   checkUserKeeperAsset,
   checkTreasuryRemainder,
   checkLinearInitData,
+  checkCustomVotePower,
   checkQuorumReachable,
   assertPreflight,
 } from "../lib/preflight.js";
+import { simulateDeployGovPool } from "../lib/deploySim.js";
+import { mapDeployRevert } from "../lib/deployRevertMap.js";
 import { quorumPctFromRaw } from "../lib/quorumRisk.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
@@ -212,9 +215,14 @@ export function registerDaoCreateTools(
       "returns a `preview` of the resolved config + a safety proof and only broadcasts on a second call with " +
       "`confirm: true`. ADVANCED mode: pass a full `params` deploy struct. Either way the deploy runs governance " +
       "coherence guards (unreachable quorum, min-votes above every holder, treasury in the voter list, out-of-range " +
-      "settings) that block any config the frontend blocks. Mainnet (chain 56) is supported (the frontend ships there " +
-      "daily) but requires `confirm: true` since it spends real BNB; testnet (97) is the recommended place to validate. " +
-      "`deployer` defaults to the configured signer. Pass avatarCID from dexe_ipfs_upload_avatar / dexe_dao_generate_avatar.",
+      "settings, validator/CUSTOM vote-power coherence, name collision) that block any config the frontend blocks, " +
+      "a calldata round-trip self-check, and — right before signing — an eth_call SIMULATION of the exact calldata " +
+      "from the deployer: a provable revert is refused with a classified cause + fix BEFORE any gas is spent " +
+      "(apply the fix verbatim and re-run); an RPC outage only downgrades to a warning. On success the result " +
+      "includes readiness (govPool code verified) and nextSteps for the first proposal. Mainnet (chain 56) is " +
+      "supported (the frontend ships there daily) but requires `confirm: true` since it spends real BNB; testnet (97) " +
+      "is the recommended place to validate. `deployer` defaults to the configured signer. Pass avatarCID from " +
+      "dexe_ipfs_upload_avatar / dexe_dao_generate_avatar.",
     {
       chainId: z
         .number()
@@ -342,6 +350,11 @@ export function registerDaoCreateTools(
           ),
           checkTreasuryRemainder(deployParams.tokenParams.mintedTotal, deployParams.tokenParams.amounts, isTokenCreation),
           checkLinearInitData(deployParams.votePowerParams.voteType, deployParams.votePowerParams.initData),
+          checkCustomVotePower(
+            deployParams.votePowerParams.voteType,
+            deployParams.votePowerParams.initData,
+            deployParams.votePowerParams.presetAddress,
+          ),
         ]);
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));
@@ -475,6 +488,28 @@ export function registerDaoCreateTools(
       );
       if (!res.ok) return err(res.error);
 
+      // ---------- pre-sign simulation (the one on-chain check) ----------
+      // The deploy is a single independent payload, so eth_call against live
+      // state proves the exact calldata would not revert BEFORE the wallet
+      // signs. Genuine revert → refuse (fail-closed). RPC transport failure →
+      // proceed with a warning (fail-open) — an infra hiccup must not wedge a
+      // valid deploy. sendOrCollect's blanket B9 skip stays (composites are
+      // dependent sequences; this deploy is not).
+      let simSummary = "";
+      if (willBroadcast) {
+        const verdict = await simulateDeployGovPool({
+          to: res.payload.to,
+          data: res.payload.data,
+          deployer,
+          chainId,
+          config: ctx.config,
+        });
+        if (verdict.status === "reverted") {
+          return err(`Deploy refused — ${verdict.summary}`);
+        }
+        simSummary = verdict.summary;
+      }
+
       // ---------- send or collect ----------
       let result;
       try {
@@ -484,11 +519,15 @@ export function registerDaoCreateTools(
       }
       if (result.mode === "failed") {
         // R3/R7: a mined-but-reverted (or timed-out) deploy must not read as
-        // success — and must never be recorded as a known DAO.
+        // success — and must never be recorded as a known DAO. Layer the deploy
+        // revert knowledge base over the raw failure so the caller gets
+        // cause + fix, not just an ethers dump.
+        const kb = mapDeployRevert(result.failure?.error);
         return flowFailureResult(result, {
           daoName: input.daoName,
           chainId,
           predictedGovPool: res.predictedGovPool ?? null,
+          ...(kb.known ? { knownCause: { slug: kb.slug, cause: kb.cause, fix: kb.fix } } : {}),
         });
       }
 
@@ -510,6 +549,30 @@ export function registerDaoCreateTools(
         }
       }
 
+      // ---------- post-deploy readiness probe (best-effort) ----------
+      // Confirm the pool actually exists at the predicted address, and hand
+      // the caller the safe first-proposal path (bug #35: fresh pools reject
+      // the multicall(deposit,create) pattern — dexe_proposal_create already
+      // sends approve→deposit→createProposalAndVote as separate txs).
+      let readiness: { govPoolLive: boolean } | undefined;
+      let nextSteps: string | undefined;
+      if (result.mode === "executed" && res.predictedGovPool) {
+        try {
+          const pr = rpc.tryProvider(chainId);
+          if (!("error" in pr)) {
+            const code = await pr.ok.getCode(res.predictedGovPool);
+            readiness = { govPoolLive: code !== "0x" };
+          }
+        } catch {
+          /* best-effort — never fail a landed deploy on a read error */
+        }
+        nextSteps =
+          `DAO is live at ${res.predictedGovPool}. First proposal: use dexe_proposal_create — it runs ` +
+          "approve→deposit→createProposalAndVote as separate transactions (fresh pools reject the bundled " +
+          "multicall pattern). If the first create reverts 'low creating power', re-run the same call — " +
+          "the flow resumes from the deposit.";
+      }
+
       return attachPairingQr(ok({
         mode: result.mode,
         daoName: input.daoName,
@@ -518,8 +581,10 @@ export function registerDaoCreateTools(
         descriptionURL,
         predictedGovPool: res.predictedGovPool ?? null,
         predicted: res.predicted,
-        note: res.note,
+        note: simSummary ? `${res.note}\n${simSummary}` : res.note,
         steps: result.steps,
+        ...(readiness ? { readiness } : {}),
+        ...(nextSteps ? { nextSteps } : {}),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);

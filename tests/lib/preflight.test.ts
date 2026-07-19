@@ -16,6 +16,9 @@ import {
   checkMinVotesVsDistribution,
   checkSettingsBounds,
   checkNoTreasuryRecipient,
+  checkValidatorsCoherence,
+  checkCustomVotePower,
+  POLYNOMIAL_POWER_INIT_SELECTOR,
   meritocraticVotingPower,
   checkAvatarIsJpeg,
   checkOffchainMetadata,
@@ -178,6 +181,46 @@ describe("DAO governance coherence (frontend parity)", () => {
     expect(checkNoTreasuryRecipient([A, B], B).ok).toBe(false);
     expect(checkNoTreasuryRecipient([A], B).ok).toBe(true);
     expect(checkNoTreasuryRecipient([A, B], undefined).ok).toBe(true); // unknown govPool → skip
+  });
+
+  it("validators coherence: duplicates, zero balances, bad settings all fail", () => {
+    const good = { validators: [A, B], balances: [T(10), T(10)], duration: "86400", quorum: PCT(51) };
+    expect(checkValidatorsCoherence(good).ok).toBe(true);
+    expect(checkValidatorsCoherence({ validators: [], balances: [], duration: "86400", quorum: PCT(51) }).ok).toBe(true);
+    // duplicate validator (case-insensitive)
+    const dup = checkValidatorsCoherence({ ...good, validators: [A, A.toUpperCase().replace("0X", "0x")] });
+    expect(dup.ok).toBe(false);
+    expect(dup.remediation).toMatch(/duplicate/);
+    // zero balance → dead validator seat
+    const zeroBal = checkValidatorsCoherence({ ...good, balances: [T(10), "0"] });
+    expect(zeroBal.ok).toBe(false);
+    expect(zeroBal.remediation).toMatch(/could never vote/);
+    // zero-address validator (contract: "Validators: invalid address")
+    expect(checkValidatorsCoherence({ ...good, validators: [A, ZERO] }).ok).toBe(false);
+    // contract init bounds: duration > 0, 0 < quorum ≤ 1e27
+    expect(checkValidatorsCoherence({ ...good, duration: "0" }).ok).toBe(false);
+    expect(checkValidatorsCoherence({ ...good, quorum: "0" }).ok).toBe(false);
+    expect(checkValidatorsCoherence({ ...good, quorum: (10n ** 27n + 1n).toString() }).ok).toBe(false);
+  });
+
+  it("CUSTOM vote power: preset required, initData must be call data", () => {
+    // CUSTOM with a real preset and empty/valid initData passes
+    expect(checkCustomVotePower("CUSTOM_VOTES", undefined, A).ok).toBe(true);
+    expect(checkCustomVotePower("CUSTOM_VOTES", "0x", A).ok).toBe(true);
+    expect(checkCustomVotePower("CUSTOM_VOTES", "0x892aea1f", A).ok).toBe(true);
+    // CUSTOM without a preset contract → fail
+    expect(checkCustomVotePower("CUSTOM_VOTES", "0x", ZERO).ok).toBe(false);
+    // malformed initData (not hex call data)
+    expect(checkCustomVotePower("CUSTOM_VOTES", "0x123", A).ok).toBe(false);
+    expect(checkCustomVotePower("CUSTOM_VOTES", "hello", A).ok).toBe(false);
+    // POLYNOMIAL: empty is fine (builder auto-encodes); wrong selector override fails
+    expect(checkCustomVotePower("POLYNOMIAL_VOTES", undefined, ZERO).ok).toBe(true);
+    expect(checkCustomVotePower("POLYNOMIAL_VOTES", `${POLYNOMIAL_POWER_INIT_SELECTOR}00`, ZERO).ok).toBe(true);
+    const badPoly = checkCustomVotePower("POLYNOMIAL_VOTES", "0xdeadbeef", ZERO);
+    expect(badPoly.ok).toBe(false);
+    expect(badPoly.remediation).toMatch(/__PolynomialPower_init/);
+    // LINEAR is checkLinearInitData's job — this check stays silent
+    expect(checkCustomVotePower("LINEAR_VOTES", "0xdeadbeef", ZERO).ok).toBe(true);
   });
 
   it("meritocratic power is linear below the 7% threshold, curved above", () => {

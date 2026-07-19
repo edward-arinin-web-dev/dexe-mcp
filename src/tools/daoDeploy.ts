@@ -16,7 +16,11 @@ import {
   checkMinVotesVsDistribution,
   checkSettingsBounds,
   checkNoTreasuryRecipient,
+  checkValidatorsCoherence,
+  checkCustomVotePower,
 } from "../lib/preflight.js";
+import { simulateDeployGovPool } from "../lib/deploySim.js";
+import { roundTripDeployCalldata, type DeployStructView } from "../lib/deployGuard.js";
 
 /**
  * Phase 5 — deploy a new DAO via `PoolFactory.deployGovPool(GovPoolDeployParams)`.
@@ -376,8 +380,36 @@ export async function buildDeployGovPool(
     predictedGovToken = res.govToken as string;
     predictedDistribution = res.distributionProposal as string;
     predictedTokenSale = res.govTokenSale as string;
+
+    // Name-collision pre-check: the create2 salt is deployer+name, so code at
+    // the predicted govPool means this exact name was already deployed by this
+    // deployer — the factory would revert "PoolFactory: pool name is already
+    // taken" after burning gas. One getCode converts that into a build error.
+    const existing = await provider.getCode(predictedGovPool);
+    if (existing !== "0x") {
+      return fail(
+        `DAO name '${params.name}' is already deployed by ${deployer} on chain ${chain.chainId} ` +
+          `(govPool ${predictedGovPool} has code). deployGovPool would revert "PoolFactory: pool name is ` +
+          `already taken". Pick a different daoName — any change works.`,
+      );
+    }
+
+    // CUSTOM vote power: the preset must be a deployed contract, or the factory
+    // reverts "PoolFactory: power init failed" with the reason swallowed.
+    if (params.votePowerParams.voteType === "CUSTOM_VOTES") {
+      const presetCode = await provider.getCode(params.votePowerParams.presetAddress);
+      if (presetCode === "0x") {
+        return fail(
+          `votePowerParams.presetAddress ${params.votePowerParams.presetAddress} has no contract code on ` +
+            `chain ${chain.chainId}. CUSTOM_VOTES requires a deployed vote-power contract; the factory calls ` +
+            `its init and reverts "PoolFactory: power init failed" otherwise.`,
+        );
+      }
+    }
   } catch (err) {
-    return fail(`Failed to predict gov addresses: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(
+      `Failed to predict gov addresses / run pre-deploy checks: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   const ZERO = "0x0000000000000000000000000000000000000000";
@@ -442,6 +474,17 @@ export async function buildDeployGovPool(
   });
   const base0 = expandedSettings[0]!;
   const coherence = firstFailure([
+    checkCustomVotePower(
+      params.votePowerParams.voteType,
+      params.votePowerParams.initData,
+      params.votePowerParams.presetAddress,
+    ),
+    checkValidatorsCoherence({
+      validators: validatorsParams.validators,
+      balances: validatorsParams.balances,
+      duration: validatorsParams.proposalSettings.duration,
+      quorum: validatorsParams.proposalSettings.quorum,
+    }),
     checkNoTreasuryRecipient(params.tokenParams.users, predictedGovPool),
     checkTreasuryRemainder(params.tokenParams.mintedTotal, params.tokenParams.amounts, isTokenCreation),
     checkSettingsBounds({
@@ -646,9 +689,70 @@ export async function buildDeployGovPool(
     return fail(`deployGovPool encoding failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // ---------- round-trip self-check (offline encoding guard) ----------
+  // Decode the calldata we just built and assert every load-bearing field
+  // survived encoding. Catches ABI/positional drift — the exact class of bug
+  // that shifts fields and empties `name` → "PoolFactory: pool name cannot be
+  // empty" revert — at build time, before the B9 eth_call sim runs. See
+  // lib/deployGuard.ts.
+  {
+    const expected: DeployStructView = {
+      name: params.name,
+      descriptionURL: params.descriptionURL.replace(/^ipfs:\/\//, ""),
+      verifier: params.verifier,
+      onlyBABTHolders: params.onlyBABTHolders,
+      votePowerParams: {
+        voteType: VOTE_POWER_TYPES.indexOf(params.votePowerParams.voteType),
+        initData: votePowerInitData,
+        presetAddress: params.votePowerParams.presetAddress,
+      },
+      settingsParams: {
+        proposalSettings: expandedSettings as unknown as DeployStructView["settingsParams"]["proposalSettings"],
+        additionalProposalExecutors: effectiveExecutors,
+      },
+      validatorsParams: {
+        name: validatorsParams.name,
+        symbol: validatorsParams.symbol,
+        proposalSettings: validatorsParams.proposalSettings,
+        validators: validatorsParams.validators,
+        balances: validatorsParams.balances,
+      },
+      userKeeperParams: {
+        tokenAddress: effectiveTokenAddress,
+        nftAddress: params.userKeeperParams.nftAddress,
+        individualPower: params.userKeeperParams.individualPower,
+        nftsTotalSupply: params.userKeeperParams.nftsTotalSupply,
+      },
+      tokenParams: params.tokenParams as unknown as DeployStructView["tokenParams"],
+    };
+    let rt;
+    try {
+      rt = roundTripDeployCalldata(payload.data, iface, expected);
+    } catch (err) {
+      return fail(
+        `deployGovPool calldata self-check could not decode the built calldata (${err instanceof Error ? err.message : String(err)}). ` +
+          `This is an ABI/encoding mismatch — run dexe_compile to refresh the PoolFactory ABI. Refusing to emit un-decodable calldata.`,
+      );
+    }
+    if (!rt.ok) {
+      const detail = rt.mismatches
+        .slice(0, 8)
+        .map((m) => `${m.field}: expected "${m.expected}" got "${m.got}"`)
+        .join("; ");
+      return fail(
+        `deployGovPool calldata self-check FAILED — the encoded calldata does not match the intended params ` +
+          `(ABI/positional drift; this is the class of bug that empties \`name\` and reverts ` +
+          `"PoolFactory: pool name cannot be empty"). Mismatches: ${detail}` +
+          `${rt.mismatches.length > 8 ? ` (+${rt.mismatches.length - 8} more)` : ""}. ` +
+          `Run dexe_compile to refresh the PoolFactory ABI (current source: ${ifaceSource}).`,
+      );
+    }
+  }
+
   let note = ifaceSource.includes("fallback")
     ? "⚠️  Using fallback tuple ABI. For guaranteed parity, run dexe_compile to populate artifacts."
     : "Encoded against compiled artifact — strict parity with deployed PoolFactory.";
+  note += "\n✓ Calldata round-trip self-check passed (decoded == intended params).";
   if (pinataWarning) note += pinataWarning;
   if (quorumWarning) note += quorumWarning;
 
@@ -699,7 +803,10 @@ function registerBuildDeploy(
         "**executorDescription auto-upload:** When `DEXE_PINATA_JWT` is configured and `executorDescription` is empty, " +
         "the tool auto-uploads proposal settings JSON to IPFS and sets the CID (matching frontend behavior). " +
         "Without this, the DAO's proposal settings won't display correctly in the frontend UI.\n\n" +
-        "**Token cap constraint:** When creating a new gov token (`tokenParams.name` non-empty), `cap` MUST be either 0 (uncapped) or strictly greater than `mintedTotal`. ERC20Gov init reverts silently otherwise. The tool pre-flight-rejects with a clear error.\n\n" +
+        "**Token cap constraint:** When creating a new gov token (`tokenParams.name` non-empty), `cap` MUST be > 0 and ≥ `mintedTotal` (cap == mintedTotal is a valid fixed supply; there is NO uncapped mode). The tool pre-flight-rejects violations with a clear error.\n\n" +
+        "**Pre-sign simulation:** After building, the calldata is simulated via eth_call from the deployer against live chain state. " +
+        "A provable revert → the tool REFUSES to emit the payload and returns the cause + fix (no gas can be wasted on it). " +
+        "Pass `skipSimulation: true` only to deliberately bypass (e.g. offline/flaky RPC). RPC transport failures never block — the payload is returned with a warning.\n\n" +
         "Prefer running `dexe_compile` first for strict ABI parity.",
       inputSchema: {
         chainId: z
@@ -718,13 +825,41 @@ function registerBuildDeploy(
           .string()
           .describe("tx.origin that will send the deploy tx — required for address prediction"),
         params: DeployParamsSchema,
+        skipSimulation: z
+          .boolean()
+          .optional()
+          .describe(
+            "Bypass the pre-sign eth_call simulation (deliberate override for offline/flaky-RPC use). " +
+              "Default false: a provably-reverting payload is refused with cause + fix.",
+          ),
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ chainId, poolFactory, deployer, params }) => {
+    async ({ chainId, poolFactory, deployer, params, skipSimulation }) => {
       const res = await buildDeployGovPool({ chainId, poolFactory, deployer, params }, ctx, rpc);
       if (!res.ok) return errorResult(res.error);
-      return payloadResult(res.payload, { predictedGovPool: res.predictedGovPool, note: res.note });
+
+      // Pre-sign simulation: never hand out a payload that provably reverts —
+      // the caller would sign and burn gas on it. Transport failures fail open
+      // (verdict lands in the note); `skipSimulation` is the deliberate bypass.
+      let note = res.note;
+      if (!skipSimulation) {
+        const verdict = await simulateDeployGovPool({
+          to: res.payload.to,
+          data: res.payload.data,
+          deployer,
+          chainId: Number(res.payload.chainId),
+          config: ctx.config,
+        });
+        if (verdict.status === "reverted") {
+          return errorResult(
+            `Refusing to emit a payload that provably reverts. ${verdict.summary} ` +
+              "(pass skipSimulation: true only if you are certain the simulation is wrong)",
+          );
+        }
+        note = `${note}\n${verdict.summary}`;
+      }
+      return payloadResult(res.payload, { predictedGovPool: res.predictedGovPool, note });
     },
   );
 }

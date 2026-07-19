@@ -10,7 +10,7 @@
       "name": "dexe",
       "source": "./dexe-plugin",
       "description": "DeXe Protocol DAO governance for Claude — deploy DAOs, draft/vote/execute proposals, OTC sales, IPFS metadata. Reads work with zero setup; add keys only for writes.",
-      "version": "0.23.1",
+      "version": "0.24.0",
       "author": { "name": "Edward Arinin", "email": "edward.arinin@gmail.com" }
     }
   ]
