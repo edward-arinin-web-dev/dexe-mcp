@@ -32,7 +32,7 @@ overridable: set the matching var and your value wins.
 | Surface | Baked default | Override with |
 |---------|---------------|---------------|
 | On-chain RPC | Public BSC nodes, chains 56 + 97 (default 56) | `DEXE_RPC_URL_MAINNET` / `_TESTNET` (or `DEXE_DISABLE_PUBLIC_RPC=1`) |
-| ContractsRegistry (56) | canonical BSC address | `DEXE_CONTRACTS_REGISTRY` |
+| ContractsRegistry (56 + 97) | canonical address (same deterministic deploy on both chains) | `DEXE_CONTRACTS_REGISTRY` |
 | Subgraph reads | shared DeXe gateway URLs (The Graph decentralized network, key in path) | `DEXE_SUBGRAPH_*_URL` (+ `DEXE_GRAPH_API_KEY`) |
 | Backend API | `https://api.dexe.io` | `DEXE_BACKEND_API_URL` |
 | IPFS reads | public gateways (ipfs.io, dweb.link, cloudflare) | `DEXE_IPFS_GATEWAY` (or `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1`) |
@@ -488,7 +488,7 @@ Signing needs an RPC endpoint to broadcast — set both or neither.
 ### "Set DEXE_CONTRACTS_REGISTRY or pick a supported chain"
 
 Means the chain ID has no built-in registry address. Either switch to a
-supported chain (BSC mainnet 56, others as deployed) or set
+supported chain (BSC mainnet 56 or BSC testnet 97 — both baked in) or set
 `DEXE_CONTRACTS_REGISTRY` explicitly.
 
 ---

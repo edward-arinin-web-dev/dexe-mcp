@@ -7,10 +7,14 @@ import { Contract, JsonRpcProvider, ZeroAddress } from "ethers";
  * `DEXE_CONTRACTS_REGISTRY`.
  *
  * NOTE: the BSC mainnet address below matches the value shipped in the DeXe
- * frontend env. Add more chains as they come online.
+ * frontend env. BSC testnet (97) uses the SAME deterministic address —
+ * verified live via getContract(POOL_FACTORY/POOL_REGISTRY) on chain 97
+ * (K1: without this entry a zero-config install could neither read nor
+ * deploy on testnet). Add more chains as they come online.
  */
 export const CONTRACTS_REGISTRY_BY_CHAIN: Record<number, string> = {
   56: "0x46B46629B674b4C0b48B111DEeB0eAfd9F84A1c0",
+  97: "0x46B46629B674b4C0b48B111DEeB0eAfd9F84A1c0",
 };
 
 /**

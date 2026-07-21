@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { synthesizeParams, computeSafetyProof, type SimpleConfig } from "../../src/tools/daoCreate.js";
+import { checkMinVotesVsDistribution } from "../../src/lib/preflight.js";
 
 const DEPLOYER = "0xdEADBEeF00000000000000000000000000000001";
 
@@ -92,5 +93,23 @@ describe("dexe_dao_create — SIMPLE synthesis (frontend-equivalent shape)", () 
       synthesizeParams({ ...base, earlyCompletion: false }, DEPLOYER).settingsParams.proposalSettings[0]!
         .earlyCompletion,
     ).toBe(false);
+  });
+
+  it("F2: the preview-stage preflight rejects minVotes above the largest holder (parity with confirm)", () => {
+    // The exact F2 repro: totalSupply 1,000,000 (51% distributed = 510,000)
+    // with minVotesTokens 600,000 — the old preview said "config looks
+    // coherent" and only the confirm call was blocked by deploy.min-votes.
+    // The handler now runs this check in the fast preflight BEFORE the
+    // preview, so both calls fail identically.
+    const p = synthesizeParams({ ...base, minVotesTokens: "600000" }, DEPLOYER);
+    const s = p.settingsParams.proposalSettings[0]!;
+    const r = checkMinVotesVsDistribution(
+      s.minVotesForVoting,
+      s.minVotesForCreating,
+      p.tokenParams.amounts,
+      p.tokenParams.name.length > 0,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.check).toBe("deploy.min-votes");
   });
 });

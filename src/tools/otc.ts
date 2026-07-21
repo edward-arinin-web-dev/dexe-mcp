@@ -747,9 +747,18 @@ export function registerOtcTools(
 
       // Optional simulation gate: preflight the buy() against live state before
       // we ever touch the broadcast path. Skipped on dryRun since dryRun
-      // already short-circuits to payload return.
+      // already short-circuits to payload return. Also skipped when an approve
+      // must land first — live state has allowance 0, so simulating buy() would
+      // fail with a false "insufficient allowance" (F13).
       let simulation: unknown;
-      if (input.simulateFirst && !input.dryRun) {
+      const approvePending = payloads.length > 1;
+      if (input.simulateFirst && !input.dryRun && approvePending) {
+        simulation = {
+          skipped: true,
+          reason: "approve must land first — live-state sim of buy() would false-fail on allowance",
+        };
+      }
+      if (input.simulateFirst && !input.dryRun && !approvePending) {
         const sim = await simulateCalldata(rpc, {
           to: input.tokenSaleProposal,
           data: buyData,
