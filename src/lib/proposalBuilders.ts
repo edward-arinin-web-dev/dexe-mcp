@@ -79,6 +79,7 @@ async function resolveTokenAmount(
 const ERC20_TRANSFER_ABI = new Interface([
   "function transfer(address to, uint256 amount) returns (bool)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function balanceOf(address) view returns (uint256)",
 ]);
 const ERC721_TRANSFER_ABI = new Interface([
   "function transferFrom(address from, address to, uint256 tokenId)",
@@ -296,27 +297,30 @@ const tokenDistributionBuilder: CatalogBuilder = {
     distributionProposal: z.string().describe("DistributionProposal address"),
     proposalId: z.string().describe("Expected proposalId (usually latestProposalId + 1)"),
     token: z.string(),
-    amount: z.string(),
+    amount: z
+      .string()
+      .describe("Amount: raw smallest units (digits-only) OR human units with a decimal point ('12.5', scaled by the token's real decimals)"),
     isNative: z.boolean().default(false).describe("True for native token — sends value instead of approve"),
   }),
-  async build(raw) {
+  async build(raw, deps) {
     const p = raw as { distributionProposal: string; proposalId: string; token: string; amount: string; isNative: boolean };
     if (!isAddress(p.distributionProposal)) throw new Error(`Invalid distributionProposal: ${p.distributionProposal}`);
     if (!isAddress(p.token)) throw new Error(`Invalid token: ${p.token}`);
-    const executeData = DISTRIBUTION_PROPOSAL_ABI.encodeFunctionData("execute", [BigInt(p.proposalId), p.token, BigInt(p.amount)]);
+    const amt = (await resolveTokenAmount(p.amount, p.token, deps, { isNative: p.isNative })).toString();
+    const executeData = DISTRIBUTION_PROPOSAL_ABI.encodeFunctionData("execute", [BigInt(p.proposalId), p.token, BigInt(amt)]);
     const actionsOnFor: { executor: string; value?: string; data: string }[] = [];
     if (p.isNative) {
-      actionsOnFor.push({ executor: p.distributionProposal, value: p.amount, data: executeData });
+      actionsOnFor.push({ executor: p.distributionProposal, value: amt, data: executeData });
     } else {
-      const approveData = ERC20_TRANSFER_ABI.encodeFunctionData("approve", [p.distributionProposal, BigInt(p.amount)]);
+      const approveData = ERC20_TRANSFER_ABI.encodeFunctionData("approve", [p.distributionProposal, BigInt(amt)]);
       actionsOnFor.push({ executor: p.token, value: "0", data: approveData });
       actionsOnFor.push({ executor: p.distributionProposal, value: "0", data: executeData });
     }
     return {
       actionsOnFor,
       category: "tokenDistribution",
-      metadataExtra: changes({ tokenAddress: p.token, tokenAmount: p.amount, proposalId: p.proposalId }),
-      summary: `Token distribution → ${p.amount} of ${p.token} via proposal #${p.proposalId}`,
+      metadataExtra: changes({ tokenAddress: p.token, tokenAmount: amt, proposalId: p.proposalId }),
+      summary: `Token distribution → ${amt} of ${p.token} via proposal #${p.proposalId}`,
     };
   },
 };
@@ -684,12 +688,12 @@ const applyToDaoBuilder: CatalogBuilder = {
     amount: z.string().describe("Total amount to grant: raw smallest units (digits-only) or human units ('12.5')"),
     treasuryBalance: z
       .string()
-      .default("0")
-      .describe("Current treasury balance of `token` in RAW smallest units (dexe_read_treasury). If >= amount a single transfer is used, else transfer + mint shortfall."),
+      .optional()
+      .describe("Current treasury balance of `token` in RAW smallest units. Omit to auto-read the live GovPool balance on-chain (recommended). If >= amount a single transfer is used, else transfer + mint shortfall."),
   }),
   async build(raw, deps) {
     const { ctx } = deps;
-    const p = raw as { token: string; receiver: string; amount: string; treasuryBalance: string };
+    const p = raw as { token: string; receiver: string; amount: string; treasuryBalance?: string };
     if (!isAddress(p.token)) throw new Error(`Invalid token: ${p.token}`);
     if (!isAddress(p.receiver)) throw new Error(`Invalid receiver: ${p.receiver}`);
     const bl = await checkBlacklist(ctx.config, p.token, p.receiver);
@@ -697,7 +701,26 @@ const applyToDaoBuilder: CatalogBuilder = {
     const iface = new Interface(ERC20_GOV_FULL_ABI as unknown as string[]);
     const actionsOnFor: { executor: string; value?: string; data: string }[] = [];
     const total = await resolveTokenAmount(p.amount, p.token, deps);
-    const have = parseUintString(p.treasuryBalance, "treasuryBalance");
+    // F11: frontend semantics are transfer-first, mint only the shortfall. An
+    // omitted treasuryBalance used to default to 0, silently minting the full
+    // grant — now the live GovPool balance is read instead.
+    let have: bigint;
+    if (p.treasuryBalance !== undefined) {
+      have = parseUintString(p.treasuryBalance, "treasuryBalance");
+    } else {
+      const pr = new RpcProvider(deps.ctx.config).tryProvider(deps.chainId);
+      if ("error" in pr) {
+        throw new Error(
+          `treasuryBalance was omitted (auto-read needs an RPC) and no RPC is configured for chain ${deps.chainId}. ` +
+            `Pass treasuryBalance explicitly (dexe_read_treasury) or configure an RPC. ${pr.remediation}`,
+        );
+      }
+      const res = await multicall(pr.ok, [
+        { target: p.token, iface: ERC20_TRANSFER_ABI, method: "balanceOf", args: [deps.govPool], allowFailure: true },
+      ]);
+      if (!res[0]!.success) throw new Error(`Could not read treasury balance of ${p.token} at ${deps.govPool} — pass treasuryBalance explicitly.`);
+      have = BigInt(res[0]!.value as string | number | bigint);
+    }
     if (have >= total) {
       actionsOnFor.push({ executor: p.token, value: "0", data: iface.encodeFunctionData("transfer", [p.receiver, total]) });
     } else {
@@ -713,7 +736,7 @@ const applyToDaoBuilder: CatalogBuilder = {
       metadataExtra: {
         changes: {
           proposedChanges: { receiver: p.receiver, tokenAmount: total.toString(), tokenAddress: p.token },
-          currentChanges: { treasuryBalance: p.treasuryBalance },
+          currentChanges: { treasuryBalance: have.toString() },
         },
       },
       summary: `Apply to DAO: ${total} of ${p.token} → ${p.receiver}`,
@@ -810,7 +833,7 @@ export const PROPOSAL_BUILDERS: Record<string, CatalogBuilder> = {
 // ---------- v0.22: internal proposals (GovValidators.createInternalProposal) ----------
 
 export interface BuiltInternalProposal {
-  /** GovValidators internal type: 0 ChangeBalances, 1 ChangeSettings, 2 MonthlyWithdraw, 3 OffchainProposal. */
+  /** GovValidators internal type (IGovValidators.ProposalType): 0 ChangeSettings, 1 ChangeBalances, 2 MonthlyWithdraw, 3 OffchainProposal. */
   internalType: 0 | 1 | 2 | 3;
   /** Selector + abi-encoded args for the internal executor method ("0x" for type 3). */
   data: string;
@@ -846,7 +869,7 @@ export const INTERNAL_PROPOSAL_BUILDERS: Record<string, InternalCatalogBuilder> 
         p.changes.map((c) => c.user),
       ]);
       return {
-        internalType: 0,
+        internalType: 1,
         data,
         category: "changeValidatorBalances",
         metadataExtra: changes({ validators: p.changes }),
@@ -866,7 +889,7 @@ export const INTERNAL_PROPOSAL_BUILDERS: Record<string, InternalCatalogBuilder> 
         BigInt(p.duration), BigInt(p.executionDelay), BigInt(p.quorum),
       ]);
       return {
-        internalType: 1,
+        internalType: 0,
         data,
         category: "changeValidatorSettings",
         metadataExtra: changes({ duration: p.duration, executionDelay: p.executionDelay, quorum: p.quorum }),

@@ -40,6 +40,7 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
   const network = await Promise.all([
     ...rpcReachabilityChecks(opts.config, timeoutMs),
     pinataJwtCheck(timeoutMs),
+    pinataPinQuotaCheck(timeoutMs),
     ipfsGatewayDnsCheck(timeoutMs),
     ...subgraphChecks(timeoutMs),
     backendCheck(timeoutMs),
@@ -219,6 +220,49 @@ async function pinataJwtCheck(timeoutMs: number): Promise<CheckResult | null> {
     };
   }
   return { id: "pinata.jwt", category: "ipfs", status: "pass", message: "authenticated" };
+}
+
+// ─── pinata pin quota ─────────────────────────────────────────────────────
+//
+// F3: testAuthentication stays green while the account is blocked for plan
+// usage ("Account blocked due to plan usage limit" → HTTP 403 on every pin).
+// Probe the ACTUAL pin capability with a tiny deterministic JSON pin — the
+// same content re-pins to the same CID, so repeated doctors add no clutter.
+async function pinataPinQuotaCheck(timeoutMs: number): Promise<CheckResult | null> {
+  const jwt = process.env.DEXE_PINATA_JWT?.trim();
+  if (!jwt) return null;
+  const res = await fetchJsonWithTimeout(
+    "https://api.pinata.cloud/pinning/pinJSONToIPFS",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pinataContent: { probe: "dexe-mcp-doctor-pin-quota" },
+        pinataMetadata: { name: "dexe-mcp-doctor-probe" },
+      }),
+    },
+    timeoutMs,
+  );
+  if (res.kind === "timeout") {
+    return { id: "pinata.pinQuota", category: "ipfs", status: "warn", message: `Pin-quota probe timed out (${timeoutMs}ms)` };
+  }
+  if (res.kind === "error") {
+    return { id: "pinata.pinQuota", category: "ipfs", status: "warn", message: `Pin-quota probe unreachable: ${res.error}` };
+  }
+  if (res.status >= 400) {
+    const body = typeof res.body === "string" ? res.body.slice(0, 200) : JSON.stringify(res.body ?? "").slice(0, 200);
+    return {
+      id: "pinata.pinQuota",
+      category: "ipfs",
+      status: "fail",
+      message: `Pinata pin probe returned HTTP ${res.status}: ${body}`,
+      remediation:
+        "The JWT authenticates but pinning is blocked (typically the free-plan usage limit). " +
+        "Free up pins / upgrade the plan at app.pinata.cloud, or rotate to a different account's JWT. " +
+        "Every IPFS-write flow (proposal creation, DAO deploy metadata, uploads) is down until this passes.",
+    };
+  }
+  return { id: "pinata.pinQuota", category: "ipfs", status: "pass", message: "pin capability verified (tiny probe pin)" };
 }
 
 // ─── ipfs gateway dns ──────────────────────────────────────────────────────

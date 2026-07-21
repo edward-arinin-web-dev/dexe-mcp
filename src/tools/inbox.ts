@@ -18,8 +18,12 @@ function errorResult(message: string) {
  * Per DAO, surfaces three kinds of pending items for `user`:
  *   1. unvotedProposal — proposal in Voting state where user has zero personal vote
  *   2. claimableRewards — proposals user voted on with a positive pendingRewards balance
- *   3. lockedDeposit — UserKeeper.tokenBalance(user, PersonalVote).balance > 0
- *      (i.e. tokens still parked in the DAO and reclaimable)
+ *   3. lockedDeposit — UserKeeper.tokenBalance(user, PersonalVote) DEPOSITED
+ *      portion (balance − ownedBalance) > 0. `balance` alone includes
+ *      wallet-held tokens that were never deposited (bug F6/#16 class).
+ *
+ * The proposal scan window anchors to the END of the list (latestProposalId −
+ * proposalScanLimit … latest) — newest proposals are the ones still in Voting.
  *
  * When `daos` is omitted on mainnet, the pools subgraph is queried for DAOs
  * the user has a `voterInPool` row in (limit 50). On testnet (no subgraph),
@@ -30,6 +34,7 @@ function errorResult(message: string) {
 
 const GOV_POOL_ABI = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+  "function latestProposalId() view returns (uint256)",
   "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst) proposal, tuple(tuple(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter, uint128 quorum, uint256 votesFor, uint256 votesAgainst) core) validatorProposal, uint8 proposalState, uint256 requiredQuorum, uint256 requiredValidatorsQuorum)[])",
   "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 totalVoted, uint256 totalRawVoted, uint256 votesForNow, bool isVoteFor)",
   "function getPendingRewards(address user, uint256[] proposalIds) view returns (tuple(address[] tokens, uint256[] amounts, uint256[] proposalIds))",
@@ -149,25 +154,36 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
       }
 
       const pendingItems: PendingItem[] = [];
+      const scanErrors: { dao: string; step: string; error: string }[] = [];
       let daosWithItems = 0;
 
       // ----- per-DAO scan -----
       for (const dao of resolvedDaos) {
         const items: PendingItem[] = [];
         try {
-          // Step 1: fetch helpers + recent proposals in one multicall.
-          const [helpersR, proposalsR] = await multicall(provider, [
+          // Step 1: helpers + latest proposal id, then the NEWEST
+          // `proposalScanLimit` proposals (F6: a 0-anchored window missed every
+          // proposal past the limit — exactly the ones still in Voting).
+          const [helpersR, latestR] = await multicall(provider, [
             { target: dao, iface: GOV_POOL_ABI, method: "getHelperContracts", args: [], allowFailure: true },
+            { target: dao, iface: GOV_POOL_ABI, method: "latestProposalId", args: [], allowFailure: true },
+          ]);
+
+          if (!helpersR?.success) {
+            scanErrors.push({ dao, step: "getHelperContracts", error: "call failed" });
+            continue;
+          }
+          const latest = latestR?.success ? BigInt(latestR.value as string | number | bigint) : BigInt(proposalScanLimit);
+          const scanOffset = latest > BigInt(proposalScanLimit) ? latest - BigInt(proposalScanLimit) : 0n;
+          const [proposalsR] = await multicall(provider, [
             {
               target: dao,
               iface: GOV_POOL_ABI,
               method: "getProposals",
-              args: [0n, BigInt(proposalScanLimit)],
+              args: [scanOffset, BigInt(proposalScanLimit)],
               allowFailure: true,
             },
           ]);
-
-          if (!helpersR?.success) continue;
           const helpers = helpersR.value as unknown as { userKeeper: string };
           const userKeeper = helpers.userKeeper;
 
@@ -184,12 +200,15 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
           ]);
           const govToken = tokenAddrR?.success ? (tokenAddrR.value as string) : undefined;
           if (balanceR?.success) {
-            const bal = balanceR.value as unknown as { balance: bigint };
-            if (bal.balance > 0n) {
+            // F6: `balance` includes wallet-held (never deposited) tokens —
+            // the reclaimable deposit is balance − ownedBalance (bug #16 rule).
+            const bal = balanceR.value as unknown as { balance: bigint; ownedBalance: bigint };
+            const deposited = bal.balance - bal.ownedBalance;
+            if (deposited > 0n) {
               items.push({
                 dao,
                 type: "lockedDeposit",
-                amount: bal.balance.toString(),
+                amount: deposited.toString(),
                 govToken,
               });
             }
@@ -205,7 +224,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
             const proposalIds: string[] = [];
             const votingIds: { id: string; deadline: string }[] = [];
             for (let i = 0; i < views.length; i++) {
-              const id = String(i + 1);
+              const id = (scanOffset + BigInt(i) + 1n).toString();
               proposalIds.push(id);
               const stateIdx = Number(views[i]!.proposalState);
               const stateName = proposalStateLabel(stateIdx);
@@ -273,8 +292,10 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
               }
             }
           }
-        } catch {
-          // Best-effort per DAO — skip on failure, don't poison the inbox.
+        } catch (e) {
+          // Best-effort per DAO — skip on failure, but SAY so (a silently
+          // dropped DAO reads as "nothing pending" — F6).
+          scanErrors.push({ dao, step: "scan", error: e instanceof Error ? e.message : String(e) });
           continue;
         }
 
@@ -287,6 +308,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
       return ok({
         user: userAddr,
         pendingItems,
+        ...(scanErrors.length > 0 ? { scanErrors } : {}),
         summary: {
           totalDaos: resolvedDaos.length,
           daosWithItems,

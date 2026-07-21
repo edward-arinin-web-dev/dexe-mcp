@@ -51,11 +51,11 @@ Pass type-specific inputs in `params`. Wired types (all 33 catalog entries):
 **Treasury / tokens**
 - `token_transfer` `{token, recipient, amount, isNative?}` — treasury → recipient.
 - `withdraw_treasury` `{receiver, token?, amount?, nftAddress?, nftIds?}` — ERC20 and/or NFTs.
-- `apply_to_dao` `{token, receiver, amount, treasuryBalance?}` — grant; mints shortfall when treasury is short.
-- `token_distribution` `{distributionProposal, proposalId, token, amount, isNative?}` — pro-rata airdrop to voters.
+- `apply_to_dao` `{token, receiver, amount, treasuryBalance?}` — grant; transfer-first, mints only the shortfall. Omit `treasuryBalance` to auto-read the live GovPool balance (needs RPC).
+- `token_distribution` `{distributionProposal, proposalId, token, amount, isNative?}` — pro-rata airdrop to voters. `distributionProposal` comes from `dexe_dao_predict_addresses`; `proposalId` is SELF-REFERENCING = the id this proposal will get (latest + 1). ⚠ Distribution proposals ignore `earlyCompletion` — voting always runs the FULL duration (pro-rata shares depend on final totals), so `moveProposalToValidators`/execute only work after `voteEnd`.
 
 **Governance config**
-- `change_voting_settings` `{govSettings, settings:[fullSettingsStruct], settingsIds?}` — edit (with ids: 0 = default, 1 = internal) or add. ⚠ On fresh (SphereX-guarded) pools, executing an ADD (`addSettings`, no ids) reverts "SphereX error: disallowed tx pattern" — pass `settingsIds` to EDIT instead; `new_proposal_type`/`enable_staking` hit the same wall.
+- `change_voting_settings` `{govSettings, settings:[fullSettingsStruct], settingsIds?}` — edit (with ids: 0 = default, 1 = internal) or add. ⚠ On fresh (SphereX-guarded) pools, executing an ADD (`addSettings`, no ids) reverts "SphereX error: disallowed tx pattern" — pass `settingsIds` to EDIT instead; `new_proposal_type`/`enable_staking` hit the same wall. ⚠ A fresh `dexe_dao_create` deploy auto-expands FIVE settings ids (0 default, 1 internal, 2 validators, 3 distribution, 4 tokenSale) — a rewards/settings change must cover EVERY id whose executor you care about, or proposals routed via the untouched executors keep the old values.
 - `new_proposal_type` / `enable_staking` `{govSettings, settings, executors, newSettingId}` — newSettingId = current settings length (`dexe_read_settings`).
 - `change_math_model` `{newVotePower}` — swap LINEAR/POLYNOMIAL/custom power contract.
 - `manage_validators` / `validators_allocation` `{govValidators, changes:[{user, balance}]}` — balance 0 removes.
@@ -69,7 +69,8 @@ Pass type-specific inputs in `params`. Wired types (all 33 catalog entries):
 - `token_sale` `{tokenSaleProposal, tiers:[tierSpec], latestTierId?}` — prefer `dexe_otc_dao_open_sale` for the full journey.
 - `token_sale_whitelist` `{tokenSaleProposal, requests:[{tierId, users, uri?}]}` — extend a live tier's whitelist.
 - `token_sale_recover` `{tokenSaleProposal, tierIds}` — recover unsold tokens.
-- `create_staking_tier` `{stakingProposal, rewardToken, rewardAmount, startedAt, deadline, stakingMetadataUrl, isNative?}`.
+- `create_staking_tier` `{stakingProposal, rewardToken, rewardAmount, startedAt, deadline, stakingMetadataUrl, isNative?}`. ⚠ KNOWN GAP: on chain 97 there is currently NO discoverable source for the per-pool `stakingProposal` address (no registry beacon, no GovPool getter, factory predicts only 6 addresses) — if you don't already have the address from the frontend/subgraph, this type is unusable.
+- ⚠ OTC vesting on fresh (SphereX-era) pools: `TokenSaleProposal.vestingWithdraw` reverts "SphereX error: disallowed tx pattern" in every known call shape — the vested portion of a purchase CANNOT be withdrawn. Until resolved, open tiers with `vestingPercentage: "0"` on new DAOs; `claim` (the instant portion) works fine.
 
 **Token controls**
 - `blacklist` `{erc20Gov, addAddresses?, removeAddresses?}`.
@@ -81,11 +82,12 @@ Pass type-specific inputs in `params`. Wired types (all 33 catalog entries):
 - `custom_abi` `{target, signature, method, args?, value?}` — one encoded call.
 
 **Internal (validators-only — auto-routed to GovValidators, no deposit)**
-- `change_validator_balances` `{changes:[{user, balance}]}`
-- `change_validator_settings` `{duration, executionDelay, quorum}` (quorum 10^27 scale)
-- `monthly_withdraw` `{withdrawals:[{token, amount}], destination}`
-- `offchain_internal_proposal` `{}`
+- `change_validator_balances` `{changes:[{user, balance}]}` (contract type 1)
+- `change_validator_settings` `{duration, executionDelay, quorum}` (quorum 10^27 scale; contract type 0)
+- `monthly_withdraw` `{withdrawals:[{token, amount}], destination}` (type 2)
+- `offchain_internal_proposal` `{}` (type 3)
 Only a CURRENT validator can create these; validators vote with their own balances.
+⚠ SphereX on fresh pools: validator `cancelVote{Internal,External}Proposal` is blocked in every shape (GovValidators has no multicall) — a cast validator vote cannot be cancelled; top-up re-votes ARE allowed. `executeInternalProposal` for monthly_withdraw has also been seen failing "Validators: failed to execute" on fresh pools even in Succeeded state — likely the same guard on the inner call.
 
 **Off-chain (backend — rejected with instructions)**
 `offchain_single_option` / `offchain_multi_option` / `offchain_for_against` live on
@@ -128,8 +130,24 @@ apply the fix verbatim. Mirrors `src/lib/deployRevertMap.ts` (single source).
 | `GovSettings: invalid …` | settings-bounds | duration/durationValidators > 0; 0 < quorum ≤ 1e27 (1% = 1e25) |
 | `GovUK: zero addresses` | userkeeper-asset | Set a gov token, an NFT, or tokenParams.name (new token) |
 | `Validators: …` | validators-init | duration > 0, 0 < quorum ≤ 1e27, no zero addresses, balances parity |
-| `SphereX error` / `disallowed tx pattern` | spherex-pattern | On deploy/create: send plain single txs (dexe_dao_create already does); re-run once if it persists. On `execute`: the proposal's ACTION pattern is blocked — known case: `GovSettings.addSettings` on fresh pools (change_voting_settings without settingsIds, new_proposal_type, enable_staking). Deterministic — re-running won't help; use editSettings (settingsIds) or run on an older pool. On `vote`/`delegate`: raw top-level calls are blocked on SphereX-era pools (deployed ≥ 2026-07) — the frontend always sends `multicall([...])`, and since v0.24.1 the builders/composites emit that shape automatically; if you hand-craft calldata, wrap it in `GovPool.multicall([call])`. Raw deposit/withdraw/cancelVote/undelegate/createProposal(AndVote) remain allowed |
+| `SphereX error` / `disallowed tx pattern` | spherex-pattern | On deploy/create: send plain single txs (dexe_dao_create already does); re-run once if it persists. On `execute`: the proposal's ACTION pattern is blocked — known case: `GovSettings.addSettings` on fresh pools (change_voting_settings without settingsIds, new_proposal_type, enable_staking). Deterministic — re-running won't help; use editSettings (settingsIds) or run on an older pool. On `vote`/`delegate`: raw top-level calls are blocked on SphereX-era pools (deployed ≥ 2026-07) — the frontend always sends `multicall([...])`, and since v0.24.1 the builders/composites emit that shape automatically; if you hand-craft calldata, wrap it in `GovPool.multicall([call])`. Raw deposit/withdraw/cancelVote/undelegate/createProposal(AndVote) remain allowed. Also blocked with NO workaround on fresh pools: `GovValidators.cancelVote*Proposal` (no multicall on that contract) and `TokenSaleProposal.vestingWithdraw` (avoid vesting tiers on new DAOs) |
 | (no reason string) | opaque | Likely: settings bounds, name taken, cap conflict, validator params — re-run through dexe_dao_create's preflights; `dexe_compile` if ABI may be stale |
+
+## Reward economics (read BEFORE configuring rewardsInfo)
+
+Every EXECUTED proposal with rewards configured pays a **~30% DeXe protocol
+commission on the reward total** (voteAmount × voteRewardsCoefficient + fixed
+creation/execution rewards) from the DAO treasury to the DeXe protocol treasury
+— at execute time, before anyone claims. Proven costs: `voteRewardsCoefficient
+= 1e25` (×1.0) with a 6M-token vote cost the treasury **1.8M tokens** on a
+single execute. When the treasury can't cover the commission the protocol
+**mints new gov tokens** to pay it (supply inflation — the quorum denominator
+grows too). `claimRewards` on an empty treasury succeeds but silently pays 0.
+
+Rules of thumb: keep `voteRewardsCoefficient` tiny (≤ 1e23 = ×0.01) or 0;
+budget commission ≈ 0.3 × expectedVote × coefficient per executed proposal; a
+rewards change must edit ALL FIVE settings ids (see change_voting_settings
+note) or untouched executors keep paying.
 
 ## Toolsets (DEXE_TOOLSETS, default `core,proposals`)
 

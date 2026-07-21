@@ -11,8 +11,8 @@ import type { ToolContext } from "./context.js";
  * )` — they are NOT external proposals. The `data` bytes are selector +
  * abi-encoded args for the specific internal-executor method:
  *
- *   type 0 ChangeBalances  → selector(changeBalances) + (uint256[] balances, address[] users)
- *   type 1 ChangeSettings  → selector(changeSettings) + (uint64 duration, uint64 executionDelay, uint128 quorum)
+ *   type 0 ChangeSettings  → selector(changeSettings) + (uint64 duration, uint64 executionDelay, uint128 quorum)
+ *   type 1 ChangeBalances  → selector(changeBalances) + (uint256[] balances, address[] users)
  *   type 2 MonthlyWithdraw → selector(monthlyWithdraw) + (address[] tokens, uint256[] amounts, address destination)
  *   type 3 OffchainProposal → empty bytes ("0x")
  *
@@ -40,7 +40,7 @@ function internalResult(params: {
   data: string;
   title: string;
 }) {
-  const typeLabel = ["ChangeBalances", "ChangeSettings", "MonthlyWithdraw", "OffchainProposal"][
+  const typeLabel = ["ChangeSettings", "ChangeBalances", "MonthlyWithdraw", "OffchainProposal"][
     params.proposalType
   ]!;
   return {
@@ -80,15 +80,15 @@ export function registerProposalBuildInternalTools(
   registerOffchainInternalProposal(server);
 }
 
-// ---------- type 0 — change validator balances ----------
+// ---------- type 1 — change validator balances ----------
 
 function registerChangeValidatorBalances(server: McpServer): void {
   server.registerTool(
     "dexe_proposal_build_change_validator_balances",
     {
-      title: "Internal type 0: change validator balances",
+      title: "Internal type 1: change validator balances",
       description:
-        "Builds the `data` bytes for GovValidators.createInternalProposal(type=0). Encodes changeBalances(balances, users). Set balance=0 to remove a validator.",
+        "Builds the `data` bytes for GovValidators.createInternalProposal(type=1). Encodes changeBalances(balances, users). Set balance=0 to remove a validator.",
       inputSchema: {
         changes: z
           .array(z.object({ user: z.string(), balance: z.string() }))
@@ -122,7 +122,7 @@ function registerChangeValidatorBalances(server: McpServer): void {
         };
         return internalResult({
           metadata,
-          proposalType: 0,
+          proposalType: 1,
           data,
           title: `Change Validator Balances (${changes.length} changes)`,
         });
@@ -133,15 +133,15 @@ function registerChangeValidatorBalances(server: McpServer): void {
   );
 }
 
-// ---------- type 1 — change validator settings ----------
+// ---------- type 0 — change validator settings ----------
 
 function registerChangeValidatorSettings(server: McpServer): void {
   server.registerTool(
     "dexe_proposal_build_change_validator_settings",
     {
-      title: "Internal type 1: change validator voting settings (duration, delay, quorum)",
+      title: "Internal type 0: change validator voting settings (duration, delay, quorum)",
       description:
-        "Builds the `data` bytes for GovValidators.createInternalProposal(type=1). Encodes changeSettings(duration, executionDelay, quorum). All three values are seconds/percent-as-BN.",
+        "Builds the `data` bytes for GovValidators.createInternalProposal(type=0). Encodes changeSettings(duration, executionDelay, quorum). All three values are seconds/percent-as-BN.",
       inputSchema: {
         duration: z.string().describe("Voting duration in seconds (uint64)"),
         executionDelay: z.string().describe("Delay after success before execution, seconds (uint64)"),
@@ -176,7 +176,7 @@ function registerChangeValidatorSettings(server: McpServer): void {
         };
         return internalResult({
           metadata,
-          proposalType: 1,
+          proposalType: 0,
           data,
           title: `Change Validator Settings (duration=${duration}s, delay=${executionDelay}s, quorum=${quorum})`,
         });

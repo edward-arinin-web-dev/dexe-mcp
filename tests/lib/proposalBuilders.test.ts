@@ -237,6 +237,13 @@ describe("v0.22 new builders (byte-parity)", () => {
     expect(short.actionsOnFor[1]!.data).toBe(ERC20GOV.encodeFunctionData("mint", [RECIPIENT, 70n]));
   });
 
+  it("F11: omitted treasuryBalance without RPC fails actionably (no silent full mint)", async () => {
+    const b = PROPOSAL_BUILDERS.apply_to_dao!;
+    await expect(
+      b.build(b.schema.parse({ token: TOKEN, receiver: RECIPIENT, amount: "100" }), deps),
+    ).rejects.toThrow(/treasuryBalance/);
+  });
+
   it("new_proposal_type == enable_staking: addSettings + changeExecutors", async () => {
     expect(PROPOSAL_BUILDERS.enable_staking).toBe(PROPOSAL_BUILDERS.new_proposal_type);
     const b = PROPOSAL_BUILDERS.new_proposal_type!;
@@ -274,18 +281,21 @@ describe("internal proposal builders (GovValidators path)", () => {
     "function monthlyWithdraw(address[] tokens, uint256[] amounts, address destination)",
   ]);
 
-  it("change_validator_balances → type 0", () => {
+  // IGovValidators.ProposalType: 0=ChangeSettings, 1=ChangeBalances (bug F8:
+  // the 0/1 pair was shipped inverted and reverted on-chain with
+  // "Validators: not ChangeSettings/ChangeBalances function").
+  it("change_validator_balances → type 1 (ChangeBalances)", () => {
     const b = INTERNAL_PROPOSAL_BUILDERS.change_validator_balances!;
     const out = b.build(b.schema.parse({ changes: [{ user: USER, balance: "10" }] }));
-    expect(out.internalType).toBe(0);
+    expect(out.internalType).toBe(1);
     expect(out.data).toBe(EXEC.encodeFunctionData("changeBalances", [[10n], [USER]]));
     expect(out.category).toBe("changeValidatorBalances");
   });
 
-  it("change_validator_settings → type 1", () => {
+  it("change_validator_settings → type 0 (ChangeSettings)", () => {
     const b = INTERNAL_PROPOSAL_BUILDERS.change_validator_settings!;
     const out = b.build(b.schema.parse({ duration: "3600", executionDelay: "0", quorum: "510000000000000000000000000" }));
-    expect(out.internalType).toBe(1);
+    expect(out.internalType).toBe(0);
     expect(out.data).toBe(
       EXEC.encodeFunctionData("changeSettings", [3600n, 0n, 510000000000000000000000000n]),
     );
@@ -386,6 +396,23 @@ describe("token_distribution builder", () => {
     );
     expect(out.actionsOnFor).toHaveLength(1);
     expect(out.actionsOnFor[0]!.value).toBe("1000");
+  });
+  it("F9: human-unit amount without RPC fails actionably instead of BigInt crash", async () => {
+    const b = PROPOSAL_BUILDERS.token_distribution!;
+    await expect(
+      b.build(
+        b.schema.parse({ distributionProposal: DIST, proposalId: "3", token: TOKEN, amount: "50000.0" }),
+        deps,
+      ),
+    ).rejects.toThrow(/human units.*RPC/s);
+  });
+  it("F9: native human-unit amount scales by 18 without RPC", async () => {
+    const b = PROPOSAL_BUILDERS.token_distribution!;
+    const out = await b.build(
+      b.schema.parse({ distributionProposal: DIST, proposalId: "3", token: TOKEN, amount: "1.5", isNative: true }),
+      deps,
+    );
+    expect(out.actionsOnFor[0]!.value).toBe("1500000000000000000");
   });
 });
 
