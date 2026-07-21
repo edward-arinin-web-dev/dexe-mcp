@@ -10,7 +10,7 @@ import { chainIdParam } from "../lib/params.js";
 const GOV_POOL_HELPERS_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
   "function getUserVotes(uint256 proposalId, address voter, uint8 voteType) view returns (tuple(bool isVoteFor, uint256 totalVoted, uint256 tokensVoted, uint256 totalRawVoted, uint256[] nftsVoted))",
-  "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 totalVoted, uint256 totalRawVoted, uint256 votesForNow, bool isVoteFor)",
+  "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 voterRawVoted, bool isVoteFor)",
 ] as const;
 
 const USER_KEEPER_ABI = [

@@ -29,7 +29,7 @@ import type { DexeConfig } from "../config.js";
  * silently drops malformed fragments — see govProposalView Phase-A gotcha).
  */
 export const GET_TOTAL_VOTES_FRAGMENT =
-  "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 totalVoted, uint256 totalRawVoted, uint256 votesForNow, bool isVoteFor)";
+  "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 voterRawVoted, bool isVoteFor)";
 
 /** PersonalVote=0, MicropoolVote=1, DelegatedVote=2 (TreasuryVote=3 omitted). */
 const VOTE_TYPES = [0, 1, 2] as const;
@@ -159,7 +159,8 @@ export async function resolveControllingHoldersVotedFor(args: {
     const results = await multicall(provider, calls);
     for (const r of results) {
       if (!r.success || r.value == null) continue;
-      // getTotalVotes returns a 4-tuple: [totalVoted, totalRawVoted, votesForNow, isVoteFor]
+      // getTotalVotes returns [rawVotesFor, rawVotesAgainst, voterRawVoted, isVoteFor]
+      // — the first two are PROPOSAL-level totals; the voter's stake is [2].
       const v = r.value as unknown as [bigint, bigint, bigint, boolean];
       if (v[2] > 0n && v[3] === true) return true;
     }

@@ -32,11 +32,13 @@ function errorResult(message: string) {
 
 // ---------- ABI ----------
 
-const GOV_POOL_ABI = new Interface([
+export const GOV_POOL_ABI = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
   "function latestProposalId() view returns (uint256)",
   "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst) proposal, tuple(tuple(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter, uint128 quorum, uint256 votesFor, uint256 votesAgainst) core) validatorProposal, uint8 proposalState, uint256 requiredQuorum, uint256 requiredValidatorsQuorum)[])",
-  "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 totalVoted, uint256 totalRawVoted, uint256 votesForNow, bool isVoteFor)",
+  // NOTE field semantics (GovPool.sol getTotalVotes): the first two values are
+  // PROPOSAL-level raw totals; only the THIRD is the queried voter's stake.
+  "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 voterRawVoted, bool isVoteFor)",
   "function getPendingRewards(address user, uint256[] proposalIds) view returns (tuple(address[] tokens, uint256[] amounts, uint256[] proposalIds))",
 ]);
 
@@ -48,9 +50,41 @@ const USER_KEEPER_ABI = new Interface([
 // Tries to read pendingRewards using the canonical ABI; if the contract
 // version doesn't expose it, we silently skip and only surface unvoted +
 // lockedDeposit. The subgraph would be the next-best signal.
-const PENDING_REWARDS_ABI = new Interface([
+export const PENDING_REWARDS_ABI = new Interface([
   "function getPendingRewards(address user, uint256[] proposalIds) view returns (tuple(address[] tokens, uint256[] amounts, uint256[] proposalIds) rewards)",
 ]);
+
+/**
+ * True when an (already multicall-unwrapped) getTotalVotes result shows the
+ * queried voter has NOT voted. The voter's stake is the THIRD output
+ * (`voterRawVoted`) — the first two are proposal-level totals, so testing the
+ * first field (F6 regression) reported "voted" for every proposal anyone had
+ * voted on.
+ */
+export function isUnvotedTotalVotes(value: unknown): boolean {
+  const v = value as { voterRawVoted?: bigint } | null | undefined;
+  return v?.voterRawVoted === 0n;
+}
+
+/**
+ * Summarizes an already-multicall-unwrapped getPendingRewards value. The
+ * function has a SINGLE tuple output, so multicall's single-return unwrap
+ * hands us the tuple itself — there is no extra `.rewards` wrapper (reading
+ * one crashed the whole per-DAO scan). Returns null when nothing is claimable.
+ */
+export function summarizePendingRewards(
+  value: unknown,
+): { totalAmount: string; proposalIds: string[] } | null {
+  const r = value as { amounts?: readonly bigint[]; proposalIds?: readonly bigint[] } | null | undefined;
+  if (!r?.amounts || r.amounts.length === 0) return null;
+  let total = 0n;
+  for (const a of r.amounts) total += a;
+  if (total <= 0n) return null;
+  return {
+    totalAmount: total.toString(),
+    proposalIds: Array.from(r.proposalIds ?? [], (p) => p.toString()),
+  };
+}
 
 // ---------- subgraph ----------
 
@@ -247,8 +281,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
               for (let i = 0; i < votingIds.length; i++) {
                 const r = res[i];
                 if (!r?.success) continue;
-                const v = r.value as unknown as { totalVoted: bigint };
-                if (v.totalVoted === 0n) {
+                if (isUnvotedTotalVotes(r.value)) {
                   items.push({
                     dao,
                     type: "unvotedProposal",
@@ -273,21 +306,9 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
                 },
               ]);
               if (rewardsR?.success) {
-                const rw = rewardsR.value as unknown as {
-                  rewards: { tokens: string[]; amounts: bigint[]; proposalIds: bigint[] };
-                };
-                const r = rw.rewards;
-                if (r.amounts && r.amounts.length > 0) {
-                  let total = 0n;
-                  for (const a of r.amounts) total += a;
-                  if (total > 0n) {
-                    items.push({
-                      dao,
-                      type: "claimableRewards",
-                      proposalIds: r.proposalIds.map((p) => p.toString()),
-                      totalAmount: total.toString(),
-                    });
-                  }
+                const summary = summarizePendingRewards(rewardsR.value);
+                if (summary) {
+                  items.push({ dao, type: "claimableRewards", ...summary });
                 }
               }
             }
