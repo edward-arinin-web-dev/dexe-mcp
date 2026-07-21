@@ -1422,22 +1422,16 @@ export function registerFlowTools(
         depositAmount = shortfall;
       }
 
-      if (depositAmount > 0n) {
+      if (depositAmount > 0n && prereqs.currentAllowance < depositAmount) {
         // Approve if needed — W10: exact-amount approve to the UserKeeper
         // (never GovPool, never MAX_UINT256).
-        if (prereqs.currentAllowance < depositAmount) {
-          payloads.push(makeTxPayload(
-            prereqs.tokenAddress, ERC20_ABI, "approve",
-            [prereqs.userKeeper, depositAmount], chainId,
-            `ERC20.approve(${prereqs.userKeeper}, ${depositAmount})`,
-          ));
-        }
         payloads.push(makeTxPayload(
-          govPool, GOV_POOL_ABI, "deposit",
-          [depositAmount, []], chainId,
-          `GovPool.deposit(${depositAmount})`,
+          prereqs.tokenAddress, ERC20_ABI, "approve",
+          [prereqs.userKeeper, depositAmount], chainId,
+          `ERC20.approve(${prereqs.userKeeper}, ${depositAmount})`,
         ));
-      } else if (input.depositFirst !== false) {
+      }
+      if (depositAmount === 0n && input.depositFirst !== false) {
         skippedSteps.push({ label: "GovPool.deposit", skipped: true, reason: "Deposited power already covers voteAmount" });
       }
 
@@ -1450,11 +1444,19 @@ export function registerFlowTools(
         );
       }
 
+      // SphereX on new pools rejects a raw top-level vote(); the frontend
+      // always sends multicall([...maybe deposit, vote]) (useGovPoolVote.ts),
+      // so mirror that exact shape (verified live on chain 97, F4 2026-07-21).
+      const govCalls: string[] = [];
+      if (depositAmount > 0n) {
+        govCalls.push(GOV_POOL_ABI.encodeFunctionData("deposit", [depositAmount, []]));
+      }
+      govCalls.push(GOV_POOL_ABI.encodeFunctionData("vote", [proposalId, input.isVoteFor, voteAmt, input.voteNftIds.map(id => BigInt(id))]));
       payloads.push(makeTxPayload(
-        govPool, GOV_POOL_ABI, "vote",
-        [proposalId, input.isVoteFor, voteAmt, input.voteNftIds.map(id => BigInt(id))],
+        govPool, GOV_POOL_ABI, "multicall",
+        [govCalls],
         chainId,
-        `GovPool.vote(${proposalId}, ${input.isVoteFor}, ${voteAmt})`,
+        `GovPool.multicall([${depositAmount > 0n ? `deposit(${depositAmount}), ` : ""}vote(${proposalId}, ${input.isVoteFor}, ${voteAmt})])`,
       ));
 
       // Step 5: send or collect

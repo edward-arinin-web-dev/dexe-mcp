@@ -1,6 +1,27 @@
 # Changelog
 
-## 0.24.0 — 2026-07-11
+## Unreleased
+
+### SphereX frontend-parity for vote/delegate (F4, campaign 2026-07-21)
+
+SphereX-protected pools (every GovPool deployed since ~2026-07-06) revert raw
+top-level `vote()`/`delegate()` with "SphereX error: disallowed tx pattern" —
+proven with a real broadcast (status 0 on-chain), not just eth_call. The
+frontend never sends them raw: it always wraps in `GovPool.multicall([...])`,
+and that shape lands (status 1, verified live on chain 97).
+
+- `dexe_vote_build_vote` / `dexe_vote_build_delegate` now emit
+  `multicall([inner])` — the exact frontend shape (useGovPoolVote.ts /
+  useGovPoolDelegate.ts). `undelegate` stays raw (allowed by SphereX).
+- `dexe_proposal_vote_and_execute` bundles its deposit+vote steps into one
+  `multicall([deposit?, vote])` payload, mirroring the frontend voter flow.
+- `dexe_vote_build_multicall` now accepts a single-element batch (was min 2) —
+  the frontend wraps even lone calls, and SphereX-era pools require it.
+- Doc fix: `dexe_vote_build_erc20_approve` said the spender is "typically the
+  GovPool" — deposits must approve the **GovUserKeeper**, never the GovPool.
+- PLAYBOOK: SphereX error row extended with the vote/delegate case + the
+  raw-call allow/deny map.
+- New guardrail tests: `tests/tools/spherex-vote-shape.test.ts`.
 
 ### One-shot DAO deploys: simulate before signing, classify every revert
 

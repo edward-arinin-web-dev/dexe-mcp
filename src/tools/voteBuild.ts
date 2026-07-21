@@ -151,10 +151,10 @@ function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
     {
       title: "Build ERC20.approve(spender, amount) calldata",
       description:
-        "Prepares an ERC20 approval tx. Prepend this before `dexe_vote_build_deposit` when staking an ERC20 token — DAO treasury uses GovPool as the spender. For native-coin staking (BNB/ETH) no approve is needed; just pass `value` on deposit.",
+        "Prepares an ERC20 approval tx. Prepend this before `dexe_vote_build_deposit` when staking an ERC20 token — approve the DAO's **GovUserKeeper** (helper from dexe_dao_info), never the GovPool. For native-coin staking (BNB/ETH) no approve is needed; just pass `value` on deposit.",
       inputSchema: {
         token: z.string(),
-        spender: z.string().describe("Typically the GovPool address"),
+        spender: z.string().describe("For deposits: the DAO's GovUserKeeper address (NOT the GovPool)"),
         amount: z.string().describe("Wei amount; use max uint256 to grant unlimited"),
       },
       outputSchema: payloadOutputSchema(),
@@ -283,14 +283,21 @@ function registerDelegate(server: McpServer, ctx: ToolContext): void {
       if (!isAddress(delegatee)) return errorResult(`Invalid delegatee: ${delegatee}`);
       try {
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
+        // SphereX on new pools rejects a raw top-level delegate(); the frontend
+        // always sends multicall([delegate]) (useGovPoolDelegate.ts), so mirror it.
+        const inner = iface.encodeFunctionData("delegate", [
+          delegatee,
+          parseUintString(amount, "amount"),
+          nftIds.map((n) => parseUintString(n, "nftId")),
+        ]);
         const payload = buildPayload({
           to: govPool,
           iface,
-          method: "delegate",
-          args: [delegatee, parseUintString(amount, "amount"), nftIds.map((n) => parseUintString(n, "nftId"))],
+          method: "multicall",
+          args: [[inner]],
           chainId: ctx.config.chainId,
           contractLabel: "GovPool",
-          description: `GovPool.delegate → ${delegatee} (${amount} wei, ${nftIds.length} NFTs)`,
+          description: `GovPool.multicall([delegate → ${delegatee} (${amount} wei, ${nftIds.length} NFTs)])`,
         });
         return payloadResult(payload);
       } catch (err) {
@@ -360,14 +367,22 @@ function registerVote(server: McpServer, ctx: ToolContext): void {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
+        // SphereX on new pools rejects a raw top-level vote(); the frontend
+        // always sends multicall([...maybe cancelVote/deposit, vote]) (useGovPoolVote.ts).
+        const inner = iface.encodeFunctionData("vote", [
+          parseUintString(proposalId, "proposalId"),
+          isVoteFor,
+          parseUintString(amount, "amount"),
+          nftIds.map((n) => parseUintString(n, "nftId")),
+        ]);
         const payload = buildPayload({
           to: govPool,
           iface,
-          method: "vote",
-          args: [parseUintString(proposalId, "proposalId"), isVoteFor, parseUintString(amount, "amount"), nftIds.map((n) => parseUintString(n, "nftId"))],
+          method: "multicall",
+          args: [[inner]],
           chainId: ctx.config.chainId,
           contractLabel: "GovPool",
-          description: `GovPool.vote(#${proposalId}, ${isVoteFor ? "FOR" : "AGAINST"}, ${amount} wei, ${nftIds.length} NFTs)`,
+          description: `GovPool.multicall([vote(#${proposalId}, ${isVoteFor ? "FOR" : "AGAINST"}, ${amount} wei, ${nftIds.length} NFTs)])`,
         });
         return payloadResult(payload);
       } catch (err) {
@@ -1093,7 +1108,7 @@ function registerMulticall(server: McpServer, ctx: ToolContext): void {
         "Wraps N inner calldatas into `GovPool.multicall(calls)`. Pass the `data` fields from other build tools (e.g. deposit + delegate, execute + claim). Each inner call executes against GovPool itself — only use for GovPool methods.",
       inputSchema: {
         govPool: z.string(),
-        calls: z.array(z.string()).min(2).describe("Array of 0x-hex calldatas to batch"),
+        calls: z.array(z.string()).min(1).describe("Array of 0x-hex calldatas to batch (single-element allowed — the frontend wraps even lone vote/delegate calls, and SphereX-protected pools require that shape)"),
         value: z.string().default("0").describe("Total native-coin value across the batch"),
       },
       outputSchema: payloadOutputSchema(),
