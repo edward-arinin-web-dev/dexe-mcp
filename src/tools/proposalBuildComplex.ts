@@ -882,9 +882,11 @@ function registerCreateStakingTier(server: McpServer): void {
     {
       title: "Wrapper: create a staking pool/tier via StakingProposal.createStaking",
       description:
-        "Builds a 'Create Staking Tier' external proposal calling StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata). For ERC20 reward tokens, automatically prepends an ERC20.approve action. For native tokens (isNative=true), sets the action value instead.",
+        "Builds a 'Create Staking Tier' external proposal calling StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata). For ERC20 reward tokens, automatically prepends an ERC20.approve action. For native tokens (isNative=true), sets the action value instead. Address source: GovUserKeeper.stakingProposalAddress() — zero address means it isn't deployed yet (GovUserKeeper.deployStakingProposal() creates it). The dexe_proposal_create composite auto-resolves this when the param is omitted.",
       inputSchema: {
-        stakingProposal: z.string().describe("StakingProposal contract address"),
+        stakingProposal: z
+          .string()
+          .describe("StakingProposal contract address (from GovUserKeeper.stakingProposalAddress())"),
         rewardToken: z.string(),
         rewardAmount: z.string(),
         startedAt: z.string().describe("Unix seconds"),

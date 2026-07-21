@@ -38,6 +38,7 @@
   "main": "dist/index.js",
   "files": [
     "dist",
+    "docs",
     "dexe-plugin/skills",
     "README.md",
     "CHANGELOG.md",

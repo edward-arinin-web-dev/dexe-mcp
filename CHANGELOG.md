@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Campaign leg-4 fix batch: F1/F2/F7/F10 + K1/K2 (2026-07-21)
+
+- **K1** — the BSC-testnet (97) `ContractsRegistry` address is baked into
+  defaults (same deterministic deploy as mainnet, verified live). A zero-config
+  install can now read AND predict/deploy on chain 97; previously every
+  registry-dependent tool (incl. `dexe_dao_info`) failed with
+  "No ContractsRegistry address known for chainId=97".
+- **K2** — `docs/` ships in the npm package (`files` whitelist), so the
+  `dexe://playbook` MCP resource exists in published builds. Without it the
+  server registered no resources capability at all (`resources/*` → -32601).
+- **F7** — `create_staking_tier` via `dexe_proposal_create` auto-resolves the
+  `stakingProposal` address the way the frontend does
+  (`GovUserKeeper.stakingProposalAddress()`); when it's not deployed yet the
+  error says to send `GovUserKeeper.deployStakingProposal()` first. The param
+  is now optional; primitive/read tool descriptions document the source.
+- **F2** — `dexe_dao_create` runs the confirm-stage coherence checks
+  (`deploy.min-votes`, `deploy.settings-bounds`) in the fast preflight, so the
+  SIMPLE preview can no longer claim "config looks coherent" for a config the
+  confirm call would reject.
+- **F1** — the quorum-floor treasury advisory no longer sweeps the validator
+  chamber's quorum (it is a % of the hand-picked validator token supply, not of
+  votable DAO supply); a deliberate 30% validator quorum no longer warns.
+- **F10** — deploy previews/builds emit a `[reward-economics advisory]` when
+  any settings entry has non-zero rewards: 30% DeXe commission at execute,
+  mint-on-shortfall dilution, silent zero-claims on an empty treasury, and the
+  all-five-settings-ids rule. Advisory-only, never blocks.
+- **F6 re-verify regressions** (commit edf5954): inbox `getPendingRewards`
+  single-output unwrap crash and `getTotalVotes` field-1/field-3 mixup (the
+  voter's stake is the THIRD output) — unvoted proposals now surface correctly.
+
 ### SphereX frontend-parity for vote/delegate (F4, campaign 2026-07-21)
 
 SphereX-protected pools (every GovPool deployed since ~2026-07-06) revert raw

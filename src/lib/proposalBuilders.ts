@@ -505,9 +505,61 @@ const tokenSaleWhitelistBuilder: CatalogBuilder = {
   },
 };
 
+// F7: nothing on-chain hands the StakingProposal address out via
+// registry/factory — the frontend resolves it from the DAO's GovUserKeeper
+// (useGovStakingAddress.ts) and deploys it ON DEMAND when unset.
+const STAKING_RESOLVER_IFACE = new Interface([
+  "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+  "function stakingProposalAddress() view returns (address)",
+]);
+
+/** Resolve the DAO's StakingProposal via GovUserKeeper.stakingProposalAddress() (frontend parity). */
+async function resolveStakingProposal(deps: BuilderDeps): Promise<string> {
+  const pr = new RpcProvider(deps.ctx.config).tryProvider(deps.chainId);
+  if ("error" in pr) {
+    throw new Error(
+      `stakingProposal was omitted (auto-resolve needs an RPC) and no RPC is configured for chain ${deps.chainId}. ` +
+        `Pass stakingProposal explicitly (source: GovUserKeeper.stakingProposalAddress()) or configure an RPC. ${pr.remediation}`,
+    );
+  }
+  const [helpersR] = await multicall(pr.ok, [
+    { target: deps.govPool, iface: STAKING_RESOLVER_IFACE, method: "getHelperContracts", args: [], allowFailure: true },
+  ]);
+  if (!helpersR?.success) throw new Error(`Could not read getHelperContracts() on GovPool ${deps.govPool}.`);
+  const userKeeper = (helpersR.value as unknown as { userKeeper: string }).userKeeper;
+  const [stakingR] = await multicall(pr.ok, [
+    { target: userKeeper, iface: STAKING_RESOLVER_IFACE, method: "stakingProposalAddress", args: [], allowFailure: true },
+  ]);
+  if (!stakingR?.success) {
+    // A reverting getter (raw 0x) means the DEPLOYED UserKeeper implementation
+    // predates the staking feature entirely — protocol-side, observed on every
+    // chain-97 pool as of 2026-07: nothing MCP-side can enable staking there.
+    throw new Error(
+      `stakingProposalAddress() reverted on GovUserKeeper ${userKeeper} — this pool's deployed UserKeeper ` +
+        `implementation predates staking support, so staking proposals are unavailable for this DAO ` +
+        `(protocol limitation, not a config issue). If you are sure staking exists here, pass stakingProposal explicitly.`,
+    );
+  }
+  const staking = stakingR.value as string;
+  if (!staking || staking === ZeroAddress) {
+    throw new Error(
+      `This DAO has no StakingProposal deployed yet — GovUserKeeper.stakingProposalAddress() is the zero address. ` +
+        `Deploy it first (the frontend does this on demand): send GovUserKeeper(${userKeeper}).deployStakingProposal() ` +
+        `[via dexe_tx_send], then re-run this call.`,
+    );
+  }
+  return staking;
+}
+
 const createStakingTierBuilder: CatalogBuilder = {
   schema: z.object({
-    stakingProposal: z.string().describe("StakingProposal contract address"),
+    stakingProposal: z
+      .string()
+      .optional()
+      .describe(
+        "StakingProposal contract address. Omit to auto-resolve via the DAO's GovUserKeeper.stakingProposalAddress() " +
+          "(frontend parity); if it is not deployed yet you get the deployStakingProposal() remediation.",
+      ),
     rewardToken: z.string(),
     rewardAmount: z.string(),
     startedAt: z.string().describe("Unix seconds"),
@@ -515,12 +567,13 @@ const createStakingTierBuilder: CatalogBuilder = {
     stakingMetadataUrl: z.string().describe("ipfs://<cid> of staking-specific metadata"),
     isNative: z.boolean().default(false),
   }),
-  async build(raw) {
+  async build(raw, deps) {
     const p = raw as {
-      stakingProposal: string; rewardToken: string; rewardAmount: string;
+      stakingProposal?: string; rewardToken: string; rewardAmount: string;
       startedAt: string; deadline: string; stakingMetadataUrl: string; isNative: boolean;
     };
-    if (!isAddress(p.stakingProposal)) throw new Error(`Invalid stakingProposal: ${p.stakingProposal}`);
+    const stakingProposal = p.stakingProposal ?? (await resolveStakingProposal(deps));
+    if (!isAddress(stakingProposal)) throw new Error(`Invalid stakingProposal: ${stakingProposal}`);
     if (!isAddress(p.rewardToken)) throw new Error(`Invalid rewardToken: ${p.rewardToken}`);
     const iface = new Interface(STAKING_PROPOSAL_ABI as unknown as string[]);
     const createData = iface.encodeFunctionData("createStaking", [
@@ -528,15 +581,15 @@ const createStakingTierBuilder: CatalogBuilder = {
     ]);
     const actionsOnFor: { executor: string; value?: string; data: string }[] = [];
     if (p.isNative) {
-      actionsOnFor.push({ executor: p.stakingProposal, value: p.rewardAmount, data: createData });
+      actionsOnFor.push({ executor: stakingProposal, value: p.rewardAmount, data: createData });
     } else {
       const erc20 = new Interface(ERC20_GOV_FULL_ABI as unknown as string[]);
       actionsOnFor.push({
         executor: p.rewardToken,
         value: "0",
-        data: erc20.encodeFunctionData("approve", [p.stakingProposal, BigInt(p.rewardAmount)]),
+        data: erc20.encodeFunctionData("approve", [stakingProposal, BigInt(p.rewardAmount)]),
       });
-      actionsOnFor.push({ executor: p.stakingProposal, value: "0", data: createData });
+      actionsOnFor.push({ executor: stakingProposal, value: "0", data: createData });
     }
     return {
       actionsOnFor,

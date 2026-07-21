@@ -182,6 +182,19 @@ describe("v0.22 new builders (byte-parity)", () => {
     expect(out.category).toBe("createStakingTier");
   });
 
+  it("F7: omitted stakingProposal auto-resolve without RPC fails actionably", async () => {
+    const b = PROPOSAL_BUILDERS.create_staking_tier!;
+    await expect(
+      b.build(
+        b.schema.parse({
+          rewardToken: TOKEN, rewardAmount: "777",
+          startedAt: "1000", deadline: "2000", stakingMetadataUrl: "ipfs://x",
+        }),
+        deps,
+      ),
+    ).rejects.toThrow(/stakingProposal.*(RPC|omitted)|GovUserKeeper/);
+  });
+
   it("change_math_model targets deps govPool", async () => {
     const b = PROPOSAL_BUILDERS.change_math_model!;
     const out = await b.build(b.schema.parse({ newVotePower: USER }), deps);

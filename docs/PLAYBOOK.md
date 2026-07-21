@@ -69,7 +69,7 @@ Pass type-specific inputs in `params`. Wired types (all 33 catalog entries):
 - `token_sale` `{tokenSaleProposal, tiers:[tierSpec], latestTierId?}` — prefer `dexe_otc_dao_open_sale` for the full journey.
 - `token_sale_whitelist` `{tokenSaleProposal, requests:[{tierId, users, uri?}]}` — extend a live tier's whitelist.
 - `token_sale_recover` `{tokenSaleProposal, tierIds}` — recover unsold tokens.
-- `create_staking_tier` `{stakingProposal, rewardToken, rewardAmount, startedAt, deadline, stakingMetadataUrl, isNative?}`. ⚠ KNOWN GAP: on chain 97 there is currently NO discoverable source for the per-pool `stakingProposal` address (no registry beacon, no GovPool getter, factory predicts only 6 addresses) — if you don't already have the address from the frontend/subgraph, this type is unusable.
+- `create_staking_tier` `{stakingProposal?, rewardToken, rewardAmount, startedAt, deadline, stakingMetadataUrl, isNative?}`. `stakingProposal` may be OMITTED — the composite auto-resolves it the way the frontend does: `GovPool.getHelperContracts().userKeeper` → `GovUserKeeper.stakingProposalAddress()`. Zero address means the contract isn't deployed yet; the error tells you to send `GovUserKeeper.deployStakingProposal()` (via dexe_tx_send) first, then re-run.
 - ⚠ OTC vesting on fresh (SphereX-era) pools: `TokenSaleProposal.vestingWithdraw` reverts "SphereX error: disallowed tx pattern" in every known call shape — the vested portion of a purchase CANNOT be withdrawn. Until resolved, open tiers with `vestingPercentage: "0"` on new DAOs; `claim` (the instant portion) works fine.
 
 **Token controls**
@@ -143,6 +143,10 @@ creation/execution rewards) from the DAO treasury to the DeXe protocol treasury
 single execute. When the treasury can't cover the commission the protocol
 **mints new gov tokens** to pay it (supply inflation — the quorum denominator
 grows too). `claimRewards` on an empty treasury succeeds but silently pays 0.
+
+`dexe_dao_create` / `dexe_dao_build_deploy` now surface this automatically: any
+non-zero `rewardsInfo` in the deploy config adds a `[reward-economics advisory]`
+to the preview/build note (advisory-only — never blocks).
 
 Rules of thumb: keep `voteRewardsCoefficient` tiny (≤ 1e23 = ×0.01) or 0;
 budget commission ≈ 0.3 × expectedVote × coefficient per executed proposal; a

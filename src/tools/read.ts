@@ -896,7 +896,11 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
       description:
         "Reads `stakingsCount()` and `getActiveStakings()` from a StakingProposal. Optionally reads `getUserInfo(user)` for a specific user's staked amounts and pending rewards.",
       inputSchema: {
-        stakingProposal: z.string().describe("StakingProposal contract address"),
+        stakingProposal: z
+          .string()
+          .describe(
+            "StakingProposal contract address — resolve via GovUserKeeper.stakingProposalAddress() (zero address = not deployed yet)",
+          ),
         user: z.string().optional().describe("Optional user address to get their staking details"),
         chainId: chainIdParam,
       },

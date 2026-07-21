@@ -19,6 +19,8 @@ import {
   checkLinearInitData,
   checkCustomVotePower,
   checkQuorumReachable,
+  checkMinVotesVsDistribution,
+  checkSettingsBounds,
   assertPreflight,
 } from "../lib/preflight.js";
 import { simulateDeployGovPool } from "../lib/deploySim.js";
@@ -339,7 +341,11 @@ export function registerDaoCreateTools(
       }
 
       // ---------- fast preflight (predict-independent, fail before RPC/IPFS) ----------
+      // F2: this list must include every confirm-stage check that needs no
+      // prediction/RPC — preview and confirm must fail IDENTICALLY on the
+      // first call, or the preview's "config looks coherent" claim is wrong.
       const isTokenCreation = deployParams.tokenParams.name.length > 0;
+      const base0 = deployParams.settingsParams.proposalSettings[0];
       try {
         assertPreflight([
           checkDeployCap(deployParams.tokenParams.cap, deployParams.tokenParams.mintedTotal, isTokenCreation),
@@ -355,6 +361,22 @@ export function registerDaoCreateTools(
             deployParams.votePowerParams.initData,
             deployParams.votePowerParams.presetAddress,
           ),
+          ...(base0
+            ? [
+                checkMinVotesVsDistribution(
+                  base0.minVotesForVoting,
+                  base0.minVotesForCreating,
+                  deployParams.tokenParams.amounts,
+                  isTokenCreation,
+                ),
+                checkSettingsBounds({
+                  quorum: base0.quorum,
+                  quorumValidators: base0.quorumValidators,
+                  duration: base0.duration,
+                  durationValidators: base0.durationValidators,
+                }),
+              ]
+            : []),
         ]);
       } catch (e) {
         return err(e instanceof Error ? e.message : String(e));

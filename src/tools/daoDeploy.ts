@@ -166,6 +166,71 @@ const VotePowerDeployParamsSchema = z.object({
   ),
 });
 
+// ---------- treasury advisories (pure, exported for tests) ----------
+
+/**
+ * Quorum-floor advisory over the DAO's proposal settings. The validator
+ * chamber's quorum is deliberately EXCLUDED (F1): it is a percentage of the
+ * hand-picked validator token supply, not of votable DAO supply, so the
+ * treasury-floor semantics don't apply to it (30% there can be one validator).
+ */
+export function computeQuorumFloorAdvisory(settings: Array<{ quorum: string }>, floor: number): string {
+  const showPct = (p: number) => (Number.isFinite(p) ? `${p}%` : "unparseable");
+  const lowQuorum: string[] = [];
+  settings.forEach((s, i) => {
+    const pct = quorumPctFromRaw(s.quorum);
+    if (judgeQuorum(pct, floor) !== "SAFE") lowQuorum.push(`proposalSettings[${i}] quorum=${showPct(pct)}`);
+  });
+  if (lowQuorum.length === 0) return "";
+  return (
+    `\n⚠️  Quorum below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT): ${lowQuorum.join(", ")}. ` +
+    `Low quorum reduces the participation required to pass a proposal; for a DAO that will hold ` +
+    `treasury assets, set quorum ≥50% (51%+ recommended). The safe value is DAO-specific and must ` +
+    `be verified. [governance-safety advisory]`
+  );
+}
+
+/** Reward coefficient PRECISION: 1e25 == ×1.0 (protocol scale). */
+const REWARD_COEFF_PRECISION = 10n ** 25n;
+
+/**
+ * F10 advisory: reward configs quietly drain the treasury. Every rewarded
+ * execute pays the DeXe protocol a 30% commission on top, on shortfall the
+ * protocol MINTS new gov tokens (supply dilution), and claims silently pay 0
+ * while the treasury is empty — all proven live on chain 97. Advisory-only,
+ * never blocks (Q-1 discipline).
+ */
+export function computeRewardEconomicsAdvisory(
+  settings: Array<{
+    rewardsInfo?: {
+      creationReward?: string;
+      executionReward?: string;
+      voteRewardsCoefficient?: string;
+    };
+  }>,
+): string {
+  const rewarded: string[] = [];
+  settings.forEach((s, i) => {
+    const r = s.rewardsInfo;
+    if (!r) return;
+    const coeff = BigInt(r.voteRewardsCoefficient || "0");
+    const flat = BigInt(r.creationReward || "0") + BigInt(r.executionReward || "0");
+    if (coeff === 0n && flat === 0n) return;
+    const mult =
+      coeff > 0n ? ` voteCoeff ×${(Number(coeff) / Number(REWARD_COEFF_PRECISION)).toString()}` : "";
+    rewarded.push(`settings[${i}]${mult}`);
+  });
+  if (rewarded.length === 0) return "";
+  return (
+    `\n⚠️  Rewards enabled on ${rewarded.join(", ")}. Real cost, proven on-chain: every rewarded execute ` +
+    `also pays the DeXe protocol a 30% commission out of the DAO treasury; when the treasury can't cover ` +
+    `rewards+commission the protocol MINTS new gov tokens (supply dilution), and claimRewards succeeds ` +
+    `but pays 0 while the treasury is empty. Budget the treasury for rewards + 30%, or zero the rewards. ` +
+    `Note the deploy auto-expands to 5 settings ids (0 default, 1 internal, 2 validators, 3 distribution, ` +
+    `4 tokenSale) — a later rewards-suspension edit must cover ALL five. [reward-economics advisory]`
+  );
+}
+
 // ---------- register ----------
 
 export function registerDaoDeployTools(server: McpServer, ctx: ToolContext): void {
@@ -509,25 +574,14 @@ export async function buildDeployGovPool(
   }
 
   // ---------- treasury-safety advisory: quorum floor ----------
-  let quorumWarning = "";
-  if (ctx.config.treasuryGuard !== "off") {
-    const floor = ctx.config.minSafeQuorumPct;
-    const showPct = (p: number) => (Number.isFinite(p) ? `${p}%` : "unparseable");
-    const lowQuorum: string[] = [];
-    expandedSettings.forEach((s, i) => {
-      const pct = quorumPctFromRaw(s.quorum);
-      if (judgeQuorum(pct, floor) !== "SAFE") lowQuorum.push(`proposalSettings[${i}] quorum=${showPct(pct)}`);
-    });
-    const vpct = quorumPctFromRaw(validatorsParams.proposalSettings.quorum);
-    if (judgeQuorum(vpct, floor) !== "SAFE") lowQuorum.push(`validatorsParams quorum=${showPct(vpct)}`);
-    if (lowQuorum.length > 0) {
-      quorumWarning =
-        `\n⚠️  Quorum below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT): ${lowQuorum.join(", ")}. ` +
-        `Low quorum reduces the participation required to pass a proposal; for a DAO that will hold ` +
-        `treasury assets, set quorum ≥50% (51%+ recommended). The safe value is DAO-specific and must ` +
-        `be verified. [governance-safety advisory]`;
-    }
-  }
+  const quorumWarning = ctx.config.treasuryGuard !== "off"
+    ? computeQuorumFloorAdvisory(expandedSettings, ctx.config.minSafeQuorumPct)
+    : "";
+
+  // ---------- reward-economics advisory (F10) ----------
+  const rewardWarning = ctx.config.treasuryGuard !== "off"
+    ? computeRewardEconomicsAdvisory(expandedSettings)
+    : "";
 
   // ---------- auto-upload executorDescription to IPFS ----------
   let pinataWarning = "";
@@ -755,6 +809,7 @@ export async function buildDeployGovPool(
   note += "\n✓ Calldata round-trip self-check passed (decoded == intended params).";
   if (pinataWarning) note += pinataWarning;
   if (quorumWarning) note += quorumWarning;
+  if (rewardWarning) note += rewardWarning;
 
   return {
     ok: true,
