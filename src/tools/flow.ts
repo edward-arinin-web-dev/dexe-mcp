@@ -40,6 +40,7 @@ import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/t
 import { toActionableError } from "../lib/errors.js";
 import { flowChainFields, flowContextSchema, type FlowContext } from "../lib/flowChain.js";
 import { parseAmount, formatAmount } from "../lib/units.js";
+import { signerKeyParam } from "../lib/params.js";
 import type { StateStore } from "../lib/stateStore.js";
 
 // ---------- ABI fragments ----------
@@ -483,7 +484,7 @@ export interface FlowFailure {
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
-  opts?: { dryRun?: boolean; chainId?: number; wc?: WalletConnectManager },
+  opts?: { dryRun?: boolean; chainId?: number; wc?: WalletConnectManager; signerKey?: string },
 ): Promise<{
   mode: "executed" | "payloads" | "dryRun" | "failed";
   steps: FlowStep[];
@@ -506,7 +507,7 @@ export async function sendOrCollect(
     }
     return { mode: "dryRun", steps };
   }
-  if (!signer.hasSigner()) {
+  if (!opts?.signerKey && !signer.hasSigner()) {
     for (const p of payloads) {
       steps.push({ label: p.description, skipped: false, payload: p });
     }
@@ -523,7 +524,7 @@ export async function sendOrCollect(
     };
   }
 
-  const sg = signer.trySigner(opts?.chainId);
+  const sg = signer.trySigner(opts?.chainId, opts?.signerKey);
   if ("error" in sg) throw new Error(`${sg.error}\n${sg.remediation}`);
   const wallet = sg.ok;
   const cfg = signer.getConfig();
@@ -549,13 +550,16 @@ export async function sendOrCollect(
         cfg,
         { skipSimulation: true },
       );
-      const tx = await signer.withBroadcastLock(Number(p.chainId), () =>
-        wallet.sendTransaction({
-          to: p.to,
-          data: p.data,
-          value: BigInt(p.value),
-          chainId: BigInt(p.chainId),
-        }),
+      const tx = await signer.withBroadcastLock(
+        Number(p.chainId),
+        () =>
+          wallet.sendTransaction({
+            to: p.to,
+            data: p.data,
+            value: BigInt(p.value),
+            chainId: BigInt(p.chainId),
+          }),
+        wallet.address,
       );
       const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
       assertReceiptSuccess(receipt, p.description);
@@ -620,6 +624,8 @@ export interface ProposalCreateInput {
   voteAmount?: string;
   voteNftIds?: string[];
   user?: string;
+  /** Keyring selector: omit = primary DEXE_PRIVATE_KEY; 'agent<n>' / address = DEXE_AGENT_PK_* key. */
+  signerKey?: string;
   /** When true, return ordered TxPayloads even if a signer is configured. */
   dryRun?: boolean;
   /**
@@ -685,7 +691,8 @@ export async function runProposalCreate(
 
       if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a proposal"));
 
-      const user = input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
+      const user =
+        input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
 
       const pinata = new PinataClient(ctx.config.pinataJwt);
@@ -1030,7 +1037,12 @@ export async function runProposalCreate(
       ));
 
       // Step 6: send or return
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc: deps.wc });
+      const result = await sendOrCollect(signer, payloads, {
+        dryRun: input.dryRun,
+        chainId,
+        wc: deps.wc,
+        signerKey: input.signerKey,
+      });
       if (result.mode === "failed") {
         return flowFailureResult(result, { descriptionURL, proposalMetadataCID: proposalMetaRes.cid });
       }
@@ -1165,7 +1177,12 @@ async function runInternalProposalCreate(
     ),
   ];
 
-  const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc: deps.wc });
+  const result = await sendOrCollect(signer, payloads, {
+    dryRun: input.dryRun,
+    chainId,
+    wc: deps.wc,
+    signerKey: input.signerKey,
+  });
   if (result.mode === "failed") {
     return flowFailureResult(result, {
       proposalKind: "internal",
@@ -1236,8 +1253,9 @@ async function driveValidatorRound(args: {
   isVoteFor: boolean;
   signerAddress: string;
   dryRun: boolean;
+  signerKey?: string;
 }): Promise<{ steps: FlowStep[]; state: number; failure?: FlowFailure }> {
-  const { provider, signer, wc, chainId, govPool, validators, proposalId, isVoteFor, signerAddress, dryRun } = args;
+  const { provider, signer, wc, chainId, govPool, validators, proposalId, isVoteFor, signerAddress, dryRun, signerKey } = args;
   const steps: FlowStep[] = [];
 
   const readState = async (): Promise<number> => {
@@ -1267,7 +1285,7 @@ async function driveValidatorRound(args: {
     const r = await sendOrCollect(
       signer,
       [makeTxPayload(govPool, GOV_POOL_ABI, "moveProposalToValidators", [proposalId], chainId, `GovPool.moveProposalToValidators(${proposalId})`)],
-      { dryRun, chainId, wc },
+      { dryRun, chainId, wc, signerKey },
     );
     steps.push(...r.steps);
     if (r.mode === "failed") return { steps, state, failure: r.failure };
@@ -1304,7 +1322,7 @@ async function driveValidatorRound(args: {
     const r = await sendOrCollect(
       signer,
       [makeTxPayload(validators, GOV_VALIDATORS_VOTE_ABI, "voteExternalProposal", [proposalId, balance, isVoteFor], chainId, `GovValidators.voteExternalProposal(${proposalId}, ${balance}, ${isVoteFor})`)],
-      { dryRun, chainId, wc },
+      { dryRun, chainId, wc, signerKey },
     );
     steps.push(...r.steps);
     if (r.mode === "failed") return { steps, state, failure: r.failure };
@@ -1401,6 +1419,7 @@ export function registerFlowTools(
         ),
       voteNftIds: z.array(z.string()).default([]),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       confirmRisky: z
         .boolean()
@@ -1462,10 +1481,12 @@ export function registerFlowTools(
         ),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      signerKey: signerKeyParam,
       flowContext: flowContextSchema,
     },
     async (input) => {
-      const user = input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
+      const user =
+        input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
 
       const chain = resolveChain(ctx.config, input.chainId);
@@ -1503,7 +1524,7 @@ export function registerFlowTools(
         });
         const execResult = await sendOrCollect(signer, [
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-        ], { dryRun: input.dryRun, chainId, wc });
+        ], { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
         if (execResult.mode === "failed") {
           return flowFailureResult(execResult, { proposalId, proposalStateBefore: stateName });
         }
@@ -1536,6 +1557,7 @@ export function registerFlowTools(
           const drive = await driveValidatorRound({
             provider, signer, wc, chainId, govPool, validators, proposalId,
             isVoteFor: input.isVoteFor, signerAddress: user, dryRun: false,
+            signerKey: input.signerKey,
           });
           if (drive.failure) {
             return flowFailureResult({ steps: drive.steps, failure: drive.failure }, { proposalId, proposalStateBefore: stateName });
@@ -1547,7 +1569,7 @@ export function registerFlowTools(
             if (treasuryRisk) execSteps.push({ label: "treasury-risk", skipped: true, reason: treasuryRisk });
             const execResult = await sendOrCollect(signer, [
               makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-            ], { dryRun: false, chainId, wc });
+            ], { dryRun: false, chainId, wc, signerKey: input.signerKey });
             execSteps.push(...execResult.steps);
             if (execResult.mode === "failed") {
               return flowFailureResult({ steps: [...drive.steps, ...execSteps], failure: execResult.failure }, { proposalId, proposalStateBefore: stateName });
@@ -1678,7 +1700,7 @@ export function registerFlowTools(
       ));
 
       // Step 5: send or collect
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
       if (result.mode === "failed") {
         return flowFailureResult(result, { proposalId, proposalStateBefore: stateName });
       }
@@ -1704,6 +1726,7 @@ export function registerFlowTools(
             const drive = await driveValidatorRound({
               provider, signer, wc, chainId, govPool, validators, proposalId,
               isVoteFor: input.isVoteFor, signerAddress: user, dryRun: false,
+              signerKey: input.signerKey,
             });
             result.steps.push(...drive.steps);
             if (drive.failure) {
@@ -1727,7 +1750,7 @@ export function registerFlowTools(
           }
           const execResult = await sendOrCollect(signer, [
             makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-          ], { dryRun: input.dryRun, chainId, wc });
+          ], { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
           result.steps.push(...execResult.steps);
           if (execResult.mode === "failed") {
             // The vote landed; only the execute failed. Surface the ledger —

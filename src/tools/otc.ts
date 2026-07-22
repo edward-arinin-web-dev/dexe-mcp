@@ -23,7 +23,7 @@ import {
 import { simulateCalldata } from "./simulate.js";
 import { parseUintString } from "../lib/amount.js";
 import { parseAmount, formatAmount, from18 } from "../lib/units.js";
-import { chainIdParam } from "../lib/params.js";
+import { chainIdParam, signerKeyParam } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
@@ -632,6 +632,7 @@ export function registerOtcTools(
       proof: z.array(z.string()).default([]),
       whitelistUsers: z.array(z.string()).default([]).describe("Optional whitelist for proof gen"),
       user: z.string().optional(),
+      signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       simulateFirst: z
         .boolean()
@@ -645,7 +646,7 @@ export function registerOtcTools(
       if (!isAddress(input.tokenToBuyWith)) return err(`Invalid tokenToBuyWith`);
 
       const userResolved =
-        input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
+        input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!userResolved) return err(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
 
       const userAddr = getAddress(userResolved);
@@ -784,7 +785,7 @@ export function registerOtcTools(
         }
       }
 
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
       if (result.mode === "failed") {
         return flowFailureResult(result, { tierId: input.tierId, user: userAddr });
       }
@@ -824,12 +825,13 @@ export function registerOtcTools(
         .describe("Target chain id. Defaults to the MCP's default chain."),
       tierIds: z.array(z.string()).min(1),
       user: z.string().optional(),
+      signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
     },
     async (input) => {
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);
       const userResolved =
-        input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
+        input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!userResolved) return err(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
 
       const userAddr = getAddress(userResolved);
@@ -919,7 +921,7 @@ export function registerOtcTools(
         });
       }
 
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc });
+      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
       if (result.mode === "failed") {
         return flowFailureResult(result, { user: userAddr, tokenSaleProposal: input.tokenSaleProposal });
       }

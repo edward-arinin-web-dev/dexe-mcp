@@ -26,6 +26,7 @@ import {
 import { simulateDeployGovPool } from "../lib/deploySim.js";
 import { mapDeployRevert } from "../lib/deployRevertMap.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
+import { signerKeyParam } from "../lib/params.js";
 import { quorumPctFromRaw } from "../lib/quorumRisk.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
@@ -300,12 +301,14 @@ export function registerDaoCreateTools(
             "parameters), pass confirm:true on the FIRST call — no preview round-trip needed.",
         ),
       dryRun: z.boolean().default(false).describe("If true, return the deploy TxPayload even when DEXE_PRIVATE_KEY is set."),
+      signerKey: signerKeyParam,
       flowContext: flowContextSchema,
     },
     async (input) => {
       if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a DAO"));
 
-      const deployer = input.deployer ?? (signer.hasSigner() ? signer.getAddress() : undefined);
+      const deployer =
+        input.deployer ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!deployer) return err("Provide 'deployer' address or set DEXE_PRIVATE_KEY.");
 
       const chain = resolveChain(ctx.config, input.chainId);
@@ -401,7 +404,7 @@ export function registerDaoCreateTools(
       }
 
       // ---------- confirm gate: preview before broadcasting ----------
-      const willBroadcast = !input.dryRun && signer.hasSigner();
+      const willBroadcast = !input.dryRun && signer.hasSigner(input.signerKey);
       const needsConfirm = willBroadcast && !input.confirm && (synthesized || isMainnet);
       if (needsConfirm) {
         const t = deployParams.tokenParams;
@@ -542,7 +545,7 @@ export function registerDaoCreateTools(
       // ---------- send or collect ----------
       let result;
       try {
-        result = await sendOrCollect(signer, [res.payload], { dryRun: input.dryRun, chainId, wc });
+        result = await sendOrCollect(signer, [res.payload], { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
       } catch (e) {
         return err(`Deploy broadcast failed: ${e instanceof Error ? e.message : String(e)}`);
       }

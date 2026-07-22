@@ -195,6 +195,29 @@ export const ENV_SPEC = {
     enablesFlows: ["broadcast"],
     secret: true,
   },
+  // Opt-in agent keyring for multi-persona/swarm flows — selected per call
+  // via `signerKey: "agent<n>"` on dexe_tx_send + the composites. Slots 1–16;
+  // declared individually so doctor validates/redacts each like any secret.
+  ...(Object.fromEntries(
+    Array.from({ length: 16 }, (_, i) => [
+      `DEXE_AGENT_PK_${i + 1}`,
+      {
+        schema: z.string().regex(hex64).optional(),
+        category: "signer",
+        required: false,
+        example: "0x<64-hex>",
+        doc: `Agent keyring slot ${i + 1} — extra hot EOA key, selected via signerKey "agent${i + 1}". Same RPC requirement and plaintext-on-disk caveats as DEXE_PRIVATE_KEY.`,
+        secret: true,
+      },
+    ]),
+  ) as Record<`DEXE_AGENT_PK_${number}`, EnvEntry>),
+  DEXE_AGENT_FUND_MAX_WEI: {
+    schema: z.string().regex(/^\d+$/).optional(),
+    category: "signer",
+    required: false,
+    example: "100000000000000000",
+    doc: "Per-agent cap (wei) for dexe_agents_fund transfers. Default 0.1 native when unset.",
+  },
   DEXE_SIGNER_ALLOWLIST: {
     schema: z.string().optional(),
     category: "signer",

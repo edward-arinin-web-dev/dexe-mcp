@@ -11,7 +11,7 @@ or any custom MCP client.
 ## What this is
 
 `dexe-mcp` is a Model Context Protocol server that operates **DeXe Protocol**
-DAOs end-to-end — **163 tools** across 19 groups
+DAOs end-to-end — **165 tools** across 19 groups
 (catalog: [`TOOLS.md`](./TOOLS.md)):
 
 - Deploy a DAO with one call (`dexe_dao_create`).
@@ -542,6 +542,6 @@ Changes require a Claude Code restart.
 | Decode / introspect | `dexe_decode_calldata`, `dexe_decode_proposal`, `dexe_find_selector` |
 | External Governor DAOs | `dexe_gov_*` (`governor` toolset) |
 
-For the full per-tool schema (**163 tools** across 19 groups) see
+For the full per-tool schema (**165 tools** across 19 groups) see
 [`TOOLS.md`](./TOOLS.md) — every input/output is a Zod schema exposed via MCP
 `tools/list`.

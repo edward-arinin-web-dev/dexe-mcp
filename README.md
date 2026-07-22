@@ -15,7 +15,7 @@
 
 An MCP (Model Context Protocol) server for [DeXe Protocol](https://dexe.io) governance on BNB Chain, with an additional generic surface for OpenZeppelin and Compound-Bravo Governor DAOs (Uniswap, Compound, Optimism).
 
-It exposes 163 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, IPFS metadata, transaction simulation, and diagnostics. Any MCP client can use it — Claude Code, Claude Desktop, Cursor, or a custom agent.
+It exposes 165 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, IPFS metadata, transaction simulation, and diagnostics. Any MCP client can use it — Claude Code, Claude Desktop, Cursor, or a custom agent.
 
 Writes are calldata-first: tools return a `{ to, data, value, chainId }` payload for your own wallet to sign. Broadcasting from the server is opt-in, either through WalletConnect (transactions are approved on your phone; no key on disk) or a private key you explicitly configure.
 
@@ -129,7 +129,7 @@ Verified, prompt-level scenarios live in **[docs/USE_CASES.md](https://github.co
 
 ## Tool catalog
 
-163 tools in 19 groups. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+165 tools in 19 groups. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
 A default session loads the `core,proposals` profile (~72 tools) to keep the MCP tool list small. Set `DEXE_TOOLSETS=full` for everything, or add profiles (`read`, `vote`, `governor`, `dev`) as needed — see [Toolset profiles](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md#toolset-profiles). Call `dexe_context` first in a session: it returns the signer, active chain, env readiness, and DAOs/proposals recorded in prior sessions.
 
@@ -145,7 +145,7 @@ A default session loads the `core,proposals` profile (~72 tools) to keep the MCP
 | Internal validator wrappers | 4 | Validator-chamber proposals: balances, settings, monthly withdraw, off-chain internal. |
 | Off-chain wrappers and auth | 8 | DeXe backend integration: SIWE login, off-chain proposal creation and voting. |
 | Vote, stake, delegate, execute, claim builders | 26 | Direct EOA writes on `GovPool` and `Validators`: deposit, vote, delegate, execute, claim, staking, token-sale buy/claim, multicall. |
-| Composite signing flows | 6 | `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`, `dexe_tx_status`, `dexe_get_config`, `dexe_context`. |
+| Composite signing flows | 8 | `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`, `dexe_tx_status`, `dexe_get_config`, `dexe_context`, plus the v0.28 agent keyring (`dexe_agents_list`, `dexe_agents_fund`). |
 | Merkle utility | 2 | `dexe_merkle_build` and `dexe_merkle_proof`, compatible with OZ `StandardMerkleTree`. |
 | OTC composites | 4 | Open a multi-tier sale, check buyer status, buy (native or with merkle proof), claim vested payouts. [docs/OTC.md](./docs/OTC.md) |
 | Safe multisig | 2 | Queue transactions in the Safe Transaction Service instead of broadcasting. [docs/SAFE.md](./docs/SAFE.md) |
@@ -181,7 +181,7 @@ No variable is required to start the server; tools that need a missing one fail 
 
 - [docs/USE_CASES.md](./docs/USE_CASES.md) — verified use-case catalog: what to say to your agent, what happens, on-chain evidence.
 - [docs/PLAYBOOK.md](./docs/PLAYBOOK.md) — the AI playbook: intent → exact call, per-type params, error → remedy. Also served as the MCP resource `dexe://playbook`.
-- [docs/TOOLS.md](./docs/TOOLS.md) — all 163 tools, grouped, with one-line descriptions and required env vars.
+- [docs/TOOLS.md](./docs/TOOLS.md) — all 165 tools, grouped, with one-line descriptions and required env vars.
 - [docs/USAGE.md](./docs/USAGE.md) — worked examples with copy-pasteable JSON.
 - [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) — full env-var reference and common pitfalls.
 - [docs/INSTALL.md](./docs/INSTALL.md) — install instructions per MCP client.

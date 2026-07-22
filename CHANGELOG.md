@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.28.0 — 2026-07-23
+
+The agent-keyring release (use-cases campaign Phase C): real multi-wallet
+support for swarm / multi-persona flows. Tool count 163 → **165**.
+
+### New: opt-in agent keyring (`DEXE_AGENT_PK_1..16` + `signerKey`)
+
+"Create 5 DAOs from 5 different wallets and have them vote from distinct
+personas" is now a first-class flow. Configure up to 16 extra hot keys; every
+broadcast surface takes an optional `signerKey` ('agent<n>' or the address) to
+pick which key signs: `dexe_tx_send`, `dexe_dao_create`,
+`dexe_proposal_create`, `dexe_proposal_vote_and_execute` (including the
+auto-driven validator round), and the OTC buyer composites
+(`dexe_otc_buyer_buy`, `dexe_otc_buyer_claim_all`). The primary
+`DEXE_PRIVATE_KEY` stays the default signer — agent keys are never used
+implicitly; unknown signerKeys are rejected with the configured roster.
+Broadcast nonce queues are per (chain, signer), so distinct agents broadcast
+concurrently without the H-12 nonce race. WalletConnect mode rejects
+`signerKey` explicitly (the phone owns the only key).
+
+### New tools
+
+- `dexe_agents_list` — the keyring roster: signerKey, address, native balance,
+  optional ERC20 balance. Addresses only; keys never leave the server.
+- `dexe_agents_fund` — top up keyring wallets from the PRIMARY signer (native
+  or ERC20), with the dev fund-pool safety posture built in: recipients can
+  ONLY be keyring addresses, per-agent amounts capped by
+  `DEXE_AGENT_FUND_MAX_WEI` (default 0.1 native), top-up semantics (only the
+  shortfall is sent), partial-failure ledger with safe re-run.
+
+Both live in the `vote` toolset (not the slim default) — enable with
+`DEXE_TOOLSETS=core,proposals,vote` or `full`.
+
+### Env
+
+- `DEXE_AGENT_PK_1..16` — hex64, schema-validated, doctor-redacted secrets.
+- `DEXE_AGENT_FUND_MAX_WEI` — funding cap override.
+
 ## 0.27.0 — 2026-07-23
 
 The analytics release from the use-cases campaign: free-form subgraph access,

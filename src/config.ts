@@ -104,6 +104,13 @@ export interface DexeConfig {
   forkBlock?: number;
   /** Private key for tx signing. When set, `dexe_tx_send` can broadcast. */
   privateKey?: string;
+  /**
+   * Opt-in agent keyring (swarm / multi-persona flows): `DEXE_AGENT_PK_1..16`
+   * → { agent1: "0x…", … }. Selected per call via the `signerKey` param on
+   * `dexe_tx_send` and the composite flows. The primary `DEXE_PRIVATE_KEY`
+   * stays the default signer; agent keys are never used implicitly.
+   */
+  agentKeys: Record<string, string>;
 
   /**
    * Minimum safe quorum percent (0–100). A DAO whose quorum setting is below
@@ -375,6 +382,28 @@ export async function loadConfig(): Promise<DexeConfig> {
     );
   }
 
+  // ---- opt-in agent keyring (DEXE_AGENT_PK_1..16) -------------------------
+  // Multi-persona/swarm flows: each key becomes signerKey "agent<n>" on
+  // dexe_tx_send + the composites. Requires the primary signer path's RPC
+  // preconditions; keys are hex64-validated by the env schema walk above.
+  const agentKeys: Record<string, string> = {};
+  for (let n = 1; n <= 16; n++) {
+    const v = process.env[`DEXE_AGENT_PK_${n}`]?.trim();
+    if (v) agentKeys[`agent${n}`] = v;
+  }
+  if (Object.keys(agentKeys).length > 0) {
+    if (chains.size === 0) {
+      fatal("DEXE_AGENT_PK_* requires an RPC endpoint (same requirement as DEXE_PRIVATE_KEY).");
+    }
+    const { Wallet } = await import("ethers");
+    const names = Object.keys(agentKeys);
+    process.stderr.write(
+      `[dexe-mcp] agent keyring: ${names.length} key(s) — ${names
+        .map((k) => `${k}=${new Wallet(agentKeys[k]!).address.slice(0, 10)}…`)
+        .join(", ")} (select via signerKey)\n`,
+    );
+  }
+
   // ---- signer broadcast guard B6 (destination allowlist) -----------------
   // Opt-in; only meaningful in signer mode. Parses to undefined when unset,
   // leaving the default posture unchanged.
@@ -512,6 +541,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     backendApiUrl,
     forkBlock,
     privateKey,
+    agentKeys,
     minSafeQuorumPct,
     treasuryGuard,
     controllingTopN,

@@ -3,7 +3,7 @@
 Short, verified scenarios that show what an AI agent wired to dexe-mcp can do for you.
 Each case: what you say → what happens → which tools fire. ✅ = verified live (date,
 chain, evidence). For exact call recipes see [PLAYBOOK.md](PLAYBOOK.md); for worked
-JSON examples see [USAGE.md](USAGE.md); for the full 163-tool catalog see [TOOLS.md](TOOLS.md).
+JSON examples see [USAGE.md](USAGE.md); for the full 165-tool catalog see [TOOLS.md](TOOLS.md).
 
 Reads need ZERO configuration. Writes need a signer (WalletConnect or a hot key —
 see [SETUP.md](SETUP.md)). Amounts accept raw wei or human units ("12.5").
@@ -212,20 +212,31 @@ lowering quorum into drain territory requires `confirmRisky`). Recipes: PLAYBOOK
 
 ---
 
-## F. Agent swarm / bot factory (roadmap → 0.28)
+## F. Agent swarm / bot factory (v0.28)
 
-Target UX:
-> "Create 5 DAOs from 5 different wallets, have them delegate to each other, vote from distinct personas, and report the activity."
+### 29. Multi-persona DAO activity from one MCP
+> "Create 3 DAOs from 3 different wallets, have them vote from distinct personas, and report the activity."
 
-Today the MCP server is **single-signer** (`DEXE_PRIVATE_KEY` or one WalletConnect
-session): a multi-wallet swarm needs one MCP instance per key, or the dev-side
-orchestrator in `scripts/swarm/` (which drives the real composites over stdio with
-per-agent wallets — see [../tests/swarm/README.md](../tests/swarm/README.md)).
+The opt-in **agent keyring**: set `DEXE_AGENT_PK_1..16` in `.env` (one throwaway
+hot key per persona), then every broadcast surface takes `signerKey: "agent<n>"` —
+`dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`,
+`dexe_proposal_vote_and_execute`, and the OTC buyer composites. Ops tools:
+`dexe_agents_list` (roster + balances) and `dexe_agents_fund` (gas top-ups from
+the primary signer — recipients hard-restricted to keyring addresses, per-agent
+cap `DEXE_AGENT_FUND_MAX_WEI`). Per-signer nonce queues let agents broadcast
+concurrently. Enable the `vote` toolset to see the agents tools.
 
-Shipping in 0.28: an opt-in keyring (`DEXE_AGENT_PK_1..N`) with a per-call
-`signerKey` selector on `dexe_tx_send` and the composites, plus `dexe_agents_list`
-/ guarded `dexe_agents_fund` — then the prompt above becomes a plain Claude
-subagent fan-out.
+Recipe: Claude subagents (the Agent tool) as personas — each subagent gets its
+`signerKey` in the prompt and drives its own deposits/votes/delegations; the
+main session plays orchestrator with `dexe_agents_list` + the read tools as the
+scoreboard. ⚠ Hot keys in plaintext — throwaway wallets only, testnet-first.
+
+### 30. Distributed voting with independent stances
+> "agent1 votes FOR with 100k, agent2 votes AGAINST with 50k, I abstain — then show the tally."
+
+Same keyring, one proposal: `dexe_proposal_vote_and_execute` per agent with
+`isVoteFor` per persona, then `dexe_proposal_voters` / `dexe_vote_get_votes` as
+the read-back.
 
 ---
 
