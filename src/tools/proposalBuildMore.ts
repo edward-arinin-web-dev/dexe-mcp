@@ -97,8 +97,10 @@ function wrapperResult(params: {
   actions: Action[];
   title: string;
   detail: string;
+  /** Governance-safety advisories — mirrored into structuredContent so clients that only render the structured payload still see them. */
+  advisories?: string[];
 }) {
-  const { metadata, actions, title, detail } = params;
+  const { metadata, actions, title, detail, advisories } = params;
   return {
     content: [
       {
@@ -109,7 +111,11 @@ function wrapperResult(params: {
           `2) dexe_proposal_build_external with descriptionURL=<CID>, actionsOnFor=actions (${actions.length} action${actions.length === 1 ? "" : "s"})`,
       },
     ],
-    structuredContent: { metadata, actions },
+    structuredContent: {
+      metadata,
+      actions,
+      ...(advisories?.length ? { governanceAdvisories: advisories } : {}),
+    },
   };
 }
 
@@ -123,6 +129,7 @@ function payloadOutputSchema() {
         data: z.string(),
       }),
     ),
+    governanceAdvisories: z.array(z.string()).optional(),
   };
 }
 
@@ -199,6 +206,13 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
         const advisories = settings.flatMap((s, i) =>
           settingsAdvisories(s, ctx.config.minSafeQuorumPct).map((a) => `⚠ settings[${i}]: ${a}`),
         );
+        if (settingsIds.length > 0 && settings.some((s) => !s.executorDescription)) {
+          advisories.push(
+            "⚠ editSettings replaces the whole struct: an empty executorDescription clears the settings-JSON IPFS ref " +
+              "the frontend UI reads (comment/discussion thresholds). Read the current value first (dexe_read_settings) " +
+              "and pass it through, or use dexe_proposal_create (proposalType change_voting_settings) which preserves it automatically.",
+          );
+        }
         return wrapperResult({
           metadata,
           actions: [action],
@@ -208,6 +222,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
             (advisories.length > 0
               ? `\n\nGovernance-safety advisories:\n${advisories.join("\n")}`
               : ""),
+          advisories,
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));

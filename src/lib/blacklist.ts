@@ -2,9 +2,16 @@ import { Contract, JsonRpcProvider } from "ethers";
 import { RpcProvider } from "../rpc.js";
 import type { DexeConfig } from "../config.js";
 
+// F20b: ERC20Gov has NO isBlacklisted(address) — the real interface is the
+// enumerable pair below (see DeXe-Protocol contracts/gov/ERC20/ERC20Gov.sol).
+// The old single-call probe reverted on every real token, so the guard
+// silently degraded to `skipped` since inception.
 const ERC20_GOV_BLACKLIST_ABI = [
-  "function isBlacklisted(address account) view returns (bool)",
+  "function totalBlacklistAccounts() view returns (uint256)",
+  "function getBlacklistAccounts(uint256 offset, uint256 limit) view returns (address[])",
 ] as const;
+
+const BLACKLIST_PAGE = 100n;
 
 export type BlacklistCheck =
   | { status: "blacklisted"; token: string; account: string }
@@ -21,28 +28,47 @@ export async function checkBlacklist(
   config: DexeConfig,
   token: string,
   account: string,
+  /**
+   * Chain the transaction will broadcast on. REQUIRED for correctness on
+   * non-default chains: without it the probe hits the default chain, where the
+   * token usually has no code, and the guard silently degrades to `skipped`
+   * (F20). Omit only in chain-less standalone build tools.
+   */
+  chainId?: number,
 ): Promise<BlacklistCheck> {
   if (!config.rpcUrl) {
     return { status: "skipped", reason: "DEXE_RPC_URL not set — skipping blacklist precheck" };
   }
   let provider: JsonRpcProvider;
   try {
-    provider = new RpcProvider(config).requireProvider();
+    if (chainId !== undefined) {
+      const pr = new RpcProvider(config).tryProvider(chainId);
+      if ("error" in pr) return { status: "skipped", reason: `${pr.error} ${pr.remediation}` };
+      provider = pr.ok;
+    } else {
+      provider = new RpcProvider(config).requireProvider();
+    }
   } catch (err) {
     return { status: "skipped", reason: err instanceof Error ? err.message : String(err) };
   }
   try {
     const contract = new Contract(token, ERC20_GOV_BLACKLIST_ABI as unknown as string[], provider) as unknown as {
-      isBlacklisted: (account: string) => Promise<boolean>;
+      totalBlacklistAccounts: () => Promise<bigint>;
+      getBlacklistAccounts: (offset: bigint, limit: bigint) => Promise<string[]>;
     };
-    const flag = await contract.isBlacklisted(account);
-    return flag
-      ? { status: "blacklisted", token, account }
-      : { status: "clean", token, account };
+    const total = await contract.totalBlacklistAccounts();
+    const needle = account.toLowerCase();
+    for (let offset = 0n; offset < total; offset += BLACKLIST_PAGE) {
+      const page = await contract.getBlacklistAccounts(offset, BLACKLIST_PAGE);
+      if (page.some((a) => a.toLowerCase() === needle)) {
+        return { status: "blacklisted", token, account };
+      }
+    }
+    return { status: "clean", token, account };
   } catch (err) {
     return {
       status: "skipped",
-      reason: `isBlacklisted() unavailable on ${token} (${err instanceof Error ? err.message : String(err)})`,
+      reason: `blacklist getters unavailable on ${token} — not an ERC20Gov? (${err instanceof Error ? err.message : String(err)})`,
     };
   }
 }

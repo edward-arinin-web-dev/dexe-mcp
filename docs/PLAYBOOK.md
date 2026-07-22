@@ -55,7 +55,7 @@ Pass type-specific inputs in `params`. Wired types (all 33 catalog entries):
 - `token_distribution` `{distributionProposal, proposalId, token, amount, isNative?}` — pro-rata airdrop to voters. `distributionProposal` comes from `dexe_dao_predict_addresses`; `proposalId` is SELF-REFERENCING = the id this proposal will get (latest + 1). ⚠ Distribution proposals ignore `earlyCompletion` — voting always runs the FULL duration (pro-rata shares depend on final totals), so `moveProposalToValidators`/execute only work after `voteEnd`.
 
 **Governance config**
-- `change_voting_settings` `{govSettings, settings:[fullSettingsStruct], settingsIds?}` — edit (with ids: 0 = default, 1 = internal) or add. ⚠ On fresh (SphereX-guarded) pools, executing an ADD (`addSettings`, no ids) reverts "SphereX error: disallowed tx pattern" — pass `settingsIds` to EDIT instead; `new_proposal_type`/`enable_staking` hit the same wall. ⚠ A fresh `dexe_dao_create` deploy auto-expands FIVE settings ids (0 default, 1 internal, 2 validators, 3 distribution, 4 tokenSale) — a rewards/settings change must cover EVERY id whose executor you care about, or proposals routed via the untouched executors keep the old values.
+- `change_voting_settings` `{govSettings, settings:[fullSettingsStruct], settingsIds?}` — edit (with ids: 0 = default, 1 = internal) or add. ⚠ **Quorum-safety gate**: if a settings/new-type build lowers quorum below the safe floor (`DEXE_MIN_SAFE_QUORUM_PCT`, default 50%) into treasury-drain territory, `dexe_proposal_create` REFUSES before any tx and returns `mode:"blocked-risky"`; re-run the SAME call with `confirmRisky:true` if intentional. ⚠ Editing with `settingsIds` preserves each entry's on-chain `executorDescription` when you leave it blank (don't re-pass it) — it holds the settings-JSON IPFS ref the frontend UI reads. ⚠ On fresh (SphereX-guarded) pools, executing an ADD (`addSettings`, no ids) reverts "SphereX error: disallowed tx pattern" — pass `settingsIds` to EDIT instead; `new_proposal_type`/`enable_staking` hit the same wall. ⚠ A fresh `dexe_dao_create` deploy auto-expands FIVE settings ids (0 default, 1 internal, 2 validators, 3 distribution, 4 tokenSale) — a rewards/settings change must cover EVERY id whose executor you care about, or proposals routed via the untouched executors keep the old values.
 - `new_proposal_type` / `enable_staking` `{govSettings, settings, executors, newSettingId}` — newSettingId = current settings length (`dexe_read_settings`).
 - `change_math_model` `{newVotePower}` — swap LINEAR/POLYNOMIAL/custom power contract.
 - `manage_validators` / `validators_allocation` `{govValidators, changes:[{user, balance}]}` — balance 0 removes.
@@ -90,10 +90,13 @@ Only a CURRENT validator can create these; validators vote with their own balanc
 ⚠ SphereX on fresh pools: validator `cancelVote{Internal,External}Proposal` is blocked in every shape (GovValidators has no multicall) — a cast validator vote cannot be cancelled; top-up re-votes ARE allowed. `executeInternalProposal` for monthly_withdraw has also been seen failing "Validators: failed to execute" on fresh pools even in Succeeded state — likely the same guard on the inner call.
 
 **Off-chain (backend — rejected with instructions)**
-`offchain_single_option` / `offchain_multi_option` / `offchain_for_against` live on
-api.dexe.io, not on-chain: build with `dexe_proposal_build_offchain_*`, authenticate
-via `dexe_auth_request_nonce` → wallet-sign → `dexe_auth_login_request`, then send the
-returned HTTP request with the Bearer token. Mainnet DAOs only.
+`offchain_single_option` / `offchain_multi_option` live on api.dexe.io, not on-chain:
+build with `dexe_proposal_build_offchain_*`, authenticate via `dexe_auth_request_nonce`
+→ wallet-sign → `dexe_auth_login_request`, then send the returned HTTP request with the
+Bearer token. Mainnet DAOs only. ⚠ Only **two** off-chain voting types are creatable
+(single-option and multi-option) — the DeXe product has no for_against creation path, so
+`offchain_for_against` (`dexe_proposal_build_offchain_for_against`) returns a not-supported
+error; for a binary vote use `offchain_single_option` with `voteOptions:["For","Against"]`.
 
 ## Error → remedy
 

@@ -18,6 +18,8 @@ import { z } from "zod";
 import { Interface, isAddress, getAddress, ZeroAddress } from "ethers";
 import type { ToolContext } from "../tools/context.js";
 import { checkBlacklist, blacklistError } from "./blacklist.js";
+import { settingsAdvisories } from "./protocolAdvisories.js";
+import { quorumPctFromRaw, judgeQuorum } from "./quorumRisk.js";
 import { findForbiddenSelector, dangerousSelectorError } from "./dangerousSelectors.js";
 import {
   ProposalSettingsSchema,
@@ -87,6 +89,7 @@ const ERC721_TRANSFER_ABI = new Interface([
 const GOV_SETTINGS_ABI = new Interface([
   "function editSettings(uint256[] ids, tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)[] params)",
   "function addSettings(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)[] settings)",
+  "function settings(uint256) view returns (bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)",
 ]);
 const EXPERT_NFT_ABI = new Interface([
   "function mint(address to, string uri)",
@@ -107,6 +110,34 @@ export interface BuiltProposalActions {
   metadataExtra: Record<string, unknown>;
   /** Short human summary for the flow step label. */
   summary: string;
+  /** Governance-safety advisories for the proposed config (never empty when present). */
+  advisories?: string[];
+  /**
+   * Worst risk across `advisories`. DANGER makes `dexe_proposal_create` refuse
+   * to broadcast until the caller re-runs with `confirmRisky: true`.
+   */
+  risk?: "DANGER" | "CAUTION";
+}
+
+/**
+ * Shared advisory pass for builders that carry GovSettings entries
+ * (change_voting_settings, new_proposal_type/enable_staking). Quorum below the
+ * DANGER threshold (0.8 × floor) is the treasury-drain scenario: whoever buys
+ * that share of supply can pass and execute treasury-moving proposals alone.
+ */
+function settingsRisk(
+  entries: { quorum?: string; validatorsVote: boolean; durationValidators: string; executionDelay: string; quorumValidators: string }[],
+  floorPct: number,
+): { advisories?: string[]; risk?: "DANGER" | "CAUTION" } {
+  const advisories = entries.flatMap((s, i) =>
+    settingsAdvisories(s, floorPct).map((a) => (entries.length > 1 ? `settings[${i}]: ${a}` : a)),
+  );
+  if (advisories.length === 0) return {};
+  const worst = entries.reduce<"DANGER" | "CAUTION">((acc, s) => {
+    if (acc === "DANGER" || s.quorum === undefined) return acc;
+    return judgeQuorum(quorumPctFromRaw(s.quorum), floorPct) === "DANGER" ? "DANGER" : acc;
+  }, "CAUTION");
+  return { advisories, risk: worst };
 }
 
 export interface BuilderDeps {
@@ -150,7 +181,7 @@ const tokenTransferBuilder: CatalogBuilder = {
       };
     }
     if (!isAddress(p.token)) throw new Error(`Invalid token: ${p.token}`);
-    const bl = await checkBlacklist(ctx.config, p.token, p.recipient);
+    const bl = await checkBlacklist(ctx.config, p.token, p.recipient, deps.chainId);
     if (bl.status === "blacklisted") throw new Error(blacklistError(p.token, p.recipient));
     const amount = await resolveTokenAmount(p.amount, p.token, deps);
     const data = ERC20_TRANSFER_ABI.encodeFunctionData("transfer", [p.recipient, amount]);
@@ -192,7 +223,7 @@ const withdrawTreasuryBuilder: CatalogBuilder = {
     // as a plain holding, so each withdrawal is an external ERC20/721 call.
     const actionsOnFor: { executor: string; value?: string; data: string }[] = [];
     if (wantToken) {
-      const bl = await checkBlacklist(ctx.config, p.token, p.receiver);
+      const bl = await checkBlacklist(ctx.config, p.token, p.receiver, deps.chainId);
       if (bl.status === "blacklisted") throw new Error(blacklistError(p.token, p.receiver));
       actionsOnFor.push({
         executor: p.token,
@@ -230,11 +261,42 @@ const changeVotingSettingsBuilder: CatalogBuilder = {
     settings: z.array(ProposalSettingsSchema).min(1),
     settingsIds: z.array(z.string()).default([]).describe("Ids to edit (parallel to settings). Empty => addSettings"),
   }),
-  async build(raw) {
+  async build(raw, deps) {
     const p = raw as { govSettings: string; settings: z.infer<typeof ProposalSettingsSchema>[]; settingsIds: string[] };
     if (!isAddress(p.govSettings)) throw new Error(`Invalid govSettings: ${p.govSettings}`);
     if (p.settingsIds.length > 0 && p.settingsIds.length !== p.settings.length) {
       throw new Error("settingsIds length must match settings length when editing");
+    }
+    // editSettings replaces the WHOLE struct on-chain, so an empty
+    // executorDescription silently wipes the settings-JSON IPFS ref the
+    // frontend reads (comment/discussion thresholds etc.). Preserve the
+    // current on-chain value for any entry the caller left blank.
+    const preserveNotes: string[] = [];
+    if (p.settingsIds.length > 0 && p.settings.some((s) => !s.executorDescription)) {
+      const pr = new RpcProvider(deps.ctx.config).tryProvider(deps.chainId);
+      if ("error" in pr) {
+        preserveNotes.push(
+          "Could not preserve existing executorDescription refs (no RPC for this chain) — blank entries will clear the settings JSON the frontend UI reads.",
+        );
+      } else {
+        const reads = await multicall(
+          pr.ok,
+          p.settingsIds.map((id) => ({
+            target: p.govSettings,
+            iface: GOV_SETTINGS_ABI,
+            method: "settings",
+            args: [BigInt(id)],
+            allowFailure: true,
+          })),
+        );
+        p.settings.forEach((s, i) => {
+          const r = reads[i];
+          if (!s.executorDescription && r?.success) {
+            const current = (r.value as unknown[])[11] as string;
+            if (current) s.executorDescription = current;
+          }
+        });
+      }
     }
     const tuples = p.settings.map(toSettingsTuple);
     const method = p.settingsIds.length > 0 ? "editSettings" : "addSettings";
@@ -242,11 +304,14 @@ const changeVotingSettingsBuilder: CatalogBuilder = {
       method === "editSettings"
         ? GOV_SETTINGS_ABI.encodeFunctionData(method, [p.settingsIds.map((n) => BigInt(n)), tuples])
         : GOV_SETTINGS_ABI.encodeFunctionData(method, [tuples]);
+    const risk = settingsRisk(p.settings, deps.ctx.config.minSafeQuorumPct);
+    const advisories = [...(risk.advisories ?? []), ...preserveNotes];
     return {
       actionsOnFor: [{ executor: p.govSettings, value: "0", data }],
       category: "changeSettings",
       metadataExtra: changes({ mode: method, settingsIds: p.settingsIds, settings: p.settings }),
       summary: `Change voting settings (${method}, ${p.settings.length} entries)`,
+      ...(advisories.length ? { advisories, risk: risk.risk ?? "CAUTION" } : {}),
     };
   },
 };
@@ -390,7 +455,7 @@ const manageValidatorsBuilder: CatalogBuilder = {
     govValidators: z.string().describe("GovValidators address (dexe_dao_info.helpers.validators)"),
     changes: z.array(z.object({ user: z.string(), balance: z.string().describe("Wei; 0 to remove") })).min(1),
   }),
-  async build(raw) {
+  async build(raw, deps) {
     const p = raw as { govValidators: string; changes: { user: string; balance: string }[] };
     if (!isAddress(p.govValidators)) throw new Error(`Invalid govValidators: ${p.govValidators}`);
     for (const c of p.changes) {
@@ -401,14 +466,96 @@ const manageValidatorsBuilder: CatalogBuilder = {
       p.changes.map((c) => BigInt(c.balance)),
       p.changes.map((c) => c.user),
     ]);
+    // Self-stall advisory: a balance change that leaves every single validator
+    // below the validator quorum means no one validator can complete a round
+    // alone — if the others are inactive (or keys are lost) the DAO's validator
+    // stage stalls for EVERY future proposal. Warn before it lands on-chain.
+    const advisories = await validatorQuorumReachability(p, deps).catch(() => undefined);
     return {
       actionsOnFor: [{ executor: p.govValidators, value: "0", data }],
       category: "changeValidators",
       metadataExtra: changes({ validators: p.changes }),
       summary: `Manage validators (${p.changes.length} changes)`,
+      ...(advisories?.length ? { advisories, risk: "CAUTION" as const } : {}),
     };
   },
 };
+
+/**
+ * Computes post-change validator-token distribution and warns when the largest
+ * remaining validator falls below the external validator quorum
+ * (default-settings quorumValidators vs new total supply). Best-effort: RPC
+ * problems return no advisory rather than failing the build.
+ */
+async function validatorQuorumReachability(
+  p: { govValidators: string; changes: { user: string; balance: string }[] },
+  deps: BuilderDeps,
+): Promise<string[] | undefined> {
+  const pr = new RpcProvider(deps.ctx.config).tryProvider(deps.chainId);
+  if ("error" in pr) return undefined;
+  const provider = pr.ok;
+  const validatorsIface = new Interface([
+    "function govValidatorsToken() view returns (address)",
+  ]);
+  const govPoolIface = new Interface([
+    "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+  ]);
+  const [tokenRes, helpersRes] = await multicall(provider, [
+    { target: p.govValidators, iface: validatorsIface, method: "govValidatorsToken", args: [], allowFailure: true },
+    { target: deps.govPool, iface: govPoolIface, method: "getHelperContracts", args: [], allowFailure: true },
+  ]);
+  if (!tokenRes?.success || !helpersRes?.success) return undefined;
+  const tokenAddr = tokenRes.value as string;
+  const settingsAddr = (helpersRes.value as unknown[])[0] as string;
+  const erc20Iface = new Interface([
+    "function totalSupply() view returns (uint256)",
+    "function balanceOf(address) view returns (uint256)",
+  ]);
+  const settingsIface = new Interface([
+    "function getDefaultSettings() view returns (tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription))",
+  ]);
+  const reads = await multicall(provider, [
+    { target: tokenAddr, iface: erc20Iface, method: "totalSupply", args: [], allowFailure: true },
+    { target: settingsAddr, iface: settingsIface, method: "getDefaultSettings", args: [], allowFailure: true },
+    ...p.changes.map((c) => ({
+      target: tokenAddr,
+      iface: erc20Iface,
+      method: "balanceOf",
+      args: [c.user] as unknown[],
+      allowFailure: true,
+    })),
+  ]);
+  const [supplyRes, defRes, ...balanceReads] = reads;
+  if (!supplyRes?.success || !defRes?.success) return undefined;
+  let newTotal = supplyRes.value as bigint;
+  let largestChanged = 0n;
+  for (let i = 0; i < p.changes.length; i++) {
+    const cur = balanceReads[i]?.success ? (balanceReads[i]!.value as bigint) : 0n;
+    const next = BigInt(p.changes[i]!.balance);
+    newTotal = newTotal - cur + next;
+    if (next > largestChanged) largestChanged = next;
+  }
+  if (newTotal === 0n) {
+    return ["All validator balances end at 0 — the validator stage can never reach quorum again."];
+  }
+  // quorumValidators is a 25-decimal percentage (100% = 1e27).
+  const quorumPct = (defRes.value as unknown[])[7] as bigint;
+  const needed = (newTotal * quorumPct + (10n ** 27n - 1n)) / 10n ** 27n;
+  // Unchanged validators' balances aren't enumerable cheaply; compare against the
+  // largest balance we know of (changed entries). If even the untouched largest
+  // could exceed it we still warn only when NO changed validator reaches quorum
+  // alone AND the changed set includes a total increase (dilution risk).
+  if (largestChanged < needed) {
+    return [
+      `After this change the external validator quorum needs ${needed} of ${newTotal} validator-token wei, ` +
+        `and the largest CHANGED validator holds only ${largestChanged}. If no untouched validator meets the bar alone, ` +
+        `passing any validator round will require multiple active validators — inactive or lost-key seats can stall ` +
+        `the DAO's validator stage for every future proposal. Verify enough active validators jointly exceed the quorum ` +
+        `before executing. [governance-safety advisory]`,
+    ];
+  }
+  return undefined;
+}
 
 const delegateToExpertBuilder: CatalogBuilder = {
   schema: z.object({
@@ -749,7 +896,7 @@ const applyToDaoBuilder: CatalogBuilder = {
     const p = raw as { token: string; receiver: string; amount: string; treasuryBalance?: string };
     if (!isAddress(p.token)) throw new Error(`Invalid token: ${p.token}`);
     if (!isAddress(p.receiver)) throw new Error(`Invalid receiver: ${p.receiver}`);
-    const bl = await checkBlacklist(ctx.config, p.token, p.receiver);
+    const bl = await checkBlacklist(ctx.config, p.token, p.receiver, deps.chainId);
     if (bl.status === "blacklisted") throw new Error(blacklistError(p.token, p.receiver));
     const iface = new Interface(ERC20_GOV_FULL_ABI as unknown as string[]);
     const actionsOnFor: { executor: string; value?: string; data: string }[] = [];
@@ -817,7 +964,7 @@ const newProposalTypeBuilder: CatalogBuilder = {
     executors: z.array(z.string()).min(1),
     newSettingId: z.string().describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings)"),
   }),
-  async build(raw) {
+  async build(raw, deps) {
     const p = raw as {
       govSettings: string; settings: z.infer<typeof ProposalSettingsSchema>;
       executors: string[]; newSettingId: string;
@@ -840,6 +987,7 @@ const newProposalTypeBuilder: CatalogBuilder = {
       category: "createProposalType",
       metadataExtra: changes({ settings: p.settings, executors: p.executors, newSettingId: p.newSettingId }),
       summary: `New proposal type (settingsId=${p.newSettingId}, ${p.executors.length} executors)`,
+      ...settingsRisk([p.settings], deps.ctx.config.minSafeQuorumPct),
     };
   },
 };

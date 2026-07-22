@@ -216,7 +216,7 @@ Source: `src/tools/proposalBuildOffchain.ts`. All return ready HTTP request obje
 | `dexe_auth_login_request` | Step 2/2: `POST /integrations/nonce-auth-svc/login` — exchange signed nonce for `{access_token, refresh_token}`. | `DEXE_BACKEND_API_URL` |
 | `dexe_proposal_build_offchain_single_option` | `POST /integrations/voting/proposals` with `voting_type='one_of'`. Pick exactly one of N. | `DEXE_BACKEND_API_URL` |
 | `dexe_proposal_build_offchain_multi_option` | Same endpoint, `voting_type='multiple_of'`. Pick any subset. | `DEXE_BACKEND_API_URL` |
-| `dexe_proposal_build_offchain_for_against` | Same endpoint, `voting_type='for_against'`. Binary, default labels For/Against. | `DEXE_BACKEND_API_URL` |
+| `dexe_proposal_build_offchain_for_against` | **Not creatable** — the DeXe backend supports only single-option and multi-option off-chain voting; returns a not-supported error pointing to `offchain_single_option` with `["For","Against"]`. | `DEXE_BACKEND_API_URL` |
 | `dexe_proposal_build_offchain_settings` | `attributes.type='edit_proposal_type'` (DAO-wide settings) or `'create_proposal_type'` (reusable template). | `DEXE_BACKEND_API_URL` |
 | `dexe_offchain_build_vote` | `POST /integrations/voting/vote`. `options` is array of selected option strings. | `DEXE_BACKEND_API_URL` |
 | `dexe_offchain_build_cancel_vote` | `DELETE /integrations/voting/vote/{proposalId}/{voterAddress}`. No body. | `DEXE_BACKEND_API_URL` |

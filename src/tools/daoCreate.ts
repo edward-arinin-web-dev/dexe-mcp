@@ -241,6 +241,10 @@ export function registerDaoCreateTools(
       daoDescription: z.string().default("").describe("DAO description (markdown; uploaded to IPFS as slate)"),
       websiteUrl: z.string().default(""),
       socialLinks: z.array(z.tuple([z.string(), z.string()])).default([]).describe("[[network, url], ...]"),
+      documents: z
+        .array(z.object({ name: z.string(), url: z.string() }))
+        .default([])
+        .describe('External documents shown on the DAO profile, e.g. [{ name: "Whitepaper", url: "https://..." }]'),
       avatarCID: z.string().default("").describe("IPFS CID of an already-pinned JPEG avatar (dexe_ipfs_upload_avatar)"),
       avatarFileName: z.string().default("avatar.jpeg"),
       avatarPath: z.string().default("").describe(
@@ -460,7 +464,7 @@ export function registerDaoCreateTools(
         websiteUrl: input.websiteUrl,
         description: descriptionRef,
         socialLinks: input.socialLinks,
-        documents: [],
+        documents: input.documents,
       };
       if (input.avatarPath && input.avatarCID) {
         return err("Pass either `avatarCID` or `avatarPath`, not both.");
