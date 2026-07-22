@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **161** across **19** groups. Call **`dexe_context`** first each session — it returns the signer, active chain, env readiness, and the DAOs/proposals recorded in prior sessions.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **163** across **19** groups. Call **`dexe_context`** first each session — it returns the signer, active chain, env readiness, and the DAOs/proposals recorded in prior sessions.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Four composite tools (`dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -8,7 +8,7 @@ Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_propo
 
 ## Toolset profiles
 
-Registering all 161 tools costs ~206 KB of `tools/list` per session. **`DEXE_TOOLSETS`** (comma list) gates which profiles load. **The default changed to `core,proposals` in v0.13.0** (breaking) — a slim surface instead of everything.
+Registering all 163 tools costs ~206 KB of `tools/list` per session. **`DEXE_TOOLSETS`** (comma list) gates which profiles load. **The default changed to `core,proposals` in v0.13.0** (breaking) — a slim surface instead of everything.
 
 | Profile | Tools | What it covers |
 |---------|------:|----------------|
@@ -18,11 +18,11 @@ Registering all 161 tools costs ~206 KB of `tools/list` per session. **`DEXE_TOO
 | `vote` | 28 | Every direct `dexe_vote_build_*` builder (delegate, staking, NFT multiplier, claims, privacy policy, …) + `dexe_vote_get_votes`. |
 | `governor` | 18 | The external `dexe_gov_*` OpenZeppelin/Bravo Governor surface. |
 | `dev` | 23 | `dexe_compile/test/coverage/lint`, introspection (`dexe_get_*`, `dexe_list_*`, `dexe_find_selector`), `dexe_decode_*`, `dexe_read_gov_state`, simulator, merkle, Safe, and the low-level `dexe_dao_build_deploy`. |
-| `full` | 161 | Everything (pre-v0.13.0 behavior). |
+| `full` | 163 | Everything (pre-v0.13.0 behavior). |
 
-Sets union; a typo/unknown name → falls back to `full` (never silently strips). The union of the six named sets equals all 161 tools, so every tool is reachable under some profile.
+Sets union; a typo/unknown name → falls back to `full` (never silently strips). The union of the six named sets equals all 163 tools, so every tool is reachable under some profile.
 
-Measured `tools/list` sizes: **full ~207 KB (161 tools)** · **default `core,proposals` ~113 KB (74 tools, −46%)** · **`core` alone ~49 KB (35 tools, −76%)**. Set `DEXE_TOOLSETS=core` for the deepest cut (the composites cover the common proposal types), or `DEXE_TOOLSETS=full` to restore everything. `dexe_doctor` reports the active profile.
+Measured `tools/list` sizes: **full ~207 KB (163 tools)** · **default `core,proposals` ~113 KB (74 tools, −46%)** · **`core` alone ~49 KB (35 tools, −76%)**. Set `DEXE_TOOLSETS=core` for the deepest cut (the composites cover the common proposal types), or `DEXE_TOOLSETS=full` to restore everything. `dexe_doctor` reports the active profile.
 
 ## Table of contents
 
@@ -101,7 +101,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_read_multicall` | Arbitrary batched view-calls via Multicall3. Each call supplies its own ABI fragment. | `DEXE_RPC_URL` |
 | `dexe_read_treasury` | Wallet/DAO balances. Backend-first (auto-discovers every token + USD prices + total via `api-proxy-cache/<chain>/wallet-balances`, same source as app.dexe.io); RPC multicall fallback on testnet 97, explicit `tokens`, or unset backend. | `DEXE_BACKEND_API_URL` (backend) · `DEXE_RPC_URL` (fallback) |
 | `dexe_read_token_holders` | Holders + raw balances of any ERC20 via `token-holders-balances/<token>`, sorted desc. Backend-only (mainnets). | `DEXE_BACKEND_API_URL` |
-| `dexe_read_dao_stats` | DAO TVL + member/proposal/delegation time series via `tracker/<chain>/pools/gov/<dao>/stats/<period>`. `period` is a human duration ('24 hours', '7 days', '1 months'). Backend-only. | `DEXE_BACKEND_API_URL` |
+| `dexe_read_dao_stats` | DAO TVL + member/proposal/delegation time series via `tracker/<chain>/pools/gov/<dao>/stats/<period>`. `period` is a human duration ('24 hours', '7 days', '1 months'); long series are evenly downsampled to `maxPoints` (default 30). Backend-only. | `DEXE_BACKEND_API_URL` |
 | `dexe_read_nfts` | NFTs held by any address via `nfts-by-wallet/<addr>` (Moralis), optional contract filter. Backend-only. | `DEXE_BACKEND_API_URL` |
 | `dexe_read_validators` | `validatorsCount()` + optional `isValidator(candidate)` on GovValidators. | `DEXE_RPC_URL` |
 | `dexe_read_settings` | `GovSettings.getDefaultSettings()` + `getInternalSettings()`. | `DEXE_RPC_URL` |
@@ -116,7 +116,9 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_read_dao_experts` | Paginated local experts (DAO-specific expert NFT holders) with delegation info. | `DEXE_SUBGRAPH_POOLS_URL` |
 | `dexe_read_validator_list` | Paginated validators ordered by balance descending. | `DEXE_SUBGRAPH_VALIDATORS_URL` |
 | `dexe_read_user_activity` | Paginated tx history per user — proposals/votes/delegations/claims by timestamp desc. | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
-| `dexe_read_delegation_map` | Outgoing or incoming delegation pairs for a user. | `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_read_delegation_map` | Outgoing or incoming delegation pairs for a user (accepts wallet addresses or VoterInPool composite ids). | `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_graph_query` | Free-form read-only GraphQL against the pools / interactions / validators subgraphs. Entity reference: [GRAPH.md](GRAPH.md). Bound results with `first:`; oversized responses rejected. | `DEXE_SUBGRAPH_*_URL` (per subgraph) |
+| `dexe_read_protocol_stats` | Protocol-wide aggregates (app.dexe.io landing numbers): total TVL across all DAOs on the selected chains, total proposals, DAO count, voting-locked value, TVL time series (downsampled), optional top-N DAOs by TVL. Backend-only. | `DEXE_BACKEND_API_URL` |
 | `dexe_otc_list_sales_for_dao` | Reads `latestTierId()` + `getTierViews(0, latestTierId)` on a DAO's TokenSaleProposal helper. Returns tiers with `totalSold`, `upcoming`/`active`/`ended`/`off` status (block timestamp + on-chain `isOff`), and both raw + `saleStartTimeUTC`/`saleEndTimeUTC` human-readable UTC times. Works chain 56 + 97, no subgraph needed. Pass `tokenSaleProposal` explicitly until per-DAO helper discovery lands. | `DEXE_RPC_URL` |
 
 ---

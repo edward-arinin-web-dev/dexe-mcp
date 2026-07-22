@@ -7,6 +7,7 @@ import { multicall, type Call } from "../lib/multicall.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 import { gqlRequest, PROPOSAL_INTERACTIONS_QUERY } from "../lib/subgraph.js";
 import { chainIdParam } from "../lib/params.js";
+import { proposalInteractionLabel } from "../lib/interactionTypes.js";
 
 const GOV_POOL_READ_ABI = [
   "function getProposalState(uint256 proposalId) view returns (uint8)",
@@ -207,6 +208,7 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
           z.object({
             voter: z.string(),
             interactionType: z.string(),
+            interactionLabel: z.string().describe("VOTE_FOR | VOTE_AGAINST | VOTE_CANCEL"),
             totalVote: z.string(),
             timestamp: z.string(),
             transactionHash: z.string(),
@@ -252,6 +254,7 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
           return {
             voter: userAddr,
             interactionType: pi.interactionType,
+            interactionLabel: proposalInteractionLabel(pi.interactionType),
             totalVote: pi.totalVote,
             timestamp: pi.timestamp,
             transactionHash: pi.hash,

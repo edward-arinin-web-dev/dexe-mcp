@@ -8,6 +8,7 @@ import { gqlRequest } from "../lib/subgraph.js";
 import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
 import { chainIdParam } from "../lib/params.js";
+import { transactionTypeLabels } from "../lib/interactionTypes.js";
 
 /**
  * Subgraph-backed read tools. Each tool queries one of the three DeXe
@@ -224,6 +225,83 @@ export function registerSubgraphTools(server: McpServer, ctx: ToolContext): void
   registerUserActivity(server, ctx);
   registerDaoExperts(server, ctx);
   registerOtcListSalesForDao(server, ctx);
+  registerGraphQuery(server, ctx);
+}
+
+// ---------- dexe_graph_query ----------
+
+const SUBGRAPH_URL_KEY = {
+  pools: "subgraphPoolsUrl",
+  interactions: "subgraphInteractionsUrl",
+  validators: "subgraphValidatorsUrl",
+} as const;
+
+/** Response cap — beyond this the caller should paginate, not stream megabytes into a conversation. */
+const GRAPH_QUERY_MAX_RESPONSE_CHARS = 120_000;
+
+/**
+ * Light read-only guard. The Graph gateway has no mutations, but reject the
+ * keywords up front so a bad query fails with a clear message instead of a
+ * gateway error.
+ */
+export function graphQueryGuard(query: string): string | null {
+  const stripped = query.replace(/#[^\n]*/g, "").trim();
+  if (!stripped) return "Empty query.";
+  if (/^\s*(mutation|subscription)\b/i.test(stripped)) {
+    return "Only read queries are supported (subgraphs have no mutations/subscriptions).";
+  }
+  if (!/^\s*(query\b|\{)/i.test(stripped)) {
+    return "Query must start with 'query' or '{'.";
+  }
+  return null;
+}
+
+function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_graph_query",
+    {
+      title: "Free-form GraphQL query against a DeXe subgraph",
+      description:
+        "Run ANY read-only GraphQL query against one of the three DeXe subgraphs: " +
+        "'pools' (DaoPool, Proposal, Voter, VoterInPool, VoterInPoolPair, ProposalInteraction, TokenSaleTier, ExpertNft, DelegationHistory, …), " +
+        "'interactions' (Transaction feed by type + per-event entities: DaoPoolCreate, DaoPoolDelegate, DaoPoolExecute, DaoPoolVest, DaoProposalCreate, …), " +
+        "'validators' (ValidatorInPool, Proposal, ValidatorInProposal, …). " +
+        "Full entity/field reference: docs/GRAPH.md (also summarized by dexe_guide). " +
+        "ALWAYS bound results with `first:` (max 1000) and paginate with `skip:`; oversized responses are rejected. " +
+        "Data covers BSC mainnet only (endpoints are env-bound: DEXE_SUBGRAPH_*_URL). " +
+        "Example — most active DAOs by recent proposals: subgraph='pools', query='{ proposals(first: 20, orderBy: creationTime, orderDirection: desc) { pool { id } creationTime } }'.",
+      inputSchema: {
+        subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
+        query: z.string().min(1).max(10_000).describe("GraphQL query document (read-only)"),
+        variables: z.record(z.unknown()).optional().describe("GraphQL variables referenced by the query"),
+      },
+    },
+    async ({ subgraph, query, variables }) => {
+      const guardError = graphQueryGuard(query);
+      if (guardError) return errorResult(guardError);
+      const url = requireUrl(ctx, SUBGRAPH_URL_KEY[subgraph]);
+      if (!url) return errorResult(`${ENV_HINT[SUBGRAPH_URL_KEY[subgraph]]} is not set.`);
+      try {
+        const data = await gqlRequest<Record<string, unknown>>(url, query, variables as Record<string, unknown> | undefined);
+        const json = JSON.stringify(data);
+        if (json.length > GRAPH_QUERY_MAX_RESPONSE_CHARS) {
+          return errorResult(
+            `Response too large (${json.length} chars > ${GRAPH_QUERY_MAX_RESPONSE_CHARS}). ` +
+              `Narrow the selection set or paginate with first/skip.`,
+          );
+        }
+        const topLevel = Object.entries(data)
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? `${v.length} row(s)` : typeof v}`)
+          .join(", ");
+        return {
+          content: [{ type: "text" as const, text: `graph_query(${subgraph}) → ${topLevel}` }],
+          structuredContent: { subgraph, data },
+        };
+      } catch (err) {
+        return errorResult(`graph_query failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
 }
 
 // ---------- tools ----------
@@ -299,6 +377,21 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
   );
 }
 
+/**
+ * The delegation queries filter on `delegator_.voter_in` / `delegatee_.voter_in`,
+ * which match VOTER WALLET addresses — NOT VoterInPool composite ids. A composite
+ * id reaches the store's Bytes parser and fails with "Odd number of digits".
+ * Accept both shapes and extract the wallet: 'govPool-voter' → part after the
+ * dash; 80-hex 'voter+pool' (the real VoterInPool id) → first 40 hex chars.
+ */
+export function toVoterAddress(input: string): string {
+  let s = input.trim().toLowerCase();
+  const dash = s.lastIndexOf("-");
+  if (dash >= 0) s = s.slice(dash + 1);
+  const hex = s.startsWith("0x") ? s.slice(2) : s;
+  return `0x${hex.length > 40 ? hex.slice(0, 40) : hex}`;
+}
+
 function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_read_delegation_map",
@@ -307,7 +400,12 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
       description:
         "Query delegation pairs from the pools subgraph. Use direction='outgoing' to see who a user delegated to, or 'incoming' to see who delegated to them. Requires DEXE_SUBGRAPH_POOLS_URL. NOTE: the subgraph URL is env-bound to ONE chain (DEXE_SUBGRAPH_POOLS_URL); pass `chainId` matching that subgraph — a mismatch with the configured default chain is surfaced as a warning (the URL is not switched per call).",
       inputSchema: {
-        addresses: z.array(z.string()).min(1).describe("VoterInPool IDs (format: govPool-voterAddress, lowercased)"),
+        addresses: z
+          .array(z.string())
+          .min(1)
+          .describe(
+            "Voter WALLET addresses (plain 0x…40-hex). Composite VoterInPool ids ('govPool-voter' or 80-hex 'voter+pool' concatenations) are also accepted — the voter part is extracted automatically.",
+          ),
         direction: z.enum(["outgoing", "incoming"]).default("outgoing").describe("outgoing = who I delegated to; incoming = who delegated to me"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(50),
@@ -323,8 +421,14 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
           `chainId ${chainId} differs from the configured default chain ${ctx.config.defaultChainId}; the pools subgraph URL is env-bound (DEXE_SUBGRAPH_POOLS_URL) and is NOT switched per call — results come from whatever chain that URL indexes. Set DEXE_SUBGRAPH_POOLS_URL to the chain you want.`,
         );
       }
+      const lc = addresses.map(toVoterAddress);
+      const bad = lc.filter((a) => !/^0x[0-9a-f]{40}$/.test(a));
+      if (bad.length) {
+        return errorResult(
+          `Not a voter wallet address (expected 0x + 40 hex, or a 'govPool-voter' / 80-hex composite id): ${bad.join(", ")}`,
+        );
+      }
       try {
-        const lc = addresses.map((a) => a.toLowerCase());
         const query = direction === "outgoing" ? DELEGATION_MAP_QUERY : DELEGATION_INCOMING_QUERY;
         const variables =
           direction === "outgoing"
@@ -398,12 +502,15 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
       const url = requireUrl(ctx, "subgraphInteractionsUrl");
       if (!url) return errorResult(`${ENV_HINT.subgraphInteractionsUrl} is not set.`);
       try {
-        const data = await gqlRequest<{ transactions: unknown[] }>(url, USER_ACTIVITY_QUERY, {
+        const data = await gqlRequest<{ transactions: Array<Record<string, unknown>> }>(url, USER_ACTIVITY_QUERY, {
           offset,
           limit,
           address: user.toLowerCase(),
         });
-        const txs = data.transactions;
+        const txs = data.transactions.map((tx) => ({
+          ...tx,
+          typeLabels: transactionTypeLabels(Array.isArray(tx.type) ? tx.type : [tx.type]),
+        }));
         const text = `${txs.length} transaction(s) for ${user} (offset=${offset}, limit=${limit})`;
         return {
           content: [{ type: "text" as const, text }],

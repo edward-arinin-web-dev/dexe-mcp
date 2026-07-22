@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.27.0 — 2026-07-23
+
+The analytics release from the use-cases campaign: free-form subgraph access,
+protocol-wide stats, and a batch of read-layer correctness fixes found by live
+verification. Tool count 161 → **163**. New docs: `docs/USE_CASES.md` (28
+verified prompt-level scenarios) and `docs/GRAPH.md` (subgraph entity
+reference).
+
+### New: `dexe_graph_query` — free-form GraphQL over the DeXe subgraphs
+
+Run ANY read-only GraphQL document against the pools / interactions /
+validators subgraphs ("most active DAOs in the last 30 days" is now a single
+call). Read-only guard (mutations/subscriptions rejected), 10 KB query cap,
+oversized responses rejected with a pagination hint instead of flooding the
+conversation. The three-subgraph entity/field reference (from live schema
+introspection) ships as `docs/GRAPH.md`, including the ID-shape traps
+(`VoterInPool.id` = voter+pool concatenated, interaction ids = txHash+count)
+and the "pools `Proposal` has no creation timestamp — use `daoProposalCreates`"
+gotcha.
+
+### New: `dexe_read_protocol_stats` — the app.dexe.io landing numbers
+
+Protocol-wide aggregates via the tracker's `summary-stats` endpoint
+(server-side aggregation over `chainIds`, default `[1, 56]`): total TVL across
+all DAOs, total proposals created, DAO count, voting-locked value, 24h change
+percents, downsampled TVL time series, and an optional top-N DAOs-by-TVL
+leaderboard (merged across chains from `pools/gov/top`). Verified live:
+$817M TVL across 239 DAOs.
+
+### Fixed (found by live verification against mainnet)
+
+- **`dexe_user_inbox` claimable rewards were wrong.** The `getPendingRewards`
+  ABI didn't match `IGovPool.PendingRewardsView` — the old shape decoded the
+  votingRewards structs into a bogus `proposalIds` array and undercounted
+  totals (static rewards only, voting + off-chain rewards silently dropped).
+  Verified fix on a live pool: 260 → 785,028 tokens of pending rewards, real
+  proposal ids, plus new `rewardTokens` / `offchainTotal` / `offchainTokens`
+  fields.
+- **`dexe_read_delegation_map` rejected its own documented input.** The
+  delegation queries filter on wallet addresses, but the tool documented
+  composite `govPool-voter` ids — passing one hit a subgraph store error
+  ("Odd number of digits"). Input now normalizes all three shapes (wallet,
+  dash composite, 80-hex VoterInPool id).
+- **`dexe_read_dao_stats` context blowout.** `'1 months'` on an old DAO
+  returned ~740 hourly points (~650 KB). New `maxPoints` param (default 30)
+  evenly downsamples, always keeping first and last points; raw count still
+  reported.
+
+### Improved
+
+- `dexe_read_user_activity` and `dexe_proposal_voters` now label the numeric
+  subgraph enum codes (`typeLabels`: DAO_POOL_PROPOSAL_VOTED…, and
+  `interactionLabel`: VOTE_FOR / VOTE_AGAINST / VOTE_CANCEL) via the new
+  `src/lib/interactionTypes.ts` maps (mirrored from the frontend enums).
+- `dexe_read_settings` returns field-labeled `ProposalSettings` objects plus
+  derived `quorumPct` / `quorumValidatorsPct` (BigInt math, no float drift)
+  instead of positional 12-element tuples.
+- `dexe_decode_proposal` adds a named `stateName` next to the numeric
+  `proposalState`.
+
 ## 0.26.0 — 2026-07-22
 
 The protocol knowledge layer (Phase A) — a machine-readable "source of truth"

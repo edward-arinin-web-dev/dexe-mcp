@@ -39,7 +39,7 @@ export const GOV_POOL_ABI = new Interface([
   // NOTE field semantics (GovPool.sol getTotalVotes): the first two values are
   // PROPOSAL-level raw totals; only the THIRD is the queried voter's stake.
   "function getTotalVotes(uint256 proposalId, address voter, uint8 voteType) view returns (uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 voterRawVoted, bool isVoteFor)",
-  "function getPendingRewards(address user, uint256[] proposalIds) view returns (tuple(address[] tokens, uint256[] amounts, uint256[] proposalIds))",
+  "function getPendingRewards(address user, uint256[] proposalIds) view returns (tuple(address[] onchainTokens, uint256[] staticRewards, tuple(uint256 personal, uint256 micropool, uint256 treasury)[] votingRewards, uint256[] offchainRewards, address[] offchainTokens))",
 ]);
 
 const USER_KEEPER_ABI = new Interface([
@@ -50,8 +50,13 @@ const USER_KEEPER_ABI = new Interface([
 // Tries to read pendingRewards using the canonical ABI; if the contract
 // version doesn't expose it, we silently skip and only surface unvoted +
 // lockedDeposit. The subgraph would be the next-best signal.
+// ABI mirrors IGovPool.PendingRewardsView EXACTLY (interfaces/gov/IGovPool.sol):
+// (onchainTokens, staticRewards, VotingRewards[]{personal,micropool,treasury},
+//  offchainRewards, offchainTokens). The pre-fix shape (tokens, amounts,
+//  proposalIds) decoded votingRewards structs into a bogus "proposalIds" array
+//  and undercounted totals (static only).
 export const PENDING_REWARDS_ABI = new Interface([
-  "function getPendingRewards(address user, uint256[] proposalIds) view returns (tuple(address[] tokens, uint256[] amounts, uint256[] proposalIds) rewards)",
+  "function getPendingRewards(address user, uint256[] proposalIds) view returns (tuple(address[] onchainTokens, uint256[] staticRewards, tuple(uint256 personal, uint256 micropool, uint256 treasury)[] votingRewards, uint256[] offchainRewards, address[] offchainTokens) rewards)",
 ]);
 
 /**
@@ -71,18 +76,60 @@ export function isUnvotedTotalVotes(value: unknown): boolean {
  * function has a SINGLE tuple output, so multicall's single-return unwrap
  * hands us the tuple itself — there is no extra `.rewards` wrapper (reading
  * one crashed the whole per-DAO scan). Returns null when nothing is claimable.
+ *
+ * `scannedProposalIds` is the SAME id list passed to getPendingRewards —
+ * PendingRewardsView arrays are positional per input id, the view does not
+ * echo the ids back.
  */
 export function summarizePendingRewards(
   value: unknown,
-): { totalAmount: string; proposalIds: string[] } | null {
-  const r = value as { amounts?: readonly bigint[]; proposalIds?: readonly bigint[] } | null | undefined;
-  if (!r?.amounts || r.amounts.length === 0) return null;
+  scannedProposalIds: readonly string[] = [],
+): {
+  totalAmount: string;
+  proposalIds: string[];
+  rewardTokens: string[];
+  offchainTotal?: string;
+  offchainTokens?: string[];
+} | null {
+  const r = value as
+    | {
+        onchainTokens?: readonly string[];
+        staticRewards?: readonly bigint[];
+        votingRewards?: readonly { personal: bigint; micropool: bigint; treasury: bigint }[];
+        offchainRewards?: readonly bigint[];
+        offchainTokens?: readonly string[];
+      }
+    | null
+    | undefined;
+  if (!r?.staticRewards) return null;
+  const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
   let total = 0n;
-  for (const a of r.amounts) total += a;
-  if (total <= 0n) return null;
+  const ids: string[] = [];
+  const tokens = new Set<string>();
+  for (let i = 0; i < r.staticRewards.length; i++) {
+    const v = r.votingRewards?.[i];
+    const perProposal =
+      (r.staticRewards[i] ?? 0n) + (v ? v.personal + v.micropool + v.treasury : 0n);
+    if (perProposal > 0n) {
+      total += perProposal;
+      ids.push(scannedProposalIds[i] ?? String(i + 1));
+      const t = r.onchainTokens?.[i];
+      if (t && t.toLowerCase() !== ZERO_ADDR) tokens.add(t);
+    }
+  }
+  let offchainTotal = 0n;
+  for (const a of r.offchainRewards ?? []) offchainTotal += a;
+  if (total <= 0n && offchainTotal <= 0n) return null;
   return {
     totalAmount: total.toString(),
-    proposalIds: Array.from(r.proposalIds ?? [], (p) => p.toString()),
+    proposalIds: ids,
+    rewardTokens: [...tokens],
+    ...(offchainTotal > 0n
+      ? {
+          offchainTotal: offchainTotal.toString(),
+          offchainTokens: [...(r.offchainTokens ?? [])],
+        }
+      : {}),
   };
 }
 
@@ -124,6 +171,9 @@ interface PendingItem {
   totalAmount?: string;
   amount?: string;
   govToken?: string;
+  rewardTokens?: string[];
+  offchainTotal?: string;
+  offchainTokens?: string[];
 }
 
 // ---------- register ----------
@@ -306,7 +356,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
                 },
               ]);
               if (rewardsR?.success) {
-                const summary = summarizePendingRewards(rewardsR.value);
+                const summary = summarizePendingRewards(rewardsR.value, proposalIds);
                 if (summary) {
                   items.push({ dao, type: "claimableRewards", ...summary });
                 }

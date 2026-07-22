@@ -124,6 +124,7 @@ const READ = [
   "dexe_read_nfts",
   "dexe_read_validators",
   "dexe_read_settings",
+  "dexe_read_protocol_stats",
   "dexe_read_expert_status",
   "dexe_read_token_sale_tiers",
   "dexe_read_token_sale_user",
@@ -138,6 +139,7 @@ const READ = [
   "dexe_read_user_activity",
   "dexe_read_dao_experts",
   "dexe_otc_list_sales_for_dao",
+  "dexe_graph_query",
   // proposal.ts
   "dexe_proposal_state",
   "dexe_proposal_list",
