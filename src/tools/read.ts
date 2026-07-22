@@ -455,16 +455,27 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
         govPool: z.string().describe("GovPool / DAO address"),
         chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
         period: z.string().default("7 days").describe("Duration window, e.g. '24 hours', '7 days', '1 months'"),
+        maxPoints: z
+          .number()
+          .int()
+          .min(2)
+          .max(2000)
+          .default(30)
+          .describe(
+            "Cap on returned data points; longer series are evenly downsampled (first and last points always kept). The tracker emits ~hourly points — '1 months' is ~740 raw points / ~650 KB, far beyond a usable context window.",
+          ),
       },
       outputSchema: {
         govPool: z.string(),
         chainId: z.number(),
         period: z.string(),
-        points: z.number(),
+        points: z.number().describe("Raw point count returned by the tracker"),
+        returnedPoints: z.number().describe("Points in `data` after downsampling"),
+        downsampled: z.boolean(),
         data: z.array(z.record(z.unknown())),
       },
     },
-    async ({ govPool, chainId: chainIdArg, period = "7 days" }) => {
+    async ({ govPool, chainId: chainIdArg, period = "7 days", maxPoints = 30 }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       const chainId = rpc.resolveChainId(chainIdArg);
       try {
@@ -473,14 +484,30 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
           status?: string;
         }>(`/integrations/tracker/${chainId}/pools/gov/${govPool}/stats/${encodeURIComponent(period)}`);
         const rows = (json.data ?? []).map((d) => d.attributes ?? {});
-        const structured = { govPool, chainId, period, points: rows.length, data: rows };
+        let sampled = rows;
+        if (rows.length > maxPoints) {
+          sampled = [];
+          const step = (rows.length - 1) / (maxPoints - 1);
+          for (let i = 0; i < maxPoints; i++) sampled.push(rows[Math.round(i * step)]!);
+        }
+        const structured = {
+          govPool,
+          chainId,
+          period,
+          points: rows.length,
+          returnedPoints: sampled.length,
+          downsampled: sampled.length < rows.length,
+          data: sampled,
+        };
         const latest = rows[rows.length - 1] as Record<string, unknown> | undefined;
         const text =
-          `DAO stats ${govPool} (chain ${chainId}, period '${period}'): ${rows.length} point(s)\n` +
+          `DAO stats ${govPool} (chain ${chainId}, period '${period}'): ${rows.length} point(s)` +
+          (structured.downsampled ? ` → ${sampled.length} returned (downsampled; raise maxPoints for more)` : "") +
+          "\n" +
           (latest
             ? `  latest → tvl_usd: ${latest.tvl_usd ?? "?"}, active_members: ${latest.active_members_count ?? "?"}, ` +
               `external_proposals: ${latest.external_proposals_count ?? "?"}`
-            : "  (no data — DAO may have no tracked activity in this window)");
+            : "  (no data — DAO may have no tracked activity in this window; freshly created DAOs take a while to appear in the tracker)");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(`read_dao_stats failed: ${safeErrorMessage(err)}`);
@@ -617,6 +644,53 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
   );
 }
 
+// Field order mirrors IGovSettings.ProposalSettings / RewardsInfo
+// (DeXe-Protocol contracts/interfaces/gov/settings/IGovSettings.sol).
+const SETTINGS_FIELDS = [
+  "earlyCompletion",
+  "delegatedVotingAllowed",
+  "validatorsVote",
+  "duration",
+  "durationValidators",
+  "executionDelay",
+  "quorum",
+  "quorumValidators",
+  "minVotesForVoting",
+  "minVotesForCreating",
+  "rewardsInfo",
+  "executorDescription",
+] as const;
+const REWARDS_INFO_FIELDS = ["rewardToken", "creationReward", "executionReward", "voteRewardsCoefficient"] as const;
+
+export function labelProposalSettings(v: unknown): unknown {
+  const arr = v as unknown[] | null;
+  if (!Array.isArray(arr) || arr.length < SETTINGS_FIELDS.length) return arr;
+  const o: Record<string, unknown> = {};
+  SETTINGS_FIELDS.forEach((f, i) => {
+    o[f] = arr[i];
+  });
+  const ri = o.rewardsInfo;
+  if (Array.isArray(ri) && ri.length >= REWARDS_INFO_FIELDS.length) {
+    const r: Record<string, unknown> = {};
+    REWARDS_INFO_FIELDS.forEach((f, i) => {
+      r[f] = ri[i];
+    });
+    o.rewardsInfo = r;
+  }
+  for (const [raw, pct] of [
+    ["quorum", "quorumPct"],
+    ["quorumValidators", "quorumValidatorsPct"],
+  ] as const) {
+    try {
+      // percent × 1e25, computed in BigInt to avoid float drift; 4 decimals kept
+      o[pct] = Number((BigInt(String(o[raw])) * 10000n) / 10n ** 25n) / 10000;
+    } catch {
+      /* non-numeric — skip derived field */
+    }
+  }
+  return o;
+}
+
 function registerSettings(server: McpServer, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_read_settings",
@@ -656,8 +730,8 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
         const structured = {
           govPool,
           settings,
-          defaultSettings: jsonSafe(defR?.value ?? null),
-          internalSettings: jsonSafe(intR?.value ?? null),
+          defaultSettings: labelProposalSettings(jsonSafe(defR?.value ?? null)),
+          internalSettings: labelProposalSettings(jsonSafe(intR?.value ?? null)),
         };
         return {
           content: [
