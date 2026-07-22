@@ -119,11 +119,13 @@ Each write tool returns a `TxPayload` you pass to your wallet. To let the server
 
 ## Example applications
 
-- A governance copilot that lists unvoted proposals across your DAOs (`dexe_user_inbox`), summarizes them, and drafts votes for you to sign.
-- Proposal drafting from intent: "transfer 50k USDT from treasury to the dev fund" resolves to a builder call, pinned metadata, and one signable payload.
-- Delegate agents that read every proposal, vote according to a written mandate, and record their reasoning.
-- Treasury automation: recurring claims, vesting, and rebalancing executed as governance proposals.
-- Pre-mainnet rehearsal: simulate a proposal (`dexe_sim_proposal`) or replay a parameter change on a testnet fixture DAO before it goes live.
+Verified, prompt-level scenarios live in **[docs/USE_CASES.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USE_CASES.md)** — each with the exact tools it exercises and on-chain evidence. Highlights:
+
+- **Basics** — create a DAO with its own token in one call; propose → vote → execute; join an existing DAO.
+- **Q&A over live data** — "does DAO X have validators?", whale maps, TVL charts, delegation graphs, per-proposal voter lists.
+- **Automation** — pair reads with your agent's scheduler (`/loop`, `/schedule`): proposal watchdogs, daily governance digests (`dexe_user_inbox`), quorum trackers, treasury monitors, policy-based delegate agents.
+- **Analysis** — decode + risk-assess any proposal (quorum safety, treasury at risk, who profits); due-diligence a DAO before buying in; simulate before broadcasting.
+- **Advanced ops** — make the DAO call ANY external contract (`custom_abi`), OTC sales, cross-DAO delegation (one DAO voting inside another — live on mainnet), external Governor DAOs, Safe multisig.
 
 ## Tool catalog
 
@@ -177,6 +179,7 @@ No variable is required to start the server; tools that need a missing one fail 
 
 ## Documentation
 
+- [docs/USE_CASES.md](./docs/USE_CASES.md) — verified use-case catalog: what to say to your agent, what happens, on-chain evidence.
 - [docs/PLAYBOOK.md](./docs/PLAYBOOK.md) — the AI playbook: intent → exact call, per-type params, error → remedy. Also served as the MCP resource `dexe://playbook`.
 - [docs/TOOLS.md](./docs/TOOLS.md) — all 161 tools, grouped, with one-line descriptions and required env vars.
 - [docs/USAGE.md](./docs/USAGE.md) — worked examples with copy-pasteable JSON.
