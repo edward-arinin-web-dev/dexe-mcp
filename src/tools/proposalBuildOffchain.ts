@@ -30,9 +30,26 @@ const LOGIN_ENDPOINT = "/integrations/nonce-auth-svc/login";
 
 // Bug #27: backend rejects unix-timestamp `type` with
 // "proposal type was not found". Real values are registered template names.
+// F21: the backend auto-provisions exactly TWO types per pool —
+// default_single_option_type and default_multiple_option_type ("multiple",
+// not "multi"; verified against GET /integrations/voting/proposal-types).
+// There is NO default for_against type: it must first be created via a
+// create_proposal_type proposal (dexe_proposal_build_offchain_settings,
+// mode=create_proposal_type) that passes and is submitted.
 const DEFAULT_TYPE_SINGLE_OPTION = "default_single_option_type";
-const DEFAULT_TYPE_MULTI_OPTION = "default_multi_option_type";
-const DEFAULT_TYPE_FOR_AGAINST = "default_for_against_type";
+const DEFAULT_TYPE_MULTI_OPTION = "default_multiple_option_type";
+// F22: the DeXe product does not support for_against off-chain voting. Verified
+// against the frontend (NewTemplateForm/steps/TemplateStep exposes only oneOf +
+// multipleOf tabs; OffChainVotingTypeListMap maps only those) and the backend
+// (GET /integrations/voting/proposal-types auto-provisions only single+multiple
+// per pool). The for_against enum/i18n exist but have no creation path — every
+// create request 400s ("proposal type was not found" / "invalid custom parameters").
+const FOR_AGAINST_UNSUPPORTED =
+  "for_against off-chain voting is NOT supported by the DeXe backend/product. Only two off-chain " +
+  "voting types are creatable: single-option (dexe_proposal_build_offchain_single_option) and " +
+  "multi-option (dexe_proposal_build_offchain_multi_option). For a binary vote, use the single-option " +
+  "builder with voteOptions ['For','Against']. (Verified against investing-dashboard TemplateStep — " +
+  "only oneOf/multipleOf tabs — and the backend proposal-types endpoint.)";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -319,35 +336,26 @@ function registerForAgainst(server: McpServer): void {
   server.registerTool(
     "dexe_proposal_build_offchain_for_against",
     {
-      title: "Off-chain: binary for/against voting proposal",
+      title: "Off-chain: binary for/against voting proposal (NOT supported by DeXe backend)",
       description:
-        "POST /integrations/voting/proposals with voting_type='for_against'. `voteOptions` is usually ['For','Against'] but you can pass any 2 labels.",
+        "DISABLED (F22): the DeXe product does NOT support creating for_against off-chain proposals. " +
+        "The web app exposes only two off-chain voting types — single-option (one_of) and multi-option " +
+        "(multiple_of); there is no for_against creation path and the backend auto-provisions no " +
+        "for_against type, so any create request 400s. Use dexe_proposal_build_offchain_single_option " +
+        "with two options ['For','Against'] instead. This tool is kept only to return that guidance.",
       inputSchema: {
         ...commonInputSchema,
         voteOptions: z
           .array(z.string())
           .default(["For", "Against"])
-          .describe("Exactly 2 labels; defaults to [For, Against]"),
+          .describe("Ignored — for_against is not creatable on the DeXe backend."),
         forPercent: z.number().min(0).max(100).default(50),
         againstPercent: z.number().min(0).max(100).default(50),
       },
       outputSchema: requestOutputSchema(),
     },
-    async (input) => {
-      if (!isAddress(input.poolAddress)) return errorResult(`Invalid poolAddress: ${input.poolAddress}`);
-      if (input.voteOptions.length !== 2) return errorResult("for_against expects exactly 2 voteOptions");
-      const base = requireBase();
-      if (typeof base !== "string") return errorResult(base.error);
-      const body = buildProposalBody(input, "for_against", {
-        for_against_quorum: {
-          for_percent: pctToFraction(input.forPercent),
-          against_percent: pctToFraction(input.againstPercent),
-        },
-      }, DEFAULT_TYPE_FOR_AGAINST);
-      return requestResult("POST", `${base}${PROPOSAL_ENDPOINT}`, body, {
-        authRequired: true,
-        note: `Off-chain 'for_against' proposal for ${input.poolAddress}.`,
-      });
+    async (_input) => {
+      return errorResult(FOR_AGAINST_UNSUPPORTED);
     },
   );
 }
@@ -369,7 +377,9 @@ function registerSettingsProposal(server: McpServer): void {
         description: z.string().default("").describe(
           "Proposal description — supports Markdown. Auto-converted to Slate format.",
         ),
-        votingType: z.enum(["one_of", "multiple_of", "for_against"]).default("one_of"),
+        votingType: z.enum(["one_of", "multiple_of"]).default("one_of").describe(
+          "Only one_of and multiple_of are supported off-chain — for_against is not creatable on the DeXe backend (F22).",
+        ),
         voteOptions: z.array(z.string()).default([]),
         votingDurationSeconds: z.string(),
         quorum: z
@@ -385,6 +395,7 @@ function registerSettingsProposal(server: McpServer): void {
     },
     async (input) => {
       if (!isAddress(input.poolAddress)) return errorResult(`Invalid poolAddress: ${input.poolAddress}`);
+      if ((input.votingType as string) === "for_against") return errorResult(FOR_AGAINST_UNSUPPORTED);
       const base = requireBase();
       if (typeof base !== "string") return errorResult(base.error);
       const body = {

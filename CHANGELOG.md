@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.24.2 — 2026-07-22
+
+Mainnet full-flow verification campaign (chain 56, fresh SphereX-era pools). All
+10 governance flows exercised end-to-end with on-chain + app.dexe.io visual
+verification; every fix below was found by running the flow, then re-verified
+via tools after shipping.
+
+### Guard / validation fixes
+
+- **F17** — `dexe_proposal_create` now runs governance-safety advisories on
+  `change_voting_settings` / `new_proposal_type` / `enable_staking` builds. A
+  DANGER-level advisory (e.g. quorum lowered below the safe floor into
+  treasury-drain territory) **blocks the flow before any transaction** until the
+  caller re-runs with `confirmRisky: true`; CAUTION-level advisories attach to
+  the result (`governanceAdvisories`) without blocking. Previously only the
+  standalone `dexe_proposal_build_change_voting_settings` tool computed these,
+  and only in free-text `detail` (lost when a client renders structuredContent).
+- **F19** — `manage_validators` / `validators_allocation` now read the
+  post-change validator-token distribution and emit a CAUTION advisory when the
+  change would push the external validator quorum above every single validator's
+  stake (a config that stalls the validator stage for every future proposal).
+- **F20 / F20b** — the blacklist pre-send guard was dead on every chain: it
+  probed the **default** chain instead of the tx chain (token has no code there
+  → silent skip), and called a non-existent `isBlacklisted(address)` selector.
+  Now `checkBlacklist` takes the target `chainId` and pages the real
+  `totalBlacklistAccounts()` / `getBlacklistAccounts()` API. A treasury transfer
+  to a blacklisted recipient is refused **before** any transaction.
+
+### Off-chain fixes
+
+- **F21** — off-chain multi-option built the wrong backend type name
+  (`default_multi_option_type`); the backend auto-provisions
+  `default_multiple_option_type`. Fixed.
+- **F22** — `dexe_proposal_build_offchain_for_against` and
+  `offchain_settings(votingType=for_against)` built requests the DeXe backend
+  **always** rejects: the product supports only single-option and multi-option
+  off-chain voting (verified against the web app — the template form exposes
+  only those two voting-type tabs — and the backend proposal-types endpoint).
+  Both now return an explicit "not creatable — use single-option with
+  ['For','Against']" error instead of an always-400 request. Vote/read paths for
+  for_against are unchanged.
+
+### DAO create / settings
+
+- **F16** — `dexe_dao_create` now accepts a `documents` array (external DAO
+  profile documents, e.g. a governance charter). Previously the field was
+  hardcoded empty and dropped.
+- **F18** — editing existing settings via `dexe_proposal_create`
+  (`change_voting_settings`) no longer wipes each entry's `executorDescription`
+  (the settings-JSON IPFS ref the frontend reads): blank entries are preserved
+  by reading the current on-chain value first. The standalone build tool warns.
+
+### Env
+
+- `DEXE_RPC_URL_MAINNET` default note: the previous `mbsc3.dexe.io` endpoint can
+  return the wrong `chainId`; use a standard BSC dataseed for chain 56.
+
 ## 0.24.1 — 2026-07-22
 
 Full-verify campaign (2026-07-21, chain 97 + clean-room): every fix below was

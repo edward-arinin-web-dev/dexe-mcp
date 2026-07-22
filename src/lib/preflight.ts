@@ -541,9 +541,10 @@ export async function checkBlacklistRecipient(
   config: DexeConfig,
   token: string,
   recipient: string,
+  chainId?: number,
 ): Promise<PreflightResult> {
   if (!token || token === ZeroAddress) return pass("recipient.blacklist", "native/no-token transfer");
-  const bl = await checkBlacklist(config, token, recipient);
+  const bl = await checkBlacklist(config, token, recipient, chainId);
   if (bl.status === "blacklisted") return fail("recipient.blacklist", blacklistError(token, recipient));
   if (bl.status === "skipped") return { check: "recipient.blacklist", ok: true, detail: `skipped: ${bl.reason}` };
   return pass("recipient.blacklist", "recipient not blacklisted");

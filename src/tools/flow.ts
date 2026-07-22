@@ -609,6 +609,12 @@ export interface ProposalCreateInput {
   user?: string;
   /** When true, return ordered TxPayloads even if a signer is configured. */
   dryRun?: boolean;
+  /**
+   * Required to proceed when the built proposal carries a DANGER
+   * governance-safety advisory (e.g. quorum lowered into treasury-drain
+   * territory). Without it the flow refuses BEFORE any transaction.
+   */
+  confirmRisky?: boolean;
 }
 
 export interface ProposalCreateDeps {
@@ -711,6 +717,7 @@ export async function runProposalCreate(
       // Step 3: build actions + metadata based on type
       let actionsOnFor: Array<{ executor: string; value: bigint; data: string }>;
       let proposalExtra: Record<string, unknown>;
+      let governanceAdvisories: string[] | undefined;
 
       if (input.proposalType === "modify_dao_profile") {
         // Read current on-chain descriptionURL up front so we can both:
@@ -904,6 +911,24 @@ export async function runProposalCreate(
           isMeta: false,
           ...built.metadataExtra,
         };
+        if (built.advisories?.length) {
+          governanceAdvisories = built.advisories;
+          // DANGER gate: refuse BEFORE any tx (no approve/deposit/create has
+          // run yet) unless the caller explicitly accepted the risk.
+          if (built.risk === "DANGER" && !input.confirmRisky) {
+            return ok({
+              mode: "blocked-risky",
+              proposalType: input.proposalType,
+              risk: "DANGER",
+              governanceAdvisories: built.advisories,
+              note:
+                "No transaction was broadcast. The built proposal degrades governance safety " +
+                "(see governanceAdvisories — e.g. a quorum low enough that a market buyer could pass " +
+                "treasury-moving proposals alone). If this is intentional, re-call dexe_proposal_create " +
+                "with the SAME arguments plus confirmRisky:true.",
+            });
+          }
+        }
       }
 
       // Step 4: upload proposal metadata (field names must match frontend exactly)
@@ -1026,6 +1051,7 @@ export async function runProposalCreate(
             tokenAddress: prereqs.tokenAddress,
           },
           steps: [...skippedSteps, ...result.steps],
+          ...(governanceAdvisories ? { governanceAdvisories } : {}),
           ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
           ...(result.pairing ? { pairing: result.pairing } : {}),
         }),
@@ -1252,6 +1278,13 @@ export function registerFlowTools(
       voteNftIds: z.array(z.string()).default([]),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+      confirmRisky: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Required to proceed when the built proposal carries a DANGER governance-safety advisory " +
+            "(e.g. quorum lowered into treasury-drain territory). Without it the flow refuses BEFORE any transaction.",
+        ),
     },
     (input) => runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc, state, wc }),
   );
