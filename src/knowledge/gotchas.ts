@@ -399,6 +399,21 @@ export const GOTCHAS: readonly Gotcha[] = [
 
   // ── conventions ───────────────────────────────────────────────────────────
   {
+    // eval-run finding 2026-07-23: Haiku guessed Jan-2024 timestamps in 2026 →
+    // StakingProposal SILENTLY rejected the tier (execute status 1, no tier);
+    // TSP creates a dead-on-arrival sale (only start<=end is validated on-chain).
+    id: "timestamps-future",
+    severity: "danger",
+    text:
+      "NEVER guess dates for sale/staking windows — compute Unix timestamps from the CURRENT time (ask the user " +
+      "or read the latest block; your idea of 'now' may be a stale year). Windows must be in the future AT EXECUTE " +
+      "TIME (add headroom for the voting period). A staking tier with a past deadline is SILENTLY rejected on-chain " +
+      "(the execute succeeds, a StakingRejected event fires, NO tier exists, the reward bounces back); a sale tier " +
+      "with a past window is created dead-on-arrival (every buy reverts 'TSP: token sale is over'). The builders " +
+      "refuse past end-times before any transaction.",
+    applies: { flows: ["otc_sale", "staking_setup", "launch_token_economy"], proposalTypes: ["token_sale", "create_staking_tier"] },
+  },
+  {
     // PLAYBOOK ground rules
     id: "amount-conventions",
     severity: "info",

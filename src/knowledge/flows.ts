@@ -377,9 +377,12 @@ export const FLOWS: readonly Flow[] = [
       },
       {
         name: "saleWindow",
-        ask: "Sale start and end times (Unix seconds, UTC)?",
+        ask: "Sale start and end times? (ask in the user's words — e.g. 'starts tomorrow, runs 7 days' — then compute Unix seconds from the CURRENT time; never guess the date)",
         kind: "duration",
         required: true,
+        riskIfUnusual:
+          "The window must be in the future at EXECUTE time (add voting-period headroom). A past window creates a " +
+          "dead tier — every buy reverts.",
       },
       {
         name: "vesting",
@@ -407,7 +410,7 @@ export const FLOWS: readonly Flow[] = [
           govPool: "{{govPool}}",
           tiers: "[ …from interview: saleTokenAmount, price, saleWindow, vesting 0, whitelist… ]",
         },
-        gotchaIds: ["otc-native-sentinel", "otc-rate-precision", "otc-vesting-broken", "otc-whitelist-merkle"],
+        gotchaIds: ["timestamps-future", "otc-native-sentinel", "otc-rate-precision", "otc-vesting-broken", "otc-whitelist-merkle"],
         bindsFrom: { proposalId: "open.proposalId", tokenSaleProposal: "open.tokenSaleProposal" },
         reportOnSuccess: "Sale proposal #{{proposalId}} created — now it must pass governance.",
         next: [{ when: "always", stepId: "pass", why: "the sale goes live only after execute" }],
@@ -468,9 +471,12 @@ export const FLOWS: readonly Flow[] = [
       },
       {
         name: "window",
-        ask: "Staking start (startedAt) and deadline, Unix seconds UTC?",
+        ask: "Staking start (startedAt) and deadline? (ask in the user's words, then compute Unix seconds from the CURRENT time; never guess the date)",
         kind: "duration",
         required: true,
+        riskIfUnusual:
+          "A deadline in the past is SILENTLY rejected on-chain: the execute succeeds but NO tier is created and " +
+          "the reward returns to the treasury. Deadline must be in the future at EXECUTE time (add voting-period headroom).",
       },
     ],
     steps: [
@@ -489,7 +495,7 @@ export const FLOWS: readonly Flow[] = [
           params:
             "{ rewardToken: {{rewardToken}}, rewardAmount: {{rewardAmount}}, startedAt: …, deadline: …, stakingMetadataUrl: … }",
         },
-        gotchaIds: ["staking-resolver", "spherex-addsettings"],
+        gotchaIds: ["timestamps-future", "staking-resolver", "spherex-addsettings"],
         bindsFrom: { proposalId: "create_tier.proposalId" },
         reportOnSuccess: "Staking tier proposal #{{proposalId}} created.",
         next: [{ when: "always", stepId: "pass", why: "the tier exists only after execute" }],

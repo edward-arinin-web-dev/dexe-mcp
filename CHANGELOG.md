@@ -65,6 +65,28 @@ an API key. **Acceptance met 2026-07-22: claude-haiku-4-5, 10/10 asserts.**
   now states both observations; if execute reverts 'disallowed tx pattern',
   use editSettings (settingsIds).
 
+### Fixed: past time-windows are refused (silent on-chain rejection trap)
+
+Root-caused the eval's "0 tiers after an executed create_staking_tier":
+`StakingProposal.createStaking` SILENTLY rejects a past `deadline` — the
+execute succeeds (status 1), a `StakingRejected` event fires, the reward
+bounces back to the treasury, and NO tier exists (proven on-chain: mainnet
+proposal executed with a guessed Jan-2024 deadline → `stakingsCount() == 0`).
+TokenSaleProposal has the sibling trap: only `start <= end` is validated, so
+a past sale window creates a dead-on-arrival tier (every buy reverts
+"TSP: token sale is over").
+
+- `create_staking_tier` builder refuses `deadline <= now` and
+  `startedAt >= deadline` before any transaction, naming the silent-reject
+  behavior.
+- `buildTierTuple` (token_sale / token_sale_multi / `dexe_otc_dao_open_sale`)
+  refuses `saleEndTime <= now` and `saleStartTime > saleEndTime`.
+- `dexe_read_staking_info`: `stakingsCount()` decode failure now warns instead
+  of silently reading as "0 tiers" (same W39 rule as `getActiveStakings`).
+- New `timestamps-future` gotcha (danger) + interview specs updated: compute
+  Unix timestamps from the CURRENT time, never guess the date, and leave
+  voting-period headroom before the window.
+
 ### Wiring
 
 Server `instructions` + the composite descriptions (`dexe_dao_create`,

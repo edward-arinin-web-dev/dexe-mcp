@@ -167,17 +167,19 @@ describe("v0.22 new builders (byte-parity)", () => {
 
   it("create_staking_tier prepends approve for ERC20 rewards", async () => {
     const b = PROPOSAL_BUILDERS.create_staking_tier!;
+    const startedAt = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 86400);
     const out = await b.build(
       b.schema.parse({
         stakingProposal: DIST, rewardToken: TOKEN, rewardAmount: "777",
-        startedAt: "1000", deadline: "2000", stakingMetadataUrl: "ipfs://x",
+        startedAt: String(startedAt), deadline: String(deadline), stakingMetadataUrl: "ipfs://x",
       }),
       deps,
     );
     expect(out.actionsOnFor).toHaveLength(2);
     expect(out.actionsOnFor[0]!.data).toBe(ERC20.encodeFunctionData("approve", [DIST, 777n]));
     expect(out.actionsOnFor[1]!.data).toBe(
-      STAKING.encodeFunctionData("createStaking", [TOKEN, 777n, 1000n, 2000n, "ipfs://x"]),
+      STAKING.encodeFunctionData("createStaking", [TOKEN, 777n, startedAt, deadline, "ipfs://x"]),
     );
     expect(out.category).toBe("createStakingTier");
   });
@@ -188,7 +190,7 @@ describe("v0.22 new builders (byte-parity)", () => {
       b.build(
         b.schema.parse({
           rewardToken: TOKEN, rewardAmount: "777",
-          startedAt: "1000", deadline: "2000", stakingMetadataUrl: "ipfs://x",
+          startedAt: String(Math.floor(Date.now() / 1000) + 3600), deadline: String(Math.floor(Date.now() / 1000) + 30 * 86400), stakingMetadataUrl: "ipfs://x",
         }),
         deps,
       ),

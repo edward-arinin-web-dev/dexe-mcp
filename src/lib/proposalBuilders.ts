@@ -730,6 +730,28 @@ const createStakingTierBuilder: CatalogBuilder = {
     const stakingProposal = p.stakingProposal ?? (await resolveStakingProposal(deps));
     if (!isAddress(stakingProposal)) throw new Error(`Invalid stakingProposal: ${stakingProposal}`);
     if (!isAddress(p.rewardToken)) throw new Error(`Invalid rewardToken: ${p.rewardToken}`);
+    // StakingProposal.createStaking SILENTLY rejects a past deadline: the
+    // execute succeeds (status 1), the reward bounces back to the treasury,
+    // a StakingRejected event is emitted, and NO tier exists. Proven on-chain
+    // 2026-07-23 (mainnet proposal executed with a 2024 deadline → 0 tiers).
+    // Refuse here, before any transaction — and remember the deadline must
+    // still be in the future when the proposal EXECUTES, not just now.
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const startedAt = BigInt(p.startedAt);
+    const deadline = BigInt(p.deadline);
+    if (startedAt >= deadline) {
+      throw new Error(
+        `create_staking_tier: startedAt (${p.startedAt}) must be BEFORE deadline (${p.deadline}) — the contract reverts 'SP: Invalid settings'.`,
+      );
+    }
+    if (deadline <= nowSec) {
+      throw new Error(
+        `create_staking_tier: deadline ${p.deadline} (${new Date(Number(deadline) * 1000).toISOString()}) is in the PAST — ` +
+          `current unix time is ~${nowSec}. The contract would SILENTLY reject the tier at execute (transaction succeeds, ` +
+          `no tier is created, the reward returns to the treasury). Use future timestamps computed from the current time — ` +
+          `never guess the date — and leave headroom for the voting period before execution.`,
+      );
+    }
     const iface = new Interface(STAKING_PROPOSAL_ABI as unknown as string[]);
     const createData = iface.encodeFunctionData("createStaking", [
       p.rewardToken, BigInt(p.rewardAmount), BigInt(p.startedAt), BigInt(p.deadline), p.stakingMetadataUrl,
