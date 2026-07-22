@@ -225,6 +225,83 @@ export function registerSubgraphTools(server: McpServer, ctx: ToolContext): void
   registerUserActivity(server, ctx);
   registerDaoExperts(server, ctx);
   registerOtcListSalesForDao(server, ctx);
+  registerGraphQuery(server, ctx);
+}
+
+// ---------- dexe_graph_query ----------
+
+const SUBGRAPH_URL_KEY = {
+  pools: "subgraphPoolsUrl",
+  interactions: "subgraphInteractionsUrl",
+  validators: "subgraphValidatorsUrl",
+} as const;
+
+/** Response cap — beyond this the caller should paginate, not stream megabytes into a conversation. */
+const GRAPH_QUERY_MAX_RESPONSE_CHARS = 120_000;
+
+/**
+ * Light read-only guard. The Graph gateway has no mutations, but reject the
+ * keywords up front so a bad query fails with a clear message instead of a
+ * gateway error.
+ */
+export function graphQueryGuard(query: string): string | null {
+  const stripped = query.replace(/#[^\n]*/g, "").trim();
+  if (!stripped) return "Empty query.";
+  if (/^\s*(mutation|subscription)\b/i.test(stripped)) {
+    return "Only read queries are supported (subgraphs have no mutations/subscriptions).";
+  }
+  if (!/^\s*(query\b|\{)/i.test(stripped)) {
+    return "Query must start with 'query' or '{'.";
+  }
+  return null;
+}
+
+function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_graph_query",
+    {
+      title: "Free-form GraphQL query against a DeXe subgraph",
+      description:
+        "Run ANY read-only GraphQL query against one of the three DeXe subgraphs: " +
+        "'pools' (DaoPool, Proposal, Voter, VoterInPool, VoterInPoolPair, ProposalInteraction, TokenSaleTier, ExpertNft, DelegationHistory, …), " +
+        "'interactions' (Transaction feed by type + per-event entities: DaoPoolCreate, DaoPoolDelegate, DaoPoolExecute, DaoPoolVest, DaoProposalCreate, …), " +
+        "'validators' (ValidatorInPool, Proposal, ValidatorInProposal, …). " +
+        "Full entity/field reference: docs/GRAPH.md (also summarized by dexe_guide). " +
+        "ALWAYS bound results with `first:` (max 1000) and paginate with `skip:`; oversized responses are rejected. " +
+        "Data covers BSC mainnet only (endpoints are env-bound: DEXE_SUBGRAPH_*_URL). " +
+        "Example — most active DAOs by recent proposals: subgraph='pools', query='{ proposals(first: 20, orderBy: creationTime, orderDirection: desc) { pool { id } creationTime } }'.",
+      inputSchema: {
+        subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
+        query: z.string().min(1).max(10_000).describe("GraphQL query document (read-only)"),
+        variables: z.record(z.unknown()).optional().describe("GraphQL variables referenced by the query"),
+      },
+    },
+    async ({ subgraph, query, variables }) => {
+      const guardError = graphQueryGuard(query);
+      if (guardError) return errorResult(guardError);
+      const url = requireUrl(ctx, SUBGRAPH_URL_KEY[subgraph]);
+      if (!url) return errorResult(`${ENV_HINT[SUBGRAPH_URL_KEY[subgraph]]} is not set.`);
+      try {
+        const data = await gqlRequest<Record<string, unknown>>(url, query, variables as Record<string, unknown> | undefined);
+        const json = JSON.stringify(data);
+        if (json.length > GRAPH_QUERY_MAX_RESPONSE_CHARS) {
+          return errorResult(
+            `Response too large (${json.length} chars > ${GRAPH_QUERY_MAX_RESPONSE_CHARS}). ` +
+              `Narrow the selection set or paginate with first/skip.`,
+          );
+        }
+        const topLevel = Object.entries(data)
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? `${v.length} row(s)` : typeof v}`)
+          .join(", ");
+        return {
+          content: [{ type: "text" as const, text: `graph_query(${subgraph}) → ${topLevel}` }],
+          structuredContent: { subgraph, data },
+        };
+      } catch (err) {
+        return errorResult(`graph_query failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
 }
 
 // ---------- tools ----------

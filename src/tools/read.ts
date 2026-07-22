@@ -77,6 +77,7 @@ export function registerReadTools(server: McpServer, ctx: ToolContext): void {
   registerTreasury(server, rpc);
   registerTokenHolders(server, rpc);
   registerDaoStats(server, rpc);
+  registerProtocolStats(server);
   registerNftsByWallet(server, rpc);
   registerValidators(server, rpc);
   registerSettings(server, rpc);
@@ -511,6 +512,120 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(`read_dao_stats failed: ${safeErrorMessage(err)}`);
+      }
+    },
+  );
+}
+
+/** Evenly downsample a series to at most `max` points, always keeping first and last. */
+export function downsample<T>(rows: T[], max: number): T[] {
+  if (rows.length <= max) return rows;
+  const out: T[] = [];
+  const step = (rows.length - 1) / (max - 1);
+  for (let i = 0; i < max; i++) out.push(rows[Math.round(i * step)]!);
+  return out;
+}
+
+function registerProtocolStats(server: McpServer): void {
+  server.registerTool(
+    "dexe_read_protocol_stats",
+    {
+      title: "Protocol-wide stats — TVL, proposals, DAOs across chains",
+      description:
+        "The app.dexe.io landing-page numbers: total TVL across ALL DAOs (server-side aggregated over `chainIds`), total proposals created, total DAO count, voting-locked token value, 24h change percents, and a TVL time series. Optionally includes the top-N DAOs by TVL per chain (name, addresses, token symbol, TVL, treasury). Backend-only — mainnets (1, 56).",
+      inputSchema: {
+        chainIds: z
+          .array(z.number().int().positive())
+          .min(1)
+          .default([1, 56])
+          .describe("Chains to aggregate over (backend supports 1 = Ethereum, 56 = BSC)"),
+        period: z.string().default("24 hours").describe("Change-percent window, e.g. '24 hours' (the value app.dexe.io uses)"),
+        maxDots: z
+          .number()
+          .int()
+          .min(0)
+          .max(2000)
+          .default(30)
+          .describe("Cap on TVL time-series points (evenly downsampled; 0 = omit the series)"),
+        topDaos: z
+          .number()
+          .int()
+          .min(0)
+          .max(50)
+          .default(10)
+          .describe("Include the top-N DAOs by TVL (merged across chainIds; 0 = skip)"),
+      },
+      outputSchema: {
+        chainIds: z.array(z.number()),
+        period: z.string(),
+        summary: z.record(z.unknown()),
+        tvlDots: z.array(z.record(z.unknown())),
+        tvlDotsTotal: z.number(),
+        top: z.array(z.record(z.unknown())),
+      },
+    },
+    async ({ chainIds = [1, 56], period = "24 hours", maxDots = 30, topDaos = 10 }) => {
+      try {
+        const json = await backendGetJson<{
+          data?: { attributes?: Record<string, unknown> };
+        }>(
+          `/integrations/tracker/pools/gov/summary-stats/${encodeURIComponent(period)}?filter[chain_ids]=${chainIds.join(",")}`,
+        );
+        const attrs = json.data?.attributes ?? {};
+        const allDots = (attrs.tvl_dots as Array<Record<string, unknown>> | undefined) ?? [];
+        const { tvl_dots: _omit, ...summary } = attrs;
+
+        let top: Array<Record<string, unknown>> = [];
+        if (topDaos > 0) {
+          const perChain = await Promise.all(
+            chainIds.map(async (cid) => {
+              try {
+                const t = await backendGetJson<{ data?: Array<{ attributes?: Record<string, unknown> }> }>(
+                  `/integrations/tracker/${cid}/pools/gov/top`,
+                );
+                return (t.data ?? []).map((d) => d.attributes ?? {});
+              } catch {
+                return []; // a chain the tracker doesn't index shouldn't sink the whole call
+              }
+            }),
+          );
+          top = perChain
+            .flat()
+            .sort((a, b) => Number(b.tvl_usd ?? 0) - Number(a.tvl_usd ?? 0))
+            .slice(0, topDaos)
+            .map((d) => ({
+              chainId: d.chain_id,
+              govPool: d.gov_pool_address,
+              name: d.gov_pool_name,
+              tokenSymbol: d.gov_token_symbol,
+              tvlUsd: d.tvl_usd,
+              treasuryUsd: d.treasury_assets_usd,
+              membersCount: d.total_members_count,
+              proposalsCount: d.total_proposals_count,
+            }));
+        }
+
+        const structured = {
+          chainIds,
+          period,
+          summary,
+          tvlDots: maxDots > 0 ? downsample(allDots, maxDots) : [],
+          tvlDotsTotal: allDots.length,
+          top,
+        };
+        const text =
+          `Protocol stats (chains ${chainIds.join(",")}, period '${period}')\n` +
+          `  TVL: $${summary.tvl_usd ?? "?"} (${summary.tvl_changes_percent ?? "?"}% / ${period}) across ${summary.total_pools_count ?? "?"} DAOs\n` +
+          `  proposals: ${summary.total_proposals_count ?? "?"} total (${summary.proposals_changes_percent ?? "?"}%), voting-locked: $${summary.voting_locked_tokens ?? "?"}\n` +
+          (top.length
+            ? `  top by TVL: ${top
+                .slice(0, 5)
+                .map((t) => `${t.name} ($${String(t.tvlUsd).split(".")[0]})`)
+                .join(", ")}${top.length > 5 ? ` … +${top.length - 5}` : ""}`
+            : "");
+        return { content: [{ type: "text" as const, text }], structuredContent: structured };
+      } catch (err) {
+        return errorResult(`read_protocol_stats failed: ${safeErrorMessage(err)}`);
       }
     },
   );

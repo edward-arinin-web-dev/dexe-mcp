@@ -3,7 +3,7 @@
 Short, verified scenarios that show what an AI agent wired to dexe-mcp can do for you.
 Each case: what you say → what happens → which tools fire. ✅ = verified live (date,
 chain, evidence). For exact call recipes see [PLAYBOOK.md](PLAYBOOK.md); for worked
-JSON examples see [USAGE.md](USAGE.md); for the full 160-tool catalog see [TOOLS.md](TOOLS.md).
+JSON examples see [USAGE.md](USAGE.md); for the full 163-tool catalog see [TOOLS.md](TOOLS.md).
 
 Reads need ZERO configuration. Writes need a signer (WalletConnect or a hot key —
 see [SETUP.md](SETUP.md)). Amounts accept raw wei or human units ("12.5").
@@ -33,7 +33,7 @@ drives the validator round if the DAO has one). ✅ 2026-07-23 chain 97 (Bramble
 > "What's my status in DAO X? Deposit 500 tokens, vote on the open proposal, claim anything claimable."
 
 `dexe_vote_user_power` → `dexe_vote_build_deposit` → `dexe_vote_build_vote` →
-`dexe_vote_build_claim_rewards`. The inbox (case 13) tells you what needs attention
+`dexe_vote_build_claim_rewards`. The inbox (case 15) tells you what needs attention
 first. ⚠ Tokens stay locked while a voted proposal is live — withdraw between
 proposals, not during.
 
@@ -80,11 +80,23 @@ tx hash. ✅ 2026-07-23 chain 56 (Silverpine #16: 2 voters, one of them another 
 `dexe_dao_registry_lookup` (PoolRegistry.isGovPool) + `dexe_read_dao_members`
 (APR, delegations, rewards, expert status per member). ✅ 2026-07-23.
 
-### Coming in 0.27
-- **"Most active DAOs in the last N days"** — arbitrary subgraph queries
-  (`dexe_graph_query`) over the pools / interactions / validators subgraphs.
-- **Protocol-wide stats** — total TVL across all DAOs, global proposal counts
-  (`dexe_read_protocol_stats`).
+### 12. "Which DAOs were most active in the last N days?"
+> "Show me the most active DAOs over the last month."
+
+`dexe_graph_query` — free-form GraphQL over the three DeXe subgraphs (entity
+reference: [GRAPH.md](GRAPH.md)). The agent writes the query itself, e.g.
+`daoProposalCreates(where: { transaction_: { timestamp_gt: $since } })` grouped
+by pool. ✅ 2026-07-23: 33 proposals / 8 DAOs in 30d, top DAO identified.
+⚠ pools `Proposal` has no creation timestamp — time-windowed activity comes from
+the interactions subgraph.
+
+### 13. "How big is DeXe governance overall?"
+> "Total TVL across all DAOs? How many DAOs and proposals exist?"
+
+`dexe_read_protocol_stats` — the app.dexe.io landing numbers: protocol TVL
+(server-aggregated over chains 1+56), total proposals, DAO count, voting-locked
+value, TVL time series, top-N DAOs by TVL. ✅ 2026-07-23: $817.5M TVL across
+239 DAOs, 710 proposals, top-10 leaderboard.
 
 ---
 
@@ -95,7 +107,7 @@ makes them ideal loop bodies for Claude Code's `/loop` (in-session recurring run
 and `/schedule` (cloud cron). The diffing memory lives in the conversation — the
 agent remembers the last-seen state between iterations.
 
-### 12. Proposal watchdog
+### 14. Proposal watchdog
 > `/loop 2h — Check DAOs 0xAAA…, 0xBBB… for proposals newer than the last id you reported. For each new one: dexe_decode_proposal + dexe_proposal_risk_assess, then give me a one-line verdict each.`
 
 Loop body: `dexe_proposal_list` (compare `proposalId` against last seen) →
@@ -103,7 +115,7 @@ Loop body: `dexe_proposal_list` (compare `proposalId` against last seen) →
 2026-07-23 (list → decode → risk on live mainnet proposals; SAFE verdict with
 treasury-at-risk readout).
 
-### 13. Personal governance inbox / daily digest
+### 15. Personal governance inbox / daily digest
 > `/schedule daily 9am — Run dexe_user_inbox for 0xME…; summarize unvoted proposals (with deadlines), claimable rewards, and locked deposits. Message me only if something needs action.`
 
 `dexe_user_inbox` auto-discovers your DAOs (mainnet) and returns unvoted proposals,
@@ -111,15 +123,15 @@ claimable rewards (static + voting + off-chain, per-proposal ids), locked deposi
 ✅ 2026-07-23 chain 56: 7 DAOs discovered, 785k tokens of claimable rewards surfaced.
 ⚠ It's a point-in-time snapshot — pair with /loop//schedule for monitoring.
 
-### 14. Quorum tracker
+### 16. Quorum tracker
 > `/loop 30m — dexe_proposal_state for DAO X proposal N. Tell me when votesFor crosses requiredQuorum or voteEnd is <6h away and I haven't voted (dexe_gov_has_voted / dexe_user_inbox).`
 
-### 15. Treasury monitor
+### 17. Treasury monitor
 > `/loop 6h — dexe_read_treasury for DAO X. Compare with the balances you saw last time; alert me on any change >1%.`
 
 Auto-discovers every token with USD prices. ✅ 2026-07-23 chain 56.
 
-### 16. Policy-based auto-voter (handle with care)
+### 18. Policy-based auto-voter (handle with care)
 > `/loop 4h — For new proposals in DAO X: dexe_proposal_risk_assess + dexe_decode_proposal. If verdict SAFE and it's a profile/metadata change, vote FOR with dexe_proposal_vote_and_execute. If it touches the treasury or settings, do NOT vote — send me the readout instead.`
 
 The risk tools are built for exactly this split: `treasuryTouching`, `quorumPct`,
@@ -127,14 +139,14 @@ per-action decode. ⚠ Keep treasury- and settings-touching proposals on the
 human-approval side of your policy. Advisories (`treasuryRisk`) fire automatically
 on execute paths.
 
-### 17. Token-sale monitor
+### 19. Token-sale monitor
 > `/loop 12h — dexe_otc_list_sales_for_dao for DAO X; alert me when a new tier opens or one I follow crosses 80% sold.`
 
 ---
 
 ## D. Proposal analysis & due diligence
 
-### 18. "Is this proposal safe? Who profits?"
+### 20. "Is this proposal safe? Who profits?"
 > "Analyze proposal 16 in DAO X — anything suspicious?"
 
 `dexe_decode_proposal` (every action decoded against known ABIs, `privileged` flag)
@@ -143,7 +155,7 @@ can move, share of supply needed to force it through, whether controlling holder
 already voted) + `dexe_sim_proposal` (will execute revert?). ✅ 2026-07-23 chain 56:
 transfer decoded to recipient+amount, verdict SAFE, treasury-at-risk listed.
 
-### 19. DAO due diligence before you join or buy
+### 21. DAO due diligence before you join or buy
 > "I'm considering buying into DAO X — check its governance safety."
 
 Composite: `dexe_read_settings` (labeled fields + derived `quorumPct` — is quorum
@@ -152,7 +164,7 @@ quorum alone?) + `dexe_read_validators` (is there a validator chamber?) +
 `dexe_read_dao_stats` (is it alive?). The quorum-attack math: quorumPct × supply vs
 what's buyable on market. ✅ components verified 2026-07-23.
 
-### 20. Rehearse before you broadcast
+### 22. Rehearse before you broadcast
 `dexe_sim_calldata` / `dexe_sim_proposal` / `dexe_sim_buy` — eth_call preflight with
 revert-reason decode; `dryRun: true` on every composite returns the ordered
 TxPayloads without broadcasting.
@@ -161,7 +173,7 @@ TxPayloads without broadcasting.
 
 ## E. Advanced operations
 
-### 21. Call ANY smart contract through your DAO
+### 23. Call ANY smart contract through your DAO
 > "Make the DAO approve 12,345 tokens allowance to our ops lead."
 
 `dexe_proposal_create` with `proposalType: "custom_abi"` — `{target, signature
@@ -171,27 +183,27 @@ voted → executed → on-chain `allowance(dao, ops)` read back **exactly 12,345
 ⚠ signature must be a full fragment starting with `function `; privileged
 accounting selectors are refused by the selector guard.
 
-### 22. OTC token sale, end to end
+### 24. OTC token sale, end to end
 Open a multi-tier sale, buyers check status / buy / claim vesting — five
 `dexe_otc_*` composites. Full recipe: [OTC.md](OTC.md). ✅ mainnet lifecycle
 2026-07-03 (Solstice Guild) + campaign 2026-07-22.
 
-### 23. Cross-DAO delegation — one DAO votes in another
+### 25. Cross-DAO delegation — one DAO votes in another
 A DAO's treasury delegates voting power to another DAO (or any address), which then
 votes with it. Recipe: `dexe_vote_build_delegate` from the treasury via proposal,
 delegatee votes normally. ✅ live on mainnet: Silverpine #16 was voted by the
 Driftwood DAO with 500k delegated tokens (2026-07-22).
 
-### 24. Beyond DeXe: Uniswap / Compound / Optimism governance
+### 26. Beyond DeXe: Uniswap / Compound / Optimism governance
 The 18 `dexe_gov_*` tools speak OpenZeppelin Governor + Compound Bravo: read
 proposals/quorum/state, build vote/queue/execute payloads, simulate.
 See [GOVERNOR.md](GOVERNOR.md).
 
-### 25. Safe{Wallet} multisig ops
+### 27. Safe{Wallet} multisig ops
 Queue any built payload to a Safe instead of broadcasting from a hot key —
 `dexe_safe_propose_tx` / `dexe_safe_info`. See [SAFE.md](SAFE.md).
 
-### 26. Staking programs, validators, experts, blacklists…
+### 28. Staking programs, validators, experts, blacklists…
 Every one of the 33 catalog proposal types is a one-call `dexe_proposal_create`
 away: `create_staking_tier` + `enable_staking`, `manage_validators` (verified to
 actually change validator balances — read back with `dexe_read_validator_list`),

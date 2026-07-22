@@ -6,9 +6,29 @@ something on your side.
 
 ---
 
+## 0.26.0 → 0.27.0 — no action; richer read outputs
+
+Additive only. Tool count 161 → **163 tools**: new `dexe_graph_query`
+(free-form read-only GraphQL over the three DeXe subgraphs — entity reference
+in `docs/GRAPH.md`) and `dexe_read_protocol_stats` (protocol-wide TVL /
+proposals / DAO count + top-N leaderboard). Output-shape notes if you parse
+tool results programmatically:
+
+- `dexe_read_settings` now returns field-labeled objects (`earlyCompletion`,
+  `duration`, `quorum`, … + derived `quorumPct`) instead of positional arrays.
+- `dexe_read_dao_stats` downsamples to `maxPoints` (default 30) — pass a
+  higher `maxPoints` if you consumed the full raw series.
+- `dexe_user_inbox` claimableRewards items: `totalAmount` now includes voting
+  + off-chain rewards (was static-only and wrong), `proposalIds` now contains
+  REAL proposal ids, new `rewardTokens` / `offchainTotal` / `offchainTokens`.
+- `dexe_read_delegation_map` `addresses` now takes plain wallet addresses
+  (composite ids still accepted and normalized).
+
+---
+
 ## 0.25.0 → 0.26.0 — no action; call `dexe_guide` first for multi-step work
 
-Additive only. Tool count 160 → **161 tools**: new `dexe_guide` (core toolset,
+Additive only. Tool count 160 → **161**: new `dexe_guide` (core toolset,
 always visible) serves the protocol knowledge layer — flow plans, interview
 questions with risk notes, and the gotcha corpus, resolved for your active
 chain and session state. Agents should call it FIRST for any multi-step
@@ -251,7 +271,7 @@ session) + a persistent state file. Optional `DEXE_STATE_PATH` override.
 ## 0.12.x → 0.13.0 — slim default toolset (BREAKING)
 
 **TL;DR.** A default session now loads a slim subset (**72 tools** as of the
-current 161-tool surface), not everything. If a tool
+current 163-tool surface), not everything. If a tool
 you scripted against is "missing", set `DEXE_TOOLSETS=full` to restore the old
 behavior, or add the profile that owns it.
 
