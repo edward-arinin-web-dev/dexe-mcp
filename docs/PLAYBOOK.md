@@ -35,7 +35,8 @@ source to figure out parameters. Also served as the MCP resource `dexe://playboo
 | "Change voting settings/quorum/duration" | `dexe_proposal_create` | `proposalType:"change_voting_settings"`, `params:{govSettings, settings:[…], settingsIds:["0"]}` — id 0 = default settings, 1 = internal |
 | "Add/remove an expert" | `dexe_proposal_create` | `proposalType:"add_expert"/"remove_expert"`, `params:{expertNftContract, scope, nominatedUser}` |
 | "Delegate treasury to an expert" | `dexe_proposal_create` | `proposalType:"delegate_to_expert"`, `params:{expert, amount}` |
-| "Vote on / pass / execute proposal N" | `dexe_proposal_vote_and_execute` | `{govPool, proposalId}` — auto-deposits, auto-executes |
+| "Vote on / pass / execute proposal N" | `dexe_proposal_vote_and_execute` | `{govPool, proposalId}` — auto-deposits, auto-drives the validator round (move→validator-vote→execute when signer is a validator), auto-executes; `driveValidatorRound:false` to stop after member vote |
+| "Log me in to off-chain voting" | `dexe_auth_login` | `{}` — signs the nonce internally when a signer is set, returns the Bearer `accessToken` (never write key-parsing code for this) |
 | "What state is proposal N in?" | `dexe_proposal_state` / `dexe_proposal_list` | `{govPool, proposalId}` |
 | "Run an OTC / token sale" | `dexe_otc_dao_open_sale` | `{govPool, tokenSaleProposal, tiers:[…]}` then vote_and_execute |
 | "Buy from the sale / claim my tokens" | `dexe_otc_buyer_buy` / `dexe_otc_buyer_claim_all` | `{tokenSaleProposal, tierId, tokenToBuyWith, amount}` |

@@ -36,13 +36,13 @@ Additive only. `dexe_dao_create` SIMPLE mode accepts two new optional fields:
 `minVotesTokens` (default `"1"`) and `earlyCompletion` (default `true`).
 Omitting both reproduces 0.22.0 behavior exactly — min-votes = 1 token clamped
 to the distributed supply, early completion on. Tool count unchanged
-(159 / 19 groups).
+(160 / 19 groups).
 
 ---
 
 ## 0.21.x → 0.22.0 — composite-first everywhere (4 behavior changes)
 
-**TL;DR.** Docs overhaul + reliability release. Tool count unchanged (159 / 19
+**TL;DR.** Docs overhaul + reliability release. Tool count unchanged (160 / 19
 groups, default `core,proposals` = 72). Four behavior changes can affect
 scripts; everything else is additive. New quick map:
 [`docs/PLAYBOOK.md`](./PLAYBOOK.md) (also the MCP resource `dexe://playbook`).
@@ -239,7 +239,7 @@ session) + a persistent state file. Optional `DEXE_STATE_PATH` override.
 ## 0.12.x → 0.13.0 — slim default toolset (BREAKING)
 
 **TL;DR.** A default session now loads a slim subset (**72 tools** as of the
-current 159-tool surface), not everything. If a tool
+current 160-tool surface), not everything. If a tool
 you scripted against is "missing", set `DEXE_TOOLSETS=full` to restore the old
 behavior, or add the profile that owns it.
 

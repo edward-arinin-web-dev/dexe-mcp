@@ -75,6 +75,18 @@ export class SignerManager {
   }
 
   /**
+   * Sign an arbitrary message (EIP-191 personal_sign) with the configured EOA
+   * key. Used for off-chain backend auth (nonce login) — the same opt-in signer
+   * surface as `requireSigner`/`dexe_tx_send`, so an AI agent never has to
+   * extract the key into its own signing code. Chain-agnostic (no provider
+   * needed for message signing). Throws if no key is set.
+   */
+  async signMessage(message: string): Promise<string> {
+    if (!this.key) this.failNoKey();
+    return new Wallet(this.key).signMessage(message);
+  }
+
+  /**
    * Serialize broadcasts per chain. Concurrent `dexe_tx_send` / composite-flow
    * calls that share this signer would otherwise invoke `sendTransaction` at
    * the same time, both read the same pending nonce, and one transaction is

@@ -68,7 +68,6 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerProposalBuildTools(server, ctx);
   registerProposalBuildMoreTools(server, ctx);
   registerProposalBuildComplexTools(server, ctx);
-  registerProposalBuildOffchainTools(server, ctx);
   registerProposalBuildInternalTools(server, ctx);
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
@@ -87,6 +86,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   // Diagnostics — call dexe_doctor first when env-related failures show up.
   registerDoctorTool(server, config);
   registerWalletConnectTools(server, config, signer, wc);
+  registerProposalBuildOffchainTools(server, ctx, signer, wc);
   registerFlowTools(server, ctx, signer, wc, state);
   registerDaoCreateTools(server, ctx, signer, wc, state);
   registerOperationalContextTools(server, config, signer, state);

@@ -56,6 +56,7 @@ const GOV_POOL_ABI = new Interface([
   "function createProposalAndVote(string _descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst, uint256 voteAmount, uint256[] voteNftIds)",
   "function createProposal(string _descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst)",
   "function vote(uint256 proposalId, bool isVoteFor, uint256 voteAmount, uint256[] voteNftIds)",
+  "function moveProposalToValidators(uint256 proposalId)",
   "function execute(uint256 proposalId)",
   "function multicall(bytes[] data) returns (bytes[])",
   "function deposit(uint256 amount, uint256[] nftIds) payable",
@@ -74,6 +75,17 @@ const USER_KEEPER_ABI = new Interface([
 
 const SETTINGS_ABI = new Interface([
   "function getDefaultSettings() view returns (tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription))",
+]);
+
+const GOV_VALIDATORS_VOTE_ABI = new Interface([
+  "function isValidator(address user) view returns (bool)",
+  "function govValidatorsToken() view returns (address)",
+  // Arg order differs from GovPool.vote — amount BEFORE isVoteFor.
+  "function voteExternalProposal(uint256 proposalId, uint256 amount, bool isVoteFor)",
+]);
+
+const VALIDATOR_TOKEN_ABI = new Interface([
+  "function balanceOf(address) view returns (uint256)",
 ]);
 
 // ---------- types ----------
@@ -1192,6 +1204,108 @@ async function runInternalProposalCreate(
   );
 }
 
+/**
+ * P1-a: drive a proposal through the VALIDATOR round after member voting.
+ * DeXe proposals with validators need a second stage the member-vote path does
+ * not touch: GovPool.moveProposalToValidators → GovValidators.voteExternalProposal
+ * → (state becomes SucceededFor/Against) → execute. Previously an agent had to
+ * hand-build these ~3 raw txs. This helper advances as far as the configured
+ * signer can: it always moves a WaitingForVotingTransfer proposal, and casts a
+ * validator vote ONLY when the signer is itself a validator with a balance.
+ * Returns the resulting steps + final state. Never throws — read failures just
+ * stop progress and return the current state. Skipped entirely under dryRun
+ * (state can't advance without real broadcasts).
+ */
+async function driveValidatorRound(args: {
+  provider: JsonRpcProvider;
+  signer: SignerManager;
+  wc?: WalletConnectManager;
+  chainId: number;
+  govPool: string;
+  validators: string;
+  proposalId: number;
+  isVoteFor: boolean;
+  signerAddress: string;
+  dryRun: boolean;
+}): Promise<{ steps: FlowStep[]; state: number; failure?: FlowFailure }> {
+  const { provider, signer, wc, chainId, govPool, validators, proposalId, isVoteFor, signerAddress, dryRun } = args;
+  const steps: FlowStep[] = [];
+
+  const readState = async (): Promise<number> => {
+    const r = await multicall(provider, [
+      { target: govPool, iface: GOV_POOL_ABI, method: "getProposalState", args: [proposalId] },
+    ]);
+    return r[0]!.success ? Number(r[0]!.value) : -1;
+  };
+
+  // A state-changing tx and the getProposalState read can land in the same block
+  // on some RPCs, so an immediate single read lags (the just-cast validator vote
+  // that meets quorum still reads as ValidatorVoting). Poll a few times until the
+  // state moves off `from`, so a single call can carry the proposal to execute.
+  const readStateSettled = async (from: number): Promise<number> => {
+    let s = await readState();
+    for (let i = 0; i < 4 && s === from; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      s = await readState();
+    }
+    return s;
+  };
+
+  let state = await readState();
+
+  // Stage 1 — move a member-passed proposal into the validator queue.
+  if (state === 1) {
+    const r = await sendOrCollect(
+      signer,
+      [makeTxPayload(govPool, GOV_POOL_ABI, "moveProposalToValidators", [proposalId], chainId, `GovPool.moveProposalToValidators(${proposalId})`)],
+      { dryRun, chainId, wc },
+    );
+    steps.push(...r.steps);
+    if (r.mode === "failed") return { steps, state, failure: r.failure };
+    if (r.mode !== "executed") return { steps, state }; // dryRun/payloads — can't progress
+    state = await readStateSettled(1);
+  }
+
+  // Stage 2 — cast the signer's validator vote, only if it IS a validator with a balance.
+  if (state === 2) {
+    const vr = await multicall(provider, [
+      { target: validators, iface: GOV_VALIDATORS_VOTE_ABI, method: "isValidator", args: [signerAddress] },
+      { target: validators, iface: GOV_VALIDATORS_VOTE_ABI, method: "govValidatorsToken", args: [] },
+    ]);
+    const isVal = vr[0]?.success ? Boolean(vr[0]!.value) : false;
+    const tokenAddr = vr[1]?.success ? (vr[1]!.value as string) : undefined;
+    if (!isVal || !tokenAddr) {
+      steps.push({
+        label: "GovValidators.voteExternalProposal",
+        skipped: true,
+        reason: isVal
+          ? "Could not resolve the validators token to read the signer's balance."
+          : "The configured signer is not a validator of this DAO — its validators must cast their own votes.",
+      });
+      return { steps, state };
+    }
+    const balRes = await multicall(provider, [
+      { target: tokenAddr, iface: VALIDATOR_TOKEN_ABI, method: "balanceOf", args: [signerAddress] },
+    ]);
+    const balance = balRes[0]?.success ? (balRes[0]!.value as bigint) : 0n;
+    if (balance === 0n) {
+      steps.push({ label: "GovValidators.voteExternalProposal", skipped: true, reason: "Signer's validator balance is 0." });
+      return { steps, state };
+    }
+    const r = await sendOrCollect(
+      signer,
+      [makeTxPayload(validators, GOV_VALIDATORS_VOTE_ABI, "voteExternalProposal", [proposalId, balance, isVoteFor], chainId, `GovValidators.voteExternalProposal(${proposalId}, ${balance}, ${isVoteFor})`)],
+      { dryRun, chainId, wc },
+    );
+    steps.push(...r.steps);
+    if (r.mode === "failed") return { steps, state, failure: r.failure };
+    if (r.mode !== "executed") return { steps, state };
+    state = await readStateSettled(2);
+  }
+
+  return { steps, state };
+}
+
 // ---------- register ----------
 
 export function registerFlowTools(
@@ -1326,6 +1440,14 @@ export function registerFlowTools(
             "voteAmount. true: deposit the full wallet balance. false: never deposit (vote with already-deposited power only).",
         ),
       autoExecute: z.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
+      driveValidatorRound: z
+        .boolean()
+        .default(true)
+        .describe(
+          "When autoExecute is on and the proposal enters the validator stage (WaitingForVotingTransfer/ValidatorVoting), " +
+            "auto-drive it: moveProposalToValidators, and — if the configured signer is a validator — cast its validator " +
+            "vote, then execute. Set false to stop after the member vote and handle the validator round manually.",
+        ),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
     },
@@ -1387,10 +1509,54 @@ export function registerFlowTools(
         }), execResult.pairingContent);
       }
 
+      // Entry in the validator stage (1/2): a re-run can advance it without a
+      // fresh member vote. Drive the validator round + execute when asked.
+      if ((stateNum === 1 || stateNum === 2) && input.autoExecute && input.driveValidatorRound && !input.dryRun) {
+        const helpers = await multicall(provider, [
+          { target: govPool, iface: GOV_POOL_ABI, method: "getHelperContracts", args: [] },
+        ]);
+        const validators = helpers[0]!.success ? ((helpers[0]!.value as unknown[])[2] as string) : undefined;
+        if (validators) {
+          const drive = await driveValidatorRound({
+            provider, signer, wc, chainId, govPool, validators, proposalId,
+            isVoteFor: input.isVoteFor, signerAddress: user, dryRun: false,
+          });
+          if (drive.failure) {
+            return flowFailureResult({ steps: drive.steps, failure: drive.failure }, { proposalId, proposalStateBefore: stateName });
+          }
+          const execSteps: FlowStep[] = [];
+          let executed = false;
+          if (drive.state === 4 || drive.state === 5) {
+            const treasuryRisk = await treasuryExecuteGuard({ provider, govPool, proposalId, cfg: ctx.config });
+            if (treasuryRisk) execSteps.push({ label: "treasury-risk", skipped: true, reason: treasuryRisk });
+            const execResult = await sendOrCollect(signer, [
+              makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
+            ], { dryRun: false, chainId, wc });
+            execSteps.push(...execResult.steps);
+            if (execResult.mode === "failed") {
+              return flowFailureResult({ steps: [...drive.steps, ...execSteps], failure: execResult.failure }, { proposalId, proposalStateBefore: stateName });
+            }
+            executed = true;
+          }
+          return attachPairingQr(ok({
+            mode: "executed",
+            proposalId,
+            proposalStateBefore: stateName,
+            proposalStateAfter: proposalStateName(drive.state),
+            steps: [
+              { label: "GovPool.vote", skipped: true, reason: `Proposal already past member voting ("${stateName}") — drove the validator round` },
+              ...drive.steps,
+              ...execSteps,
+            ],
+            executed,
+          }), undefined);
+        }
+      }
+
       if (stateNum !== 0) {
         const remedies: Record<number, string> = {
-          1: "It is waiting for the validator-voting transfer — check again shortly with dexe_proposal_state.",
-          2: "It is in validator voting — only the DAO's validators can act now; wait for their vote.",
+          1: "It is waiting for the validator-voting transfer — re-run with driveValidatorRound:true (default) once past voting, or check dexe_proposal_state.",
+          2: "It is in validator voting — the DAO's validators must vote; if the configured signer is a validator, re-run with driveValidatorRound:true.",
           3: "It was DEFEATED — voting is over. Create a new proposal if the change is still wanted.",
           4: "It already PASSED — re-run this call with autoExecute:true (the default) to execute it, no vote needed.",
           5: "It already passed AGAINST — re-run this call with autoExecute:true to execute the against-actions.",
@@ -1505,7 +1671,28 @@ export function registerFlowTools(
         const postRes = await multicall(provider, [
           { target: govPool, iface: GOV_POOL_ABI, method: "getProposalState", args: [proposalId] },
         ]);
-        const postState = Number(postRes[0]!.value);
+        let postState = Number(postRes[0]!.value);
+
+        // P1-a: if the member vote pushed the proposal into the validator stage,
+        // drive it (move + validator vote when the signer is a validator) before
+        // deciding on execute. Under dryRun state can't advance, so skip.
+        if ((postState === 1 || postState === 2) && input.driveValidatorRound && !input.dryRun) {
+          const helpers = await multicall(provider, [
+            { target: govPool, iface: GOV_POOL_ABI, method: "getHelperContracts", args: [] },
+          ]);
+          const validators = helpers[0]!.success ? ((helpers[0]!.value as unknown[])[2] as string) : undefined;
+          if (validators) {
+            const drive = await driveValidatorRound({
+              provider, signer, wc, chainId, govPool, validators, proposalId,
+              isVoteFor: input.isVoteFor, signerAddress: user, dryRun: false,
+            });
+            result.steps.push(...drive.steps);
+            if (drive.failure) {
+              return flowFailureResult({ steps: result.steps, failure: drive.failure }, { proposalId, proposalStateBefore: stateName, voteLanded: true });
+            }
+            postState = drive.state;
+          }
+        }
         const postStateName = proposalStateName(postState);
 
         if (postState === 4 || postState === 5) {

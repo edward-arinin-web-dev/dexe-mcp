@@ -39,6 +39,26 @@ dexe_proposal_vote_and_execute({
 - `voteAmount` defaults to all available deposited power. Pass it to vote with
   less — human units (`"250.5"`) or raw wei both work.
 
+## Validator round — driven automatically (`driveValidatorRound`, default true)
+
+DAOs with validators use **two-stage** voting: members first, then validators.
+After the member vote a proposal lands in `WaitingForVotingTransfer (1)` or
+`ValidatorVoting (2)` — NOT directly executable. With `autoExecute` +
+`driveValidatorRound` (both default true) the tool now drives that stage for you:
+
+1. `GovPool.moveProposalToValidators(id)` (member-passed → validator queue), then
+2. if the **configured signer is itself a validator** with a balance:
+   `GovValidators.voteExternalProposal(id, balance, isVoteFor)`
+   ⚠ arg order differs from `GovPool.vote` — **amount BEFORE isVoteFor**, then
+3. re-reads state; if `SucceededFor/Against` → `execute`.
+
+If the signer is **not** a validator, it moves the proposal and stops with a
+skipped-step note (the DAO's own validators must cast their votes). Set
+`driveValidatorRound: false` to stop after the member vote and drive the
+validator round manually (`dexe_vote_build_move_to_validators` →
+`dexe_vote_build_validator_vote` → `dexe_vote_build_execute`). A **re-run** of
+`vote_and_execute` on a proposal already sitting in state 1/2 also advances it.
+
 ## Partial failure → fix and re-run the SAME call
 
 A failed step returns `mode: "failed"` with a `failure` ledger:
@@ -69,6 +89,15 @@ dexe_vote_build_withdraw({ govPool: "0x…", amount: "…" })   // then broadcas
 
 Then deposit again for the next proposal (or let `dexe_proposal_create` /
 `depositFirst` re-deposit).
+
+**Locked power blocks delegation too.** A proposal that is not yet in a terminal
+state (`Defeated/ExecutedFor/ExecutedAgainst`) keeps your **entire** deposited
+balance locked. `GovPool.delegate` (and `withdraw`) then reverts
+`GovUK: overdelegation` even for a small amount. Before delegating, make sure
+every proposal you voted on is terminal — e.g. move a leftover
+`WaitingForVotingTransfer` proposal to validators and let it resolve (pass or
+Defeat it). `delegate()` self-unlocks terminal proposals; only active ones hold
+the lock.
 
 ## Preview without broadcasting
 

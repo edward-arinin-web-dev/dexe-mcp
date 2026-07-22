@@ -102,6 +102,7 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
       description:
         "Execute N independent view calls in a single RPC round-trip. Each call supplies its own ABI signature fragment, target, method, and args. Results are decoded per-call.",
       inputSchema: {
+        chainId: chainIdParam,
         calls: z
           .array(
             z.object({
@@ -127,9 +128,9 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
         ),
       },
     },
-    async ({ calls }) => {
+    async ({ chainId, calls }) => {
       try {
-        const pr = rpc.tryProvider();
+        const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const batch: Call[] = calls.map((c) => {
@@ -894,24 +895,55 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read staking tier details and user info",
       description:
-        "Reads `stakingsCount()` and `getActiveStakings()` from a StakingProposal. Optionally reads `getUserInfo(user)` for a specific user's staked amounts and pending rewards.",
+        "Reads `stakingsCount()` and `getActiveStakings()` from a StakingProposal. Pass either the StakingProposal address directly OR a `govPool` — the tool resolves the StakingProposal via GovPool.getHelperContracts().userKeeper → GovUserKeeper.stakingProposalAddress() (the same way create_staking_tier does). Optionally reads `getUserInfo(user)` for a specific user's staked amounts and pending rewards.",
       inputSchema: {
         stakingProposal: z
           .string()
+          .optional()
           .describe(
-            "StakingProposal contract address — resolve via GovUserKeeper.stakingProposalAddress() (zero address = not deployed yet)",
+            "StakingProposal contract address. Omit and pass `govPool` to auto-resolve it (zero result = staking not deployed yet).",
           ),
+        govPool: z
+          .string()
+          .optional()
+          .describe("GovPool address — auto-resolves the StakingProposal when `stakingProposal` is omitted."),
         user: z.string().optional().describe("Optional user address to get their staking details"),
         chainId: chainIdParam,
       },
     },
-    async ({ stakingProposal, user, chainId }) => {
-      if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
+    async ({ stakingProposal, govPool, user, chainId }) => {
       if (user && !isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
         const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
+        // Resolve the StakingProposal address from a GovPool when not given directly.
+        if (!stakingProposal) {
+          if (!govPool || !isAddress(govPool)) {
+            return errorResult("Provide `stakingProposal` OR a valid `govPool` to resolve it from.");
+          }
+          const helperIface = new Interface([
+            "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+          ]);
+          const keeperIface = new Interface(["function stakingProposalAddress() view returns (address)"]);
+          const hres = await multicall(provider, [
+            { target: govPool, iface: helperIface, method: "getHelperContracts", args: [], allowFailure: true },
+          ]);
+          const userKeeper = hres[0]?.success ? ((hres[0]!.value as unknown[])[1] as string) : undefined;
+          if (!userKeeper) return errorResult(`Could not read getHelperContracts() on govPool ${govPool}.`);
+          const sres = await multicall(provider, [
+            { target: userKeeper, iface: keeperIface, method: "stakingProposalAddress", args: [], allowFailure: true },
+          ]);
+          const resolved = sres[0]?.success ? (sres[0]!.value as string) : undefined;
+          if (!resolved || resolved === ZeroAddress) {
+            return errorResult(
+              `This DAO has no StakingProposal deployed yet (userKeeper.stakingProposalAddress() = ${resolved ?? "unreadable"}). ` +
+                "Deploy it first via GovUserKeeper.deployStakingProposal(), then re-read.",
+            );
+          }
+          stakingProposal = resolved;
+        }
+        if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
         const iface = new Interface(STAKING_READ_ABI as unknown as string[]);
         const baseCalls: Call[] = [
           { target: stakingProposal, iface, method: "stakingsCount", args: [], allowFailure: true },
