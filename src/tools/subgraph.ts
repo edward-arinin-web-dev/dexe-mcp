@@ -305,17 +305,24 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
     {
       title: "Delegation relationships — outgoing or incoming (subgraph)",
       description:
-        "Query delegation pairs from the pools subgraph. Use direction='outgoing' to see who a user delegated to, or 'incoming' to see who delegated to them. Requires DEXE_SUBGRAPH_POOLS_URL.",
+        "Query delegation pairs from the pools subgraph. Use direction='outgoing' to see who a user delegated to, or 'incoming' to see who delegated to them. Requires DEXE_SUBGRAPH_POOLS_URL. NOTE: the subgraph URL is env-bound to ONE chain (DEXE_SUBGRAPH_POOLS_URL); pass `chainId` matching that subgraph — a mismatch with the configured default chain is surfaced as a warning (the URL is not switched per call).",
       inputSchema: {
         addresses: z.array(z.string()).min(1).describe("VoterInPool IDs (format: govPool-voterAddress, lowercased)"),
         direction: z.enum(["outgoing", "incoming"]).default("outgoing").describe("outgoing = who I delegated to; incoming = who delegated to me"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(50),
+        chainId: chainIdParam,
       },
     },
-    async ({ addresses, direction = "outgoing", offset = 0, limit = 50 }) => {
+    async ({ addresses, direction = "outgoing", offset = 0, limit = 50, chainId }) => {
       const url = requireUrl(ctx, "subgraphPoolsUrl");
       if (!url) return errorResult(`${ENV_HINT.subgraphPoolsUrl} is not set.`);
+      const warnings: string[] = [];
+      if (chainId !== undefined && chainId !== ctx.config.defaultChainId) {
+        warnings.push(
+          `chainId ${chainId} differs from the configured default chain ${ctx.config.defaultChainId}; the pools subgraph URL is env-bound (DEXE_SUBGRAPH_POOLS_URL) and is NOT switched per call — results come from whatever chain that URL indexes. Set DEXE_SUBGRAPH_POOLS_URL to the chain you want.`,
+        );
+      }
       try {
         const lc = addresses.map((a) => a.toLowerCase());
         const query = direction === "outgoing" ? DELEGATION_MAP_QUERY : DELEGATION_INCOMING_QUERY;
@@ -325,10 +332,10 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
             : { offset, limit, voterIn: lc };
         const data = await gqlRequest<{ voterInPoolPairs: unknown[] }>(url, query, variables);
         const pairs = data.voterInPoolPairs;
-        const text = `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es)`;
+        const text = `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es)${warnings.length ? `\n⚠ ${warnings.join(" ")}` : ""}`;
         return {
           content: [{ type: "text" as const, text }],
-          structuredContent: { addresses, direction, offset, limit, delegations: pairs },
+          structuredContent: { addresses, direction, offset, limit, delegations: pairs, ...(warnings.length ? { warnings } : {}) },
         };
       } catch (err) {
         return errorResult(`read_delegation_map failed: ${err instanceof Error ? err.message : String(err)}`);

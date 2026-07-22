@@ -2,6 +2,8 @@ import { z } from "zod";
 import { isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
+import type { SignerManager } from "../lib/signer.js";
+import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { DEFAULTS } from "../config.js";
 
@@ -101,9 +103,12 @@ function requestOutputSchema() {
 export function registerProposalBuildOffchainTools(
   server: McpServer,
   _ctx: ToolContext,
+  signer?: SignerManager,
+  wc?: WalletConnectManager,
 ): void {
   registerAuthNonce(server);
   registerAuthLogin(server);
+  if (signer && wc) registerAuthLoginComposite(server, signer, wc);
   registerSingleOption(server);
   registerMultiOption(server);
   registerForAgainst(server);
@@ -172,6 +177,133 @@ function registerAuthLogin(server: McpServer): void {
       });
     },
   );
+}
+
+// ---------- auth: one-call login (signs internally) ----------
+
+/**
+ * One-call off-chain login. When a signer is configured (DEXE_PRIVATE_KEY EOA
+ * or a connected WalletConnect session — the same opt-in surface as
+ * dexe_tx_send), this fetches the nonce, signs it, and exchanges it for a
+ * Bearer access token — all inside the server. This exists so an AI agent
+ * NEVER has to write code that extracts the private key to sign the auth nonce
+ * (that pattern is exactly what off-chain flows used to force). Falls back to
+ * an instruction to use the manual build tools when no signer is available.
+ */
+function registerAuthLoginComposite(
+  server: McpServer,
+  signer: SignerManager,
+  wc: WalletConnectManager,
+): void {
+  server.registerTool(
+    "dexe_auth_login",
+    {
+      title: "Off-chain auth — one call: fetch nonce, sign, log in, return Bearer token",
+      description:
+        "Composite for DeXe off-chain backend auth. When a signer is available (DEXE_PRIVATE_KEY or a connected WalletConnect session) it GETs the nonce, signs it with the configured signer, POSTs the login, and returns the Bearer access token — no manual nonce→sign→login dance, and no need to handle the private key in agent code. Use the returned accessToken as `Authorization: Bearer <accessToken>` on off-chain proposal/vote requests (build them with dexe_proposal_build_offchain_*). If no signer is configured, returns instructions to use dexe_auth_request_nonce + dexe_auth_login_request instead.",
+      inputSchema: {
+        address: z
+          .string()
+          .optional()
+          .describe("Override the signer address (defaults to the configured EOA / connected WC account)."),
+      },
+      outputSchema: {
+        accessToken: z.string().optional(),
+        refreshToken: z.string().optional(),
+        address: z.string().optional(),
+        expiresIn: z.number().optional(),
+        signerMode: z.string().optional(),
+        note: z.string().optional(),
+      },
+    },
+    async ({ address }) => {
+      const base = requireBase();
+      if (typeof base !== "string") return errorResult(base.error);
+
+      // Resolve which signer to use — EOA key takes precedence, else a live WC session.
+      const eoa = signer.hasSigner();
+      const wcConnected = wc.isConnected();
+      if (!eoa && !wcConnected) {
+        return jsonResult({
+          note:
+            "No signer configured — cannot sign the auth nonce internally. Either set DEXE_PRIVATE_KEY " +
+            "(or run dexe_wc_connect), then re-call dexe_auth_login; OR do it manually: dexe_auth_request_nonce → " +
+            "sign the returned `message` with your wallet → dexe_auth_login_request with the signature.",
+        });
+      }
+      const signerAddress = address ?? (eoa ? signer.getAddress() : wc.account());
+      if (!signerAddress || !isAddress(signerAddress)) {
+        return errorResult(`Could not resolve a valid signer address (got: ${signerAddress ?? "none"}).`);
+      }
+      const signerMode = eoa ? "eoa" : "walletconnect";
+
+      try {
+        // Step 1 — nonce.
+        const nonceRes = await fetch(`${base}${NONCE_ENDPOINT}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: { type: "auth_nonce_request", attributes: { address: signerAddress } } }),
+        });
+        if (!nonceRes.ok) {
+          return errorResult(`Nonce request failed (HTTP ${nonceRes.status}): ${await safeBody(nonceRes)}`);
+        }
+        const nonceJson = (await nonceRes.json()) as { data?: { attributes?: { message?: string } } };
+        const message = nonceJson.data?.attributes?.message;
+        if (!message) return errorResult(`Nonce response missing message field: ${JSON.stringify(nonceJson)}`);
+
+        // Step 2 — sign (never exposes the key to the caller).
+        const signature = eoa ? await signer.signMessage(message) : await wc.signMessage(message);
+
+        // Step 3 — login.
+        const loginRes = await fetch(`${base}${LOGIN_ENDPOINT}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            data: { type: "login_request", attributes: { auth_pair: { address: signerAddress, signed_message: signature } } },
+          }),
+        });
+        if (!loginRes.ok) {
+          return errorResult(`Login failed (HTTP ${loginRes.status}): ${await safeBody(loginRes)}`);
+        }
+        const loginJson = (await loginRes.json()) as {
+          data?: { relationships?: { access_token?: { data?: { id?: string } }; refresh_token?: { data?: { id?: string } } } };
+          included?: Array<{ type?: string; attributes?: { expires_in?: number } }>;
+        };
+        const accessToken = loginJson.data?.relationships?.access_token?.data?.id;
+        const refreshToken = loginJson.data?.relationships?.refresh_token?.data?.id;
+        if (!accessToken) return errorResult(`Login response missing access_token: ${JSON.stringify(loginJson)}`);
+        const expiresIn = loginJson.included?.find((i) => i.type === "access_jwt")?.attributes?.expires_in;
+
+        return jsonResult({
+          accessToken,
+          refreshToken,
+          address: signerAddress,
+          expiresIn,
+          signerMode,
+          note:
+            "Logged in. Use `Authorization: Bearer <accessToken>` on off-chain requests " +
+            "(dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry.",
+        });
+      } catch (err) {
+        return errorResult(`Auth login failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+}
+
+async function safeBody(res: Response): Promise<string> {
+  try {
+    return (await res.text()).slice(0, 400);
+  } catch {
+    return "(no body)";
+  }
+}
+
+function jsonResult(obj: Record<string, unknown>) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(obj, null, 2) }],
+    structuredContent: obj,
+  };
 }
 
 // ---------- common proposal-body builder ----------

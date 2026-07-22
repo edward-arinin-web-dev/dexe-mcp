@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.25.0 — 2026-07-22
+
+Agent-UX improvements found while running the mainnet campaign — the validator
+round, off-chain auth, and multichain reads that made an AI agent do manual or
+unsafe work. Tool count 159 → **160** (new `dexe_auth_login`).
+
+### New: `dexe_auth_login` — one-call off-chain auth (signs internally)
+
+Off-chain proposals/votes need a Bearer token from the DeXe backend (nonce →
+sign → login). Previously the MCP only *built* those HTTP requests, so signing
+the nonce forced the agent to write code that extracts the private key — the
+exact pattern a safety classifier flags. `dexe_auth_login` does the whole dance
+inside the server when a signer is available (DEXE_PRIVATE_KEY **or** a connected
+WalletConnect session — same opt-in surface as `dexe_tx_send`) and returns
+`{ accessToken, refreshToken, expiresIn }`. `SignerManager.signMessage` and
+`WalletConnectManager.signMessage` (personal_sign) back it. Falls back to the
+manual `dexe_auth_request_nonce` / `dexe_auth_login_request` tools when no signer
+is set.
+
+### `dexe_proposal_vote_and_execute` drives the validator round
+
+DAOs with validators use two-stage voting (members, then validators). The tool
+previously stopped after the member vote when a proposal entered
+`WaitingForVotingTransfer` / `ValidatorVoting`, returning a remedy string. It now
+auto-drives that stage (new `driveValidatorRound`, default true): moves the
+proposal to validators, and — when the configured signer is itself a validator —
+casts its validator vote (`voteExternalProposal`, amount-before-isVoteFor) and
+executes. Non-validator signers move the proposal and stop with a note. A re-run
+on a proposal already in state 1/2 also advances it. Set `driveValidatorRound:
+false` for the old member-vote-only behavior.
+
+### Multichain reads
+
+- `dexe_read_multicall` now accepts `chainId` (previously always hit the default
+  chain — broke reads against a non-default chain).
+- `dexe_read_staking_info` accepts a `govPool` and **auto-resolves** the
+  StakingProposal address (`getHelperContracts().userKeeper` →
+  `stakingProposalAddress()`), like `create_staking_tier` — no need to look it up
+  by hand.
+- `dexe_read_delegation_map` accepts `chainId`; since the pools subgraph URL is
+  env-bound to one chain, a mismatch with the default chain now surfaces a
+  warning instead of silently querying the wrong chain.
+
+### Skills
+
+`dexe-create-proposal` and `dexe-vote-execute` now document the validator round,
+the `confirmRisky` quorum-danger gate, the locked-power-blocks-delegation trap
+(`GovUK: overdelegation`), the cross-DAO delegation recipe, and that
+`offchain_for_against` is not creatable (use single-option with For/Against).
+
 ## 0.24.2 — 2026-07-22
 
 Mainnet full-flow verification campaign (chain 56, fresh SphereX-era pools). All

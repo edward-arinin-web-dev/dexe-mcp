@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 
 /**
- * Toolset gating (Phase 2 / v0.13.0). Registering all 159 tools unconditionally
+ * Toolset gating (Phase 2 / v0.13.0). Registering all 160 tools unconditionally
  * costs ~50K tokens (~206 KB) of `tools/list` per session. `DEXE_TOOLSETS`
  * selects named profiles so a default session loads a slim subset.
  *
@@ -99,6 +99,7 @@ const PROPOSALS = [
   // proposalBuildOffchain.ts (+ backend auth)
   "dexe_auth_request_nonce",
   "dexe_auth_login_request",
+  "dexe_auth_login",
   "dexe_proposal_build_offchain_single_option",
   "dexe_proposal_build_offchain_multi_option",
   "dexe_proposal_build_offchain_for_against",

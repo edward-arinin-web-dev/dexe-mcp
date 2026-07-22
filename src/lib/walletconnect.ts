@@ -246,6 +246,46 @@ export class WalletConnectManager {
    * broadcast tx hash once the user approves, or rejects on timeout / rejection.
    * The wallet signs AND broadcasts — we never see a private key.
    */
+  /**
+   * Sign an arbitrary message via `personal_sign` on the paired phone wallet
+   * (the method is already requested in the session namespaces). Used for
+   * off-chain backend auth so the key never leaves the phone. Returns the
+   * 0x-hex signature.
+   */
+  async signMessage(message: string): Promise<string> {
+    const provider = await this.getProvider();
+    if (!provider.session) {
+      throw new Error("WalletConnect session not established. Call dexe_wc_connect and approve on your phone first.");
+    }
+    const account = this.account();
+    if (!account) throw new Error("WalletConnect session has no eip155 account.");
+    const chainId = this.connectedChainId ?? resolveChain(this.config).chainId;
+    // personal_sign params order (per EIP-191 / MM): [message, address].
+    const hexMessage = "0x" + Buffer.from(message, "utf8").toString("hex");
+    const timeoutMs = this.config.walletConnectApprovalTimeoutMs ?? 120000;
+    const request = provider.request<string>(
+      { method: "personal_sign", params: [hexMessage, account] },
+      `eip155:${chainId}`,
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `WalletConnect signature timed out after ${timeoutMs}ms — the phone wallet did not sign in time.`,
+            ),
+          ),
+        timeoutMs,
+      );
+    });
+    try {
+      return await Promise.race([request, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async sendTransaction(tx: WcSendTx): Promise<string> {
     const provider = await this.getProvider();
     if (!provider.session) {

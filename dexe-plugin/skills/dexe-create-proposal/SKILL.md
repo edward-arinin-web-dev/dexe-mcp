@@ -62,9 +62,13 @@ token controls (`blacklist`, `reward_multiplier`), and staking
 Internal validator types (`change_validator_balances`,
 `change_validator_settings`, `monthly_withdraw`, `offchain_internal_proposal`)
 **auto-route to `GovValidators.createInternalProposal`** — validators only, no
-deposit or UserKeeper approve. Off-chain types (`offchain_single_option` /
-`_multi_option` / `_for_against`) are rejected with the exact backend flow
-(`dexe_proposal_build_offchain_*` → auth nonce/login → authorized POST).
+deposit or UserKeeper approve. Off-chain types are on the DeXe backend, not
+on-chain: build with `dexe_proposal_build_offchain_*`, then **`dexe_auth_login`**
+(one call — signs the nonce internally when a signer is set; never write code
+that extracts the private key to sign), then POST with the Bearer token. Only
+**single-option and multi-option** off-chain voting exist in the DeXe product —
+**`offchain_for_against` is NOT creatable** (the app has no for/against creation
+path); for a binary vote use `offchain_single_option` with `["For","Against"]`.
 Discover every type + params with `dexe_proposal_catalog`.
 
 ## Example: transfer treasury tokens
@@ -113,6 +117,29 @@ image file into the conversation.
    `GovPool.withdraw` ("Gov: invalid internal data").
 10. **Blacklisted recipient** — token transfers to a blacklisted address are
     refused up front (they'd stick the proposal in `SucceededFor` forever).
+11. **Quorum-danger gate (`confirmRisky`)** — a `change_voting_settings` /
+    `new_proposal_type` build that lowers quorum below the safe floor (into
+    treasury-drain territory) is refused **before any transaction** with
+    `mode: "blocked-risky"` + `governanceAdvisories`. If the lowering is
+    intentional, re-run the SAME call with `confirmRisky: true`. CAUTION-level
+    advisories (no-timelock, unreachable validator quorum) attach to the result
+    without blocking.
+
+## Cross-DAO delegation (partner DAO votes with delegated power)
+
+A holder can delegate deposited power to another DAO's GovPool, and that DAO
+then votes in the first DAO with the delegated (micropool) power:
+
+1. `dexe_vote_build_delegate({ govPool: A, delegatee: <DAO_B govPool>, amount })`
+   → broadcast. (First make every proposal you voted on in A **terminal**, or
+   this reverts `GovUK: overdelegation` — see [[dexe-vote-execute]].)
+2. In DAO B, create a `custom` proposal whose action calls A's vote:
+   `actionsOnFor: [{ executor: A, data: <A.multicall([vote(pid, true, 0, [])])> }]`
+   (build the inner calldata with `dexe_vote_build_vote({ govPool: A, proposalId, amount: "0" })`).
+3. Pass + execute the DAO-B proposal → on execute, B calls `A.vote()` and its
+   micropool power is counted (verify with
+   `dexe_vote_get_votes(A, pid, voter: B, voteType: "MicropoolVote")`).
+   Works when A has `delegatedVotingAllowed=false` (micropool voting).
 
 ## No signer? Preview first
 
