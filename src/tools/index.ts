@@ -21,6 +21,7 @@ import { registerVoteBuildTools } from "./voteBuild.js";
 import { registerDaoDeployTools } from "./daoDeploy.js";
 import { registerSubgraphTools } from "./subgraph.js";
 import { registerTxTools } from "./txSend.js";
+import { registerAgentTools } from "./agents.js";
 import { registerGetConfigTool } from "./getConfig.js";
 import { registerDoctorTool } from "./doctor.js";
 import { registerWalletConnectTools } from "./walletconnectStatus.js";
@@ -83,6 +84,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   // Phase 3 — persistent operational state (known DAOs / recent proposals).
   const state = new StateStore(config.statePath);
   registerTxTools(server, config, signer, wc);
+  registerAgentTools(server, config, signer);
   registerGetConfigTool(server, config, signer);
   // Diagnostics — call dexe_doctor first when env-related failures show up.
   registerDoctorTool(server, config);

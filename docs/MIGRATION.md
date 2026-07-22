@@ -6,9 +6,20 @@ something on your side.
 
 ---
 
+## 0.27.0 → 0.28.0 — no action; opt-in agent keyring
+
+Additive only. Tool count 163 → **165 tools**: `dexe_agents_list` +
+`dexe_agents_fund` (both in the `vote` toolset, not the slim default). New
+optional env: `DEXE_AGENT_PK_1..16` (extra hot keys for multi-persona/swarm
+flows) and `DEXE_AGENT_FUND_MAX_WEI`. Every broadcast composite plus
+`dexe_tx_send` gained an optional `signerKey` param — omitted, behavior is
+byte-identical to 0.27.0 (primary `DEXE_PRIVATE_KEY` signs).
+
+---
+
 ## 0.26.0 → 0.27.0 — no action; richer read outputs
 
-Additive only. Tool count 161 → **163 tools**: new `dexe_graph_query`
+Additive only. Tool count 161 → **163**: new `dexe_graph_query`
 (free-form read-only GraphQL over the three DeXe subgraphs — entity reference
 in `docs/GRAPH.md`) and `dexe_read_protocol_stats` (protocol-wide TVL /
 proposals / DAO count + top-N leaderboard). Output-shape notes if you parse
@@ -271,7 +282,7 @@ session) + a persistent state file. Optional `DEXE_STATE_PATH` override.
 ## 0.12.x → 0.13.0 — slim default toolset (BREAKING)
 
 **TL;DR.** A default session now loads a slim subset (**72 tools** as of the
-current 163-tool surface), not everything. If a tool
+current 165-tool surface), not everything. If a tool
 you scripted against is "missing", set `DEXE_TOOLSETS=full` to restore the old
 behavior, or add the profile that owns it.
 

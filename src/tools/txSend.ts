@@ -73,9 +73,25 @@ export function registerTxTools(
         .max(12)
         .default(1)
         .describe("Confirmations to wait (0 = fire-and-forget)"),
+      signerKey: z
+        .string()
+        .optional()
+        .describe("Keyring signer: omit = primary key; 'agent<n>' or address = DEXE_AGENT_PK_* key. Hot-key mode only."),
     },
-    async ({ to, data, value, chainId, gasLimit, waitConfirmations }) => {
+    async ({ to, data, value, chainId, gasLimit, waitConfirmations, signerKey }) => {
       const chain = resolveChain(config, chainId);
+
+      if (signerKey && wcActive()) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "signerKey selects a DEXE_AGENT_PK_* hot key — it is not available in WalletConnect mode (the phone wallet owns the only key). Unset signerKey, or configure DEXE_PRIVATE_KEY + DEXE_AGENT_PK_* for keyring mode.",
+            },
+          ],
+          isError: true,
+        };
+      }
 
       // ---- WalletConnect dispatch path (no hot key) ----------------------
       // The phone wallet signs AND broadcasts; we only see the hash. Guards
@@ -202,7 +218,7 @@ export function registerTxTools(
       }
 
       // ---- hot-key (EOA) dispatch path -----------------------------------
-      const sg = signer.trySigner(chain.chainId);
+      const sg = signer.trySigner(chain.chainId, signerKey);
       if ("error" in sg) {
         return {
           content: [
@@ -257,14 +273,17 @@ export function registerTxTools(
         throw e;
       }
 
-      const tx = await signer.withBroadcastLock(chain.chainId, () =>
-        wallet.sendTransaction({
-          to,
-          data,
-          value: BigInt(value),
-          chainId: BigInt(chain.chainId),
-          ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
-        }),
+      const tx = await signer.withBroadcastLock(
+        chain.chainId,
+        () =>
+          wallet.sendTransaction({
+            to,
+            data,
+            value: BigInt(value),
+            chainId: BigInt(chain.chainId),
+            ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
+          }),
+        wallet.address,
       );
 
       if (waitConfirmations === 0) {

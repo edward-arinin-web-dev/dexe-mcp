@@ -1,6 +1,6 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **163** across **19** groups. Call **`dexe_context`** first each session — it returns the signer, active chain, env readiness, and the DAOs/proposals recorded in prior sessions.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **165** across **19** groups. Call **`dexe_context`** first each session — it returns the signer, active chain, env readiness, and the DAOs/proposals recorded in prior sessions.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Four composite tools (`dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
 
@@ -8,21 +8,21 @@ Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_propo
 
 ## Toolset profiles
 
-Registering all 163 tools costs ~206 KB of `tools/list` per session. **`DEXE_TOOLSETS`** (comma list) gates which profiles load. **The default changed to `core,proposals` in v0.13.0** (breaking) — a slim surface instead of everything.
+Registering all 165 tools costs ~234 KB of `tools/list` per session. **`DEXE_TOOLSETS`** (comma list) gates which profiles load. **The default changed to `core,proposals` in v0.13.0** (breaking) — a slim surface instead of everything.
 
 | Profile | Tools | What it covers |
 |---------|------:|----------------|
 | `core` | 35 | Everyday flow: `dexe_context` (call first), `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, all 5 `dexe_otc_*`, `dexe_tx_send/status`, `dexe_wc_*`, key vote builders (deposit/withdraw/vote/execute/erc20_approve) + `dexe_vote_user_power`, IPFS upload trio + avatar, `dexe_read_treasury/settings`, `dexe_proposal_state/list/catalog`, `dexe_dao_info/registry_lookup/predict_addresses`, `dexe_doctor`, `dexe_get_config`. |
 | `proposals` | 42 | Every `dexe_proposal_build_*` builder (33 types), the offchain + backend-auth surface, and proposal/DAO IPFS writes. |
 | `read` | 32 | All `dexe_read_*` (chain + subgraph + backend balances/holders/stats/NFTs), `dexe_proposal_voters`, `dexe_user_inbox`, `dexe_proposal_forecast`, `dexe_proposal_risk_assess`, IPFS reads. |
-| `vote` | 28 | Every direct `dexe_vote_build_*` builder (delegate, staking, NFT multiplier, claims, privacy policy, …) + `dexe_vote_get_votes`. |
+| `vote` | 30 | Every direct `dexe_vote_build_*` builder (delegate, staking, NFT multiplier, claims, privacy policy, …) + `dexe_vote_get_votes` + the agent keyring (`dexe_agents_list`, `dexe_agents_fund`). |
 | `governor` | 18 | The external `dexe_gov_*` OpenZeppelin/Bravo Governor surface. |
 | `dev` | 23 | `dexe_compile/test/coverage/lint`, introspection (`dexe_get_*`, `dexe_list_*`, `dexe_find_selector`), `dexe_decode_*`, `dexe_read_gov_state`, simulator, merkle, Safe, and the low-level `dexe_dao_build_deploy`. |
-| `full` | 163 | Everything (pre-v0.13.0 behavior). |
+| `full` | 165 | Everything (pre-v0.13.0 behavior). |
 
-Sets union; a typo/unknown name → falls back to `full` (never silently strips). The union of the six named sets equals all 163 tools, so every tool is reachable under some profile.
+Sets union; a typo/unknown name → falls back to `full` (never silently strips). The union of the six named sets equals all 165 tools, so every tool is reachable under some profile.
 
-Measured `tools/list` sizes: **full ~207 KB (163 tools)** · **default `core,proposals` ~113 KB (74 tools, −46%)** · **`core` alone ~49 KB (35 tools, −76%)**. Set `DEXE_TOOLSETS=core` for the deepest cut (the composites cover the common proposal types), or `DEXE_TOOLSETS=full` to restore everything. `dexe_doctor` reports the active profile.
+Measured `tools/list` sizes: **full ~234 KB (165 tools)** · **default `core,proposals` ~130 KB (76 tools, −45%)** · **`core` alone ~66 KB (37 tools, −72%)**. Set `DEXE_TOOLSETS=core` for the deepest cut (the composites cover the common proposal types), or `DEXE_TOOLSETS=full` to restore everything. `dexe_doctor` reports the active profile.
 
 ## Table of contents
 
@@ -271,8 +271,10 @@ Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`, `src/tools/getConfig.ts`. T
 | `dexe_guide` | **Call first for any multi-step request.** The protocol knowledge tool (v0.26): serves the flow corpus from `src/knowledge/` in two tiers — a flow index (menu + triggers), and per-flow detail: interview questions with per-parameter risk notes, exact ordered tool steps, the relevant protocol gotchas (danger-first), chain notes (e.g. "staking doesn't exist on testnet 97"), and session-context prefill (known DAOs, active chain, and any mid-journey `activeFlow` for cross-session resume). Step templates for the four chaining composites carry a pre-filled `flowContext` — pass it through and their success payloads return `flowProgress` + `next` (what to call next). Read-only; the generated PLAYBOOK sections, the six skills' recipe sections, and the `dexe-flow-*` MCP prompts all render from the same source (`npm run gen:knowledge`, drift-checked in CI). | (none) |
 | `dexe_proposal_create` | End-to-end create-proposal flow: balance check, approve UserKeeper if needed, deposit if needed, build + broadcast `createProposalAndVote`. `proposalType` is a strict enum covering **all 33 catalog types** (v0.22): external types build server-side from `params`, internal validator types auto-route to `GovValidators.createInternalProposal`, off-chain types return the backend flow to use. Amounts accept raw wei or human decimals (`"12.5"`). For avatar updates pass `newAvatarPath` (local image path — uploaded + validated server-side). Full recipes: [docs/PLAYBOOK.md](./PLAYBOOK.md). | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL`, `DEXE_PINATA_JWT` |
 | `dexe_proposal_vote_and_execute` | Vote on a proposal, optionally execute when state allows. `depositFirst:'auto'` (default, v0.22) deposits exactly the missing amount from the wallet before voting; non-Voting state errors name the per-state remedy; partial failures return the landed-steps ledger. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
-| `dexe_tx_send` | Sign and broadcast any TxPayload from a `*_build_*` tool. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
+| `dexe_tx_send` | Sign and broadcast any TxPayload from a `*_build_*` tool. Optional `signerKey` picks a `DEXE_AGENT_PK_*` keyring signer instead of the primary key. | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | `dexe_tx_status` | Read receipt/status of a previously submitted tx hash. | `DEXE_RPC_URL` |
+| `dexe_agents_list` | The agent keyring (v0.28): every `DEXE_AGENT_PK_*` signer with its `signerKey` ('agent1'…), address, native balance, optional ERC20 balance. Addresses only — keys never leave the server. | `DEXE_AGENT_PK_*`, `DEXE_RPC_URL` |
+| `dexe_agents_fund` | Top up keyring wallets from the PRIMARY signer (native or ERC20). Guards: recipients can only be keyring addresses; per-agent amount capped by `DEXE_AGENT_FUND_MAX_WEI` (default 0.1 native); top-up semantics (sends only the shortfall). | `DEXE_PRIVATE_KEY`, `DEXE_AGENT_PK_*`, `DEXE_RPC_URL` |
 | `dexe_get_config` | Diagnostic read: the server's chain set, default chain, and signer status (`readonly`/`eoa`/`safe`). Call once at session start when unsure which chain is configured. Never writes. | (none) |
 
 ---

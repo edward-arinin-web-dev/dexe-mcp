@@ -160,6 +160,9 @@ const READ = [
 
 // ── vote: every direct vote/stake/delegate/execute/claim builder ────────────
 const VOTE = [
+  // agent keyring (multi-persona/swarm signing surface)
+  "dexe_agents_list",
+  "dexe_agents_fund",
   "dexe_vote_build_erc20_approve",
   "dexe_vote_build_deposit",
   "dexe_vote_build_withdraw",
