@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.24.1 — 2026-07-22
+
+Full-verify campaign (2026-07-21, chain 97 + clean-room): every fix below was
+found by exercising all 19 tool groups against live fresh SphereX-era pools,
+then re-verified via tools after shipping.
 
 ### Campaign leg-4 fix batch: F1/F2/F7/F10 + K1/K2 (2026-07-21)
 
@@ -52,6 +56,8 @@ and that shape lands (status 1, verified live on chain 97).
 - PLAYBOOK: SphereX error row extended with the vote/delegate case + the
   raw-call allow/deny map.
 - New guardrail tests: `tests/tools/spherex-vote-shape.test.ts`.
+
+## 0.24.0 — 2026-07-11
 
 ### One-shot DAO deploys: simulate before signing, classify every revert
 
