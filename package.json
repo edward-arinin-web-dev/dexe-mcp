@@ -1,6 +1,6 @@
 {
   "name": "dexe-mcp",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "MCP server for the DeXe Protocol — full DAO operations coverage: deploy DAOs, build every proposal type, IPFS metadata, stake/vote/delegate/execute/claim calldata. Plus dev tooling (build/test/introspect/decode).",
   "type": "module",
   "license": "MIT",
@@ -58,7 +58,9 @@
     "test:watch": "vitest",
     "test:compat": "node tests/compat/diff-otc.mjs",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run typecheck && npm run build",
+    "gen:knowledge": "tsx scripts/gen-knowledge.ts",
+    "gen:knowledge:check": "tsx scripts/gen-knowledge.ts --check",
+    "prepublishOnly": "npm run typecheck && npm run gen:knowledge:check && npm run build",
     "swarm:preflight": "tsx scripts/swarm/preflight.ts",
     "swarm:fund": "tsx scripts/swarm/fund-pool.ts",
     "swarm:run": "tsx scripts/swarm/orchestrator.ts",

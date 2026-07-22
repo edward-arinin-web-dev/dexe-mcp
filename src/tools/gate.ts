@@ -20,6 +20,7 @@ import type { DexeConfig } from "../config.js";
 // ── core: the everyday flow surface (~one session's worth) ──────────────────
 const CORE = [
   "dexe_context",
+  "dexe_guide",
   "dexe_doctor",
   "dexe_get_config",
   // composite signing flows

@@ -4,7 +4,8 @@ import { safeErrorMessage } from "./redact.js";
  * Actionable-error layer (v0.22). Every catch-all in the composite flows routes
  * through `toActionableError` so the model/user gets "what happened + what to do
  * next" instead of a raw ethers dump. The remedy table is exported so
- * `npm run gen:playbook` can render it into docs/PLAYBOOK.md — one source.
+ * `npm run gen:knowledge` renders it into docs/PLAYBOOK.md — one source
+ * (drift-checked by gen:knowledge:check in prepublishOnly).
  */
 
 export interface KnownFailure {

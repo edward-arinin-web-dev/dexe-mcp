@@ -218,7 +218,8 @@ export function registerOtcTools(
       "an ordered TxPayload list. Every DAO deployed with `dexe_dao_create` (v0.19+) already has " +
       "TokenSaleProposal wired as an executor, so this works right after a deploy. Only DAOs deployed " +
       "by other/older tooling without that executor need a `new_proposal_type` proposal " +
-      "(dexe_proposal_create, executors=[tokenSaleProposal]) or a redeploy first.",
+      "(dexe_proposal_create, executors=[tokenSaleProposal]) or a redeploy first. " +
+      "Unsure of the full sale journey or which params to collect from the user? Call dexe_guide (flow:'otc_sale') first.",
     {
       govPool: z.string().describe("GovPool address"),
       chainId: z

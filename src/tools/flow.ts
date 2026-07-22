@@ -1342,7 +1342,8 @@ export function registerFlowTools(
       "'change_validator_balances' {changes[]}, 'change_validator_settings' {duration,executionDelay,quorum}, " +
       "'monthly_withdraw' {withdrawals[],destination}, 'offchain_internal_proposal' {}.\n" +
       "• Off-chain backend types ('offchain_single_option' etc.) are rejected with the exact backend flow to use instead.\n" +
-      "Full per-type recipes with examples: docs/PLAYBOOK.md (dexe://playbook resource) or dexe_proposal_catalog.",
+      "Full per-type recipes with examples: docs/PLAYBOOK.md (dexe://playbook resource) or dexe_proposal_catalog. " +
+      "Unsure of the journey or which params to collect from the user? Call dexe_guide first.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z
@@ -1411,7 +1412,8 @@ export function registerFlowTools(
     "Vote on a proposal and optionally execute it — the ONE call for 'vote on / pass / execute proposal N'. " +
       "Checks proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → vote, " +
       "matching the frontend's bundled deposit+vote), and when autoExecute is true executes after the vote passes. " +
-      "Signs+broadcasts when a signer is configured; otherwise returns ordered TxPayloads + a WalletConnect QR.",
+      "Signs+broadcasts when a signer is configured; otherwise returns ordered TxPayloads + a WalletConnect QR. " +
+      "Unsure of the lifecycle (validator round, locked tokens)? Call dexe_guide (flow:'vote_execute') first.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z

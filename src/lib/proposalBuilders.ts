@@ -658,6 +658,7 @@ const tokenSaleWhitelistBuilder: CatalogBuilder = {
 const STAKING_RESOLVER_IFACE = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
   "function stakingProposalAddress() view returns (address)",
+  "function deployStakingProposal()",
 ]);
 
 /** Resolve the DAO's StakingProposal via GovUserKeeper.stakingProposalAddress() (frontend parity). */
@@ -689,10 +690,17 @@ async function resolveStakingProposal(deps: BuilderDeps): Promise<string> {
   }
   const staking = stakingR.value as string;
   if (!staking || staking === ZeroAddress) {
+    // Give the EXACT paste-able payload: a weak model told only the function
+    // name will guess a selector (observed live: 0x3f6b57d9 guessed, B9 caught
+    // the revert). deployStakingProposal is a PERMISSIONLESS direct tx — it
+    // must never be wrapped into a governance proposal (custom/custom_abi).
+    const deployData = STAKING_RESOLVER_IFACE.encodeFunctionData("deployStakingProposal", []);
     throw new Error(
       `This DAO has no StakingProposal deployed yet — GovUserKeeper.stakingProposalAddress() is the zero address. ` +
-        `Deploy it first (the frontend does this on demand): send GovUserKeeper(${userKeeper}).deployStakingProposal() ` +
-        `[via dexe_tx_send], then re-run this call.`,
+        `Deploy it first with ONE direct transaction (permissionless, NOT a governance proposal — do not wrap it ` +
+        `in custom/custom_abi): call dexe_tx_send with exactly ` +
+        `{"to":"${userKeeper}","data":"${deployData}","value":"0","chainId":${deps.chainId}} ` +
+        `and then re-run this SAME call.`,
     );
   }
   return staking;

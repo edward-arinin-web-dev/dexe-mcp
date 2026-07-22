@@ -6,6 +6,18 @@ something on your side.
 
 ---
 
+## 0.25.0 → 0.26.0 — no action; call `dexe_guide` first for multi-step work
+
+Additive only. Tool count 160 → **161 tools**: new `dexe_guide` (core toolset,
+always visible) serves the protocol knowledge layer — flow plans, interview
+questions with risk notes, and the gotcha corpus, resolved for your active
+chain and session state. Agents should call it FIRST for any multi-step
+request (create DAO / launch token economy / OTC / staking / distribution);
+existing scripts are unaffected. `docs/PLAYBOOK.md` now contains GENERATED
+sections rendered from `src/knowledge/` via `npm run gen:knowledge`.
+
+---
+
 ## 0.23.0 → 0.23.1 — move config to `~/.dexe-mcp/.env` if the plugin saw no env
 
 Fix release. The server now loads `.env` from a **cwd-independent** home
@@ -239,7 +251,7 @@ session) + a persistent state file. Optional `DEXE_STATE_PATH` override.
 ## 0.12.x → 0.13.0 — slim default toolset (BREAKING)
 
 **TL;DR.** A default session now loads a slim subset (**72 tools** as of the
-current 160-tool surface), not everything. If a tool
+current 161-tool surface), not everything. If a tool
 you scripted against is "missing", set `DEXE_TOOLSETS=full` to restore the old
 behavior, or add the profile that owns it.
 

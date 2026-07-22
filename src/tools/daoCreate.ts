@@ -224,7 +224,8 @@ export function registerDaoCreateTools(
       "includes readiness (govPool code verified) and nextSteps for the first proposal. Mainnet (chain 56) is " +
       "supported (the frontend ships there daily) but requires `confirm: true` since it spends real BNB; testnet (97) " +
       "is the recommended place to validate. `deployer` defaults to the configured signer. Pass avatarCID from " +
-      "dexe_ipfs_upload_avatar / dexe_dao_generate_avatar.",
+      "dexe_ipfs_upload_avatar / dexe_dao_generate_avatar. " +
+      "Unsure of the full journey or which params to collect from the user? Call dexe_guide (flow:'create_dao') first.",
     {
       chainId: z
         .number()

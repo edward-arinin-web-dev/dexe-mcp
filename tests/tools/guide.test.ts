@@ -1,0 +1,147 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { registerAll } from "../../src/tools/index.js";
+import { loadConfig } from "../../src/config.js";
+import { matchIntent, bestMatch, flowDetail, flowIndex } from "../../src/knowledge/index.js";
+
+/** The canonical weak-model user story — MUST resolve to the end-to-end flow. */
+const CANONICAL_INTENT =
+  "I want to create a token, distribute 20% of it to this list of addresses, then create an OTC sale and staking";
+
+describe("intent matching", () => {
+  it("canonical multi-leg intent → launch_token_economy", () => {
+    expect(bestMatch(CANONICAL_INTENT)).toBe("launch_token_economy");
+  });
+
+  it("single-leg intents match their flow", () => {
+    expect(bestMatch("please create a dao for my community")).toBe("create_dao");
+    expect(bestMatch("vote on proposal 3 and execute it")).toBe("vote_execute");
+  });
+
+  it("ambiguous text returns no confident match (menu instead of a wrong guess)", () => {
+    expect(bestMatch("do something with my tokens")).toBeNull();
+  });
+
+  it("matchIntent scores are sorted descending", () => {
+    const m = matchIntent(CANONICAL_INTENT);
+    for (let i = 1; i < m.length; i++) expect(m[i - 1]!.score).toBeGreaterThanOrEqual(m[i]!.score);
+  });
+});
+
+describe("flow detail tiers", () => {
+  it("unknown flow id → null", () => {
+    expect(flowDetail("nope")).toBeNull();
+  });
+
+  it("detail carries the agent protocol and danger-first gotchas", () => {
+    const d = flowDetail("create_dao", { chainId: 97 })!;
+    expect(d.agentProtocol).toMatch(/confirmation BEFORE any broadcast/);
+    const severities = d.gotchas.map((g) => g.severity);
+    const firstWarn = severities.indexOf("warn");
+    const lastDanger = severities.lastIndexOf("danger");
+    if (firstWarn !== -1 && lastDanger !== -1) expect(lastDanger).toBeLessThan(firstWarn);
+  });
+
+  it("index tier lists every flow", () => {
+    const ids = flowIndex().map((f) => f.flow);
+    expect(ids).toContain("create_dao");
+    expect(ids).toContain("launch_token_economy");
+    expect(ids).toContain("staking_setup");
+  });
+
+  it("steps referencing non-default tools are annotated with the required toolset", () => {
+    const d = flowDetail("staking_setup")!;
+    const verify = d.steps.find((s) => s.id === "verify")!;
+    expect(verify.tool).toBe("dexe_read_staking_info");
+    expect(verify.requiresToolset).toContain("read");
+  });
+});
+
+describe("dexe_guide (real server)", () => {
+  let client: Client;
+  let server: McpServer;
+  let stateDir: string;
+
+  async function callGuide(args: Record<string, unknown>) {
+    const res = await client.callTool({ name: "dexe_guide", arguments: args });
+    const text = (res.content as Array<{ type: string; text: string }>)[0]!.text;
+    return JSON.parse(text) as Record<string, any>;
+  }
+
+  beforeAll(async () => {
+    stateDir = mkdtempSync(join(tmpdir(), "dexe-guide-test-"));
+    const statePath = join(stateDir, "state.json");
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        version: 1,
+        knownDaos: [
+          {
+            name: "Evergreen Commons",
+            govPool: "0x1111111111111111111111111111111111111111",
+            chainId: 97,
+            deployedAt: "2026-07-01T00:00:00Z",
+          },
+        ],
+        lastChainId: 97,
+        recentProposals: [],
+        walletLabels: {},
+      }),
+    );
+    process.env.DEXE_STATE_PATH = statePath;
+    delete process.env.DEXE_TOOLSETS;
+    const config = await loadConfig();
+    server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
+    registerAll(server, config);
+    client = new Client({ name: "test-client", version: "0.0.0" });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverT), client.connect(clientT)]);
+  });
+
+  afterAll(async () => {
+    await client.close();
+    await server.close();
+    delete process.env.DEXE_STATE_PATH;
+    rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  it("is registered under the default toolset profile (CORE)", async () => {
+    const tools = await client.listTools();
+    expect(tools.tools.map((t) => t.name)).toContain("dexe_guide");
+  });
+
+  it("no args → index tier with session context + known DAO prefill", async () => {
+    const out = await callGuide({});
+    expect(out.mode).toBe("flow-index");
+    expect(out.flows.length).toBeGreaterThanOrEqual(7);
+    expect(out.context.chainId).toBe(97);
+    expect(out.context.chainIdSource).toBe("last-used");
+    expect(out.context.knownDao.govPool).toBe("0x1111111111111111111111111111111111111111");
+  });
+
+  it("canonical intent → launch_token_economy detail with the testnet staking note", async () => {
+    const out = await callGuide({ intent: CANONICAL_INTENT, chainId: 97 });
+    expect(out.mode).toBe("flow-detail");
+    expect(out.flow).toBe("launch_token_economy");
+    expect(out.chainNote.note).toMatch(/staking/i);
+    expect(out.agentProtocol).toMatch(/interview/);
+  });
+
+  it("flow:staking_setup on chain 97 → hard testnet warning", async () => {
+    const out = await callGuide({ flow: "staking_setup", chainId: 97 });
+    expect(out.mode).toBe("flow-detail");
+    expect(out.chainNote.note).toMatch(/DOES NOT EXIST/i);
+    expect(out.gotchas.some((g: any) => g.id === "staking-not-on-testnet")).toBe(true);
+  });
+
+  it("unknown flow id → index tier with a note", async () => {
+    const out = await callGuide({ flow: "not_a_flow" });
+    expect(out.mode).toBe("flow-index");
+    expect(out.note).toMatch(/Unknown flow/);
+  });
+});
