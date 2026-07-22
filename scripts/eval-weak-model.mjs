@@ -292,9 +292,11 @@ record("3c. OTC sale opened", otcOk);
 // 4. app.dexe.io link after deploy
 record(
   "4. reply links app.dexe.io after the deploy",
-  // Anchored full-URL match (not a host substring check) — we assert the reply
-  // CONTAINS the DAO profile link, nothing is being sanitized here.
-  assistantTexts.some((t) => /https:\/\/app\.dexe\.io\//.test(t)),
+  // We assert the reply CONTAINS the DAO profile link (nothing is being
+  // sanitized): tokenize and require a token that STARTS with the full origin.
+  assistantTexts.some((t) =>
+    t.split(/[\s)\]>"'`]+/).some((w) => w.startsWith("https://app.dexe.io/")),
+  ),
 );
 
 // 5. no staking WRITES on 97; deferred to mainnet in the final answer
