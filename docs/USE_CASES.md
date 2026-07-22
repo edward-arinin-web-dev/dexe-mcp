@@ -3,7 +3,7 @@
 Short, verified scenarios that show what an AI agent wired to dexe-mcp can do for you.
 Each case: what you say → what happens → which tools fire. ✅ = verified live (date,
 chain, evidence). For exact call recipes see [PLAYBOOK.md](PLAYBOOK.md); for worked
-JSON examples see [USAGE.md](USAGE.md); for the full 163-tool catalog see [TOOLS.md](TOOLS.md).
+JSON examples see [USAGE.md](USAGE.md); for the full 165-tool catalog see [TOOLS.md](TOOLS.md).
 
 Reads need ZERO configuration. Writes need a signer (WalletConnect or a hot key —
 see [SETUP.md](SETUP.md)). Amounts accept raw wei or human units ("12.5").
