@@ -1,7 +1,7 @@
 {
   "name": "dexe",
   "displayName": "DeXe MCP — DAO governance",
-  "version": "0.24.0",
+  "version": "0.26.0",
   "description": "Deploy DAOs, build every proposal type, vote/delegate/execute, OTC sales, IPFS metadata — the DeXe Protocol as MCP tools. Reads work with zero setup; add keys only for writes.",
   "author": {
     "name": "Edward Arinin",
@@ -10,6 +10,13 @@
   "homepage": "https://github.com/edward-arinin-web-dev/dexe-mcp#readme",
   "repository": "https://github.com/edward-arinin-web-dev/dexe-mcp",
   "license": "MIT",
-  "keywords": ["dexe", "dao", "governance", "mcp", "web3", "bsc"],
+  "keywords": [
+    "dexe",
+    "dao",
+    "governance",
+    "mcp",
+    "web3",
+    "bsc"
+  ],
   "mcpServers": "./mcp.json"
 }
