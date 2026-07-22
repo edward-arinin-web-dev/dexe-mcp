@@ -15,7 +15,7 @@
 
 An MCP (Model Context Protocol) server for [DeXe Protocol](https://dexe.io) governance on BNB Chain, with an additional generic surface for OpenZeppelin and Compound-Bravo Governor DAOs (Uniswap, Compound, Optimism).
 
-It exposes 160 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, IPFS metadata, transaction simulation, and diagnostics. Any MCP client can use it — Claude Code, Claude Desktop, Cursor, or a custom agent.
+It exposes 161 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, IPFS metadata, transaction simulation, and diagnostics. Any MCP client can use it — Claude Code, Claude Desktop, Cursor, or a custom agent.
 
 Writes are calldata-first: tools return a `{ to, data, value, chainId }` payload for your own wallet to sign. Broadcasting from the server is opt-in, either through WalletConnect (transactions are approved on your phone; no key on disk) or a private key you explicitly configure.
 
@@ -42,7 +42,7 @@ Then ask:
 
 > "Show the treasury of `0x…` on BSC."
 
-Reads work with no configuration: on-chain data, subgraphs, the DeXe backend, and IPFS all have public defaults, and WalletConnect signing is available immediately (`dexe_wc_connect`). The governance skills (create DAO, create proposal, vote and execute, OTC) install with the plugin.
+Reads work with no configuration: on-chain data, subgraphs, the DeXe backend, and IPFS all have public defaults, and WalletConnect signing is available immediately (`dexe_wc_connect`). The governance skills (create DAO, create proposal, vote and execute, OTC, staking) install with the plugin.
 
 To create DAOs or proposals, or to broadcast transactions, run `/dexe-setup` — it walks through the two keys that unlock those paths (a Pinata token for IPFS uploads, a signer) and writes them to `.env` for you.
 
@@ -127,7 +127,7 @@ Each write tool returns a `TxPayload` you pass to your wallet. To let the server
 
 ## Tool catalog
 
-160 tools in 19 groups. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+161 tools in 19 groups. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
 A default session loads the `core,proposals` profile (~72 tools) to keep the MCP tool list small. Set `DEXE_TOOLSETS=full` for everything, or add profiles (`read`, `vote`, `governor`, `dev`) as needed — see [Toolset profiles](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md#toolset-profiles). Call `dexe_context` first in a session: it returns the signer, active chain, env readiness, and DAOs/proposals recorded in prior sessions.
 
@@ -178,7 +178,7 @@ No variable is required to start the server; tools that need a missing one fail 
 ## Documentation
 
 - [docs/PLAYBOOK.md](./docs/PLAYBOOK.md) — the AI playbook: intent → exact call, per-type params, error → remedy. Also served as the MCP resource `dexe://playbook`.
-- [docs/TOOLS.md](./docs/TOOLS.md) — all 160 tools, grouped, with one-line descriptions and required env vars.
+- [docs/TOOLS.md](./docs/TOOLS.md) — all 161 tools, grouped, with one-line descriptions and required env vars.
 - [docs/USAGE.md](./docs/USAGE.md) — worked examples with copy-pasteable JSON.
 - [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) — full env-var reference and common pitfalls.
 - [docs/INSTALL.md](./docs/INSTALL.md) — install instructions per MCP client.

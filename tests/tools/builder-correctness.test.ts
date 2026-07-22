@@ -23,8 +23,8 @@ function baseTier(vestingPercentage: string) {
   return tierSchema.parse({
     name: "T1",
     totalTokenProvided: "1000000000000000000",
-    saleStartTime: "1000",
-    saleEndTime: "2000",
+    saleStartTime: String(Math.floor(Date.now() / 1000) + 3600),
+    saleEndTime: String(Math.floor(Date.now() / 1000) + 7 * 86400),
     saleTokenAddress: TOKEN,
     purchaseTokenAddresses: [PURCHASE],
     purchaseRatios: ["0.10"],

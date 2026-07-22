@@ -27,6 +27,9 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm run typecheck
+      # Knowledge-layer drift guard: docs/PLAYBOOK.md + skill generated regions
+      # must match src/knowledge/ (regenerate with `npm run gen:knowledge`).
+      - run: npm run gen:knowledge:check
       - run: npm run build
       - run: npm test
       # Frontend↔MCP byte-diff for OTC calldata (needs dist/ from the build

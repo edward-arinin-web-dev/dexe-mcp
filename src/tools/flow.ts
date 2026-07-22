@@ -38,6 +38,7 @@ import { PROPOSAL_CATALOG } from "../lib/proposalCatalog.js";
 import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
 import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/errors.js";
+import { flowChainFields, flowContextSchema, type FlowContext } from "../lib/flowChain.js";
 import { parseAmount, formatAmount } from "../lib/units.js";
 import type { StateStore } from "../lib/stateStore.js";
 
@@ -627,6 +628,8 @@ export interface ProposalCreateInput {
    * territory). Without it the flow refuses BEFORE any transaction.
    */
   confirmRisky?: boolean;
+  /** Guided-flow position (from dexe_guide) — enables flowProgress/next chaining. */
+  flowContext?: { flow: string; step: string };
 }
 
 export interface ProposalCreateDeps {
@@ -1064,6 +1067,9 @@ export async function runProposalCreate(
           },
           steps: [...skippedSteps, ...result.steps],
           ...(governanceAdvisories ? { governanceAdvisories } : {}),
+          ...(result.mode === "executed"
+            ? flowChainFields(input.flowContext, deps.state, { chainId, govPool })
+            : {}),
           ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
           ...(result.pairing ? { pairing: result.pairing } : {}),
         }),
@@ -1197,6 +1203,9 @@ async function runInternalProposalCreate(
       note:
         "Internal proposals are created and voted on by the DAO's validators only (their own validator balances — " +
         "no token deposit). The sender must be a current validator or the tx reverts.",
+      ...(result.mode === "executed"
+        ? flowChainFields(input.flowContext, deps.state, { chainId, govPool })
+        : {}),
       ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
       ...(result.pairing ? { pairing: result.pairing } : {}),
     }),
@@ -1342,7 +1351,8 @@ export function registerFlowTools(
       "'change_validator_balances' {changes[]}, 'change_validator_settings' {duration,executionDelay,quorum}, " +
       "'monthly_withdraw' {withdrawals[],destination}, 'offchain_internal_proposal' {}.\n" +
       "• Off-chain backend types ('offchain_single_option' etc.) are rejected with the exact backend flow to use instead.\n" +
-      "Full per-type recipes with examples: docs/PLAYBOOK.md (dexe://playbook resource) or dexe_proposal_catalog.",
+      "Full per-type recipes with examples: docs/PLAYBOOK.md (dexe://playbook resource) or dexe_proposal_catalog. " +
+      "Unsure of the journey or which params to collect from the user? Call dexe_guide first.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z
@@ -1399,6 +1409,7 @@ export function registerFlowTools(
           "Required to proceed when the built proposal carries a DANGER governance-safety advisory " +
             "(e.g. quorum lowered into treasury-drain territory). Without it the flow refuses BEFORE any transaction.",
         ),
+      flowContext: flowContextSchema,
     },
     (input) => runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc, state, wc }),
   );
@@ -1411,7 +1422,8 @@ export function registerFlowTools(
     "Vote on a proposal and optionally execute it — the ONE call for 'vote on / pass / execute proposal N'. " +
       "Checks proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → vote, " +
       "matching the frontend's bundled deposit+vote), and when autoExecute is true executes after the vote passes. " +
-      "Signs+broadcasts when a signer is configured; otherwise returns ordered TxPayloads + a WalletConnect QR.",
+      "Signs+broadcasts when a signer is configured; otherwise returns ordered TxPayloads + a WalletConnect QR. " +
+      "Unsure of the lifecycle (validator round, locked tokens)? Call dexe_guide (flow:'vote_execute') first.",
     {
       govPool: z.string().describe("GovPool contract address"),
       chainId: z
@@ -1450,6 +1462,7 @@ export function registerFlowTools(
         ),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      flowContext: flowContextSchema,
     },
     async (input) => {
       const user = input.user ?? (signer.hasSigner() ? signer.getAddress() : undefined);
@@ -1504,6 +1517,9 @@ export function registerFlowTools(
             ...execResult.steps,
           ],
           executed: execResult.mode === "executed",
+          ...(execResult.mode === "executed"
+            ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
+            : {}),
           ...(execResult.enableWrites ? { enableWrites: execResult.enableWrites } : {}),
           ...(execResult.pairing ? { pairing: execResult.pairing } : {}),
         }), execResult.pairingContent);
@@ -1549,6 +1565,9 @@ export function registerFlowTools(
               ...execSteps,
             ],
             executed,
+            ...(executed
+              ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
+              : {}),
           }), undefined);
         }
       }
@@ -1734,6 +1753,9 @@ export function registerFlowTools(
         proposalStateBefore: stateName,
         steps: [...skippedSteps, ...result.steps],
         executed,
+        ...(executed
+          ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
+          : {}),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);

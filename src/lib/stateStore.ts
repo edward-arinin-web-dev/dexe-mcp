@@ -36,6 +36,16 @@ export interface RecentProposal {
   createdAt: string;
 }
 
+/** In-progress guided flow (Phase B knowledge layer) — survives sessions. */
+export interface ActiveFlow {
+  flow: string;
+  step: string;
+  chainId: number;
+  govPool?: string;
+  startedAt: string;
+  updatedAt: string;
+}
+
 export interface PersistedState {
   version: number;
   knownDaos: KnownDao[];
@@ -43,6 +53,8 @@ export interface PersistedState {
   recentProposals: RecentProposal[];
   /** address (lowercased) → human label. */
   walletLabels: Record<string, string>;
+  /** Set while a dexe_guide-driven flow is mid-journey; cleared on the final step. */
+  activeFlow?: ActiveFlow;
 }
 
 const MAX_DAOS = 50;
@@ -93,6 +105,15 @@ export class StateStore {
         recentProposals: Array.isArray(parsed.recentProposals) ? parsed.recentProposals : [],
         walletLabels:
           parsed.walletLabels && typeof parsed.walletLabels === "object" ? parsed.walletLabels : {},
+        // Tolerant: a minimal shape check, never a throw — a garbled activeFlow
+        // just reads as "no flow in progress".
+        ...(parsed.activeFlow &&
+        typeof parsed.activeFlow === "object" &&
+        typeof parsed.activeFlow.flow === "string" &&
+        typeof parsed.activeFlow.step === "string" &&
+        typeof parsed.activeFlow.chainId === "number"
+          ? { activeFlow: parsed.activeFlow }
+          : {}),
       };
     } catch (err) {
       process.stderr.write(
@@ -167,5 +188,22 @@ export class StateStore {
   /** Most-recently recorded DAO, or null. */
   lastDao(): KnownDao | null {
     return this.load().knownDaos[0] ?? null;
+  }
+
+  /** Record/advance the in-progress guided flow (keeps startedAt across steps of the same flow). */
+  setActiveFlow(next: Omit<ActiveFlow, "startedAt" | "updatedAt">): void {
+    const state = this.load();
+    const now = new Date().toISOString();
+    const startedAt =
+      state.activeFlow && state.activeFlow.flow === next.flow ? state.activeFlow.startedAt : now;
+    this.persist({ ...state, activeFlow: { ...next, startedAt, updatedAt: now } });
+  }
+
+  /** Clear the in-progress flow (final step completed or user abandoned it). */
+  clearActiveFlow(): void {
+    const state = this.load();
+    if (!state.activeFlow) return;
+    const { activeFlow: _dropped, ...rest } = state;
+    this.persist(rest as PersistedState);
   }
 }

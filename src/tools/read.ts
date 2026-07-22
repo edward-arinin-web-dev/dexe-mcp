@@ -955,6 +955,13 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
         const res = await multicall(provider, baseCalls);
         const count = res[0]?.success ? Number(res[0].value as bigint) : 0;
         const warnings: string[] = [];
+        if (!res[0]?.success) {
+          // Same W39 rule as getActiveStakings below: a decode/call failure must
+          // never read as a truthful "0 tiers".
+          warnings.push(
+            `stakingsCount() did not decode (${res[0]?.error ?? "unknown"}); the count 0 is a fallback, not a read value.`,
+          );
+        }
         const stakingsOk = !!res[1]?.success;
         if (!stakingsOk) {
           // W39: surface a decode failure explicitly instead of returning a

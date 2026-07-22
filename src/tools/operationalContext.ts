@@ -194,11 +194,15 @@ export function registerOperationalContextTools(
         knownDaos: st.knownDaos,
         recentProposals: st.recentProposals,
         walletLabels: st.walletLabels,
+        ...(st.activeFlow ? { activeFlow: st.activeFlow } : {}),
         lastDaoPower,
         hint:
-          st.knownDaos.length === 0
+          (st.activeFlow
+            ? `Mid-journey: flow '${st.activeFlow.flow}' last completed step '${st.activeFlow.step}' on chain ${st.activeFlow.chainId} — call dexe_guide {flow:"${st.activeFlow.flow}"} to resume. `
+            : "") +
+          (st.knownDaos.length === 0
             ? "No DAOs recorded yet. Deploy one with dexe_dao_create (testnet chain 97) or pass a govPool explicitly."
-            : `Most recent DAO: ${st.knownDaos[0]!.name} (${st.knownDaos[0]!.govPool}) on chain ${st.knownDaos[0]!.chainId}.`,
+            : `Most recent DAO: ${st.knownDaos[0]!.name} (${st.knownDaos[0]!.govPool}) on chain ${st.knownDaos[0]!.chainId}.`),
       };
 
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };

@@ -498,6 +498,28 @@ export function buildTierTuple(tier: TierSpec): {
     if (encoded.derived) derivedRoots.push(encoded.derived);
   }
 
+  // Eval-run finding (2026-07-23): the contract only validates
+  // saleStartTime <= saleEndTime — NOT that the window is in the future — so a
+  // tier with a past window is created "successfully" but is dead on arrival
+  // (every buy reverts "TSP: token sale is over"). A weak model guessing a
+  // stale year (observed: Jan-2024 timestamps in 2026) hits exactly this.
+  const nowSec = BigInt(Math.floor(Date.now() / 1000));
+  const saleStart = BigInt(tier.saleStartTime);
+  const saleEnd = BigInt(tier.saleEndTime);
+  if (saleStart > saleEnd) {
+    throw new Error(
+      `Tier "${tier.name}": saleStartTime (${tier.saleStartTime}) is after saleEndTime (${tier.saleEndTime}) — the contract reverts.`,
+    );
+  }
+  if (saleEnd <= nowSec) {
+    throw new Error(
+      `Tier "${tier.name}": saleEndTime ${tier.saleEndTime} (${new Date(Number(saleEnd) * 1000).toISOString()}) is in the ` +
+        `PAST — current unix time is ~${nowSec}. The tier would be created dead-on-arrival (every buy reverts ` +
+        `"TSP: token sale is over"). Use future timestamps computed from the current time — never guess the date — ` +
+        `and leave headroom for the proposal's voting period before the sale window opens.`,
+    );
+  }
+
   // H-10: the contract reads vestingPercentage as percent × PRECISION
   // (TokenSaleProposalBuy uses MathHelper.percentage, which divides by
   // PERCENTAGE_100 = 100 × PRECISION). A raw "50" is ~0% vesting on-chain, so

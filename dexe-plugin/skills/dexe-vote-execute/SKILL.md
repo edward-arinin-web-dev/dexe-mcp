@@ -104,3 +104,31 @@ the lock.
 Pass `dryRun: true` (or run with no signer) to get the ordered `TxPayload`s.
 
 Prerequisite: [[dexe-create-proposal]].
+
+## Canonical recipe (generated from src/knowledge/ — edit there, then `npm run gen:knowledge`)
+
+<!-- BEGIN GENERATED: flow-recipe -->
+### Vote on / pass / execute a proposal (`vote_execute`)
+
+Vote and execute in one dexe_proposal_vote_and_execute call — auto-deposits when power is short and auto-drives the validator round.
+
+**Ask the user:**
+- `govPool` — Which DAO (govPool address)?
+- `proposalId` — Which proposal id?
+- `support` (optional) — Vote FOR or AGAINST? · default `for`
+
+**Steps:**
+1. `dexe_proposal_state` — Read the current ProposalState first — the valid action depends on it.
+2. `dexe_proposal_vote_and_execute` — Vote with full available power (auto-deposit if needed), then — when quorum passes — move to validators, drive the validator round (if the signer is a validator), and execute.
+3. `dexe_vote_build_withdraw` — After execution, withdraw the voted tokens so they're free for the next proposal. _(skip when: the user will create/vote more proposals right away — otherwise skippable)_
+
+**Pitfalls (danger first):**
+- ⚠ Canonical ProposalState order: 0 Voting, 1 WaitingForVotingTransfer, 2 ValidatorVoting, 3 Defeated, 4 SucceededFor, 5 SucceededAgainst, 6 Locked, 7 ExecutedFor, 8 ExecutedAgainst, 9 Undefined. Execute is only valid from SucceededFor/SucceededAgainst; use dexe_proposal_state to check, never guess from the number.
+- ⚠ DAOs with validators add a second voting chamber: Voting → (member quorum) WaitingForVotingTransfer → moveProposalToValidators → ValidatorVoting → (validator quorum) SucceededFor → execute. Voting in the validator chamber BEFORE the move reverts 'Validators: proposal does not exist'. dexe_proposal_vote_and_execute auto-drives the whole validator round when the signer is a validator; pass driveValidatorRound:false to stop after the member vote.
+- ⚠ Tokens you voted with stay LOCKED per-proposal even after the proposal executes, and votingPower() reads 0 while locked (it shows available, not deposited, power). Between proposals run dexe_vote_build_withdraw to unlock, or the next create/vote fails with 'No voting power available'.
+- ⚠ On fresh (SphereX-era) pools a cast VALIDATOR vote cannot be cancelled — GovValidators has no multicall, and raw cancelVote{Internal,External}Proposal is blocked in every shape. Top-up re-votes ARE allowed. Warn validators before they vote.
+- ⚠ Raw top-level vote()/delegate() calls REVERT on fresh (SphereX-era) pools — the frontend always wraps them as GovPool.multicall([call]) even for a single call, and the dexe-mcp builders emit that shape since v0.24.1. If you hand-craft calldata, wrap it. Raw deposit/withdraw/cancelVote/undelegate/createProposal(AndVote) remain allowed.
+- ℹ Delegation is ONE level: a delegator delegates only their OWN deposited balance; received delegations cannot be re-delegated (hub-and-spoke, never chains). Effective voting power = own deposited + incoming delegations — verify with dexe_vote_user_power (totalBalance).
+
+_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_guide` tool with `flow:"vote_execute"`._
+<!-- END GENERATED: flow-recipe -->

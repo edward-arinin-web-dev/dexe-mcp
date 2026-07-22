@@ -1,5 +1,125 @@
 # Changelog
 
+## 0.26.0 — 2026-07-22
+
+The protocol knowledge layer (Phase A) — a machine-readable "source of truth"
+so ANY MCP agent (including weak models: Haiku/Sonnet, or non-Claude hosts like
+Cursor) knows the DeXe flows, interview questions, and protocol gotchas without
+external research. Tool count 160 → **161** (new `dexe_guide`).
+
+### New: `dexe_guide` — the protocol knowledge tool (core, always visible)
+
+Weak models reliably call tools but don't reliably read resources — so the
+knowledge is served AS a tool result, landing in context right before the
+agent's next decision. Two tiers keep tokens low: a flow index (menu +
+triggers, ~2.5 KB), and per-flow detail (~4–9 KB): the interview questions
+with per-parameter risk notes, the exact ordered tool steps, the relevant
+gotchas danger-first, chain notes, and session-context prefill (known DAOs,
+active chain from `~/.dexe-mcp/state.json`). Free-text `intent` matching
+resolves multi-leg requests ("create token + distribute + OTC + staking") to
+the end-to-end `launch_token_economy` journey; ambiguity returns the visible
+menu, never a confident wrong guess.
+
+### New: `src/knowledge/` — single-source corpus, generated docs
+
+- 7 flows (`create_dao`, `create_proposal`, `vote_execute`,
+  `token_distribution`, `otc_sale`, **`staking_setup`** — previously zero
+  coverage — and **`launch_token_economy`**, the canonical end-to-end journey).
+- 38 gotchas incl. ~15 previously documented nowhere in the shipped package:
+  `delegatedVotingAllowed` inversion, one-level delegation,
+  staking-absent-on-testnet-97, the token_distribution vs token_transfer
+  disambiguation (pro-rata airdrop ≠ address list!), the internal
+  `executorDescription` requirement, the "low creating power" first-proposal
+  race, off-chain decimal quorum.
+- `npm run gen:knowledge` renders the corpus into marked GENERATED regions of
+  `docs/PLAYBOOK.md` (flows, gotchas, and the error→remedy slugs from
+  `src/lib/errors.ts` — finally one source); `gen:knowledge:check` guards
+  drift in `prepublishOnly`.
+- Integrity tests: every step tool exists in the toolset union, every gotcha /
+  subflow / `{{placeholder}}` reference resolves, payload size ceilings.
+
+### New: weak-model eval harness (dev-only) — acceptance GREEN
+
+`scripts/eval-weak-model.mjs` boots the built server over stdio and lets a
+real Haiku (`EVAL_MODEL` override) drive the canonical story on testnet with a
+scripted testnet-only user. 10 transcript asserts: `dexe_guide` called first,
+interview + parameter echo before broadcast, DAO → distribution → OTC land on
+97, app.dexe.io links reported, no staking writes on 97 (deferred to mainnet,
+as the chain note says), zero improvised BROADCASTS (read-only/builder tools
+are free), zero mainnet writes. `--dry-run` checks the guide surface without
+an API key. **Acceptance met 2026-07-22: claude-haiku-4-5, 10/10 asserts.**
+
+### Fixed by the eval's findings
+
+- **`create_staking_tier` zero-address remediation now returns the exact
+  paste-able TxPayload** for the one-off permissionless
+  `GovUserKeeper.deployStakingProposal()` (`data: 0x82e97c92`) and states it
+  must NEVER be wrapped in a governance proposal. Previously the error only
+  named the function — a weak model was observed GUESSING a selector (wrong;
+  the B9 pre-broadcast simulation caught the revert) and then improvising a
+  custom-proposal wrapper. Rule extracted: every "send X()" remediation must
+  include `{to, data, value, chainId}`.
+- **`spherex-addsettings` gotcha softened**: an `enable_staking` (addSettings
+  route) execute SUCCEEDED on a fresh mainnet pool on 2026-07-22 —
+  contradicting the previously deterministic block (bug #36) — so the corpus
+  now states both observations; if execute reverts 'disallowed tx pattern',
+  use editSettings (settingsIds).
+
+### Fixed: past time-windows are refused (silent on-chain rejection trap)
+
+Root-caused the eval's "0 tiers after an executed create_staking_tier":
+`StakingProposal.createStaking` SILENTLY rejects a past `deadline` — the
+execute succeeds (status 1), a `StakingRejected` event fires, the reward
+bounces back to the treasury, and NO tier exists (proven on-chain: mainnet
+proposal executed with a guessed Jan-2024 deadline → `stakingsCount() == 0`).
+TokenSaleProposal has the sibling trap: only `start <= end` is validated, so
+a past sale window creates a dead-on-arrival tier (every buy reverts
+"TSP: token sale is over").
+
+- `create_staking_tier` builder refuses `deadline <= now` and
+  `startedAt >= deadline` before any transaction, naming the silent-reject
+  behavior.
+- `buildTierTuple` (token_sale / token_sale_multi / `dexe_otc_dao_open_sale`)
+  refuses `saleEndTime <= now` and `saleStartTime > saleEndTime`.
+- `dexe_read_staking_info`: `stakingsCount()` decode failure now warns instead
+  of silently reading as "0 tiers" (same W39 rule as `getActiveStakings`).
+- New `timestamps-future` gotcha (danger) + interview specs updated: compute
+  Unix timestamps from the CURRENT time, never guess the date, and leave
+  voting-period headroom before the window.
+
+### Wiring
+
+Server `instructions` + the composite descriptions (`dexe_dao_create`,
+`dexe_proposal_create`, `dexe_proposal_vote_and_execute`,
+`dexe_otc_dao_open_sale`) now point to `dexe_guide` first for multi-step
+requests.
+
+### Phase B: structured chaining, cross-session progress, single-source everywhere
+
+- **`flowContext` + structured `next`.** The four chaining composites
+  (`dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`,
+  `dexe_otc_dao_open_sale`) accept an optional `flowContext: {flow, step}` —
+  pre-filled by `dexe_guide`'s step templates. On an executed step the success
+  payload gains `flowProgress` ("step 3 of 4 of launch_token_economy") and
+  `next` (machine-readable "call X next, because Y"; cross-flow legs point at
+  `dexe_guide`). Omitting `flowContext` keeps today's behavior exactly.
+- **Cross-session resume.** The journey position persists as
+  `activeFlow` in `~/.dexe-mcp/state.json` (additive — old state files read
+  fine) and is cleared on the final step. Both `dexe_context` and `dexe_guide`
+  surface it: "mid-`launch_token_economy`, last completed `leg_distribute` —
+  resume from the next pointer".
+- **Skills generated from the corpus.** The recipe skills now carry a
+  generated "Canonical recipe" section rendered from `src/knowledge/` — plus a
+  NEW **`dexe-staking`** skill (staking previously had zero skill coverage).
+  `npm run gen:knowledge` rewrites PLAYBOOK + all skill regions;
+  `gen:knowledge:check` now runs in CI, and `bundle:plugin` regenerates before
+  bundling (the stale-plugin-copy failure mode is dead).
+- **MCP prompts.** One `dexe-flow-<id>` prompt per flow (7 total) for hosts
+  that support the prompts surface — same rendered recipe as the skills.
+- **OTC composites are state-aware**: proposals opened via
+  `dexe_otc_dao_open_sale` are now recorded in `recentProposals` (previously
+  only `dexe_proposal_create` recorded).
+
 ## 0.25.0 — 2026-07-22
 
 Agent-UX improvements found while running the mainnet campaign — the validator

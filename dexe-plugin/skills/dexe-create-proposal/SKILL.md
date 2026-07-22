@@ -148,3 +148,34 @@ the default behavior when no signer is configured). Then broadcast via
 `dexe_tx_send` or a connected wallet.
 
 Next step after it passes: [[dexe-vote-execute]].
+
+## Canonical recipe (generated from src/knowledge/ — edit there, then `npm run gen:knowledge`)
+
+<!-- BEGIN GENERATED: flow-recipe -->
+### Create a governance proposal (any type) (`create_proposal`)
+
+Create ANY of the 33 catalog proposal types with one dexe_proposal_create call — it handles approve → deposit → create + IPFS metadata.
+
+**Ask the user:**
+- `govPool` — Which DAO (govPool address)? If we just created one this session, confirm reusing it.
+- `proposalType` — What should the proposal DO? (map the user's intent to a proposalType via dexe_proposal_catalog — e.g. token_transfer, change_voting_settings, add_expert)
+- `title` — Proposal title (public)?
+- `description` (optional) — Short proposal description for voters? (optional but recommended)
+
+**Steps:**
+1. `dexe_proposal_catalog` — Only when unsure which proposalType matches the intent: list all 33 types with their target + effect. The per-type params shapes are in dexe_proposal_create's description and docs/PLAYBOOK.md. _(skip when: the proposalType is already obvious from the user's request)_
+2. `dexe_proposal_create` — Approve → deposit → createProposalAndVote in one call, with correct IPFS metadata.
+
+**Pitfalls (danger first):**
+- 🔴 When depositing gov tokens, ERC20.approve must target the DAO's UserKeeper, NEVER the GovPool. Approving the GovPool burns gas and the deposit reverts. The composites (dexe_proposal_create, dexe_proposal_vote_and_execute) sequence this correctly — do not hand-build the approve.
+- 🔴 On fresh (SphereX-era) pools, EXECUTING a proposal whose action is GovSettings.addSettings has been observed reverting 'disallowed tx pattern' — deterministically, re-running never helps. This hits change_voting_settings WITHOUT settingsIds, new_proposal_type, and enable_staking. (An enable_staking execute SUCCEEDED on a fresh mainnet pool on 2026-07-22, so the upstream allowlist may have been fixed — but do not assume it.) If execute reverts with that message: EDIT existing settings instead (pass settingsIds) — editSettings is always allowed.
+- ⚠ Tokens you voted with stay LOCKED per-proposal even after the proposal executes, and votingPower() reads 0 while locked (it shows available, not deposited, power). Between proposals run dexe_vote_build_withdraw to unlock, or the next create/vote fails with 'No voting power available'.
+- ⚠ Fresh (SphereX-guarded, deployed ≥ 2026-07) pools reject multicall([deposit, createProposalAndVote]) with 'SphereX error: disallowed tx pattern'. Deposit and create must be SEPARATE transactions — the composites already send them separately; never re-bundle them.
+- ⚠ settingsIds semantics: 0 = DEFAULT settings, 1 = INTERNAL settings (2 validators, 3 distribution, 4 tokenSale on fresh deploys). When editing, leave executorDescription blank to preserve the on-chain value — it holds the settings-JSON IPFS ref the frontend reads; overwriting it blanks the DAO's settings UI.
+- ⚠ A token transfer to a blacklisted recipient passes the vote and then REVERTS at execute — the proposal is stuck in SucceededFor forever (there is no cancel). Before proposing transfers of an ERC20Gov token, verify the recipient isn't blacklisted.
+- ℹ Creating a proposal requires approve(UserKeeper) → deposit(GovPool) → createProposal, in that order. dexe_proposal_create runs the whole sequence; on partial failure it returns the landed-steps ledger — fix the cause and re-run the SAME call, completed steps are detected on-chain and skipped.
+- ℹ The FIRST proposal on a freshly deployed DAO can revert 'low creating power' — the just-landed deposit isn't credited at snapshot time. This is transient: re-run the SAME dexe_proposal_create call; the ledger resume skips the landed deposit and the create succeeds.
+- ℹ Amount strings: digits-only = RAW smallest units (wei); a decimal point ("12.5") = human units scaled by the token's REAL on-chain decimals (never assumed 18). Durations and delays are SECONDS (86400 = 1 day). Composite quorum/percent params are plain percent numbers (51).
+
+_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_guide` tool with `flow:"create_proposal"`._
+<!-- END GENERATED: flow-recipe -->

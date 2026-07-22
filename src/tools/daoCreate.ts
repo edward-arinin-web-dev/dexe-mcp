@@ -25,6 +25,7 @@ import {
 } from "../lib/preflight.js";
 import { simulateDeployGovPool } from "../lib/deploySim.js";
 import { mapDeployRevert } from "../lib/deployRevertMap.js";
+import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { quorumPctFromRaw } from "../lib/quorumRisk.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
@@ -224,7 +225,8 @@ export function registerDaoCreateTools(
       "includes readiness (govPool code verified) and nextSteps for the first proposal. Mainnet (chain 56) is " +
       "supported (the frontend ships there daily) but requires `confirm: true` since it spends real BNB; testnet (97) " +
       "is the recommended place to validate. `deployer` defaults to the configured signer. Pass avatarCID from " +
-      "dexe_ipfs_upload_avatar / dexe_dao_generate_avatar.",
+      "dexe_ipfs_upload_avatar / dexe_dao_generate_avatar. " +
+      "Unsure of the full journey or which params to collect from the user? Call dexe_guide (flow:'create_dao') first.",
     {
       chainId: z
         .number()
@@ -298,6 +300,7 @@ export function registerDaoCreateTools(
             "parameters), pass confirm:true on the FIRST call — no preview round-trip needed.",
         ),
       dryRun: z.boolean().default(false).describe("If true, return the deploy TxPayload even when DEXE_PRIVATE_KEY is set."),
+      flowContext: flowContextSchema,
     },
     async (input) => {
       if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a DAO"));
@@ -611,6 +614,12 @@ export function registerDaoCreateTools(
         steps: result.steps,
         ...(readiness ? { readiness } : {}),
         ...(nextSteps ? { nextSteps } : {}),
+        ...(result.mode === "executed"
+          ? flowChainFields(input.flowContext, state, {
+              chainId,
+              ...(res.predictedGovPool ? { govPool: res.predictedGovPool } : {}),
+            })
+          : {}),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);

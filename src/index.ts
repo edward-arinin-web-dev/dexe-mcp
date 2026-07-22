@@ -89,6 +89,7 @@ async function main(): Promise<void> {
     {
       instructions:
         "Tools for DeXe Protocol governance DAOs (plus a generic dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs). " +
+        "For any MULTI-STEP request (create a DAO, launch a token economy, OTC sale, staking, distribution, pass a proposal) call dexe_guide FIRST — it returns the exact plan, the questions to ask the user with risk notes, and the known pitfalls. " +
         "Call dexe_context first WHEN you need orientation (signer, active chain, env readiness, DAOs/proposals from prior sessions) — skip it when the user already gave you the target DAO and chain. " +
         "Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (ANY of the 33 catalog proposal types — pass proposalType + params), dexe_proposal_vote_and_execute (auto-deposits when power is short). " +
         "Amounts accept raw wei (digits-only) or human units with a decimal point ('12.5'); durations are seconds. " +
@@ -98,7 +99,7 @@ async function main(): Promise<void> {
         "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. " +
         "The tool surface is gated by DEXE_TOOLSETS (default 'core,proposals'); dexe_context reports which sets are off and what they unlock. " +
         "Full intent→call recipes + error→remedy table: docs/PLAYBOOK.md (shipped in the package). " +
-        "Recipe skills ship with the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc). Installed automatically with the Claude Code plugin (`/plugin install dexe@dexe-mcp`), or copy them standalone with `npx dexe-mcp skills`.",
+        "Recipe skills ship with the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc, dexe-staking). Installed automatically with the Claude Code plugin (`/plugin install dexe@dexe-mcp`), or copy them standalone with `npx dexe-mcp skills`.",
     },
   );
 
