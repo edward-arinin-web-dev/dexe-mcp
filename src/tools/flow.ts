@@ -1238,6 +1238,19 @@ async function driveValidatorRound(args: {
     return r[0]!.success ? Number(r[0]!.value) : -1;
   };
 
+  // A state-changing tx and the getProposalState read can land in the same block
+  // on some RPCs, so an immediate single read lags (the just-cast validator vote
+  // that meets quorum still reads as ValidatorVoting). Poll a few times until the
+  // state moves off `from`, so a single call can carry the proposal to execute.
+  const readStateSettled = async (from: number): Promise<number> => {
+    let s = await readState();
+    for (let i = 0; i < 4 && s === from; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      s = await readState();
+    }
+    return s;
+  };
+
   let state = await readState();
 
   // Stage 1 — move a member-passed proposal into the validator queue.
@@ -1250,7 +1263,7 @@ async function driveValidatorRound(args: {
     steps.push(...r.steps);
     if (r.mode === "failed") return { steps, state, failure: r.failure };
     if (r.mode !== "executed") return { steps, state }; // dryRun/payloads — can't progress
-    state = await readState();
+    state = await readStateSettled(1);
   }
 
   // Stage 2 — cast the signer's validator vote, only if it IS a validator with a balance.
@@ -1287,7 +1300,7 @@ async function driveValidatorRound(args: {
     steps.push(...r.steps);
     if (r.mode === "failed") return { steps, state, failure: r.failure };
     if (r.mode !== "executed") return { steps, state };
-    state = await readState();
+    state = await readStateSettled(2);
   }
 
   return { steps, state };
