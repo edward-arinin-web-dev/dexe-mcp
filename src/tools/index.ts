@@ -27,7 +27,7 @@ import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
 import { registerDaoCreateTools } from "./daoCreate.js";
 import { registerOperationalContextTools } from "./operationalContext.js";
-import { registerGuideTools } from "./guide.js";
+import { registerGuideTools, registerKnowledgePrompts } from "./guide.js";
 import { StateStore } from "../lib/stateStore.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcTools } from "./otc.js";
@@ -91,9 +91,11 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerFlowTools(server, ctx, signer, wc, state);
   registerDaoCreateTools(server, ctx, signer, wc, state);
   registerOperationalContextTools(server, config, signer, state);
-  // Knowledge layer — dexe_guide serves flow plans/interviews/gotchas (Phase A).
+  // Knowledge layer — dexe_guide serves flow plans/interviews/gotchas (Phase A);
+  // per-flow MCP prompts for hosts that support them (Phase B).
   registerGuideTools(server, config, state);
-  registerOtcTools(server, ctx, signer, wc);
+  registerKnowledgePrompts(server);
+  registerOtcTools(server, ctx, signer, wc, state);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
 

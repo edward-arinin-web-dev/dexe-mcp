@@ -157,3 +157,43 @@ journey ([[dexe-otc]]) works immediately after deploy, no extra settings
 proposal needed.
 
 Related: [[dexe-create-proposal]], [[dexe-vote-execute]].
+
+## Canonical recipe (generated from src/knowledge/ — edit there, then `npm run gen:knowledge`)
+
+<!-- BEGIN GENERATED: flow-recipe -->
+### Create (deploy) a DAO (`create_dao`)
+
+Deploy a new DeXe governance DAO with its gov token in one composite call (preview → confirm → broadcast).
+- **chain 56:** MAINNET — the deploy spends real BNB (cents, ~0.1 gwei). Confirm the user accepts mainnet before broadcasting.
+- **chain 97:** Testnet rehearsal: free faucet BNB (https://www.bnbchain.org/en/testnet-faucet). Staking, subgraph reads and off-chain proposals do NOT exist on 97.
+
+**Ask the user:**
+- `daoName` — What should the DAO be called? (public, permanent; also the on-chain pool name) · constraint: Non-empty; this deployer must not have used the same name on this chain before.
+- `symbol` — Gov token symbol? (e.g. 'GENA')
+- `totalSupply` — Total token supply, in whole tokens? (e.g. '1000000') · constraint: > 0. Cap is set equal to minted supply (fixed supply) unless ADVANCED params say otherwise.
+- `treasuryPercent` (optional) — What % of supply should the DAO treasury hold? (the rest goes to your deployer wallet as votable supply) · default `49` · ⚠ Treasury tokens CANNOT vote. Treasury > 49% shrinks votable supply below quorum reach — the deploy is refused as governance-dead. Treasury 0% means proposals have nothing to spend.
+- `quorumPercent` (optional) — Quorum % required to pass proposals? · default `51` · constraint: 50 ≤ quorum ≤ 100 − treasuryPercent · ⚠ Below 50% a small holder group can drain the treasury (blocked-risky without confirmRisky). Above 100−treasuryPercent the quorum is unreachable and the DAO is dead — the tool refuses.
+- `durationSeconds` (optional) — Voting duration per proposal, in seconds? (86400 = 1 day) · default `86400` · ⚠ Very short durations can end voting before holders react; very long ones stall governance.
+- `chainId` (optional) — Which chain — 97 (BSC testnet rehearsal, free) or 56 (BSC mainnet, real BNB)? · default `97`
+- `daoDescription` (optional) — One-paragraph DAO description for the public profile? (markdown ok; optional)
+
+**Steps:**
+1. `dexe_dao_create` — Preview the resolved config + safety proof (quorum reachability, treasury floor). No broadcast.
+2. `dexe_dao_create` — Broadcast the deploy (same arguments + confirm:true). Signs via hot key or WalletConnect QR.
+
+**Pitfalls (danger first):**
+- 🔴 Quorum must be REACHABLE: quorum% × totalSupply must be ≤ the token amount actually distributed to voters. Treasury/undistributed tokens cannot vote, so an unreachable quorum deadlocks the DAO forever — no proposal will ever pass. dexe_dao_create verifies this and refuses incoherent configs before any transaction.
+- 🔴 Quorum below ~50% opens treasury-drain territory: a small token holder group can pass proposals that move the whole treasury. The safe floor is 50% (override via DEXE_MIN_SAFE_QUORUM_PCT); builds that lower quorum below it return mode:"blocked-risky" and need an explicit confirmRisky:true re-run. Warn the user before they choose a low quorum.
+- 🔴 Every EXECUTED proposal with rewards configured pays a ~30% DeXe protocol commission on the reward total (voteAmount × voteRewardsCoefficient + fixed rewards) from the DAO treasury at execute time. If the treasury can't cover it, the protocol MINTS new gov tokens (supply inflation — the quorum denominator grows). claimRewards on an empty treasury succeeds but silently pays 0. Keep voteRewardsCoefficient ≤ 1e23 (×0.01) or 0 unless the user explicitly budgets for it.
+- ⚠ Token cap rule: cap ≥ mintedTotal > 0. cap:0 reverts 'ERC20Capped: cap is 0' (there is no uncapped mode); cap < mintedTotal reverts; cap == mintedTotal is valid and means fixed supply (no future minting headroom).
+- ⚠ A fresh dexe_dao_create deploy auto-expands FIVE proposal-settings ids: 0 default, 1 internal, 2 validators, 3 distribution, 4 tokenSale. Any later rewards/settings change must edit EVERY id whose executor matters — proposals routed through untouched executors keep the old values.
+- ⚠ The settings flag `delegatedVotingAllowed` is INVERTED versus its name: false = delegation IS allowed (the default), true = delegated votes are DISABLED for that proposal type. Do not "enable delegation" by setting it to true.
+- ⚠ minVotesForVoting and minVotesForCreating must be ≤ the largest single recipient's token allocation, or no holder can ever create/vote. dexe_dao_create's synthesized configs keep this coherent; check it when the user supplies explicit settings.
+- ℹ The DAO treasury is the IMPLICIT REMAINDER of the initial distribution: sum(recipient amounts) < mintedTotal, and the contract mints the difference to the DAO itself. Never list the govPool address as a distribution recipient. To give the user's address list X% of supply, put those addresses+amounts in the deploy-time distribution and leave the rest as treasury.
+- ℹ The DAO deploy create2 salt is deployer+name: the same deployer reusing a daoName on the same chain reverts 'pool name is already taken'. Pick a fresh name; a different deployer can reuse it.
+- ℹ votePower initData is auto-encoded (LINEAR → __LinearPower_init selector 0x892aea1f, POLYNOMIAL → 3 coeffs). Do not override it; empty initData reverts 'power init failed'. Only CUSTOM presets take hand-made initData.
+- ℹ Amount strings: digits-only = RAW smallest units (wei); a decimal point ("12.5") = human units scaled by the token's REAL on-chain decimals (never assumed 18). Durations and delays are SECONDS (86400 = 1 day). Composite quorum/percent params are plain percent numbers (51).
+- ℹ Chains: 56 = BSC mainnet, 97 = BSC testnet. Rehearse on 97 first (free faucet BNB) except for features that don't exist there (staking, subgraph, off-chain backend). Mainnet gas is cents per tx (~0.1 gwei) — never size budgets from Ethereum L1 intuition.
+
+_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_guide` tool with `flow:"create_dao"`._
+<!-- END GENERATED: flow-recipe -->

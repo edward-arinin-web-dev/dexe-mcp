@@ -123,7 +123,7 @@ export const FLOWS: readonly Flow[] = [
           "https://app.dexe.io/dao/{{govPool}} (mainnet UI). Your deployer wallet now holds the votable supply; " +
           "the treasury holds the remainder.",
         bindsFrom: { govPool: "deploy.predictedGovPool" },
-        next: [{ when: "the user wants a first proposal", stepId: "preview", why: "see flow create_proposal" }],
+        next: [{ when: "the user wants a first proposal", flowRef: "create_proposal", why: "create the first governance proposal" }],
       },
     ],
     gotchaIds: ["amount-conventions", "testnet-first", "reward-commission", "delegated-voting-inverted"],
@@ -205,7 +205,7 @@ export const FLOWS: readonly Flow[] = [
           "Proposal #{{proposalId}} created (your voting power auto-voted FOR). Link: " +
           "https://app.dexe.io/dao/{{govPool}} → Proposals. Next: other members vote; when quorum is reached, " +
           "execute via flow vote_execute.",
-        next: [{ when: "quorum reached or user asks to pass it", stepId: "create", why: "see flow vote_execute" }],
+        next: [{ when: "quorum reached or user asks to pass it", flowRef: "vote_execute", why: "drive the proposal to executed" }],
       },
     ],
     gotchaIds: ["amount-conventions", "spherex-addsettings", "settings-ids-semantics", "vp-locked"],

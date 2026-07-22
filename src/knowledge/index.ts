@@ -38,7 +38,7 @@ export interface FlowStepDetail {
   optionalWhen?: string;
   gotchas: ResolvedGotcha[];
   reportOnSuccess: string;
-  next?: Array<{ when: string; stepId: string; why: string }>;
+  next?: Array<{ when: string; stepId?: string; flowRef?: string; why: string }>;
 }
 
 export interface FlowDetail {
@@ -58,6 +58,14 @@ export interface FlowDetail {
 const DEFAULT_PROFILE_TOOLS: ReadonlySet<string> = new Set([
   ...TOOLSETS.core!,
   ...TOOLSETS.proposals!,
+]);
+
+/** Composites that accept `flowContext` and return structured `next` chaining. */
+const CHAINING_TOOLS: ReadonlySet<string> = new Set([
+  "dexe_dao_create",
+  "dexe_proposal_create",
+  "dexe_proposal_vote_and_execute",
+  "dexe_otc_dao_open_sale",
 ]);
 
 /** Which non-default toolset(s) expose `tool`, or undefined if default-visible. */
@@ -112,7 +120,11 @@ export function flowDetail(id: string, opts?: { chainId?: number }): FlowDetail 
       tool: s.tool,
       ...(requiresToolset(s.tool) ? { requiresToolset: requiresToolset(s.tool) } : {}),
       purpose: s.purpose,
-      paramsTemplate: s.paramsTemplate,
+      // Chaining composites get their guided-flow position pre-filled: pass it
+      // through verbatim and the success payload returns flowProgress + next.
+      paramsTemplate: CHAINING_TOOLS.has(s.tool)
+        ? { ...s.paramsTemplate, flowContext: `{"flow":"${f.id}","step":"${s.id}"}` }
+        : s.paramsTemplate,
       ...(s.bindsFrom ? { bindsFrom: s.bindsFrom } : {}),
       ...(s.optionalWhen ? { optionalWhen: s.optionalWhen } : {}),
       gotchas: resolveGotchas(s.gotchaIds, chainId),

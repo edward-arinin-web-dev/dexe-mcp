@@ -64,3 +64,30 @@ export function renderErrorTable(): string {
   );
   return ["| Failure | What it means | Do this |", "|---|---|---|", ...rows].join("\n");
 }
+
+/**
+ * Per-flow recipe for a skill's generated region (and the MCP prompts):
+ * the flow recipe + its resolved gotchas, danger-first. Uses flowDetail so
+ * chain-agnostic (no chainId → all gotchas included).
+ */
+export function renderSkillRecipe(flowId: string): string {
+  const f = FLOWS.find((x) => x.id === flowId);
+  if (!f) throw new Error(`renderSkillRecipe: unknown flow '${flowId}'`);
+  const rank = { danger: 0, warn: 1, info: 2 } as const;
+  const ids = new Set<string>([...f.gotchaIds, ...f.steps.flatMap((s) => s.gotchaIds ?? [])]);
+  const gotchas = GOTCHAS.filter((g) => ids.has(g.id)).sort((a, b) => rank[a.severity] - rank[b.severity]);
+  const lines: string[] = [renderFlowsSectionFor(f)];
+  lines.push("");
+  lines.push("**Pitfalls (danger first):**");
+  for (const g of gotchas) lines.push(`- ${SEVERITY_MARK[g.severity]} ${g.text}`);
+  lines.push("");
+  lines.push(
+    "_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` " +
+      "chaining), call the `dexe_guide` tool with `flow:\"" + f.id + "\"`._",
+  );
+  return lines.join("\n");
+}
+
+function renderFlowsSectionFor(f: Flow): string {
+  return renderFlow(f);
+}

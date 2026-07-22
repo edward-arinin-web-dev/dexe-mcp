@@ -19,12 +19,18 @@ automatically with the plugin, or on demand via the CLI.
 | `dexe-create-proposal` | `dexe_proposal_create` for every wired `proposalType` + `params` recipe; the metadata / ABI-guessing / approve-target / blacklist failure modes. |
 | `dexe-vote-execute` | `dexe_proposal_vote_and_execute`: deposit-first, canonical ProposalState ordering, "withdraw between proposals" lock trap. |
 | `dexe-otc` | The five `dexe_otc_*` composites; PRECISION-1e25 rate, native-BNB sentinel, claim-timing gotchas. Full reference: [`OTC.md`](./OTC.md). |
+| `dexe-staking` | Staking setup end-to-end: `create_staking_tier`, StakingProposal auto-resolve + the one-off permissionless `deployStakingProposal()`, the silent past-deadline rejection, mainnet-only rule. |
 | `dexe-setup` | Env onboarding via `dexe_doctor` (edits `.env`, never `.claude.json`). |
+
+Since v0.26.0 each recipe skill carries a **generated "Canonical recipe" section**
+rendered from the machine-readable corpus in `src/knowledge/` (`npm run
+gen:knowledge`; drift-checked in CI) — the same source that powers the
+`dexe_guide` tool and `docs/PLAYBOOK.md`, so the three can never disagree.
 
 ## Installing
 
 **With the Claude Code plugin (automatic).** `/plugin install dexe@dexe-mcp`
-discovers and loads all five skills — no copy step, no env questions. Plugin
+discovers and loads all six skills — no copy step, no env questions. Plugin
 skills are namespaced, e.g. `dexe:dexe-create-dao`.
 
 **Standalone CLI** — copy the skills with no setup interview (for other MCP
@@ -45,9 +51,15 @@ overwritten with an `(updated)` note, so upgrading the package and re-running
 keeps the installed recipes current. Each skill is a folder with a single
 `SKILL.md`; Claude Code auto-discovers them from the skills directory.
 
-## Why skills, not MCP prompts/resources
+## Skills, MCP prompts, and dexe_guide
 
 The recipe knowledge is model-facing guidance, not tool I/O. Skills are the
 supported, discoverable channel for that in Claude Code and travel with the npm
-package. MCP prompts/resources may be added later, but skills remain the primary
-recipe channel.
+package. Since v0.26.0 the same recipes are ALSO served as:
+
+- the **`dexe_guide` tool** (works in every MCP host — the primary channel for
+  weak models, since tool results land right before the agent's next decision);
+- **MCP prompts** `dexe-flow-<flow-id>` (one per flow) for hosts that support
+  the prompts surface.
+
+All three render from the single corpus in `src/knowledge/`.

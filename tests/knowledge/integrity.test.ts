@@ -84,6 +84,23 @@ describe("knowledge corpus integrity", () => {
     expect(undeclared, `undeclared placeholders: ${undeclared.join(", ")}`).toEqual([]);
   });
 
+  it("every next entry names exactly one of stepId (real step) or flowRef (real flow)", () => {
+    const bad: string[] = [];
+    for (const f of FLOWS) {
+      const stepIds = new Set(f.steps.map((s) => s.id));
+      for (const s of f.steps) {
+        for (const n of s.next ?? []) {
+          const hasStep = n.stepId !== undefined;
+          const hasFlow = n.flowRef !== undefined;
+          if (hasStep === hasFlow) bad.push(`${f.id}.${s.id}: needs exactly one of stepId/flowRef`);
+          else if (hasStep && !stepIds.has(n.stepId!)) bad.push(`${f.id}.${s.id}: unknown stepId ${n.stepId}`);
+          else if (hasFlow && !FLOW_BY_ID.has(n.flowRef!)) bad.push(`${f.id}.${s.id}: unknown flowRef ${n.flowRef}`);
+        }
+      }
+    }
+    expect(bad, bad.join(", ")).toEqual([]);
+  });
+
   it("bindsFrom step references resolve to real step ids in the same flow", () => {
     const bad: string[] = [];
     for (const f of FLOWS) {

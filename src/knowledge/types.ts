@@ -81,8 +81,12 @@ export interface FlowStep {
    * placeholders, e.g. a link template "https://app.dexe.io/dao/{{govPool}}".
    */
   reportOnSuccess: string;
-  /** Powers Phase B structured next-step chaining. */
-  next?: Array<{ when: string; stepId: string; why: string }>;
+  /**
+   * Powers Phase B structured next-step chaining. Exactly one of `stepId`
+   * (another step in THIS flow) or `flowRef` (another flow — the pointer
+   * resolves to a dexe_guide call) per entry.
+   */
+  next?: Array<{ when: string; stepId?: string; flowRef?: string; why: string }>;
   /** Step only applies in some situations ("only when the DAO has validators"). */
   optionalWhen?: string;
 }

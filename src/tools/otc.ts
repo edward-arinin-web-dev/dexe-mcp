@@ -25,6 +25,8 @@ import { parseUintString } from "../lib/amount.js";
 import { parseAmount, formatAmount, from18 } from "../lib/units.js";
 import { chainIdParam } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
+import type { StateStore } from "../lib/stateStore.js";
+import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -200,6 +202,7 @@ export function registerOtcTools(
   ctx: ToolContext,
   signer: SignerManager,
   wc: WalletConnectManager,
+  state?: StateStore,
 ): void {
   const rpc = new RpcProvider(ctx.config);
 
@@ -238,6 +241,7 @@ export function registerOtcTools(
       user: z.string().optional(),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       buildOnly: z.boolean().default(false).describe("If true, return just the envelope (actions + metadata + merkle roots) without running the proposal_create flow. Skips IPFS upload and DAO state reads."),
+      flowContext: flowContextSchema,
     },
     async (input) => {
       try {
@@ -301,7 +305,7 @@ export function registerOtcTools(
           user: input.user,
           dryRun: input.dryRun,
         };
-        const result = await runProposalCreate(proposalInput, { ctx, signer, rpc, wc });
+        const result = await runProposalCreate(proposalInput, { ctx, signer, rpc, wc, state });
 
         // Surface the OTC-specific extras alongside the proposal_create body.
         // The proposal_create response may lead with WalletConnect QR blocks
@@ -327,6 +331,12 @@ export function registerOtcTools(
         const qrBlocks = content.filter((_, i) => i !== jsonIdx);
         const merged = ok({
           ...resultJson,
+          ...(resultJson.mode === "executed"
+            ? flowChainFields(input.flowContext, state, {
+                chainId: resolveChain(ctx.config, input.chainId).chainId,
+                govPool: input.govPool,
+              })
+            : {}),
           otc: {
             tokenSaleProposal: input.tokenSaleProposal,
             tierCount: input.tiers.length,

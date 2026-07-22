@@ -94,6 +94,32 @@ Server `instructions` + the composite descriptions (`dexe_dao_create`,
 `dexe_otc_dao_open_sale`) now point to `dexe_guide` first for multi-step
 requests.
 
+### Phase B: structured chaining, cross-session progress, single-source everywhere
+
+- **`flowContext` + structured `next`.** The four chaining composites
+  (`dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`,
+  `dexe_otc_dao_open_sale`) accept an optional `flowContext: {flow, step}` —
+  pre-filled by `dexe_guide`'s step templates. On an executed step the success
+  payload gains `flowProgress` ("step 3 of 4 of launch_token_economy") and
+  `next` (machine-readable "call X next, because Y"; cross-flow legs point at
+  `dexe_guide`). Omitting `flowContext` keeps today's behavior exactly.
+- **Cross-session resume.** The journey position persists as
+  `activeFlow` in `~/.dexe-mcp/state.json` (additive — old state files read
+  fine) and is cleared on the final step. Both `dexe_context` and `dexe_guide`
+  surface it: "mid-`launch_token_economy`, last completed `leg_distribute` —
+  resume from the next pointer".
+- **Skills generated from the corpus.** The recipe skills now carry a
+  generated "Canonical recipe" section rendered from `src/knowledge/` — plus a
+  NEW **`dexe-staking`** skill (staking previously had zero skill coverage).
+  `npm run gen:knowledge` rewrites PLAYBOOK + all skill regions;
+  `gen:knowledge:check` now runs in CI, and `bundle:plugin` regenerates before
+  bundling (the stale-plugin-copy failure mode is dead).
+- **MCP prompts.** One `dexe-flow-<id>` prompt per flow (7 total) for hosts
+  that support the prompts surface — same rendered recipe as the skills.
+- **OTC composites are state-aware**: proposals opened via
+  `dexe_otc_dao_open_sale` are now recorded in `recentProposals` (previously
+  only `dexe_proposal_create` recorded).
+
 ## 0.25.0 — 2026-07-22
 
 Agent-UX improvements found while running the mainnet campaign — the validator

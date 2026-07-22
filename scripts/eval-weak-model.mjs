@@ -13,7 +13,8 @@
  * A scripted "user" answers the interview questions from a fixed persona.
  *
  * Asserts (transcript-level):
- *   1. the FIRST tool call is dexe_guide
+ *   1. dexe_guide is consulted BEFORE the first broadcast (orientation reads
+ *      like dexe_context may precede it)
  *   2. the agent asks interview questions and echoes parameters BEFORE the
  *      first broadcast (a text turn with the symbol appears before confirm)
  *   3. dexe_dao_create → token_transfer proposal(s) → dexe_otc_dao_open_sale
@@ -197,8 +198,18 @@ const toolCallLog = []; // { name, args, resultText, isError }
 const assistantTexts = [];
 let followupIdx = 0;
 
+let abortedReason = null;
 for (let turn = 0; turn < MAX_TURNS; turn++) {
-  const reply = await anthropic(messages);
+  let reply;
+  try {
+    reply = await anthropic(messages);
+  } catch (e) {
+    // API failure (credits, rate limit, network) — keep the partial transcript
+    // and still run the asserts so the run isn't a total loss.
+    abortedReason = String(e?.message ?? e);
+    console.error(`\n[eval] Anthropic API failed mid-run — evaluating the partial transcript.\n${abortedReason}`);
+    break;
+  }
   messages.push({ role: "assistant", content: reply.content });
 
   const toolUses = reply.content.filter((b) => b.type === "tool_use");
@@ -219,7 +230,7 @@ for (let turn = 0; turn < MAX_TURNS; turn++) {
 
   const resultsContent = [];
   for (const tu of toolUses) {
-    console.log(`\n[tool_use] ${tu.name} ${JSON.stringify(tu.input).slice(0, 300)}`);
+    console.log(`\n[tool_use] ${tu.name} ${JSON.stringify(tu.input).slice(0, 600)}`);
     const r = await callMcp(tu.name, tu.input);
     toolCallLog.push({ name: tu.name, args: tu.input, resultText: r.text, isError: r.isError });
     console.log(`[tool_result${r.isError ? " ERROR" : ""}] ${r.text.slice(0, 300)}…`);
@@ -240,8 +251,16 @@ await mcp.close();
 // ── asserts ──────────────────────────────────────────────────────────────────
 const names = toolCallLog.map((c) => c.name);
 
-// 1. dexe_guide first
-record("1. first tool call is dexe_guide", names[0] === "dexe_guide", `first was ${names[0] ?? "none"}`);
+// 1. knowledge consulted before any money moved
+const firstGuideIdx = names.indexOf("dexe_guide");
+const firstBroadcastIdx = toolCallLog.findIndex(
+  (c) => isBroadcastTool(c.name) && c.args?.dryRun !== true && c.args?.buildOnly !== true,
+);
+record(
+  "1. dexe_guide consulted before the first broadcast",
+  firstGuideIdx !== -1 && (firstBroadcastIdx === -1 || firstGuideIdx < firstBroadcastIdx),
+  `guide at #${firstGuideIdx}, first broadcast at #${firstBroadcastIdx}`,
+);
 
 // 2. interview + echo before broadcast
 const firstConfirmIdx = toolCallLog.findIndex(
@@ -319,7 +338,12 @@ record(
 );
 
 console.log(`\n──────── eval summary ────────`);
-console.log(`model: ${MODEL}, tool calls: ${toolCallLog.length}, assistant turns: ${assistantTexts.length}`);
+const chained = toolCallLog.filter((c) => c.args?.flowContext).length;
+console.log(
+  `model: ${MODEL}, tool calls: ${toolCallLog.length}, assistant turns: ${assistantTexts.length}, ` +
+    `flowContext-chained calls: ${chained} (observability only, not asserted)`,
+);
 for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.step}${r.note ? ` (${r.note})` : ""}`);
-console.log(failures === 0 ? "\nALL GREEN — Phase A acceptance met." : `\n${failures} FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+if (abortedReason) console.log(`\n⚠ RUN ABORTED MID-WAY (${abortedReason.split("\n")[0]}) — verdict is not conclusive.`);
+console.log(failures === 0 && !abortedReason ? "\nALL GREEN — acceptance met." : `\n${failures} FAILED${abortedReason ? " (aborted)" : ""}`);
+process.exit(failures === 0 && !abortedReason ? 0 : 1);

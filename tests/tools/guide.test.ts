@@ -60,6 +60,14 @@ describe("flow detail tiers", () => {
     expect(verify.tool).toBe("dexe_read_staking_info");
     expect(verify.requiresToolset).toContain("read");
   });
+
+  it("chaining composites get flowContext pre-filled in their paramsTemplate (Phase B)", () => {
+    const d = flowDetail("otc_sale")!;
+    const open = d.steps.find((s) => s.id === "open")!;
+    expect(open.paramsTemplate.flowContext).toBe('{"flow":"otc_sale","step":"open"}');
+    const verify = d.steps.find((s) => s.id === "verify")!;
+    expect(verify.paramsTemplate.flowContext).toBeUndefined(); // read tool — no chaining
+  });
 });
 
 describe("dexe_guide (real server)", () => {
@@ -91,6 +99,13 @@ describe("dexe_guide (real server)", () => {
         lastChainId: 97,
         recentProposals: [],
         walletLabels: {},
+        activeFlow: {
+          flow: "launch_token_economy",
+          step: "leg_distribute",
+          chainId: 97,
+          startedAt: "2026-07-22T00:00:00.000Z",
+          updatedAt: "2026-07-22T01:00:00.000Z",
+        },
       }),
     );
     process.env.DEXE_STATE_PATH = statePath;
@@ -122,6 +137,23 @@ describe("dexe_guide (real server)", () => {
     expect(out.context.chainId).toBe(97);
     expect(out.context.chainIdSource).toBe("last-used");
     expect(out.context.knownDao.govPool).toBe("0x1111111111111111111111111111111111111111");
+  });
+
+  it("mid-journey activeFlow surfaces with progress + next pointer (Phase B)", async () => {
+    const out = await callGuide({});
+    expect(out.context.activeFlow.flow).toBe("launch_token_economy");
+    expect(out.context.activeFlow.progress).toMatch(/2 of 4/);
+    expect(out.context.activeFlow.next.length).toBeGreaterThan(0);
+  });
+
+  it("per-flow MCP prompts are registered", async () => {
+    const prompts = await client.listPrompts();
+    const names = prompts.prompts.map((p) => p.name);
+    expect(names).toContain("dexe-flow-launch_token_economy");
+    expect(names).toContain("dexe-flow-staking_setup");
+    const got = await client.getPrompt({ name: "dexe-flow-staking_setup", arguments: {} });
+    const text = (got.messages[0]!.content as { text: string }).text;
+    expect(text).toMatch(/STAKING DOES NOT EXIST ON TESTNET/i);
   });
 
   it("canonical intent → launch_token_economy detail with the testnet staking note", async () => {

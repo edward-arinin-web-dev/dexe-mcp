@@ -42,7 +42,7 @@ Then ask:
 
 > "Show the treasury of `0x…` on BSC."
 
-Reads work with no configuration: on-chain data, subgraphs, the DeXe backend, and IPFS all have public defaults, and WalletConnect signing is available immediately (`dexe_wc_connect`). The governance skills (create DAO, create proposal, vote and execute, OTC) install with the plugin.
+Reads work with no configuration: on-chain data, subgraphs, the DeXe backend, and IPFS all have public defaults, and WalletConnect signing is available immediately (`dexe_wc_connect`). The governance skills (create DAO, create proposal, vote and execute, OTC, staking) install with the plugin.
 
 To create DAOs or proposals, or to broadcast transactions, run `/dexe-setup` — it walks through the two keys that unlock those paths (a Pinata token for IPFS uploads, a signer) and writes them to `.env` for you.
 

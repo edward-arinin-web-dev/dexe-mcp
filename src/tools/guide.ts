@@ -2,7 +2,9 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 import type { StateStore } from "../lib/stateStore.js";
-import { flowIndex, flowDetail, matchIntent, bestMatch } from "../knowledge/index.js";
+import { flowIndex, flowDetail, matchIntent, bestMatch, FLOWS } from "../knowledge/index.js";
+import { nextAfter } from "../knowledge/nextSteps.js";
+import { renderSkillRecipe } from "../knowledge/render.js";
 
 /**
  * `dexe_guide` — the protocol knowledge tool (Phase A of the knowledge layer).
@@ -17,6 +19,28 @@ import { flowIndex, flowDetail, matchIntent, bestMatch } from "../knowledge/inde
  *  - index tier (no args / ambiguous intent): flow menu, ~300 tokens
  *  - detail tier (flow id / confident intent): full plan, ~1-2k tokens
  */
+/**
+ * MCP prompts (Phase B) — one per flow, for hosts that support the prompts
+ * surface. Body = the same generated recipe the skills carry. Prompts are not
+ * tools: they are not gated by DEXE_TOOLSETS and don't affect the tool count.
+ */
+export function registerKnowledgePrompts(server: McpServer): void {
+  for (const flow of FLOWS) {
+    server.registerPrompt(
+      `dexe-flow-${flow.id}`,
+      { description: flow.summary },
+      () => ({
+        messages: [
+          {
+            role: "user" as const,
+            content: { type: "text" as const, text: renderSkillRecipe(flow.id) },
+          },
+        ],
+      }),
+    );
+  }
+}
+
 export function registerGuideTools(
   server: McpServer,
   config: DexeConfig,
@@ -51,6 +75,9 @@ export function registerGuideTools(
       // Session context prefill: a known DAO means most flows can skip the
       // "which govPool?" question — surface it so the agent offers reuse.
       const lastDao = st.knownDaos[0];
+      // Cross-session resume: a mid-journey flow recorded by the composites.
+      const active = st.activeFlow;
+      const activeProgress = active ? nextAfter(active.flow, active.step) : null;
       const context = {
         chainId: resolvedChainId,
         chainIdSource: chainId !== undefined ? "argument" : st.lastChainId !== undefined ? "last-used" : "default",
@@ -61,6 +88,18 @@ export function registerGuideTools(
                 govPool: lastDao.govPool,
                 chainId: lastDao.chainId,
                 hint: "You already have this DAO from a prior session — confirm reuse with the user instead of asking for an address.",
+              },
+            }
+          : {}),
+        ...(active && activeProgress
+          ? {
+              activeFlow: {
+                ...active,
+                progress: `${activeProgress.flowProgress.stepIndex} of ${activeProgress.flowProgress.of} (last completed: ${active.step})`,
+                next: activeProgress.next,
+                hint:
+                  `A prior session left flow '${active.flow}' mid-journey. Confirm with the user, then continue ` +
+                  `from the 'next' pointer (or call dexe_guide {flow:"${active.flow}"} for the full plan).`,
               },
             }
           : {}),

@@ -49,7 +49,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "bundle:plugin": "npm run build && node scripts/bundle-plugin.mjs",
+    "bundle:plugin": "npm run gen:knowledge && npm run build && node scripts/bundle-plugin.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "doctor": "node dist/index.js doctor",

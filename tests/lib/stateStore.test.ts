@@ -126,3 +126,44 @@ describe("StateStore", () => {
     expect(raw.knownDaos[0].govPool).toBe(dao().govPool);
   });
 });
+
+describe("activeFlow (Phase B)", () => {
+  it("set → reload from disk → read; startedAt survives step advances", () => {
+    const p = tmpPath();
+    const s1 = new StateStore(p);
+    s1.setActiveFlow({ flow: "launch_token_economy", step: "leg_dao", chainId: 97 });
+    const started = s1.getState().activeFlow!.startedAt;
+    s1.setActiveFlow({ flow: "launch_token_economy", step: "leg_otc", chainId: 97, govPool: "0x1111111111111111111111111111111111111111" });
+    const s2 = new StateStore(p); // fresh instance = read from disk
+    const af = s2.getState().activeFlow!;
+    expect(af.step).toBe("leg_otc");
+    expect(af.startedAt).toBe(started);
+    expect(af.govPool).toBe("0x1111111111111111111111111111111111111111");
+  });
+
+  it("switching to a different flow resets startedAt", () => {
+    const p = tmpPath();
+    const s = new StateStore(p);
+    s.setActiveFlow({ flow: "create_dao", step: "preview", chainId: 97 });
+    const first = s.getState().activeFlow!.startedAt;
+    s.setActiveFlow({ flow: "otc_sale", step: "open", chainId: 97 });
+    expect(s.getState().activeFlow!.flow).toBe("otc_sale");
+    expect(s.getState().activeFlow!.startedAt >= first).toBe(true);
+  });
+
+  it("clearActiveFlow removes it and survives reload", () => {
+    const p = tmpPath();
+    const s = new StateStore(p);
+    s.setActiveFlow({ flow: "create_dao", step: "deploy", chainId: 56 });
+    s.clearActiveFlow();
+    expect(new StateStore(p).getState().activeFlow).toBeUndefined();
+  });
+
+  it("legacy state.json without activeFlow reads fine; garbled activeFlow is dropped", () => {
+    const p = tmpPath();
+    writeFileSync(p, JSON.stringify({ version: STATE_VERSION, knownDaos: [], recentProposals: [], walletLabels: {} }));
+    expect(new StateStore(p).getState().activeFlow).toBeUndefined();
+    writeFileSync(p, JSON.stringify({ version: STATE_VERSION, knownDaos: [], recentProposals: [], walletLabels: {}, activeFlow: { flow: 42 } }));
+    expect(new StateStore(p).getState().activeFlow).toBeUndefined();
+  });
+});
