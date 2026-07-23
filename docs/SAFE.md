@@ -31,7 +31,7 @@ optional `chainId` (defaults to the MCP's default chain).
 
 ```env
 DEXE_PRIVATE_KEY=0x...                 # a Safe OWNER key (signs the safeTxHash)
-DEXE_RPC_URL_MAINNET=https://bsc-dataseed.binance.org   # to read the Safe nonce
+DEXE_RPC_URL_MAINNET=https://bsc-dataseed.bnbchain.org   # to read the Safe nonce
 # Optional / situational:
 DEXE_SAFE_TX_SERVICE_URL=https://api.safe.global/tx-service/bnb/api/v2
 DEXE_SAFE_API_KEY=...                  # Bearer token for api.safe.global (live POST)

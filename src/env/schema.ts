@@ -129,7 +129,7 @@ export const ENV_SPEC = {
     schema: optionalUrlList,
     category: "rpc",
     required: false,
-    example: "https://bsc-dataseed.binance.org",
+    example: "https://bsc-dataseed.bnbchain.org",
     doc: "Legacy single-chain RPC. Prefer DEXE_RPC_URL_TESTNET / _MAINNET / _<chainId>. Accepts a comma-separated fallback list.",
     enablesFlows: ["read", "broadcast"],
   },

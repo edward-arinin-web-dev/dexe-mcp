@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Only the latest published version on npm receives security updates. Pin to the latest minor (`^0.5`) in your MCP client config.
+Only the latest published version on npm receives security updates. Pin to the latest minor (`^0.29`) in your MCP client config.
 
 ## Automated security checks
 

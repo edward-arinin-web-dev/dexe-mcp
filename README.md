@@ -70,7 +70,7 @@ dexe-mcp doctor    # verifies RPC, Pinata, IPFS gateway, subgraph
     "dexe": {
       "command": "dexe-mcp",
       "env": {
-        "DEXE_RPC_URL_MAINNET": "https://bsc-dataseed.binance.org"
+        "DEXE_RPC_URL_MAINNET": "https://bsc-dataseed.bnbchain.org"
       }
     }
   }
@@ -122,7 +122,7 @@ Each write tool returns a `TxPayload` you pass to your wallet. To let the server
 Verified, prompt-level scenarios live in **[docs/USE_CASES.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USE_CASES.md)** — each with the exact tools it exercises and on-chain evidence. Highlights:
 
 - **Basics** — create a DAO with its own token in one call; propose → vote → execute; join an existing DAO.
-- **Q&A over live data** — "does DAO X have validators?", whale maps, TVL charts, delegation graphs, per-proposal voter lists.
+- **Q&A over live data** — "does DAO X have validators?", whale maps, TVL charts, delegation graphs, per-proposal voter lists. _(The deeper analytics reads — token-holder/whale maps, DAO stats, delegation maps, validator lists, user activity — live in the `read` profile, which the default session does not load; set `DEXE_TOOLSETS=read` (or `full`), or ask `dexe_context` which sets are off and how to enable them.)_
 - **Automation** — pair reads with your agent's scheduler (`/loop`, `/schedule`): proposal watchdogs, daily governance digests (`dexe_user_inbox`), quorum trackers, treasury monitors, policy-based delegate agents.
 - **Analysis** — decode + risk-assess any proposal (quorum safety, treasury at risk, who profits); due-diligence a DAO before buying in; simulate before broadcasting.
 - **Advanced ops** — make the DAO call ANY external contract (`custom_abi`), OTC sales, cross-DAO delegation (one DAO voting inside another — live on mainnet), external Governor DAOs, Safe multisig.
@@ -143,9 +143,9 @@ A default session loads the `core,proposals` profile (~72 tools) to keep the MCP
 | Proposal catalog and primitives | 5 | `dexe_proposal_catalog` plus generic `_build_external`, `_build_internal`, `_build_custom_abi`, `_build_offchain`. |
 | External proposal wrappers | 20 | Named builders: token transfer/distribution/sale, treasury withdraw, validators, experts, staking tiers, blacklist, profile changes, voting settings, and more. |
 | Internal validator wrappers | 4 | Validator-chamber proposals: balances, settings, monthly withdraw, off-chain internal. |
-| Off-chain wrappers and auth | 8 | DeXe backend integration: SIWE login, off-chain proposal creation and voting. |
+| Off-chain wrappers and auth | 9 | DeXe backend integration: SIWE login, off-chain proposal creation and voting. |
 | Vote, stake, delegate, execute, claim builders | 26 | Direct EOA writes on `GovPool` and `Validators`: deposit, vote, delegate, execute, claim, staking, token-sale buy/claim, multicall. |
-| Composite signing flows | 8 | `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`, `dexe_tx_status`, `dexe_get_config`, `dexe_context`, plus the v0.28 agent keyring (`dexe_agents_list`, `dexe_agents_fund`). |
+| Composite signing flows | 9 | `dexe_guide` (call first for any multi-step request), `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`, `dexe_tx_status`, `dexe_get_config`, `dexe_context`, plus the v0.28 agent keyring (`dexe_agents_list`, `dexe_agents_fund`). |
 | Merkle utility | 2 | `dexe_merkle_build` and `dexe_merkle_proof`, compatible with OZ `StandardMerkleTree`. |
 | OTC composites | 4 | Open a multi-tier sale, check buyer status, buy (native or with merkle proof), claim vested payouts. [docs/OTC.md](./docs/OTC.md) |
 | Safe multisig | 2 | Queue transactions in the Safe Transaction Service instead of broadcasting. [docs/SAFE.md](./docs/SAFE.md) |

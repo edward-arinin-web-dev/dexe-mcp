@@ -254,9 +254,9 @@ export async function run(): Promise<void> {
 
 /**
  * Offer to copy the package's `skills/` (dexe-create-dao, dexe-create-proposal,
- * dexe-vote-execute, dexe-otc, dexe-setup) into a Claude Code skills dir so the
- * exact tool-sequence recipes reach the model. Idempotent: unchanged skills are
- * skipped, changed ones are overwritten with an "(updated)" note.
+ * dexe-vote-execute, dexe-otc, dexe-staking, dexe-setup) into a Claude Code
+ * skills dir so the exact tool-sequence recipes reach the model. Idempotent:
+ * unchanged skills are skipped, changed ones are overwritten with an "(updated)" note.
  */
 async function maybeInstallSkills(
   rl: ReturnType<typeof createInterface>,
@@ -268,7 +268,7 @@ async function maybeInstallSkills(
   output.write(line(""));
   const want = await yn(
     rl,
-    "Install dexe-mcp Claude Code skills (create-dao / create-proposal / vote-execute / otc / setup)?",
+    "Install dexe-mcp Claude Code skills (create-dao / create-proposal / vote-execute / otc / staking / setup)?",
     true,
   );
   if (!want) return;
