@@ -76,23 +76,30 @@ The GovPool workaround used for F4 (wrap in single-element `multicall`) does **n
 
 ---
 
-## F14 — `GovValidators.executeInternalProposal` (monthly_withdraw) fails on fresh pools (P2, root cause open)
+## F14 — `executeInternalProposal(monthly_withdraw)` — ROOT-CAUSED 2026-07-23: not a firewall issue, but the revert string masks the real cause (P3, UX)
 
-**Symptom.** Executing an internal `monthly_withdraw` proposal that has reached a passing state reverts `"Validators: failed to execute"` on fresh pools, even when the proposal is in `Succeeded`/executable state.
+**Original symptom (2026-07-21).** Executing an internal `monthly_withdraw` proposal in `Succeeded` state reverts `"Validators: failed to execute"`. Initially filed here as a suspected SphereX inner-call rejection.
 
-**Call shape tested:**
+**Actual root cause (contract source + live E2E, 2026-07-23).** `GovValidatorsExecute.executeInternalProposal` runs the action through a low-level self-call and re-throws any failure as the generic string:
 
-| Shape | Source |
-| --- | --- |
-| direct `GovValidators.executeInternalProposal(proposalId)` | `src/hooks/dao/useGovPool.ts:129–160` (`.executeInternalProposal(proposalId)` at :134) |
+```solidity
+(bool success, ) = address(this).call(proposal.data);      // GovValidatorsExecute.sol:27
+require(success, "Validators: failed to execute");          // :28  ← what integrators see
+```
 
-This is the same shape the frontend sends and the same shape dexe-mcp sends, so the failure is on the **inner** call, not the entrypoint pattern. Because the failure mode is a SphereX-era regression on an inner call within `executeInternalProposal`, it is **plausibly** the firewall rejecting the inner action rather than a logic error — but the root cause is **not yet fully established** and an on-chain trace is owed.
+For `monthly_withdraw` the inner path is `GovValidators.monthlyWithdraw` → `GovPool.transferCreditAmount` → `GovPoolCredit.transferCreditAmount`, which requires the validators' **credit line** to cover the amount:
 
-**Evidence.** Observed 2026-07-21, campaign `2026-07-21-full-verify` finding F14. Frontend shape verified 2026-07-23.
+```solidity
+require(currentAmount <= tokenCredit, "GPC: Current credit permission < amount to withdraw");  // GovPoolCredit.sol:60-63
+```
 
-**Impact.** P2. Monthly-withdraw treasury automation cannot be executed on fresh validator-bearing pools.
+A pool where `GovPool.setCreditInfo` was never executed has `tokenCredit == 0` — so **every** `monthly_withdraw` reverts, and the real reason is swallowed by the low-level call.
 
-**Suggested remediation.** DeXe team to trace `executeInternalProposal` for the `monthly_withdraw` action on a fresh pool and confirm whether SphereX is rejecting the inner call; if so, allowlist that inner action. If it is a non-firewall logic regression, this section can be re-filed.
+**E2E proof (chain 97, fresh validator pool `0x0fe0…da6b`, 2026-07-23):** with an unfunded line the withdraw cannot execute; after passing a `setCreditInfo(token, 500e18)` proposal, the same `monthly_withdraw` created → validator-voted → `executeInternalProposal` **succeeded** and the destination received the tokens. No firewall involved.
+
+**Impact.** P3 (was P2): fully workable — fund the credit line first. dexe-mcp 0.29 refuses an uncovered `monthly_withdraw` up-front with the funding recipe and exposes the credit lines via `dexe_read_validators`.
+
+**Suggested remediation (UX).** Bubble up the inner revert data in `GovValidatorsExecute.executeInternalProposal` (re-revert with the inner returndata instead of the generic string) so integrators and the UI see `"GPC: Current credit permission < amount to withdraw"` directly.
 
 ---
 
@@ -147,7 +154,7 @@ withheld from this public document.
 | --- | --- | --- | --- | --- | --- | --- |
 | **F15** | `TokenSaleProposal.vestingWithdraw` | raw + `multicall([claim,vestingWithdraw])` (every shape) | none | **none — funds stranded** | **P1 funds-loss** | **Yes (confirmed)** |
 | **F12** | `GovValidators.cancelVote{Internal,External}Proposal` | raw (no multicall exists on contract) | none | **none** | P2 | Yes |
-| **F14** | `GovValidators.executeInternalProposal` (monthly_withdraw) | direct call (root cause open) | none | none | P2 | Yes |
+| **F14** | `GovValidators.executeInternalProposal` (monthly_withdraw) | — root-caused: unfunded credit line, NOT SphereX; revert string masks the cause | fund via `setCreditInfo` first | validators_allocation proposal | P3 (UX: bubble up inner revert) | Yes (same masked error) |
 | **#35** | `GovPool.multicall([deposit, createProposalAndVote])` | bundled multicall | separate raw txs | send deposit + create separately | P2 | Yes (unbundle) |
 | **#36** | `GovPool.execute → GovSettings.addSettings` | `addSettings` — **testnet 97 only** (mainnet 56 fixed as of 2026-07-22) | `editSettings` (with settingsIds); any shape on 56 | pass `settingsIds` on 97 | P2 | Yes (on 97) |
 | **F4** | `GovPool.vote()` / `delegate()` | **raw** call | `multicall([call])` single-element | wrap in single-element multicall | P2 | No (frontend always wraps) |
