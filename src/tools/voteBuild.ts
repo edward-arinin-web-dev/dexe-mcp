@@ -547,16 +547,38 @@ function registerExecute(server: McpServer, ctx: ToolContext): void {
     "dexe_vote_build_execute",
     {
       title: "Execute a passed proposal",
-      description: "Builds `GovPool.execute(proposalId)`.",
+      description:
+        "Builds `GovPool.execute(proposalId)`; scope:'internal' + govValidators builds " +
+        "`GovValidators.executeInternalProposal(proposalId)` (anyone can send once Succeeded).",
       inputSchema: {
         govPool: z.string(),
         proposalId: z.string(),
+        scope: z.enum(["external", "internal"]).default("external"),
+        govValidators: z.string().optional().describe("Required for scope:'internal' (dexe_dao_info.helpers.validators)"),
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalId }) => {
+    async ({ govPool, proposalId, scope = "external", govValidators }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
+        if (scope === "internal") {
+          if (!govValidators || !isAddress(govValidators)) {
+            return errorResult(
+              "scope:'internal' requires `govValidators` (get it from dexe_dao_info.helpers.validators).",
+            );
+          }
+          const vIface = new Interface(["function executeInternalProposal(uint256 proposalId)"]);
+          const payload = buildPayload({
+            to: govValidators,
+            iface: vIface,
+            method: "executeInternalProposal",
+            args: [parseUintString(proposalId, "proposalId")],
+            chainId: ctx.config.chainId,
+            contractLabel: "GovValidators",
+            description: `GovValidators.executeInternalProposal(#${proposalId})`,
+          });
+          return payloadResult(payload);
+        }
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
         const payload = buildPayload({
           to: govPool,

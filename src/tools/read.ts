@@ -748,7 +748,9 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Validator count + isValidator lookup",
       description:
-        "Reads `validatorsCount()` and optionally checks `isValidator(candidate)` on the DAO's GovValidators contract.",
+        "Reads `validatorsCount()` and optionally checks `isValidator(candidate)` on the DAO's GovValidators contract. " +
+        "Also returns the validators' monthly credit lines (GovPool.getCreditInfo) — an internal monthly_withdraw " +
+        "against an unfunded/insufficient line reverts.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         candidate: z.string().optional().describe("Optional address to check validator status for"),
@@ -760,6 +762,10 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
         count: z.string(),
         candidate: z.string().nullable(),
         isValidator: z.boolean().nullable(),
+        creditInfo: z
+          .array(z.object({ token: z.string(), monthLimit: z.string(), currentWithdrawLimit: z.string() }))
+          .nullable()
+          .describe("Validators' monthly credit lines (null when unreadable — older pools lack getCreditInfo)"),
       },
     },
     async ({ govPool, candidate, chainId }) => {
@@ -771,6 +777,9 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
         const provider = pr.ok;
         const gp = new Interface(GOV_POOL_ABI as unknown as string[]);
         const v = new Interface(GOV_VALIDATORS_ABI as unknown as string[]);
+        const creditIface = new Interface([
+          "function getCreditInfo() view returns (tuple(address token, uint256 monthLimit, uint256 currentWithdrawLimit)[])",
+        ]);
         const [helpersR] = await multicall(provider, [
           { target: govPool, iface: gp, method: "getHelperContracts", args: [] },
         ]);
@@ -779,6 +788,7 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
 
         const calls: Call[] = [
           { target: validators, iface: v, method: "validatorsCount", args: [] },
+          { target: govPool, iface: creditIface, method: "getCreditInfo", args: [], allowFailure: true },
         ];
         if (candidate) {
           calls.push({
@@ -791,17 +801,32 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
         }
         const res = await multicall(provider, calls);
         const count = (res[0]!.value as bigint).toString();
-        const isVal = candidate ? Boolean(res[1]?.value) : null;
+        let creditInfo: Array<{ token: string; monthLimit: string; currentWithdrawLimit: string }> | null = null;
+        if (res[1]?.success) {
+          const rows = res[1]!.value as unknown as Array<{ token: string; monthLimit: bigint; currentWithdrawLimit: bigint }>;
+          creditInfo = rows.map((r) => ({
+            token: r.token,
+            monthLimit: r.monthLimit.toString(),
+            currentWithdrawLimit: r.currentWithdrawLimit.toString(),
+          }));
+        }
+        const isVal = candidate ? Boolean(res[2]?.value) : null;
         const structured = {
           govPool,
           validators,
           count,
           candidate: candidate ?? null,
           isValidator: isVal,
+          creditInfo,
         };
         const text =
           `Validators contract ${validators}\n  count: ${count}` +
-          (candidate ? `\n  ${candidate} isValidator: ${isVal}` : "");
+          (candidate ? `\n  ${candidate} isValidator: ${isVal}` : "") +
+          (creditInfo
+            ? creditInfo.length
+              ? `\n  credit lines: ${creditInfo.map((c) => `${c.token} month=${c.monthLimit} available=${c.currentWithdrawLimit}`).join("; ")}`
+              : `\n  credit lines: none funded (internal monthly_withdraw would revert — fund via validators_allocation)`
+            : "");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(

@@ -250,6 +250,19 @@ export const GOTCHAS: readonly Gotcha[] = [
     applies: { proposalTypes: ["change_validator_settings", "change_validator_balances", "monthly_withdraw"] },
   },
   {
+    // F14 root cause (2026-07-23): GovValidatorsExecute's low-level self-call
+    // swallows "GPC: Current credit permission < amount to withdraw".
+    id: "monthly-withdraw-credit",
+    severity: "danger",
+    text:
+      "An internal monthly_withdraw draws from the validators' CREDIT LINE (GovPool.setCreditInfo), not directly " +
+      "from the treasury. Unfunded/insufficient line → execute reverts 'Validators: failed to execute' (the real " +
+      "cause is swallowed by a low-level call — this was mis-filed as SphereX finding F14). Fund it FIRST with an " +
+      "external validators_allocation proposal ({credits:[{token, amount}]}); dexe_read_validators shows the current " +
+      "lines and dexe_proposal_create refuses an uncovered monthly_withdraw up-front.",
+    applies: { proposalTypes: ["monthly_withdraw", "validators_allocation"], tools: ["dexe_read_validators"] },
+  },
+  {
     // reference_spherex_allowlist_family.md
     id: "validator-cancel-blocked",
     severity: "warn",

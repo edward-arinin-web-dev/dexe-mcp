@@ -361,13 +361,10 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
     {
       title: "Upload raw bytes (avatar, attachment, etc.) to IPFS (Pinata)",
       description:
-        "Pins a file to IPFS. PREFER `filePath` for local files — the server reads it itself; base64 only for non-file content. " +
-        "Returns the CID v1 (base32) and the (possibly normalized) filename. " +
-        "For images (contentType: image/*) the filename extension is normalized to `.jpeg` to match what the DeXe frontend stores — " +
-        "this is what `dexe_ipfs_upload_dao_metadata` and the DAO profile reader expect. Set `normalizeImageExt: false` to opt out. " +
-        "On the normalized (avatar-contract) path the bytes are also magic-byte-checked: only real rasters (JPEG/PNG/WebP/GIF) pass — " +
-        "SVG/HTML bytes are rejected because the DeXe avatar pipeline serves them as broken images. " +
-        "`normalizeImageExt: false` skips both the rename and the raster gate (for generic image attachments like SVG logos).",
+        "Pins a file to IPFS. PREFER `filePath` — the server reads it itself; base64 only for non-file content. " +
+        "Returns the CID v1 (base32) + normalized filename. Images get `.jpeg` extension normalization (frontend " +
+        "convention) and a magic-byte raster gate (JPEG/PNG/WebP/GIF only — SVG/HTML render as broken avatars). " +
+        "`normalizeImageExt: false` skips both (for generic attachments like SVG logos).",
       inputSchema: {
         filePath: z.string().optional().describe(
           "Absolute path to a local file — the server reads it itself (max 25 MB). Preferred over base64.",
@@ -616,12 +613,10 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
     {
       title: "Upload a DAO avatar (one-shot: pins + returns avatarCID/avatarFileName/avatarUrl)",
       description:
-        "Uploads an image and returns the {avatarCID, avatarFileName, avatarUrl} triple ready to feed into `dexe_ipfs_upload_dao_metadata` " +
-        "(for DAO creation) or `dexe_proposal_build_modify_dao_profile` (for profile updates). " +
-        "PREFER `filePath` for local images — the server reads the file itself; never read the image and pass base64 through the conversation. " +
-        "Validates the actual bytes by magic number — only real rasters (JPEG/PNG/WebP/GIF) are accepted; SVG/HTML/garbage is rejected " +
-        "because the app.dexe.io serving chain renders it as a permanently broken image. " +
-        "Normalizes the filename to `.jpeg` (matching the frontend) and returns a CID v1 base32 string that resolves on the subdomain gateway.",
+        "Uploads an image and returns the {avatarCID, avatarFileName, avatarUrl} triple for `dexe_ipfs_upload_dao_metadata` " +
+        "or `dexe_proposal_build_modify_dao_profile`. PREFER `filePath` — the server reads the file itself; never pass " +
+        "base64 through the conversation. Magic-byte validated (JPEG/PNG/WebP/GIF only — SVG/HTML render permanently " +
+        "broken on app.dexe.io); filename normalized to `.jpeg`; returns CID v1 base32.",
       inputSchema: {
         filePath: z.string().optional().describe(
           "Absolute path to a local image file (JPEG/PNG/WebP/GIF, max 10 MB). Preferred over base64.",
