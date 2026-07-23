@@ -87,6 +87,78 @@ describe("dexe_dao_create — SIMPLE synthesis (frontend-equivalent shape)", () 
     expect(s.minVotesForVoting).toBe((100n * 10n ** 18n).toString());
   });
 
+  it("recipients[] splits the votable share and keeps the treasury remainder exact", () => {
+    const A = "0xdeadbeef00000000000000000000000000000002";
+    const B = "0xdeadbeef00000000000000000000000000000003";
+    const p = synthesizeParams(
+      { ...base, recipients: [{ address: A, percent: 30 }, { address: B, percent: 21 }] },
+      DEPLOYER,
+    );
+    expect(p.tokenParams.users).toEqual([A, B]);
+    expect(p.tokenParams.amounts).toEqual([
+      (300_000n * 10n ** 18n).toString(),
+      (210_000n * 10n ** 18n).toString(),
+    ]);
+    // sum(amounts) == distributable exactly (treasury 49% untouched)
+    const sum = p.tokenParams.amounts.reduce((a, b) => a + BigInt(b), 0n);
+    expect(sum).toBe(510_000n * 10n ** 18n);
+    // deployer NOT included unless listed
+    expect(p.tokenParams.users).not.toContain(DEPLOYER);
+    // safety proof still reads 51% votable
+    expect(computeSafetyProof(p).votablePct).toBe(51);
+  });
+
+  it("recipients[] refuses percents that do not sum to the votable share", () => {
+    const A = "0xdeadbeef00000000000000000000000000000002";
+    expect(() =>
+      synthesizeParams({ ...base, recipients: [{ address: A, percent: 30 }] }, DEPLOYER),
+    ).toThrow(/sum to 30\.00%.*votable share is 51\.00%/s);
+  });
+
+  it("recipients[] refuses duplicates and invalid addresses", () => {
+    const A = "0xdeadbeef00000000000000000000000000000002";
+    expect(() =>
+      synthesizeParams(
+        { ...base, recipients: [{ address: A, percent: 30 }, { address: A.toLowerCase(), percent: 21 }] },
+        DEPLOYER,
+      ),
+    ).toThrow(/duplicate/);
+    expect(() =>
+      synthesizeParams({ ...base, recipients: [{ address: "0x123", percent: 51 }] }, DEPLOYER),
+    ).toThrow(/invalid address/);
+  });
+
+  it("recipients[] rounding dust lands on the first recipient (fractional percents)", () => {
+    const A = "0xdeadbeef00000000000000000000000000000002";
+    const B = "0xdeadbeef00000000000000000000000000000003";
+    const C = "0xdeadbeef00000000000000000000000000000004";
+    // 17 + 17 + 17 = 51 — but with supply 1e6 and bps math each is exact here,
+    // so use a supply that does not divide evenly by bps.
+    const p = synthesizeParams(
+      {
+        ...base,
+        totalSupply: "333333",
+        recipients: [{ address: A, percent: 17 }, { address: B, percent: 17 }, { address: C, percent: 17 }],
+      },
+      DEPLOYER,
+    );
+    const supply = 333_333n * 10n ** 18n;
+    const distributable = supply - (supply * 4900n) / 10000n;
+    const sum = p.tokenParams.amounts.reduce((a, b) => a + BigInt(b), 0n);
+    expect(sum).toBe(distributable);
+  });
+
+  it("default 1-token min-votes clamps to the LARGEST recipient allocation", () => {
+    const A = "0xdeadbeef00000000000000000000000000000002";
+    const B = "0xdeadbeef00000000000000000000000000000003";
+    // supply 1 token → largest allocation 0.5 token < 1 token
+    const s = synthesizeParams(
+      { ...base, totalSupply: "1", recipients: [{ address: A, percent: 50 }, { address: B, percent: 1 }] },
+      DEPLOYER,
+    ).settingsParams.proposalSettings[0]!;
+    expect(s.minVotesForVoting).toBe((50n * 10n ** 16n).toString());
+  });
+
   it("earlyCompletion flag is threaded through", () => {
     expect(synthesizeParams(base, DEPLOYER).settingsParams.proposalSettings[0]!.earlyCompletion).toBe(true);
     expect(

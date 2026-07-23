@@ -1430,7 +1430,8 @@ export function registerFlowTools(
       "'withdraw_treasury' {receiver,token?,amount?,nftAddress?,nftIds?}, 'change_voting_settings' {govSettings,settings[],settingsIds?}, " +
       "'add_expert'/'remove_expert' {expertNftContract,scope,nominatedUser,uri?}, 'token_distribution', 'token_sale', " +
       "'token_sale_whitelist' {tokenSaleProposal,requests[]}, 'token_sale_recover' {tokenSaleProposal,tierIds[]}, " +
-      "'manage_validators'/'validators_allocation' {govValidators,changes[{user,balance}]}, " +
+      "'manage_validators' {govValidators,changes[{user,balance}]}, " +
+      "'validators_allocation' {credits:[{token,amount}]} — funds the validators' monthly-withdraw credit via GovPool.setCreditInfo, " +
       "'delegate_to_expert'/'revoke_from_expert' {expert,amount,nftIds?}, 'create_staking_tier', " +
       "'change_math_model' {newVotePower}, 'blacklist' {erc20Gov,addAddresses?,removeAddresses?}, " +
       "'reward_multiplier' {mode,...}, 'apply_to_dao' {token,receiver,amount,treasuryBalance?}, " +

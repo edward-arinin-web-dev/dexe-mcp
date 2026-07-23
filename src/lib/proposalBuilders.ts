@@ -482,6 +482,49 @@ const manageValidatorsBuilder: CatalogBuilder = {
   },
 };
 
+// Frontend parity (useGovPoolCreateValidatorsAllocationProposal): "validators
+// allocation" is NOT a validator-stake change — it funds the credit line that
+// internal monthly_withdraw proposals draw against, via a self-addressed
+// GovPool.setCreditInfo(tokens, amounts) external proposal.
+const GOV_POOL_CREDIT_IFACE = new Interface([
+  "function setCreditInfo(address[] tokens, uint256[] amounts)",
+]);
+
+const validatorsAllocationBuilder: CatalogBuilder = {
+  schema: z.object({
+    credits: z
+      .array(
+        z.object({
+          token: z.string().describe("Token the validators may draw monthly"),
+          amount: numericAmountString.describe(
+            "Monthly credit limit: raw smallest units (digits-only) or human units ('12.5', scaled by the token's real decimals)",
+          ),
+        }),
+      )
+      .min(1)
+      .describe("The validators' monthly credit lines — replaces the whole list on execute"),
+  }),
+  async build(raw, deps) {
+    const p = raw as { credits: { token: string; amount: string }[] };
+    const tokens: string[] = [];
+    const amounts: bigint[] = [];
+    for (const c of p.credits) {
+      if (!isAddress(c.token)) throw new Error(`Invalid credit token: ${c.token}`);
+      tokens.push(c.token);
+      amounts.push(await resolveTokenAmount(c.amount, c.token, deps));
+    }
+    const data = GOV_POOL_CREDIT_IFACE.encodeFunctionData("setCreditInfo", [tokens, amounts]);
+    return {
+      actionsOnFor: [{ executor: deps.govPool, value: "0", data }],
+      category: "validatorsAllocation",
+      metadataExtra: {},
+      summary:
+        `setCreditInfo: ${tokens.length} monthly credit line(s) for the validators' monthly_withdraw ` +
+        `(an internal monthly_withdraw against an unfunded credit reverts)`,
+    };
+  },
+};
+
 /**
  * Computes post-change validator-token distribution and warns when the largest
  * remaining validator falls below the external validator quorum
@@ -1049,9 +1092,10 @@ const newProposalTypeBuilder: CatalogBuilder = {
 /**
  * Registry keyed by the short `proposalType` accepted by `dexe_proposal_create`.
  * Extend this to wire another catalog type into the composite. Aliases point at
- * the same builder object (validators_allocation ≡ manage_validators;
- * enable_staking ≡ new_proposal_type with StakingProposal among executors —
- * matching the frontend, which reuses useGovPoolCreateProposalType).
+ * the same builder object (enable_staking ≡ new_proposal_type with
+ * StakingProposal among executors — matching the frontend, which reuses
+ * useGovPoolCreateProposalType). validators_allocation is its own builder
+ * (GovPool.setCreditInfo) — NOT an alias of manage_validators.
  */
 export const PROPOSAL_BUILDERS: Record<string, CatalogBuilder> = {
   token_transfer: tokenTransferBuilder,
@@ -1064,7 +1108,9 @@ export const PROPOSAL_BUILDERS: Record<string, CatalogBuilder> = {
   custom_abi: customAbiBuilder,
   // v0.22 — full catalog coverage
   manage_validators: manageValidatorsBuilder,
-  validators_allocation: manageValidatorsBuilder,
+  // 0.29: was mis-aliased to manageValidatorsBuilder (changeBalances) — the
+  // frontend's "validators allocation" is setCreditInfo, a different operation.
+  validators_allocation: validatorsAllocationBuilder,
   delegate_to_expert: delegateToExpertBuilder,
   revoke_from_expert: revokeFromExpertBuilder,
   token_sale_recover: tokenSaleRecoverBuilder,

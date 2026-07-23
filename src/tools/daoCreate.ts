@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseUnits, formatUnits, ZeroAddress } from "ethers";
+import { parseUnits, formatUnits, ZeroAddress, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
@@ -86,6 +86,13 @@ export interface SimpleConfig {
   executionDelaySeconds: number;
   minVotesTokens: string; // whole tokens; applies to both voting and creating
   earlyCompletion: boolean;
+  /**
+   * Optional multi-recipient distribution. When present, the votable portion
+   * (100 − treasuryPercent) is split across these addresses instead of going
+   * to the deployer only. Percents are of TOTAL supply and must sum to exactly
+   * 100 − treasuryPercent.
+   */
+  recipients?: Array<{ address: string; percent: number }>;
 }
 
 /**
@@ -97,14 +104,47 @@ export function synthesizeParams(c: SimpleConfig, deployer: string): DaoCreatePa
   const supplyWei = parseUnits(c.totalSupply, 18);
   const treasuryWei = (supplyWei * BigInt(Math.round(c.treasuryPercent * 100))) / 10000n;
   const distributable = supplyWei - treasuryWei;
+
+  // Multi-recipient distribution (optional). Percents are of TOTAL supply and
+  // must sum to exactly the votable share (100 − treasuryPercent) so the
+  // treasury stays the implicit remainder and the quorum math holds unchanged.
+  let users = [deployer];
+  let amounts = [distributable];
+  if (c.recipients && c.recipients.length > 0) {
+    const seen = new Set<string>();
+    for (const r of c.recipients) {
+      if (!isAddress(r.address)) throw new Error(`recipients: invalid address ${r.address}`);
+      const key = r.address.toLowerCase();
+      if (seen.has(key)) throw new Error(`recipients: duplicate address ${r.address}`);
+      seen.add(key);
+      if (!(r.percent > 0)) throw new Error(`recipients: percent must be > 0 (got ${r.percent} for ${r.address})`);
+    }
+    const sumBps = c.recipients.reduce((a, r) => a + Math.round(r.percent * 100), 0);
+    const votableBps = 10000 - Math.round(c.treasuryPercent * 100);
+    if (sumBps !== votableBps) {
+      throw new Error(
+        `recipients percents sum to ${(sumBps / 100).toFixed(2)}% but the votable share is ` +
+          `${(votableBps / 100).toFixed(2)}% (100 − treasuryPercent ${c.treasuryPercent}). ` +
+          `Adjust the percents to sum exactly to the votable share, or change treasuryPercent to ${((10000 - sumBps) / 100).toFixed(2)}.`,
+      );
+    }
+    users = c.recipients.map((r) => r.address);
+    amounts = c.recipients.map((r) => (supplyWei * BigInt(Math.round(r.percent * 100))) / 10000n);
+    // Rounding dust from bps math goes to the FIRST recipient so
+    // sum(amounts) == distributable stays exact (treasury remainder unchanged).
+    const allocated = amounts.reduce((a, b) => a + b, 0n);
+    if (allocated !== distributable) amounts[0]! += distributable - allocated;
+  }
+  const maxAllocation = amounts.reduce((a, b) => (b > a ? b : a), 0n);
+
   const quorumRaw = (BigInt(Math.round(c.quorumPercent * 1_000_000)) * PCT_25DEC) / 1_000_000n;
-  // min-votes: the default (1 token) is clamped to the distributed amount so it
-  // can never exceed the largest (only) recipient's balance; an explicit value
-  // passes through — the builder's min-votes guard rejects it with remediation
-  // if no holder could ever vote or create.
+  // min-votes: the default (1 token) is clamped to the largest allocation so it
+  // can never exceed every holder's balance; an explicit value passes through —
+  // the builder's min-votes guard rejects it with remediation if no holder
+  // could ever vote or create.
   const requestedMinVotes = parseUnits(c.minVotesTokens, 18);
   const minVotes =
-    requestedMinVotes === ONE_TOKEN && distributable < ONE_TOKEN ? distributable : requestedMinVotes;
+    requestedMinVotes === ONE_TOKEN && maxAllocation < ONE_TOKEN ? maxAllocation : requestedMinVotes;
   const dur = String(c.durationSeconds);
   const isPoly = c.voteModel === "POLYNOMIAL";
   return {
@@ -136,12 +176,12 @@ export function synthesizeParams(c: SimpleConfig, deployer: string): DaoCreatePa
     tokenParams: {
       name: c.daoName,
       symbol: c.symbol,
-      users: [deployer],
+      users,
       // Fixed supply: cap == mintedTotal. cap MUST be > 0 (ERC20Capped rejects 0)
       // and ≥ mintedTotal — verified live on mainnet.
       cap: supplyWei.toString(),
       mintedTotal: supplyWei.toString(),
-      amounts: [distributable.toString()],
+      amounts: amounts.map((a) => a.toString()),
     },
     votePowerParams: {
       voteType: isPoly ? "POLYNOMIAL_VOTES" : "LINEAR_VOTES",
@@ -214,20 +254,16 @@ export function registerDaoCreateTools(
   server.tool(
     "dexe_dao_create",
     "Create (deploy) a new DeXe DAO in ONE call. SIMPLE mode (recommended): pass `symbol` + `totalSupply` " +
-      "(+ optional `treasuryPercent`/`quorumPercent`/`voteModel`/`minVotesTokens`/`earlyCompletion`) and the tool synthesizes a coherent, " +
+      "(+ optional `treasuryPercent`/`quorumPercent`/`voteModel`/`minVotesTokens`/`earlyCompletion`/`recipients`) and the tool synthesizes a coherent, " +
       "frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a reachable quorum). It " +
       "returns a `preview` of the resolved config + a safety proof and only broadcasts on a second call with " +
-      "`confirm: true`. ADVANCED mode: pass a full `params` deploy struct. Either way the deploy runs governance " +
-      "coherence guards (unreachable quorum, min-votes above every holder, treasury in the voter list, out-of-range " +
-      "settings, validator/CUSTOM vote-power coherence, name collision) that block any config the frontend blocks, " +
-      "a calldata round-trip self-check, and — right before signing — an eth_call SIMULATION of the exact calldata " +
-      "from the deployer: a provable revert is refused with a classified cause + fix BEFORE any gas is spent " +
-      "(apply the fix verbatim and re-run); an RPC outage only downgrades to a warning. On success the result " +
-      "includes readiness (govPool code verified) and nextSteps for the first proposal. Mainnet (chain 56) is " +
-      "supported (the frontend ships there daily) but requires `confirm: true` since it spends real BNB; testnet (97) " +
-      "is the recommended place to validate. `deployer` defaults to the configured signer. Pass avatarCID from " +
-      "dexe_ipfs_upload_avatar / dexe_dao_generate_avatar. " +
-      "Unsure of the full journey or which params to collect from the user? Call dexe_guide (flow:'create_dao') first.",
+      "`confirm: true`. ADVANCED mode: pass a full `params` deploy struct. Either way the deploy runs the same " +
+      "governance coherence guards the frontend enforces (unreachable quorum, min-votes above every holder, " +
+      "out-of-range settings, name collision), a calldata round-trip self-check, and a pre-sign eth_call SIMULATION: " +
+      "a provable revert is refused with a classified cause + fix BEFORE any gas is spent; an RPC outage only " +
+      "downgrades to a warning. On success the result includes readiness + nextSteps. Mainnet (56) needs " +
+      "`confirm: true` (real BNB); validate on testnet (97) first. `deployer` defaults to the signer. " +
+      "Unsure of the journey or params? Call dexe_guide (flow:'create_dao') first.",
     {
       chainId: z
         .number()
@@ -251,8 +287,7 @@ export function registerDaoCreateTools(
       avatarCID: z.string().default("").describe("IPFS CID of an already-pinned JPEG avatar (dexe_ipfs_upload_avatar)"),
       avatarFileName: z.string().default("avatar.jpeg"),
       avatarPath: z.string().default("").describe(
-        "Local image path for the DAO avatar (JPEG/PNG/WebP/GIF, max 10 MB) — the server uploads + validates it. " +
-        "Preferred over avatarCID; replaces the separate upload call.",
+        "Local avatar image path (JPEG/PNG/WebP/GIF ≤10 MB) — server validates + pins it. Preferred over avatarCID.",
       ),
       // ---- SIMPLE mode fields (used when `params` is omitted) ----
       symbol: z.string().optional().describe("SIMPLE mode: gov token symbol (e.g. 'GENA'). Required when `params` is omitted."),
@@ -282,8 +317,14 @@ export function registerDaoCreateTools(
         .string()
         .default("1")
         .describe(
-          "SIMPLE mode: minimum token balance to vote AND to create proposals, in WHOLE tokens (e.g. '100'). " +
-            "Default '1'. Must be ≤ the largest single holder's allocation or the deploy is blocked.",
+          "SIMPLE mode: min tokens to vote AND create proposals, WHOLE tokens. Default '1'. Must be ≤ the largest holder's allocation.",
+        ),
+      recipients: z
+        .array(z.object({ address: z.string(), percent: z.number().gt(0).max(100) }))
+        .default([])
+        .describe(
+          "SIMPLE mode: split the votable share across wallets (default: deployer only). `percent` of TOTAL supply; " +
+            "must sum to 100 − treasuryPercent. List the deployer explicitly to give them tokens.",
         ),
       earlyCompletion: z
         .boolean()
@@ -342,6 +383,7 @@ export function registerDaoCreateTools(
               executionDelaySeconds: input.executionDelaySeconds,
               minVotesTokens: input.minVotesTokens,
               earlyCompletion: input.earlyCompletion,
+              ...(input.recipients.length > 0 ? { recipients: input.recipients } : {}),
             },
             deployer,
           );
