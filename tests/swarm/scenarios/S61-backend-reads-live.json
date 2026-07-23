@@ -1,0 +1,53 @@
+{
+  "id": "S61-backend-reads-live",
+  "title": "DeXe backend REST reads: protocol stats, DAO stats, token holders, NFTs",
+  "priority": 4,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56],
+  "requiresBrowser": false,
+  "notes": "First e2e coverage of the anonymous backend read surface (no auth, zero gas). dao_stats may legitimately return 0 points for a lightly-tracked DAO and the agent wallet may hold 0 NFTs — those criteria assert shape, not magnitude. Backend requests time out at 8s; a transient timeout is re-runnable.",
+  "agents": [
+    { "alias": "R", "role": "Voter", "wallet": "AGENT_PK_3" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "R",
+      "tool": "dexe_read_protocol_stats",
+      "args": { "chainIds": [56], "topDaos": 5, "maxDots": 10 },
+      "broadcast": false,
+      "captureAs": "protocol"
+    },
+    {
+      "step": 2,
+      "agent": "R",
+      "tool": "dexe_read_dao_stats",
+      "args": { "govPool": "{{dao}}", "chainId": 56, "period": "7 days", "maxPoints": 10 },
+      "broadcast": false,
+      "captureAs": "daoStats"
+    },
+    {
+      "step": 3,
+      "agent": "R",
+      "tool": "dexe_read_token_holders",
+      "args": { "token": "{{firstAllowlistedToken}}", "chainId": 56, "pageSize": 20 },
+      "broadcast": false,
+      "captureAs": "holders"
+    },
+    {
+      "step": 4,
+      "agent": "R",
+      "tool": "dexe_read_nfts",
+      "args": { "holder": "{{agent:R:address}}", "chainId": 56, "pageSize": 20 },
+      "broadcast": false,
+      "captureAs": "nfts"
+    }
+  ],
+  "successCriteria": [
+    { "id": "protocol-summary", "check": "protocol has a positive total TVL and at most 5 top DAOs each with a name and TVL" },
+    { "id": "dao-stats-shape", "check": "daoStats.points >= 0 and daoStats.data is an array (no error result)" },
+    { "id": "holders-nonempty", "check": "holders.count > 0 and holders are sorted by balance descending" },
+    { "id": "nfts-shape", "check": "nfts.count >= 0 and nfts.nfts is an array (agent wallet may hold none)" }
+  ]
+}
