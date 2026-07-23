@@ -6,6 +6,39 @@ something on your side.
 
 ---
 
+## 0.28.0 → 0.29.0 — validators_allocation params changed (1 breaking); new preflights may refuse what used to reach the chain
+
+Tool count unchanged (165 / 19 groups).
+
+### Breaking
+- **`validators_allocation` params changed.** It was a mis-wired alias of
+  `manage_validators` (`GovValidators.changeBalances`); it now builds the real
+  frontend operation — `GovPool.setCreditInfo(tokens, amounts)`, funding the
+  validators' monthly-withdraw credit line — with params
+  `{credits: [{token, amount}]}`. Old-shape calls are rejected with a clear
+  error; use `manage_validators` for validator-balance changes.
+
+### New refusals (previously these reached the chain and reverted opaquely)
+- `monthly_withdraw` is refused up-front when the validators' credit line
+  doesn't cover it (fund via `validators_allocation` first) — the on-chain
+  failure was the misleading "Validators: failed to execute".
+- `voteAmount` below the DAO's `minVotesForVoting` is refused with a raw-wei
+  vs human-units hint (digits-only amounts are RAW WEI by contract).
+- `reward_multiplier` mint/change_token are refused when the target contract
+  is undeployed, not GovPool-owned, or does not expose the expected selector
+  (each of these produced a permanently stuck SucceededFor proposal before).
+
+Scripts that relied on "send anyway and watch it revert" must handle these
+as tool errors now — each refusal includes the exact remedy.
+
+### No action (aliases + additive)
+- Keyring env naming: `AGENT_PK_1..16` / `AGENT_FUNDER_PK` (the `.env.example`
+  swarm naming) now work as aliases for `DEXE_AGENT_PK_*`; the funder is
+  keyring slot `funder` and `dexe_agents_fund` takes `source:'funder'`.
+- `dexe_dao_create` SIMPLE `recipients[]`; `dexe_vote_build_execute`
+  `scope:'internal'`; `creditInfo` on `dexe_read_validators`; number-or-string
+  numeric params; `chainId` on the sim tools.
+
 ## 0.27.0 → 0.28.0 — no action; opt-in agent keyring
 
 Additive only. Tool count 163 → **165 tools**: `dexe_agents_list` +

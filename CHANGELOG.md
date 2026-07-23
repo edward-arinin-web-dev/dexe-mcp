@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.29.0 — 2026-07-23
+
+The nightly-hardening release: a full-surface frontend-parity audit (zero
+calldata drifts), two protocol mysteries solved (bug #31 selector forensics,
+F14 credit-line root cause), keyring env-naming aliases, and a golden-fixture
+regression net. Tool count unchanged (**165 / 19 groups**).
+
+### Breaking
+- **`validators_allocation` is now the real frontend operation** — a
+  self-addressed `GovPool.setCreditInfo(tokens, amounts)` proposal funding the
+  validators' monthly-withdraw credit line, with params
+  `{credits: [{token, amount}]}`. It was previously a (wrong) alias of
+  `manage_validators`; callers that used the old alias shape should call
+  `manage_validators` for balance changes.
+
+### Features
+- `dexe_dao_create` SIMPLE mode: `recipients: [{address, percent}]` — split
+  the votable share across wallets (percents of TOTAL supply, must sum to
+  100 − treasuryPercent; rounding dust lands on the first recipient so the
+  treasury remainder stays exact).
+- **Agent keyring env aliases**: `AGENT_PK_1..16` (the swarm-harness and
+  `.env.example` naming) is read as a fallback for `DEXE_AGENT_PK_1..16`, and
+  `AGENT_FUNDER_PK` / `DEXE_AGENT_FUNDER_PK` becomes keyring slot `funder`.
+  `dexe_agents_fund` gains `source: 'funder'`; doctor reports the roster
+  (`signer.agentKeyring`). USE_CASES cases 29+30 verified live end-to-end.
+- `dexe_vote_build_execute` gains `scope: 'internal'` + `govValidators` —
+  builds `GovValidators.executeInternalProposal` (previously no way to execute
+  internal validator proposals).
+- `dexe_read_validators` returns the validators' credit lines
+  (`creditInfo: [{token, monthLimit, currentWithdrawLimit}]`).
+- Numeric params accept number **or** string across the proposal catalog
+  (settingsIds, timestamps, ids, amounts) — normalized to string; floats
+  rejected for ids/timestamps.
+- `dexe_sim_calldata` / `dexe_sim_proposal` / `dexe_sim_buy` accept `chainId`.
+
+### Fixes
+- **bug #35 unbundle race**: after the standalone deposit tx, the create flow
+  polls the UserKeeper until deposited power reflects before sending
+  `createProposalAndVote` (fixes intermittent "Gov: low creating power" on
+  the first proposal of a fresh DAO).
+- **bug #31 (solved by on-chain forensics)**: the stuck mainnet proposal's
+  calldata used `mint(address,uint256,uint256,string)` (uint256 duration —
+  selector `0xbb7fde71`, nonexistent on ERC721Multiplier) from an old builder;
+  the current uint64 ABI is correct. Shipped defenses: ownership +
+  **selector-existence** prechecks (resolving EIP-1967 impl and beacon
+  proxies), a `>1e27` over-scale refusal, zero-recipient refusal, and the
+  tool-description literal fixed (1.5e27 mislabeled as 15e24).
+- **F14 root-caused — not SphereX**: `executeInternalProposal(monthly_withdraw)`
+  fails when the validators' credit line is unfunded; the real revert
+  ("GPC: Current credit permission < amount to withdraw") is swallowed by a
+  low-level self-call. `monthly_withdraw` now preflights the credit line and
+  refuses with the `validators_allocation` funding recipe.
+- **voteAmount units trap**: both composites refuse
+  `0 < voteAmount < minVotesForVoting` before broadcast with a raw-wei vs
+  human-units hint (digits-only is raw wei by contract).
+- `dexe_proposal_forecast` read the FIRST 10 proposals instead of the latest
+  10 — now windows from `latestProposalId`.
+- `dryRun` no longer pins IPFS (dao_create + proposal_create external and
+  internal): local json-codec placeholder CIDs.
+- `dexe_dao_create` readiness probe retries `getCode` (public-RPC read-lag
+  false-negative) and labels a residual negative as read-lag, not death.
+- `dexe_read_treasury` RPC path auto-discovers a GovPool holder's own gov
+  token instead of returning a misleading empty list, and says when discovery
+  is unavailable; backend fetch timeouts now say "timed out — re-run" instead
+  of "This operation was aborted".
+- Frontend-parity metadata fixes (audit found **zero calldata drifts**):
+  `modify_dao_profile` standalone builder emitted `isMeta:true` (blanked the
+  frontend diff UI); standalone builders double-stringified plain-string
+  descriptions (now Slate via `markdownToSlate`, 24 sites); internal metadata
+  category `offchainInternalProposal` → `emptyTx` and the external-shape
+  `changes` wrapper dropped.
+- Swarm orchestrator spawns its MCP with `DEXE_TOOLSETS=full` (read/vote/dev
+  scenario steps previously 404'd).
+- Security overrides bumped — clears all 18 open Dependabot alerts
+  (fast-uri ≥3.1.4, hono ≥4.12.27, ws ≥8.21.0, esbuild ≥0.28.1,
+  body-parser ≥2.3.0, @hono/node-server ≥2.0.5). `npm audit`: 0.
+
+### Docs / tests
+- `docs/UPSTREAM-ISSUES.md` (new): protocol-team escalation for the SphereX
+  findings (F15 vesting funds-loss, F12, the inconsistent multicall policy)
+  incl. the bug #36 chain asymmetry (addSettings fixed on mainnet fresh
+  pools, still blocked on testnet 97 — older protocol deployment there).
+- `docs/PARITY-AUDIT-2026-07-23.md` (new): the four-area audit record.
+- `docs/MIGRATION.md`: 8 missing version entries (0.10.0 → 0.25.0) with the
+  real upgrade traps; `ROADMAP.md` rewritten as a live backlog.
+- Golden-hex calldata fixtures for all 31 catalog builder keys with a
+  completeness guard (`UPDATE_GOLDEN=1` regenerates); 639-test suite.
+
 ## 0.28.0 — 2026-07-23
 
 The agent-keyring release (use-cases campaign Phase C): real multi-wallet

@@ -103,7 +103,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_read_token_holders` | Holders + raw balances of any ERC20 via `token-holders-balances/<token>`, sorted desc. Backend-only (mainnets). | `DEXE_BACKEND_API_URL` |
 | `dexe_read_dao_stats` | DAO TVL + member/proposal/delegation time series via `tracker/<chain>/pools/gov/<dao>/stats/<period>`. `period` is a human duration ('24 hours', '7 days', '1 months'); long series are evenly downsampled to `maxPoints` (default 30). Backend-only. | `DEXE_BACKEND_API_URL` |
 | `dexe_read_nfts` | NFTs held by any address via `nfts-by-wallet/<addr>` (Moralis), optional contract filter. Backend-only. | `DEXE_BACKEND_API_URL` |
-| `dexe_read_validators` | `validatorsCount()` + optional `isValidator(candidate)` on GovValidators. | `DEXE_RPC_URL` |
+| `dexe_read_validators` | `validatorsCount()` + optional `isValidator(candidate)` on GovValidators, plus the validators' monthly credit lines (`GovPool.getCreditInfo`) — an internal monthly_withdraw against an unfunded line reverts. | `DEXE_RPC_URL` |
 | `dexe_read_settings` | `GovSettings.getDefaultSettings()` + `getInternalSettings()`. | `DEXE_RPC_URL` |
 | `dexe_read_expert_status` | `GovPool.getExpertStatus(user)` + optional BABT balance check. | `DEXE_RPC_URL` |
 | `dexe_read_token_sale_tiers` | `latestTierId()` + `getTierViews(offset, limit)` from a TokenSaleProposal. | `DEXE_RPC_URL` |
@@ -242,7 +242,7 @@ Source: `src/tools/voteBuild.ts`. All return calldata `TxPayload`. None require 
 | `dexe_vote_build_validator_vote` | `GovValidators.vote{Internal,External}Proposal`. Note: amount BEFORE isVoteFor (differs from GovPool.vote). | (none) |
 | `dexe_vote_build_validator_cancel_vote` | `GovValidators.cancelVote{Internal,External}Proposal(proposalId)`. | (none) |
 | `dexe_vote_build_move_to_validators` | `GovPool.moveProposalToValidators(proposalId)` — escalate passing proposal to validators tier. | (none) |
-| `dexe_vote_build_execute` | `GovPool.execute(proposalId)`. | (none) |
+| `dexe_vote_build_execute` | `GovPool.execute(proposalId)`; `scope:'internal'` + `govValidators` builds `GovValidators.executeInternalProposal(proposalId)` for internal validator proposals. | (none) |
 | `dexe_vote_build_claim_rewards` | `GovPool.claimRewards(proposalIds, user)`. | (none) |
 | `dexe_vote_build_claim_micropool_rewards` | `GovPool.claimMicropoolRewards(proposalIds, delegator, delegatee)`. | (none) |
 | `dexe_vote_build_nft_multiplier_lock` | `ERC721Multiplier.lock(tokenId)` — apply multiplier bonus to caller's voting power. | (none) |
