@@ -26,6 +26,8 @@ tests/reports/*.png
 tests/reports/*.hex
 tests/reports/repo
 
+plans/*
+
 # Local DAO deploy receipts and avatar staging (one-off; never ship).
 *-deploy-tx.json
 avatar-*.png

@@ -49,6 +49,105 @@ sections rendered from `src/knowledge/` via `npm run gen:knowledge`.
 
 ---
 
+## 0.24.2 → 0.25.0 — validator round now auto-drives (1 behavior change)
+
+Tool count 159 → **160**: new `dexe_auth_login` (core) does the off-chain
+nonce → sign → login dance inside the server when a signer is available
+(hot key **or** a connected WalletConnect session) and returns
+`{ accessToken, refreshToken, expiresIn }` — no more hand-writing key-extraction
+code to sign the auth nonce. The manual `dexe_auth_request_nonce` /
+`dexe_auth_login_request` tools still work as the no-signer fallback.
+
+### The one migration-worthy change
+
+- **`dexe_proposal_vote_and_execute` now drives the validator round.** For DAOs
+  with validators, the tool used to stop at `WaitingForVotingTransfer` /
+  `ValidatorVoting` and return a remedy string. It now auto-advances that stage
+  (new `driveValidatorRound`, **default `true`**): it moves the proposal to
+  validators and, when the signer is itself a validator, casts the validator vote
+  and executes. Non-validator signers move the proposal and stop with a note.
+  Pass `driveValidatorRound: false` to restore the old member-vote-only behavior.
+
+Also additive (no action): `dexe_read_multicall`, `dexe_read_staking_info`, and
+`dexe_read_delegation_map` gained a `chainId` param (they previously always hit
+the default chain); `read_staking_info` also auto-resolves the StakingProposal
+address from a `govPool`.
+
+## 0.24.1 → 0.24.2 — DANGER advisories now block; fix your mainnet RPC
+
+Guard/validation release. Two things can change scripted behavior; the rest is
+additive.
+
+- **Governance-safety advisories now BLOCK the flow.** `dexe_proposal_create`
+  runs safety advisories on `change_voting_settings` / `new_proposal_type` /
+  `enable_staking` builds. A **DANGER-level** advisory (e.g. quorum lowered into
+  treasury-drain territory) now **stops the flow before any transaction** until
+  you re-run with **`confirmRisky: true`**. CAUTION-level advisories only attach
+  to the result (`governanceAdvisories`) and don't block. Scripts that create
+  these proposal types must be ready to pass `confirmRisky: true`.
+- **A treasury transfer to a blacklisted recipient is now refused before any
+  transaction** (the old pre-send guard was dead — it probed the wrong chain and
+  called a non-existent selector). If a transfer that "worked" before now errors,
+  the recipient is on the token blacklist and the transfer would have reverted.
+
+Also new (no action): `dexe_dao_create` accepts a `documents` array (external
+DAO profile documents, previously dropped); editing settings via
+`change_voting_settings` no longer wipes each entry's `executorDescription`.
+
+### Env note — replace the default mainnet RPC
+
+The previous `mbsc3.dexe.io` endpoint can return the **wrong `chainId`**. Set
+`DEXE_RPC_URL_MAINNET` to a standard BSC dataseed for chain 56 (e.g.
+`https://bsc-dataseed.binance.org`). Restart Claude Code after the change.
+
+## 0.24.0 → 0.24.1 — playbook resource now really ships; vote/delegate calldata changed
+
+Campaign fix batch. Tool count unchanged (159). Two things worth knowing:
+
+- **The `dexe://playbook` MCP resource now exists in published builds.** `docs/`
+  was missing from the npm `files` whitelist, so before this release the server
+  advertised **no resources capability at all** (`resources/*` → `-32601`). After
+  upgrading, the playbook resource and the doc-backed skills are actually present.
+- **`vote` / `delegate` calldata is now `multicall([inner])`-wrapped.**
+  SphereX-protected pools (every GovPool deployed since ~2026-07-06) revert a raw
+  top-level `vote()` / `delegate()` with "SphereX error: disallowed tx pattern".
+  `dexe_vote_build_vote` / `dexe_vote_build_delegate` now emit the frontend's
+  `multicall([...])` shape; `dexe_proposal_vote_and_execute` bundles its
+  deposit+vote the same way. **If you byte-compare vote/delegate payloads, expect
+  the multicall wrapper.** `undelegate` stays raw (SphereX allows it).
+  `dexe_vote_build_multicall` now also accepts a single-element batch (was min 2).
+
+Also additive (no action): the BSC-**testnet** (97) `ContractsRegistry` is baked
+into defaults, so zero-config reads / predict / deploy work on chain 97 (they
+previously failed "No ContractsRegistry address known for chainId=97"); a
+correction — `dexe_vote_build_erc20_approve` must approve the **GovUserKeeper**,
+never the GovPool.
+
+## 0.23.1 → 0.24.0 — plugin now launches via `node` (update the plugin)
+
+**TL;DR.** If you use the Claude Code plugin, update it — the launch mechanism
+changed. If you use the raw npm package, no action beyond the usual restart.
+
+- **The plugin now ships a self-contained bundle launched by plain `node`**, not
+  `npx -y dexe-mcp@…`. This clears the Windows **`-32000`** spawn failure of the
+  npx launcher, drops the launch-time network fetch (the plugin runs offline with
+  no `node_modules` on your machine), and **kills the stale-global-shadow trap**
+  (see the 0.15.0 entry) since nothing runs `npx` anymore. To pick it up:
+
+  ```
+  /plugin marketplace update dexe-mcp
+  /plugin update dexe@dexe-mcp
+  ```
+
+  then fully quit and reopen Claude Code.
+- **Deploy builders now refuse a provably-reverting payload.** `dexe_dao_create`
+  simulates the deploy via `eth_call` right before signing and **blocks the
+  broadcast** on a provable revert (classified cause + fix, no gas spent);
+  `dexe_dao_build_deploy` likewise won't emit a payload that would revert. Pass
+  **`skipSimulation: true`** to `dexe_dao_build_deploy` as the deliberate bypass.
+  An RPC transport failure only downgrades to a warning (fail-open), so this
+  doesn't block you when the node is flaky.
+
 ## 0.23.0 → 0.23.1 — move config to `~/.dexe-mcp/.env` if the plugin saw no env
 
 Fix release. The server now loads `.env` from a **cwd-independent** home
@@ -261,6 +360,60 @@ None. Optionally set your own RPC / Graph key / WC id / Pinata JWT via
 
 ---
 
+## 0.15.x → 0.16.0 — no action; backend-powered reads
+
+Additive. Tool count 156 → **159**: `dexe_read_token_holders`,
+`dexe_read_dao_stats`, and `dexe_read_nfts` (all in the **`read`** toolset — enable
+with `DEXE_TOOLSETS=core,proposals,read` or `full`; they're not in the slim
+default). `dexe_read_treasury` was rewritten **backend-first**: it now
+auto-discovers every token and returns `usdPrice`/`usdValue`/`totalUsd` and a
+`source: backend|rpc` field, and works on any address (not just GovPools). RPC
+multicall is retained as the fallback for testnet 97, an explicit `tokens` list,
+or when `DEXE_BACKEND_API_URL` is unset/unreachable. If you parsed the old
+positional treasury output, read the new field-labeled shape.
+
+## 0.14.x → 0.15.0 — install as a Claude Code plugin (+ zero-config reads)
+
+**TL;DR.** No action for an existing `.env` setup. This release adds a
+no-terminal install path and public-RPC fallback. One trap to know about if you
+also have a global install (below).
+
+- **One-command install, no JSON editing.** From inside Claude Code:
+
+  ```
+  /plugin marketplace add edward-arinin-web-dev/dexe-mcp
+  /plugin install dexe@dexe-mcp
+  ```
+
+  Reads work with zero config; run `/dexe-setup` when you want to write. The
+  governance skills install automatically, namespaced `dexe:<skill>`.
+- **Zero-config reads.** With no RPC configured the server seeds public BSC
+  endpoints (chains 56 + 97, default **56**), so `dao_info` / `read_treasury` /
+  etc. work out of the box. Public dataseed nodes rate-limit and lack archive
+  history — a doctor advisory (`chain.publicRpcFallback`) nudges you to set your
+  own RPC. Opt out with **`DEXE_DISABLE_PUBLIC_RPC=1`**. (A private key set
+  *without* an RPC now signs against the public fallback instead of erroring; set
+  your own RPC for reliable broadcasting.)
+- **`npx dexe-mcp skills`** — new skills-only subcommand (no env interview;
+  `--global` targets `~/.claude/skills`). `init` now opens with a *skills / full /
+  both* choice so it never dives into the env wizard unasked.
+
+### Trap: a global `dexe-mcp` install shadows the pinned plugin version
+
+Through 0.23.1 the plugin launched via `npx -y dexe-mcp@<version>`. If you *also*
+ran `npm i -g dexe-mcp` at any point, **npx resolves to the stale global and
+ignores the pinned `@version`** — so the plugin can silently run an old build
+(observed running 0.14.0 forever: `readonly`, `ipfsUploads:false`, no config,
+no restart fixes it). Fix: uninstall the global **using the same node that
+launches the plugin**, then fully quit + reopen Claude Code:
+
+```
+npm uninstall -g dexe-mcp
+```
+
+Do **not** "fix" it by upgrading the global — it re-breaks on the next version
+bump. (0.24.0's `node`-launched bundle removes this trap entirely.)
+
 ## 0.13.x → 0.14.0 — persistent state + `dexe_context`
 
 **TL;DR.** No action required. New `dexe_context` tool (call it first each
@@ -315,6 +468,16 @@ back to `full` rather than silently stripping tools.
 
 ---
 
+## 0.11.x → 0.12.0 — no action; composite flow tools + shipped skills arrive
+
+Additive. Tool count 154 → **155**: new `dexe_dao_create` (one-call DAO deploy
+with pre-flight guards) and `dexe_proposal_create` extended to build the common
+catalog proposal types server-side — prefer these composites over hand-sequencing
+`dexe_proposal_build_*` + IPFS + approve/deposit. The governance recipe skills
+(`dexe-create-dao`, `dexe-create-proposal`, `dexe-vote-execute`, `dexe-otc`,
+`dexe-setup`) now ship in the npm package; `npx dexe-mcp init` offers to install
+them into `./.claude/skills` or `~/.claude/skills`.
+
 ## 0.10.x → 0.11.0 — OTC contract/frontend alignment
 
 **TL;DR.** No env changes. Pull/update, restart Claude Code. If you script
@@ -344,6 +507,20 @@ against the OTC tools, read the three behavior changes below.
   without it. `buildOnly: true` skips uploads as before.
 
 ---
+
+## 0.8.1 → 0.10.0 — no action; new advisory layer + optional env
+
+Additive/hardening across 0.9.0 (security remediation) and 0.10.0 (treasury
+advisory). Nothing is required and nothing blocks. New **optional** env vars, all
+with safe defaults:
+
+- `DEXE_PROTOCOL_REF`, `DEXE_MAX_DESCRIPTION_LEN` (default 16384) — 0.9.0.
+- `DEXE_MIN_SAFE_QUORUM_PCT` (default 50), `DEXE_TREASURY_GUARD` (`warn`|`off`,
+  default `warn`), `DEXE_CONTROLLING_TOPN` (default 5) — 0.10.0's treasury-safety
+  advisory, which **only warns, never blocks** (there is no `acknowledgeRisk` to
+  pass). New read-only tool `dexe_proposal_risk_assess` (153 → **154**). Behavior
+  hardening you don't need to act on: broadcasts are serialized per chain (no
+  nonce collision) and approvals now use the exact amount, never `MAX_UINT256`.
 
 ## 0.7.x → 0.8.0 — env onboarding overhaul
 
