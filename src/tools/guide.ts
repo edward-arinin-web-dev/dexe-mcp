@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 import type { StateStore } from "../lib/stateStore.js";
-import { flowIndex, flowDetail, matchIntent, bestMatch, FLOWS } from "../knowledge/index.js";
+import { flowIndex, flowDetail, topicIndex, topicDetail, matchIntent, bestMatch, FLOWS } from "../knowledge/index.js";
 import { nextAfter } from "../knowledge/nextSteps.js";
 import { renderSkillRecipe } from "../knowledge/render.js";
 
@@ -52,7 +52,9 @@ export function registerGuideTools(
       "distribution/OTC/staking', 'open a sale', 'set up staking', 'pass this proposal'. Returns the exact ordered " +
       "plan (which tools, in what order, with what params), the questions to ask the user with per-parameter risk " +
       "notes, and the known protocol pitfalls for that journey. Never improvise a governance flow without it. " +
-      "Call with no args (or a free-text `intent`) to get the flow menu; call with `flow` for the full plan.",
+      "Also serves reference topics for data questions — e.g. flow:\"read_dao_data\" covers the whole read surface " +
+      "(free-form subgraph queries via dexe_graph_query, backend stats/holders/NFT reads, arbitrary contract reads). " +
+      "Call with no args (or a free-text `intent`) to get the menu; call with `flow` for the full plan or topic.",
     {
       intent: z
         .string()
@@ -61,7 +63,7 @@ export function registerGuideTools(
       flow: z
         .string()
         .optional()
-        .describe("Exact flow id from the index tier (e.g. 'create_dao', 'launch_token_economy'). Takes precedence over intent."),
+        .describe("Exact flow or topic id from the index tier (e.g. 'create_dao', 'launch_token_economy', 'read_dao_data'). Takes precedence over intent."),
       chainId: z
         .number()
         .int()
@@ -116,13 +118,23 @@ export function registerGuideTools(
             ],
           };
         }
-        // Unknown explicit flow id → fall through to the index with a note.
+        const topic = topicDetail(wanted, { chainId: resolvedChainId });
+        if (topic) {
+          return {
+            content: [
+              { type: "text" as const, text: JSON.stringify({ mode: "topic-detail", context, ...topic }, null, 2) },
+            ],
+          };
+        }
+        // Unknown explicit flow/topic id → fall through to the index with a note.
       }
 
       const candidates = intent ? matchIntent(intent).map((m) => m.flow) : [];
       const index = {
         mode: "flow-index" as const,
-        ...(flow && !flowDetail(flow) ? { note: `Unknown flow '${flow}'. Pick one of the ids below.` } : {}),
+        ...(flow && !flowDetail(flow) && !topicDetail(flow)
+          ? { note: `Unknown flow '${flow}'. Pick one of the ids below.` }
+          : {}),
         ...(intent && candidates.length > 1
           ? {
               note:
@@ -132,7 +144,10 @@ export function registerGuideTools(
           : {}),
         context,
         flows: flowIndex(),
-        next: "Call dexe_guide again with flow:\"<id>\" to get the full plan (interview questions, step order, gotchas).",
+        topics: topicIndex(),
+        next:
+          "Call dexe_guide again with flow:\"<id>\" to get the full plan (interview questions, step order, gotchas) " +
+          "— topic ids work the same way (e.g. flow:\"read_dao_data\" for the data-read reference).",
       };
       return { content: [{ type: "text" as const, text: JSON.stringify(index, null, 2) }] };
     },

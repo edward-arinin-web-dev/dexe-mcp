@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+Read-surface discoverability: a fresh AI connected to the server can now find
+the whole query surface in-band. Tool count unchanged (**165 / 19 groups**).
+
+### Features
+- **`dexe_guide` reference topics** — a new knowledge kind next to the flows
+  (no interview/broadcast framing). First topic: `read_dao_data` — how to pick
+  between structured `dexe_read_*` tools, free-form subgraph queries
+  (`dexe_graph_query`), anonymous backend REST reads, and arbitrary contract
+  reads (`dexe_read_multicall`), with bounds, chain coverage, and toolset
+  gating. Served via `dexe_guide {flow:"read_dao_data"}`, matched by intent,
+  listed in the index tier, and rendered into PLAYBOOK.md ("Reading DAO data").
+- **Two new MCP resources** — `dexe://graph-schema` (docs/GRAPH.md, the full
+  subgraph entity/field reference) and `dexe://tools` (docs/TOOLS.md, the full
+  tool catalog) join `dexe://playbook`. Registration extracted to
+  `src/resources.ts`; the plugin bundle now copies all three backing docs.
+- Three new read-surface gotchas in the corpus: `graph-bound-first`,
+  `subgraph-backend-mainnet-only`, `multicall-signature-form`.
+
+### Fixed
+- `dexe_graph_query` description claimed the entity schema was "also
+  summarized by dexe_guide" — it wasn't. Now true (topic `read_dao_data`) and
+  the description points at `dexe://graph-schema` for the full reference.
+
+### Tests
+- New swarm scenarios (live BSC mainnet, read-only, zero gas):
+  `S60-graph-query-live` (first e2e for free-form `dexe_graph_query`, all
+  three subgraphs), `S61-backend-reads-live` (protocol stats / DAO stats /
+  token holders / NFTs), `S62-dao-discovery-subgraph` (`dexe_read_dao_list` +
+  `dexe_read_dao_members`).
+- `tests/docs/resources.test.ts` — in-band listing/reading of all three doc
+  resources + graceful no-op on a docs-less install; `docs/GRAPH.md` added to
+  the pack-contents critical list.
+- Knowledge-integrity coverage for topics (id namespace shared with flows,
+  tool/gotcha reference resolution, payload ceilings).
+
 ## 0.29.0 — 2026-07-23
 
 The nightly-hardening release: a full-surface frontend-parity audit (zero

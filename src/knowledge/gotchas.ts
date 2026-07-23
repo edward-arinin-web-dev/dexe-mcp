@@ -446,6 +446,59 @@ export const GOTCHAS: readonly Gotcha[] = [
       "size budgets from Ethereum L1 intuition.",
     applies: { flows: ["create_dao", "launch_token_economy"] },
   },
+
+  // ── reading / querying data ───────────────────────────────────────────────
+  {
+    // docs/GRAPH.md ground rules; GRAPH_QUERY_MAX_RESPONSE_CHARS in subgraph.ts
+    id: "graph-bound-first",
+    severity: "warn",
+    text:
+      "ALWAYS bound dexe_graph_query list fields with `first:` (gateway max 1000) and paginate with `skip:` — " +
+      "responses over 120000 chars are rejected outright, so an unbounded query fails instead of streaming. " +
+      "Entity ids are lowercased concatenated bytes (e.g. proposal id = poolAddress + uint32-LE(proposalId), no " +
+      "separator); relation filters use the `_` suffix (pool_: {id: \"0x…\"}). Full entity/field reference: MCP " +
+      "resource dexe://graph-schema.",
+    applies: { tools: ["dexe_graph_query"] },
+  },
+  {
+    // reference_bsc_testnet.md — no subgraph/backend on 97
+    id: "subgraph-backend-mainnet-only",
+    severity: "warn",
+    text:
+      "Subgraph and DeXe-backend data exist for BSC MAINNET (56) only — on testnet (97) dexe_graph_query and the " +
+      "subgraph/backend read tools (dexe_read_dao_list, dexe_read_dao_members, dexe_read_user_activity, " +
+      "dexe_read_token_holders, dexe_read_dao_stats, dexe_read_protocol_stats, dexe_read_nfts, dexe_proposal_voters) " +
+      "return empty or fail. For testnet DAOs read on-chain instead: dexe_read_gov_state, dexe_read_settings, " +
+      "dexe_proposal_state, dexe_read_multicall (dexe_read_treasury falls back to RPC automatically).",
+    applies: {
+      tools: [
+        "dexe_graph_query",
+        "dexe_read_dao_list",
+        "dexe_read_dao_members",
+        "dexe_read_delegation_map",
+        "dexe_read_dao_experts",
+        "dexe_read_validator_list",
+        "dexe_read_user_activity",
+        "dexe_read_token_holders",
+        "dexe_read_dao_stats",
+        "dexe_read_protocol_stats",
+        "dexe_read_nfts",
+        "dexe_proposal_voters",
+      ],
+    },
+  },
+  {
+    // src/tools/read.ts registerReadMulticall input contract
+    id: "multicall-signature-form",
+    severity: "info",
+    text:
+      "dexe_read_multicall calls need the FULL function fragment as `signature` — " +
+      "'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, " +
+      "and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single " +
+      "RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / " +
+      "dexe_get_abi (devtools toolset).",
+    applies: { tools: ["dexe_read_multicall"] },
+  },
 ] as const;
 
 /** id → Gotcha map (validated unique in tests/knowledge/integrity.test.ts). */
