@@ -5,7 +5,7 @@
       "command": "dexe-mcp",
       "env": {
         "DEXE_PROTOCOL_PATH": "/absolute/path/to/DeXe-Protocol",
-        "DEXE_RPC_URL": "https://bsc-dataseed.binance.org",
+        "DEXE_RPC_URL": "https://bsc-dataseed.bnbchain.org",
         "DEXE_CHAIN_ID": "56",
         "DEXE_PINATA_JWT": "<your Pinata JWT>",
         "DEXE_IPFS_GATEWAY": "https://<your-subdomain>.mypinata.cloud",

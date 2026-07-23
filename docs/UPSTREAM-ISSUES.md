@@ -6,6 +6,17 @@
 **Chains observed:** BSC testnet (97) and BSC mainnet (56)
 **Affected deployments:** every GovPool deployed from the current factory since ~2026-07-06 ("SphereX-era" pools). Pools deployed before that date (Polaris 05-12, Glacier, older fixtures) are clean.
 
+> **⚠️ Responsible disclosure.** This document is intended for coordinated
+> disclosure to the DeXe protocol/security team. **F15** describes an **unfixed,
+> funds-affecting** condition (vested OTC funds *stranded* — a liveness/recovery
+> failure, not a theft vector: no third party can drain another user's funds
+> through it). Please treat it as embargoed until a fix or migration path ships.
+> The governance-validation issue **C-2** is intentionally withheld here — its
+> exploit sequence is available to the DeXe security team **on request**. If you
+> are the DeXe team, contact the reporter (GitHub `edward-arinin-web-dev`) to
+> acknowledge receipt and coordinate a fix window before this reaches wider
+> circulation.
+
 ---
 
 ## Summary of the problem

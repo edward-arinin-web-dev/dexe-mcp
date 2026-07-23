@@ -76,7 +76,7 @@ should **rotate** these keys — see [§8 Subgraph configuration](#8-subgraph-co
 Read-only operation against BSC mainnet (proposal lists, state reads, decode):
 
 ```env
-DEXE_RPC_URL=https://bsc-dataseed.binance.org
+DEXE_RPC_URL=https://bsc-dataseed.bnbchain.org
 DEXE_CHAIN_ID=56
 DEXE_PINATA_JWT=<your-pinata-jwt>
 DEXE_IPFS_GATEWAY=https://<your-subdomain>.mypinata.cloud
@@ -95,7 +95,7 @@ Both vars are **optional** — configure only the chain(s) you need. The MCP ref
 DEXE_RPC_URL_TESTNET=https://data-seed-prebsc-1-s1.binance.org:8545
 
 # Or mainnet alone:
-DEXE_RPC_URL_MAINNET=https://bsc-dataseed.binance.org
+DEXE_RPC_URL_MAINNET=https://bsc-dataseed.bnbchain.org
 
 # When both are set, testnet is the default. Override with:
 DEXE_DEFAULT_CHAIN_ID=56
@@ -117,10 +117,10 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 
 | Variable | Required for | Purpose | Example |
 |----------|--------------|---------|---------|
-| `DEXE_RPC_URL` | Single-chain legacy mode | JSON-RPC endpoint. Registers as the chain inferred from the URL hostname (or `DEXE_CHAIN_ID` when set). | `https://bsc-dataseed.binance.org` |
+| `DEXE_RPC_URL` | Single-chain legacy mode | JSON-RPC endpoint. Registers as the chain inferred from the URL hostname (or `DEXE_CHAIN_ID` when set). | `https://bsc-dataseed.bnbchain.org` |
 | `DEXE_CHAIN_ID` | Single-chain legacy mode | Chain id paired with `DEXE_RPC_URL`. Optional — best-effort inferred from the hostname when omitted. | `56`, `97`, `1`, `137` |
 | `DEXE_RPC_URL_TESTNET` | Multi-chain mode (testnet) | RPC for chain 97 (BSC testnet). Optional — set when you want the MCP to broadcast on testnet without restart. Accepts a **comma-separated fallback list** — the first URL is primary, the rest rotate automatically on transport failures. | `https://data-seed-prebsc-1-s1.binance.org:8545` |
-| `DEXE_RPC_URL_MAINNET` | Multi-chain mode (mainnet) | RPC for chain 56 (BSC mainnet). Optional — set when you want to broadcast on mainnet without restart. Accepts a **comma-separated fallback list** (first = primary, rest rotate on transport failures). | `https://bsc-dataseed.binance.org` |
+| `DEXE_RPC_URL_MAINNET` | Multi-chain mode (mainnet) | RPC for chain 56 (BSC mainnet). Optional — set when you want to broadcast on mainnet without restart. Accepts a **comma-separated fallback list** (first = primary, rest rotate on transport failures). | `https://bsc-dataseed.bnbchain.org` |
 | `DEXE_RPC_URL_<chainId>` | Generic per-chain RPC | RPC for any chain by numeric id. Registered automatically. Needed for the external Governor DAOs — Ethereum (`DEXE_RPC_URL_1`) and Optimism (`DEXE_RPC_URL_10`). Coexists with the BSC vars. Comma-separated fallback lists work here too. | `DEXE_RPC_URL_1=https://eth.llamarpc.com` |
 | `DEXE_DEFAULT_CHAIN_ID` | Multi-chain mode (default selection) | Which configured chain is used when a tool call omits `chainId`. Defaults to testnet when both are configured explicitly; the zero-config public fallback defaults to mainnet (56). | `97`, `56` |
 | `DEXE_TX_WAIT_TIMEOUT_MS` | Broadcast reliability (optional) | Max milliseconds to wait for a broadcast tx to mine before returning a check-with-`dexe_tx_status` error (the MCP request never hangs on a stuck tx). Default `180000` (3 min). | `180000`, `300000` |
@@ -257,7 +257,7 @@ Recommended signer-mode block for a single-DAO operator:
 ### BSC mainnet (chain 56) — defaults
 
 ```env
-DEXE_RPC_URL=https://bsc-dataseed.binance.org
+DEXE_RPC_URL=https://bsc-dataseed.bnbchain.org
 DEXE_CHAIN_ID=56
 ```
 
