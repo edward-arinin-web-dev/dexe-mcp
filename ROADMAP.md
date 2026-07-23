@@ -29,8 +29,6 @@ frontend-parity audit green as of 2026-07-23 (`docs/PARITY-AUDIT-2026-07-23.md`)
 ## Backlog
 
 ### Features
-- [ ] `documents` passthrough in `dexe_dao_create` → attach whitepaper/docs
-      one-shot at deploy (exists in `dexe_ipfs_upload_dao_metadata` only).
 - [ ] SIMPLE-mode `recipients[]` in `dexe_dao_create` — multi-recipient token
       distribution without dropping to ADVANCED params.
 - [ ] `setCreditInfo` / validators-allocation builder (funds the credit line
