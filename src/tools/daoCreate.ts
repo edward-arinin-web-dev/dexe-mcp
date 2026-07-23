@@ -113,11 +113,23 @@ export function synthesizeParams(c: SimpleConfig, deployer: string): DaoCreatePa
   if (c.recipients && c.recipients.length > 0) {
     const seen = new Set<string>();
     for (const r of c.recipients) {
-      if (!isAddress(r.address)) throw new Error(`recipients: invalid address ${r.address}`);
+      // isAddress('0x0000…0000') is true (trivially valid checksum); reject the
+      // zero address explicitly, mirroring the isAddress+!==ZeroAddress idiom used
+      // in preflight.ts — otherwise mint-to-zero only fails at on-chain revert.
+      if (!isAddress(r.address) || r.address.toLowerCase() === ZeroAddress.toLowerCase())
+        throw new Error(`recipients: invalid address ${r.address}`);
       const key = r.address.toLowerCase();
       if (seen.has(key)) throw new Error(`recipients: duplicate address ${r.address}`);
       seen.add(key);
       if (!(r.percent > 0)) throw new Error(`recipients: percent must be > 0 (got ${r.percent} for ${r.address})`);
+      // Amounts are quantized to 0.01% (1 bps) below. A positive percent that
+      // rounds to 0 bps would silently mint 0 tokens while the deploy succeeds —
+      // validate the bps actually used, not just the raw float.
+      if (Math.round(r.percent * 100) === 0)
+        throw new Error(
+          `recipients: percent ${r.percent}% for ${r.address} rounds below the 0.01% (1 bps) resolution and ` +
+            `would mint 0 tokens — raise it to at least 0.01% or drop the recipient.`,
+        );
     }
     const sumBps = c.recipients.reduce((a, r) => a + Math.round(r.percent * 100), 0);
     const votableBps = 10000 - Math.round(c.treasuryPercent * 100);

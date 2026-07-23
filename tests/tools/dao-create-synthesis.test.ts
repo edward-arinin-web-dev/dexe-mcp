@@ -128,24 +128,50 @@ describe("dexe_dao_create — SIMPLE synthesis (frontend-equivalent shape)", () 
     ).toThrow(/invalid address/);
   });
 
-  it("recipients[] rounding dust lands on the first recipient (fractional percents)", () => {
+  it("recipients[] rounding dust lands on the FIRST recipient (asserts placement, not just the sum)", () => {
     const A = "0xdeadbeef00000000000000000000000000000002";
     const B = "0xdeadbeef00000000000000000000000000000003";
     const C = "0xdeadbeef00000000000000000000000000000004";
-    // 17 + 17 + 17 = 51 — but with supply 1e6 and bps math each is exact here,
-    // so use a supply that does not divide evenly by bps.
+    // Whole-token supplies are ALWAYS exact under the 17/100 bps split (10^18 has
+    // ample factors), so they exercise no dust. Drive real dust with a sub-wei-
+    // scale fractional supply: 333 wei, treasury 49% → distributable 170 wei,
+    // three recipients @17% → 56 wei each (floor of 56.61), allocated 168, dust 2.
     const p = synthesizeParams(
       {
         ...base,
-        totalSupply: "333333",
+        totalSupply: "0.000000000000000333", // 333 wei
         recipients: [{ address: A, percent: 17 }, { address: B, percent: 17 }, { address: C, percent: 17 }],
       },
       DEPLOYER,
     );
-    const supply = 333_333n * 10n ** 18n;
-    const distributable = supply - (supply * 4900n) / 10000n;
+    // distributable = 333 − floor(333·4900/10000) = 333 − 163 = 170
+    // each recipient = floor(333·1700/10000) = 56; dust = 170 − 168 = 2 → recipient[0]
+    expect(p.tokenParams.amounts).toEqual(["58", "56", "56"]);
     const sum = p.tokenParams.amounts.reduce((a, b) => a + BigInt(b), 0n);
-    expect(sum).toBe(distributable);
+    expect(sum).toBe(170n);
+    // Regression guard: the +2 dust MUST be on amounts[0], not [1]/[2] or the treasury.
+    expect(BigInt(p.tokenParams.amounts[0]!)).toBe(58n);
+  });
+
+  it("recipients[] refuses a positive percent that rounds below 1 bps (would silently mint 0)", () => {
+    const A = "0xdeadbeef00000000000000000000000000000002";
+    const B = "0xdeadbeef00000000000000000000000000000003";
+    // 0.004% rounds to 0 bps → would mint 0 tokens while the deploy succeeds.
+    expect(() =>
+      synthesizeParams(
+        { ...base, treasuryPercent: 0, recipients: [{ address: A, percent: 0.004 }, { address: B, percent: 99.996 }] },
+        DEPLOYER,
+      ),
+    ).toThrow(/rounds below the 0\.01%|1 bps/);
+  });
+
+  it("recipients[] rejects the zero address (isAddress(0x0) is true)", () => {
+    expect(() =>
+      synthesizeParams(
+        { ...base, recipients: [{ address: "0x0000000000000000000000000000000000000000", percent: 51 }] },
+        DEPLOYER,
+      ),
+    ).toThrow(/invalid address/);
   });
 
   it("default 1-token min-votes clamps to the LARGEST recipient allocation", () => {

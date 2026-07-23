@@ -1019,8 +1019,11 @@ export async function runProposalCreate(
         return err(
           `voteAmount ${voteAmount} wei is below this DAO's minVotesForVoting ` +
             `(${formatAmount(prereqs.minVotesForVoting, d, sym)}) — the create would revert "Gov: low voting power". ` +
-            `Note: digits-only amounts are RAW WEI; for human units use a decimal point (e.g. '${input.voteAmount ?? ""}.0' ` +
-            `= ${input.voteAmount ?? ""} whole tokens), or omit voteAmount to vote with all available power.`,
+            (input.voteAmount
+              ? `Note: digits-only amounts are RAW WEI; for human units use a decimal point (e.g. '${input.voteAmount}.0' ` +
+                `= ${input.voteAmount} whole tokens), or omit voteAmount to vote with all available power.`
+              : `You omitted voteAmount, so this is your entire wallet + deposited balance — it is below the DAO's ` +
+                `minimum to create. Acquire more of the gov token (${prereqs.tokenAddress}) first, then re-run.`),
         );
       }
       const needDeposit = voteAmount > prereqs.depositedPower ? voteAmount - prereqs.depositedPower : 0n;
@@ -1233,6 +1236,7 @@ async function runInternalProposalCreate(
   // the low-level self-call in GovValidatorsExecute. Check GovPool.
   // getCreditInfo() up-front and refuse with the funding recipe. Best-effort:
   // any read failure skips the check (never blocks offline).
+  let creditWarning: string | undefined;
   if (built.internalType === 2) {
     try {
       const creditIface = new Interface([
@@ -1242,20 +1246,49 @@ async function runInternalProposalCreate(
         { target: govPool, iface: creditIface, method: "getCreditInfo", args: [], allowFailure: true },
       ]);
       if (creditR?.success) {
-        const rows = creditR.value as unknown as Array<{ token: string; currentWithdrawLimit: bigint }>;
-        const limits = new Map(rows.map((r) => [r.token.toLowerCase(), BigInt(r.currentWithdrawLimit)]));
+        const rows = creditR.value as unknown as Array<{
+          token: string;
+          monthLimit: bigint;
+          currentWithdrawLimit: bigint;
+        }>;
+        const info = new Map(
+          rows.map((r) => [
+            r.token.toLowerCase(),
+            { monthLimit: BigInt(r.monthLimit), currentLimit: BigInt(r.currentWithdrawLimit) },
+          ]),
+        );
         const wanted = (input.params ?? {}) as { withdrawals?: Array<{ token: string; amount: string }> };
-        const short = (wanted.withdrawals ?? []).filter((w) => {
-          const lim = limits.get(w.token.toLowerCase()) ?? 0n;
-          return BigInt(w.amount) > lim;
-        });
-        if (short.length > 0) {
+        const withdrawals = wanted.withdrawals ?? [];
+        // HARD refuse only when the token's static monthLimit cannot cover the
+        // amount — that shortfall reverts at execute regardless of timing.
+        const unfunded = withdrawals.filter((w) => BigInt(w.amount) > (info.get(w.token.toLowerCase())?.monthLimit ?? 0n));
+        if (unfunded.length > 0) {
           return err(
             `monthly_withdraw would execute into "Validators: failed to execute": the validators' credit line ` +
-              `does not cover ${short.map((w) => `${w.amount} of ${w.token} (current limit ${limits.get(w.token.toLowerCase()) ?? 0n})`).join("; ")}. ` +
+              `does not cover ${unfunded
+                .map((w) => `${w.amount} of ${w.token} (month limit ${info.get(w.token.toLowerCase())?.monthLimit ?? 0n})`)
+                .join("; ")}. ` +
               `Fund it first with an EXTERNAL proposal: dexe_proposal_create proposalType:'validators_allocation' ` +
-              `params:{credits:[{token, amount}]} — after it executes, re-run this monthly_withdraw.`,
+              `params:{credits:[{token, amount}]} — after it executes, re-run this monthly_withdraw. ` +
+              `Note: setCreditInfo only raises the month limit; it does not reset the rolling 30-day withdrawal history, ` +
+              `so the new limit must exceed what was already drawn this window.`,
           );
+        }
+        // ADVISORY only: the line is funded (monthLimit ≥ amount) but the rolling
+        // currentWithdrawLimit is temporarily drained. A Succeeded internal proposal
+        // never expires, so a deferred execute after the 30-day window rolls will
+        // still succeed — do NOT block, just warn.
+        const drained = withdrawals.filter((w) => {
+          const row = info.get(w.token.toLowerCase());
+          return row !== undefined && BigInt(w.amount) > row.currentLimit && BigInt(w.amount) <= row.monthLimit;
+        });
+        if (drained.length > 0) {
+          creditWarning =
+            `The credit line is funded but its rolling 30-day limit is temporarily drained for ` +
+            `${drained
+              .map((w) => `${w.token} (current ${info.get(w.token.toLowerCase())?.currentLimit ?? 0n} of ${w.amount})`)
+              .join("; ")}. ` +
+            `Executing NOW would revert; execute after the 30-day window rolls (or once earlier draws age out).`;
         }
       }
     } catch {
@@ -1339,6 +1372,7 @@ async function runInternalProposalCreate(
       note:
         "Internal proposals are created and voted on by the DAO's validators only (their own validator balances — " +
         "no token deposit). The sender must be a current validator or the tx reverts.",
+      ...(creditWarning ? { creditWarning } : {}),
       ...(result.mode === "executed"
         ? flowChainFields(input.flowContext, deps.state, { chainId, govPool })
         : {}),
@@ -1767,8 +1801,14 @@ export function registerFlowTools(
         return err(
           `voteAmount ${voteAmt} wei is below this DAO's minVotesForVoting ` +
             `(${formatAmount(prereqs.minVotesForVoting, d, sym)}) — the vote would revert "Gov: low voting power". ` +
-            `Digits-only amounts are RAW WEI; use a decimal point for human units (e.g. '${input.voteAmount ?? ""}.0'), ` +
-            `or omit voteAmount to vote with all available power.`,
+            (input.voteAmount
+              ? `Digits-only amounts are RAW WEI; use a decimal point for human units (e.g. '${input.voteAmount}.0'), ` +
+                `or omit voteAmount to vote with all available power.`
+              : `You omitted voteAmount, so this is your entire wallet + deposited balance (${formatAmount(
+                  prereqs.depositedPower + prereqs.walletBalance,
+                  d,
+                  sym,
+                )}) — below the DAO's minimum. Acquire more of the gov token (${prereqs.tokenAddress}) first.`),
         );
       }
 
@@ -1805,14 +1845,8 @@ export function registerFlowTools(
         skippedSteps.push({ label: "GovPool.deposit", skipped: true, reason: "Deposited power already covers voteAmount" });
       }
 
-      // Step 5: minVotesForVoting threshold
-      if (prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
-        return err(
-          `Vote below this DAO's minimum: voting requires at least ${formatAmount(prereqs.minVotesForVoting, d, sym)} ` +
-            `but this vote would cast ${formatAmount(voteAmt, d, sym)}. ` +
-            `Raise voteAmount (you have ${formatAmount(prereqs.depositedPower + prereqs.walletBalance, d, sym)} total) or acquire more tokens.`,
-        );
-      }
+      // (minVotesForVoting is enforced up-front, before the deposit decision —
+      // the earlier guard returns first, so no duplicate check is needed here.)
 
       // SphereX on new pools rejects a raw top-level vote(); the frontend
       // always sends multicall([...maybe deposit, vote]) (useGovPoolVote.ts),

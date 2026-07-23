@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Wallet } from "ethers";
 import { SignerManager } from "../../src/lib/signer.js";
-import { fundCapWei, deriveKeyringAddresses } from "../../src/tools/agents.js";
+import { fundCapWei, deriveKeyringAddresses, resolveFundTargets } from "../../src/tools/agents.js";
 import { parseAgentKeys, type DexeConfig } from "../../src/config.js";
 
 // Throwaway well-known test keys (hardhat mnemonics-style, never funded).
@@ -117,5 +117,40 @@ describe("agents_fund cap", () => {
 describe("deriveKeyringAddresses", () => {
   it("derives signerKey→address pairs", () => {
     expect(deriveKeyringAddresses({ agent1: PK_A1 })).toEqual([{ signerKey: "agent1", address: ADDR(PK_A1) }]);
+  });
+});
+
+describe("resolveFundTargets — never funds the source from itself", () => {
+  const keyring = [
+    { signerKey: "funder", address: ADDR(PK_PRIMARY) },
+    { signerKey: "agent1", address: ADDR(PK_A1) },
+    { signerKey: "agent2", address: ADDR(PK_A2) },
+  ];
+
+  it("default (whole-keyring) path excludes the source", () => {
+    const t = resolveFundTargets(keyring, [], "funder");
+    expect(t.map((a) => a.signerKey)).toEqual(["agent1", "agent2"]);
+  });
+
+  it("explicit-list path ALSO excludes the source (regression: self-transfer/gas-drain)", () => {
+    const t = resolveFundTargets(keyring, ["agent1", "funder"], "funder");
+    expect(t.map((a) => a.signerKey)).toEqual(["agent1"]);
+  });
+
+  it("resolves explicit targets by address too", () => {
+    const t = resolveFundTargets(keyring, [ADDR(PK_A2).toLowerCase()], "funder");
+    expect(t.map((a) => a.signerKey)).toEqual(["agent2"]);
+  });
+
+  it("returns empty when every requested target is the source", () => {
+    expect(resolveFundTargets(keyring, ["funder"], "funder")).toEqual([]);
+  });
+
+  it("throws for an unknown requested slot", () => {
+    expect(() => resolveFundTargets(keyring, ["agent9"], "funder")).toThrow(/not in the keyring/);
+  });
+
+  it("no source → returns all (primary-signer funding)", () => {
+    expect(resolveFundTargets(keyring, [], undefined).map((a) => a.signerKey)).toEqual(["funder", "agent1", "agent2"]);
   });
 });
