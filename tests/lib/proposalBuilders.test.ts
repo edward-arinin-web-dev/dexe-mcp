@@ -123,8 +123,7 @@ describe("v0.22 new builders (byte-parity)", () => {
     "function changeExecutors(address[] executors, uint256[] settingsIds)",
   ]);
 
-  it("manage_validators == validators_allocation, encodes changeBalances", async () => {
-    expect(PROPOSAL_BUILDERS.validators_allocation).toBe(PROPOSAL_BUILDERS.manage_validators);
+  it("manage_validators encodes changeBalances", async () => {
     const b = PROPOSAL_BUILDERS.manage_validators!;
     const out = await b.build(
       b.schema.parse({ govValidators: DIST, changes: [{ user: USER, balance: "100" }, { user: RECIPIENT, balance: "0" }] }),
@@ -134,6 +133,30 @@ describe("v0.22 new builders (byte-parity)", () => {
     expect(out.actionsOnFor[0]!.data).toBe(
       VALIDATORS.encodeFunctionData("changeBalances", [[100n, 0n], [USER, RECIPIENT]]),
     );
+  });
+
+  it("validators_allocation encodes GovPool.setCreditInfo (NOT changeBalances — frontend parity)", async () => {
+    // 0.29: was mis-aliased to manage_validators; the frontend's
+    // useGovPoolCreateValidatorsAllocationProposal executes setCreditInfo.
+    expect(PROPOSAL_BUILDERS.validators_allocation).not.toBe(PROPOSAL_BUILDERS.manage_validators);
+    const CREDIT = new Interface(["function setCreditInfo(address[] tokens, uint256[] amounts)"]);
+    const b = PROPOSAL_BUILDERS.validators_allocation!;
+    const out = await b.build(
+      b.schema.parse({ credits: [{ token: TOKEN, amount: "1000" }, { token: DIST, amount: "2500" }] }),
+      deps,
+    );
+    expect(out.category).toBe("validatorsAllocation");
+    expect(out.actionsOnFor).toHaveLength(1);
+    expect(out.actionsOnFor[0]!.executor).toBe(GOVPOOL);
+    expect(out.actionsOnFor[0]!.data).toBe(
+      CREDIT.encodeFunctionData("setCreditInfo", [[TOKEN, DIST], [1000n, 2500n]]),
+    );
+    // legacy manage_validators-shaped params are rejected by the schema
+    expect(() => b.schema.parse({ govValidators: DIST, changes: [{ user: USER, balance: "1" }] })).toThrow();
+    // invalid token address refused at build time
+    await expect(
+      b.build(b.schema.parse({ credits: [{ token: "0xnope", amount: "1" }] }), deps),
+    ).rejects.toThrow(/Invalid credit token/);
   });
 
   it("delegate/revoke to expert target the deps govPool", async () => {
