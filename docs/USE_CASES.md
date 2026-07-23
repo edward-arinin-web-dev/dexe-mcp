@@ -217,7 +217,9 @@ lowering quorum into drain territory requires `confirmRisky`). Recipes: PLAYBOOK
 ### 29. Multi-persona DAO activity from one MCP
 > "Create 3 DAOs from 3 different wallets, have them vote from distinct personas, and report the activity."
 
-The opt-in **agent keyring**: set `DEXE_AGENT_PK_1..16` in `.env` (one throwaway
+The opt-in **agent keyring**: set `DEXE_AGENT_PK_1..16` — or the swarm-harness
+naming `AGENT_PK_1..16` + `AGENT_FUNDER_PK` (→ signerKey `funder`), accepted as
+aliases since 0.29 — in `.env` (one throwaway
 hot key per persona), then every broadcast surface takes `signerKey: "agent<n>"` —
 `dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`,
 `dexe_proposal_vote_and_execute`, and the OTC buyer composites. Ops tools:

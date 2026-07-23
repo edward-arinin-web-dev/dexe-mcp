@@ -65,7 +65,8 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
     {
       title: "List the agent keyring (addresses + balances)",
       description:
-        "Shows every configured DEXE_AGENT_PK_* signer — its signerKey ('agent1'…), address, native balance, and " +
+        "Shows every configured keyring signer (DEXE_AGENT_PK_* or the AGENT_PK_* alias, plus the 'funder' slot " +
+        "from AGENT_FUNDER_PK) — its signerKey ('agent1'…, 'funder'), address, native balance, and " +
         "optionally an ERC20 balance. Use the signerKey values with dexe_tx_send / dexe_dao_create / " +
         "dexe_proposal_create / dexe_proposal_vote_and_execute / OTC buyer composites to act from that wallet. " +
         "Keys never leave the server; this tool returns addresses only.",
@@ -78,7 +79,8 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
       const agents = signer.listAgents();
       if (agents.length === 0) {
         return err(
-          "Agent keyring is empty. Set DEXE_AGENT_PK_1..16 in .env (one hot key per agent persona) and restart. " +
+          "Agent keyring is empty. Set DEXE_AGENT_PK_1..16 (or the swarm naming AGENT_PK_1..16 / AGENT_FUNDER_PK) " +
+            "in .env — one hot key per agent persona — and restart. " +
             "The primary DEXE_PRIVATE_KEY stays the default signer; keyring keys are selected per call via signerKey.",
         );
       }
@@ -132,9 +134,10 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
     {
       title: "Fund agent keyring wallets from the primary signer",
       description:
-        "Tops up DEXE_AGENT_PK_* wallets from the PRIMARY DEXE_PRIVATE_KEY signer — native coin by default, or an " +
-        "ERC20 via `token`. Hard guards: recipients can ONLY be keyring addresses (never arbitrary destinations), " +
-        "and the per-agent amount is capped by DEXE_AGENT_FUND_MAX_WEI (default 0.1 native / 0.1 token units in wei-scale). " +
+        "Tops up keyring wallets — native coin by default, or an ERC20 via `token`. Funds FROM the primary " +
+        "DEXE_PRIVATE_KEY signer by default; pass source:'funder' to send from the AGENT_FUNDER_PK wallet instead. " +
+        "Hard guards: recipients can ONLY be keyring addresses (never arbitrary destinations), and the per-agent " +
+        "amount is capped by DEXE_AGENT_FUND_MAX_WEI (default 0.1 native / 0.1 token units in wei-scale). " +
         "Agents whose balance already meets `amount` are skipped. Use dexe_agents_list first to see who needs gas.",
       inputSchema: {
         amount: z
@@ -145,23 +148,34 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
           .default([])
           .describe("signerKeys to fund (e.g. ['agent1','agent3']); empty = every keyring entry"),
         token: z.string().optional().describe("Optional ERC20 to send instead of the native coin"),
+        source: z
+          .string()
+          .optional()
+          .describe("Funding wallet: omit = primary signer; 'funder' = the AGENT_FUNDER_PK keyring slot (or any keyring signerKey)"),
         chainId: chainIdParam,
         dryRun: z.boolean().default(false).describe("Preview the transfers without broadcasting"),
       },
     },
-    async ({ amount, agents: requested = [], token, chainId, dryRun = false }) => {
+    async ({ amount, agents: requested = [], token, source, chainId, dryRun = false }) => {
       const keyring = signer.listAgents();
       if (keyring.length === 0) {
-        return err("Agent keyring is empty — set DEXE_AGENT_PK_1..16 first.");
+        return err("Agent keyring is empty — set DEXE_AGENT_PK_1..16 (or AGENT_PK_1..16 / AGENT_FUNDER_PK) first.");
       }
-      if (!signer.hasSigner()) {
-        return err("Funding requires the primary DEXE_PRIVATE_KEY signer (the keyring is funded FROM it).");
+      if (!source && !signer.hasSigner()) {
+        return err(
+          "Funding requires a source wallet: set the primary DEXE_PRIVATE_KEY, or pass source:'funder' to send " +
+            "from the AGENT_FUNDER_PK keyring slot.",
+        );
+      }
+      if (source && !keyring.some((a) => a.signerKey === source.trim().toLowerCase())) {
+        return err(`source '${source}' is not in the keyring (${keyring.map((a) => a.signerKey).join(", ")}).`);
       }
       if (token && !isAddress(token)) return err(`Invalid token: ${token}`);
 
+      const sourceKey = source?.trim().toLowerCase();
       const targets =
         requested.length === 0
-          ? keyring
+          ? keyring.filter((a) => a.signerKey !== sourceKey)
           : requested.map((r) => {
               const hit = keyring.find(
                 (a) => a.signerKey === r.trim().toLowerCase() || a.address.toLowerCase() === r.trim().toLowerCase(),
@@ -225,7 +239,7 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
         });
       }
 
-      const sg = signer.trySigner(chain.chainId);
+      const sg = signer.trySigner(chain.chainId, sourceKey);
       if ("error" in sg) return err(`${sg.error}\n${sg.remediation}`);
       const wallet = sg.ok;
       const funded: Array<Record<string, unknown>> = [];

@@ -169,7 +169,7 @@ export class SignerManager {
     const known = Object.keys(this.agentKeys);
     throw new Error(
       `Unknown signerKey "${signerKey}". Configured keyring: ${
-        known.length ? known.join(", ") : "(empty — set DEXE_AGENT_PK_1..16)"
+        known.length ? known.join(", ") : "(empty — set DEXE_AGENT_PK_1..16 or AGENT_PK_1..16 / AGENT_FUNDER_PK)"
       }; the primary signer is selected by omitting signerKey.`,
     );
   }
