@@ -45,8 +45,8 @@ Hi {NAME},
 We just shipped a generalized OpenZeppelin Governor + Compound Bravo MCP under
 the `gov` dist-tag of dexe-mcp.
 
-- 12 tools across read / build / simulate. Family-branched internally
-  (OZ vs Bravo) — callers see normalized output regardless of target.
+- 18 tools across read / build / simulate / decode (12 at launch). Family-branched
+  internally (OZ vs Bravo) — callers see normalized output regardless of target.
 - 3 Tier-1 DAOs supported out of the box: Uniswap, Compound, Optimism.
   Adding a DAO is a config-only change (one JSON, one line in loader).
 - Tally state-enum parity harness shipped — 30 sampled proposals match 100%
