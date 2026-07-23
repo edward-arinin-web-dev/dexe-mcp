@@ -484,6 +484,24 @@ function signerGuardConfigCheck(): CheckResult[] {
     }
   }
 
+  // Agent keyring visibility: count configured slots + which naming supplied
+  // them (DEXE_AGENT_PK_* vs the AGENT_PK_*/AGENT_FUNDER_PK swarm aliases).
+  const slots: string[] = [];
+  for (let n = 1; n <= 16; n++) {
+    if (process.env[`DEXE_AGENT_PK_${n}`]?.trim()) slots.push(`agent${n}`);
+    else if (process.env[`AGENT_PK_${n}`]?.trim()) slots.push(`agent${n}(alias)`);
+  }
+  if (process.env.DEXE_AGENT_FUNDER_PK?.trim()) slots.push("funder");
+  else if (process.env.AGENT_FUNDER_PK?.trim()) slots.push("funder(alias)");
+  if (slots.length > 0) {
+    out.push({
+      id: "signer.agentKeyring",
+      category: "signer",
+      status: "pass",
+      message: `${slots.length} keyring slot(s): ${slots.join(", ")} — select per call via signerKey`,
+    });
+  }
+
   return out;
 }
 

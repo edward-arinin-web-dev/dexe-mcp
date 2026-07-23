@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Wallet } from "ethers";
 import { SignerManager } from "../../src/lib/signer.js";
 import { fundCapWei, deriveKeyringAddresses } from "../../src/tools/agents.js";
-import type { DexeConfig } from "../../src/config.js";
+import { parseAgentKeys, type DexeConfig } from "../../src/config.js";
 
 // Throwaway well-known test keys (hardhat mnemonics-style, never funded).
 const PK_PRIMARY = "0x0000000000000000000000000000000000000000000000000000000000000001";
@@ -56,7 +56,47 @@ describe("SignerManager agent keyring", () => {
     const bare = new SignerManager(cfg({ privateKey: PK_PRIMARY }));
     expect(bare.hasAgents()).toBe(false);
     expect(bare.hasSigner()).toBe(true);
-    expect(() => bare.getAddress("agent1")).toThrow(/empty — set DEXE_AGENT_PK_1..16/);
+    expect(() => bare.getAddress("agent1")).toThrow(/empty — set DEXE_AGENT_PK_1..16 or AGENT_PK_1..16/);
+  });
+});
+
+describe("parseAgentKeys — env naming aliases", () => {
+  const noFatal = (m: string) => {
+    throw new Error(`unexpected invalid: ${m}`);
+  };
+
+  it("reads the swarm naming AGENT_PK_n / AGENT_FUNDER_PK", () => {
+    const keys = parseAgentKeys(
+      { AGENT_PK_1: PK_A1, AGENT_PK_3: PK_A2, AGENT_FUNDER_PK: PK_PRIMARY },
+      noFatal,
+    );
+    expect(keys).toEqual({ agent1: PK_A1, agent3: PK_A2, funder: PK_PRIMARY });
+  });
+
+  it("DEXE_-prefixed vars win over the alias when both are set", () => {
+    const keys = parseAgentKeys({ DEXE_AGENT_PK_1: PK_A1, AGENT_PK_1: PK_A2 }, noFatal);
+    expect(keys).toEqual({ agent1: PK_A1 });
+  });
+
+  it("reads the DEXE_-prefixed funder slot", () => {
+    expect(parseAgentKeys({ DEXE_AGENT_FUNDER_PK: PK_A2 }, noFatal)).toEqual({ funder: PK_A2 });
+  });
+
+  it("reports an invalid alias value instead of storing it", () => {
+    const messages: string[] = [];
+    const keys = parseAgentKeys({ AGENT_PK_1: "not-a-key" }, (m) => messages.push(m));
+    expect(keys).toEqual({});
+    expect(messages[0]).toMatch(/AGENT_PK_1 must be a 0x-prefixed 64-hex/);
+  });
+
+  it("empty env → empty keyring", () => {
+    expect(parseAgentKeys({}, noFatal)).toEqual({});
+  });
+
+  it("funder slot is selectable through SignerManager", () => {
+    const sm2 = new SignerManager(cfg({ privateKey: PK_PRIMARY, agentKeys: parseAgentKeys({ AGENT_FUNDER_PK: PK_A1 }, noFatal) }));
+    expect(sm2.getAddress("funder")).toBe(ADDR(PK_A1));
+    expect(sm2.getAddress("FUNDER")).toBe(ADDR(PK_A1));
   });
 });
 

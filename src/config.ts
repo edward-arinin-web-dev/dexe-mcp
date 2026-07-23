@@ -179,6 +179,39 @@ export interface DexeConfig {
  * out. The protocol checkout may not exist yet; `ensureBuildReady` handles
  * that lazily from inside build/test tools.
  */
+/**
+ * Parse the agent-keyring env vars into a signerKey→privateKey map.
+ * `AGENT_PK_<n>` is accepted as an alias for `DEXE_AGENT_PK_<n>` — it is the
+ * naming the swarm harness and `.env.example` already use — with the
+ * DEXE_-prefixed var winning when both are set. `AGENT_FUNDER_PK` /
+ * `DEXE_AGENT_FUNDER_PK` maps to the "funder" slot. Alias values are
+ * hex64-validated here (the env schema walk only covers DEXE_-prefixed vars);
+ * an invalid alias reports through `onInvalid`.
+ */
+export function parseAgentKeys(
+  env: NodeJS.ProcessEnv,
+  onInvalid: (message: string) => void,
+): Record<string, string> {
+  const agentKeys: Record<string, string> = {};
+  const hex64 = /^0x[0-9a-fA-F]{64}$/;
+  const takeKey = (slot: string, primaryVar: string, aliasVar: string) => {
+    const prim = env[primaryVar]?.trim();
+    const alias = env[aliasVar]?.trim();
+    const v = prim || alias;
+    if (!v) return;
+    if (!prim && alias && !hex64.test(alias)) {
+      onInvalid(`${aliasVar} must be a 0x-prefixed 64-hex private key.`);
+      return;
+    }
+    agentKeys[slot] = v;
+  };
+  for (let n = 1; n <= 16; n++) {
+    takeKey(`agent${n}`, `DEXE_AGENT_PK_${n}`, `AGENT_PK_${n}`);
+  }
+  takeKey("funder", "DEXE_AGENT_FUNDER_PK", "AGENT_FUNDER_PK");
+  return agentKeys;
+}
+
 export async function loadConfig(): Promise<DexeConfig> {
   // ---- schema-validate the DEXE_* env surface up front (R5) ---------------
   // parse.ts walks ENV_SPEC; an invalid value (malformed URL, non-integer,
@@ -382,18 +415,13 @@ export async function loadConfig(): Promise<DexeConfig> {
     );
   }
 
-  // ---- opt-in agent keyring (DEXE_AGENT_PK_1..16) -------------------------
+  // ---- opt-in agent keyring (DEXE_AGENT_PK_1..16 / AGENT_PK_1..16) --------
   // Multi-persona/swarm flows: each key becomes signerKey "agent<n>" on
-  // dexe_tx_send + the composites. Requires the primary signer path's RPC
-  // preconditions; keys are hex64-validated by the env schema walk above.
-  const agentKeys: Record<string, string> = {};
-  for (let n = 1; n <= 16; n++) {
-    const v = process.env[`DEXE_AGENT_PK_${n}`]?.trim();
-    if (v) agentKeys[`agent${n}`] = v;
-  }
+  // dexe_tx_send + the composites; AGENT_FUNDER_PK → signerKey "funder".
+  const agentKeys = parseAgentKeys(process.env, fatal);
   if (Object.keys(agentKeys).length > 0) {
     if (chains.size === 0) {
-      fatal("DEXE_AGENT_PK_* requires an RPC endpoint (same requirement as DEXE_PRIVATE_KEY).");
+      fatal("Agent keyring keys (DEXE_AGENT_PK_*/AGENT_PK_*) require an RPC endpoint (same requirement as DEXE_PRIVATE_KEY).");
     }
     const { Wallet } = await import("ethers");
     const names = Object.keys(agentKeys);
