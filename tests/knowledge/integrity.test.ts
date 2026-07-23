@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { FLOWS, FLOW_BY_ID, GOTCHAS, GOTCHA_BY_ID, flowIndex, flowDetail } from "../../src/knowledge/index.js";
+import {
+  FLOWS,
+  FLOW_BY_ID,
+  TOPICS,
+  TOPIC_BY_ID,
+  GOTCHAS,
+  GOTCHA_BY_ID,
+  flowIndex,
+  flowDetail,
+  topicIndex,
+  topicDetail,
+} from "../../src/knowledge/index.js";
 import { TOOLSETS } from "../../src/tools/gate.js";
 import { FLOW_PROPOSAL_TYPES } from "../../src/lib/proposalBuilders.js";
 
@@ -123,6 +134,51 @@ describe("knowledge corpus integrity", () => {
       const bytes = Buffer.byteLength(JSON.stringify(detail), "utf8");
       expect(bytes, `${f.id} detail is ${bytes} bytes`).toBeLessThan(10240);
     }
+  });
+
+  it("topic ids are unique and disjoint from flow ids (one guide namespace)", () => {
+    expect(TOPIC_BY_ID.size).toBe(TOPICS.length);
+    for (const t of TOPICS) expect(FLOW_BY_ID.has(t.id), `topic id '${t.id}' collides with a flow`).toBe(false);
+  });
+
+  it("every Topic.tools entry exists in the toolset union", () => {
+    const orphans: string[] = [];
+    for (const t of TOPICS) for (const tool of t.tools) if (!ALL_TOOLS.has(tool)) orphans.push(`${t.id}: ${tool}`);
+    expect(orphans, `topics referencing unregistered tools: ${orphans.join(", ")}`).toEqual([]);
+  });
+
+  it("every topic gotchaId resolves", () => {
+    const missing: string[] = [];
+    for (const t of TOPICS) for (const id of t.gotchaIds ?? []) if (!GOTCHA_BY_ID.has(id)) missing.push(`${t.id}: ${id}`);
+    expect(missing, `unresolved topic gotcha ids: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("every topic has triggers, a summary, and at least one section", () => {
+    for (const t of TOPICS) {
+      expect(t.triggers.length, t.id).toBeGreaterThan(0);
+      expect(t.summary.length, t.id).toBeGreaterThan(10);
+      expect(t.sections.length, t.id).toBeGreaterThan(0);
+    }
+  });
+
+  it("topic payload ceilings: combined index < 6KB, every topic detail < 10KB serialized", () => {
+    const combined = Buffer.byteLength(JSON.stringify({ flows: flowIndex(), topics: topicIndex() }), "utf8");
+    expect(combined).toBeLessThan(6144);
+    for (const t of TOPICS) {
+      const bytes = Buffer.byteLength(JSON.stringify(topicDetail(t.id)), "utf8");
+      expect(bytes, `${t.id} detail is ${bytes} bytes`).toBeLessThan(10240);
+    }
+  });
+
+  it("topic details resolve gotchas danger-first and annotate non-default toolsets", () => {
+    const d = topicDetail("read_dao_data")!;
+    expect(d).not.toBeNull();
+    const rank = { danger: 0, warn: 1, info: 2 } as const;
+    for (let i = 1; i < d.gotchas.length; i++) {
+      expect(rank[d.gotchas[i - 1]!.severity]).toBeLessThanOrEqual(rank[d.gotchas[i]!.severity]);
+    }
+    const graphQuery = d.tools.find((t) => t.tool === "dexe_graph_query")!;
+    expect(graphQuery.requiresToolset).toContain("read");
   });
 
   it("chain-gated gotchas only surface on their chains", () => {

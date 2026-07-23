@@ -220,6 +220,44 @@ The end-to-end journey: deploy a DAO + token, put tokens in specific hands, open
 4. `dexe_guide` — LEG 4 — set up staking. Fetch flow 'staking_setup'. On chain 97 this leg MUST be deferred to mainnet — relay the chain note instead of attempting it.
 <!-- END GENERATED: flows -->
 
+## Reading DAO data (reference topics)
+
+Non-journey knowledge: how to query the subgraph, the backend API, and
+arbitrary contract state. GENERATED from `src/knowledge/topics.ts` — edit
+there, then run `npm run gen:knowledge`. Also served in-band via
+`dexe_guide {flow:"read_dao_data"}` and the `dexe://graph-schema` resource.
+
+<!-- BEGIN GENERATED: topics -->
+### Read / query DAO data (subgraph, backend API, on-chain) (`read_dao_data`)
+
+Reference for the whole read surface: free-form subgraph queries via dexe_graph_query, anonymous backend REST reads (stats/holders/NFTs), and free-form on-chain reads via dexe_read_multicall — with bounds, chain coverage, and toolset gating.
+
+#### Pick the right source
+
+Prefer the structured dexe_read_* tools first (dexe_read_dao_members, dexe_read_treasury, dexe_read_user_activity, dexe_proposal_voters, …) — they return shaped, documented payloads. Reach for dexe_graph_query when no structured tool covers the question (custom filters, joins, historical slices). Use dexe_read_multicall for arbitrary on-chain contract state, and dexe_sim_calldata to dry-run calldata without broadcasting. ALL reads are anonymous: no signer, no private key, no API key required.
+
+#### Subgraph querying (dexe_graph_query)
+
+Free-form read-only GraphQL against three subgraphs. subgraph='pools': DaoPool, Proposal, Voter, VoterInPool, VoterInPoolPair, ProposalInteraction, TokenSaleTier, ExpertNft, DelegationHistory. subgraph='interactions': Transaction feed by type plus per-event entities (DaoPoolCreate, DaoPoolDelegate, DaoPoolExecute, DaoPoolVest, DaoProposalCreate, …). subgraph='validators': ValidatorInPool, Proposal, ValidatorInProposal. Bound every list with first: (max 1000) and paginate with skip:; responses over 120000 chars are rejected. Data covers BSC MAINNET ONLY. The full entity/field reference (id conventions, enums, worked queries) is the MCP resource dexe://graph-schema (docs/GRAPH.md in the package).
+
+#### Backend REST reads (anonymous, mainnet)
+
+Fixed wrappers over the DeXe backend — no auth needed: dexe_read_treasury (every token a wallet/DAO holds with USD values; falls back to on-chain RPC on testnet or when the backend is down), dexe_read_token_holders (top ERC20 holders, balance-desc), dexe_read_dao_stats (per-DAO TVL/member/proposal time series by period), dexe_read_protocol_stats (protocol-wide TVL/DAO/proposal totals, chains 1+56, top DAOs), dexe_read_nfts (NFTs held by an address). There is no free-form backend endpoint tool by design. Backend-only tools fail or return empty on testnet 97.
+
+#### Free-form contract reads
+
+dexe_read_multicall reads ANY contract: each call is {target, signature, method, args} where signature is the full fragment 'function balanceOf(address) view returns (uint256)'; all calls batch into one RPC round-trip. dexe_sim_calldata (dev toolset) eth_call-simulates arbitrary {to, data, value} and decodes revert reasons. To discover DeXe contract methods: dexe_compile once per session, then dexe_get_methods / dexe_get_abi / dexe_find_selector (devtools toolset).
+
+#### Toolset gating
+
+The default DEXE_TOOLSETS profile ('core,proposals') exposes only a few reads (dexe_read_treasury, dexe_read_settings, dexe_proposal_state, dexe_proposal_list, dexe_dao_info). dexe_graph_query and the rest of the dexe_read_* surface need the 'read' set; dexe_sim_calldata needs 'dev'. If a read tool 404s, tell the user to set DEXE_TOOLSETS (e.g. 'core,proposals,read' or 'full') and restart — dexe_context reports which sets are off.
+
+**Pitfalls (danger first):**
+- ⚠ ALWAYS bound dexe_graph_query list fields with `first:` (gateway max 1000) and paginate with `skip:` — responses over 120000 chars are rejected outright, so an unbounded query fails instead of streaming. Entity ids are lowercased concatenated bytes (e.g. proposal id = poolAddress + uint32-LE(proposalId), no separator); relation filters use the `_` suffix (pool_: {id: "0x…"}). Full entity/field reference: MCP resource dexe://graph-schema.
+- ⚠ Subgraph and DeXe-backend data exist for BSC MAINNET (56) only — on testnet (97) dexe_graph_query and the subgraph/backend read tools (dexe_read_dao_list, dexe_read_dao_members, dexe_read_user_activity, dexe_read_token_holders, dexe_read_dao_stats, dexe_read_protocol_stats, dexe_read_nfts, dexe_proposal_voters) return empty or fail. For testnet DAOs read on-chain instead: dexe_read_gov_state, dexe_read_settings, dexe_proposal_state, dexe_read_multicall (dexe_read_treasury falls back to RPC automatically).
+- ℹ dexe_read_multicall calls need the FULL function fragment as `signature` — 'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / dexe_get_abi (devtools toolset).
+<!-- END GENERATED: topics -->
+
 ## Protocol gotchas (the rule corpus)
 
 Every non-obvious DeXe rule, danger-first. GENERATED from
@@ -252,6 +290,8 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 - ⚠ **spherex-vote-multicall** — Raw top-level vote()/delegate() calls REVERT on fresh (SphereX-era) pools — the frontend always wraps them as GovPool.multicall([call]) even for a single call, and the dexe-mcp builders emit that shape since v0.24.1. If you hand-craft calldata, wrap it. Raw deposit/withdraw/cancelVote/undelegate/createProposal(AndVote) remain allowed.
 - ⚠ **otc-native-sentinel** — Native BNB in sale tiers uses the sentinel address 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE, NOT the zero address (0x0 reverts 'TSP: incorrect token'). A native-currency buy must send msg.value equal to the buy amount. The dexe_otc_* composites canonicalize this.
 - ⚠ **otc-rate-precision** — Tier exchange rates are scaled ×1e25 (PRECISION) on-chain. Pass human units to the dexe_otc_* composites and they scale for you; only ADVANCED raw structs need pre-scaled values. A hand-scaled rate off by 10^2 sells the whole allocation for pennies.
+- ⚠ **graph-bound-first** — ALWAYS bound dexe_graph_query list fields with `first:` (gateway max 1000) and paginate with `skip:` — responses over 120000 chars are rejected outright, so an unbounded query fails instead of streaming. Entity ids are lowercased concatenated bytes (e.g. proposal id = poolAddress + uint32-LE(proposalId), no separator); relation filters use the `_` suffix (pool_: {id: "0x…"}). Full entity/field reference: MCP resource dexe://graph-schema.
+- ⚠ **subgraph-backend-mainnet-only** — Subgraph and DeXe-backend data exist for BSC MAINNET (56) only — on testnet (97) dexe_graph_query and the subgraph/backend read tools (dexe_read_dao_list, dexe_read_dao_members, dexe_read_user_activity, dexe_read_token_holders, dexe_read_dao_stats, dexe_read_protocol_stats, dexe_read_nfts, dexe_proposal_voters) return empty or fail. For testnet DAOs read on-chain instead: dexe_read_gov_state, dexe_read_settings, dexe_proposal_state, dexe_read_multicall (dexe_read_treasury falls back to RPC automatically).
 - ℹ **treasury-remainder** — The DAO treasury is the IMPLICIT REMAINDER of the initial distribution: sum(recipient amounts) < mintedTotal, and the contract mints the difference to the DAO itself. Never list the govPool address as a distribution recipient. To give the user's address list X% of supply, put those addresses+amounts in the deploy-time distribution and leave the rest as treasury.
 - ℹ **name-taken** — The DAO deploy create2 salt is deployer+name: the same deployer reusing a daoName on the same chain reverts 'pool name is already taken'. Pick a fresh name; a different deployer can reuse it.
 - ℹ **votepower-init** — votePower initData is auto-encoded (LINEAR → __LinearPower_init selector 0x892aea1f, POLYNOMIAL → 3 coeffs). Do not override it; empty initData reverts 'power init failed'. Only CUSTOM presets take hand-made initData.
@@ -266,6 +306,7 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 - ℹ **offchain-decimal-quorum** — Off-chain (backend) quorum percentages are DECIMALS: 0.5 = 50%, not 50. The `type` field must be a registered template name (e.g. default_single_option_type), never an arbitrary string.
 - ℹ **amount-conventions** — Amount strings: digits-only = RAW smallest units (wei); a decimal point ("12.5") = human units scaled by the token's REAL on-chain decimals (never assumed 18). Durations and delays are SECONDS (86400 = 1 day). Composite quorum/percent params are plain percent numbers (51).
 - ℹ **testnet-first** — Chains: 56 = BSC mainnet, 97 = BSC testnet. Rehearse on 97 first (free faucet BNB) except for features that don't exist there (staking, subgraph, off-chain backend). Mainnet gas is cents per tx (~0.1 gwei) — never size budgets from Ethereum L1 intuition.
+- ℹ **multicall-signature-form** — dexe_read_multicall calls need the FULL function fragment as `signature` — 'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / dexe_get_abi (devtools toolset).
 <!-- END GENERATED: gotchas -->
 
 ## Error → remedy
