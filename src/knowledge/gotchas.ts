@@ -191,12 +191,12 @@ export const GOTCHAS: readonly Gotcha[] = [
     id: "spherex-addsettings",
     severity: "danger",
     text:
-      "On fresh (SphereX-era) pools, EXECUTING a proposal whose action is GovSettings.addSettings has been observed " +
-      "reverting 'disallowed tx pattern' — deterministically, re-running never helps. This hits " +
-      "change_voting_settings WITHOUT settingsIds, new_proposal_type, and enable_staking. (An enable_staking " +
-      "execute SUCCEEDED on a fresh mainnet pool on 2026-07-22, so the upstream allowlist may have been fixed — " +
-      "but do not assume it.) If execute reverts with that message: EDIT existing settings instead (pass " +
-      "settingsIds) — editSettings is always allowed.",
+      "CHAIN-ASYMMETRIC (verified 2026-07-23): on fresh TESTNET (97) pools, EXECUTING a proposal whose action is " +
+      "GovSettings.addSettings reverts 'disallowed tx pattern' — deterministically, re-running never helps. This " +
+      "hits change_voting_settings WITHOUT settingsIds, new_proposal_type, and enable_staking. On current MAINNET " +
+      "(56) fresh pools addSettings EXECUTES fine (proven 2026-07-22) — testnet runs an older protocol deployment. " +
+      "On 97: EDIT existing settings instead (pass settingsIds) — editSettings is always allowed — and do NOT use " +
+      "testnet to validate addSettings-based flows.",
     applies: { proposalTypes: ["change_voting_settings", "new_proposal_type", "enable_staking"] },
   },
   {
