@@ -1,5 +1,8 @@
 # The DeXe subgraphs — entity reference for `dexe_graph_query`
 
+Also served in-band as the MCP resource `dexe://graph-schema`; usage rules +
+source-picking guidance: `dexe_guide {flow:"read_dao_data"}`.
+
 Three subgraphs index DeXe Protocol on **BSC mainnet** (endpoints env-bound via
 `DEXE_SUBGRAPH_POOLS_URL` / `_INTERACTIONS_URL` / `_VALIDATORS_URL`; zero-config
 defaults point at The Graph's decentralized gateway). `dexe_graph_query` runs any

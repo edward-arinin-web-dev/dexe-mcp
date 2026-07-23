@@ -181,13 +181,13 @@ No variable is required to start the server; tools that need a missing one fail 
 
 - [docs/USE_CASES.md](./docs/USE_CASES.md) — verified use-case catalog: what to say to your agent, what happens, on-chain evidence.
 - [docs/PLAYBOOK.md](./docs/PLAYBOOK.md) — the AI playbook: intent → exact call, per-type params, error → remedy. Also served as the MCP resource `dexe://playbook`.
-- [docs/TOOLS.md](./docs/TOOLS.md) — all 165 tools, grouped, with one-line descriptions and required env vars.
+- [docs/TOOLS.md](./docs/TOOLS.md) — all 165 tools, grouped, with one-line descriptions and required env vars. Also served as the MCP resource `dexe://tools`.
 - [docs/USAGE.md](./docs/USAGE.md) — worked examples with copy-pasteable JSON.
 - [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) — full env-var reference and common pitfalls.
 - [docs/INSTALL.md](./docs/INSTALL.md) — install instructions per MCP client.
 - [docs/SETUP.md](./docs/SETUP.md) / [docs/DOCTOR.md](./docs/DOCTOR.md) — setup wizard and diagnostic reference.
 - [docs/SKILLS.md](./docs/SKILLS.md) — the Claude Code skills shipped with the package.
-- [docs/GRAPH.md](./docs/GRAPH.md) — subgraph entity reference for `dexe_graph_query` (pools / interactions / validators).
+- [docs/GRAPH.md](./docs/GRAPH.md) — subgraph entity reference for `dexe_graph_query` (pools / interactions / validators). Also served as the MCP resource `dexe://graph-schema`.
 - [docs/GOVERNOR.md](./docs/GOVERNOR.md) — the external OZ/Bravo Governor surface.
 - [docs/WALLETCONNECT.md](./docs/WALLETCONNECT.md) — phone-approved signing without a hot key.
 - [docs/OTC.md](./docs/OTC.md) — multi-tier OTC sale flows for owners and buyers.
