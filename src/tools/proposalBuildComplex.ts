@@ -7,6 +7,7 @@ import {
   isAddress,
   ZeroAddress,
   getAddress,
+  id,
   parseUnits,
   type JsonRpcProvider,
 } from "ethers";
@@ -139,6 +140,86 @@ const ERC721_MULTIPLIER_OWNER_ABI = ["function owner() view returns (address)"] 
 const GOV_POOL_MULTIPLIER_ADDR_ABI = [
   "function getNftMultiplierAddress() view returns (address)",
 ] as const;
+const BEACON_IMPL_ABI = ["function implementation() view returns (address)"] as const;
+
+// Bug #31-class selector guard. A proposal whose stored calldata targets a
+// selector the multiplier does NOT implement falls through to the fallback and
+// reverts with EMPTY data at execute — unexecutable forever (SucceededFor). We
+// scan the RUNTIME bytecode that will execute for the dispatch selector's PUSH4
+// immediate before building the action. The needles are the 4-byte selectors
+// (lowercase, no 0x). mint = 0xaf2d2333 (verified live 2026-07). changeToken is
+// computed — never hardcode a selector we could derive.
+const MINT_SELECTOR_HEX = id("mint(address,uint256,uint64,string)").slice(2, 10); // af2d2333
+const CHANGE_TOKEN_SELECTOR_HEX = id("changeToken(uint256,uint256,uint64)").slice(2, 10); // 4ccc2757
+// EIP-1967 standard slots (transparent/UUPS impl + beacon).
+const EIP1967_IMPL_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+const EIP1967_BEACON_SLOT = "0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50";
+
+/** Low 20 bytes of a 32-byte storage word → checksummed address (0x0 on junk). */
+function addressFromStorageSlot(raw: string): string {
+  if (!raw || raw === "0x") return ZeroAddress;
+  const hex = raw.slice(2).padStart(64, "0");
+  try {
+    return getAddress("0x" + hex.slice(-40));
+  } catch {
+    return ZeroAddress;
+  }
+}
+
+/**
+ * Does the runtime code that will execute at `target` dispatch `selectorHex`?
+ * Resolves proxies: (a) direct bytecode, (b) EIP-1967 implementation slot,
+ * (c) EIP-1967 beacon slot → beacon.implementation(). Bytecode-scan is a
+ * heuristic — a dispatch selector always appears as a PUSH4 immediate, and a
+ * false POSITIVE (selector byte-string appearing as data) only means we DON'T
+ * refuse, which is the safe direction. Returns:
+ *   true  — selector found in some layer,
+ *   false — conclusively absent after clean reads of every layer (→ refuse),
+ *   null  — an RPC error prevented a conclusive answer (→ degrade, never block).
+ */
+async function multiplierExposesSelector(
+  provider: JsonRpcProvider,
+  target: string,
+  selectorHex: string,
+): Promise<boolean | null> {
+  const needle = selectorHex.toLowerCase();
+  const scan = async (addr: string): Promise<boolean> => {
+    const code = await provider.getCode(addr);
+    return !!code && code.toLowerCase().includes(needle);
+  };
+  // (a) direct bytecode — if even this read fails we can prove nothing.
+  try {
+    if (await scan(target)) return true;
+  } catch {
+    return null;
+  }
+  let rpcError = false;
+  // (b) EIP-1967 implementation slot (transparent / UUPS proxy).
+  try {
+    const impl = addressFromStorageSlot(await provider.getStorage(target, EIP1967_IMPL_SLOT));
+    if (impl !== ZeroAddress && (await scan(impl))) return true;
+  } catch {
+    rpcError = true;
+  }
+  // (c) EIP-1967 beacon slot → beacon.implementation() (the shape DeXe uses).
+  try {
+    const beacon = addressFromStorageSlot(await provider.getStorage(target, EIP1967_BEACON_SLOT));
+    if (beacon !== ZeroAddress) {
+      const c = new Contract(
+        beacon,
+        BEACON_IMPL_ABI as unknown as string[],
+        provider,
+      ) as unknown as { implementation: () => Promise<string> };
+      const impl = await c.implementation();
+      if (isAddress(impl) && impl !== ZeroAddress && (await scan(impl))) return true;
+    }
+  } catch {
+    rpcError = true;
+  }
+  // No layer exposed the selector. Only refuse if every read was clean —
+  // an RPC hiccup anywhere means we can't prove absence, so degrade.
+  return rpcError ? null : false;
+}
 
 export interface MultiplierPrecheck {
   refuse?: string;
@@ -149,6 +230,12 @@ export interface MultiplierPrecheck {
  * Bug #31 guard. Before building an action that executes against the ERC721
  * multiplier contract, verify (when an RPC is available) that:
  *   a. there is code at `multiplierContract` on the target chain, and
+ *   a2. (mint/change_token only, via `selectorCheck`) the runtime bytecode that
+ *      will execute actually dispatches the target selector — mint's canonical
+ *      selector is 0xaf2d2333; a stored calldata selector the contract does not
+ *      implement falls through to the fallback and reverts with EMPTY data at
+ *      execute, stranding the proposal in SucceededFor forever (bug #31 class,
+ *      the exact way the original uint256-duration mint 0xbb7fde71 stuck), and
  *   b. its `owner()` is the GovPool (else GovPool.execute → mint reverts
  *      onlyOwner and the proposal sits in SucceededFor forever), and
  *   c. (mint/change_token only) GovPool.getNftMultiplierAddress() already points
@@ -160,7 +247,15 @@ export interface MultiplierPrecheck {
  */
 export async function precheckMultiplierContract(
   config: DexeConfig,
-  params: { govPool?: string; multiplierContract: string; checkCurrentAddress: boolean },
+  params: {
+    govPool?: string;
+    multiplierContract: string;
+    checkCurrentAddress: boolean;
+    /** When set, also verify the runtime bytecode dispatches the mode's selector
+     *  (mint → 0xaf2d2333, change_token → changeToken(uint256,uint256,uint64)).
+     *  Omit for set_token_uri to preserve prior behavior. */
+    selectorCheck?: "mint" | "change_token";
+  },
   chainId?: number,
 ): Promise<MultiplierPrecheck> {
   const warnings: string[] = [];
@@ -188,6 +283,32 @@ export async function precheckMultiplierContract(
   } catch {
     // RPC hiccup on getCode → cannot prove anything; degrade silently.
     return { warnings };
+  }
+  // (a2) selector existence — the runtime bytecode that GovPool.execute jumps
+  // into must actually dispatch the mode's selector (bug #31 class). Only a
+  // conclusive `false` (every proxy layer read cleanly, selector absent) refuses;
+  // any RPC error along the way degrades silently.
+  if (params.selectorCheck) {
+    const needle =
+      params.selectorCheck === "change_token" ? CHANGE_TOKEN_SELECTOR_HEX : MINT_SELECTOR_HEX;
+    const exposes = await multiplierExposesSelector(
+      provider,
+      params.multiplierContract,
+      needle,
+    );
+    if (exposes === false) {
+      const sig =
+        params.selectorCheck === "change_token"
+          ? `changeToken(uint256,uint256,uint64) (selector 0x${CHANGE_TOKEN_SELECTOR_HEX})`
+          : "mint(address,uint256,uint64,string) (selector 0xaf2d2333)";
+      return {
+        warnings,
+        refuse:
+          `reward_multiplier: ${params.multiplierContract} does not expose ${sig} — ` +
+          `executing this proposal would revert with empty data and the proposal would be stuck in ` +
+          `SucceededFor forever (bug #31 class). Verify the address is an ERC721Multiplier.`,
+      };
+    }
   }
   // (b) ownership — GovPool must own the multiplier
   if (params.govPool && isAddress(params.govPool)) {
@@ -1435,6 +1556,7 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
             govPool: input.govPool,
             multiplierContract: input.nftMultiplierContract,
             checkCurrentAddress: true,
+            selectorCheck: "change_token",
           });
           if (pre.refuse) return errorResult(pre.refuse);
           warnings.push(...pre.warnings);
@@ -1483,6 +1605,7 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
             govPool: input.govPool,
             multiplierContract: input.nftMultiplierContract,
             checkCurrentAddress: true,
+            selectorCheck: "mint",
           });
           if (pre.refuse) return errorResult(pre.refuse);
           warnings.push(...pre.warnings);

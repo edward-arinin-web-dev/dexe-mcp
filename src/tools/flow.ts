@@ -1010,6 +1010,19 @@ export async function runProposalCreate(
             `Acquire the DAO's gov token (${prereqs.tokenAddress}) first, then re-run.`,
         );
       }
+      // Units trap: a digits-only voteAmount is RAW WEI. "1000" = 1000 wei —
+      // below minVotesForVoting it reaches the chain and reverts
+      // "Gov: low voting power" with no hint. Refuse up-front instead.
+      if (prereqs.minVotesForVoting > 0n && voteAmount < prereqs.minVotesForVoting) {
+        const d = prereqs.tokenDecimals;
+        const sym = prereqs.tokenSymbol;
+        return err(
+          `voteAmount ${voteAmount} wei is below this DAO's minVotesForVoting ` +
+            `(${formatAmount(prereqs.minVotesForVoting, d, sym)}) — the create would revert "Gov: low voting power". ` +
+            `Note: digits-only amounts are RAW WEI; for human units use a decimal point (e.g. '${input.voteAmount ?? ""}.0' ` +
+            `= ${input.voteAmount ?? ""} whole tokens), or omit voteAmount to vote with all available power.`,
+        );
+      }
       const needDeposit = voteAmount > prereqs.depositedPower ? voteAmount - prereqs.depositedPower : 0n;
 
       if (needDeposit > prereqs.walletBalance) {
@@ -1214,6 +1227,42 @@ async function runInternalProposalCreate(
 
   // Metadata shape mirrors dexe_proposal_build_change_validator_* exactly
   // (internal metadata carries no isMeta field).
+  // F14 preflight: an internal monthly_withdraw against an UNFUNDED credit
+  // line executes into "Validators: failed to execute" — the real cause
+  // ("GPC: Current credit permission < amount to withdraw") is swallowed by
+  // the low-level self-call in GovValidatorsExecute. Check GovPool.
+  // getCreditInfo() up-front and refuse with the funding recipe. Best-effort:
+  // any read failure skips the check (never blocks offline).
+  if (built.internalType === 2) {
+    try {
+      const creditIface = new Interface([
+        "function getCreditInfo() view returns (tuple(address token, uint256 monthLimit, uint256 currentWithdrawLimit)[])",
+      ]);
+      const [creditR] = await multicall(provider, [
+        { target: govPool, iface: creditIface, method: "getCreditInfo", args: [], allowFailure: true },
+      ]);
+      if (creditR?.success) {
+        const rows = creditR.value as unknown as Array<{ token: string; currentWithdrawLimit: bigint }>;
+        const limits = new Map(rows.map((r) => [r.token.toLowerCase(), BigInt(r.currentWithdrawLimit)]));
+        const wanted = (input.params ?? {}) as { withdrawals?: Array<{ token: string; amount: string }> };
+        const short = (wanted.withdrawals ?? []).filter((w) => {
+          const lim = limits.get(w.token.toLowerCase()) ?? 0n;
+          return BigInt(w.amount) > lim;
+        });
+        if (short.length > 0) {
+          return err(
+            `monthly_withdraw would execute into "Validators: failed to execute": the validators' credit line ` +
+              `does not cover ${short.map((w) => `${w.amount} of ${w.token} (current limit ${limits.get(w.token.toLowerCase()) ?? 0n})`).join("; ")}. ` +
+              `Fund it first with an EXTERNAL proposal: dexe_proposal_create proposalType:'validators_allocation' ` +
+              `params:{credits:[{token, amount}]} — after it executes, re-run this monthly_withdraw.`,
+          );
+        }
+      }
+    } catch {
+      /* best-effort — proceed without the check */
+    }
+  }
+
   const pinata = new PinataClient(ctx.config.pinataJwt);
   const proposalMeta = {
     proposalName: input.title,
@@ -1431,7 +1480,7 @@ export function registerFlowTools(
       "'add_expert'/'remove_expert' {expertNftContract,scope,nominatedUser,uri?}, 'token_distribution', 'token_sale', " +
       "'token_sale_whitelist' {tokenSaleProposal,requests[]}, 'token_sale_recover' {tokenSaleProposal,tierIds[]}, " +
       "'manage_validators' {govValidators,changes[{user,balance}]}, " +
-      "'validators_allocation' {credits:[{token,amount}]} — funds the validators' monthly-withdraw credit via GovPool.setCreditInfo, " +
+      "'validators_allocation' {credits:[{token,amount}]} (funds the validators' monthly-withdraw credit line), " +
       "'delegate_to_expert'/'revoke_from_expert' {expert,amount,nftIds?}, 'create_staking_tier', " +
       "'change_math_model' {newVotePower}, 'blacklist' {erc20Gov,addAddresses?,removeAddresses?}, " +
       "'reward_multiplier' {mode,...}, 'apply_to_dao' {token,receiver,amount,treasuryBalance?}, " +
@@ -1710,6 +1759,16 @@ export function registerFlowTools(
               `Re-run with depositFirst:'auto' (the default) to deposit-and-vote in one call.`
             : `No voting power available — ${user} holds 0 ${sym || "gov tokens"} (wallet + deposited). ` +
               `Acquire the DAO's gov token (${prereqs.tokenAddress}) first.`,
+        );
+      }
+      // Units trap (same as proposal_create): digits-only voteAmount is RAW
+      // WEI — below minVotesForVoting the vote reverts "Gov: low voting power".
+      if (prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
+        return err(
+          `voteAmount ${voteAmt} wei is below this DAO's minVotesForVoting ` +
+            `(${formatAmount(prereqs.minVotesForVoting, d, sym)}) — the vote would revert "Gov: low voting power". ` +
+            `Digits-only amounts are RAW WEI; use a decimal point for human units (e.g. '${input.voteAmount ?? ""}.0'), ` +
+            `or omit voteAmount to vote with all available power.`,
         );
       }
 
