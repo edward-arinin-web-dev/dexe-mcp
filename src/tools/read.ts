@@ -210,6 +210,11 @@ async function fetchBackendBalances(
       const res = await fetch(url, { signal: ctrl.signal, headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(`backend HTTP ${res.status}`);
       json = (await res.json()) as typeof json;
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(`backend request timed out after 8000ms — usually transient, re-run the call`);
+      }
+      throw err;
     } finally {
       clearTimeout(timer);
     }
@@ -335,6 +340,43 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         const provider = pr.ok;
         const native = (await provider.getBalance(holder)).toString();
         const iface = new Interface(ERC20_ABI as unknown as string[]);
+        // No explicit tokens and no backend discovery here: if the holder is a
+        // GovPool, at least surface its own gov token instead of a misleading
+        // empty treasury (the RPC path can't enumerate arbitrary holdings).
+        let discoveryNote = "";
+        if (tokens.length === 0) {
+          try {
+            const helperIface = new Interface([
+              "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+            ]);
+            const keeperIface = new Interface(["function tokenAddress() view returns (address)"]);
+            const [helpersR] = await multicall(provider, [
+              { target: holder, iface: helperIface, method: "getHelperContracts", args: [], allowFailure: true },
+            ]);
+            if (helpersR?.success) {
+              const userKeeper = (helpersR.value as unknown as { userKeeper: string }).userKeeper;
+              const [tokenR] = await multicall(provider, [
+                { target: userKeeper, iface: keeperIface, method: "tokenAddress", args: [], allowFailure: true },
+              ]);
+              if (tokenR?.success) {
+                const govToken = tokenR.value as string;
+                if (isAddress(govToken) && govToken !== "0x0000000000000000000000000000000000000000") {
+                  tokens = [govToken];
+                  discoveryNote =
+                    "\n  note: token auto-discovery is unavailable on this path — showing the DAO's own gov token only. " +
+                    "Pass `tokens` explicitly to read other holdings.";
+                }
+              }
+            }
+          } catch {
+            /* holder isn't a GovPool or reads failed — fall through */
+          }
+          if (tokens.length === 0) {
+            discoveryNote =
+              "\n  note: token auto-discovery is unavailable on this path (backend covers mainnets only) — " +
+              "pass `tokens` (ERC20 addresses) explicitly to read balances.";
+          }
+        }
         const calls: Call[] = [];
         for (const t of tokens) {
           if (!isAddress(t)) throw new Error(`Invalid token: ${t}`);
@@ -360,7 +402,8 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
               (t) =>
                 `  ${t.symbol != null ? renderUntrusted(t.symbol) : "?"} (${t.token}): ${t.balance ?? "?"}${t.decimals != null ? ` (decimals=${t.decimals})` : ""}`,
             )
-            .join("\n");
+            .join("\n") +
+          discoveryNote;
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(
@@ -387,6 +430,16 @@ async function backendGetJson<T>(path: string, timeoutMs = 8000): Promise<T> {
     });
     if (!res.ok) throw new Error(`backend HTTP ${res.status} for ${path}`);
     return (await res.json()) as T;
+  } catch (err) {
+    // A bare AbortError surfaces as "This operation was aborted" — useless to
+    // the caller. Translate to something actionable.
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `DeXe backend request timed out after ${timeoutMs}ms (${path}) — usually transient, re-run the call. ` +
+          `If it persists: check network access to ${base} or set DEXE_BACKEND_API_URL.`,
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }

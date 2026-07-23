@@ -1,5 +1,15 @@
 import { z } from "zod";
-import { AbiCoder, Interface, isAddress, ZeroAddress, getAddress, parseUnits } from "ethers";
+import { markdownToSlate } from "../lib/markdownToSlate.js";
+import {
+  AbiCoder,
+  Contract,
+  Interface,
+  isAddress,
+  ZeroAddress,
+  getAddress,
+  parseUnits,
+  type JsonRpcProvider,
+} from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
@@ -7,6 +17,8 @@ import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { parseUintString } from "../lib/amount.js";
 import { CHANGE_VOTE_POWER_ADVISORY } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
+import { RpcProvider } from "../rpc.js";
+import type { DexeConfig } from "../config.js";
 
 /**
  * Phase 3c — 10 complex named wrappers. Same contract as 3a/3b:
@@ -113,6 +125,163 @@ export const ERC721_MULTIPLIER_ABI = [
 // ERC721Multiplier multiplier scale = PRECISION = 10**25. So 1.5x = 1.5e25.
 export const ERC721_MULTIPLIER_PRECISION = 10n ** 25n;
 export const UINT64_MAX = (1n << 64n) - 1n;
+// Sanity ceiling for a multiplier value: 100x scaled by PRECISION = 1e27. Any
+// value above this is almost certainly an un-scaled/over-scaled mistake (bug #31
+// class). PRECISION=1e25, so 1.5x = 15000000000000000000000000.
+export const ERC721_MULTIPLIER_MAX = ERC721_MULTIPLIER_PRECISION * 100n; // 1e27
+
+// ERC721Multiplier is `onlyOwner`-gated and its owner MUST be the GovPool
+// (AbstractERC721Multiplier uses IGovPool(owner())). We probe owner() before
+// building mint/change_token/set_token_uri so a mis-owned or undeployed
+// contract is refused up-front instead of stranding the proposal in
+// SucceededFor when GovPool.execute → mint reverts onlyOwner (bug #31).
+const ERC721_MULTIPLIER_OWNER_ABI = ["function owner() view returns (address)"] as const;
+const GOV_POOL_MULTIPLIER_ADDR_ABI = [
+  "function getNftMultiplierAddress() view returns (address)",
+] as const;
+
+export interface MultiplierPrecheck {
+  refuse?: string;
+  warnings: string[];
+}
+
+/**
+ * Bug #31 guard. Before building an action that executes against the ERC721
+ * multiplier contract, verify (when an RPC is available) that:
+ *   a. there is code at `multiplierContract` on the target chain, and
+ *   b. its `owner()` is the GovPool (else GovPool.execute → mint reverts
+ *      onlyOwner and the proposal sits in SucceededFor forever), and
+ *   c. (mint/change_token only) GovPool.getNftMultiplierAddress() already points
+ *      at this contract — otherwise the NFT will not be the DAO's ACTIVE
+ *      multiplier until setNftMultiplierAddress is called (WARNING, not refusal).
+ *
+ * Degrades to a no-op (no refusal, no warnings) whenever no RPC is configured or
+ * a probe reverts — the builders must still work fully offline.
+ */
+export async function precheckMultiplierContract(
+  config: DexeConfig,
+  params: { govPool?: string; multiplierContract: string; checkCurrentAddress: boolean },
+  chainId?: number,
+): Promise<MultiplierPrecheck> {
+  const warnings: string[] = [];
+  if (!config.rpcUrl) return { warnings };
+  let provider: JsonRpcProvider;
+  try {
+    const pr = new RpcProvider(config).tryProvider(chainId);
+    if ("error" in pr) return { warnings };
+    provider = pr.ok;
+  } catch {
+    return { warnings };
+  }
+  const chainLabel = chainId ?? "default";
+  // (a) code presence
+  try {
+    const code = await provider.getCode(params.multiplierContract);
+    if (!code || code === "0x") {
+      return {
+        warnings,
+        refuse:
+          `reward_multiplier: no contract at ${params.multiplierContract} on chain ${chainLabel}. ` +
+          `Deploy an ERC721Multiplier owned by the GovPool first (then setNftMultiplierAddress), or fix the address.`,
+      };
+    }
+  } catch {
+    // RPC hiccup on getCode → cannot prove anything; degrade silently.
+    return { warnings };
+  }
+  // (b) ownership — GovPool must own the multiplier
+  if (params.govPool && isAddress(params.govPool)) {
+    try {
+      const c = new Contract(
+        params.multiplierContract,
+        ERC721_MULTIPLIER_OWNER_ABI as unknown as string[],
+        provider,
+      ) as unknown as { owner: () => Promise<string> };
+      const owner = await c.owner();
+      if (owner.toLowerCase() !== params.govPool.toLowerCase()) {
+        return {
+          warnings,
+          refuse:
+            `reward_multiplier: multiplier contract ${params.multiplierContract} is not owned by this GovPool ` +
+            `(${params.govPool}); its owner() is ${owner}. GovPool.execute → mint will revert onlyOwner. ` +
+            `Deploy an ERC721Multiplier owned by the GovPool (or transfer ownership) and call ` +
+            `setNftMultiplierAddress first.`,
+        };
+      }
+    } catch {
+      // owner() missing/reverted → cannot verify; warn but don't block.
+      warnings.push(
+        `reward_multiplier: could not read owner() on ${params.multiplierContract} — cannot verify it is ` +
+          `owned by the GovPool. If GovPool.execute reverts onlyOwner, the contract is not GovPool-owned.`,
+      );
+    }
+  }
+  // (c) active-address alignment (mint/change_token)
+  if (params.checkCurrentAddress && params.govPool && isAddress(params.govPool)) {
+    try {
+      const g = new Contract(
+        params.govPool,
+        GOV_POOL_MULTIPLIER_ADDR_ABI as unknown as string[],
+        provider,
+      ) as unknown as { getNftMultiplierAddress: () => Promise<string> };
+      const current = await g.getNftMultiplierAddress();
+      if (current.toLowerCase() !== params.multiplierContract.toLowerCase()) {
+        warnings.push(
+          `reward_multiplier: GovPool.getNftMultiplierAddress() is ` +
+            `${current === ZeroAddress ? "unset (0x0)" : current}, not ${params.multiplierContract}. ` +
+            `The token will not count toward voting power until setNftMultiplierAddress(${params.multiplierContract}) runs.`,
+        );
+      }
+    } catch {
+      // getNftMultiplierAddress unavailable → skip the alignment hint.
+    }
+  }
+  return { warnings };
+}
+
+/**
+ * UX coercion helper (numeric-as-string). LLM callers routinely pass ids and
+ * timestamps as raw JS numbers (`settingsIds: [0]`, `startedAt: 1730000000`),
+ * which `z.string()` rejected with "Expected string, received number". This
+ * accepts EITHER a string (passed through untouched — zero change to existing
+ * behavior/wire format) or an integer number, normalizing to a decimal string.
+ * Floats and non-safe/non-finite numbers are rejected so ids/timestamps keep
+ * integer semantics; the string branch is never loosened.
+ */
+export const numericIntString = z.union([z.string(), z.number()]).transform((v, ctx) => {
+  if (typeof v === "number") {
+    if (!Number.isFinite(v) || !Number.isInteger(v)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "must be an integer (no fractional part)" });
+      return z.NEVER;
+    }
+    if (!Number.isSafeInteger(v)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "number too large to represent exactly — pass it as a string to preserve precision",
+      });
+      return z.NEVER;
+    }
+    return String(v);
+  }
+  return v;
+});
+
+/**
+ * Like {@link numericIntString} but for token AMOUNTS, which may legitimately be
+ * fractional human units ('12.5'). Accepts a string (untouched) or a finite
+ * number, normalizing to a decimal string. Downstream amount parsing (raw
+ * digits vs human units) is unchanged.
+ */
+export const numericAmountString = z.union([z.string(), z.number()]).transform((v, ctx) => {
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "must be a finite number" });
+      return z.NEVER;
+    }
+    return String(v);
+  }
+  return v;
+});
 
 export const GOV_SETTINGS_FULL_ABI = [
   "function addSettings(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)[] settings)",
@@ -141,7 +310,13 @@ function wrapperResult(params: {
   actions: Action[];
   title: string;
   detail: string;
+  /** Non-blocking governance-safety notes, mirrored into text + structuredContent. */
+  advisories?: string[];
 }) {
+  const advisoryBlock =
+    params.advisories && params.advisories.length
+      ? `\n\nWARNINGS:\n${params.advisories.map((a) => `- ${a}`).join("\n")}`
+      : "";
   return {
     content: [
       {
@@ -149,10 +324,17 @@ function wrapperResult(params: {
         text:
           `${params.title}\n${params.detail}\n\nNext:\n` +
           `1) dexe_ipfs_upload_proposal_metadata with the metadata object → get CID\n` +
-          `2) dexe_proposal_build_external with descriptionURL=<CID>, actionsOnFor=actions (${params.actions.length} action${params.actions.length === 1 ? "" : "s"})`,
+          `2) dexe_proposal_build_external with descriptionURL=<CID>, actionsOnFor=actions (${params.actions.length} action${params.actions.length === 1 ? "" : "s"})` +
+          advisoryBlock,
       },
     ],
-    structuredContent: { metadata: params.metadata, actions: params.actions },
+    structuredContent: {
+      metadata: params.metadata,
+      actions: params.actions,
+      ...(params.advisories && params.advisories.length
+        ? { governanceAdvisories: params.advisories }
+        : {}),
+    },
   };
 }
 
@@ -171,7 +353,7 @@ export function registerProposalBuildComplexTools(
   registerChangeMathModel(server);
   registerModifyDaoProfile(server);
   registerBlacklistManagement(server);
-  registerRewardMultiplier(server);
+  registerRewardMultiplier(server, _ctx);
   registerApplyToDao(server, _ctx);
   registerNewProposalType(server);
 }
@@ -229,7 +411,7 @@ function registerTokenDistribution(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "tokenDistribution",
           isMeta: false,
           changes: {
@@ -639,7 +821,7 @@ export function buildTokenSaleMultiActions(input: {
   const derivedMerkleRoots = built.flatMap((b) => b.derivedRoots);
   const metadata: Record<string, unknown> = {
     proposalName,
-    proposalDescription: JSON.stringify(proposalDescription),
+    proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
     category: "tokenSale",
     isMeta: false,
     changes: {
@@ -752,7 +934,7 @@ function registerTokenSale(server: McpServer): void {
 
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "tokenSale",
           isMeta: false,
           changes: {
@@ -824,7 +1006,7 @@ function registerTokenSaleWhitelist(server: McpServer): void {
 
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "tokenSale",
           isMeta: false,
           changes: {
@@ -875,7 +1057,7 @@ function registerTokenSaleRecover(server: McpServer): void {
         const actions: Action[] = [{ executor: tokenSaleProposal, value: "0", data }];
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "recoverTokenSale",
           isMeta: false,
           changes: {
@@ -953,7 +1135,7 @@ function registerCreateStakingTier(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "createStakingTier",
           isMeta: false,
           changes: {
@@ -1011,7 +1193,7 @@ function registerChangeMathModel(server: McpServer): void {
         const actions: Action[] = [{ executor: govPool, value: "0", data }];
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "mathModel",
           isMeta: false,
           changes: {
@@ -1064,9 +1246,12 @@ function registerModifyDaoProfile(server: McpServer): void {
         const actions: Action[] = [{ executor: govPool, value: "0", data }];
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "daoProfileModification",
-          isMeta: true,
+          // MUST be false: the frontend profile-diff component decodes actions
+          // assuming a meta-wrapped payload when isMeta=true and blanks the
+          // "Proposed changes" UI for this single-action proposal (PR #17).
+          isMeta: false,
           changes: {
             proposedChanges: { descriptionUrl: newDescriptionURL },
             currentChanges: { descriptionUrl: previousDescriptionURL ?? null },
@@ -1136,7 +1321,7 @@ function registerBlacklistManagement(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "blacklistManagement",
           isMeta: false,
           changes: {
@@ -1159,29 +1344,30 @@ function registerBlacklistManagement(server: McpServer): void {
 
 // ---------- 8. reward_multiplier ----------
 
-function registerRewardMultiplier(server: McpServer): void {
+function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_proposal_build_reward_multiplier",
     {
       title: "Wrapper: manage the DAO's reward-multiplier NFT contract",
       description:
-        "Four modes: 'set_address' (GovPool.setNftMultiplierAddress — ZERO to disable), 'set_token_uri' (ERC721Multiplier.setTokenURI on a tokenId), 'mint' (ERC721Multiplier.mint(to, multiplier, duration, uri_)), 'change_token' (ERC721Multiplier.changeToken(tokenId, multiplier, duration) — modify existing NFT). UNITS: `multiplier` is scaled by PRECISION = 1e25 (e.g. 1.5x = 1500000000000000000000000000 = 15e24); `rewardPeriod` is the lock duration in SECONDS and is encoded as uint64 (must fit in 2^64 − 1, ~584 billion years — any positive integer is fine).",
+        "Four modes: 'set_address' (GovPool.setNftMultiplierAddress — ZERO to disable), 'set_token_uri', 'mint' (ERC721Multiplier.mint(to, multiplier, duration, uri_)), 'change_token' (modify an existing NFT). UNITS: `multiplier` is PRECISION-scaled — 1e25 = 1x, so 1.5x = 15000000000000000000000000; `rewardPeriod` = lock duration in SECONDS (uint64). The ERC721Multiplier MUST be owned by the GovPool (mint is onlyOwner): pass `govPool` to refuse up-front (needs RPC) when the contract is undeployed or not GovPool-owned — else the proposal sticks in SucceededFor (bug #31).",
       inputSchema: {
         mode: z.enum(["set_address", "set_token_uri", "mint", "change_token"]),
-        govPool: z.string().optional(),
+        govPool: z
+          .string()
+          .optional()
+          .describe("DAO GovPool. Required for set_address; enables the ownership pre-check for other modes."),
         nftMultiplierContract: z.string().optional(),
         newMultiplierAddress: z.string().optional().describe("For mode=set_address"),
-        tokenId: z.string().optional().describe("For mode=set_token_uri or change_token"),
+        tokenId: numericIntString.optional().describe("For mode=set_token_uri or change_token"),
         uri: z.string().optional().describe("For mode=set_token_uri"),
         to: z.string().optional().describe("For mode=mint"),
-        multiplier: z
-          .string()
+        multiplier: numericIntString
           .optional()
           .describe(
             "For mode=mint or change_token. Scaled by PRECISION = 1e25 (1.5x => 15000000000000000000000000 = 1.5e25).",
           ),
-        rewardPeriod: z
-          .string()
+        rewardPeriod: numericIntString
           .default("0")
           .describe("For mode=mint or change_token. Lock duration in SECONDS (uint64)."),
         metadataUrl: z.string().default("").describe("For mode=mint — metadata URI string"),
@@ -1194,6 +1380,7 @@ function registerRewardMultiplier(server: McpServer): void {
       const { mode, proposalName = "Reward Multiplier", proposalDescription = "" } = input;
       try {
         const actions: Action[] = [];
+        const warnings: string[] = [];
         if (mode === "set_address") {
           if (!input.govPool || !isAddress(input.govPool))
             return errorResult(`set_address requires valid govPool`);
@@ -1210,6 +1397,13 @@ function registerRewardMultiplier(server: McpServer): void {
             return errorResult(`set_token_uri requires valid nftMultiplierContract`);
           if (!input.tokenId) return errorResult(`set_token_uri requires tokenId`);
           if (input.uri === undefined) return errorResult(`set_token_uri requires uri`);
+          const pre = await precheckMultiplierContract(ctx.config, {
+            govPool: input.govPool,
+            multiplierContract: input.nftMultiplierContract,
+            checkCurrentAddress: false,
+          });
+          if (pre.refuse) return errorResult(pre.refuse);
+          warnings.push(...pre.warnings);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
           actions.push({
             executor: input.nftMultiplierContract,
@@ -1230,9 +1424,20 @@ function registerRewardMultiplier(server: McpServer): void {
             return errorResult(
               `change_token: multiplier ${multiplierBn} is suspiciously small — values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`,
             );
+          if (multiplierBn > ERC721_MULTIPLIER_MAX)
+            return errorResult(
+              `change_token: multiplier ${multiplierBn} looks over-scaled (> 100x = 1e27). PRECISION=1e25, so 1.5x = 15000000000000000000000000.`,
+            );
           const durationBn = BigInt(input.rewardPeriod ?? "0");
           if (durationBn > UINT64_MAX)
             return errorResult(`change_token: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
+          const pre = await precheckMultiplierContract(ctx.config, {
+            govPool: input.govPool,
+            multiplierContract: input.nftMultiplierContract,
+            checkCurrentAddress: true,
+          });
+          if (pre.refuse) return errorResult(pre.refuse);
+          warnings.push(...pre.warnings);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
           actions.push({
             executor: input.nftMultiplierContract,
@@ -1251,6 +1456,10 @@ function registerRewardMultiplier(server: McpServer): void {
           if (!input.nftMultiplierContract || !isAddress(input.nftMultiplierContract))
             return errorResult(`mint requires valid nftMultiplierContract`);
           if (!input.to || !isAddress(input.to)) return errorResult(`mint requires valid to`);
+          if (input.to === ZeroAddress)
+            return errorResult(
+              `mint: recipient 'to' is the zero address — ERC721 mint to 0x0 reverts. Pass the real holder address.`,
+            );
           if (!input.multiplier) return errorResult(`mint requires multiplier`);
           const multiplierBn = BigInt(input.multiplier);
           if (multiplierBn === 0n)
@@ -1261,11 +1470,22 @@ function registerRewardMultiplier(server: McpServer): void {
             return errorResult(
               `mint: multiplier ${multiplierBn} is suspiciously small — values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`,
             );
+          if (multiplierBn > ERC721_MULTIPLIER_MAX)
+            return errorResult(
+              `mint: multiplier ${multiplierBn} looks over-scaled (> 100x = 1e27). PRECISION=1e25, so 1.5x = 15000000000000000000000000.`,
+            );
           const durationBn = BigInt(input.rewardPeriod ?? "0");
           if (durationBn === 0n)
             return errorResult(`mint: rewardPeriod must be > 0 seconds (lock duration).`);
           if (durationBn > UINT64_MAX)
             return errorResult(`mint: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
+          const pre = await precheckMultiplierContract(ctx.config, {
+            govPool: input.govPool,
+            multiplierContract: input.nftMultiplierContract,
+            checkCurrentAddress: true,
+          });
+          if (pre.refuse) return errorResult(pre.refuse);
+          warnings.push(...pre.warnings);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
           actions.push({
             executor: input.nftMultiplierContract,
@@ -1280,7 +1500,7 @@ function registerRewardMultiplier(server: McpServer): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "rewardMultiplier",
           isMeta: false,
           changes: {
@@ -1293,6 +1513,7 @@ function registerRewardMultiplier(server: McpServer): void {
           actions,
           title: `Reward Multiplier (${mode})`,
           detail: `${actions.length} action${actions.length === 1 ? "" : "s"} encoded`,
+          ...(warnings.length ? { advisories: warnings } : {}),
         });
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
@@ -1369,7 +1590,7 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "applyToDao",
           isMeta: false,
           changes: {
@@ -1480,7 +1701,7 @@ function registerNewProposalType(server: McpServer): void {
         ];
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "createProposalType",
           isMeta: false,
           changes: {

@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { SignerManager } from "../lib/signer.js";
 import { RpcProvider } from "../rpc.js";
+import { chainIdParam } from "../lib/params.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -110,6 +111,8 @@ interface SimCalldataInput {
   value?: string;
   from?: string;
   blockTag?: string | number;
+  /** Chain to simulate against; defaults to the configured default chain. */
+  chainId?: number;
 }
 
 interface SimCalldataResult {
@@ -130,7 +133,7 @@ async function simulateCalldata(
   rpc: RpcProvider,
   input: SimCalldataInput,
 ): Promise<SimCalldataResult> {
-  const pr0 = rpc.tryProvider();
+  const pr0 = rpc.tryProvider(input.chainId);
   if ("error" in pr0) {
     return { success: false, revertReason: `${pr0.error}\n${pr0.remediation}` };
   }
@@ -205,6 +208,7 @@ export function registerSimulateTools(
         .union([z.string(), z.number()])
         .optional()
         .describe("Block tag for eth_call (default: 'latest')."),
+      chainId: chainIdParam,
     },
     async (input) => {
       try {
@@ -218,6 +222,7 @@ export function registerSimulateTools(
           value: input.value,
           from: fromResolved,
           blockTag: input.blockTag,
+          chainId: input.chainId,
         });
         return ok({ ...result, from: fromResolved });
       } catch (e) {
@@ -238,11 +243,12 @@ export function registerSimulateTools(
       govPool: z.string(),
       proposalId: z.string(),
       from: z.string().optional(),
+      chainId: chainIdParam,
     },
     async (input) => {
       try {
         if (!isAddress(input.govPool)) return err(`Invalid govPool: ${input.govPool}`);
-        const pr0 = rpc.tryProvider();
+        const pr0 = rpc.tryProvider(input.chainId);
   if ("error" in pr0) return errorResult(`${pr0.error}\n${pr0.remediation}`);
   const provider = pr0.ok;
         const govAddr = getAddress(input.govPool);
@@ -284,6 +290,7 @@ export function registerSimulateTools(
           to: govAddr,
           data,
           from: fromResolved,
+          chainId: input.chainId,
         });
 
         return ok({
@@ -314,6 +321,7 @@ export function registerSimulateTools(
       amount: z.string().describe("amount in wei"),
       proof: z.array(z.string()).default([]),
       from: z.string().optional(),
+      chainId: chainIdParam,
     },
     async (input) => {
       try {
@@ -335,7 +343,7 @@ export function registerSimulateTools(
         let willNeedApprove: boolean | undefined;
         if (!native) {
           try {
-            const pr0 = rpc.tryProvider();
+            const pr0 = rpc.tryProvider(input.chainId);
   if ("error" in pr0) return errorResult(`${pr0.error}\n${pr0.remediation}`);
   const provider = pr0.ok;
             const allowanceData = ERC20_ABI.encodeFunctionData("allowance", [
@@ -366,6 +374,7 @@ export function registerSimulateTools(
           data,
           value: native ? amountBn.toString() : undefined,
           from: fromResolved,
+          chainId: input.chainId,
         });
 
         return ok({

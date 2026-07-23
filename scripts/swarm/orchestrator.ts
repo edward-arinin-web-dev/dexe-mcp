@@ -564,7 +564,10 @@ async function getMcpClient(): Promise<McpClient> {
       const transport = new StdioClientTransport({
         command: "node",
         args: [resolve("dist/index.js")],
-        env: { ...process.env, DEXE_PRIVATE_KEY: "" } as Record<string, string>,
+        // DEXE_TOOLSETS=full: scenario steps hit read/vote/dev tools that the
+        // slim default surface hides — without this ~34 steps 404 as "unknown
+        // tool" (P3 harness bug, 2026-07-07 run).
+        env: { ...process.env, DEXE_PRIVATE_KEY: "", DEXE_TOOLSETS: "full" } as Record<string, string>,
         cwd: process.cwd(),
       });
       const c = new McpClient({ name: "swarm-orchestrator", version: "0.1.0" });

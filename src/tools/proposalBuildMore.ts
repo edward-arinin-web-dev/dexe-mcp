@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
@@ -195,7 +196,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
         const action = { executor: govSettings, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "changeSettings",
           isMeta: false,
           changes: {
@@ -273,7 +274,7 @@ function registerManageValidators(server: McpServer): void {
         const action = { executor: govValidators, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "changeValidators",
           isMeta: false,
           changes: {
@@ -333,7 +334,7 @@ function registerAddExpert(server: McpServer): void {
         const action = { executor: expertNftContract, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: scope === "global" ? "globalExpert" : "localExpert",
           isMeta: false,
           changes: {
@@ -387,7 +388,7 @@ function registerRemoveExpert(server: McpServer): void {
         const action = { executor: expertNftContract, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: scope === "global" ? "globalExpertRemoval" : "localExpertRemoval",
           isMeta: false,
           changes: {
@@ -486,7 +487,7 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "withdrawDeposit",
           isMeta: false,
           changes: {
@@ -554,7 +555,7 @@ function registerDelegateToExpert(server: McpServer): void {
         const action = { executor: govPool, value, data };
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "delegateTokensToExpert",
           isMeta: false,
           changes: {
@@ -614,7 +615,7 @@ function registerRevokeFromExpert(server: McpServer): void {
         const action = { executor: govPool, value: "0", data };
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "revokeTokensFromExpert",
           isMeta: false,
           changes: {

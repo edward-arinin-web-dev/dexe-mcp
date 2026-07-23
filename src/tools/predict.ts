@@ -28,6 +28,7 @@ function errorResult(message: string) {
 
 const GOV_POOL_ABI = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+  "function latestProposalId() view returns (uint256)",
   "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst) proposal, tuple(tuple(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter, uint128 quorum, uint256 votesFor, uint256 votesAgainst) core) validatorProposal, uint8 proposalState, uint256 requiredQuorum, uint256 requiredValidatorsQuorum)[])",
 ]);
 
@@ -115,16 +116,20 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
       if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
 
-      // Step 1: helpers + recent 10 proposals.
-      const [helpersR, proposalsR] = await multicall(provider, [
+      // Step 1: helpers + proposal count. The count drives the window offset —
+      // getProposals(0, 10) would return the FIRST 10 proposals ever created,
+      // not the recent history the forecast promises.
+      const [helpersR, latestIdR] = await multicall(provider, [
         { target: govPool, iface: GOV_POOL_ABI, method: "getHelperContracts", args: [], allowFailure: true },
-        { target: govPool, iface: GOV_POOL_ABI, method: "getProposals", args: [0n, 10n], allowFailure: true },
+        { target: govPool, iface: GOV_POOL_ABI, method: "latestProposalId", args: [], allowFailure: true },
       ]);
       if (!helpersR?.success) return err("getHelperContracts reverted");
       const helpers = helpersR.value as unknown as { settings: string };
+      const latestId = latestIdR?.success ? BigInt(latestIdR.value as bigint) : 0n;
+      const windowOffset = latestId > 10n ? latestId - 10n : 0n;
 
-      // Step 2: required quorum from default settings.
-      const [settingsR] = await multicall(provider, [
+      // Step 2: required quorum + the LATEST (up to) 10 proposals.
+      const [settingsR, proposalsR] = await multicall(provider, [
         {
           target: helpers.settings,
           iface: GOV_SETTINGS_ABI,
@@ -132,6 +137,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
           args: [],
           allowFailure: true,
         },
+        { target: govPool, iface: GOV_POOL_ABI, method: "getProposals", args: [windowOffset, 10n], allowFailure: true },
       ]);
       let requiredQuorum = 0n;
       if (settingsR?.success) {
@@ -155,7 +161,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         proposals = views.map((v, i) => {
           const idx = Number(v.proposalState);
           return {
-            proposalId: String(i + 1),
+            proposalId: String(windowOffset + BigInt(i) + 1n),
             state: proposalStateLabel(idx),
             executed: v.proposal.core.executed,
             votesFor: v.proposal.core.votesFor,

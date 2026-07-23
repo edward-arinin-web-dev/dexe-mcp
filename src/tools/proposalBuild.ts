@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { Interface, isAddress, ZeroAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
@@ -415,7 +416,7 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
         }
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "tokenTransfer",
           isMeta: false,
           changes: {

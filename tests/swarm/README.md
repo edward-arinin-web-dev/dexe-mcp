@@ -27,6 +27,10 @@ The full design lives at `C:\Users\edwar\.claude\plans\rosy-wishing-lobster.md`.
 - `.claude/skills/swarm-test/SKILL.md` — `/swarm-test` slash-command.
 - `package.json` scripts: `swarm:preflight`, `swarm:fund`, `swarm:run`, `swarm:smoke`.
 
+> The orchestrator spawns its MCP server with `DEXE_TOOLSETS=full` — scenario
+> steps touch read/vote/dev tools that the slim default surface hides (without
+> this, those steps 404 as "unknown tool").
+
 What is **not** in Phase 0:
 - Real broadcast dispatch. Orchestrator currently emits `would-call` log entries instead of
   calling MCP tools. Phase 1 wires real dispatch.

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
@@ -113,12 +114,8 @@ function registerChangeValidatorBalances(server: McpServer): void {
         const data = iface.encodeFunctionData("changeBalances", [balances, users]);
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "changeValidatorBalances",
-          changes: {
-            proposedChanges: { validators: changes },
-            currentChanges: {},
-          },
         };
         return internalResult({
           metadata,
@@ -167,12 +164,8 @@ function registerChangeValidatorSettings(server: McpServer): void {
         ]);
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "changeValidatorSettings",
-          changes: {
-            proposedChanges: { duration, executionDelay, quorum },
-            currentChanges: {},
-          },
         };
         return internalResult({
           metadata,
@@ -223,12 +216,8 @@ function registerMonthlyWithdraw(server: McpServer): void {
         const data = iface.encodeFunctionData("monthlyWithdraw", [tokens, amounts, destination]);
         const metadata = {
           proposalName,
-          proposalDescription: JSON.stringify(proposalDescription),
+          proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
           category: "monthlyWithdraw",
-          changes: {
-            proposedChanges: { withdrawals, destination },
-            currentChanges: {},
-          },
         };
         return internalResult({
           metadata,
@@ -264,12 +253,8 @@ function registerOffchainInternalProposal(server: McpServer): void {
     }) => {
       const metadata = {
         proposalName,
-        proposalDescription: JSON.stringify(proposalDescription),
-        category: "offchainInternalProposal",
-        changes: {
-          proposedChanges: {},
-          currentChanges: {},
-        },
+        proposalDescription: JSON.stringify(markdownToSlate(proposalDescription)),
+        category: "emptyTx",
       };
       return internalResult({
         metadata,
