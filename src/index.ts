@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { registerAll } from "./tools/index.js";
+import { registerDocResources } from "./resources.js";
 import { homedir } from "node:os";
 import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadReport } from "./env/loader.js";
 import { envKeys } from "./env/schema.js";
@@ -99,26 +100,16 @@ async function main(): Promise<void> {
         "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. " +
         "The tool surface is gated by DEXE_TOOLSETS (default 'core,proposals'); dexe_context reports which sets are off and what they unlock. " +
         "Full intent→call recipes + error→remedy table: docs/PLAYBOOK.md (shipped in the package). " +
+        "MCP resources: dexe://playbook (recipes + error remedies), dexe://graph-schema (subgraph entity reference for dexe_graph_query), dexe://tools (full tool catalog). " +
         "Recipe skills ship with the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc, dexe-staking, dexe-setup). Installed automatically with the Claude Code plugin (`/plugin install dexe@dexe-mcp`), or copy them standalone with `npx dexe-mcp skills`.",
     },
   );
 
   registerAll(server, config);
 
-  // The AI-efficiency guide, on demand (docs/PLAYBOOK.md ships in the package).
-  // Kept out of `instructions` so it doesn't cost tokens every session.
-  const playbookPath = resolve(__dirname, "..", "docs", "PLAYBOOK.md");
-  if (existsSync(playbookPath)) {
-    server.resource("playbook", "dexe://playbook", async () => ({
-      contents: [
-        {
-          uri: "dexe://playbook",
-          mimeType: "text/markdown",
-          text: readFileSync(playbookPath, "utf8"),
-        },
-      ],
-    }));
-  }
+  // Shipped docs as on-demand resources (playbook, graph schema, tool catalog).
+  // Kept out of `instructions` so they don't cost tokens every session.
+  registerDocResources(server, resolve(__dirname, ".."));
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
