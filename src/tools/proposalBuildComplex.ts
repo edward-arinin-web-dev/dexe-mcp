@@ -188,12 +188,26 @@ async function multiplierExposesSelector(
     return !!code && code.toLowerCase().includes(needle);
   };
   // (a) direct bytecode — if even this read fails we can prove nothing.
+  let targetCode: string;
   try {
-    if (await scan(target)) return true;
+    targetCode = (await provider.getCode(target)) || "";
+    if (targetCode.toLowerCase().includes(needle)) return true;
   } catch {
     return null;
   }
   let rpcError = false;
+  // (a2) EIP-1167 minimal-proxy clone: the runtime hardcodes the implementation
+  // in bytecode (363d3d373d3d3d363d73<20-byte impl>5af43d82803e903d91602b57fd5bf3),
+  // so neither the direct scan nor the EIP-1967 storage slots resolve it. Decode
+  // the embedded impl and scan it — otherwise a valid clone false-refuses.
+  const clone = /^0x363d3d373d3d3d363d73([0-9a-f]{40})5af43d82803e903d91602b57fd5bf3$/i.exec(targetCode);
+  if (clone) {
+    try {
+      if (await scan(`0x${clone[1]}`)) return true;
+    } catch {
+      rpcError = true;
+    }
+  }
   // (b) EIP-1967 implementation slot (transparent / UUPS proxy).
   try {
     const impl = addressFromStorageSlot(await provider.getStorage(target, EIP1967_IMPL_SLOT));
@@ -397,6 +411,18 @@ export const numericAmountString = z.union([z.string(), z.number()]).transform((
   if (typeof v === "number") {
     if (!Number.isFinite(v)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "must be a finite number" });
+      return z.NEVER;
+    }
+    // Fractional human units (12.5) stay accepted, but an INTEGER beyond 2^53 has
+    // already lost precision as a JS number: String(12345678901234567890) yields
+    // '12345678901234567000' (rounded) and String(1e21) yields '1e+21' — both
+    // produce wrong raw-wei calldata downstream. Reject and demand the string form,
+    // mirroring numericIntString.
+    if (Number.isInteger(v) && !Number.isSafeInteger(v)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "number too large to represent exactly — pass it as a string to preserve precision",
+      });
       return z.NEVER;
     }
     return String(v);

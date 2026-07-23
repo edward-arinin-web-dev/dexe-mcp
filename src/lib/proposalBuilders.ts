@@ -923,6 +923,9 @@ const rewardMultiplierBuilder: CatalogBuilder = {
           govPool,
           multiplierContract: p.nftMultiplierContract,
           checkCurrentAddress: p.mode === "mint" || p.mode === "change_token",
+          // Wire the bug #31 selector-existence scan into the composite path too
+          // (the standalone dexe_proposal_build_reward_multiplier already passes it).
+          selectorCheck: p.mode === "mint" ? "mint" : p.mode === "change_token" ? "change_token" : undefined,
         },
         deps.chainId,
       );

@@ -44,6 +44,32 @@ export function fundCapWei(): bigint {
   }
 }
 
+/**
+ * Resolve the set of keyring slots to fund, ALWAYS excluding the funding source.
+ * The source is filtered on BOTH the default (whole-keyring) and the explicit-
+ * `agents` branch — an explicit list that names the source would otherwise
+ * self-transfer (nets to zero minus gas, never reaches a target, and an upfront
+ * insufficient-funds check on the self-send would block the rest of the batch).
+ * Throws for a requested slot that is not in the keyring.
+ */
+export function resolveFundTargets<T extends { signerKey: string; address: string }>(
+  keyring: T[],
+  requested: string[],
+  sourceKey?: string,
+): T[] {
+  const base =
+    requested.length === 0
+      ? keyring
+      : requested.map((r) => {
+          const hit = keyring.find(
+            (a) => a.signerKey === r.trim().toLowerCase() || a.address.toLowerCase() === r.trim().toLowerCase(),
+          );
+          if (!hit) throw new Error(`'${r}' is not in the keyring (${keyring.map((a) => a.signerKey).join(", ")})`);
+          return hit;
+        });
+  return base.filter((a) => a.signerKey !== sourceKey);
+}
+
 function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
@@ -173,16 +199,14 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
       if (token && !isAddress(token)) return err(`Invalid token: ${token}`);
 
       const sourceKey = source?.trim().toLowerCase();
-      const targets =
-        requested.length === 0
-          ? keyring.filter((a) => a.signerKey !== sourceKey)
-          : requested.map((r) => {
-              const hit = keyring.find(
-                (a) => a.signerKey === r.trim().toLowerCase() || a.address.toLowerCase() === r.trim().toLowerCase(),
-              );
-              if (!hit) throw new Error(`'${r}' is not in the keyring (${keyring.map((a) => a.signerKey).join(", ")})`);
-              return hit;
-            });
+      const targets = resolveFundTargets(keyring, requested, sourceKey);
+      if (targets.length === 0) {
+        return err(
+          requested.length === 0
+            ? "The keyring only contains the funding source — add agent slots to fund."
+            : `Every requested agent resolves to the funding source '${sourceKey}' — nothing to fund.`,
+        );
+      }
 
       const chain = resolveChain(config, chainId);
       const provider = createChainProvider(chain, config);
