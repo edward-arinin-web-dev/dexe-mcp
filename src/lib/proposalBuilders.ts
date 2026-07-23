@@ -36,8 +36,12 @@ import {
   ERC20_GOV_ABI as ERC20_GOV_FULL_ABI,
   ERC721_MULTIPLIER_ABI,
   ERC721_MULTIPLIER_PRECISION,
+  ERC721_MULTIPLIER_MAX,
   UINT64_MAX,
   GOV_SETTINGS_FULL_ABI,
+  numericIntString,
+  numericAmountString,
+  precheckMultiplierContract,
 } from "../tools/proposalBuildComplex.js";
 import { VALIDATORS_EXEC_ABI } from "../tools/proposalBuildInternal.js";
 import { parseUintString } from "./amount.js";
@@ -162,8 +166,7 @@ const tokenTransferBuilder: CatalogBuilder = {
   schema: z.object({
     token: z.string().default("").describe("ERC20 token contract (ignored when isNative=true)"),
     recipient: z.string().describe("Recipient address"),
-    amount: z
-      .string()
+    amount: numericAmountString
       .describe("Amount: raw smallest units (digits-only) OR human units with a decimal point ('12.5', scaled by the token's real decimals)"),
     isNative: z.boolean().default(false).describe("True for native BNB/ETH transfer"),
   }),
@@ -198,12 +201,11 @@ const withdrawTreasuryBuilder: CatalogBuilder = {
   schema: z.object({
     receiver: z.string().describe("Treasury withdrawal recipient"),
     token: z.string().default("").describe("ERC20 token contract (omit for NFT-only)"),
-    amount: z
-      .string()
+    amount: numericAmountString
       .default("0")
       .describe("ERC20 amount: raw smallest units (digits-only) or human units ('12.5'). Omit/0 for NFT-only."),
     nftAddress: z.string().default("").describe("ERC721 contract (omit for token-only)"),
-    nftIds: z.array(z.string()).default([]).describe("NFT ids; one transferFrom per id"),
+    nftIds: z.array(numericIntString).default([]).describe("NFT ids; one transferFrom per id"),
   }),
   async build(raw, deps) {
     const { ctx, govPool } = deps;
@@ -259,7 +261,7 @@ const changeVotingSettingsBuilder: CatalogBuilder = {
   schema: z.object({
     govSettings: z.string().describe("GovSettings address (dexe_dao_info.helpers.settings)"),
     settings: z.array(ProposalSettingsSchema).min(1),
-    settingsIds: z.array(z.string()).default([]).describe("Ids to edit (parallel to settings). Empty => addSettings"),
+    settingsIds: z.array(numericIntString).default([]).describe("Ids to edit (parallel to settings). Empty => addSettings"),
   }),
   async build(raw, deps) {
     const p = raw as { govSettings: string; settings: z.infer<typeof ProposalSettingsSchema>[]; settingsIds: string[] };
@@ -360,10 +362,9 @@ const removeExpertBuilder: CatalogBuilder = {
 const tokenDistributionBuilder: CatalogBuilder = {
   schema: z.object({
     distributionProposal: z.string().describe("DistributionProposal address"),
-    proposalId: z.string().describe("Expected proposalId (usually latestProposalId + 1)"),
+    proposalId: numericIntString.describe("Expected proposalId (usually latestProposalId + 1)"),
     token: z.string(),
-    amount: z
-      .string()
+    amount: numericAmountString
       .describe("Amount: raw smallest units (digits-only) OR human units with a decimal point ('12.5', scaled by the token's real decimals)"),
     isNative: z.boolean().default(false).describe("True for native token — sends value instead of approve"),
   }),
@@ -394,7 +395,7 @@ const tokenSaleBuilder: CatalogBuilder = {
   schema: z.object({
     tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
     tiers: z.array(tierSchema).min(1),
-    latestTierId: z.string().default("0").describe("Current latestTierId() — bump when extending an existing sale"),
+    latestTierId: numericIntString.default("0").describe("Current latestTierId() — bump when extending an existing sale"),
   }),
   async build(raw) {
     const p = raw as { tokenSaleProposal: string; tiers: unknown[]; latestTierId: string };
@@ -421,7 +422,7 @@ const customAbiBuilder: CatalogBuilder = {
     signature: z.string().describe("Full function signature, e.g. 'function setX(uint256)'"),
     method: z.string().describe("Method name matching the signature"),
     args: z.array(z.unknown()).default([]),
-    value: z.string().default("0"),
+    value: numericIntString.default("0"),
   }),
   async build(raw) {
     const p = raw as { target: string; signature: string; method: string; args: unknown[]; value: string };
@@ -453,7 +454,7 @@ const customAbiBuilder: CatalogBuilder = {
 const manageValidatorsBuilder: CatalogBuilder = {
   schema: z.object({
     govValidators: z.string().describe("GovValidators address (dexe_dao_info.helpers.validators)"),
-    changes: z.array(z.object({ user: z.string(), balance: z.string().describe("Wei; 0 to remove") })).min(1),
+    changes: z.array(z.object({ user: z.string(), balance: numericIntString.describe("Wei; 0 to remove") })).min(1),
   }),
   async build(raw, deps) {
     const p = raw as { govValidators: string; changes: { user: string; balance: string }[] };
@@ -560,9 +561,9 @@ async function validatorQuorumReachability(
 const delegateToExpertBuilder: CatalogBuilder = {
   schema: z.object({
     expert: z.string().describe("Expert address receiving the treasury delegation"),
-    amount: z.string().describe("Token amount in wei"),
-    nftIds: z.array(z.string()).default([]),
-    value: z.string().default("0").describe("Native coin value for payable path"),
+    amount: numericIntString.describe("Token amount in wei"),
+    nftIds: z.array(numericIntString).default([]),
+    value: numericIntString.default("0").describe("Native coin value for payable path"),
   }),
   async build(raw, { govPool }) {
     const p = raw as { expert: string; amount: string; nftIds: string[]; value: string };
@@ -585,8 +586,8 @@ const delegateToExpertBuilder: CatalogBuilder = {
 const revokeFromExpertBuilder: CatalogBuilder = {
   schema: z.object({
     expert: z.string(),
-    amount: z.string(),
-    nftIds: z.array(z.string()).default([]),
+    amount: numericIntString,
+    nftIds: z.array(numericIntString).default([]),
   }),
   async build(raw, { govPool }) {
     const p = raw as { expert: string; amount: string; nftIds: string[] };
@@ -609,7 +610,7 @@ const revokeFromExpertBuilder: CatalogBuilder = {
 const tokenSaleRecoverBuilder: CatalogBuilder = {
   schema: z.object({
     tokenSaleProposal: z.string(),
-    tierIds: z.array(z.string()).min(1),
+    tierIds: z.array(numericIntString).min(1),
   }),
   async build(raw) {
     const p = raw as { tokenSaleProposal: string; tierIds: string[] };
@@ -629,7 +630,7 @@ const tokenSaleWhitelistBuilder: CatalogBuilder = {
   schema: z.object({
     tokenSaleProposal: z.string(),
     requests: z
-      .array(z.object({ tierId: z.string(), users: z.array(z.string()).min(1), uri: z.string().default("") }))
+      .array(z.object({ tierId: numericIntString, users: z.array(z.string()).min(1), uri: z.string().default("") }))
       .min(1),
   }),
   async build(raw) {
@@ -716,9 +717,9 @@ const createStakingTierBuilder: CatalogBuilder = {
           "(frontend parity); if it is not deployed yet you get the deployStakingProposal() remediation.",
       ),
     rewardToken: z.string(),
-    rewardAmount: z.string(),
-    startedAt: z.string().describe("Unix seconds"),
-    deadline: z.string().describe("Unix seconds"),
+    rewardAmount: numericIntString.describe("Reward amount in raw smallest units (wei)"),
+    startedAt: numericIntString.describe("Unix seconds"),
+    deadline: numericIntString.describe("Unix seconds"),
     stakingMetadataUrl: z.string().describe("ipfs://<cid> of staking-specific metadata"),
     isNative: z.boolean().default(false),
   }),
@@ -841,20 +842,22 @@ const rewardMultiplierBuilder: CatalogBuilder = {
     mode: z.enum(["set_address", "set_token_uri", "mint", "change_token"]),
     nftMultiplierContract: z.string().optional(),
     newMultiplierAddress: z.string().optional().describe("For mode=set_address (omit/zero to disable)"),
-    tokenId: z.string().optional(),
+    tokenId: numericIntString.optional(),
     uri: z.string().optional(),
     to: z.string().optional().describe("For mode=mint"),
-    multiplier: z.string().optional().describe("Scaled by PRECISION=1e25 (1.5x => 15000000000000000000000000)"),
-    rewardPeriod: z.string().default("0").describe("Lock duration in SECONDS (uint64)"),
+    multiplier: numericIntString.optional().describe("Scaled by PRECISION=1e25 (1.5x => 15000000000000000000000000)"),
+    rewardPeriod: numericIntString.default("0").describe("Lock duration in SECONDS (uint64)"),
     metadataUrl: z.string().default(""),
   }),
-  async build(raw, { govPool }) {
+  async build(raw, deps) {
+    const { govPool } = deps;
     const p = raw as {
       mode: "set_address" | "set_token_uri" | "mint" | "change_token";
       nftMultiplierContract?: string; newMultiplierAddress?: string; tokenId?: string;
       uri?: string; to?: string; multiplier?: string; rewardPeriod: string; metadataUrl: string;
     };
     const actionsOnFor: { executor: string; value?: string; data: string }[] = [];
+    const warnings: string[] = [];
     if (p.mode === "set_address") {
       const addr = p.newMultiplierAddress ?? ZeroAddress;
       if (!isAddress(addr)) throw new Error(`Invalid newMultiplierAddress: ${addr}`);
@@ -868,6 +871,20 @@ const rewardMultiplierBuilder: CatalogBuilder = {
         throw new Error(`${p.mode} requires valid nftMultiplierContract`);
       }
       const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
+      // Bug #31 guard: refuse up-front when the multiplier is undeployed or not
+      // owned by the GovPool — GovPool.execute would otherwise revert onlyOwner
+      // and strand the proposal in SucceededFor. Degrades to a no-op offline.
+      const pre = await precheckMultiplierContract(
+        deps.ctx.config,
+        {
+          govPool,
+          multiplierContract: p.nftMultiplierContract,
+          checkCurrentAddress: p.mode === "mint" || p.mode === "change_token",
+        },
+        deps.chainId,
+      );
+      if (pre.refuse) throw new Error(pre.refuse);
+      warnings.push(...pre.warnings);
       if (p.mode === "set_token_uri") {
         if (!p.tokenId) throw new Error("set_token_uri requires tokenId");
         if (p.uri === undefined) throw new Error("set_token_uri requires uri");
@@ -884,6 +901,11 @@ const rewardMultiplierBuilder: CatalogBuilder = {
             `${p.mode}: multiplier ${multiplierBn} is suspiciously small — values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`,
           );
         }
+        if (multiplierBn > ERC721_MULTIPLIER_MAX) {
+          throw new Error(
+            `${p.mode}: multiplier ${multiplierBn} looks over-scaled (> 100x = 1e27). PRECISION=1e25, so 1.5x = 15000000000000000000000000.`,
+          );
+        }
         const durationBn = BigInt(p.rewardPeriod ?? "0");
         if (durationBn > UINT64_MAX) throw new Error(`${p.mode}: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
         if (p.mode === "change_token") {
@@ -894,6 +916,7 @@ const rewardMultiplierBuilder: CatalogBuilder = {
           });
         } else {
           if (!p.to || !isAddress(p.to)) throw new Error("mint requires valid to");
+          if (p.to === ZeroAddress) throw new Error("mint: recipient 'to' is the zero address — ERC721 mint to 0x0 reverts. Pass the real holder address.");
           if (durationBn === 0n) throw new Error("mint: rewardPeriod must be > 0 seconds (lock duration).");
           actionsOnFor.push({
             executor: p.nftMultiplierContract, value: "0",
@@ -907,6 +930,7 @@ const rewardMultiplierBuilder: CatalogBuilder = {
       category: "rewardMultiplier",
       metadataExtra: changes({ ...p }),
       summary: `Reward multiplier (${p.mode})`,
+      ...(warnings.length ? { advisories: warnings } : {}),
     };
   },
 };
@@ -992,7 +1016,7 @@ const newProposalTypeBuilder: CatalogBuilder = {
     govSettings: z.string().describe("GovSettings address (dexe_dao_info.helpers.settings)"),
     settings: ProposalSettingsSchema,
     executors: z.array(z.string()).min(1),
-    newSettingId: z.string().describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings)"),
+    newSettingId: numericIntString.describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings)"),
   }),
   async build(raw, deps) {
     const p = raw as {
@@ -1103,7 +1127,7 @@ export const INTERNAL_PROPOSAL_BUILDERS: Record<string, InternalCatalogBuilder> 
         internalType: 1,
         data,
         category: "changeValidatorBalances",
-        metadataExtra: changes({ validators: p.changes }),
+        metadataExtra: {},
         summary: `Change validator balances (${p.changes.length} changes)`,
       };
     },
@@ -1123,7 +1147,7 @@ export const INTERNAL_PROPOSAL_BUILDERS: Record<string, InternalCatalogBuilder> 
         internalType: 0,
         data,
         category: "changeValidatorSettings",
-        metadataExtra: changes({ duration: p.duration, executionDelay: p.executionDelay, quorum: p.quorum }),
+        metadataExtra: {},
         summary: `Change validator settings (duration=${p.duration}s, delay=${p.executionDelay}s)`,
       };
     },
@@ -1148,7 +1172,7 @@ export const INTERNAL_PROPOSAL_BUILDERS: Record<string, InternalCatalogBuilder> 
         internalType: 2,
         data,
         category: "monthlyWithdraw",
-        metadataExtra: changes({ withdrawals: p.withdrawals, destination: p.destination }),
+        metadataExtra: {},
         summary: `Monthly withdraw (${p.withdrawals.length} tokens → ${p.destination})`,
       };
     },
@@ -1159,8 +1183,8 @@ export const INTERNAL_PROPOSAL_BUILDERS: Record<string, InternalCatalogBuilder> 
       return {
         internalType: 3,
         data: "0x",
-        category: "offchainInternalProposal",
-        metadataExtra: changes({}),
+        category: "emptyTx",
+        metadataExtra: {},
         summary: "Off-chain internal proposal (validators attest the off-chain result)",
       };
     },

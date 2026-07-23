@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import type { TxPayload } from "../lib/calldata.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { PinataClient, fetchIpfs, toCidV1 } from "../lib/ipfs.js";
+import { PinataClient, fetchIpfs, toCidV1, cidForJson } from "../lib/ipfs.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { resolveGateways } from "./ipfs.js";
@@ -481,10 +481,23 @@ export interface FlowFailure {
   resume: string;
 }
 
+const flowSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
-  opts?: { dryRun?: boolean; chainId?: number; wc?: WalletConnectManager; signerKey?: string },
+  opts?: {
+    dryRun?: boolean;
+    chainId?: number;
+    wc?: WalletConnectManager;
+    signerKey?: string;
+    /**
+     * Awaited after a payload's receipt succeeds and before the next payload is
+     * sent. Best-effort: a throwing hook never fails the flow. Used to wait out
+     * read-lag between dependent txs (e.g. deposit → createProposalAndVote).
+     */
+    postStep?: (payloadIndex: number, payload: TxPayload) => Promise<void>;
+  },
 ): Promise<{
   mode: "executed" | "payloads" | "dryRun" | "failed";
   steps: FlowStep[];
@@ -528,7 +541,7 @@ export async function sendOrCollect(
   if ("error" in sg) throw new Error(`${sg.error}\n${sg.remediation}`);
   const wallet = sg.ok;
   const cfg = signer.getConfig();
-  for (const p of payloads) {
+  for (const [i, p] of payloads.entries()) {
     // Any step failing mid-sequence: STOP (dependent steps must not run on top
     // of unchanged state — R3), report which steps already landed (gas spent),
     // and tell the caller how to resume (R7). Composites re-check completed
@@ -568,6 +581,13 @@ export async function sendOrCollect(
         skipped: false,
         txHash: receipt?.hash ?? tx.hash,
       });
+      if (opts?.postStep) {
+        try {
+          await opts.postStep(i, p);
+        } catch {
+          /* best-effort wait — never fails the flow */
+        }
+      }
     } catch (e) {
       const landed = steps.filter((s) => s.txHash);
       const actionable = toActionableError(e, p.description);
@@ -963,8 +983,12 @@ export async function runProposalCreate(
       // indexer/diff UI and immutable once pinned — validate before upload.
       const metaCheck = checkProposalMetadata(proposalMeta);
       if (!metaCheck.ok) return err(`Proposal metadata preflight failed: ${metaCheck.remediation}`);
-      const proposalMetaRes = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
-      const descriptionURL = `ipfs://${proposalMetaRes.cid}`;
+      // dryRun stays side-effect-free: local placeholder CID (json codec)
+      // instead of a Pinata pin — a real run pins and gets a dag-pb CID.
+      const proposalMetaCid = input.dryRun
+        ? await cidForJson(proposalMeta)
+        : (await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` })).cid;
+      const descriptionURL = `ipfs://${proposalMetaCid}`;
 
       // Step 5: build tx payloads
       const payloads: TxPayload[] = [];
@@ -1018,7 +1042,9 @@ export async function runProposalCreate(
       // "SphereX error: disallowed tx pattern" (verified live on chain 97,
       // v0.22). Sequential txs pass, and the failure ledger makes the
       // two-step sequence safely resumable.
+      let depositPayloadIndex = -1;
       if (needDeposit > 0n) {
+        depositPayloadIndex = payloads.length;
         payloads.push(makeTxPayload(
           govPool, GOV_POOL_ABI, "deposit",
           [needDeposit, []], chainId,
@@ -1027,6 +1053,39 @@ export async function runProposalCreate(
       } else {
         skippedSteps.push({ label: "GovPool.deposit", skipped: true, reason: "Sufficient deposited power" });
       }
+
+      // Bug #35 unbundle race: on a fresh DAO the very first
+      // createProposalAndVote can revert "Gov: low creating power" — the
+      // deposit tx has landed but the RPC node's state read still lags it.
+      // After the deposit confirms, poll the keeper until the deposited power
+      // reflects the new amount (bounded; a timeout proceeds anyway and the
+      // failure ledger keeps the sequence resumable).
+      const awaitDepositReflected = async () => {
+        const pr = rpc.tryProvider(chainId);
+        if ("error" in pr) return;
+        const provider = pr.ok;
+        const target = prereqs.depositedPower + needDeposit;
+        for (let attempt = 0; attempt < 8; attempt++) {
+          try {
+            const res = await multicall(provider, [
+              {
+                target: prereqs.userKeeper,
+                iface: USER_KEEPER_ABI,
+                method: "tokenBalance",
+                args: [user, 0],
+                allowFailure: true,
+              },
+            ]);
+            if (res[0]?.success) {
+              const [balance, ownedBalance] = res[0].value as [bigint, bigint];
+              if (balance - ownedBalance >= target) return;
+            }
+          } catch {
+            /* transient RPC error — keep polling */
+          }
+          await flowSleep(2500);
+        }
+      };
 
       const actionsForTuple = actionsOnFor.map(a => [a.executor, a.value, a.data]);
       payloads.push(makeTxPayload(
@@ -1042,9 +1101,15 @@ export async function runProposalCreate(
         chainId,
         wc: deps.wc,
         signerKey: input.signerKey,
+        postStep:
+          depositPayloadIndex >= 0
+            ? async (i) => {
+                if (i === depositPayloadIndex) await awaitDepositReflected();
+              }
+            : undefined,
       });
       if (result.mode === "failed") {
-        return flowFailureResult(result, { descriptionURL, proposalMetadataCID: proposalMetaRes.cid });
+        return flowFailureResult(result, { descriptionURL, proposalMetadataCID: proposalMetaCid });
       }
 
       // Phase 3: record a broadcast proposal so dexe_context surfaces it next
@@ -1069,7 +1134,7 @@ export async function runProposalCreate(
         ok({
           mode: result.mode,
           descriptionURL,
-          proposalMetadataCID: proposalMetaRes.cid,
+          proposalMetadataCID: proposalMetaCid,
           prereqs: {
             walletBalance: prereqs.walletBalance.toString(),
             depositedPower: prereqs.depositedPower.toString(),
@@ -1157,11 +1222,16 @@ async function runInternalProposalCreate(
     ...built.metadataExtra,
   };
   let cid: string;
-  try {
-    const res = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
-    cid = res.cid;
-  } catch (e) {
-    return err(toActionableError(e, "upload internal-proposal metadata").message);
+  if (input.dryRun) {
+    // Side-effect-free preview: local placeholder CID, no pin.
+    cid = await cidForJson(proposalMeta);
+  } else {
+    try {
+      const res = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
+      cid = res.cid;
+    } catch (e) {
+      return err(toActionableError(e, "upload internal-proposal metadata").message);
+    }
   }
   const descriptionURL = `ipfs://${cid}`;
 

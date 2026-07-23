@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { Interface, ZeroAddress } from "ethers";
 import {
   PROPOSAL_BUILDERS,
@@ -503,5 +504,180 @@ describe("custom_abi builder", () => {
     );
     expect(out.actionsOnFor[0]!.executor).toBe(TOKEN);
     expect(out.actionsOnFor[0]!.data).toBe(new Interface(["function setX(uint256)"]).encodeFunctionData("setX", [42n]));
+  });
+});
+
+// ---------- Task 1 (bug #31) + Task 2 (numeric-string coercion) ----------
+
+describe("reward_multiplier — bounds, zero-recipient, and doc literal (bug #31)", () => {
+  const MULT = new Interface([
+    "function mint(address to, uint256 multiplier, uint64 duration, string uri_)",
+  ]);
+  const EXPERT_NFT_ADDR = "0x4444444444444444444444444444444444444444";
+
+  it("mint at exactly 100x (1e27) is accepted; > 1e27 is refused as over-scaled", async () => {
+    const b = PROPOSAL_BUILDERS.reward_multiplier!;
+    const at = await b.build(
+      b.schema.parse({
+        mode: "mint",
+        nftMultiplierContract: EXPERT_NFT_ADDR,
+        to: USER,
+        multiplier: "1000000000000000000000000000", // 1e27 == 100x
+        rewardPeriod: "3600",
+      }),
+      deps,
+    );
+    expect(at.actionsOnFor[0]!.data).toBe(
+      MULT.encodeFunctionData("mint", [USER, 1000000000000000000000000000n, 3600n, ""]),
+    );
+    await expect(
+      b.build(
+        b.schema.parse({
+          mode: "mint",
+          nftMultiplierContract: EXPERT_NFT_ADDR,
+          to: USER,
+          multiplier: "1000000000000000000000000001", // 1e27 + 1
+          rewardPeriod: "3600",
+        }),
+        deps,
+      ),
+    ).rejects.toThrow(/over-scaled/);
+  });
+
+  it("change_token refuses an over-scaled multiplier too", async () => {
+    const b = PROPOSAL_BUILDERS.reward_multiplier!;
+    await expect(
+      b.build(
+        b.schema.parse({
+          mode: "change_token",
+          nftMultiplierContract: EXPERT_NFT_ADDR,
+          tokenId: "1",
+          multiplier: "5000000000000000000000000000", // 500x
+          rewardPeriod: "3600",
+        }),
+        deps,
+      ),
+    ).rejects.toThrow(/over-scaled/);
+  });
+
+  it("mint refuses the zero-address recipient", async () => {
+    const b = PROPOSAL_BUILDERS.reward_multiplier!;
+    await expect(
+      b.build(
+        b.schema.parse({
+          mode: "mint",
+          nftMultiplierContract: EXPERT_NFT_ADDR,
+          to: ZeroAddress,
+          multiplier: "15000000000000000000000000",
+          rewardPeriod: "3600",
+        }),
+        deps,
+      ),
+    ).rejects.toThrow(/zero address/);
+  });
+
+  it("no RPC in deps → ownership pre-check degrades silently (builder still builds)", async () => {
+    const b = PROPOSAL_BUILDERS.reward_multiplier!;
+    const out = await b.build(
+      b.schema.parse({
+        mode: "mint",
+        nftMultiplierContract: EXPERT_NFT_ADDR,
+        govPool: GOVPOOL,
+        to: USER,
+        multiplier: "15000000000000000000000000",
+        rewardPeriod: "3600",
+      }),
+      deps, // rpcUrl: undefined → precheck is a no-op
+    );
+    expect(out.actionsOnFor).toHaveLength(1);
+    expect(out.advisories).toBeUndefined();
+  });
+
+  it("neither source file contains the mislabeled 1.5e27 literal (1500000000000000000000000000)", () => {
+    const badLiteral = "1500000000000000000000000000"; // 1.5e27, was mislabeled '15e24'
+    const files = [
+      readFileSync(new URL("../../src/tools/proposalBuildComplex.ts", import.meta.url), "utf8"),
+      readFileSync(new URL("../../src/lib/proposalBuilders.ts", import.meta.url), "utf8"),
+    ];
+    for (const src of files) expect(src.includes(badLiteral)).toBe(false);
+  });
+});
+
+describe("numeric-string coercion (Task 2 — LLM passes numbers)", () => {
+  it("change_voting_settings: settingsIds [0] and ['0'] parse identically and build the same calldata", async () => {
+    const b = PROPOSAL_BUILDERS.change_voting_settings!;
+    const settings = {
+      earlyCompletion: true,
+      delegatedVotingAllowed: false,
+      validatorsVote: false,
+      duration: "86400",
+      durationValidators: "86400",
+      executionDelay: "0",
+      quorum: "500000000000000000000000000",
+      quorumValidators: "500000000000000000000000000",
+      minVotesForVoting: "1000000000000000000",
+      minVotesForCreating: "1000000000000000000",
+      rewardsInfo: { rewardToken: ZeroAddress, creationReward: "0", executionReward: "0", voteRewardsCoefficient: "0" },
+      executorDescription: "keep",
+    };
+    const numParsed = b.schema.parse({ govSettings: SETTINGS, settings: [settings], settingsIds: [0] });
+    const strParsed = b.schema.parse({ govSettings: SETTINGS, settings: [settings], settingsIds: ["0"] });
+    expect((numParsed as { settingsIds: string[] }).settingsIds).toEqual(["0"]);
+    const numOut = await b.build(numParsed, deps);
+    const strOut = await b.build(strParsed, deps);
+    expect(numOut.actionsOnFor[0]!.data).toBe(strOut.actionsOnFor[0]!.data);
+    // editSettings path (ids present)
+    expect(numOut.actionsOnFor[0]!.data.slice(0, 10)).toBe(
+      new Interface([
+        "function editSettings(uint256[] ids, tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)[] params)",
+      ]).getFunction("editSettings")!.selector,
+    );
+  });
+
+  it("create_staking_tier: numeric startedAt/deadline == string equivalents (byte-parity)", async () => {
+    const b = PROPOSAL_BUILDERS.create_staking_tier!;
+    const start = Math.floor(Date.now() / 1000) + 3600;
+    const end = start + 30 * 24 * 3600;
+    const asNumbers = await b.build(
+      b.schema.parse({
+        stakingProposal: SALE, rewardToken: TOKEN, rewardAmount: "1000",
+        startedAt: start, deadline: end, stakingMetadataUrl: "ipfs://x",
+      }),
+      deps,
+    );
+    const asStrings = await b.build(
+      b.schema.parse({
+        stakingProposal: SALE, rewardToken: TOKEN, rewardAmount: "1000",
+        startedAt: String(start), deadline: String(end), stakingMetadataUrl: "ipfs://x",
+      }),
+      deps,
+    );
+    expect(asNumbers.actionsOnFor.map((a) => a.data)).toEqual(asStrings.actionsOnFor.map((a) => a.data));
+  });
+
+  it("float id is rejected (integer semantics preserved)", () => {
+    const b = PROPOSAL_BUILDERS.change_voting_settings!;
+    const settings = {
+      earlyCompletion: true, delegatedVotingAllowed: false, validatorsVote: false,
+      duration: "86400", durationValidators: "86400", executionDelay: "0",
+      quorum: "500000000000000000000000000", quorumValidators: "500000000000000000000000000",
+      minVotesForVoting: "1000000000000000000", minVotesForCreating: "1000000000000000000",
+      rewardsInfo: { rewardToken: ZeroAddress, creationReward: "0", executionReward: "0", voteRewardsCoefficient: "0" },
+      executorDescription: "x",
+    };
+    expect(() => b.schema.parse({ govSettings: SETTINGS, settings: [settings], settingsIds: [1.5] })).toThrow(/integer/);
+  });
+
+  it("token_distribution: numeric proposalId coerces to string and encodes identically", async () => {
+    const b = PROPOSAL_BUILDERS.token_distribution!;
+    const num = await b.build(
+      b.schema.parse({ distributionProposal: DIST, proposalId: 3, token: TOKEN, amount: "1000" }),
+      deps,
+    );
+    const str = await b.build(
+      b.schema.parse({ distributionProposal: DIST, proposalId: "3", token: TOKEN, amount: "1000" }),
+      deps,
+    );
+    expect(num.actionsOnFor.map((a) => a.data)).toEqual(str.actionsOnFor.map((a) => a.data));
   });
 });

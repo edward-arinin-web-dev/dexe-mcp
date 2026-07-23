@@ -102,3 +102,44 @@ describe("sendOrCollect failure ledger (R7)", () => {
     expect(res.steps[0]?.payload).toEqual(payload(1));
   });
 });
+
+describe("sendOrCollect postStep hook (bug #35 unbundle race)", () => {
+  it("awaits postStep after each confirmed step, before the next send", async () => {
+    const { signer, sent } = fakeSigner({ results: [{ status: 1 }, { status: 1 }] });
+    const calls: Array<{ index: number; sentAtCall: number }> = [];
+    const res = await sendOrCollect(signer, [payload(1), payload(2)], {
+      postStep: async (i) => {
+        calls.push({ index: i, sentAtCall: sent.length });
+      },
+    });
+    expect(res.mode).toBe("executed");
+    // hook fired for step 0 while only 1 tx had been sent (i.e. BEFORE step 2)
+    expect(calls).toEqual([
+      { index: 0, sentAtCall: 1 },
+      { index: 1, sentAtCall: 2 },
+    ]);
+  });
+
+  it("a throwing postStep never fails the flow", async () => {
+    const { signer } = fakeSigner({ results: [{ status: 1 }] });
+    const res = await sendOrCollect(signer, [payload(1)], {
+      postStep: async () => {
+        throw new Error("poll timeout");
+      },
+    });
+    expect(res.mode).toBe("executed");
+    expect(res.steps[0]?.txHash).toBe("0xhash1");
+  });
+
+  it("postStep does not fire for a failed step", async () => {
+    const { signer } = fakeSigner({ results: [{ status: 0 }] });
+    const calls: number[] = [];
+    const res = await sendOrCollect(signer, [payload(1)], {
+      postStep: async (i) => {
+        calls.push(i);
+      },
+    });
+    expect(res.mode).toBe("failed");
+    expect(calls).toEqual([]);
+  });
+});

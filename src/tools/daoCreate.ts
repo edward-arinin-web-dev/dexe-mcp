@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
-import { PinataClient, toCidV1 } from "../lib/ipfs.js";
+import { PinataClient, toCidV1, cidForJson } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
@@ -459,11 +459,18 @@ export function registerDaoCreateTools(
       }
 
       // ---------- build + upload DAO profile metadata ----------
+      // dryRun must stay side-effect-free: compute placeholder CIDs locally
+      // instead of pinning to Pinata. (Local CIDs use the json codec; Pinata
+      // pins as dag-pb, so a real run's CIDs differ — fine for a preview.)
       let descriptionRef = "";
       if (input.daoDescription && input.daoDescription.length > 0) {
         const descSlate = markdownToSlate(input.daoDescription);
-        const descRes = await pinata.pinJson(descSlate, { name: `dao-desc:${input.daoName.slice(0, 30)}` });
-        descriptionRef = `ipfs://${descRes.cid}`;
+        if (input.dryRun) {
+          descriptionRef = `ipfs://${await cidForJson(descSlate)}`;
+        } else {
+          const descRes = await pinata.pinJson(descSlate, { name: `dao-desc:${input.daoName.slice(0, 30)}` });
+          descriptionRef = `ipfs://${descRes.cid}`;
+        }
       }
       const daoMeta: Record<string, unknown> = {
         daoName: input.daoName,
@@ -475,7 +482,11 @@ export function registerDaoCreateTools(
       if (input.avatarPath && input.avatarCID) {
         return err("Pass either `avatarCID` or `avatarPath`, not both.");
       }
-      if (input.avatarPath) {
+      if (input.avatarPath && input.dryRun) {
+        // Side-effect-free preview: don't pin the avatar. The real run fills
+        // avatarCID/avatarFileName/avatarUrl from the pinned upload.
+        daoMeta.avatarFileName = input.avatarFileName;
+      } else if (input.avatarPath) {
         // One-call path: read + validate (magic bytes) + pin server-side.
         try {
           const pinned = await pinAvatarFromInput({ filePath: input.avatarPath, pinata });
@@ -500,11 +511,15 @@ export function registerDaoCreateTools(
         daoMeta.avatarUrl = buildAvatarUrl(avatarCidV1, input.avatarFileName);
       }
       let descriptionURL: string;
-      try {
-        const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${input.daoName.slice(0, 30)}` });
-        descriptionURL = `ipfs://${daoMetaRes.cid}`;
-      } catch (e) {
-        return err(`Failed to upload DAO metadata to IPFS: ${e instanceof Error ? e.message : String(e)}`);
+      if (input.dryRun) {
+        descriptionURL = `ipfs://${await cidForJson(daoMeta)}`;
+      } else {
+        try {
+          const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${input.daoName.slice(0, 30)}` });
+          descriptionURL = `ipfs://${daoMetaRes.cid}`;
+        } catch (e) {
+          return err(`Failed to upload DAO metadata to IPFS: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       // ---------- build the deploy tx (shared with dexe_dao_build_deploy) ----------
@@ -586,14 +601,27 @@ export function registerDaoCreateTools(
       // the caller the safe first-proposal path (bug #35: fresh pools reject
       // the multicall(deposit,create) pattern — dexe_proposal_create already
       // sends approve→deposit→createProposalAndVote as separate txs).
-      let readiness: { govPoolLive: boolean } | undefined;
+      let readiness: { govPoolLive: boolean; note?: string } | undefined;
       let nextSteps: string | undefined;
       if (result.mode === "executed" && res.predictedGovPool) {
         try {
           const pr = rpc.tryProvider(chainId);
           if (!("error" in pr)) {
-            const code = await pr.ok.getCode(res.predictedGovPool);
-            readiness = { govPoolLive: code !== "0x" };
+            // The probe can race the RPC node right after broadcast (receipt
+            // seen, state read still lags — public BSC testnet endpoints are
+            // load-balanced and can lag 10s+). Retry before reporting dead,
+            // and never claim "dead" outright — only "not confirmed yet".
+            for (let attempt = 0; attempt < 6; attempt++) {
+              const code = await pr.ok.getCode(res.predictedGovPool);
+              readiness = { govPoolLive: code !== "0x" };
+              if (readiness.govPoolLive) break;
+              await new Promise((r) => setTimeout(r, 3000));
+            }
+            if (readiness && !readiness.govPoolLive) {
+              readiness.note =
+                "code not visible yet on the RPC endpoint — on load-balanced public RPCs this is usually read-lag, " +
+                "not a failed deploy (the deploy tx DID land). Re-check in ~30s with dexe_dao_info.";
+            }
           }
         } catch {
           /* best-effort — never fail a landed deploy on a read error */
