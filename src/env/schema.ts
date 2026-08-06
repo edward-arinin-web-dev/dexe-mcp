@@ -57,20 +57,82 @@ export interface EnvEntry {
 
 const hex64 = /^0x[0-9a-fA-F]{64}$/;
 const hex40 = /^0x[0-9a-fA-F]{40}$/;
-const intStr = z.string().regex(/^\d+$/);
-const optionalUrl = z.string().url().optional();
+
+/*
+ * Validator factories.
+ *
+ * Since 0.30.1 a bad value degrades to the documented default instead of
+ * killing the process, so this message is the only thing the user ever learns
+ * about the rejection — zod's bare "Invalid" / "Invalid url" leaves them
+ * guessing at the shape. Every factory therefore states what is expected AND
+ * shows a concrete value, and repeats it as the schema description so a
+ * consumer can render "expected: …" without re-deriving it from the regex.
+ *
+ * Vars that accept any string keep a bare `z.string()`: they have no rejection
+ * path, so there is nothing to explain.
+ */
+
+/** Digits-only integer. `what` completes "must be …"; keep `example` paste-able. */
+const intStr = (what: string, example: string) => {
+  const msg = `must be ${what}, written as digits only (no sign, no decimal point, no unit suffix), e.g. ${example}`;
+  return z.string().regex(/^\d+$/, msg).optional().describe(msg);
+};
+
+/** One absolute URL. `scheme` names the shape we document, not what zod accepts. */
+/**
+ * `scheme` is not just label text — it is enforced. Previously the message
+ * promised "websocket (ws/wss)" while `z.string().url()` happily accepted
+ * `https://`, so a user with an https WalletConnect relay got a green doctor
+ * and a signer that never connects.
+ */
+const urlStr = (example: string, scheme = "http(s)", protocols: string[] = ["http:", "https:"]) => {
+  const msg = `must be one absolute ${scheme} URL including the scheme, e.g. ${example}`;
+  return z
+    .string()
+    .url(msg)
+    .refine(
+      (v) => {
+        try {
+          return protocols.includes(new URL(v).protocol);
+        } catch {
+          return false;
+        }
+      },
+      { message: msg },
+    )
+    .optional()
+    .describe(msg);
+};
+
 /**
  * One URL, or a comma-separated list of URLs. The first is the primary
  * endpoint; the rest are transport-failure fallbacks rotated by
  * ResilientRpcProvider (src/rpc.ts).
  */
-const optionalUrlList = z
-  .string()
-  .refine(
-    (v) => v.split(",").map((s) => s.trim()).filter(Boolean).every((u) => z.string().url().safeParse(u).success),
-    { message: "must be a URL or a comma-separated list of URLs" },
-  )
-  .optional();
+const urlListStr = (example: string) => {
+  const msg = `must be one absolute http(s) URL, or a comma-separated list of URLs (first is primary, the rest are failover), e.g. ${example}`;
+  return z
+    .string()
+    .refine(
+      (v) => v.split(",").map((s) => s.trim()).filter(Boolean).every((u) => z.string().url().safeParse(u).success),
+      { message: msg },
+    )
+    .optional()
+    .describe(msg);
+};
+
+/** Hot EOA key. The value never reaches the message — parse.ts redacts secrets. */
+const privateKeyStr = () => {
+  const msg = "must be a 0x-prefixed 64-hex private key (66 characters total), e.g. 0xabc…(64 hex chars)";
+  return z.string().regex(hex64, msg).optional().describe(msg);
+};
+
+const addressStr = () => {
+  const msg = "must be a 0x-prefixed 40-hex EVM address (42 characters total), e.g. 0xAbc…(40 hex chars)";
+  return z.string().regex(hex40, msg).optional().describe(msg);
+};
+
+const TREASURY_GUARD_MSG = "must be exactly 'off' or 'warn' (lowercase), e.g. warn";
 
 export const ENV_SPEC = {
   // ─── core / dev ───────────────────────────────────────────────────────────
@@ -82,21 +144,24 @@ export const ENV_SPEC = {
     doc: "Override the DeXe-Protocol checkout path. Auto-managed when unset.",
   },
   DEXE_MIN_SAFE_QUORUM_PCT: {
-    schema: intStr.optional(),
+    schema: intStr("a percent from 0 to 100", "50"),
     category: "core",
     required: false,
     example: "50",
     doc: "Minimum safe quorum percent (0–100). Quorum below this is flagged as a governance-safety risk for treasury-moving proposals. Default 50.",
   },
   DEXE_TREASURY_GUARD: {
-    schema: z.enum(["off", "warn"]).optional(),
+    schema: z
+      .enum(["off", "warn"], { errorMap: () => ({ message: TREASURY_GUARD_MSG }) })
+      .optional()
+      .describe(TREASURY_GUARD_MSG),
     category: "core",
     required: false,
     example: "warn",
     doc: "Treasury-safety advisory posture: off | warn. 'warn' (default) emits advisories/alerts everywhere (build, deploy, execute, risk_assess) but NEVER blocks; 'off' silences them.",
   },
   DEXE_CONTROLLING_TOPN: {
-    schema: intStr.optional(),
+    schema: intStr("how many top holders to include", "5"),
     category: "core",
     required: false,
     example: "5",
@@ -126,7 +191,7 @@ export const ENV_SPEC = {
 
   // ─── rpc ──────────────────────────────────────────────────────────────────
   DEXE_RPC_URL: {
-    schema: optionalUrlList,
+    schema: urlListStr("https://bsc-dataseed.bnbchain.org"),
     category: "rpc",
     required: false,
     example: "https://bsc-dataseed.bnbchain.org",
@@ -134,14 +199,14 @@ export const ENV_SPEC = {
     enablesFlows: ["read", "broadcast"],
   },
   DEXE_CHAIN_ID: {
-    schema: intStr.optional(),
+    schema: intStr("an EVM chain id", "56 for BSC mainnet"),
     category: "rpc",
     required: false,
     example: "56",
     doc: "Chain id for legacy DEXE_RPC_URL. Inferred from hostname when unset.",
   },
   DEXE_RPC_URL_TESTNET: {
-    schema: optionalUrlList,
+    schema: urlListStr("https://data-seed-prebsc-1-s1.bnbchain.org:8545"),
     category: "rpc",
     required: false,
     example: "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
@@ -149,7 +214,7 @@ export const ENV_SPEC = {
     enablesFlows: ["read", "broadcast"],
   },
   DEXE_RPC_URL_MAINNET: {
-    schema: optionalUrlList,
+    schema: urlListStr("https://bsc-dataseed.bnbchain.org"),
     category: "rpc",
     required: false,
     example: "https://bsc-dataseed.bnbchain.org",
@@ -157,21 +222,21 @@ export const ENV_SPEC = {
     enablesFlows: ["read", "broadcast"],
   },
   DEXE_TX_WAIT_TIMEOUT_MS: {
-    schema: intStr.optional(),
+    schema: intStr("a timeout in milliseconds", "180000 for 3 minutes"),
     category: "rpc",
     required: false,
     example: "180000",
     doc: "Max milliseconds to wait for a broadcast tx to mine before returning a check-with-dexe_tx_status error. Default 180000 (3 min).",
   },
   DEXE_DEFAULT_CHAIN_ID: {
-    schema: intStr.optional(),
+    schema: intStr("an EVM chain id that has an RPC configured", "97 for BSC testnet"),
     category: "rpc",
     required: false,
     example: "97",
     doc: "Default chain id when a tool omits chainId. Must match a configured RPC.",
   },
   DEXE_CONTRACTS_REGISTRY: {
-    schema: z.string().regex(hex40).optional(),
+    schema: addressStr(),
     category: "rpc",
     required: false,
     example: "",
@@ -187,7 +252,7 @@ export const ENV_SPEC = {
 
   // ─── signer ──────────────────────────────────────────────────────────────
   DEXE_PRIVATE_KEY: {
-    schema: z.string().regex(hex64).optional(),
+    schema: privateKeyStr(),
     category: "signer",
     required: false,
     example: "0x<64-hex>",
@@ -202,7 +267,7 @@ export const ENV_SPEC = {
     Array.from({ length: 16 }, (_, i) => [
       `DEXE_AGENT_PK_${i + 1}`,
       {
-        schema: z.string().regex(hex64).optional(),
+        schema: privateKeyStr(),
         category: "signer",
         required: false,
         example: "0x<64-hex>",
@@ -212,7 +277,7 @@ export const ENV_SPEC = {
     ]),
   ) as Record<`DEXE_AGENT_PK_${number}`, EnvEntry>),
   DEXE_AGENT_FUNDER_PK: {
-    schema: z.string().regex(hex64).optional(),
+    schema: privateKeyStr(),
     category: "signer",
     required: false,
     example: "0x<64-hex>",
@@ -220,7 +285,7 @@ export const ENV_SPEC = {
     secret: true,
   },
   DEXE_AGENT_FUND_MAX_WEI: {
-    schema: z.string().regex(/^\d+$/).optional(),
+    schema: intStr("an amount in wei", "100000000000000000 for 0.1 native"),
     category: "signer",
     required: false,
     example: "100000000000000000",
@@ -234,14 +299,14 @@ export const ENV_SPEC = {
     doc: "Comma-separated destination address allowlist for dexe_tx_send (B6 guard).",
   },
   DEXE_SIGNER_MAX_VALUE_WEI: {
-    schema: intStr.optional(),
+    schema: intStr("an amount in wei", "100000000000000000 for 0.1 native"),
     category: "signer",
     required: false,
     example: "",
     doc: "Max wei value per broadcast (B7 guard).",
   },
   DEXE_SIGNER_MAX_BROADCASTS_PER_MIN: {
-    schema: intStr.optional(),
+    schema: intStr("a broadcast count per rolling minute", "10"),
     category: "signer",
     required: false,
     example: "",
@@ -259,7 +324,7 @@ export const ENV_SPEC = {
     secret: true,
   },
   DEXE_IPFS_GATEWAY: {
-    schema: optionalUrl,
+    schema: urlStr("https://gateway.pinata.cloud"),
     category: "ipfs",
     required: false,
     example: "https://<subdomain>.mypinata.cloud",
@@ -289,7 +354,7 @@ export const ENV_SPEC = {
     secret: true,
   },
   DEXE_IPFS_AVATAR_GATEWAY: {
-    schema: optionalUrl,
+    schema: urlStr("https://gateway.pinata.cloud"),
     category: "ipfs",
     required: false,
     example: "",
@@ -298,7 +363,7 @@ export const ENV_SPEC = {
 
   // ─── subgraph ────────────────────────────────────────────────────────────
   DEXE_SUBGRAPH_POOLS_URL: {
-    schema: optionalUrl,
+    schema: urlStr("https://gateway.thegraph.com/api/subgraphs/id/<id>"),
     category: "subgraph",
     required: false,
     example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
@@ -306,7 +371,7 @@ export const ENV_SPEC = {
     enablesFlows: ["subgraph-read"],
   },
   DEXE_SUBGRAPH_VALIDATORS_URL: {
-    schema: optionalUrl,
+    schema: urlStr("https://gateway.thegraph.com/api/subgraphs/id/<id>"),
     category: "subgraph",
     required: false,
     example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
@@ -314,7 +379,7 @@ export const ENV_SPEC = {
     enablesFlows: ["subgraph-read"],
   },
   DEXE_SUBGRAPH_INTERACTIONS_URL: {
-    schema: optionalUrl,
+    schema: urlStr("https://gateway.thegraph.com/api/subgraphs/id/<id>"),
     category: "subgraph",
     required: false,
     example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
@@ -340,14 +405,14 @@ export const ENV_SPEC = {
     enablesFlows: ["walletconnect-sign"],
   },
   DEXE_WALLETCONNECT_RELAY_URL: {
-    schema: optionalUrl,
+    schema: urlStr("wss://relay.walletconnect.com", "websocket (ws/wss)", ["ws:", "wss:"]),
     category: "walletconnect",
     required: false,
     example: "wss://relay.walletconnect.com",
     doc: "Override WC relay websocket URL.",
   },
   DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS: {
-    schema: intStr.optional(),
+    schema: intStr("a timeout in milliseconds", "120000 for 2 minutes"),
     category: "walletconnect",
     required: false,
     example: "120000",
@@ -356,7 +421,7 @@ export const ENV_SPEC = {
 
   // ─── safe ────────────────────────────────────────────────────────────────
   DEXE_SAFE_TX_SERVICE_URL: {
-    schema: optionalUrl,
+    schema: urlStr("https://api.safe.global/tx-service/bnb/api/v2"),
     category: "safe",
     required: false,
     example: "https://api.safe.global/tx-service/bnb/api/v2",
@@ -374,7 +439,7 @@ export const ENV_SPEC = {
 
   // ─── backend ─────────────────────────────────────────────────────────────
   DEXE_BACKEND_API_URL: {
-    schema: optionalUrl,
+    schema: urlStr("https://api.dexe.io"),
     category: "backend",
     required: false,
     example: "https://api.dexe.io",
@@ -384,14 +449,14 @@ export const ENV_SPEC = {
 
   // ─── dev ─────────────────────────────────────────────────────────────────
   DEXE_FORK_BLOCK: {
-    schema: intStr.optional(),
+    schema: intStr("a block number", "45000000"),
     category: "dev",
     required: false,
     example: "",
     doc: "Optional fork block pin (Phase B).",
   },
   DEXE_MAX_DESCRIPTION_LEN: {
-    schema: intStr.optional(),
+    schema: intStr("a character count", "20000"),
     category: "core",
     required: false,
     example: "20000",

@@ -10,6 +10,26 @@ import {
 } from "./schema.js";
 
 /**
+ * A raw-byte trap in the `.env` file. `process.loadEnvFile` reports none of
+ * these — it misreads the file and returns normally — so they are detected
+ * here and surfaced by the startup banner and `dexe_doctor`.
+ */
+export interface EnvParseIssue {
+  /** Stable slug; doctor renders it as the check id `env.parse.<trap>`. */
+  trap:
+    | "bom"
+    | "no-trailing-newline"
+    | "spaces-around-equals"
+    | "keys-not-applied"
+    | "unreadable"
+    | "load-failed";
+  /** `fail` only when the key loss is *proven* on the running Node version. */
+  severity: "warn" | "fail";
+  message: string;
+  remediation: string;
+}
+
+/**
  * Diagnostic report produced by `loadEnvFile`. Written to stderr by
  * `writeStartupBanner` and surfaced via `dexe_doctor`.
  */
@@ -18,8 +38,24 @@ export interface EnvLoadReport {
   envFileExists: boolean;
   envFileLoaded: boolean;
   loadedNodeVersion: string;
-  /** Raw-byte parse warnings (BOM, missing trailing newline, spaces around =). */
-  parseWarnings: string[];
+  /** Raw-byte parse traps (BOM, missing trailing newline, spaces around =). */
+  parseIssues: EnvParseIssue[];
+  /** Every key assigned in the file, in file order, deduped. */
+  fileKeys: string[];
+  /** File keys whose value actually took effect — nothing had set them yet. */
+  keysApplied: string[];
+  /**
+   * File keys ALREADY present in `process.env` when this file was read.
+   * `process.loadEnvFile` does not override, so the file's value is dead text.
+   * For the winning file this means the MCP host `env` block shadows `.env`.
+   */
+  keysShadowed: string[];
+  /**
+   * File keys that were neither pre-set nor present after loading: the parser
+   * did not apply the line at all (BOM on the first key, dropped last line,
+   * malformed syntax). Proof of a silent trap rather than a suspicion.
+   */
+  keysDropped: string[];
   /** DEXE_* vars in process.env that ENV_SPEC does not know about. */
   unknownDexeVars: string[];
   /** Vars that are NOT set but would unlock a common flow if they were. */
@@ -30,6 +66,34 @@ export interface EnvLoadReport {
    * SHADOW the .env file. Subtle precedence trap.
    */
   preExistingVars: EnvKey[];
+}
+
+/** Everything the server learned while resolving `.env`, for `dexe_doctor`. */
+export interface EnvSourceState {
+  /** Paths tried, in precedence order (from `resolveEnvCandidates`). */
+  candidates: string[];
+  /** One report per path passed to `loadEnvFile`, in load order. */
+  reports: EnvLoadReport[];
+}
+
+/**
+ * Recorded as a side effect of the two functions below, because `src/index.ts`
+ * resolves and loads `.env` at module scope — before any tool exists — and
+ * doctor runs much later, when the inputs that produced it (the pre-load
+ * `process.env`, the launcher's cwd, the package dir) are gone or changed.
+ * Re-deriving it there would answer a different question than "what did this
+ * server actually load at startup".
+ */
+let envSourceState: EnvSourceState = { candidates: [], reports: [] };
+
+/** What this process resolved and loaded at startup. */
+export function getEnvLoadState(): EnvSourceState {
+  return envSourceState;
+}
+
+/** Test seam — drop the recorded resolution. */
+export function resetEnvLoadState(): void {
+  envSourceState = { candidates: [], reports: [] };
 }
 
 /**
@@ -67,7 +131,51 @@ export function resolveEnvCandidates(opts: {
   push(resolve(opts.cwd, ".env"));
   push(resolve(opts.home, ".dexe-mcp", ".env"));
   push(resolve(opts.pkgDir, "..", ".env"));
+  // A fresh resolution supersedes anything recorded before it.
+  envSourceState = { candidates: out, reports: [] };
   return out;
+}
+
+interface Assignment {
+  key: string;
+  /** 1-based line number, for paste-ready "fix line N" messages. */
+  line: number;
+}
+
+/**
+ * Line-scan the file for `KEY=` assignments. Values spanning multiple lines
+ * (an unclosed quote) are skipped wholesale — treating their inner lines as
+ * assignments would invent keys that were never dropped.
+ */
+function scanAssignments(lines: string[]): { assignments: Assignment[]; spaceLines: number[] } {
+  const assignments: Assignment[] = [];
+  const spaceLines: number[] = [];
+  let openQuote: string | undefined;
+  lines.forEach((line, i) => {
+    if (openQuote) {
+      if (line.includes(openQuote)) openQuote = undefined;
+      return;
+    }
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    // Spaces around `=` survive into the value on some parsers — a JWT with a
+    // leading space fails auth in a way nothing else explains.
+    if (
+      /^\s*[A-Za-z_][A-Za-z0-9_]*\s+=/.test(line) ||
+      /^\s*[A-Za-z_][A-Za-z0-9_]*=\s/.test(line)
+    ) {
+      spaceLines.push(i + 1);
+    }
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(trimmed);
+    if (!m) return;
+    assignments.push({ key: m[1]!, line: i + 1 });
+    const value = m[2]!;
+    const quote = value[0];
+    if ((quote === '"' || quote === "'" || quote === "`") && !(value.length > 1 && value.endsWith(quote))) {
+      openQuote = quote;
+    }
+  });
+  return { assignments, spaceLines };
 }
 
 /**
@@ -84,63 +192,125 @@ export function loadEnvFile(
   envFilePath: string,
   prevEnvSnapshot: ReadonlySet<string>,
 ): EnvLoadReport {
-  const parseWarnings: string[] = [];
+  const parseIssues: EnvParseIssue[] = [];
   const envFileExists = existsSync(envFilePath);
   let envFileLoaded = false;
+  let fileKeys: string[] = [];
+  const keysApplied: string[] = [];
+  const keysShadowed: string[] = [];
+  const keysDropped: string[] = [];
 
   if (envFileExists) {
+    let hasBom = false;
+    let missingTrailingNewline = false;
+    let firstKey: string | undefined;
+    let lastLineKey: string | undefined;
+    let spaceLines: number[] = [];
+
     try {
       const raw = readFileSync(envFilePath);
-      // UTF-8 BOM — process.loadEnvFile may misparse the first key.
-      if (raw.length >= 3 && raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf) {
-        parseWarnings.push(
-          ".env begins with a UTF-8 BOM — process.loadEnvFile may misparse the first line. " +
-            "Re-save the file without BOM.",
-        );
-      }
-      // Missing trailing newline — Node silently drops the last line.
-      if (raw.length > 0 && raw[raw.length - 1] !== 0x0a /* \n */) {
-        parseWarnings.push(
-          ".env does not end with a newline — process.loadEnvFile silently drops the last line. " +
-            "Add a trailing newline to fix.",
-        );
-      }
-      // Spaces around `=` produce surprising values.
-      const spaceLines: number[] = [];
-      raw
-        .toString("utf8")
-        .split(/\r?\n/)
-        .forEach((line, i) => {
-          if (!line || line.trimStart().startsWith("#")) return;
-          if (
-            /^\s*[A-Za-z_][A-Za-z0-9_]*\s+=/.test(line) ||
-            /^\s*[A-Za-z_][A-Za-z0-9_]*=\s/.test(line)
-          ) {
-            spaceLines.push(i + 1);
-          }
-        });
-      if (spaceLines.length) {
-        parseWarnings.push(
-          `.env has spaces around \`=\` on line(s) ${spaceLines.join(
-            ", ",
-          )} — values may include leading/trailing whitespace. Remove the spaces.`,
-        );
+      hasBom = raw.length >= 3 && raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf;
+      // Node's parser stops at the last newline; a final line without one is
+      // never seen.
+      missingTrailingNewline = raw.length > 0 && raw[raw.length - 1] !== 0x0a; /* \n */
+      // Drop the BOM bytes before line-scanning; keep the flag so the trap is
+      // still reported.
+      const lines = (hasBom ? raw.subarray(3) : raw).toString("utf8").split(/\r?\n/);
+      const scan = scanAssignments(lines);
+      spaceLines = scan.spaceLines;
+      fileKeys = [...new Set(scan.assignments.map(a => a.key))];
+      firstKey = scan.assignments[0]?.key;
+      if (missingTrailingNewline) {
+        lastLineKey = scan.assignments.find(a => a.line === lines.length)?.key;
       }
     } catch (err) {
-      parseWarnings.push(
-        `.env is unreadable: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      parseIssues.push({
+        trap: "unreadable",
+        severity: "fail",
+        message: `${envFilePath} could not be read: ${err instanceof Error ? err.message : String(err)}`,
+        remediation: `Check the file's permissions and that it is a regular file, then restart Claude Code.`,
+      });
     }
+
+    // Which of the file's keys are already claimed. Captured BEFORE the load:
+    // `process.loadEnvFile` does not override, so these values never apply.
+    const preSet = new Set(fileKeys.filter(k => process.env[k] !== undefined));
 
     try {
       process.loadEnvFile(envFilePath);
       envFileLoaded = true;
     } catch (err) {
-      parseWarnings.push(
-        `process.loadEnvFile failed (Node < 21.7 or syntax error): ${
+      parseIssues.push({
+        trap: "load-failed",
+        severity: "fail",
+        message: `${envFilePath} was NOT loaded — process.loadEnvFile threw (Node < 21.7, or a syntax error): ${
           err instanceof Error ? err.message : String(err)
         }`,
-      );
+        remediation:
+          "Upgrade to Node 22 LTS, then check the file for lines that are not `KEY=value`. Restart Claude Code after fixing.",
+      });
+    }
+
+    // Post-load truth: what the parser actually did with each key.
+    for (const k of fileKeys) {
+      if (preSet.has(k)) keysShadowed.push(k);
+      else if (process.env[k] !== undefined) keysApplied.push(k);
+      else keysDropped.push(k);
+    }
+
+    if (hasBom) {
+      const proven = !!firstKey && keysDropped.includes(firstKey);
+      parseIssues.push({
+        trap: "bom",
+        severity: proven ? "fail" : "warn",
+        message: proven
+          ? `${envFilePath} starts with a UTF-8 BOM and its first key (${firstKey}) did NOT load — the BOM is glued to the key name.`
+          : `${envFilePath} starts with a UTF-8 BOM — process.loadEnvFile can glue it to the first key name.`,
+        remediation: `Re-save ${envFilePath} as UTF-8 WITHOUT BOM (VS Code: "Save with Encoding" → "UTF-8"; PowerShell: Set-Content -Encoding utf8NoBOM), then restart Claude Code.`,
+      });
+    }
+
+    if (missingTrailingNewline) {
+      const proven = !!lastLineKey && keysDropped.includes(lastLineKey);
+      parseIssues.push({
+        trap: "no-trailing-newline",
+        severity: proven ? "fail" : "warn",
+        message: proven
+          ? `${envFilePath} does not end with a newline and its last line (${lastLineKey}=…) was DROPPED by process.loadEnvFile on Node ${process.version}.`
+          : `${envFilePath} does not end with a newline${
+              lastLineKey ? ` — the last line (${lastLineKey}=…) is at risk` : ""
+            }; process.loadEnvFile silently drops the final line on some Node versions.`,
+        remediation: `Add a trailing newline to ${envFilePath} (the last line must end with \\n), then restart Claude Code.`,
+      });
+    }
+
+    if (spaceLines.length) {
+      parseIssues.push({
+        trap: "spaces-around-equals",
+        severity: "warn",
+        message: `${envFilePath} has spaces around \`=\` on line(s) ${spaceLines.join(
+          ", ",
+        )} — Node trims them, but other readers of the same file (shell \`source\`, docker --env-file, older parsers) do not, and a stray space inside a pasted secret is invisible.`,
+        remediation: `Write \`KEY=value\` with no spaces around \`=\` on those lines in ${envFilePath}, then restart Claude Code.`,
+      });
+    }
+
+    // Keys the parser skipped for a reason the two traps above don't explain.
+    const explained = new Set(
+      [hasBom ? firstKey : undefined, missingTrailingNewline ? lastLineKey : undefined].filter(
+        (k): k is string => !!k,
+      ),
+    );
+    const unexplained = keysDropped.filter(k => !explained.has(k));
+    if (unexplained.length && envFileLoaded) {
+      parseIssues.push({
+        trap: "keys-not-applied",
+        severity: "fail",
+        message: `${envFilePath} assigns ${unexplained.join(
+          ", ",
+        )} but process.loadEnvFile did not apply ${unexplained.length === 1 ? "it" : "them"} — the line(s) are malformed.`,
+        remediation: `Rewrite those lines in ${envFilePath} as plain \`KEY=value\` (no \`export\`, no quotes needed, nothing after the value), then restart Claude Code.`,
+      });
     }
   }
 
@@ -164,16 +334,26 @@ export function loadEnvFile(
   // from the MCP host (.claude.json env block) and will shadow .env.
   const preExistingVars: EnvKey[] = envKeys().filter(k => prevEnvSnapshot.has(k));
 
-  return {
+  const report: EnvLoadReport = {
     envFilePath,
     envFileExists,
     envFileLoaded,
     loadedNodeVersion: process.version,
-    parseWarnings,
+    parseIssues,
+    fileKeys,
+    keysApplied,
+    keysShadowed,
+    keysDropped,
     unknownDexeVars,
     missingButEnablesFlows,
     preExistingVars,
   };
+
+  const seen = envSourceState.reports.findIndex(r => r.envFilePath === envFilePath);
+  if (seen >= 0) envSourceState.reports[seen] = report;
+  else envSourceState.reports.push(report);
+
+  return report;
 }
 
 /**
@@ -187,12 +367,14 @@ export function writeStartupBanner(report: EnvLoadReport): void {
   if (!report.envFileExists) {
     w(`no .env at ${report.envFilePath} — using process env only`);
   } else if (report.envFileLoaded) {
-    w(`loaded .env from ${report.envFilePath} (Node ${report.loadedNodeVersion})`);
+    w(
+      `loaded .env from ${report.envFilePath} — ${report.keysApplied.length} key(s) applied (Node ${report.loadedNodeVersion})`,
+    );
   } else {
     w(`.env present but not loaded — see warnings below`);
   }
-  for (const wmsg of report.parseWarnings) {
-    w(`warn: ${wmsg}`);
+  for (const issue of report.parseIssues) {
+    w(`${issue.severity}: ${issue.message} ${issue.remediation}`);
   }
   if (report.unknownDexeVars.length) {
     w(
@@ -201,11 +383,12 @@ export function writeStartupBanner(report: EnvLoadReport): void {
       )}. Run dexe_doctor for details.`,
     );
   }
-  if (report.preExistingVars.length) {
+  if (report.keysShadowed.length) {
     w(
-      `warn: [${report.preExistingVars.join(", ")}] were set by the MCP host env block ` +
-        `and will SHADOW .env. process.loadEnvFile does not override pre-set values. ` +
-        `Remove them from .claude.json to use .env values, or update them there. ` +
+      `warn: [${report.keysShadowed.join(", ")}] are set in ${report.envFilePath} but were ` +
+        `ALREADY set in the environment, so the file's values were ignored — ` +
+        `process.loadEnvFile does not override pre-set values. Remove them from the MCP host ` +
+        `env block (.claude.json) to use the .env values, or update them there. ` +
         `Run dexe_doctor for details.`,
     );
   }

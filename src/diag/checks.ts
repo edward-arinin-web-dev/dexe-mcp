@@ -3,6 +3,7 @@ import { existsSync, accessSync, constants } from "node:fs";
 import { dirname } from "node:path";
 import { ENV_REGISTRY, type EnvKey, type EnvEntry, type EnvCategory } from "../env/schema.js";
 import { parseEnv } from "../env/parse.js";
+import { getEnvLoadState, type EnvLoadReport, type EnvSourceState } from "../env/loader.js";
 import type { DexeConfig } from "../config.js";
 import { DEFAULTS } from "../config.js";
 import { maskUrl, redactUrlCredentials } from "../lib/redact.js";
@@ -23,6 +24,8 @@ export interface RunCheckOpts {
   config?: DexeConfig;
   /** Per-network-check timeout. Defaults to 3000ms. */
   timeoutMs?: number;
+  /** Override the recorded `.env` resolution. Defaults to what this process loaded. */
+  envSource?: EnvSourceState;
 }
 
 /**
@@ -35,6 +38,11 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
   const timeoutMs = opts.timeoutMs ?? 3000;
   const results: CheckResult[] = [];
 
+  const envSource = opts.envSource ?? getEnvLoadState();
+  // Loudest first: a degraded startup or an unloaded .env explains most of
+  // what follows.
+  results.push(...startupIssueChecks(opts.config, envSource));
+  results.push(...envSourceChecks(envSource));
   results.push(...envPresenceChecks());
 
   const network = await Promise.all([
@@ -49,12 +57,183 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
     if (r) results.push(r);
   }
 
-  results.push(...signerGuardConfigCheck());
+  results.push(...signerGuardConfigCheck(opts.config));
   results.push(...chainConsistencyCheck(opts.config));
   results.push(...sharedDefaultsCheck(opts.config));
   results.push(...stateStoreCheck(opts.config));
 
   return results;
+}
+
+// ─── degraded startup (config fell back instead of exiting) ────────────────
+
+/**
+ * Report every env value `loadConfig` rejected. Since 0.30.1 a bad value
+ * degrades to its documented default instead of killing the server — an
+ * invisible downgrade if doctor stayed green, so each one is a hard `fail`
+ * here. A degraded config and a green doctor must not be reachable.
+ */
+export function startupIssueChecks(
+  config: DexeConfig | undefined,
+  envSource?: EnvSourceState,
+): CheckResult[] {
+  if (!config) return [];
+  const where = loadedEnvPath(envSource) ?? "your .env";
+  if (config.startupIssues.length === 0) {
+    return [
+      {
+        id: "startup.config",
+        category: "process",
+        status: "pass",
+        message: "every env value parsed — nothing was rejected at startup",
+      },
+    ];
+  }
+  return config.startupIssues.map(issue => ({
+    id: `startup.${issue.key}`,
+    category: categoryForKey(issue.key),
+    status: "fail" as const,
+    message: `${issue.message} The server did NOT exit: ${issue.fallback}.`,
+    remediation: `Correct ${issue.key} in ${where}, then restart Claude Code — env is read once, at startup.`,
+  }));
+}
+
+function categoryForKey(key: string): CheckCategory {
+  const entry = (ENV_REGISTRY as Record<string, EnvEntry | undefined>)[key];
+  if (entry) return entry.category;
+  // Family names (`DEXE_AGENT_PK_*`) have no registry entry of their own.
+  if (key.includes("SIGNER") || key.includes("AGENT_PK") || key.includes("PRIVATE_KEY")) {
+    return "signer";
+  }
+  return "process";
+}
+
+// ─── which .env was loaded, and what shadows it ────────────────────────────
+
+/** The file that supplied values, if any. */
+function winningReport(state: EnvSourceState | undefined): EnvLoadReport | undefined {
+  const existing = state?.reports.filter(r => r.envFileExists) ?? [];
+  return existing.find(r => r.envFileLoaded) ?? existing[0];
+}
+
+function loadedEnvPath(state: EnvSourceState | undefined): string | undefined {
+  return winningReport(state)?.envFilePath;
+}
+
+function summarizeKeys(keys: string[], max = 12): string {
+  return keys.length <= max
+    ? keys.join(", ")
+    : `${keys.slice(0, max).join(", ")} +${keys.length - max} more`;
+}
+
+/**
+ * Answer the question CLAUDE.md, docs/SETUP.md and the `/dexe-setup` skill all
+ * tell an assisting AI to ask first: which `.env` did this server actually
+ * load, and is anything overriding it? `process.loadEnvFile` never overrides a
+ * pre-set key, so an MCP host `env` block silently wins over the file the user
+ * is editing — the "I changed .env and nothing happened" trap.
+ */
+export function envSourceChecks(state: EnvSourceState | undefined): CheckResult[] {
+  const out: CheckResult[] = [];
+  if (!state || (state.candidates.length === 0 && state.reports.length === 0)) {
+    return [
+      {
+        id: "env.file",
+        category: "process",
+        status: "warn",
+        message:
+          ".env resolution was not recorded — these checks are running outside the server's startup path, so the file list below would be a guess.",
+        remediation:
+          "Run `npx dexe-mcp doctor`, or call dexe_doctor inside Claude Code, to see what the server itself loaded.",
+      },
+    ];
+  }
+
+  const winner = winningReport(state);
+  const last = state.reports[state.reports.length - 1];
+
+  if (!winner) {
+    const hostKeys = last?.preExistingVars ?? [];
+    out.push({
+      id: "env.file",
+      category: "process",
+      status: "warn",
+      message:
+        `no .env file exists — tried, in order: ${state.candidates.join(" → ")}. ` +
+        (hostKeys.length
+          ? `Every DEXE_* value comes from the MCP host env block instead (${summarizeKeys(hostKeys)}).`
+          : "Reads still work zero-config; signing and IPFS uploads do not."),
+      remediation:
+        "Create one with `npx dexe-mcp init` (writes ~/.dexe-mcp/.env), or set DEXE_ENV_FILE to an absolute path, then restart Claude Code. Editing a .env at any other location — including a repo checkout the server is not launched from — has no effect.",
+    });
+  } else {
+    out.push({
+      id: "env.file",
+      category: "process",
+      status: "pass",
+      message:
+        `loaded ${winner.envFilePath} — ${winner.keysApplied.length} key(s) applied` +
+        (winner.keysApplied.length ? `: ${summarizeKeys(winner.keysApplied)}` : "") +
+        ` (Node ${winner.loadedNodeVersion})`,
+      remediation: `Edit THIS file for env changes: ${winner.envFilePath}. Restart Claude Code afterwards.`,
+    });
+
+    const alsoPresent = state.reports.filter(r => r.envFileExists && r !== winner);
+    if (alsoPresent.length) {
+      out.push({
+        id: "env.file.precedence",
+        category: "process",
+        status: "warn",
+        message: `${alsoPresent.length} lower-precedence .env file(s) also exist and lost: ${alsoPresent
+          .map(r => r.envFilePath)
+          .join(", ")}. Keys already set by ${winner.envFilePath} are ignored in them.`,
+        remediation: `Keep one file. Edit ${winner.envFilePath}, or delete/rename the others, then restart Claude Code.`,
+      });
+    }
+
+    if (winner.keysShadowed.length) {
+      out.push({
+        id: "env.shadowedKeys",
+        category: "process",
+        status: "warn",
+        message:
+          `${winner.keysShadowed.length} key(s) in ${winner.envFilePath} were SHADOWED by values already in the environment: ` +
+          `${summarizeKeys(winner.keysShadowed)}. process.loadEnvFile does not override pre-set keys, so editing them in that file changes nothing.`,
+        remediation: `Remove those keys from the MCP host \`env\` block (the \`env\` object in .claude.json / your MCP client config) — or change their values there instead — then restart Claude Code.`,
+      });
+    }
+  }
+
+  // Raw-byte traps: BOM, missing trailing newline, spaces around `=`.
+  state.reports
+    .filter(r => r.envFileExists)
+    .forEach((r, i) => {
+      for (const issue of r.parseIssues) {
+        out.push({
+          id: i === 0 ? `env.parse.${issue.trap}` : `env.parse.${issue.trap}.${i}`,
+          category: "process",
+          status: issue.severity,
+          message: issue.message,
+          remediation: issue.remediation,
+        });
+      }
+    });
+
+  if (last?.unknownDexeVars.length) {
+    out.push({
+      id: "env.unknownVars",
+      category: "process",
+      status: "warn",
+      message: `unrecognized DEXE_* var(s): ${summarizeKeys(
+        last.unknownDexeVars,
+      )} — nothing reads them (a typo silently disables the feature you set it for).`,
+      remediation: `Check the spelling against docs/ENVIRONMENT.md, fix or delete the line in ${
+        loadedEnvPath(state) ?? "your .env"
+      }, then restart Claude Code.`,
+    });
+  }
+
+  return out;
 }
 
 // ─── persistent state path writability ─────────────────────────────────────
@@ -406,12 +585,16 @@ async function backendCheck(timeoutMs: number): Promise<CheckResult | null> {
 
 // ─── signer broadcast guards ─────────────────────────────────────────────
 
-function signerGuardConfigCheck(): CheckResult[] {
+function signerGuardConfigCheck(config?: DexeConfig): CheckResult[] {
   const out: CheckResult[] = [];
 
-  // Advisory: a hot key is the active signer. Warn (never fail) and steer to
-  // WalletConnect, where the phone signs and the key never touches disk.
-  if (process.env.DEXE_PRIVATE_KEY?.trim()) {
+  // Report the RESOLVED signer, not the raw env. Since 0.30.1 a malformed
+  // broadcast-guard var fails closed (signing off) while the env var it was
+  // set from is still present — reading process.env here would tell the user
+  // their hot key is "the active signer" while every broadcast is refused.
+  const hotKeySet = process.env.DEXE_PRIVATE_KEY?.trim();
+  const hotKeyActive = config ? config.privateKey !== undefined : Boolean(hotKeySet);
+  if (hotKeySet && hotKeyActive) {
     out.push({
       id: "signer.hotKey",
       category: "signer",
@@ -420,6 +603,16 @@ function signerGuardConfigCheck(): CheckResult[] {
         "⚠️ NOT SAFE — DEXE_PRIVATE_KEY is the active signer: a hot key in plaintext on disk.",
       remediation:
         "Prefer WalletConnect: unset DEXE_PRIVATE_KEY and run dexe_wc_connect (the phone signs, key never on disk). If you must keep a hot key, use only a throwaway/test wallet.",
+    });
+  } else if (hotKeySet && !hotKeyActive) {
+    out.push({
+      id: "signer.hotKey",
+      category: "signer",
+      status: "fail",
+      message:
+        "DEXE_PRIVATE_KEY is set but signing is DISABLED — the key was rejected, or a broadcast-guard variable is malformed and the server failed closed rather than broadcasting unguarded.",
+      remediation:
+        "See the startup.* rows above for the offending variable, fix it in .env, then restart Claude Code. Until then every write tool refuses to broadcast.",
     });
   }
 
@@ -494,12 +687,26 @@ function signerGuardConfigCheck(): CheckResult[] {
   if (process.env.DEXE_AGENT_FUNDER_PK?.trim()) slots.push("funder");
   else if (process.env.AGENT_FUNDER_PK?.trim()) slots.push("funder(alias)");
   if (slots.length > 0) {
-    out.push({
-      id: "signer.agentKeyring",
-      category: "signer",
-      status: "pass",
-      message: `${slots.length} keyring slot(s): ${slots.join(", ")} — select per call via signerKey`,
-    });
+    // Same resolved-vs-raw distinction as signer.hotKey above: the env vars can
+    // be present while the keyring was dropped (no RPC, or a failed-closed guard).
+    const loaded = config ? Object.keys(config.agentKeys).length : slots.length;
+    out.push(
+      loaded > 0
+        ? {
+            id: "signer.agentKeyring",
+            category: "signer",
+            status: "pass",
+            message: `${loaded} keyring slot(s): ${slots.join(", ")} — select per call via signerKey`,
+          }
+        : {
+            id: "signer.agentKeyring",
+            category: "signer",
+            status: "fail",
+            message: `${slots.length} keyring slot(s) configured (${slots.join(", ")}) but NONE are loaded — signing is disabled.`,
+            remediation:
+              "See the startup.* rows above: either no RPC is configured, or a broadcast-guard variable is malformed. Fix it in .env and restart Claude Code.",
+          },
+    );
   }
 
   return out;
