@@ -156,8 +156,11 @@ describe("dexe_guide (real server)", () => {
     expect(out.topic).toBe("read_dao_data");
     expect(out.sections.length).toBeGreaterThanOrEqual(5);
     expect(out.gotchas.some((g: any) => g.id === "subgraph-backend-mainnet-only")).toBe(true);
+    // Default-visible since 0.31.0 → no annotation; the still-gated ones keep one.
     const graphQuery = out.tools.find((t: any) => t.tool === "dexe_graph_query");
-    expect(graphQuery.requiresToolset).toContain("read");
+    expect(graphQuery.requiresToolset).toBeUndefined();
+    const simCalldata = out.tools.find((t: any) => t.tool === "dexe_sim_calldata");
+    expect(simCalldata.requiresToolset).toContain("dev");
     // Reference material must NOT carry the flow interview/broadcast framing.
     expect(out.agentProtocol).toBeUndefined();
     expect(out.interview).toBeUndefined();

@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.31.0 — 2026-08-07
+
+**Read & report GA.** "Pull a report about a DAO — activity, members, who voted,
+statistics" took 12–18 tool calls plus one per proposal, and on a fresh install
+it was not possible at all: the subgraph and analytics tools sat behind
+`DEXE_TOOLSETS=read` while the README and the shipped `dexe://graph-schema`
+resource advertised them. **165 → 167 tools** across 19 groups.
+
+### Breaking
+- **The default `DEXE_TOOLSETS` profile is now `core` alone** (was
+  `core,proposals`). The ~30 single-purpose `dexe_proposal_build_*` tools moved
+  to `proposals`, because `dexe_proposal_create` — still in `core` — takes
+  `proposalType` + `params` and covers every on-chain catalog type. They were
+  costing ~45 KB of `tools/list` to duplicate a capability the default already
+  had. `DEXE_TOOLSETS=core,proposals` restores the previous surface exactly;
+  nothing was removed, and `dexe_proposal_catalog` stays in `core` so type
+  discovery survives the demotion.
+
+  Net effect on a default session: **134,263 → 86,093 bytes (−35.9%)** while
+  *gaining* the whole reporting surface. The 138,000 ceiling 0.30.3 recorded as
+  debt was paid down, not raised.
+
+### Added
+- **`dexe_dao_report`** — one call for identity, settings, treasury, membership,
+  delegation, experts, validators, proposal throughput and outcomes, turnout,
+  activity, and deadlines. Verified live against BSC mainnet: it replaces **41
+  calls** (13 tools plus one `dexe_proposal_voters` per proposal — 28 of them on
+  the DeXe Protocol DAO). Turnout for every proposal now comes from one batched
+  query instead of one round-trip each.
+  - **`since` returns what CHANGED** — new proposals, state transitions, member
+    and delegation deltas, treasury movement — so a scheduled run is a digest,
+    not the same numbers re-stated. Accepts ISO, Unix, `block:<n>` or `"last"`.
+  - **Sections degrade independently.** On a chain with no subgraph the on-chain
+    sections still render and every missing one is NAMED with the reason and a
+    follow-up. A silently half-empty report is the failure mode this release
+    train has spent five versions eliminating.
+  - Declares an `outputSchema`, so a recurring report can be consumed by code.
+- **`dexe_graph_schema`** — live GraphQL introspection: the recovery path from
+  `Type 'X' has no field 'Y'`, which was previously a dead end. It also maps
+  entities to their root query fields, several of which are not derivable
+  (`DaoPool` → `daoPools`, `ProposalSettings` → `proposalSettings_collection`).
+- **`docs/REPORTING.md` + a `dexe-report` skill + a `report_dao_activity` guide
+  topic.** `dexe_guide` matched *nothing* for reporting language before this;
+  it now routes "how is this DAO doing", "weekly digest", "who voted",
+  "monitor this DAO" to the reporting recipe, with paste-able `/schedule` and
+  `/loop` invocations.
+
+### Fixed
+- `dexe_graph_query` rejected any document starting with `fragment` as if it
+  were a mutation. The guard now survives 22 adversarial documents, including
+  `mutation` as a field name, inside a string, inside a block string, inside a
+  comment, and a fragment *named* `mutation`.
+- **Descriptions and error strings named tools the session does not have.**
+  Moving the profile boundary made them lie: a zero-config session that sent a
+  bad field name was told to *"call `dexe_graph_schema`"* — a tool not in its
+  list. That is the single most common subgraph failure and its documented
+  recovery was a 404. `dexe_graph_schema` is now in `core`, and every remaining
+  cross-profile reference is annotated with the toolset that unlocks it.
+- `dexe_dao_report`'s own degradation advice had the same defect: 6 of the 10
+  tools it suggested were not callable in the profile that produced the message.
+- The README quickstart demoed `dexe_proposal_build_token_transfer` — a
+  confident 404 in the first code block a new user reads.
+
+### Tests
+- 122 files / 1470 passing (+7 files, +143 tests). Two durable guards worth
+  naming, because hand-auditing this will not survive the next boundary move:
+  one walks the **actual** default profile and fails on any `dexe_*` mentioned
+  in a description or schema that is neither default-visible nor annotated (and
+  checks the annotation is *true*); another asserts every catalog proposal type
+  stays reachable through `dexe_proposal_create`, so demoting a builder can
+  never silently remove a capability.
+- The tool-count drift guard now distinguishes current claims from archival
+  ones: `docs/MIGRATION.md` records the count per release, and rewriting those
+  numbers would make it lie about what a user actually upgraded from.
+
 ## 0.30.4 — 2026-08-06
 
 **Nothing hangs, and nothing leaks.** No outbound call in the server had a
