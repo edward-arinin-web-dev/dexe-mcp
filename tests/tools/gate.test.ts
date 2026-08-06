@@ -120,7 +120,17 @@ describe("tool gating (real server)", () => {
     // Default (core,proposals) keeps every proposal builder discoverable — a
     // meaningful cut, not the deepest. core-only is the max-slim path.
     expect(defReduction).toBeGreaterThan(0.4);
-    expect(defaultBytes).toBeLessThan(130_000);
+    // 0.30.3 raised this from 130_000 (which had 45 bytes of headroom) to pay
+    // for the `chainId` param across the builder surface — the thing that stops
+    // a payload built for one chain being broadcast on another. Correctness the
+    // default profile should carry, so the bytes are the right trade.
+    //
+    // This ceiling is DEBT, not a target. 0.31.0 restructures the default slice
+    // (the audit found ~45 KB of redundant single-purpose builders loaded by
+    // default while every analytics tool is gated off) and must bring this
+    // number DOWN, not raise it again. Raising it a second time means the slim-
+    // default promise has quietly stopped being true.
+    expect(defaultBytes).toBeLessThan(138_000);
     // The documented "maximum slim" default alternative clears the 60% target.
     expect(coreReduction).toBeGreaterThan(0.6);
   });

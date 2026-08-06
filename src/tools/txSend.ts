@@ -46,7 +46,8 @@ export function registerTxTools(
     "Sign and broadcast a transaction using the configured DEXE_PRIVATE_KEY. " +
       "Pass the TxPayload fields returned by any dexe_*_build_* tool. " +
       "Waits for on-chain confirmation and returns the receipt. " +
-      "When the MCP has multiple chains configured, pass `chainId` explicitly to pick which one to broadcast on; otherwise the default chain is used.",
+      "When the MCP has multiple chains configured, pass `chainId` explicitly to pick which one to broadcast on; otherwise the default chain is used. " +
+      "Also pass the payload's own chainId as `payloadChainId` — the send is refused when the two disagree.",
     {
       to: z.string().describe("Destination contract address"),
       data: z.string().describe("ABI-encoded calldata (0x-prefixed hex)"),
@@ -61,6 +62,15 @@ export function registerTxTools(
         .optional()
         .describe(
           "Target chain id. Defaults to the MCP's default chain. Tool rejects if no RPC is configured for the requested chain.",
+        ),
+      payloadChainId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "The `chainId` field of the TxPayload being broadcast — copy it verbatim from the builder output. " +
+            "If it disagrees with `chainId` the send is REFUSED (the payload was built for a different chain).",
         ),
       gasLimit: z
         .string()
@@ -78,7 +88,7 @@ export function registerTxTools(
         .optional()
         .describe("Keyring signer: omit = primary key; 'agent<n>' or address = DEXE_AGENT_PK_* key. Hot-key mode only."),
     },
-    async ({ to, data, value, chainId, gasLimit, waitConfirmations, signerKey }) => {
+    async ({ to, data, value, chainId, payloadChainId, gasLimit, waitConfirmations, signerKey }) => {
       const chain = resolveChain(config, chainId);
 
       if (signerKey && wcActive()) {
@@ -95,7 +105,7 @@ export function registerTxTools(
 
       // ---- WalletConnect dispatch path (no hot key) ----------------------
       // The phone wallet signs AND broadcasts; we only see the hash. Guards
-      // (B6/B7/B9/B10) still run, keyed on the connected account as `from`.
+      // (B6/B7/B9/B10/B11) still run, keyed on the connected account as `from`.
       if (wcActive()) {
         if (!wc.isConnected()) {
           // Auto-pair: instead of erroring, start the session and print the QR
@@ -131,7 +141,10 @@ export function registerTxTools(
         }
         const from = wc.account()!;
         try {
-          await runBroadcastGuards({ to, data, value, chainId: chain.chainId, from }, config);
+          await runBroadcastGuards(
+            { to, data, value, chainId: chain.chainId, from, payloadChainId },
+            config,
+          );
         } catch (e) {
           if (e instanceof BroadcastGuardError) {
             return {
@@ -242,11 +255,11 @@ export function registerTxTools(
       }
       const wallet = sg.ok;
 
-      // Signer broadcast guards (B6/B7/B9/B10) — no-ops unless their env vars
-      // are set. Run before spending any gas.
+      // Signer broadcast guards (B6/B7/B9/B10/B11) — B6/B7/B10 are no-ops
+      // unless their env vars are set. Run before spending any gas.
       try {
         await runBroadcastGuards(
-          { to, data, value, chainId: chain.chainId, from: wallet.address },
+          { to, data, value, chainId: chain.chainId, from: wallet.address, payloadChainId },
           config,
         );
       } catch (e) {

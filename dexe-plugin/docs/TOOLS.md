@@ -162,7 +162,7 @@ Source: `src/tools/proposalBuild.ts`. The catalog tool is your runtime registry 
 |------|--------------|--------------|
 | `dexe_proposal_catalog` | Full catalog of proposal types: target contract/endpoint, IPFS metadata requirement, gating, and which MCP wrapper builds it. | (none) |
 | `dexe_proposal_build_external` | Primitive: builds `GovPool.createProposal(descriptionURL, actionsOnFor, actionsOnAgainst)` calldata. | (none) |
-| `dexe_proposal_build_internal` | Primitive: builds `GovValidators.createInternalProposal`. `proposalType` 0=ChangeBalances, 1=ChangeSettings, 2=MonthlyWithdraw, 3=OffchainProposal. | (none) |
+| `dexe_proposal_build_internal` | Primitive: builds `GovValidators.createInternalProposal`. `proposalType` 0=ChangeSettings, 1=ChangeBalances, 2=MonthlyWithdraw, 3=OffchainProposal (contract enum order — 0/1 read the reverse of the intuitive guess). | (none) |
 | `dexe_proposal_build_custom_abi` | Encodes a single `ProposalAction` from a user-supplied function signature + args. Drop result into `actionsOnFor`. | (none) |
 | `dexe_proposal_build_offchain` | Primitive: returns the ready HTTP request for the off-chain proposal backend. No wallet needed. | `DEXE_BACKEND_API_URL` |
 

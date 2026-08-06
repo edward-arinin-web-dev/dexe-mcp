@@ -15,6 +15,7 @@ import { simulateCalldata } from "../tools/simulate.js";
  *   B7  value cap              — `DEXE_SIGNER_MAX_VALUE_WEI`
  *   B9  auto-simulation        — eth_call preflight, abort on revert
  *   B10 rate limit             — `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`
+ *   B11 wrong-chain broadcast  — (always) payload chain vs send chain + code at `to`
  *
  * B6/B7/B10 are stateless and safe on any broadcast. B9 simulates against
  * *current* chain state, so it is unsound for dependent multi-step sequences
@@ -32,9 +33,14 @@ export interface BroadcastTx {
   chainId: number;
   /** Signer address — used as the `from` for the B9 eth_call. */
   from: string;
+  /**
+   * The `chainId` stamped on the built payload, when the caller supplied it
+   * separately from the chain it is being broadcast on. B11 refuses a mismatch.
+   */
+  payloadChainId?: number;
 }
 
-/** Thrown when a guard refuses a broadcast. `guard` is the backlog id (B6/B7/B9/B10). */
+/** Thrown when a guard refuses a broadcast. `guard` is the backlog id (B6/B7/B9/B10/B11). */
 export class BroadcastGuardError extends Error {
   constructor(
     readonly guard: string,
@@ -89,6 +95,54 @@ export function assertAllowlistAndValueCap(tx: { to: string; value: string }, cf
   }
 }
 
+/**
+ * B11: wrong-chain broadcast. Builders stamp a `chainId` on every payload, but
+ * nothing stopped that payload from being handed to a send on another chain —
+ * where the same address is a different contract, or nobody at all. Two checks,
+ * both fatal:
+ *
+ *   a. payload chain vs send chain — a payload built for 56 broadcast on 97 is
+ *      never intentional, so name both chains and refuse;
+ *   b. no contract code at `to` on the chain we are about to send on.
+ *
+ * (b) is skipped for a plain value transfer: paying an EOA is legitimate, and an
+ * EOA has no code by definition. It is also invisible to B9 — `eth_call` to a
+ * codeless address SUCCEEDS with empty returndata, so the sim preflight can
+ * never catch this class. A `getCode` failure fails OPEN (same posture as B9's
+ * networkError): a flaky RPC must not wedge a valid broadcast.
+ */
+export async function assertChainCoherence(
+  tx: { to: string; data: string; chainId: number; payloadChainId?: number },
+  getCode: (to: string) => Promise<string>,
+): Promise<void> {
+  if (tx.payloadChainId !== undefined && tx.payloadChainId !== tx.chainId) {
+    throw new BroadcastGuardError(
+      "B11",
+      `Payload was built for chain ${tx.payloadChainId} but you are broadcasting on chain ${tx.chainId}. ` +
+        `Refusing: an address holds a different contract (or none) on each chain. ` +
+        `Rebuild the payload with chainId ${tx.chainId}, or send it with chainId ${tx.payloadChainId}.`,
+    );
+  }
+
+  if (!tx.data || tx.data === "0x") return; // value transfer to an EOA — no code expected
+
+  let code: string;
+  try {
+    code = await getCode(tx.to);
+  } catch {
+    return; // no RPC for this chain, or a transport hiccup — fail open, never wedge
+  }
+  // "0x" is the canonical empty-code answer; tolerate providers that pad it.
+  if (/^0x0*$/i.test(code)) {
+    throw new BroadcastGuardError(
+      "B11",
+      `Destination ${tx.to} has no contract code on chain ${tx.chainId} — you are probably ` +
+        `broadcasting a payload built for a different chain. Refusing to send calldata to an ` +
+        `address that holds no code here.`,
+    );
+  }
+}
+
 export async function runBroadcastGuards(
   tx: BroadcastTx,
   cfg: DexeConfig,
@@ -96,6 +150,13 @@ export async function runBroadcastGuards(
 ): Promise<void> {
   // ---- B6 + B7: destination allowlist & value cap -----------------------
   assertAllowlistAndValueCap(tx, cfg);
+
+  // ---- B11: wrong-chain broadcast ---------------------------------------
+  // Before B9: the chain compare is free, and the getCode probe answers a
+  // question the sim structurally cannot (eth_call to a codeless address
+  // succeeds). Provider is built lazily inside the probe, so a value transfer
+  // costs no RPC at all.
+  await assertChainCoherence(tx, (to) => new RpcProvider(cfg).requireProvider(tx.chainId).getCode(to));
 
   // ---- B9: auto-simulation (eth_call preflight) -------------------------
   // Reuses the shared sim core; aborts before spending gas if the call would

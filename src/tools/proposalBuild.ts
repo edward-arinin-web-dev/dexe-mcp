@@ -8,11 +8,13 @@ import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
 import { CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
+import { buildChainIdParam } from "../lib/params.js";
 import { DEFAULTS } from "../config.js";
 import {
   PROPOSAL_CATALOG,
   EXTERNAL_METADATA_SHAPE,
   INTERNAL_METADATA_SHAPE,
+  INTERNAL_PROPOSAL_TYPE_LABELS,
   type ProposalTypeEntry,
 } from "../lib/proposalCatalog.js";
 
@@ -30,6 +32,13 @@ const ERC20_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
   "function approve(address spender, uint256 amount) returns (bool)",
 ] as const;
+
+/**
+ * "0=ChangeSettings, 1=ChangeBalances, …" rendered from the canonical enum so
+ * the prose in the tool description can never disagree with the value the
+ * builder actually encodes.
+ */
+const INTERNAL_TYPE_DOC = INTERNAL_PROPOSAL_TYPE_LABELS.map((l, i) => `${i}=${l}`).join(", ");
 
 const ActionSchema = z.object({
   executor: z.string(),
@@ -139,6 +148,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
         andVote: z.boolean().default(false),
         voteAmount: z.string().default("0"),
         voteNftIds: z.array(z.string()).default([]),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadSchema(),
     },
@@ -150,6 +160,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
       andVote = false,
       voteAmount = "0",
       voteNftIds = [],
+      chainId,
     }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
@@ -179,7 +190,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
               BigInt(voteAmount),
               voteNftIds.map((n) => BigInt(n)),
             ],
-            chainId: ctx.config.chainId,
+            chainId: chainId ?? ctx.config.defaultChainId,
             contractLabel: "GovPool",
             description: `GovPool.createProposalAndVote (${on.length} for / ${against.length} against)`,
           });
@@ -189,7 +200,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
             iface,
             method: "createProposal",
             args: [descriptionURL, on, against],
-            chainId: ctx.config.chainId,
+            chainId: chainId ?? ctx.config.defaultChainId,
             contractLabel: "GovPool",
             description: `GovPool.createProposal (${on.length} for / ${against.length} against)`,
           });
@@ -210,27 +221,35 @@ function registerBuildInternal(server: McpServer, ctx: ToolContext): void {
     {
       title: "Primitive: build calldata for GovValidators.createInternalProposal",
       description:
-        "Raw internal proposal builder. proposalType: 0=ChangeBalances, 1=ChangeSettings, 2=MonthlyWithdraw, 3=OffchainProposal. `data` is the abi-encoded type-specific payload (see DeXe docs or use a dedicated wrapper in Phase 3e).",
+        `Raw internal proposal builder. proposalType is the GovValidators enum: ${INTERNAL_TYPE_DOC} ` +
+        "— note 0/1 are the reverse of the intuitive reading. `data` is the abi-encoded type-specific " +
+        "payload; the dexe_proposal_build_change_validator_settings / _balances / _monthly_withdraw / " +
+        "_offchain_internal_proposal wrappers encode it and pick the matching enum value for you.",
       inputSchema: {
         validators: z.string().describe("GovValidators contract address"),
-        proposalType: z.number().int().min(0).max(3),
+        // Literal union, not min/max — the enum value is unguessable from a bare
+        // numeric range, and guessing it silently creates the WRONG proposal.
+        proposalType: z
+          .union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)])
+          .describe(`GovValidators.ProposalType — ${INTERNAL_TYPE_DOC}`),
         descriptionURL: z.string(),
         data: z.string().default("0x"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadSchema(),
     },
-    async ({ validators, proposalType, descriptionURL, data = "0x" }) => {
+    async ({ validators, proposalType, descriptionURL, data = "0x", chainId }) => {
       if (!isAddress(validators)) return errorResult(`Invalid validators: ${validators}`);
       if (!data.startsWith("0x")) return errorResult("data must be 0x-prefixed hex");
       try {
         const iface = new Interface(GOV_VALIDATORS_ABI as unknown as string[]);
-        const label = ["ChangeBalances", "ChangeSettings", "MonthlyWithdraw", "OffchainProposal"][proposalType]!;
+        const label = INTERNAL_PROPOSAL_TYPE_LABELS[proposalType]!;
         const payload = buildPayload({
           to: validators,
           iface,
           method: "createInternalProposal",
           args: [proposalType, descriptionURL, data],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovValidators",
           description: `GovValidators.createInternalProposal(${label})`,
         });
@@ -366,6 +385,11 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
         govPool: z.string(),
         token: z.string().describe("ERC20 token contract (the transfer executor). Ignored when isNative=true."),
         recipient: z.string(),
+        // The blacklist probe reads the token contract, so it MUST run on the
+        // chain the proposal targets: on any other chain the token has no code,
+        // the guard degrades to `skipped`, and a blacklisted recipient produces
+        // a proposal that passes the vote and then reverts forever (bug #29).
+        chainId: buildChainIdParam,
         amount: z.string().describe("Wei / smallest-unit amount as decimal string"),
         isNative: z.boolean().default(false).describe("True for native token (BNB/ETH) transfers — sends value instead of ERC20.transfer"),
         proposalName: z.string().default("Token Transfer"),
@@ -387,6 +411,7 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
       govPool,
       token,
       recipient,
+      chainId,
       amount,
       isNative = false,
       proposalName = "Token Transfer",
@@ -403,7 +428,7 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
           actions = [{ executor: recipient, value: amount, data: "0x" }];
           actionLabel = `Native transfer → ${recipient} (${amount} wei)`;
         } else {
-          const bl = await checkBlacklist(ctx.config, token, recipient);
+          const bl = await checkBlacklist(ctx.config, token, recipient, chainId ?? ctx.config.defaultChainId);
           if (bl.status === "blacklisted") return errorResult(blacklistError(token, recipient));
           blacklistNote =
             bl.status === "skipped"

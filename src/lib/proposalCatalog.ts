@@ -29,6 +29,28 @@ export interface ProposalTypeEntry {
   implemented: boolean;
 }
 
+/**
+ * `GovValidators.ProposalType` in CONTRACT declaration order — index === the
+ * uint8 passed to `createInternalProposal(proposalType, …)`.
+ *
+ * Source: `DeXe-Protocol/contracts/gov/validators/GovValidators.sol`
+ * (`enum ProposalType { ChangeSettings, ChangeBalances, MonthlyWithdraw,
+ * OffchainProposal }`).
+ *
+ * 0 and 1 read as if they should be the other way round, which is exactly how
+ * this got inverted before (bug_validator_internal_enum_inverted). Every place
+ * that names an internal proposal type MUST derive it from this array so a
+ * copy can never drift from the contract again.
+ */
+export const INTERNAL_PROPOSAL_TYPE_LABELS = [
+  "ChangeSettings",
+  "ChangeBalances",
+  "MonthlyWithdraw",
+  "OffchainProposal",
+] as const;
+
+export type InternalProposalTypeLabel = (typeof INTERNAL_PROPOSAL_TYPE_LABELS)[number];
+
 export const PROPOSAL_CATALOG: ProposalTypeEntry[] = [
   // ---------- External (on-chain, call GovPool.createProposal, needs IPFS) ----------
   {
@@ -108,8 +130,14 @@ export const PROPOSAL_CATALOG: ProposalTypeEntry[] = [
     category: "external",
     name: "Withdraw from Treasury",
     formPath: "src/forms/createProposal/external/WithdrawForm",
-    effect: "Withdraw native or ERC20 from DAO treasury",
-    target: "GovPool.withdraw(receiver, amount, nftIds) — treasury lives on GovPool itself",
+    effect: "Move ERC20 and/or ERC721 out of the DAO treasury to a receiver",
+    // Bug #30: the treasury is a plain token holding sitting AT the govPool
+    // address, so it moves with ordinary token calls listed as actionsOnFor.
+    // GovPool.withdraw() is the personal deposit-withdraw path (it returns a
+    // voter their OWN deposited tokens) and reverts here — never name it.
+    target:
+      "ERC20.transfer(receiver, amount) and/or ERC721.transferFrom(govPool, receiver, tokenId) as actionsOnFor. " +
+      "NOT GovPool.withdraw — that is the personal deposit-withdraw path. Native BNB/ETH: use token_transfer with isNative=true.",
     needsIpfs: true,
     gating: [],
     mcpTool: "dexe_proposal_build_withdraw_treasury",
