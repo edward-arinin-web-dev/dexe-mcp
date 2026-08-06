@@ -33,7 +33,7 @@ overridable: set the matching var and your value wins.
 |---------|---------------|---------------|
 | On-chain RPC | Public BSC nodes, chains 56 + 97 (default 56) | `DEXE_RPC_URL_MAINNET` / `_TESTNET` (or `DEXE_DISABLE_PUBLIC_RPC=1`) |
 | ContractsRegistry (56 + 97) | canonical address (same deterministic deploy on both chains) | `DEXE_CONTRACTS_REGISTRY` |
-| Subgraph reads | shared DeXe gateway URLs (The Graph decentralized network, key in path) | `DEXE_SUBGRAPH_*_URL` (+ `DEXE_GRAPH_API_KEY`) |
+| Subgraph reads (**chain 56 only**) | shared DeXe gateway URLs (The Graph decentralized network, key in path) | `DEXE_SUBGRAPH_*_URL` (+ `DEXE_GRAPH_API_KEY`); other chains need `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` |
 | Backend API | `https://api.dexe.io` | `DEXE_BACKEND_API_URL` |
 | IPFS reads | public gateways (ipfs.io, dweb.link, cloudflare) | `DEXE_IPFS_GATEWAY` (or `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1`) |
 | Signing | WalletConnect (shared project id) — connect via `dexe_wc_connect` | `DEXE_WALLETCONNECT_PROJECT_ID` (your own) or `DEXE_PRIVATE_KEY` |
@@ -131,17 +131,19 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_IPFS_GATEWAY` | Reliability (optional) | Override the default public read gateways with a **dedicated** one (Pinata bundles one with the JWT; Filebase / QuickNode / self-hosted also fine). Reads default to public gateways since 0.17.0; set this for anything beyond light use. | `https://my-sub.mypinata.cloud` |
 | `DEXE_IPFS_GATEWAYS_FALLBACK` | `dexe_ipfs_fetch` (optional) | Extra comma-separated public gateways appended to the list, tried sequentially. | `https://dweb.link,https://ipfs.io` |
 | `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK` | opt-out (optional) | Set to `1` to disable the built-in public IPFS read-gateway default. Reads then require `DEXE_IPFS_GATEWAY`. | `1` |
-| `DEXE_SUBGRAPH_POOLS_URL` | Optional override | The Graph endpoint for the DeXe pools subgraph. **Defaults** to the shared DeXe gateway URL; set your own for heavy use. Used by `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`, `dexe_read_dao_experts`, `dexe_proposal_voters`. | `https://gateway.thegraph.com/api/<key>/subgraphs/id/<id>` |
-| `DEXE_SUBGRAPH_VALIDATORS_URL` | Optional override | Validators subgraph. Defaults to the shared DeXe URL. Used by `dexe_read_validator_list`. | same shape |
-| `DEXE_SUBGRAPH_INTERACTIONS_URL` | Optional override | Interactions subgraph. Defaults to the shared DeXe URL. Used by `dexe_read_user_activity`, `dexe_proposal_voters`. | same shape |
-| `DEXE_GRAPH_API_KEY` | Bearer-only subgraph URLs | The Graph API key sent as `Authorization: Bearer`. Not needed with the default URLs (key is embedded in the path). | `abc123...` |
+| `DEXE_SUBGRAPH_POOLS_URL` | Optional override, **chain `DEXE_SUBGRAPH_CHAIN_ID` only** | Pools subgraph endpoint. **Defaults** to the shared DeXe gateway URL (BSC mainnet); set your own for heavy use. Used by `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`, `dexe_read_dao_experts`, `dexe_proposal_voters`. | `https://gateway.thegraph.com/api/<key>/subgraphs/id/<id>` |
+| `DEXE_SUBGRAPH_VALIDATORS_URL` | Optional override, same chain scoping | Validators subgraph. Defaults to the shared DeXe URL. Used by `dexe_read_validator_list`. | same shape |
+| `DEXE_SUBGRAPH_INTERACTIONS_URL` | Optional override, same chain scoping | Interactions subgraph. Defaults to the shared DeXe URL. Used by `dexe_read_user_activity`. | same shape |
+| `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` | Any chain other than `DEXE_SUBGRAPH_CHAIN_ID` | Per-chain endpoint — `KIND` is `POOLS` \| `VALIDATORS` \| `INTERACTIONS`. Highest precedence for that chain; the only way to serve a chain the unsuffixed vars don't cover. | `DEXE_SUBGRAPH_POOLS_URL_97=https://gateway.thegraph.com/api/<key>/subgraphs/id/<id>` |
+| `DEXE_SUBGRAPH_CHAIN_ID` | Own endpoints that don't index BSC mainnet | Which chain the three unsuffixed vars above (and the baked defaults) index. Default `56`. Setting it wrong files your endpoints under a chain nobody asked about. | `56`, `97` |
+| `DEXE_GRAPH_API_KEY` | Bearer-only subgraph URLs | The Graph API key sent as `Authorization: Bearer`. Not needed with the default URLs (key is embedded in the path). Sent only to `*.thegraph.com` hosts, or back to the URL it was extracted from. | `abc123...` |
 | `DEXE_BACKEND_API_URL` | Optional override | DeXe backend root. **Defaults** to `https://api.dexe.io`. Used by `dexe_read_treasury`/holders/stats, `dexe_proposal_build_offchain*`, `dexe_offchain_build_*`, `dexe_auth_*`. | `https://api.dexe.io`, `https://api.beta.dexe.io` |
 | `DEXE_PROTOCOL_PATH` | dev tooling (optional) | Use an existing DeXe-Protocol checkout instead of the auto-managed cache directory; disables auto clone/install. Must be a Hardhat project (`hardhat.config.{js,ts}`) with `node_modules/`. | `D:/dev/DeXe-Protocol` |
 | `DEXE_PROTOCOL_REF` | dev tooling (optional) | Git ref (branch/tag/commit) checked out for the auto-managed DeXe-Protocol clone. Default: the pinned release the MCP ships with. Ignored when `DEXE_PROTOCOL_PATH` points at your own checkout. | `master`, `v1.2.0`, a commit SHA |
 | `DEXE_FORK_BLOCK` | reserved (Phase B) | Pin a fork block for deterministic state reads. Non-negative integer. | `38123456` |
 | `DEXE_MIN_SAFE_QUORUM_PCT` | treasury-safety advisory | Minimum safe quorum percent (0–100). Proposals/DAOs whose quorum is below this are **flagged** in advisories (`dexe_proposal_vote_and_execute`, `dexe_proposal_risk_assess`, `dexe_dao_build_deploy`, treasury builders). **Advisory only — never blocks.** Default `50` (recommends 51%+). | `50`, `51`, `66` |
 | `DEXE_TREASURY_GUARD` | treasury-safety advisory | Posture: `off` \| `warn`. `warn` (default) = advisories/alerts everywhere (build, deploy, execute, risk_assess); `off` = silent. **Advisory only — it never blocks.** The durable control is an adequate on-chain quorum threshold configured per DAO. | `warn`, `off` |
-| `DEXE_CONTROLLING_TOPN` | treasury-safety advisory | Top-N token holders (by voting weight) in the "controlling set" alongside validators. `dexe_proposal_risk_assess` and the execute advisory **flag** a treasury proposal where **no** controlling member voted For (even at healthy quorum). Needs `DEXE_SUBGRAPH_*_URL` + mainnet (56); off-chain ⇒ unknown. **Informational, never blocks.** Positive integer, default `5`. | `5`, `3`, `10` |
+| `DEXE_CONTROLLING_TOPN` | treasury-safety advisory | Top-N token holders (by voting weight) in the "controlling set" alongside validators. `dexe_proposal_risk_assess` and the execute advisory **flag** a treasury proposal where **no** controlling member voted For (even at healthy quorum). Needs a **pools _and_ validators** endpoint for the chain being analyzed (chain 56 out of the box; other chains via `DEXE_SUBGRAPH_<KIND>_URL_<chainId>`) — an unindexed chain yields *unknown*, never another chain's controlling set. **Informational, never blocks.** Positive integer, default `5`. | `5`, `3`, `10` |
 | `DEXE_TOOLSETS` | tool gating (`tools/list` size) | Comma list of tool profiles to register: `core`, `proposals`, `read`, `vote`, `governor`, `dev`, or `full`. **Default `core,proposals`** (74 tools) — a breaking slim from the old all-tools default (full = 165 tools). `full` or any unknown name loads everything. `dexe_doctor` reports the active set; restart Claude Code after editing. See [TOOLS.md § Toolset profiles](./TOOLS.md#toolset-profiles). | `core,proposals`, `full`, `core,proposals,vote,read` |
 | `DEXE_STATE_PATH` | `dexe_context` persistence | Override path for the persistent operational-state JSON (DAOs deployed and proposals broadcast, surfaced by `dexe_context` across sessions). Default `~/.dexe-mcp/state.json`. Must be in a writable directory — `dexe_doctor` warns if not. Tools still work without persistence. | `~/.dexe-mcp/state.json`, `/data/dexe-state.json` |
 | `DEXE_ENV_FILE` | env-file location | Absolute path to a `.env` loaded **first**, before the default cwd/home search. For CI/containers/hosts that can inject one variable but not a working directory. Must be set in the real process environment (it is read before any file loads), not inside a `.env`. | `/etc/dexe/prod.env`, `C:\config\dexe.env` |
@@ -174,9 +176,10 @@ touches.
 | Dev tooling — decode | `dexe_decode_calldata`, `dexe_list_gov_contract_types` | (artifacts only) |
 | Dev tooling — decode (on-chain) | `dexe_decode_proposal` | `DEXE_RPC_URL` |
 | DAO reads — on-chain multicall | `dexe_dao_info`, `dexe_dao_predict_addresses`, `dexe_dao_registry_lookup`, `dexe_proposal_state`, `dexe_proposal_list`, `dexe_vote_user_power`, `dexe_vote_get_votes`, `dexe_read_multicall`, `dexe_read_treasury`, `dexe_read_validators`, `dexe_read_settings`, `dexe_read_expert_status`, `dexe_read_gov_state`, `dexe_read_distribution_status`, `dexe_read_staking_info`, `dexe_read_token_sale_tiers`, `dexe_read_token_sale_user`, `dexe_read_privacy_policy_status` | `DEXE_RPC_URL`, `DEXE_CHAIN_ID`, `DEXE_CONTRACTS_REGISTRY` (fallback) |
-| DAO reads — subgraph (pools) | `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`, `dexe_read_dao_experts` | `DEXE_SUBGRAPH_POOLS_URL` |
-| DAO reads — subgraph (validators) | `dexe_read_validator_list` | `DEXE_SUBGRAPH_VALIDATORS_URL` |
-| DAO reads — subgraph (interactions) | `dexe_read_user_activity`, `dexe_proposal_voters` | `DEXE_SUBGRAPH_INTERACTIONS_URL` (also `DEXE_SUBGRAPH_POOLS_URL` for pool address resolution in `dexe_proposal_voters`) |
+| DAO reads — subgraph (pools) | `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`, `dexe_read_dao_experts`, `dexe_proposal_voters` | `DEXE_SUBGRAPH_POOLS_URL` for chain 56 · `DEXE_SUBGRAPH_POOLS_URL_<chainId>` for any other |
+| DAO reads — subgraph (validators) | `dexe_read_validator_list` | `DEXE_SUBGRAPH_VALIDATORS_URL` / `..._URL_<chainId>` |
+| DAO reads — subgraph (interactions) | `dexe_read_user_activity` | `DEXE_SUBGRAPH_INTERACTIONS_URL` / `..._URL_<chainId>` |
+| DAO reads — subgraph (any) | `dexe_graph_query` | the var for the `subgraph` argument + `chainId` of the call |
 | IPFS — uploads | `dexe_ipfs_upload_proposal_metadata`, `dexe_ipfs_upload_dao_metadata`, `dexe_ipfs_upload_file` | `DEXE_PINATA_JWT` |
 | IPFS — read | `dexe_ipfs_fetch` | `DEXE_IPFS_GATEWAY` (and optionally `DEXE_IPFS_GATEWAYS_FALLBACK`) |
 | IPFS — local | `dexe_ipfs_cid_info`, `dexe_ipfs_cid_for_json` | (none — pure compute) |
@@ -273,10 +276,13 @@ DEXE_CHAIN_ID=97
 
 Caveats:
 
-- **No DeXe subgraph on testnet.** `dexe_proposal_voters`,
+- **No DeXe subgraph on testnet.** `dexe_proposal_voters`, `dexe_graph_query`,
   `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`,
   `dexe_read_dao_experts`, `dexe_read_validator_list`,
-  `dexe_read_user_activity` will return empty / fail.
+  `dexe_read_user_activity` **refuse** the read: chain 97 has no endpoint, and
+  since 0.30.2 they error with the var to set (`DEXE_SUBGRAPH_<KIND>_URL_97`)
+  plus the on-chain alternatives, rather than silently answering from the
+  mainnet index. Point them at your own testnet indexer to enable them.
 - **No DeXe backend on testnet.** All `dexe_proposal_build_offchain*`,
   `dexe_auth_*`, and `dexe_offchain_build_*` tools won't work.
 - All on-chain reads, builders, deploys, votes, executes work normally.
@@ -400,19 +406,66 @@ budget. Light first-party use is fine on the shared defaults.
 ### Three subgraphs, three URLs
 
 ```env
-DEXE_SUBGRAPH_POOLS_URL=https://gateway-arbitrum.network.thegraph.com/api/<key>/subgraphs/id/<pools-id>
-DEXE_SUBGRAPH_VALIDATORS_URL=https://gateway-arbitrum.network.thegraph.com/api/<key>/subgraphs/id/<validators-id>
-DEXE_SUBGRAPH_INTERACTIONS_URL=https://gateway-arbitrum.network.thegraph.com/api/<key>/subgraphs/id/<interactions-id>
+DEXE_SUBGRAPH_POOLS_URL=https://gateway.thegraph.com/api/<key>/subgraphs/id/<pools-id>
+DEXE_SUBGRAPH_VALIDATORS_URL=https://gateway.thegraph.com/api/<key>/subgraphs/id/<validators-id>
+DEXE_SUBGRAPH_INTERACTIONS_URL=https://gateway.thegraph.com/api/<key>/subgraphs/id/<interactions-id>
 ```
 
 Get current subgraph IDs from the DeXe team or
 [`.env.example`](../.env.example) / project memory.
 
+### One endpoint indexes one chain (0.30.2)
+
+A subgraph is deployed against a single network, so an endpoint is only a
+correct answer for the chain it indexes. Every subgraph-backed tool therefore
+takes `chainId` and resolves its endpoint per *(kind, chain)*:
+
+| # | Source | Covers |
+|---|--------|--------|
+| 1 | `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` | that chain — wins outright |
+| 2 | `DEXE_SUBGRAPH_<KIND>_URL` | the chain named by `DEXE_SUBGRAPH_CHAIN_ID` (default `56`), and **only** that chain |
+| 3 | baked default | chain `56` (BSC mainnet), and only chain `56` |
+
+**There is no cross-chain fallback, ever.** A chain that matches none of the
+three has no endpoint, and the read **fails** with a message naming
+`DEXE_SUBGRAPH_<KIND>_URL_<thatChain>` and the on-chain alternatives
+(`dexe_read_gov_state`, `dexe_proposal_list`, `dexe_read_multicall`). Answering
+a testnet caller with mainnet rows is worse than not answering: it looks like a
+successful read, so an agent acts on it. Every response carries
+`indexedChainId` — the chain the rows actually came from — so the payload states
+its own provenance.
+
+`dexe_get_config` shows exactly what resolved, under `subgraph`:
+`chainsCovered` (chains with any endpoint), `byKind` (chains per subgraph),
+`missingForDefaultChain` (kinds the default chain cannot answer), and
+`unsuffixedVarsChainId` (the chain your unsuffixed vars were filed under).
+
 ### Per-chain endpoints
 
-The Graph network publishes per-chain subgraphs separately. BSC mainnet,
-Ethereum mainnet, Sepolia, Polygon Amoy each have their own IDs. Switch IDs
-when you switch `DEXE_CHAIN_ID`.
+The Graph publishes per-chain subgraphs separately — BSC mainnet, Ethereum
+mainnet, Sepolia, Polygon Amoy each have their own subgraph IDs. File each one
+under the chain it indexes rather than swapping a single var:
+
+```env
+# BSC mainnet (56) — covered by the unsuffixed vars / baked defaults already.
+# Your own BSC testnet indexer (there is no public DeXe subgraph on 97):
+DEXE_SUBGRAPH_POOLS_URL_97=https://gateway.thegraph.com/api/<key>/subgraphs/id/<pools-id-97>
+DEXE_SUBGRAPH_VALIDATORS_URL_97=https://gateway.thegraph.com/api/<key>/subgraphs/id/<validators-id-97>
+DEXE_SUBGRAPH_INTERACTIONS_URL_97=https://gateway.thegraph.com/api/<key>/subgraphs/id/<interactions-id-97>
+```
+
+If **all** your endpoints index one non-mainnet chain, you can keep using the
+unsuffixed vars and declare the chain once:
+
+```env
+DEXE_SUBGRAPH_CHAIN_ID=97
+DEXE_SUBGRAPH_POOLS_URL=https://gateway.thegraph.com/api/<key>/subgraphs/id/<pools-id-97>
+```
+
+That files those endpoints under chain 97, so a chain-97 read finds them and a
+chain-56 read never does. Chain 56 keeps resolving to the **baked mainnet
+defaults** (they are seeded per-chain, not overwritten) — override them with
+`DEXE_SUBGRAPH_<KIND>_URL_56` if you want your own mainnet endpoints too.
 
 ---
 
@@ -476,6 +529,16 @@ network requires it inline:
 https://gateway-arbitrum.network.thegraph.com/api/<KEY>/subgraphs/id/<ID>
                                                 ^^^^^ here, not as a header
 ```
+
+### "No DeXe `<kind>` subgraph is configured for chain N"
+
+New in 0.30.2, and usually not a misconfiguration: chain N genuinely has no
+indexer (BSC testnet has none published). Before 0.30.2 the same call returned
+BSC **mainnet** rows labelled as chain N's. Three ways forward, in the order the
+error itself suggests: pass `chainId: 56` if mainnet is what you meant; read
+chain N on-chain instead (`dexe_read_gov_state`, `dexe_proposal_list`,
+`dexe_read_multicall` — no subgraph needed); or set
+`DEXE_SUBGRAPH_<KIND>_URL_<N>` to your own indexer and restart.
 
 ### "Pinata gateway not configured" on reads
 

@@ -6,6 +6,45 @@ something on your side.
 
 ---
 
+## 0.30.1 → 0.30.2 — subgraph reads refuse a chain they cannot answer for
+
+Tool count unchanged (165 / 19 groups).
+
+### Breaking
+- **A subgraph-backed read on a chain with no endpoint now errors instead of
+  returning BSC mainnet data.** Affected: `dexe_graph_query`,
+  `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`,
+  `dexe_read_dao_experts`, `dexe_read_validator_list`, `dexe_read_user_activity`,
+  `dexe_proposal_voters`, `dexe_user_inbox` (auto-discovery only),
+  `dexe_proposal_forecast`.
+
+  If your session defaults to testnet (`DEXE_RPC_URL_TESTNET` set,
+  `DEXE_RPC_URL_MAINNET` not) these calls used to *appear* to work — they were
+  returning mainnet rows. Either pass `chainId: 56` when you want mainnet, read
+  on-chain with `dexe_read_gov_state` / `dexe_proposal_list` /
+  `dexe_read_multicall`, or point `DEXE_SUBGRAPH_POOLS_URL_97` at your own
+  indexer. The error message spells out all three.
+
+### New env
+- `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` — per-chain endpoints, e.g.
+  `DEXE_SUBGRAPH_POOLS_URL_97`.
+- `DEXE_SUBGRAPH_CHAIN_ID` — which chain the unsuffixed `DEXE_SUBGRAPH_*_URL`
+  vars describe. Default `56`. Set this if you repointed the unsuffixed vars at
+  a non-mainnet indexer; leaving it wrong is now detectable rather than silent.
+
+Resolution order: per-chain var → unsuffixed var (for `DEXE_SUBGRAPH_CHAIN_ID`)
+→ baked default (chain 56 only). No cross-chain fallback.
+
+### Response-shape additions (additive, no `outputSchema` change)
+- Every subgraph response gains `indexedChainId`.
+- `dexe_read_treasury` gains `source` and `degraded` when the DeXe backend fails
+  and it falls through to RPC (it previously just errored).
+- `dexe_user_inbox` gains `chainId`, `daoSource`, `indexedChainId`, and
+  `discoveryUnavailable`, and now emits `structuredContent`.
+- `dexe_proposal_forecast` gains `indexedChainId` and `subgraphNote`.
+
+---
+
 ## 0.30.0 → 0.30.1 — check your Node version; a bad env var now degrades instead of killing the server
 
 Tool count unchanged (165 / 19 groups).

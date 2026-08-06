@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall } from "../lib/multicall.js";
-import { gqlRequest } from "../lib/subgraph.js";
+import { gqlRequest, resolveSubgraphUrl, type ResolvedSubgraph } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 import { chainIdParam } from "../lib/params.js";
 
@@ -17,13 +17,16 @@ function errorResult(message: string) {
  *
  * Reads the latest 10 proposals on the DAO via getProposals + their final
  * states, computes pass-rate + average For-vote weight, and returns a
- * recommendation. Mainnet only — testnet has no subgraph and historical
- * data is too sparse to forecast usefully.
+ * recommendation.
  *
- * The "subgraph" requirement here is loose: this tool primarily runs over
- * RPC (multicall on getProposals) so it actually works on testnet too, but
- * we keep the documented mainnet-only contract. To opt-in on testnet, call
- * with `forceRpcOnly: true`.
+ * The numbers come from RPC (multicall on getProposals), so the forecast works
+ * on any configured chain; the pools subgraph only adds a richer history
+ * cross-check. A subgraph indexes exactly ONE chain, so that cross-check runs
+ * only when an endpoint exists for the chain being forecast — another chain's
+ * proposal history spliced into this DAO's forecast is wrong data wearing a
+ * correct answer's clothes. A chain with no endpoint is gated behind
+ * `forceRpcOnly: true`, so the caller opts in knowing the history is on-chain
+ * only; the response reports `indexedChainId` either way.
  */
 
 const GOV_POOL_ABI = new Interface([
@@ -38,21 +41,35 @@ const GOV_SETTINGS_ABI = new Interface([
 
 // Subgraph fallback for daos with proposalCount > on-chain getProposals
 // reasonable cap. Same shape as the pools subgraph proposals entity.
+/*
+ * Every field here is verified against the live pools schema (dexe://graph-schema).
+ * The previous version asked for `executed`, `voters`, `currentRawVotesFor`,
+ * `currentRawVotesAgainst`, `quorumReached` and ordered by `creationTimestamp` —
+ * NONE of which exist on `Proposal`. The gateway rejected the whole document, the
+ * catch below swallowed it, and the cross-check silently returned nothing on every
+ * install since it shipped.
+ *
+ * The real schema expresses the two booleans as timestamps: a proposal is executed
+ * when `executionTimestamp > 0`, and quorum was reached when
+ * `quorumReachedTimestamp > 0`. `Proposal` carries no creation field at all, so
+ * "most recent" is `proposalId` descending — ids are assigned in creation order.
+ */
 const RECENT_PROPOSALS_QUERY = /* GraphQL */ `
   query RecentProposals($pool: String!, $first: Int!) {
     proposals(
       where: { pool: $pool }
       first: $first
-      orderBy: creationTimestamp
+      orderBy: proposalId
       orderDirection: desc
     ) {
       id
       proposalId
-      executed
-      voters
-      currentRawVotesFor
-      currentRawVotesAgainst
-      quorumReached
+      executionTimestamp
+      quorumReachedTimestamp
+      currentVotesFor
+      currentVotesAgainst
+      quorum
+      votersVoted
     }
   }
 `;
@@ -83,7 +100,10 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         "Reads the latest 10 proposals on a DAO + their final states, computes the historical " +
         "pass-rate and average For-vote weight, and returns a forecast. " +
         "When `draft.actionsOnFor` is supplied the projection is annotated with the caller's vote weight. " +
-        "Mainnet only by default — pass `forceRpcOnly: true` to run on testnet using on-chain reads alone.",
+        "The history cross-check needs a pools subgraph for the chain being forecast (BSC mainnet by default); " +
+        "on a chain with no endpoint the call stops with the env var to set — pass `forceRpcOnly: true` to " +
+        "forecast it from on-chain reads alone. `indexedChainId` reports which chain's index the history came " +
+        "from (null = none), so one chain's forecast is never enriched with another's history.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         draft: z
@@ -96,7 +116,9 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         forceRpcOnly: z
           .boolean()
           .default(false)
-          .describe("Bypass mainnet-only guard; forecast purely from on-chain getProposals"),
+          .describe(
+            "Forecast a chain with no pools subgraph purely from on-chain getProposals (no history cross-check)",
+          ),
         chainId: chainIdParam,
       },
     },
@@ -104,11 +126,30 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
       if (!isAddress(govPool)) return err(`Invalid govPool: ${govPool}`);
 
       const resolvedChainId = rpc.resolveChainId(chainId);
-      const isMainnet = resolvedChainId === 56;
-      if (!isMainnet && !forceRpcOnly) {
+
+      // Resolve the index for the chain actually being forecast. The old gate
+      // asked `resolvedChainId === 56` and then read the flat
+      // ctx.config.subgraphPoolsUrl — safe only while that field was
+      // unconditionally BSC mainnet. DEXE_SUBGRAPH_CHAIN_ID can now file it
+      // under any chain, so the two halves could disagree and a mainnet
+      // forecast would carry testnet proposal history (or vice versa) with
+      // nothing in the payload saying so.
+      let subgraph: ResolvedSubgraph | null = null;
+      let noSubgraphReason: string | null = null;
+      try {
+        subgraph = resolveSubgraphUrl(ctx.config, "pools", resolvedChainId);
+      } catch (e) {
+        // The resolver's message IS the user-facing remediation (it names the
+        // chains that do have an index and the env var to set).
+        noSubgraphReason = e instanceof Error ? e.message : String(e);
+      }
+      if (!subgraph && !forceRpcOnly) {
         return ok({
           error: "subgraph required",
-          hint: "Mainnet only by default. Pass forceRpcOnly: true to run from on-chain getProposals on this chain.",
+          chain: resolvedChainId,
+          hint:
+            `${noSubgraphReason} Or pass forceRpcOnly: true to forecast chain ${resolvedChainId} from ` +
+            `on-chain getProposals alone — the pass-rate is computed on-chain; only the history cross-check is lost.`,
         });
       }
 
@@ -170,18 +211,24 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         });
       }
 
-      // Step 4: optional subgraph cross-check for richer history (mainnet only).
-      const subgraphUrl = ctx.config.subgraphPoolsUrl;
+      // Step 4: optional cross-check for richer history — strictly from the
+      // index of the chain we just read on-chain, or not at all.
       let subgraphHistory: unknown = null;
-      if (subgraphUrl && isMainnet) {
+      if (subgraph) {
         try {
-          const data = await gqlRequest<{ proposals: unknown[] }>(subgraphUrl, RECENT_PROPOSALS_QUERY, {
+          const data = await gqlRequest<{ proposals: unknown[] }>(subgraph.url, RECENT_PROPOSALS_QUERY, {
             pool: govPool.toLowerCase(),
             first: 10,
           });
           subgraphHistory = data.proposals;
-        } catch {
-          // soft-fail — on-chain data is enough
+        } catch (queryErr) {
+          // Soft-fail: on-chain data alone is a valid forecast. But say WHY the
+          // history is missing — a swallowed error made a rejected query look
+          // identical to "this DAO has never had a proposal", which is how the
+          // invalid field set above survived unnoticed.
+          noSubgraphReason =
+            `history cross-check failed against the chain-${subgraph.chainId} index: ` +
+            `${queryErr instanceof Error ? queryErr.message : String(queryErr)}`;
         }
       }
 
@@ -245,6 +292,14 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
           votesAgainst: p.votesAgainst.toString(),
         })),
         subgraphHistory,
+        // Provenance for the block above: the chain whose index produced it, and
+        // — when there is none — why. `subgraphHistory: null` must never be
+        // mistaken for "this chain has no proposals".
+        indexedChainId: subgraph?.chainId ?? null,
+        // Populated for BOTH failure shapes: no endpoint for this chain, and an
+        // endpoint that was queried and refused. Reporting only the first made a
+        // broken query indistinguishable from an empty index.
+        subgraphNote: noSubgraphReason,
         risks,
         recommendation,
       });

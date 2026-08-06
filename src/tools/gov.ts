@@ -330,16 +330,21 @@ function registerReadGovState(
       const pr = rpc.tryProvider(chainId);
       if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
+      // Same resolution the provider above went through, so the resolver's cache
+      // is keyed by the chain this read actually targets — a GovPool address is
+      // not unique across chains and an unkeyed entry would let chain 56 answer a
+      // chain 97 lookup. Passing it also spares the resolver a getNetwork() call.
+      const readChainId = rpc.resolveChainId(chainId);
 
       try {
-        const helpers = await addresses.resolveHelpers(govPool, provider);
-        const nftContracts = await addresses.resolveNftContracts(govPool, provider);
+        const helpers = await addresses.resolveHelpers(govPool, provider, readChainId);
+        const nftContracts = await addresses.resolveNftContracts(govPool, provider, readChainId);
         const structured = { govPool, helpers, nftContracts };
         return {
           content: [
             {
               type: "text" as const,
-              text: `GovPool ${govPool}\n\nHelpers:\n  settings     : ${helpers.settings}\n  userKeeper   : ${helpers.userKeeper}\n  validators   : ${helpers.validators}\n  poolRegistry : ${helpers.poolRegistry}\n  votePower    : ${helpers.votePower}\n\nNFT contracts:\n  nftMultiplier : ${nftContracts.nftMultiplier}\n  expertNft     : ${nftContracts.expertNft}\n  dexeExpertNft : ${nftContracts.dexeExpertNft}\n  babt          : ${nftContracts.babt}`,
+              text: `GovPool ${govPool} (chain ${readChainId})\n\nHelpers:\n  settings     : ${helpers.settings}\n  userKeeper   : ${helpers.userKeeper}\n  validators   : ${helpers.validators}\n  poolRegistry : ${helpers.poolRegistry}\n  votePower    : ${helpers.votePower}\n\nNFT contracts:\n  nftMultiplier : ${nftContracts.nftMultiplier}\n  expertNft     : ${nftContracts.expertNft}\n  dexeExpertNft : ${nftContracts.dexeExpertNft}\n  babt          : ${nftContracts.babt}`,
             },
           ],
           structuredContent: structured,

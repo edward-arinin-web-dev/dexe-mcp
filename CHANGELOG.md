@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.30.2 — 2026-08-06
+
+**Right chain, or no answer.** Subgraph-backed reads took no `chainId` and their
+endpoints index BSC mainnet, so a user working on testnet (the chain this
+project's own docs tell people to validate on) silently got *mainnet* rows back,
+presented as theirs. Silent wrong data is worse than an error — an agent acts on
+it. Tool count unchanged (**165 / 19 groups**).
+
+### Breaking
+- **A subgraph read on a chain with no endpoint is now an error, not mainnet
+  data.** The message names the chains that *are* indexed, the on-chain
+  alternatives (`dexe_read_gov_state` / `dexe_proposal_list` /
+  `dexe_read_multicall`), and the exact env var to set. If you were
+  (unknowingly) reading mainnet through a testnet-configured session, pass
+  `chainId: 56` explicitly.
+
+### Added
+- **Per-chain subgraph endpoints**: `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` (e.g.
+  `DEXE_SUBGRAPH_POOLS_URL_97`), plus `DEXE_SUBGRAPH_CHAIN_ID` declaring which
+  chain the unsuffixed vars describe (default 56). Resolution order: per-chain
+  var → unsuffixed var → baked default (chain 56 only). **No cross-chain
+  fallback, ever** — that fallback was the bug.
+- `chainId` on every subgraph-backed tool, and `indexedChainId` in every
+  response's `structuredContent` — the payload now states which chain it
+  describes, so a future resolution bug cannot be silent.
+- `dexe_doctor` probes each configured chain's endpoints separately and reports
+  **indexing lag** (`_meta.block.number` vs head), warning when a subgraph is
+  reachable but stale.
+
+### Fixed
+- **`dexe_user_inbox` scanned one chain and discovered DAOs on another.** With
+  `chainId: 97` it pulled a *mainnet* DAO from the mainnet subgraph, scanned it
+  on testnet where it does not exist, and reported `totalDaos: 1, nothing
+  pending` as a **success**. Discovery now resolves against the chain being
+  scanned; caller-supplied `daos:[…]` still work on any chain, and the response
+  says so via `discoveryUnavailable` so an empty inbox is not read as "all clear".
+- **`dexe_proposal_voters` declared `chainId` and discarded it.** Its
+  description also named the wrong subgraph (it uses `pools`, not
+  `interactions`).
+- **`dexe_read_treasury` never fell back to on-chain** when the DeXe backend
+  failed — it returned an error while its own description, code comment,
+  PLAYBOOK and knowledge corpus all promised a fallback that the code a few
+  lines below already implemented. Now falls through with `source: "rpc"` and
+  `degraded: true`.
+- **`dexe_doctor` reported the subgraph as healthy while every read failed.**
+  The Graph gateway answers rejected queries with HTTP 200 and an `errors`
+  body; the check only looked at the status code.
+- **`dexe_proposal_forecast`'s history cross-check had never returned data.**
+  Its query asked for `executed`, `voters`, `currentRawVotesFor`,
+  `currentRawVotesAgainst`, `quorumReached` and ordered by `creationTimestamp` —
+  none of which exist on `Proposal`. The gateway rejected the whole document and
+  an empty `catch` swallowed it, so a broken query was indistinguishable from
+  "this DAO has no proposals". Fields corrected against the live schema
+  (`executionTimestamp` / `quorumReachedTimestamp` carry the booleans; ordering
+  is by `proposalId`), and a failed cross-check now reports why.
+- The treasury-risk advisory (`resolveControllingHoldersVotedFor`, feeding
+  `dexe_proposal_risk_assess`) and `dexe_proposal_forecast` both gated on a
+  hardcoded "chain 56" and then read a flat endpoint field. With per-chain
+  endpoints that combination could compute a **mainnet verdict from testnet
+  rows**, fail-soft and silent. Both resolve per analyzed chain now.
+- `GovAddressResolver` cached helper/NFT addresses by pool address with no chain
+  in the key — a deterministic deploy at the same address on two chains could
+  serve one chain's helpers for the other.
+- `dexe_get_config` / `dexe_context` reported "subgraph unavailable" based on a
+  flat field that is `undefined` under a non-56 `DEXE_SUBGRAPH_CHAIN_ID`, even
+  when chain 56 worked fine. They now report *which chains* are covered.
+- Doctor's Graph-key probe used `||` where `gqlRequest` uses `??`, so an empty
+  `DEXE_GRAPH_API_KEY` made doctor probe with credentials the real reads never
+  send — green doctor, 401 on every read.
+
+### Tests
+- 91 files / 892 passing (+11 files, +150 tests). The `.env.example` drift guard
+  now also asserts the **reverse** direction — every `ENV_SPEC` key must be
+  documented — which is exactly the gap that let two new env families reach
+  review undocumented.
+
 ## 0.30.1 — 2026-08-06
 
 **The server no longer dies on a bad environment variable.** A typo in any

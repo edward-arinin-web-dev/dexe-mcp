@@ -4,13 +4,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { gqlRequest } from "../lib/subgraph.js";
+import { gqlRequest, resolveSubgraphUrl, subgraphChains } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 import { chainIdParam } from "../lib/params.js";
-
-function errorResult(message: string) {
-  return { content: [{ type: "text" as const, text: message }], isError: true };
-}
 
 /**
  * dexe_user_inbox — multi-DAO attention aggregator.
@@ -25,9 +21,15 @@ function errorResult(message: string) {
  * The proposal scan window anchors to the END of the list (latestProposalId −
  * proposalScanLimit … latest) — newest proposals are the ones still in Voting.
  *
- * When `daos` is omitted on mainnet, the pools subgraph is queried for DAOs
- * the user has a `voterInPool` row in (limit 50). On testnet (no subgraph),
- * `daos[]` is required.
+ * When `daos` is omitted the list is DISCOVERED from the pools subgraph of the
+ * REQUESTED chain (`voterInPool` rows, limit 50). Discovery and the per-DAO
+ * scan must run on the same chain: reading the flat `config.subgraphPoolsUrl`
+ * discovered BSC MAINNET DAOs and then scanned them on whatever chain the
+ * caller asked for, so a chain-97 call answered "1 DAO, nothing pending" for a
+ * user who belongs to zero testnet DAOs — a wrong answer shaped like a
+ * successful read (H1). A chain with no pools endpoint therefore refuses to
+ * discover; the scan itself is pure on-chain, so passing `daos[]` still works
+ * everywhere.
  */
 
 // ---------- ABI ----------
@@ -152,13 +154,13 @@ function err(message: string) {
 }
 
 function ok(data: Record<string, unknown>) {
+  const text = JSON.stringify(data, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
   return {
-    content: [
-      {
-        type: "text" as const,
-        text: JSON.stringify(data, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2),
-      },
-    ],
+    content: [{ type: "text" as const, text }],
+    // Re-parsed from the same text so the machine-readable copy can never
+    // disagree with what the human sees, and so no bigint leaks into
+    // structuredContent (which must be plain JSON).
+    structuredContent: JSON.parse(text) as Record<string, unknown>,
   };
 }
 
@@ -180,6 +182,13 @@ interface PendingItem {
 
 export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
+  // Built from the endpoints this install actually has — a hardcoded
+  // "mainnet discovers, testnet doesn't" sentence goes stale the moment
+  // someone sets DEXE_SUBGRAPH_POOLS_URL_97.
+  const discoveryChains = subgraphChains(ctx.config, "pools");
+  const discoveryNote = discoveryChains.length
+    ? `chains that can auto-discover here: ${discoveryChains.join(", ")}`
+    : "NO chain can auto-discover here (no pools subgraph configured)";
 
   server.registerTool(
     "dexe_user_inbox",
@@ -187,14 +196,16 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
       title: "Multi-DAO attention aggregator",
       description:
         "Aggregates pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, and locked deposits. " +
-        "Mainnet: omits `daos` to auto-discover via the pools subgraph (limit 50). Testnet: `daos[]` required (no subgraph). " +
-        "Read-only.",
+        `Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omitting \`daos\` auto-discovers the ` +
+        `user's DAOs from that chain's pools subgraph (limit 50; ${discoveryNote}); on any other chain pass \`daos[]\` — the scan ` +
+        "itself is pure on-chain and works everywhere. The response reports `indexedChainId` = the chain the discovered list came " +
+        "from (null when you supplied it); discovery never answers from another chain's index. Read-only.",
       inputSchema: {
         user: z.string().describe("User wallet address"),
         daos: z
           .array(z.string())
           .optional()
-          .describe("Optional explicit DAO list. Required on testnet (chain 97)."),
+          .describe("Optional explicit DAO list. Required on chains with no pools subgraph."),
         proposalScanLimit: z
           .number()
           .int()
@@ -208,32 +219,61 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
     async ({ user, daos, proposalScanLimit = 20, chainId }) => {
       if (!isAddress(user)) return err(`Invalid user: ${user}`);
       const pr = rpc.tryProvider(chainId);
-      if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
+      if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
+      // The chain the per-DAO scan will actually run on. Discovery resolves
+      // against this exact number rather than the raw (possibly omitted)
+      // `chainId`, so the two steps cannot drift apart even if the RPC and
+      // subgraph defaults ever stop agreeing.
+      const scanChainId = rpc.resolveChainId(chainId);
       const userAddr = getAddress(user);
 
       // ----- DAO list resolution -----
       let resolvedDaos: string[] = [];
+      let daoSource: "caller" | "subgraph";
+      /** Chain the discovered list was indexed from; null when the caller passed it. */
+      let indexedChainId: number | null = null;
+      let discoveryUnavailable: string | undefined;
+
       if (daos && daos.length > 0) {
         for (const d of daos) {
           if (!isAddress(d)) return err(`Invalid dao: ${d}`);
           resolvedDaos.push(getAddress(d));
         }
+        daoSource = "caller";
+        // Only discovery needs a subgraph; the scan is pure on-chain. When the
+        // chain has none, say the coverage is exactly the supplied list — an
+        // empty inbox here is not evidence that the user's OTHER DAOs are clear.
+        if (!discoveryChains.includes(scanChainId)) {
+          discoveryUnavailable =
+            `Chain ${scanChainId} has no DeXe pools subgraph, so DAO auto-discovery is off: only the ` +
+            `${resolvedDaos.length} DAO(s) you passed were checked, and DAOs outside that list were not.`;
+        }
       } else {
-        const url = ctx.config.subgraphPoolsUrl;
-        if (!url) {
+        let sg: { url: string; chainId: number };
+        try {
+          sg = resolveSubgraphUrl(ctx.config, "pools", scanChainId);
+        } catch (e) {
+          // The resolver's message is already the user-facing remediation; the
+          // one thing it can't know is that this tool has a subgraph-free path.
           return err(
-            "No `daos` supplied and DEXE_SUBGRAPH_POOLS_URL is not set (testnet has no subgraph). Pass `daos: [...]` explicitly.",
+            `${e instanceof Error ? e.message : String(e)}\n\n` +
+              `dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself — ` +
+              `pass \`daos: ["0x…"]\`. Only auto-discovery needs the subgraph.`,
           );
         }
+        daoSource = "subgraph";
+        indexedChainId = sg.chainId;
         try {
-          const data = await gqlRequest<{ voterInPools: { pool: { id: string } }[] }>(url, USER_DAOS_QUERY, {
+          const data = await gqlRequest<{ voterInPools: { pool: { id: string } }[] }>(sg.url, USER_DAOS_QUERY, {
             user: userAddr.toLowerCase(),
             first: 50,
           });
           resolvedDaos = data.voterInPools.map((v) => getAddress(v.pool.id));
         } catch (e) {
-          return err(`Subgraph DAO discovery failed: ${e instanceof Error ? e.message : String(e)}`);
+          return err(
+            `Subgraph DAO discovery failed on chain ${sg.chainId}: ${e instanceof Error ? e.message : String(e)}`,
+          );
         }
       }
 
@@ -378,6 +418,10 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
 
       return ok({
         user: userAddr,
+        chainId: scanChainId,
+        daoSource,
+        indexedChainId,
+        ...(discoveryUnavailable ? { discoveryUnavailable } : {}),
         pendingItems,
         ...(scanErrors.length > 0 ? { scanErrors } : {}),
         summary: {

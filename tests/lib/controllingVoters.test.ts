@@ -4,7 +4,12 @@ import { Interface } from "ethers";
 // Mock the lib's two external dependencies. The controlling-set is enumerated
 // via gqlRequest (subgraph) and each member's vote confirmed via multicall
 // (on-chain) — both are faked here so the test is pure/offline.
-vi.mock("../../src/lib/subgraph.js", () => ({ gqlRequest: vi.fn() }));
+// `resolveSubgraphUrl` is deliberately NOT mocked: which chain's endpoint gets
+// used is the property under test, so it runs for real against the stub config.
+vi.mock("../../src/lib/subgraph.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/subgraph.js")>()),
+  gqlRequest: vi.fn(),
+}));
 vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
 
 import { gqlRequest } from "../../src/lib/subgraph.js";
@@ -17,15 +22,30 @@ import {
 const gql = vi.mocked(gqlRequest);
 const mc = vi.mocked(multicall);
 
-/** Minimal DexeConfig stub — only the fields the lib reads. */
-function cfg(overrides: Record<string, unknown> = {}): any {
+const MAINNET = { pools: "https://gw.example/56/pools", validators: "https://gw.example/56/validators" };
+const TESTNET = { pools: "https://gw.example/97/pools", validators: "https://gw.example/97/validators" };
+
+/**
+ * Minimal DexeConfig stub. Endpoints are keyed by the chain they index — the
+ * real `subgraphUrls` shape — because WHICH chain's endpoint the lib picks is
+ * the thing under test. The flat `subgraph*Url` fields are deliberately absent:
+ * reading them was the bug (they carry one chain's endpoint, whichever chain
+ * DEXE_SUBGRAPH_CHAIN_ID names).
+ */
+function cfg(
+  urls: Record<number, { pools?: string; validators?: string }> = { 56: MAINNET },
+  overrides: Record<string, unknown> = {},
+): any {
   return {
-    subgraphValidatorsUrl: "https://validators.example",
-    subgraphPoolsUrl: "https://pools.example",
+    defaultChainId: 56,
+    subgraphUrls: new Map(Object.entries(urls).map(([k, v]) => [Number(k), v])),
     controllingTopN: 5,
     ...overrides,
   };
 }
+
+/** Endpoints the gqlRequest mock was actually pointed at, in call order. */
+const queriedUrls = () => gql.mock.calls.map((c) => c[0]);
 
 const PROVIDER: any = {};
 const GOV = "0x1111111111111111111111111111111111111111";
@@ -111,20 +131,18 @@ describe("resolveControllingHoldersVotedFor", () => {
     expect(r).toBe(false);
   });
 
-  it("returns null off mainnet (testnet has no subgraph)", async () => {
+  it("returns null on a chain with no index of its own", async () => {
     mockSubgraph(["0xAAA0000000000000000000000000000000000001"], []);
     const r = await resolveControllingHoldersVotedFor({
-      provider: PROVIDER, govPool: GOV, proposalId: 3, cfg: cfg(), chainId: 97,
+      provider: PROVIDER, govPool: GOV, proposalId: 3, cfg: cfg({ 56: MAINNET }), chainId: 97,
     });
     expect(r).toBeNull();
     expect(gql).not.toHaveBeenCalled();
   });
 
-  it("returns null when subgraph URLs are not configured", async () => {
+  it("returns null when no subgraph is configured at all", async () => {
     const r = await resolveControllingHoldersVotedFor({
-      provider: PROVIDER, govPool: GOV, proposalId: 3,
-      cfg: cfg({ subgraphValidatorsUrl: undefined, subgraphPoolsUrl: undefined }),
-      chainId: 56,
+      provider: PROVIDER, govPool: GOV, proposalId: 3, cfg: cfg({}), chainId: 56,
     });
     expect(r).toBeNull();
     expect(gql).not.toHaveBeenCalled();
@@ -169,5 +187,69 @@ describe("resolveControllingHoldersVotedFor", () => {
       provider: PROVIDER, govPool: GOV, proposalId: 3, cfg: cfg(), chainId: 56, topN: 1,
     });
     expect(r).toBe(false);
+  });
+});
+
+/**
+ * M1 — the advisory used to gate on `chainId === 56` and then read the FLAT
+ * cfg.subgraph*Url pair. That pairing held only while the flat fields were
+ * unconditionally BSC mainnet. `DEXE_SUBGRAPH_CHAIN_ID=97` files them under
+ * testnet, at which point a chain-56 treasury verdict would have been computed
+ * from chain-97 rows — and because this path is fail-soft, silently.
+ */
+describe("resolveControllingHoldersVotedFor — chain correctness", () => {
+  it("does not consume a chain-97 endpoint when analyzing chain 56", async () => {
+    mockSubgraph(["0xAAA0000000000000000000000000000000000001"], []);
+    mockVotes({ "0xaaa0000000000000000000000000000000000001": { 0: true } });
+    // The DEXE_SUBGRAPH_CHAIN_ID=97 shape: the only configured index is testnet.
+    const r = await resolveControllingHoldersVotedFor({
+      provider: PROVIDER, govPool: GOV, proposalId: 3, cfg: cfg({ 97: TESTNET }), chainId: 56,
+    });
+    // Unknown, not a verdict borrowed from testnet's controlling set.
+    expect(r).toBeNull();
+    expect(gql).not.toHaveBeenCalled();
+    expect(mc).not.toHaveBeenCalled();
+  });
+
+  it("queries the analyzed chain's own endpoints when it is indexed", async () => {
+    mockSubgraph(["0xAAA0000000000000000000000000000000000001"], []);
+    mockVotes({ "0xaaa0000000000000000000000000000000000001": { 0: true } });
+    const r = await resolveControllingHoldersVotedFor({
+      provider: PROVIDER, govPool: GOV, proposalId: 3,
+      cfg: cfg({ 56: MAINNET, 97: TESTNET }), chainId: 97,
+    });
+    expect(r).toBe(true);
+    expect(queriedUrls().sort()).toEqual([TESTNET.pools, TESTNET.validators].sort());
+    expect(queriedUrls()).not.toContain(MAINNET.pools);
+    expect(queriedUrls()).not.toContain(MAINNET.validators);
+  });
+
+  it("keeps chain 56 on the mainnet endpoints when both chains are indexed", async () => {
+    mockSubgraph(["0xAAA0000000000000000000000000000000000001"], []);
+    mockVotes({ "0xaaa0000000000000000000000000000000000001": { 0: true } });
+    const r = await resolveControllingHoldersVotedFor({
+      provider: PROVIDER, govPool: GOV, proposalId: 3,
+      cfg: cfg({ 56: MAINNET, 97: TESTNET }), chainId: 56,
+    });
+    expect(r).toBe(true);
+    expect(queriedUrls().sort()).toEqual([MAINNET.pools, MAINNET.validators].sort());
+  });
+
+  it("treats a half-indexed chain as unknown rather than filling the gap from another chain", async () => {
+    mockSubgraph(["0xAAA0000000000000000000000000000000000001"], []);
+    const r = await resolveControllingHoldersVotedFor({
+      provider: PROVIDER, govPool: GOV, proposalId: 3,
+      cfg: cfg({ 56: MAINNET, 97: { pools: TESTNET.pools } }), chainId: 97,
+    });
+    expect(r).toBeNull();
+    expect(gql).not.toHaveBeenCalled();
+  });
+
+  it("never throws when the resolver rejects the chain (a risk check must not abort)", async () => {
+    await expect(
+      resolveControllingHoldersVotedFor({
+        provider: PROVIDER, govPool: GOV, proposalId: 3, cfg: cfg({ 56: MAINNET }), chainId: 1337,
+      }),
+    ).resolves.toBeNull();
   });
 });

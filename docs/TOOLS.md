@@ -84,7 +84,9 @@ Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. All require `dexe_compil
 
 ## 3. DAO reads
 
-Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/tools/vote.ts`, `src/tools/read.ts`, `src/tools/risk.ts`, `src/tools/subgraph.ts`. All on-chain reads need `DEXE_RPC_URL`. Subgraph reads need the relevant `DEXE_SUBGRAPH_*_URL`.
+Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/tools/vote.ts`, `src/tools/read.ts`, `src/tools/risk.ts`, `src/tools/subgraph.ts`. All on-chain reads need `DEXE_RPC_URL`.
+
+**Subgraph reads are chain-explicit (0.30.2).** One endpoint indexes one chain, so every subgraph-backed tool below takes `chainId` (default: the MCP's default chain) and returns **`indexedChainId`** in `structuredContent` — the chain the rows actually came from. Endpoint resolution is per *(kind, chain)*: `DEXE_SUBGRAPH_<KIND>_URL_<chainId>`, else the unsuffixed `DEXE_SUBGRAPH_<KIND>_URL` for the chain named by `DEXE_SUBGRAPH_CHAIN_ID` (default 56), else the baked chain-56 default. **A chain with no endpoint returns an error**, naming the var to set plus the subgraph-free alternatives (`dexe_read_gov_state`, `dexe_proposal_list`, `dexe_read_multicall`) — it never answers from another chain's index. The "Required env" column below names the chain-56 var; append `_<chainId>` for any other chain. See [ENVIRONMENT.md § 8](ENVIRONMENT.md#8-subgraph-configuration).
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
@@ -93,7 +95,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_dao_registry_lookup` | `PoolRegistry.isGovPool(address)` — true if address is a registered DeXe GovPool. | `DEXE_RPC_URL` |
 | `dexe_proposal_state` | `getProposalState` + `getProposalRequiredQuorum` in one multicall. Returns named state. | `DEXE_RPC_URL` |
 | `dexe_proposal_list` | `GovPool.getProposals(offset, limit)` → compact summaries. | `DEXE_RPC_URL` |
-| `dexe_proposal_voters` | Voter list from interactions subgraph, paginated. | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
+| `dexe_proposal_voters` | Voter list for one proposal from the **pools** subgraph (`proposalInteractions`), paginated. Returns `{govPool, proposalId, indexedChainId, voters[]}`. | `DEXE_SUBGRAPH_POOLS_URL` |
 | `dexe_proposal_risk_assess` | Treasury-safety risk readout for a proposal (or hypothetical actions): quorum %, safe floor, treasury at risk, indicative share of supply required to meet quorum, verdict (SAFE/CAUTION/DANGER). | `DEXE_RPC_URL` |
 | `dexe_read_gov_state` | Reads `getHelperContracts()` + `getNftContracts()`, returns resolved helper + NFT addresses. | `DEXE_RPC_URL` |
 | `dexe_vote_user_power` | `tokenBalance` + `nftBalance` on GovUserKeeper for every VoteType (Personal/Micropool/Delegated/Treasury). | `DEXE_RPC_URL` |
@@ -111,13 +113,13 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_read_distribution_status` | `isClaimed(proposalId, voter)` + `getPotentialReward` from DistributionProposal. | `DEXE_RPC_URL` |
 | `dexe_read_staking_info` | `stakingsCount()` + `getActiveStakings()` + optional `getUserInfo(user)`. | `DEXE_RPC_URL` |
 | `dexe_read_privacy_policy_status` | `UserRegistry.documentHash()` + `agreed(user)`. | `DEXE_RPC_URL` |
-| `dexe_read_dao_list` | Paginated DAO discovery via pools subgraph. Search by name, ordered by voter count. | `DEXE_SUBGRAPH_POOLS_URL` |
-| `dexe_read_dao_members` | Paginated members with voting power, delegation counts, rewards, expert status. | `DEXE_SUBGRAPH_POOLS_URL` |
-| `dexe_read_dao_experts` | Paginated local experts (DAO-specific expert NFT holders) with delegation info. | `DEXE_SUBGRAPH_POOLS_URL` |
-| `dexe_read_validator_list` | Paginated validators ordered by balance descending. | `DEXE_SUBGRAPH_VALIDATORS_URL` |
-| `dexe_read_user_activity` | Paginated tx history per user — proposals/votes/delegations/claims by timestamp desc. | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
-| `dexe_read_delegation_map` | Outgoing or incoming delegation pairs for a user (accepts wallet addresses or VoterInPool composite ids). | `DEXE_SUBGRAPH_POOLS_URL` |
-| `dexe_graph_query` | Free-form read-only GraphQL against the pools / interactions / validators subgraphs. Entity reference: [GRAPH.md](GRAPH.md) (served in-band as the MCP resource `dexe://graph-schema`). Bound results with `first:`; oversized responses rejected. | `DEXE_SUBGRAPH_*_URL` (per subgraph) |
+| `dexe_read_dao_list` | Paginated DAO discovery via pools subgraph. Search by name, ordered by voter count. → `{query, offset, limit, indexedChainId, daoPools[]}` | `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_read_dao_members` | Paginated members with voting power, delegation counts, rewards, expert status. → `{govPool, offset, limit, indexedChainId, members[]}` | `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_read_dao_experts` | Paginated local experts (DAO-specific expert NFT holders) with delegation info. → `{govPool, offset, limit, indexedChainId, experts[]}` | `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_read_validator_list` | Paginated validators ordered by balance descending. → `{govPool, offset, limit, indexedChainId, validators[]}` | `DEXE_SUBGRAPH_VALIDATORS_URL` |
+| `dexe_read_user_activity` | Paginated tx history per user — proposals/votes/delegations/claims by timestamp desc. → `{user, offset, limit, indexedChainId, transactions[]}` | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
+| `dexe_read_delegation_map` | Outgoing or incoming delegation pairs for a user (accepts wallet addresses or VoterInPool composite ids). → `{addresses, direction, offset, limit, indexedChainId, delegations[]}` | `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_graph_query` | Free-form read-only GraphQL against the pools / interactions / validators subgraphs. Entity reference: [GRAPH.md](GRAPH.md) (served in-band as the MCP resource `dexe://graph-schema`). Bound results with `first:`; oversized responses rejected. `chainId` picks the chain for the chosen `subgraph`. → `{subgraph, indexedChainId, data}` | `DEXE_SUBGRAPH_*_URL` (of the requested `subgraph`) |
 | `dexe_read_protocol_stats` | Protocol-wide aggregates (app.dexe.io landing numbers): total TVL across all DAOs on the selected chains, total proposals, DAO count, voting-locked value, TVL time series (downsampled), optional top-N DAOs by TVL. Backend-only. | `DEXE_BACKEND_API_URL` |
 | `dexe_otc_list_sales_for_dao` | Reads `latestTierId()` + `getTierViews(0, latestTierId)` on a DAO's TokenSaleProposal helper. Returns tiers with `totalSold`, `upcoming`/`active`/`ended`/`off` status (block timestamp + on-chain `isOff`), and both raw + `saleStartTimeUTC`/`saleEndTimeUTC` human-readable UTC times. Works chain 56 + 97, no subgraph needed. Pass `tokenSaleProposal` explicitly until per-DAO helper discovery lands. | `DEXE_RPC_URL` |
 
@@ -332,8 +334,8 @@ Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my 
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
-| `dexe_user_inbox` | Multi-DAO attention aggregator. Per DAO surfaces `unvotedProposal` (Voting state + zero personal vote), `claimableRewards`, `lockedDeposit`. Mainnet auto-discovers DAOs via pools subgraph; testnet requires explicit `daos[]`. | `DEXE_RPC_URL`, `DEXE_SUBGRAPH_POOLS_URL` for auto-discovery |
-| `dexe_proposal_forecast` | Predictive pass-rate. Reads latest 10 proposals + final states, computes historical pass-rate + average For-vote weight, returns `{ quorum, historicalPassRate, risks, recommendation }`. Mainnet only by default; pass `forceRpcOnly: true` for testnet. | `DEXE_RPC_URL`, `DEXE_SUBGRAPH_POOLS_URL` |
+| `dexe_user_inbox` | Multi-DAO attention aggregator. Per DAO surfaces `unvotedProposal` (Voting state + zero personal vote), `claimableRewards`, `lockedDeposit`. Discovery **and** scan run on `chainId`: omitting `daos[]` auto-discovers the user's DAOs from that chain's pools subgraph, so a chain with no endpoint refuses to guess — pass `daos[]` and the scan (pure on-chain) works anywhere. → adds `{daoSource, indexedChainId}` (`null` when you supplied the list). | `DEXE_RPC_URL`; `DEXE_SUBGRAPH_POOLS_URL[_<chainId>]` for auto-discovery |
+| `dexe_proposal_forecast` | Predictive pass-rate. Reads latest 10 proposals + final states, computes historical pass-rate + average For-vote weight, returns `{ quorum, historicalPassRate, risks, recommendation }`. The history cross-check resolves a pools subgraph **for the chain being forecast**; a chain with no endpoint stops the call with the var to set unless you pass `forceRpcOnly: true` (on-chain history only). → adds `{indexedChainId, subgraphNote}` so one chain's forecast is never enriched with another's history. | `DEXE_RPC_URL`; `DEXE_SUBGRAPH_POOLS_URL[_<chainId>]` unless `forceRpcOnly` |
 
 ---
 

@@ -1,11 +1,25 @@
 import { resolve as dnsResolve } from "node:dns/promises";
 import { existsSync, accessSync, constants } from "node:fs";
 import { dirname } from "node:path";
-import { ENV_REGISTRY, type EnvKey, type EnvEntry, type EnvCategory } from "../env/schema.js";
+import {
+  ENV_REGISTRY,
+  DYNAMIC_PER_CHAIN_RPC_RE,
+  PER_CHAIN_SUBGRAPH_URL_RE,
+  type EnvKey,
+  type EnvEntry,
+  type EnvCategory,
+} from "../env/schema.js";
 import { parseEnv } from "../env/parse.js";
 import { getEnvLoadState, type EnvLoadReport, type EnvSourceState } from "../env/loader.js";
-import type { DexeConfig } from "../config.js";
-import { DEFAULTS } from "../config.js";
+import type { DexeConfig, SubgraphKind } from "../config.js";
+import {
+  DEFAULTS,
+  DEFAULT_SUBGRAPH_CHAIN_ID,
+  SUBGRAPH_KINDS,
+  resolveSubgraphEndpoints,
+  subgraphEnvVar,
+} from "../config.js";
+import { extractGraphApiKey, isTrustedGraphHost } from "../lib/subgraph.js";
 import { maskUrl, redactUrlCredentials } from "../lib/redact.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
@@ -50,13 +64,14 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
     pinataJwtCheck(timeoutMs),
     pinataPinQuotaCheck(timeoutMs),
     ipfsGatewayDnsCheck(timeoutMs),
-    ...subgraphChecks(timeoutMs),
+    ...subgraphChecks(opts.config, timeoutMs),
     backendCheck(timeoutMs),
   ]);
   for (const r of network) {
     if (r) results.push(r);
   }
 
+  results.push(...subgraphCoverageCheck(opts.config));
   results.push(...signerGuardConfigCheck(opts.config));
   results.push(...chainConsistencyCheck(opts.config));
   results.push(...sharedDefaultsCheck(opts.config));
@@ -101,6 +116,12 @@ export function startupIssueChecks(
 function categoryForKey(key: string): CheckCategory {
   const entry = (ENV_REGISTRY as Record<string, EnvEntry | undefined>)[key];
   if (entry) return entry.category;
+  // The per-chain families carry an open-ended chain-id suffix, so they cannot
+  // be enumerated in ENV_SPEC and have no entry to read a category from. Without
+  // these, a rejected DEXE_SUBGRAPH_POOLS_URL_97 files under "process" — nowhere
+  // near the subgraph rows the user is reading to work out what broke.
+  if (PER_CHAIN_SUBGRAPH_URL_RE.test(key)) return "subgraph";
+  if (DYNAMIC_PER_CHAIN_RPC_RE.test(key)) return "rpc";
   // Family names (`DEXE_AGENT_PK_*`) have no registry entry of their own.
   if (key.includes("SIGNER") || key.includes("AGENT_PK") || key.includes("PRIVATE_KEY")) {
     return "signer";
@@ -484,71 +505,310 @@ async function ipfsGatewayDnsCheck(timeoutMs: number): Promise<CheckResult | nul
   }
 }
 
-// ─── subgraph reachability ─────────────────────────────────────────────────
+// ─── subgraph health ───────────────────────────────────────────────────────
 
-function subgraphChecks(timeoutMs: number): Promise<CheckResult | null>[] {
+/**
+ * Every Graph subgraph exposes `_meta`. Asking for it costs the same round-trip
+ * as the old `{ __typename }` and answers the two things `__typename` cannot:
+ * how far the indexer has actually got, and whether it hit an indexing error.
+ * A subgraph that is reachable but tens of thousands of blocks behind serves
+ * stale rows with no outward sign — invisible until this probe reports it.
+ */
+export const SUBGRAPH_PROBE_QUERY = "{ _meta { block { number } hasIndexingErrors } }";
+
+/**
+ * Lag past which stale reads stop being a rounding error. ~1000 BSC blocks is
+ * roughly 50 minutes — long enough that a proposal created since then is
+ * simply absent from every subgraph-backed answer.
+ */
+const SUBGRAPH_LAG_WARN_BLOCKS = 1000n;
+
+/** One endpoint to probe, and the single chain it indexes. */
+export interface SubgraphProbeTarget {
+  kind: SubgraphKind;
+  /** The chain this endpoint indexes — a subgraph indexes exactly one. */
+  chainId: number;
+  url: string;
+}
+
+/**
+ * Probe every configured (chain, kind) endpoint. Endpoints are per-chain since
+ * 0.30.2, so a single global verdict would be a lie the moment the operator
+ * configures a second chain: each result names the chain it speaks for.
+ */
+function subgraphChecks(
+  config: DexeConfig | undefined,
+  timeoutMs: number,
+): Promise<CheckResult | null>[] {
+  // Without a config (doctor run outside the server's startup path) resolve the
+  // same way `loadConfig` does, so the endpoints probed are the ones reads use.
+  const urls = config?.subgraphUrls ?? resolveSubgraphEndpoints(process.env).urls;
+  // One head lookup per chain, shared by that chain's three endpoints.
+  const heads = new Map<number, Promise<bigint | undefined>>();
   const out: Promise<CheckResult | null>[] = [];
-  const targets: Array<{ key: "DEXE_SUBGRAPH_POOLS_URL" | "DEXE_SUBGRAPH_VALIDATORS_URL" | "DEXE_SUBGRAPH_INTERACTIONS_URL"; id: string }> = [
-    { key: "DEXE_SUBGRAPH_POOLS_URL", id: "subgraph.pools" },
-    { key: "DEXE_SUBGRAPH_VALIDATORS_URL", id: "subgraph.validators" },
-    { key: "DEXE_SUBGRAPH_INTERACTIONS_URL", id: "subgraph.interactions" },
-  ];
-  const apiKey = process.env.DEXE_GRAPH_API_KEY?.trim();
-  // Baked defaults (key embedded in the URL path) so the doctor validates the
-  // endpoints that reads actually use when the operator sets none.
-  const DEFAULT_SUBGRAPH_URLS: Record<string, string> = {
-    DEXE_SUBGRAPH_POOLS_URL: DEFAULTS.subgraphPoolsUrl,
-    DEXE_SUBGRAPH_VALIDATORS_URL: DEFAULTS.subgraphValidatorsUrl,
-    DEXE_SUBGRAPH_INTERACTIONS_URL: DEFAULTS.subgraphInteractionsUrl,
-  };
-  for (const t of targets) {
-    const url = process.env[t.key]?.trim() || DEFAULT_SUBGRAPH_URLS[t.key];
-    if (!url) continue;
-    out.push(
-      (async (): Promise<CheckResult | null> => {
-        const headers: Record<string, string> = { "content-type": "application/json" };
-        if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-        const res = await fetchJsonWithTimeout(
-          url,
-          { method: "POST", headers, body: JSON.stringify({ query: "{ __typename }" }) },
-          timeoutMs,
-        );
-        if (res.kind === "timeout") {
-          return {
-            id: `${t.id}.reachable`,
-            category: "network",
-            status: "warn",
-            message: `${t.key} timed out`,
-          };
-        }
-        if (res.kind === "error") {
-          return {
-            id: `${t.id}.reachable`,
-            category: "network",
-            status: "fail",
-            message: `${t.key}: ${res.error}`,
-          };
-        }
-        if (res.status >= 400) {
-          return {
-            id: `${t.id}.reachable`,
-            category: "network",
-            status: "fail",
-            message: `${t.key} returned HTTP ${res.status}`,
-            remediation:
-              "Check the URL and DEXE_GRAPH_API_KEY (decentralized gateway requires Bearer auth).",
-          };
-        }
-        return {
-          id: `${t.id}.reachable`,
-          category: "network",
-          status: "pass",
-          message: "ok",
-        };
-      })(),
-    );
+  for (const [chainId, endpoints] of urls) {
+    for (const kind of SUBGRAPH_KINDS) {
+      const url = endpoints[kind];
+      if (!url) continue;
+      if (!heads.has(chainId)) heads.set(chainId, chainHeadBlock(config, chainId, timeoutMs));
+      out.push(probeSubgraph({ kind, chainId, url }, heads.get(chainId)!, timeoutMs));
+    }
   }
   return out;
+}
+
+/**
+ * Say — before any read is attempted — that the default chain has no indexer.
+ * Since 0.30.2 a subgraph read for an unindexed chain errors instead of quietly
+ * answering from BSC mainnet, which is the right behavior and also a surprise:
+ * doctor names it up front, with the two ways out.
+ */
+export function subgraphCoverageCheck(config: DexeConfig | undefined): CheckResult[] {
+  if (!config) return [];
+  const target = config.defaultChainId;
+  const endpoints = config.subgraphUrls.get(target);
+  const missing = SUBGRAPH_KINDS.filter(k => !endpoints?.[k]);
+  if (missing.length === 0) {
+    return [
+      {
+        id: "subgraph.coverage",
+        category: "subgraph",
+        status: "pass",
+        message: `all ${SUBGRAPH_KINDS.length} subgraphs configured for the default chain ${target}`,
+      },
+    ];
+  }
+  const elsewhere = [...config.subgraphUrls.keys()].filter(c => c !== target).sort((a, b) => a - b);
+  return [
+    {
+      id: "subgraph.coverage",
+      category: "subgraph",
+      status: "warn",
+      message:
+        `no ${missing.join("/")} subgraph for the DEFAULT chain ${target}` +
+        (elsewhere.length ? ` (endpoints exist for chain(s): ${elsewhere.join(", ")})` : "") +
+        ` — subgraph-backed reads default to chain ${target} and will report that, rather than return another chain's rows.`,
+      remediation:
+        (elsewhere.length
+          ? `Pass chainId: ${elsewhere[0]} on those tools to read an indexed chain, or `
+          : "") +
+        `set ${missing.map(k => subgraphEnvVar(k, target)).join(" / ")} to your own indexer and restart. ` +
+        `Or read chain ${target} on-chain instead: dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall need no subgraph.`,
+    },
+  ];
+}
+
+async function probeSubgraph(
+  target: SubgraphProbeTarget,
+  headBlock: Promise<bigint | undefined>,
+  timeoutMs: number,
+): Promise<CheckResult> {
+  const [res, head] = await Promise.all([
+    fetchJsonWithTimeout(
+      target.url,
+      {
+        method: "POST",
+        headers: graphProbeHeaders(target.url),
+        body: JSON.stringify({ query: SUBGRAPH_PROBE_QUERY }),
+      },
+      timeoutMs,
+    ),
+    headBlock,
+  ]);
+  return interpretSubgraphProbe(target, res, { timeoutMs, headBlock: head });
+}
+
+/**
+ * The exact `Authorization` decision `gqlRequest` (src/lib/subgraph.ts) makes.
+ * Duplicated rather than shared because that module owns query transport, not
+ * diagnostics — but it must stay in step: probing with different credentials
+ * than reads send is precisely how doctor ends up green while every read fails.
+ */
+function graphProbeHeaders(url: string): Record<string, string> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const extracted = extractGraphApiKey(url);
+  // `??`, not `||` — gqlRequest uses `??`, so an EMPTY DEXE_GRAPH_API_KEY makes
+  // reads send no Authorization at all. `||` would fall through to the URL's own
+  // key here and probe with credentials the reads never send: doctor green,
+  // every read 401. Same operator, same header, or this check lies.
+  const key = process.env.DEXE_GRAPH_API_KEY?.trim() ?? extracted;
+  const keyAlreadyInUrl = extracted !== undefined && key === extracted;
+  if (key && (keyAlreadyInUrl || isTrustedGraphHost(url))) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+  return headers;
+}
+
+/** Current head of `chainId`, or undefined when it can't be established. */
+async function chainHeadBlock(
+  config: DexeConfig | undefined,
+  chainId: number,
+  timeoutMs: number,
+): Promise<bigint | undefined> {
+  const chain = config?.chains.get(chainId);
+  if (!chain) return undefined;
+  const res = await fetchJsonWithTimeout(
+    chain.rpcUrl,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+    },
+    timeoutMs,
+  );
+  if (res.kind !== "ok" || res.status >= 400) return undefined;
+  const result = (res.body as { result?: unknown } | undefined)?.result;
+  if (typeof result !== "string") return undefined;
+  try {
+    // Block heights stay bigint end-to-end — a lag figure that rounded would be
+    // a diagnostic nobody can trust.
+    return BigInt(result);
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+/** The gateway's own refusal text, joined; undefined when there is none. */
+function graphqlErrorMessages(body: unknown): string | undefined {
+  if (!isRecord(body)) return undefined;
+  const errors = body.errors;
+  if (!Array.isArray(errors) || errors.length === 0) return undefined;
+  const msgs = errors.map(e =>
+    isRecord(e) && typeof e.message === "string" ? e.message : JSON.stringify(e),
+  );
+  return redactUrlCredentials(msgs.join("; ")).slice(0, 300);
+}
+
+/** `data._meta.block.number` as a bigint. Undefined when absent or unusable. */
+function metaBlockNumber(meta: Record<string, unknown>): bigint | undefined {
+  const block = isRecord(meta.block) ? meta.block.number : undefined;
+  if (typeof block === "bigint") return block;
+  // GraphQL Int arrives as a JS number; refuse anything that lost precision
+  // rather than reporting a block height that is quietly wrong.
+  if (typeof block === "number") return Number.isSafeInteger(block) ? BigInt(block) : undefined;
+  if (typeof block === "string" && /^\d+$/.test(block)) return BigInt(block);
+  return undefined;
+}
+
+function subgraphRemediation(target: SubgraphProbeTarget): string {
+  return (
+    `Fix ${subgraphEnvVar(target.kind, target.chainId)} — that is the endpoint doctor just probed for chain ${target.chainId} ` +
+    `(the unsuffixed DEXE_SUBGRAPH_${target.kind.toUpperCase()}_URL covers only the chain named by DEXE_SUBGRAPH_CHAIN_ID). ` +
+    `Then restart Claude Code — env is read once, at startup.\n` +
+    `Auth: DEXE_GRAPH_API_KEY, when set, OVERRIDES the key embedded in the DEXE_SUBGRAPH_*_URL path. ` +
+    `A key that doesn't match that URL's subscription is refused by the gateway with HTTP 200 + an errors array — ` +
+    `unset DEXE_GRAPH_API_KEY to use the URL's own key, or replace the URL with one issued for your key.`
+  );
+}
+
+/**
+ * Turn one probe response into a verdict.
+ *
+ * Split out from the fetch so the failure modes are testable without a network:
+ * the one that matters is HTTP 200 carrying `errors`. The Graph gateway answers
+ * a rejected query — dead subgraph id, unpaid or mismatched API key, removed
+ * deployment — with 200 and the refusal in the body. Judging on status alone
+ * reported those endpoints as healthy while every subgraph read failed, sending
+ * the user to debug the wrong thing.
+ *
+ * Exported for tests and kept pure.
+ */
+export function interpretSubgraphProbe(
+  target: SubgraphProbeTarget,
+  outcome: FetchOutcome,
+  opts: { timeoutMs?: number; headBlock?: bigint } = {},
+): CheckResult {
+  const id = `subgraph.${target.kind}.${target.chainId}.reachable`;
+  const where = `${target.kind} subgraph for chain ${target.chainId} (${maskUrl(target.url)})`;
+  const base = { id, category: "network" as const };
+
+  if (outcome.kind === "timeout") {
+    return {
+      ...base,
+      status: "warn",
+      message: `${where} timed out after ${opts.timeoutMs ?? 0}ms`,
+    };
+  }
+  if (outcome.kind === "error") {
+    return {
+      ...base,
+      status: "fail",
+      message: `${where} unreachable: ${redactUrlCredentials(outcome.error)}`,
+      remediation: subgraphRemediation(target),
+    };
+  }
+
+  const gatewayErrors = graphqlErrorMessages(outcome.body);
+  if (outcome.status >= 400) {
+    return {
+      ...base,
+      status: "fail",
+      message: `${where} returned HTTP ${outcome.status}${gatewayErrors ? `: ${gatewayErrors}` : ""}`,
+      remediation: subgraphRemediation(target),
+    };
+  }
+  if (gatewayErrors) {
+    return {
+      ...base,
+      status: "fail",
+      message: `${where} answered HTTP ${outcome.status} but the body carries GraphQL errors, so every read against it fails: ${gatewayErrors}`,
+      remediation: subgraphRemediation(target),
+    };
+  }
+
+  const data = isRecord(outcome.body) ? outcome.body.data : undefined;
+  if (!isRecord(data)) {
+    return {
+      ...base,
+      status: "fail",
+      message: `${where} answered HTTP ${outcome.status} with no \`data\` — not a working GraphQL endpoint.`,
+      remediation: subgraphRemediation(target),
+    };
+  }
+  const meta = isRecord(data._meta) ? data._meta : undefined;
+  if (!meta) {
+    return {
+      ...base,
+      status: "fail",
+      message: `${where} answered HTTP ${outcome.status} but returned no \`_meta\` — the endpoint is not an indexed subgraph (or has never synced a block).`,
+      remediation: subgraphRemediation(target),
+    };
+  }
+
+  const block = metaBlockNumber(meta);
+  const concerns: string[] = [];
+  if (block === undefined) {
+    concerns.push("no usable `_meta.block.number`, so how far it has indexed is unknown");
+  }
+  if (meta.hasIndexingErrors === true) {
+    concerns.push("the indexer reports hasIndexingErrors=true — rows may be missing or wrong");
+  }
+  let lagNote = "";
+  if (opts.headBlock !== undefined && block !== undefined) {
+    const lag = opts.headBlock - block;
+    if (lag > 0n) lagNote = `, ${lag} block(s) behind head ${opts.headBlock}`;
+    if (lag > SUBGRAPH_LAG_WARN_BLOCKS) {
+      concerns.push(`indexing is ${lag} blocks behind the chain head — reads answer from stale state`);
+    }
+  }
+
+  const message = `indexed block ${block ?? "unknown"}${lagNote} — ${where}`;
+  if (concerns.length === 0) {
+    return { ...base, status: "pass", message };
+  }
+  return {
+    ...base,
+    status: "warn",
+    message: `${message}; ${concerns.join("; ")}`,
+    remediation:
+      `Subgraph-backed reads for chain ${target.chainId} may be stale or incomplete — cross-check anything you act on with an on-chain read ` +
+      `(dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall need no subgraph). ` +
+      `If it persists, the indexer is unhealthy: check its status on The Graph, or point ${subgraphEnvVar(target.kind, target.chainId)} at another endpoint and restart.`,
+  };
 }
 
 // ─── backend ─────────────────────────────────────────────────────────────
@@ -760,7 +1020,13 @@ function chainConsistencyCheck(config: DexeConfig | undefined): CheckResult[] {
 function sharedDefaultsCheck(config: DexeConfig | undefined): CheckResult[] {
   if (!config) return [];
   const shared: string[] = [];
-  if (config.subgraphPoolsUrl === DEFAULTS.subgraphPoolsUrl) shared.push("subgraph (shared Graph API key)");
+  // Every baked endpoint indexes BSC mainnet, so the shared Graph key can only
+  // ever occupy chain 56's slot. The flat alias follows DEXE_SUBGRAPH_CHAIN_ID,
+  // so testing it made this advisory disappear whenever the unsuffixed vars were
+  // retargeted at another chain — while chain 56 still read on the shared key.
+  if (config.subgraphUrls.get(DEFAULT_SUBGRAPH_CHAIN_ID)?.pools === DEFAULTS.subgraphPoolsUrl) {
+    shared.push("subgraph (shared Graph API key)");
+  }
   if (config.walletConnectProjectId === DEFAULTS.walletConnectProjectId) shared.push("WalletConnect project id");
   if (config.backendApiUrl === DEFAULTS.backendApiUrl) shared.push("backend API");
   if (shared.length === 0) return [];
@@ -778,7 +1044,8 @@ function sharedDefaultsCheck(config: DexeConfig | undefined): CheckResult[] {
 
 // ─── fetch helper with bounded timeout ──────────────────────────────────
 
-type FetchOutcome =
+/** Exported so probe-interpretation can be tested without a network. */
+export type FetchOutcome =
   | { kind: "ok"; status: number; body: unknown }
   | { kind: "error"; error: string }
   | { kind: "timeout" };

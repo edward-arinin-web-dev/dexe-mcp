@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
   ENV_REGISTRY,
   DYNAMIC_PER_CHAIN_RPC_RE,
+  PER_CHAIN_SUBGRAPH_URL_RE,
   envKeys,
   isKnownEnvKey,
 } from "../../src/env/schema.js";
@@ -53,6 +54,34 @@ describe("ENV_REGISTRY shape", () => {
   });
 });
 
+/**
+ * Env families whose members differ only by a numeric suffix. Two of them are
+ * open-ended (the chain set a user points at is theirs, not ours) so they
+ * cannot live in ENV_SPEC at all; the third is 16 near-identical spec entries.
+ * One worked example documents the whole family — sixteen agent-key lines, or
+ * one subgraph line per conceivable chain, would bury the file.
+ *
+ * The reverse guard below skips family members ONLY because this table makes
+ * each family prove itself: every family must be represented in `.env.example`
+ * by a CONCRETE member key. `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` shipped
+ * undocumented precisely because a family with no fixed name is invisible to a
+ * name-by-name check — so the family is what gets checked.
+ */
+const ENV_FAMILIES = [
+  {
+    label: "per-chain RPC — DEXE_RPC_URL_<chainId>",
+    member: DYNAMIC_PER_CHAIN_RPC_RE,
+  },
+  {
+    label: "per-chain subgraph — DEXE_SUBGRAPH_<KIND>_URL_<chainId>",
+    member: PER_CHAIN_SUBGRAPH_URL_RE,
+  },
+  {
+    label: "agent keyring — DEXE_AGENT_PK_<n> (slots 1–16)",
+    member: /^DEXE_AGENT_PK_\d+$/,
+  },
+] as const;
+
 describe(".env.example drift guard", () => {
   const envExamplePath = resolve(import.meta.dirname, "..", "..", ".env.example");
   const raw = readFileSync(envExamplePath, "utf8");
@@ -62,6 +91,7 @@ describe(".env.example drift guard", () => {
     const m = /^\s*#?\s*(DEXE_[A-Z0-9_]+)\s*=/.exec(line);
     if (m) exampleKeys.add(m[1]!);
   }
+  const inFamily = (k: string) => ENV_FAMILIES.some((f) => f.member.test(k));
 
   it(".env.example references at least one DEXE_* var (sanity)", () => {
     expect(exampleKeys.size).toBeGreaterThan(0);
@@ -70,9 +100,41 @@ describe(".env.example drift guard", () => {
   it("every DEXE_* key in .env.example is in the schema", () => {
     const unknown: string[] = [];
     for (const k of exampleKeys) {
-      if (DYNAMIC_PER_CHAIN_RPC_RE.test(k)) continue;
       if (!isKnownEnvKey(k)) unknown.push(k);
     }
     expect(unknown, `.env.example has unknown DEXE_* keys: ${unknown.join(", ")}`).toEqual([]);
+  });
+
+  // The direction that was missing. The check above only sees vars that exist
+  // in the example and not in the schema; a var added to the schema and never
+  // written down stayed invisible — which is how two public subgraph families
+  // reached review undocumented.
+  it("every schema key appears in .env.example", () => {
+    const missing = envKeys().filter((k) => !exampleKeys.has(k) && !inFamily(k));
+    expect(
+      missing,
+      `ENV_SPEC keys with no line in .env.example: ${missing.join(", ")}. ` +
+        "Add a commented example (documented families need only one member).",
+    ).toEqual([]);
+  });
+
+  it("every dynamic env family has a concrete example member", () => {
+    for (const family of ENV_FAMILIES) {
+      const shown = [...exampleKeys].filter((k) => family.member.test(k));
+      expect(
+        shown.length,
+        `.env.example documents no member of the ${family.label} family — ` +
+          "add one concrete line (e.g. DEXE_SUBGRAPH_POOLS_URL_97=…) so the family is discoverable.",
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("family members named in .env.example are recognized by the loader", () => {
+    // A representative that the loader would report as a typo documents a var
+    // nobody can actually use.
+    for (const k of exampleKeys) {
+      if (!inFamily(k)) continue;
+      expect(isKnownEnvKey(k), `${k} is in .env.example but unknown to isKnownEnvKey()`).toBe(true);
+    }
   });
 });

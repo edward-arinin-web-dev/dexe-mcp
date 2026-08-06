@@ -1,3 +1,8 @@
+import type { DexeConfig, SubgraphKind } from "../config.js";
+import { DEFAULT_SUBGRAPH_CHAIN_ID, SUBGRAPH_KINDS, subgraphEnvVar } from "../config.js";
+
+export type { SubgraphKind };
+
 /**
  * Minimal GraphQL fetcher for The Graph subgraphs. Uses global `fetch` (Node
  * 18+). We avoid `graphql-request` as a dep for now — the calls we make are
@@ -6,6 +11,70 @@
 export interface GqlResponse<T> {
   data?: T;
   errors?: Array<{ message: string }>;
+}
+
+/** The endpoint to query, plus the chain it actually indexes. */
+export interface ResolvedSubgraph {
+  url: string;
+  /** Always the chain that was asked for — never a substitute. */
+  chainId: number;
+}
+
+/**
+ * Chains that have an endpoint, ascending. Pass `kind` to narrow to one
+ * subgraph; omit it for chains covered by any of the three. Tools use this to
+ * tell the user where they CAN look.
+ */
+export function subgraphChains(config: DexeConfig, kind?: SubgraphKind): number[] {
+  const out: number[] = [];
+  for (const [chainId, endpoints] of config.subgraphUrls) {
+    const has = kind ? !!endpoints[kind] : SUBGRAPH_KINDS.some((k) => !!endpoints[k]);
+    if (has) out.push(chainId);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/**
+ * The single entry point for "which subgraph do I query for this chain?".
+ *
+ * Every subgraph-backed tool must route through here rather than reading
+ * `config.subgraphPoolsUrl` & co. Those flat fields carry ONE chain's endpoint
+ * (see `DexeConfig.subgraphChainId`), so a tool that reads them while working
+ * on another chain returns that other chain's data with no hint that it did —
+ * which an agent will then act on. Answering with the wrong chain is worse
+ * than not answering, so an unconfigured chain throws.
+ *
+ * @param chainId chain to query; defaults to the config's default chain.
+ */
+export function resolveSubgraphUrl(
+  config: DexeConfig,
+  kind: SubgraphKind,
+  chainId?: number,
+): ResolvedSubgraph {
+  const target = chainId ?? config.defaultChainId;
+  const url = config.subgraphUrls.get(target)?.[kind];
+  if (url) return { url, chainId: target };
+
+  const available = subgraphChains(config, kind);
+  const where =
+    available.length > 0
+      ? `A ${kind} subgraph IS configured for chain(s): ${available.join(", ")}.`
+      : `No ${kind} subgraph is configured for ANY chain.`;
+  // Only meaningful when the caller asked for something other than mainnet —
+  // saying "mainnet rows would be wrong" while the caller IS on mainnet would
+  // be noise.
+  const whyStop =
+    target === DEFAULT_SUBGRAPH_CHAIN_ID
+      ? ""
+      : `The DeXe subgraphs index BSC mainnet (${DEFAULT_SUBGRAPH_CHAIN_ID}); answering chain ${target} from a mainnet endpoint would be wrong data, so this read stops here. `;
+  const queryMainnet = available.includes(DEFAULT_SUBGRAPH_CHAIN_ID)
+    ? `pass chainId: ${DEFAULT_SUBGRAPH_CHAIN_ID} to query BSC mainnet, `
+    : "";
+  throw new Error(
+    `No DeXe ${kind} subgraph is configured for chain ${target}. ${where} ${whyStop}` +
+      `Either ${queryMainnet}read chain ${target} on-chain instead with dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall (no subgraph needed), ` +
+      `or set ${subgraphEnvVar(kind, target)} to your own indexer endpoint and restart.`,
+  );
 }
 
 /**

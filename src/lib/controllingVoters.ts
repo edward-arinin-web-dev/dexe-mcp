@@ -6,11 +6,15 @@
  *   validators ∪ top-N token holders by voting weight.
  * "Voted For" is lenient: ≥1 member among the For-voters ⇒ `true`.
  *
- * Posture: **fail-soft, never throws.** Any missing subgraph, non-mainnet chain,
- * empty set, or subgraph/RPC error ⇒ `null` (unknown). Informational only — a
+ * Posture: **fail-soft, never throws.** A chain with no DeXe subgraph, an empty
+ * set, or any subgraph/RPC error ⇒ `null` (unknown). Informational only — a
  * `false` (set non-empty, nobody voted For) adds an advisory note; it never
  * blocks. We only return `false` when we positively enumerated the set AND
  * confirmed no member voted For on-chain.
+ *
+ * The set is always enumerated from the index of the chain being analyzed
+ * (`resolveSubgraphUrl`). A controlling set borrowed from another chain would
+ * score this DAO against strangers — and, being fail-soft, would do it silently.
  *
  * The set is enumerated via subgraph (cheap, but untrusted for vote direction);
  * each member's vote direction is then confirmed ON-CHAIN via
@@ -20,7 +24,7 @@
  */
 import { Interface, type JsonRpcProvider } from "ethers";
 import { multicall, type Call } from "./multicall.js";
-import { gqlRequest } from "./subgraph.js";
+import { gqlRequest, resolveSubgraphUrl } from "./subgraph.js";
 import type { DexeConfig } from "../config.js";
 
 /**
@@ -74,10 +78,10 @@ function toBig(s: string | null | undefined): bigint {
 }
 
 /** Validator addresses for `pool` (lowercased). Fail-soft → []. */
-async function fetchValidators(cfg: DexeConfig, pool: string): Promise<string[]> {
+async function fetchValidators(url: string, pool: string): Promise<string[]> {
   try {
     const data = await gqlRequest<{ validatorInPools: { validatorAddress: string | null }[] }>(
-      cfg.subgraphValidatorsUrl!,
+      url,
       VALIDATORS_QUERY,
       { offset: 0, limit: 100, address: pool },
     );
@@ -90,11 +94,11 @@ async function fetchValidators(cfg: DexeConfig, pool: string): Promise<string[]>
 }
 
 /** Top-N holders by (totalVotes + receivedDelegation), lowercased. Fail-soft → []. */
-async function fetchTopHolders(cfg: DexeConfig, pool: string, topN: number): Promise<string[]> {
+async function fetchTopHolders(url: string, pool: string, topN: number): Promise<string[]> {
   try {
     const data = await gqlRequest<{
       voterInPools: { receivedDelegation: string | null; voter: { id: string | null; totalVotes: string | null } | null }[];
-    }>(cfg.subgraphPoolsUrl!, DAO_MEMBERS_QUERY, { poolId: pool, offset: 0, limit: 50 });
+    }>(url, DAO_MEMBERS_QUERY, { poolId: pool, offset: 0, limit: 50 });
     const weighted = (data.voterInPools ?? [])
       .map((r) => ({
         addr: r.voter?.id?.toLowerCase(),
@@ -112,8 +116,9 @@ async function fetchTopHolders(cfg: DexeConfig, pool: string, topN: number): Pro
  * Did ≥1 controlling-set member vote For proposal `proposalId`?
  *   - `true`  — at least one member voted For (any vote type).
  *   - `false` — set was enumerated, non-empty, and NONE voted For.
- *   - `null`  — cannot determine (no subgraph / non-mainnet / empty set / error).
- * Never throws.
+ *   - `null`  — cannot determine (chain not indexed / empty set / error).
+ * Never throws. `chainId` is the chain being analyzed and selects the index;
+ * it is not a filter applied after the fact.
  */
 export async function resolveControllingHoldersVotedFor(args: {
   provider: JsonRpcProvider;
@@ -126,9 +131,28 @@ export async function resolveControllingHoldersVotedFor(args: {
   const { provider, govPool, proposalId, cfg, chainId } = args;
   const topN = args.topN ?? cfg.controllingTopN ?? DEFAULT_TOP_N;
 
-  // Gate: subgraph exists only on mainnet (56). Testnet (97) ⇒ unknown.
-  if (chainId !== 56) return null;
-  if (!cfg.subgraphValidatorsUrl || !cfg.subgraphPoolsUrl) return null;
+  // Gate: does an index exist FOR THIS CHAIN? The previous gate asked
+  // `chainId === 56` and then read the flat cfg.subgraph*Url fields — a pairing
+  // that only held while those fields were unconditionally BSC mainnet.
+  // DEXE_SUBGRAPH_CHAIN_ID can now file them under any chain, so the two halves
+  // could disagree and this advisory would score a chain-56 proposal against a
+  // chain-97 controlling set, silently (the function is fail-soft, so nothing
+  // would surface). Resolve per chain instead; an unindexed chain is `null`
+  // (unknown), never another chain's members.
+  //
+  // Both endpoints are required, as before: a half-enumerated set is a weaker
+  // basis for the `false` verdict that adds the advisory note.
+  let validatorsUrl: string;
+  let poolsUrl: string;
+  try {
+    validatorsUrl = resolveSubgraphUrl(cfg, "validators", chainId).url;
+    poolsUrl = resolveSubgraphUrl(cfg, "pools", chainId).url;
+  } catch {
+    // resolveSubgraphUrl throws actionable remediation for a tool to surface;
+    // here it is one input to a risk check, so it degrades to unknown rather
+    // than aborting the whole assessment.
+    return null;
+  }
 
   const pool = govPool.toLowerCase();
 
@@ -136,8 +160,8 @@ export async function resolveControllingHoldersVotedFor(args: {
   // only shrinks the set, which can only make `false` LESS likely (the safe
   // direction: fewer wrongful refuses).
   const [validators, holders] = await Promise.all([
-    fetchValidators(cfg, pool),
-    fetchTopHolders(cfg, pool, topN),
+    fetchValidators(validatorsUrl, pool),
+    fetchTopHolders(poolsUrl, pool, topN),
   ]);
   const members = [...new Set([...validators, ...holders])];
   if (members.length === 0) return null;
