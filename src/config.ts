@@ -52,6 +52,43 @@ export interface ChainConfig {
   registryOverride?: string;
 }
 
+/** A rejected env value and what the server did instead of exiting. */
+export interface StartupIssue {
+  /** The offending env var (or a `DEXE_AGENT_PK_*` style family name). */
+  key: string;
+  /** Why the value was rejected — the same text doctor shows. */
+  message: string;
+  /** What the server fell back to, so the user knows the current behavior. */
+  fallback: string;
+}
+
+/**
+ * Broadcast-guard vars. A malformed value here fails CLOSED (signing disabled)
+ * rather than falling back to a default — degrading a guard into "no guard"
+ * would widen what an autonomous agent may send.
+ */
+const SIGNER_GUARD_KEYS = new Set([
+  "DEXE_SIGNER_ALLOWLIST",
+  "DEXE_SIGNER_MAX_VALUE_WEI",
+  "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN",
+]);
+
+/**
+ * What actually happens when the schema pre-pass rejects `key`. The pre-pass
+ * deletes the value, so the specific handler further down never runs and cannot
+ * state the consequence itself — it has to be named here or the user is
+ * misinformed about whether signing still works.
+ */
+function schemaRejectionConsequence(key: string): string {
+  if (SIGNER_GUARD_KEYS.has(key)) {
+    return "signing disabled — a broadcast guard is never silently dropped";
+  }
+  if (key === "DEXE_PRIVATE_KEY" || /^DEXE_AGENT_(PK_\d+|FUNDER_PK)$/.test(key)) {
+    return "that key is ignored — signing falls back to WalletConnect, or readonly";
+  }
+  return "value ignored, using the built-in default";
+}
+
 export interface DexeConfig {
   /** Absolute, normalized path to the DeXe-Protocol checkout (may not exist yet). */
   protocolPath: string;
@@ -111,6 +148,14 @@ export interface DexeConfig {
    * stays the default signer; agent keys are never used implicitly.
    */
   agentKeys: Record<string, string>;
+
+  /**
+   * Env values that failed validation at startup. The server does NOT exit for
+   * these — a single typo must never leave the user with no tools and no
+   * in-band diagnostic. Each entry records what was rejected and what the
+   * server did instead; `dexe_doctor` surfaces them as failures.
+   */
+  startupIssues: StartupIssue[];
 
   /**
    * Minimum safe quorum percent (0–100). A DAO whose quorum setting is below
@@ -213,6 +258,22 @@ export function parseAgentKeys(
 }
 
 export async function loadConfig(): Promise<DexeConfig> {
+  // ---- degraded-startup collector -----------------------------------------
+  // A bad value in ANY optional DEXE_* var used to `process.exit(1)`. That left
+  // the user with no MCP tools, no in-band diagnostic, and — because
+  // `process.exit` cannot be caught — a dead `npx dexe-mcp doctor`, the exact
+  // command every doc points at. Nothing here is unrecoverable, so nothing here
+  // exits: record the issue, fall back, and let doctor report it.
+  const startupIssues: StartupIssue[] = [];
+  const degrade = (key: string, message: string, fallback: string): void => {
+    startupIssues.push({ key, message, fallback });
+    process.stderr.write(`[dexe-mcp] config issue: ${message} — ${fallback}\n`);
+  };
+  // Set when a *broadcast guard* var is malformed. A guard that silently
+  // degrades into "no guard" would widen what an autonomous agent may send, so
+  // those fail CLOSED (readonly) instead of falling back to a default.
+  let signerGuardBroken = false;
+
   // ---- schema-validate the DEXE_* env surface up front (R5) ---------------
   // parse.ts walks ENV_SPEC; an invalid value (malformed URL, non-integer,
   // bad enum) is a config error the user should see at startup, not a
@@ -220,14 +281,19 @@ export async function loadConfig(): Promise<DexeConfig> {
   // validation; this makes startup honest about it too.
   {
     const { issues } = parseEnv();
-    const errors = issues.filter((i) => i.severity === "error");
     for (const issue of issues) {
       process.stderr.write(`[dexe-mcp] env ${issue.severity}: ${issue.message}\n`);
     }
-    if (errors.length > 0) {
-      fatal(
-        `invalid environment: ${errors.map((i) => i.key).join(", ")} — fix the value(s) in .env and restart. Run 'npx dexe-mcp doctor' for details.`,
-      );
+    for (const issue of issues.filter((i) => i.severity === "error")) {
+      // Drop the rejected value so every downstream `process.env` read falls
+      // back to its documented default instead of consuming garbage. That also
+      // means the hand-written checks further down never see these values, so
+      // the consequence has to be spelled out HERE — telling a user "using the
+      // built-in default" when signing was actually switched off would have
+      // them expect writes to work while every broadcast is refused.
+      delete process.env[issue.key];
+      if (SIGNER_GUARD_KEYS.has(issue.key)) signerGuardBroken = true;
+      degrade(issue.key, issue.message, schemaRejectionConsequence(issue.key));
     }
   }
 
@@ -286,9 +352,14 @@ export async function loadConfig(): Promise<DexeConfig> {
   if (process.env.DEXE_CHAIN_ID) {
     const n = Number(process.env.DEXE_CHAIN_ID);
     if (!Number.isFinite(n) || n <= 0) {
-      fatal(`DEXE_CHAIN_ID must be a positive integer, got: ${process.env.DEXE_CHAIN_ID}`);
+      degrade(
+        "DEXE_CHAIN_ID",
+        `DEXE_CHAIN_ID must be a positive integer, got: ${process.env.DEXE_CHAIN_ID}`,
+        "ignored, inferring the chain from the RPC URL instead",
+      );
+    } else {
+      legacyChainId = n;
     }
-    legacyChainId = n;
   }
   if (legacyRpc) {
     const legacyUrls = splitRpcUrls(legacyRpc);
@@ -337,20 +408,29 @@ export async function loadConfig(): Promise<DexeConfig> {
   }
 
   // ---- resolve default chain ---------------------------------------------
-  let defaultChainId: number;
+  let defaultChainId: number | undefined;
   const explicitDefault = process.env.DEXE_DEFAULT_CHAIN_ID?.trim();
   if (explicitDefault) {
     const n = Number(explicitDefault);
     if (!Number.isFinite(n) || n <= 0) {
-      fatal(`DEXE_DEFAULT_CHAIN_ID must be a positive integer, got: ${explicitDefault}`);
-    }
-    if (!chains.has(n)) {
-      const configured = [...chains.keys()].sort().join(", ") || "none";
-      fatal(
-        `DEXE_DEFAULT_CHAIN_ID=${n} but no RPC configured for that chain. Configured: [${configured}]. Set DEXE_RPC_URL_${n === 97 ? "TESTNET" : n === 56 ? "MAINNET" : "<chain>"} or legacy DEXE_RPC_URL.`,
+      degrade(
+        "DEXE_DEFAULT_CHAIN_ID",
+        `DEXE_DEFAULT_CHAIN_ID must be a positive integer, got: ${explicitDefault}`,
+        "ignored, auto-selecting the default chain",
       );
+    } else if (!chains.has(n)) {
+      const configured = [...chains.keys()].sort().join(", ") || "none";
+      degrade(
+        "DEXE_DEFAULT_CHAIN_ID",
+        `DEXE_DEFAULT_CHAIN_ID=${n} but no RPC configured for that chain. Configured: [${configured}]. Set DEXE_RPC_URL_${n === 97 ? "TESTNET" : n === 56 ? "MAINNET" : "<chain>"} or legacy DEXE_RPC_URL.`,
+        "ignored, auto-selecting from the configured chains",
+      );
+    } else {
+      defaultChainId = n;
     }
-    defaultChainId = n;
+  }
+  if (defaultChainId !== undefined) {
+    // resolved from DEXE_DEFAULT_CHAIN_ID above
   } else if (chains.size === 1) {
     defaultChainId = [...chains.keys()][0]!;
   } else if (chains.size > 1) {
@@ -400,36 +480,76 @@ export async function loadConfig(): Promise<DexeConfig> {
     process.env.DEXE_SUBGRAPH_INTERACTIONS_URL?.trim() || DEFAULTS.subgraphInteractionsUrl;
   const backendApiUrl = process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl;
 
-  const privateKey = process.env.DEXE_PRIVATE_KEY?.trim() || undefined;
+  let privateKey = process.env.DEXE_PRIVATE_KEY?.trim() || undefined;
   if (privateKey && chains.size === 0) {
-    fatal(
+    degrade(
+      "DEXE_PRIVATE_KEY",
       "DEXE_PRIVATE_KEY requires at least one of DEXE_RPC_URL / DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET to be set (signing needs an RPC endpoint).",
+      "signing disabled (readonly) — set an RPC URL and restart to re-enable",
     );
+    privateKey = undefined;
   }
   if (privateKey) {
     const { Wallet } = await import("ethers");
-    const addr = new Wallet(privateKey).address;
-    process.stderr.write(`[dexe-mcp] signing enabled for ${addr}\n`);
-    process.stderr.write(
-      `[dexe-mcp] ⚠️ NOT SAFE: hot key in plaintext on disk — prefer WalletConnect (dexe_wc_connect); use only a throwaway wallet\n`,
-    );
+    // The hex64 shape check upstream is weaker than what ethers accepts: an
+    // all-zero key, or one at/above the curve order, matches the regex and then
+    // throws here. `0x0000…0` is exactly what gets pasted from a template, and
+    // an uncaught throw costs the user every tool. Degrade to readonly instead.
+    let addr: string | undefined;
+    try {
+      addr = new Wallet(privateKey).address;
+    } catch (err) {
+      degrade(
+        "DEXE_PRIVATE_KEY",
+        `DEXE_PRIVATE_KEY is not a usable private key: ${err instanceof Error ? err.message : String(err)}`,
+        "signing disabled (readonly) — fix the key and restart to re-enable",
+      );
+      privateKey = undefined;
+    }
+    if (addr) {
+      process.stderr.write(`[dexe-mcp] signing enabled for ${addr}\n`);
+      process.stderr.write(
+        `[dexe-mcp] ⚠️ NOT SAFE: hot key in plaintext on disk — prefer WalletConnect (dexe_wc_connect); use only a throwaway wallet\n`,
+      );
+    }
   }
 
   // ---- opt-in agent keyring (DEXE_AGENT_PK_1..16 / AGENT_PK_1..16) --------
   // Multi-persona/swarm flows: each key becomes signerKey "agent<n>" on
   // dexe_tx_send + the composites; AGENT_FUNDER_PK → signerKey "funder".
-  const agentKeys = parseAgentKeys(process.env, fatal);
-  if (Object.keys(agentKeys).length > 0) {
-    if (chains.size === 0) {
-      fatal("Agent keyring keys (DEXE_AGENT_PK_*/AGENT_PK_*) require an RPC endpoint (same requirement as DEXE_PRIVATE_KEY).");
-    }
-    const { Wallet } = await import("ethers");
-    const names = Object.keys(agentKeys);
-    process.stderr.write(
-      `[dexe-mcp] agent keyring: ${names.length} key(s) — ${names
-        .map((k) => `${k}=${new Wallet(agentKeys[k]!).address.slice(0, 10)}…`)
-        .join(", ")} (select via signerKey)\n`,
+  let agentKeys = parseAgentKeys(process.env, (message) =>
+    degrade("DEXE_AGENT_PK_*", message, "that key is skipped; the other slots still load"),
+  );
+  if (Object.keys(agentKeys).length > 0 && chains.size === 0) {
+    degrade(
+      "DEXE_AGENT_PK_*",
+      "Agent keyring keys (DEXE_AGENT_PK_*/AGENT_PK_*) require an RPC endpoint (same requirement as DEXE_PRIVATE_KEY).",
+      "agent keyring disabled — set an RPC URL and restart to re-enable",
     );
+    agentKeys = {};
+  }
+  if (Object.keys(agentKeys).length > 0) {
+    const { Wallet } = await import("ethers");
+    // Same trap as the primary key, multiplied: one hex-shaped but invalid slot
+    // must cost that slot, never the whole surface.
+    const labels: string[] = [];
+    for (const slot of Object.keys(agentKeys)) {
+      try {
+        labels.push(`${slot}=${new Wallet(agentKeys[slot]!).address.slice(0, 10)}…`);
+      } catch (err) {
+        degrade(
+          `DEXE_AGENT_PK_* (${slot})`,
+          `agent keyring slot "${slot}" is not a usable private key: ${err instanceof Error ? err.message : String(err)}`,
+          "that slot is dropped; the other slots still load",
+        );
+        delete agentKeys[slot];
+      }
+    }
+    if (labels.length > 0) {
+      process.stderr.write(
+        `[dexe-mcp] agent keyring: ${labels.length} key(s) — ${labels.join(", ")} (select via signerKey)\n`,
+      );
+    }
   }
 
   // ---- signer broadcast guard B6 (destination allowlist) -----------------
@@ -442,7 +562,13 @@ export async function loadConfig(): Promise<DexeConfig> {
     const normalized: string[] = [];
     for (const entry of allowlistRaw.split(",").map(s => s.trim()).filter(Boolean)) {
       if (!isAddress(entry)) {
-        fatal(`DEXE_SIGNER_ALLOWLIST contains an invalid address: ${entry}`);
+        degrade(
+          "DEXE_SIGNER_ALLOWLIST",
+          `DEXE_SIGNER_ALLOWLIST contains an invalid address: ${entry}`,
+          "signing disabled — a destination allowlist is never applied partially",
+        );
+        signerGuardBroken = true;
+        continue;
       }
       normalized.push(getAddress(entry).toLowerCase());
     }
@@ -453,16 +579,22 @@ export async function loadConfig(): Promise<DexeConfig> {
   let signerMaxValueWei: bigint | undefined;
   const maxValueRaw = process.env.DEXE_SIGNER_MAX_VALUE_WEI?.trim();
   if (maxValueRaw) {
-    let parsed: bigint;
+    let parsed: bigint | undefined;
     try {
       parsed = BigInt(maxValueRaw);
     } catch {
-      fatal(`DEXE_SIGNER_MAX_VALUE_WEI must be a non-negative integer (wei), got: ${maxValueRaw}`);
+      parsed = undefined;
     }
-    if (parsed! < 0n) {
-      fatal(`DEXE_SIGNER_MAX_VALUE_WEI must be a non-negative integer (wei), got: ${maxValueRaw}`);
+    if (parsed === undefined || parsed < 0n) {
+      degrade(
+        "DEXE_SIGNER_MAX_VALUE_WEI",
+        `DEXE_SIGNER_MAX_VALUE_WEI must be a non-negative integer (wei), got: ${maxValueRaw}`,
+        "signing disabled — a value cap is never silently dropped",
+      );
+      signerGuardBroken = true;
+    } else {
+      signerMaxValueWei = parsed;
     }
-    signerMaxValueWei = parsed!;
   }
 
   // ---- signer broadcast guard B10 (rate limit) ---------------------------
@@ -471,9 +603,15 @@ export async function loadConfig(): Promise<DexeConfig> {
   if (maxBroadcastsRaw) {
     const n = Number(maxBroadcastsRaw);
     if (!Number.isInteger(n) || n <= 0) {
-      fatal(`DEXE_SIGNER_MAX_BROADCASTS_PER_MIN must be a positive integer, got: ${maxBroadcastsRaw}`);
+      degrade(
+        "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN",
+        `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN must be a positive integer, got: ${maxBroadcastsRaw}`,
+        "signing disabled — a rate limit is never silently dropped",
+      );
+      signerGuardBroken = true;
+    } else {
+      signerMaxBroadcastsPerMin = n;
     }
-    signerMaxBroadcastsPerMin = n;
   }
 
   // ---- C12 WalletConnect signer mode ------------------------------------
@@ -489,9 +627,14 @@ export async function loadConfig(): Promise<DexeConfig> {
   if (wcTimeoutRaw) {
     const n = Number(wcTimeoutRaw);
     if (!Number.isInteger(n) || n <= 0) {
-      fatal(`DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS must be a positive integer (ms), got: ${wcTimeoutRaw}`);
+      degrade(
+        "DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS",
+        `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS must be a positive integer (ms), got: ${wcTimeoutRaw}`,
+        "using the default 120000 ms",
+      );
+    } else {
+      walletConnectApprovalTimeoutMs = n;
     }
-    walletConnectApprovalTimeoutMs = n;
   }
   if (privateKey) {
     // WC id present (env or default) but a hot key takes precedence — stay quiet
@@ -510,35 +653,55 @@ export async function loadConfig(): Promise<DexeConfig> {
   if (minQuorumRaw) {
     const n = Number(minQuorumRaw);
     if (!Number.isFinite(n) || n < 0 || n > 100) {
-      fatal(`DEXE_MIN_SAFE_QUORUM_PCT must be a number between 0 and 100, got: ${minQuorumRaw}`);
+      degrade(
+        "DEXE_MIN_SAFE_QUORUM_PCT",
+        `DEXE_MIN_SAFE_QUORUM_PCT must be a number between 0 and 100, got: ${minQuorumRaw}`,
+        "using the default 50",
+      );
+    } else {
+      minSafeQuorumPct = n;
     }
-    minSafeQuorumPct = n;
   }
   let treasuryGuard: "off" | "warn" = "warn";
   const treasuryGuardRaw = process.env.DEXE_TREASURY_GUARD?.trim().toLowerCase();
   if (treasuryGuardRaw) {
     if (treasuryGuardRaw !== "off" && treasuryGuardRaw !== "warn") {
-      fatal(`DEXE_TREASURY_GUARD must be one of off|warn, got: ${treasuryGuardRaw}`);
+      degrade(
+        "DEXE_TREASURY_GUARD",
+        `DEXE_TREASURY_GUARD must be one of off|warn, got: ${treasuryGuardRaw}`,
+        "using the default 'warn' (advisories stay on)",
+      );
+    } else {
+      treasuryGuard = treasuryGuardRaw;
     }
-    treasuryGuard = treasuryGuardRaw;
   }
   let controllingTopN = 5;
   const controllingTopNRaw = process.env.DEXE_CONTROLLING_TOPN?.trim();
   if (controllingTopNRaw) {
     const n = Number(controllingTopNRaw);
     if (!Number.isInteger(n) || n <= 0) {
-      fatal(`DEXE_CONTROLLING_TOPN must be a positive integer, got: ${controllingTopNRaw}`);
+      degrade(
+        "DEXE_CONTROLLING_TOPN",
+        `DEXE_CONTROLLING_TOPN must be a positive integer, got: ${controllingTopNRaw}`,
+        "using the default 5",
+      );
+    } else {
+      controllingTopN = n;
     }
-    controllingTopN = n;
   }
 
   let forkBlock: number | undefined;
   if (process.env.DEXE_FORK_BLOCK) {
     const n = Number(process.env.DEXE_FORK_BLOCK);
     if (!Number.isFinite(n) || n < 0) {
-      fatal(`DEXE_FORK_BLOCK must be a non-negative integer, got: ${process.env.DEXE_FORK_BLOCK}`);
+      degrade(
+        "DEXE_FORK_BLOCK",
+        `DEXE_FORK_BLOCK must be a non-negative integer, got: ${process.env.DEXE_FORK_BLOCK}`,
+        "ignored, forking from the latest block",
+      );
+    } else {
+      forkBlock = n;
     }
-    forkBlock = n;
   }
 
   // ---- Phase 2 toolset profiles (DEXE_TOOLSETS) --------------------------
@@ -549,6 +712,20 @@ export async function loadConfig(): Promise<DexeConfig> {
   const toolsets = toolsetsRaw
     ? toolsetsRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
     : ["core", "proposals"];
+
+  // ---- fail closed on a malformed broadcast guard -------------------------
+  // Falling back to "no guard" would silently widen what an autonomous agent is
+  // allowed to broadcast, which is the opposite of what the operator asked for
+  // by setting the var at all. Drop to readonly instead — the server stays up
+  // and doctor explains exactly which var to fix.
+  if (signerGuardBroken && (privateKey || Object.keys(agentKeys).length > 0)) {
+    process.stderr.write(
+      "[dexe-mcp] signing disabled: a broadcast-guard variable is malformed (see the config issues above). " +
+        "Fix it and restart, or run 'npx dexe-mcp doctor'.\n",
+    );
+    privateKey = undefined;
+    agentKeys = {};
+  }
 
   const statePath = resolveStatePath();
 
@@ -570,6 +747,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     forkBlock,
     privateKey,
     agentKeys,
+    startupIssues,
     minSafeQuorumPct,
     treasuryGuard,
     controllingTopN,
@@ -614,8 +792,3 @@ export function resolveChain(config: DexeConfig, chainId?: number): ChainConfig 
   return chain;
 }
 
-function fatal(msg: string): never {
-  // stderr only — stdout is the MCP protocol channel.
-  process.stderr.write(`[dexe-mcp] fatal: ${msg}\n`);
-  process.exit(1);
-}

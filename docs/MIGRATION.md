@@ -6,6 +6,31 @@ something on your side.
 
 ---
 
+## 0.30.0 → 0.30.1 — check your Node version; a bad env var now degrades instead of killing the server
+
+Tool count unchanged (165 / 19 groups).
+
+### Action required (maybe)
+- **`engines.node` is now `>=20.12.0`.** If you run Node 20.0–20.11, upgrade.
+  `process.loadEnvFile()` does not exist on those releases, so your `.env` was
+  being silently ignored — you were running on defaults without being told.
+  Startup now says so explicitly. Node 22/24 users: nothing to do.
+
+### Behavior changes
+- **A malformed optional `DEXE_*` value no longer stops the server.** It is
+  reported by `dexe_doctor` as a `startup.*` failure and the documented default
+  is used. If you were relying on startup failing loudly to catch typos, watch
+  doctor instead — it exits non-zero.
+- **A malformed broadcast guard now disables signing.** `DEXE_SIGNER_ALLOWLIST`,
+  `DEXE_SIGNER_MAX_VALUE_WEI` and `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` fail
+  closed: the server stays up in readonly rather than broadcasting unguarded.
+  Fix the value and restart to get signing back.
+- **`DEXE_WALLETCONNECT_RELAY_URL` must actually be `ws://` or `wss://`.** The
+  message always said so; now it is enforced. An `https://` relay used to pass
+  validation and then fail to connect.
+
+---
+
 ## 0.29.0 → 0.30.0 — no action for most users; one behavior change if your `DEXE_TOOLSETS` has a typo
 
 Tool count unchanged (165 / 19 groups).

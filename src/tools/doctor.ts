@@ -6,6 +6,7 @@ import {
   type CheckResult,
   type CheckStatus,
 } from "../diag/checks.js";
+import { getEnvLoadState } from "../env/loader.js";
 import { resolveToolsets, TOOLSETS, DEFAULT_TOOLSETS } from "./gate.js";
 
 interface Tally {
@@ -68,12 +69,26 @@ export function registerDoctorTool(server: McpServer, config: DexeConfig): void 
         ...(resolvedSets.unknown.length ? { unknownSets: resolvedSets.unknown } : {}),
       };
 
+      // Which .env this server actually loaded, machine-readable. An assisting
+      // AI is told (CLAUDE.md, docs/SETUP.md, /dexe-setup) to confirm this
+      // before editing anything, and it must not have to parse prose for it.
+      const envState = getEnvLoadState();
+      const loadedEnv = envState.reports.find(r => r.envFileExists && r.envFileLoaded);
+      const envFile = {
+        loadedPath: loadedEnv?.envFilePath ?? null,
+        candidatesTried: envState.candidates,
+        keysFromFile: loadedEnv?.keysApplied ?? [],
+        shadowedKeys: loadedEnv?.keysShadowed ?? [],
+      };
+
       const structured = {
         summary,
         checks,
         remediationSummary,
         startupTime,
         uptimeSec: Math.round(process.uptime()),
+        envFile,
+        startupIssues: config.startupIssues,
         toolsets,
       };
 
@@ -91,6 +106,13 @@ function renderText(r: {
   remediationSummary: string[];
   startupTime: string;
   uptimeSec: number;
+  envFile: {
+    loadedPath: string | null;
+    candidatesTried: string[];
+    keysFromFile: string[];
+    shadowedKeys: string[];
+  };
+  startupIssues: { key: string; message: string; fallback: string }[];
   toolsets: {
     requested: string[];
     mode: "full" | "filtered";
@@ -106,6 +128,19 @@ function renderText(r: {
     `server started ${r.startupTime} (uptime ${r.uptimeSec}s). ` +
       `If you just edited .env, restart Claude Code so the new values load.`,
   );
+  lines.push(
+    r.envFile.loadedPath
+      ? `env file: ${r.envFile.loadedPath} — ${r.envFile.keysFromFile.length} key(s) applied` +
+          (r.envFile.shadowedKeys.length
+            ? `, ${r.envFile.shadowedKeys.length} SHADOWED by the MCP host env block (${r.envFile.shadowedKeys.join(", ")})`
+            : "")
+      : `env file: none loaded — tried ${r.envFile.candidatesTried.join(" → ") || "(not recorded)"}`,
+  );
+  if (r.startupIssues.length) {
+    lines.push(
+      `config: ${r.startupIssues.length} env value(s) were rejected at startup and fell back to defaults — the server stayed up; see the startup.* rows below.`,
+    );
+  }
   lines.push(
     r.toolsets.mode === "full"
       ? `toolsets: full — all tools loaded${r.toolsets.unknownSets?.length ? ` (unknown set(s): ${r.toolsets.unknownSets.join(", ")})` : ""}.`

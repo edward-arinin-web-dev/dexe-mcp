@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.30.1 — 2026-08-06
+
+**The server no longer dies on a bad environment variable.** A typo in any
+optional `DEXE_*` var used to `process.exit(1)` out of `loadConfig`, which left
+the user with no MCP tools, no in-band diagnostic, and — because `process.exit`
+cannot be caught — a dead `npx dexe-mcp doctor`, the exact command every doc
+points at. Tool count unchanged (**165 / 19 groups**).
+
+### Fixed
+- **15 `fatal()` / `process.exit(1)` sites in `src/config.ts` are gone.** Each
+  now records a `StartupIssue` and falls back. Two policies:
+  - *Advisory* vars (`DEXE_TREASURY_GUARD`, `DEXE_MIN_SAFE_QUORUM_PCT`,
+    `DEXE_CONTROLLING_TOPN`, `DEXE_FORK_BLOCK`, `DEXE_CHAIN_ID`,
+    `DEXE_DEFAULT_CHAIN_ID`, `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`) fall back
+    to their documented default.
+  - *Broadcast guards* (`DEXE_SIGNER_ALLOWLIST`, `DEXE_SIGNER_MAX_VALUE_WEI`,
+    `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`) **fail closed**: signing is disabled
+    rather than run unguarded. Degrading a guard into *no guard* would silently
+    widen what an autonomous agent is allowed to broadcast.
+- **A hex-shaped but cryptographically invalid key no longer costs every tool.**
+  `DEXE_PRIVATE_KEY=0x000…0` (what gets pasted from a template) passes the hex64
+  shape check and then throws inside `new Wallet()`. That escaped `loadConfig`
+  and took the whole surface down. Both the primary key and each agent-keyring
+  slot are now guarded — one bad slot costs that slot, not the server.
+- **`engines.node` raised to `>=20.12.0`.** `process.loadEnvFile()` does not
+  exist below it, so on Node 20.0–20.11 every `.env` was silently ignored and
+  nothing said so. Startup now warns explicitly on an older runtime, comparing
+  versions numerically (a string compare calls `20.9` newer than `20.12`).
+- **`dexe_doctor` no longer contradicts itself about signing.** `signer.hotKey`
+  and `signer.agentKeyring` read the *resolved* config instead of raw
+  `process.env`, so after a fail-closed they report `signing is DISABLED`
+  instead of "DEXE_PRIVATE_KEY is the active signer".
+- **A schema-rejected value now states the real consequence.** The schema
+  pre-pass deletes the offending value, so the specific handler never ran and
+  every rejection reported "using the built-in default" — including the signer
+  guards it had just switched signing off for.
+- `DEXE_WALLETCONNECT_RELAY_URL` promised a "websocket (ws/wss)" URL while the
+  validator accepted `https://`. The scheme is now enforced, not just labelled.
+- Env validation messages state the expected shape and an example instead of a
+  bare "Invalid" — with 0.30.1 that text is the primary feedback, since the
+  server reports rather than exits.
+
+### Added
+- **Degraded server.** If startup fails anyway, the stdio transport still opens
+  and serves a single `dexe_doctor` tool carrying the cause and the fix, instead
+  of the host showing a bare "server disconnected".
+- **Doctor now answers "which `.env` did you load?"** — the loaded path, every
+  candidate tried in order, which keys the file applied, and which keys an MCP
+  host `env` block *shadowed* (`process.loadEnvFile` never overrides a pre-set
+  key, so those lines are dead text). Three shipped artifacts told an assisting
+  AI to check exactly this and doctor could not answer it.
+- Doctor surfaces the `.env` parse traps — UTF-8 BOM, missing trailing newline,
+  spaces around `=` — with severity based on whether a key was provably dropped.
+
+### Tests
+- 80 files / 734 passing. New: `tests/env/config-degrade.test.ts` (every
+  degrade path + fail-closed), `tests/degraded-startup.test.ts`,
+  `tests/env/env-load-report.test.ts`, `tests/diag/env-surface-checks.test.ts`,
+  `tests/env/schema-messages.test.ts` (walks the whole spec so no validator can
+  regress to a bare "Invalid").
+
 ## 0.30.0 — 2026-08-06
 
 Read-surface discoverability: a fresh AI connected to the server can now find
