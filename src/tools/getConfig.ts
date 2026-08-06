@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DexeConfig } from "../config.js";
+import type { DexeConfig, SubgraphKind } from "../config.js";
+import { SUBGRAPH_KINDS } from "../config.js";
 import type { SignerManager } from "../lib/signer.js";
+import { subgraphChains } from "../lib/subgraph.js";
 import { maskUrl } from "../lib/redact.js";
 
 const CHAIN_NAMES: Record<number, string> = {
@@ -66,6 +68,17 @@ export function registerGetConfigTool(server: McpServer, config: DexeConfig, sig
           ? "⚠️ NOT SAFE — hot key (DEXE_PRIVATE_KEY) in plaintext on disk. Recommended: unset it and run dexe_wc_connect so the phone signs."
           : null;
 
+      // A subgraph endpoint indexes exactly ONE chain (0.30.2), so "is the
+      // subgraph configured?" has no chain-free answer. The flat
+      // `config.subgraph*Url` fields hold only the slot named by
+      // DEXE_SUBGRAPH_CHAIN_ID, so reading them reported "unavailable" for a
+      // server whose mainnet endpoints work fine. Report the covered chains
+      // instead — that is what the caller has to know anyway, since a read for
+      // an uncovered chain refuses rather than answering from a neighbour.
+      const subgraphByKind = Object.fromEntries(
+        SUBGRAPH_KINDS.map(k => [k, subgraphChains(config, k)]),
+      ) as Record<SubgraphKind, number[]>;
+
       const result = {
         defaultChainId: config.defaultChainId,
         defaultChainName: CHAIN_NAMES[config.defaultChainId] ?? `chain ${config.defaultChainId}`,
@@ -88,9 +101,16 @@ export function registerGetConfigTool(server: McpServer, config: DexeConfig, sig
           pinataConfigured: !!config.pinataJwt,
         },
         subgraph: {
-          poolsConfigured: !!config.subgraphPoolsUrl,
-          validatorsConfigured: !!config.subgraphValidatorsUrl,
-          interactionsConfigured: !!config.subgraphInteractionsUrl,
+          /** Chains with at least one endpoint. Any other chain has no indexer. */
+          chainsCovered: subgraphChains(config),
+          /** Per subgraph, the chains it can answer for. */
+          byKind: subgraphByKind,
+          /** Kinds with no endpoint for the chain tools use when `chainId` is omitted. */
+          missingForDefaultChain: SUBGRAPH_KINDS.filter(
+            k => !subgraphByKind[k].includes(config.defaultChainId),
+          ),
+          /** Chain the unsuffixed DEXE_SUBGRAPH_*_URL vars are filed under. */
+          unsuffixedVarsChainId: config.subgraphChainId,
         },
       };
 

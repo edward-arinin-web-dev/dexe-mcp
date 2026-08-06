@@ -3,10 +3,28 @@
 Also served in-band as the MCP resource `dexe://graph-schema`; usage rules +
 source-picking guidance: `dexe_guide {flow:"read_dao_data"}`.
 
-Three subgraphs index DeXe Protocol on **BSC mainnet** (endpoints env-bound via
-`DEXE_SUBGRAPH_POOLS_URL` / `_INTERACTIONS_URL` / `_VALIDATORS_URL`; zero-config
-defaults point at The Graph's decentralized gateway). `dexe_graph_query` runs any
-read-only GraphQL document against them.
+Three subgraphs index DeXe Protocol. `dexe_graph_query` runs any read-only
+GraphQL document against them.
+
+## Which chain am I querying?
+
+**One endpoint indexes one chain.** The shipped zero-config endpoints (The Graph
+decentralized gateway) index **BSC mainnet, chain 56** — that is the coverage
+you get out of the box, not a property of the subgraphs themselves.
+
+- Every subgraph-backed tool takes **`chainId`** (default: the MCP's default
+  chain) and every response carries **`indexedChainId`** — the chain the rows
+  actually came from. Read it; don't assume.
+- Endpoints resolve per *(kind, chain)*: `DEXE_SUBGRAPH_<KIND>_URL_<chainId>`
+  first, then the unsuffixed `DEXE_SUBGRAPH_<KIND>_URL` for the chain named by
+  `DEXE_SUBGRAPH_CHAIN_ID` (default 56), then the baked chain-56 default.
+- A chain with no endpoint **errors** — it is never served from another chain's
+  index. The message names the var to set and the on-chain alternatives
+  (`dexe_read_gov_state` / `dexe_proposal_list` / `dexe_read_multicall`), which
+  need no subgraph. BSC testnet (97) has no published DeXe subgraph, so it lands
+  here unless you point the vars at your own indexer.
+
+Full env reference: [ENVIRONMENT.md § 8](./ENVIRONMENT.md#8-subgraph-configuration).
 
 Rules of thumb:
 - ALWAYS bound list fields with `first:` (gateway max 1000) and paginate with `skip:`.
@@ -21,7 +39,9 @@ Rules of thumb:
 - pools `Proposal` has NO creation timestamp — for time-windowed activity use the
   interactions subgraph (`daoProposalCreates` + `transaction_.timestamp_gt`).
 
-Worked examples:
+Worked examples — each runs as
+`dexe_graph_query { subgraph: "<named below>", chainId: 56, query: "…" }`; the
+result reports `indexedChainId: 56` back:
 
 ```graphql
 # Most active DAOs, last 30 days (subgraph: interactions)

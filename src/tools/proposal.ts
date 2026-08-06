@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
-import { gqlRequest, PROPOSAL_INTERACTIONS_QUERY } from "../lib/subgraph.js";
+import { gqlRequest, resolveSubgraphUrl, PROPOSAL_INTERACTIONS_QUERY } from "../lib/subgraph.js";
 import { chainIdParam } from "../lib/params.js";
 import { proposalInteractionLabel } from "../lib/interactionTypes.js";
 
@@ -193,7 +193,11 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
     {
       title: "Voter list for a proposal (subgraph)",
       description:
-        "Fetches voters from the DeXe interactions subgraph. Requires DEXE_SUBGRAPH_INTERACTIONS_URL env var. Paginated.",
+        "Paginated voter list for one proposal, from the DeXe POOLS subgraph (`proposalInteractions`). " +
+        "`chainId` selects which chain's subgraph is queried (default: the MCP's default chain) and the " +
+        "response reports `indexedChainId` = where the rows came from. A chain with no pools endpoint " +
+        "returns an error naming DEXE_SUBGRAPH_POOLS_URL_<chainId> and the on-chain alternatives — it never " +
+        "answers from another chain's index.",
       inputSchema: {
         govPool: z.string().describe("GovPool address (used as filter on `pool` field)"),
         proposalId: z.union([z.string(), z.number()]),
@@ -204,6 +208,8 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
       outputSchema: {
         govPool: z.string(),
         proposalId: z.string(),
+        /** The chain these rows were indexed from — not necessarily the request's default. */
+        indexedChainId: z.number(),
         voters: z.array(
           z.object({
             voter: z.string(),
@@ -216,13 +222,16 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
         ),
       },
     },
-    async ({ govPool, proposalId, first = 50, skip = 0 }) => {
+    async ({ govPool, proposalId, first = 50, skip = 0, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid GovPool address: ${govPool}`);
-      const url = ctx.config.subgraphPoolsUrl;
-      if (!url) {
-        return errorResult(
-          "DEXE_SUBGRAPH_POOLS_URL is not set. Add it to the MCP env block (The Graph endpoint for DeXe pools subgraph).",
-        );
+      // The tool declared `chainId` and then dropped it, so a testnet caller got
+      // mainnet voters presented as their own. Resolve per chain instead; the
+      // resolver's message is already the user-facing remediation.
+      let sg: { url: string; chainId: number };
+      try {
+        sg = resolveSubgraphUrl(ctx.config, "pools", chainId);
+      } catch (err) {
+        return errorResult(err instanceof Error ? err.message : String(err));
       }
       const id = BigInt(proposalId as string).toString();
       const num = Number(id);
@@ -240,7 +249,7 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
             totalVote: string;
             voter: { id: string; voter: { id: string } };
           }>;
-        }>(url, PROPOSAL_INTERACTIONS_QUERY, {
+        }>(sg.url, PROPOSAL_INTERACTIONS_QUERY, {
           proposalId: compositeId,
           first,
           skip,
@@ -260,12 +269,12 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
             transactionHash: pi.hash,
           };
         });
-        const structured = { govPool, proposalId: id, voters };
+        const structured = { govPool, proposalId: id, indexedChainId: sg.chainId, voters };
         return {
           content: [
             {
               type: "text" as const,
-              text: `Voters for proposal ${id} on ${govPool}: ${voters.length} returned (first=${first}, skip=${skip})`,
+              text: `Voters for proposal ${id} on ${govPool} (chain ${sg.chainId}): ${voters.length} returned (first=${first}, skip=${skip})`,
             },
           ],
           structuredContent: structured,

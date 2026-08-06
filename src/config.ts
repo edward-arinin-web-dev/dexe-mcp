@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
 import { resolveStatePath } from "./lib/stateStore.js";
 import { parseEnv } from "./env/parse.js";
+import { PER_CHAIN_SUBGRAPH_URL_RE, subgraphUrlStr } from "./env/schema.js";
 
 /**
  * Split an RPC env value into its endpoint list: `url` or `url1,url2,…`.
@@ -37,6 +38,31 @@ export const DEFAULTS = {
   subgraphValidatorsUrl:
     "https://gateway.thegraph.com/api/b860428fe3ef79a961556cf763ef2b2a/subgraphs/id/9xpPF9EWtSJJUwVYZb7f6D1xcMCyLbmR6ujgnYG8fbQA",
 } as const;
+
+/**
+ * The chain the built-in `DEFAULTS.subgraph*Url` endpoints index, and the
+ * default owner of the unsuffixed `DEXE_SUBGRAPH_*_URL` vars. Every DeXe
+ * subgraph we ship or document is BSC mainnet.
+ */
+export const DEFAULT_SUBGRAPH_CHAIN_ID = 56;
+
+/** The three DeXe subgraphs. One endpoint per kind per chain. */
+export type SubgraphKind = "pools" | "validators" | "interactions";
+
+export const SUBGRAPH_KINDS: readonly SubgraphKind[] = ["pools", "validators", "interactions"];
+
+/** Endpoints known for ONE chain. A missing kind means "not indexed here". */
+export interface SubgraphEndpoints {
+  pools?: string;
+  validators?: string;
+  interactions?: string;
+}
+
+/** `pools` → `DEXE_SUBGRAPH_POOLS_URL`, and `…_URL_<chainId>` per chain. */
+export function subgraphEnvVar(kind: SubgraphKind, chainId?: number): string {
+  const base = `DEXE_SUBGRAPH_${kind.toUpperCase()}_URL`;
+  return chainId === undefined ? base : `${base}_${chainId}`;
+}
 
 export interface ChainConfig {
   chainId: number;
@@ -124,9 +150,27 @@ export interface DexeConfig {
   /** Pinata JWT for IPFS uploads (reads work without it via gateway). */
   pinataJwt?: string;
   /**
-   * GraphQL endpoint URLs for The Graph subgraphs (chain-agnostic in env).
-   * Default to the shared DeXe public gateway endpoints (`DEFAULTS.subgraph*`)
-   * so reads work zero-config; a user `.env` overrides. Always set.
+   * Subgraph endpoints keyed by the chain they index. A subgraph indexes
+   * exactly ONE chain, so this map — not the flat fields below — is the honest
+   * shape: a chain absent from it has no indexer, and reads for it must fail
+   * rather than answer from some other chain's endpoint. Frozen.
+   *
+   * Resolve through `resolveSubgraphUrl` (src/lib/subgraph.ts); do not index
+   * this map directly in tools, so the "no endpoint for this chain" error is
+   * written once.
+   */
+  subgraphUrls: ReadonlyMap<number, SubgraphEndpoints>;
+  /**
+   * Chain that the unsuffixed `DEXE_SUBGRAPH_*_URL` vars (and the baked
+   * defaults) are taken to index — `DEXE_SUBGRAPH_CHAIN_ID`, default 56.
+   * Exposed for diagnostics (`dexe_doctor`, `dexe_get_config`) so a user can
+   * see which chain their single-endpoint config was filed under.
+   */
+  subgraphChainId: number;
+  /**
+   * Back-compat flat aliases: the endpoints for `subgraphChainId`, i.e. the
+   * exact values these fields have always held. Kept because many call sites
+   * read them; new code takes a chainId and calls `resolveSubgraphUrl`.
    */
   subgraphPoolsUrl?: string;
   subgraphValidatorsUrl?: string;
@@ -176,7 +220,8 @@ export interface DexeConfig {
   /**
    * Number of top token holders (by voting weight) included in the treasury-
    * safety "controlling set" (alongside validators). The advisory checks whether
-   * ≥1 controlling member voted For. Default 5. Subgraph/mainnet-only.
+   * ≥1 controlling member voted For. Default 5. Needs a pools + validators
+   * subgraph for the chain being analyzed; unindexed chains yield "unknown".
    * See src/lib/controllingVoters.ts.
    */
   controllingTopN: number;
@@ -255,6 +300,110 @@ export function parseAgentKeys(
   }
   takeKey("funder", "DEXE_AGENT_FUNDER_PK", "AGENT_FUNDER_PK");
   return agentKeys;
+}
+
+/**
+ * Build the per-chain subgraph endpoint map from an env table.
+ *
+ * A subgraph endpoint indexes exactly ONE chain, so resolution is per
+ * (kind, chain) and never falls through to another chain's URL. That silent
+ * cross-chain fallback is the bug this replaces: with only the unsuffixed vars,
+ * a user on BSC testnet got BSC *mainnet* rows back, labelled as theirs.
+ *
+ * Per kind, for a given chain:
+ *   1. `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` — explicit, wins outright
+ *   2. `DEXE_SUBGRAPH_<KIND>_URL`           — applies to `DEXE_SUBGRAPH_CHAIN_ID` ONLY
+ *   3. `DEFAULTS.subgraph<Kind>Url`         — chain 56 only; every baked endpoint is BSC mainnet
+ * A chain matching none of these is absent from the map, and `resolveSubgraphUrl`
+ * turns that absence into an actionable error instead of a wrong answer.
+ *
+ * Pure: reads `env`, reports rejections through `onIssue`, writes nothing.
+ */
+export function resolveSubgraphEndpoints(
+  env: NodeJS.ProcessEnv,
+  onIssue: (key: string, message: string, fallback: string) => void = () => {},
+): { urls: Map<number, SubgraphEndpoints>; chainId: number } {
+  const urlSchema = subgraphUrlStr();
+  /** Returns the URL when it parses; otherwise reports and returns undefined. */
+  const validate = (key: string, raw: string, fallback: string): string | undefined => {
+    const r = urlSchema.safeParse(raw);
+    if (r.success) return raw;
+    onIssue(key, `Invalid ${key}=${raw}: ${r.error.issues.map((i) => i.message).join("; ")}`, fallback);
+    return undefined;
+  };
+
+  // Which chain the unsuffixed DEXE_SUBGRAPH_*_URL vars describe.
+  let chainId = DEFAULT_SUBGRAPH_CHAIN_ID;
+  const rawChainId = env.DEXE_SUBGRAPH_CHAIN_ID?.trim();
+  if (rawChainId) {
+    const n = Number(rawChainId);
+    // Safe-integer, not merely finite: a chain id that lost precision as a
+    // float would file the endpoints under a chain nobody asked about.
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      onIssue(
+        "DEXE_SUBGRAPH_CHAIN_ID",
+        `DEXE_SUBGRAPH_CHAIN_ID must be a positive integer chain id, got: ${rawChainId}`,
+        `using the default ${DEFAULT_SUBGRAPH_CHAIN_ID} — the unsuffixed DEXE_SUBGRAPH_*_URL vars are treated as BSC mainnet`,
+      );
+    } else {
+      chainId = n;
+    }
+  }
+
+  const urls = new Map<number, SubgraphEndpoints>();
+  const put = (cid: number, kind: SubgraphKind, url: string): void => {
+    const entry = urls.get(cid) ?? {};
+    entry[kind] = url;
+    urls.set(cid, entry);
+  };
+
+  // (3) baked defaults — BSC mainnet, and only BSC mainnet.
+  const baked: Record<SubgraphKind, string> = {
+    pools: DEFAULTS.subgraphPoolsUrl,
+    validators: DEFAULTS.subgraphValidatorsUrl,
+    interactions: DEFAULTS.subgraphInteractionsUrl,
+  };
+  for (const kind of SUBGRAPH_KINDS) put(DEFAULT_SUBGRAPH_CHAIN_ID, kind, baked[kind]);
+
+  // (2) unsuffixed vars — for `chainId` only, overriding the baked default
+  // when that chain is 56.
+  for (const kind of SUBGRAPH_KINDS) {
+    const key = subgraphEnvVar(kind);
+    const raw = env[key]?.trim();
+    if (!raw) continue;
+    const url = validate(
+      key,
+      raw,
+      `that endpoint is ignored — chain ${chainId} falls back to the built-in endpoint if it has one`,
+    );
+    if (url) put(chainId, kind, url);
+  }
+
+  // (1) per-chain vars — highest precedence. Scanned the same way config
+  // discovers DEXE_RPC_URL_<chainId>, since the suffix set is open-ended.
+  for (const [key, val] of Object.entries(env)) {
+    const m = PER_CHAIN_SUBGRAPH_URL_RE.exec(key);
+    if (!m) continue;
+    const raw = val?.trim();
+    if (!raw) continue;
+    const cid = Number(m[2]);
+    if (!Number.isSafeInteger(cid) || cid <= 0) {
+      onIssue(
+        key,
+        `${key} has an unusable chain-id suffix: ${m[2]}`,
+        "that endpoint is ignored — rename the var with a plain chain id, e.g. DEXE_SUBGRAPH_POOLS_URL_97",
+      );
+      continue;
+    }
+    const url = validate(
+      key,
+      raw,
+      `that endpoint is ignored — subgraph reads for chain ${cid} will report no endpoint instead of guessing`,
+    );
+    if (url) put(cid, m[1]!.toLowerCase() as SubgraphKind, url);
+  }
+
+  return { urls, chainId };
 }
 
 export async function loadConfig(): Promise<DexeConfig> {
@@ -470,14 +619,18 @@ export async function loadConfig(): Promise<DexeConfig> {
   }
 
   const pinataJwt = process.env.DEXE_PINATA_JWT?.trim() || undefined;
-  // Subgraph endpoints + backend URL fall back to the baked public defaults so
-  // reads work zero-config. A user `.env` (or a private Graph key embedded in
-  // their own URL) overrides.
-  const subgraphPoolsUrl = process.env.DEXE_SUBGRAPH_POOLS_URL?.trim() || DEFAULTS.subgraphPoolsUrl;
-  const subgraphValidatorsUrl =
-    process.env.DEXE_SUBGRAPH_VALIDATORS_URL?.trim() || DEFAULTS.subgraphValidatorsUrl;
-  const subgraphInteractionsUrl =
-    process.env.DEXE_SUBGRAPH_INTERACTIONS_URL?.trim() || DEFAULTS.subgraphInteractionsUrl;
+  const { urls: subgraphUrls, chainId: subgraphChainId } = resolveSubgraphEndpoints(
+    process.env,
+    degrade,
+  );
+  // Flat back-compat aliases = the endpoints for the chain the unsuffixed vars
+  // describe. For every config that predates the per-chain vars this is the
+  // literal old expression (`DEXE_SUBGRAPH_*_URL` else the baked default), so
+  // existing call sites see no change.
+  const forLegacyChain = subgraphUrls.get(subgraphChainId);
+  const subgraphPoolsUrl = forLegacyChain?.pools;
+  const subgraphValidatorsUrl = forLegacyChain?.validators;
+  const subgraphInteractionsUrl = forLegacyChain?.interactions;
   const backendApiUrl = process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl;
 
   let privateKey = process.env.DEXE_PRIVATE_KEY?.trim() || undefined;
@@ -740,6 +893,8 @@ export async function loadConfig(): Promise<DexeConfig> {
     rpcUrl: defaultChain?.rpcUrl,
     registryOverride: defaultChain?.registryOverride ?? registryOverride,
     pinataJwt,
+    subgraphUrls: Object.freeze(subgraphUrls),
+    subgraphChainId,
     subgraphPoolsUrl,
     subgraphValidatorsUrl,
     subgraphInteractionsUrl,

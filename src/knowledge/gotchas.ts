@@ -465,11 +465,17 @@ export const GOTCHAS: readonly Gotcha[] = [
     id: "subgraph-backend-mainnet-only",
     severity: "warn",
     text:
-      "Subgraph and DeXe-backend data exist for BSC MAINNET (56) only — on testnet (97) dexe_graph_query and the " +
-      "subgraph/backend read tools (dexe_read_dao_list, dexe_read_dao_members, dexe_read_user_activity, " +
-      "dexe_read_token_holders, dexe_read_dao_stats, dexe_read_protocol_stats, dexe_read_nfts, dexe_proposal_voters) " +
-      "return empty or fail. For testnet DAOs read on-chain instead: dexe_read_gov_state, dexe_read_settings, " +
-      "dexe_proposal_state, dexe_read_multicall (dexe_read_treasury falls back to RPC automatically).",
+      "Subgraph and DeXe-backend data exist for BSC MAINNET (56) only. Every subgraph-backed tool takes `chainId` " +
+      "and REFUSES a chain it has no endpoint for — it never answers from another chain, so a testnet call errors " +
+      "loudly instead of handing back mainnet rows. The error names the chains that are indexed, the on-chain " +
+      "alternatives, and the env var to set. Affected: dexe_graph_query, dexe_read_dao_list, dexe_read_dao_members, " +
+      "dexe_read_delegation_map, dexe_read_dao_experts, dexe_read_validator_list, dexe_read_user_activity, " +
+      "dexe_proposal_voters, dexe_user_inbox (auto-discovery only — pass `daos: [\"0x…\"]` to scan any chain), " +
+      "dexe_proposal_forecast. Backend-only tools (dexe_read_token_holders, dexe_read_dao_stats, " +
+      "dexe_read_protocol_stats, dexe_read_nfts) stay mainnet-only. For testnet DAOs read on-chain instead: " +
+      "dexe_read_gov_state, dexe_read_settings, dexe_proposal_state, dexe_read_multicall (dexe_read_treasury falls " +
+      "back to RPC automatically). Every subgraph response carries `indexedChainId` — the chain the rows came from. " +
+      "To index another chain yourself set DEXE_SUBGRAPH_<KIND>_URL_<chainId> (e.g. DEXE_SUBGRAPH_POOLS_URL_97).",
     applies: {
       tools: [
         "dexe_graph_query",

@@ -134,6 +134,14 @@ const addressStr = () => {
 
 const TREASURY_GUARD_MSG = "must be exactly 'off' or 'warn' (lowercase), e.g. warn";
 
+/**
+ * One GraphQL endpoint URL. Shared by the three unsuffixed subgraph vars AND
+ * by the dynamic `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` family, so a per-chain
+ * endpoint is held to exactly the same shape (and gets the same message) as
+ * the unsuffixed one it overrides.
+ */
+export const subgraphUrlStr = () => urlStr("https://gateway.thegraph.com/api/subgraphs/id/<id>");
+
 export const ENV_SPEC = {
   // ─── core / dev ───────────────────────────────────────────────────────────
   DEXE_PROTOCOL_PATH: {
@@ -165,7 +173,7 @@ export const ENV_SPEC = {
     category: "core",
     required: false,
     example: "5",
-    doc: "Top-N token holders (by voting weight) in the treasury-guard controlling set, alongside validators. The guard checks whether ≥1 member voted For. Subgraph/mainnet-only. Default 5.",
+    doc: "Top-N token holders (by voting weight) in the treasury-guard controlling set, alongside validators. The guard checks whether ≥1 member voted For. Needs a pools AND validators subgraph for the chain being analyzed; an unindexed chain yields 'unknown', never another chain's set. Default 5.",
   },
   DEXE_TOOLSETS: {
     schema: z.string().optional(),
@@ -362,29 +370,41 @@ export const ENV_SPEC = {
   },
 
   // ─── subgraph ────────────────────────────────────────────────────────────
+  // A subgraph endpoint indexes exactly ONE chain, so every entry here is
+  // chain-scoped. The three unsuffixed vars below cover the chain named by
+  // DEXE_SUBGRAPH_CHAIN_ID (56 by default); per-chain endpoints use the
+  // DEXE_SUBGRAPH_<KIND>_URL_<chainId> form (see PER_CHAIN_SUBGRAPH_URL_RE),
+  // which is dynamic and therefore not enumerable in ENV_SPEC.
   DEXE_SUBGRAPH_POOLS_URL: {
-    schema: urlStr("https://gateway.thegraph.com/api/subgraphs/id/<id>"),
+    schema: subgraphUrlStr(),
     category: "subgraph",
     required: false,
     example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
-    doc: "Pools subgraph endpoint.",
+    doc: "Pools subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_POOLS_URL_<chainId>.",
     enablesFlows: ["subgraph-read"],
   },
   DEXE_SUBGRAPH_VALIDATORS_URL: {
-    schema: urlStr("https://gateway.thegraph.com/api/subgraphs/id/<id>"),
+    schema: subgraphUrlStr(),
     category: "subgraph",
     required: false,
     example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
-    doc: "Validators subgraph endpoint.",
+    doc: "Validators subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_VALIDATORS_URL_<chainId>.",
     enablesFlows: ["subgraph-read"],
   },
   DEXE_SUBGRAPH_INTERACTIONS_URL: {
-    schema: urlStr("https://gateway.thegraph.com/api/subgraphs/id/<id>"),
+    schema: subgraphUrlStr(),
     category: "subgraph",
     required: false,
     example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
-    doc: "Interactions subgraph endpoint.",
+    doc: "Interactions subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_INTERACTIONS_URL_<chainId>.",
     enablesFlows: ["subgraph-read"],
+  },
+  DEXE_SUBGRAPH_CHAIN_ID: {
+    schema: intStr("the EVM chain id that the unsuffixed DEXE_SUBGRAPH_*_URL endpoints index", "56 for BSC mainnet"),
+    category: "subgraph",
+    required: false,
+    example: "56",
+    doc: "Which chain the unsuffixed DEXE_SUBGRAPH_*_URL endpoints index. Default 56 (BSC mainnet) — both the built-in endpoints and every documented DeXe subgraph are mainnet. Set this when your own endpoints index a different chain, so reads for other chains fail loudly instead of returning this chain's data.",
   },
   DEXE_GRAPH_API_KEY: {
     schema: z.string().optional(),
@@ -480,8 +500,24 @@ export const ENV_REGISTRY: Record<EnvKey, EnvEntry> = ENV_SPEC;
 
 export type EnvKey = keyof typeof ENV_SPEC;
 
-export function isKnownEnvKey(k: string): k is EnvKey {
-  return Object.prototype.hasOwnProperty.call(ENV_SPEC, k);
+/**
+ * Does the MCP recognize this env var name? Answers for ENV_SPEC **and** for
+ * the dynamic per-chain families, whose numeric suffix is open-ended and so
+ * cannot be enumerated in the spec. The "unknown DEXE_* var" typo check in
+ * env/loader.ts is the caller: a var listed here must never be reported as a
+ * typo just because it carries a chain-id suffix.
+ *
+ * Deliberately no longer a `k is EnvKey` type predicate — a per-chain key is
+ * recognized but is NOT in ENV_SPEC, and narrowing it to `EnvKey` would license
+ * an `ENV_SPEC[k]` lookup that returns undefined. Read entries via
+ * ENV_REGISTRY with an explicit `hasOwnProperty` guard instead.
+ */
+export function isKnownEnvKey(k: string): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(ENV_SPEC, k) ||
+    DYNAMIC_PER_CHAIN_RPC_RE.test(k) ||
+    PER_CHAIN_SUBGRAPH_URL_RE.test(k)
+  );
 }
 
 export function envKeys(): EnvKey[] {
@@ -493,3 +529,13 @@ export function envKeys(): EnvKey[] {
  * Not in ENV_SPEC because the suffix is open-ended.
  */
 export const DYNAMIC_PER_CHAIN_RPC_RE = /^DEXE_RPC_URL_(\d+)$/;
+
+/**
+ * Pattern for dynamic per-chain subgraph keys —
+ * `DEXE_SUBGRAPH_POOLS_URL_97`, `DEXE_SUBGRAPH_VALIDATORS_URL_56`, …
+ * Capture 1 is the kind (upper-case), capture 2 is the chain id.
+ *
+ * Same open-ended-suffix reason as the RPC family: one endpoint indexes one
+ * chain, and the set of chains a user may point at is not ours to enumerate.
+ */
+export const PER_CHAIN_SUBGRAPH_URL_RE = /^DEXE_SUBGRAPH_(POOLS|VALIDATORS|INTERACTIONS)_URL_(\d+)$/;

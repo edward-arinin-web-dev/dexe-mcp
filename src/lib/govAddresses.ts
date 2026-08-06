@@ -40,8 +40,40 @@ export class GovAddressResolver {
 
   constructor(private readonly artifacts: Artifacts) {}
 
-  async resolveHelpers(govPool: string, provider: Provider): Promise<GovHelpers> {
-    const key = govPool.toLowerCase();
+  /**
+   * Cache key = chain id + pool address. A GovPool address is NOT unique across
+   * chains — deterministic factory deploys land the same DAO config at the same
+   * address on 97 and 56, which this project does routinely — so a pool-only key
+   * lets a testnet lookup be answered from the mainnet cache (or vice versa),
+   * and every downstream read then silently targets the wrong contracts.
+   *
+   * The id is taken from the provider that will actually perform the read, so it
+   * cannot drift from the caller's intent. Callers that already know the chain
+   * can pass it to skip the (usually cached) network lookup — but only when it
+   * comes from the same resolution that produced `provider` (RpcProvider:
+   * `resolveChainId(x)` alongside `tryProvider(x)`), otherwise the entry would be
+   * filed under a chain the data did not come from. Kept as a string end-to-end —
+   * a chain id never goes through a JS number here.
+   *
+   * EVERY cache in this class must go through this key. A pool-address-only map
+   * added later reintroduces the cross-chain bleed for whatever it holds.
+   */
+  private async cacheKey(
+    govPool: string,
+    provider: Provider,
+    chainId?: number | bigint,
+  ): Promise<string> {
+    const id =
+      chainId != null ? chainId.toString() : (await provider.getNetwork()).chainId.toString();
+    return `${id}:${govPool.toLowerCase()}`;
+  }
+
+  async resolveHelpers(
+    govPool: string,
+    provider: Provider,
+    chainId?: number | bigint,
+  ): Promise<GovHelpers> {
+    const key = await this.cacheKey(govPool, provider, chainId);
     const cached = this.helperCache.get(key);
     if (cached) return cached;
 
@@ -55,8 +87,12 @@ export class GovAddressResolver {
     return helpers;
   }
 
-  async resolveNftContracts(govPool: string, provider: Provider): Promise<GovNftContracts> {
-    const key = govPool.toLowerCase();
+  async resolveNftContracts(
+    govPool: string,
+    provider: Provider,
+    chainId?: number | bigint,
+  ): Promise<GovNftContracts> {
+    const key = await this.cacheKey(govPool, provider, chainId);
     const cached = this.nftCache.get(key);
     if (cached) return cached;
 

@@ -232,7 +232,7 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Native + ERC20 balances (with USD) for a DAO or arbitrary address",
       description:
-        "Treasury / wallet balances for any address. By default auto-discovers EVERY token via the DeXe backend (same source as app.dexe.io) and returns USD prices + a total. Falls back to on-chain RPC multicall on testnet (chain 97), when the backend is unset/unreachable, or when explicit `tokens` are passed. Pass a GovPool address to read a DAO treasury.",
+        "Treasury / wallet balances for any address; pass a GovPool address for a DAO treasury. Auto-discovers EVERY token via the DeXe backend (same source as app.dexe.io) with USD prices + a total. Reads on-chain instead on chain 97, when `tokens` are given, or when the backend fails — that RPC path has no token discovery and reports `degraded: true`.",
       inputSchema: {
         holder: z.string().describe("Address whose balances we read"),
         tokens: z
@@ -250,6 +250,13 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         holder: z.string(),
         chainId: z.number(),
         source: z.enum(["backend", "rpc"]),
+        // True when this answer is less complete than the tool normally returns
+        // — today that means the backend fell over and the RPC path (no token
+        // auto-discovery, no USD) served the request instead. The reason rides
+        // in the text body, not here: `tools/list` ships every outputSchema on
+        // every session, and this tool is in the default profile, so an extra
+        // declared field is a permanent per-session token cost.
+        degraded: z.boolean(),
         native: z.string(),
         totalUsd: z.number().nullable(),
         tokens: z.array(
@@ -275,6 +282,9 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
       // Backend covers only chains it caches (mainnets). Testnet 97 and explicit
       // token reads must go on-chain.
       const useBackend = chainId !== 97 && tokens.length === 0;
+      // Set when the backend was tried and failed; the on-chain path below then
+      // serves the request and reports itself as degraded.
+      let backendError: string | null = null;
 
       if (useBackend) {
         try {
@@ -303,7 +313,15 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
           const totalUsd = priced.length
             ? priced.reduce((s, t) => s + (t.usdValue ?? 0), 0)
             : null;
-          const structured = { holder, chainId, source: "backend" as const, native, totalUsd, tokens: tokensOut };
+          const structured = {
+            holder,
+            chainId,
+            source: "backend" as const,
+            degraded: false,
+            native,
+            totalUsd,
+            tokens: tokensOut,
+          };
           const top = [...tokensOut]
             .sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0))
             .slice(0, 15);
@@ -325,15 +343,18 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
             (tokensOut.length > top.length ? `\n  … +${tokensOut.length - top.length} more` : "");
           return { content: [{ type: "text" as const, text }], structuredContent: structured };
         } catch (err) {
-          // Fall through to the on-chain path; report why the backend was skipped.
-          return errorResult(
-            `read_treasury backend fetch failed (${safeErrorMessage(err)}). ` +
-              `Retry with explicit \`tokens\` for an on-chain read, or check DEXE_BACKEND_API_URL.`,
-          );
+          // Actually fall through to the on-chain path. The tool description,
+          // docs/PLAYBOOK.md and the knowledge corpus all promise this fallback;
+          // returning an error here made the promise a lie and forced the caller
+          // to re-invoke with `tokens` just to get a native balance. The RPC path
+          // can't enumerate arbitrary holdings, so the answer is flagged
+          // `degraded` rather than passed off as a complete treasury.
+          backendError = safeErrorMessage(err);
         }
       }
 
-      // On-chain path: testnet, explicit tokens, or no backend configured.
+      // On-chain path: testnet, explicit tokens, no backend configured, or a
+      // degraded fall-through from a failed backend fetch.
       try {
         const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
@@ -373,8 +394,9 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
           }
           if (tokens.length === 0) {
             discoveryNote =
-              "\n  note: token auto-discovery is unavailable on this path (backend covers mainnets only) — " +
-              "pass `tokens` (ERC20 addresses) explicitly to read balances.";
+              `\n  note: token auto-discovery is unavailable on this path (${
+                backendError != null ? "the backend fetch failed" : "the backend covers mainnets only"
+              }) — pass \`tokens\` (ERC20 addresses) explicitly to read balances.`;
           }
         }
         const calls: Call[] = [];
@@ -394,7 +416,20 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
           usdPrice: null as number | null,
           usdValue: null as number | null,
         }));
-        const structured = { holder, chainId, source: "rpc" as const, native, totalUsd: null, tokens: tokensOut };
+        const structured = {
+          holder,
+          chainId,
+          source: "rpc" as const,
+          degraded: backendError != null,
+          native,
+          totalUsd: null,
+          tokens: tokensOut,
+        };
+        const degradedNote =
+          backendError != null
+            ? `\n  DEGRADED: the DeXe backend failed (${backendError}), so this is an on-chain read — ` +
+              `no USD prices and no token auto-discovery. Check DEXE_BACKEND_API_URL, or re-run with explicit \`tokens\`.`
+            : "";
         const text =
           `Treasury for ${holder} (chain ${chainId}, source: rpc)\n  native: ${native}\n` +
           tokensOut
@@ -403,7 +438,8 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
                 `  ${t.symbol != null ? renderUntrusted(t.symbol) : "?"} (${t.token}): ${t.balance ?? "?"}${t.decimals != null ? ` (decimals=${t.decimals})` : ""}`,
             )
             .join("\n") +
-          discoveryNote;
+          discoveryNote +
+          degradedNote;
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(

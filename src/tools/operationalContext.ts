@@ -2,10 +2,11 @@ import { z } from "zod";
 import { Contract } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
-import { DEFAULTS } from "../config.js";
+import { DEFAULTS, DEFAULT_SUBGRAPH_CHAIN_ID } from "../config.js";
 import type { SignerManager } from "../lib/signer.js";
 import type { StateStore, KnownDao } from "../lib/stateStore.js";
 import { RpcProvider } from "../rpc.js";
+import { subgraphChains } from "../lib/subgraph.js";
 import { maskUrl } from "../lib/redact.js";
 import { resolveToolsets, TOOLSETS } from "./gate.js";
 
@@ -161,6 +162,13 @@ export function registerOperationalContextTools(
         };
       }
 
+      // Subgraph readiness is a set of chains, not a flag: one endpoint indexes
+      // one chain (0.30.2), and a read for an unindexed chain refuses rather
+      // than answering from another chain's rows. The flat `subgraphPoolsUrl`
+      // this used to test holds only the DEXE_SUBGRAPH_CHAIN_ID slot, so it
+      // reported "no subgraph reads" for a server whose mainnet endpoints work.
+      const subgraphCovered = subgraphChains(config);
+
       const result = {
         signer: { mode, address },
         chain: {
@@ -177,7 +185,10 @@ export function registerOperationalContextTools(
             process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1"
               ? !!(process.env.DEXE_IPFS_GATEWAY?.trim() || process.env.DEXE_IPFS_GATEWAYS_FALLBACK?.trim())
               : true,
-          subgraphReads: !!config.subgraphPoolsUrl,
+          subgraphReads: subgraphCovered.length > 0,
+          /** Chains a subgraph-backed read can answer for; any other chain refuses. */
+          subgraphChains: subgraphCovered,
+          subgraphDefaultChainCovered: subgraphCovered.includes(config.defaultChainId),
           backendOffchain: !!config.backendApiUrl,
           walletConnectAvailable: !!config.walletConnectProjectId,
           // Surfaces running on the shared PUBLIC defaults (not the user's own
@@ -185,7 +196,14 @@ export function registerOperationalContextTools(
           // own — dexe_doctor advises this. Empty = everything is user-configured.
           usingSharedDefaults: [
             config.usingPublicRpcFallback ? "rpc" : null,
-            config.subgraphPoolsUrl === DEFAULTS.subgraphPoolsUrl ? "subgraph" : null,
+            // Every baked endpoint indexes BSC mainnet, so the shared Graph key
+            // only ever occupies chain 56's slot. Testing the flat alias instead
+            // made the warning vanish whenever DEXE_SUBGRAPH_CHAIN_ID pointed
+            // the unsuffixed vars at another chain — while chain 56 was still
+            // being read on the shared key.
+            config.subgraphUrls.get(DEFAULT_SUBGRAPH_CHAIN_ID)?.pools === DEFAULTS.subgraphPoolsUrl
+              ? "subgraph"
+              : null,
             config.backendApiUrl === DEFAULTS.backendApiUrl ? "backend" : null,
             config.walletConnectProjectId === DEFAULTS.walletConnectProjectId ? "walletconnect" : null,
           ].filter(Boolean),

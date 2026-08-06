@@ -4,7 +4,14 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall } from "../lib/multicall.js";
-import { gqlRequest } from "../lib/subgraph.js";
+import {
+  gqlRequest,
+  resolveSubgraphUrl,
+  subgraphChains,
+  type ResolvedSubgraph,
+  type SubgraphKind,
+} from "../lib/subgraph.js";
+import { SUBGRAPH_KINDS, subgraphEnvVar } from "../config.js";
 import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
 import { chainIdParam } from "../lib/params.js";
@@ -15,27 +22,59 @@ import { transactionTypeLabels } from "../lib/interactionTypes.js";
  * subgraphs (pools, validators, interactions) and returns structured data
  * for AI agent decision-making.
  *
- * Env vars required:
- *   DEXE_SUBGRAPH_POOLS_URL        — The Graph endpoint for DAO pools
- *   DEXE_SUBGRAPH_VALIDATORS_URL   — The Graph endpoint for validators
- *   DEXE_SUBGRAPH_INTERACTIONS_URL — The Graph endpoint for interactions
+ * A subgraph endpoint indexes exactly ONE chain, so every tool here takes
+ * `chainId` and resolves its endpoint through `resolveSubgraphUrl`. A chain
+ * with no endpoint is an error, never a silent substitution: serving BSC
+ * mainnet rows to someone working on testnet looks like a successful read, and
+ * an agent will act on it. Every response also carries `indexedChainId` — the
+ * chain the rows actually came from — so the payload states its own provenance
+ * even if resolution is ever wrong again.
+ *
+ * Endpoints come from `DEXE_SUBGRAPH_<KIND>_URL_<chainId>`, falling back to the
+ * unsuffixed `DEXE_SUBGRAPH_<KIND>_URL` / baked defaults for the chain named by
+ * `DEXE_SUBGRAPH_CHAIN_ID` (BSC mainnet, 56).
  */
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
-function requireUrl(ctx: ToolContext, key: "subgraphPoolsUrl" | "subgraphValidatorsUrl" | "subgraphInteractionsUrl"): string | null {
-  const url = ctx.config[key];
-  if (!url) return null;
-  return url;
+/**
+ * The endpoint for `kind` on `chainId`, or the resolver's message as a plain
+ * string. That message is already written as user-facing remediation (it names
+ * the chain, the chains that DO have this subgraph, the on-chain alternatives,
+ * and the exact env var to set), so callers surface it verbatim through
+ * `errorResult` instead of letting a throw escape as a stack trace.
+ */
+function resolveEndpoint(
+  ctx: ToolContext,
+  kind: SubgraphKind,
+  chainId?: number,
+): ResolvedSubgraph | string {
+  try {
+    return resolveSubgraphUrl(ctx.config, kind, chainId);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
 }
 
-const ENV_HINT: Record<string, string> = {
-  subgraphPoolsUrl: "DEXE_SUBGRAPH_POOLS_URL",
-  subgraphValidatorsUrl: "DEXE_SUBGRAPH_VALIDATORS_URL",
-  subgraphInteractionsUrl: "DEXE_SUBGRAPH_INTERACTIONS_URL",
-};
+/**
+ * The chain paragraph appended to each tool description, built at registration
+ * from the endpoints this install actually has. A hardcoded "BSC mainnet only"
+ * sentence goes stale the moment someone sets DEXE_SUBGRAPH_POOLS_URL_97.
+ */
+function chainNote(ctx: ToolContext, kind: SubgraphKind): string {
+  const indexed = subgraphChains(ctx.config, kind);
+  const where = indexed.length
+    ? `chains with a ${kind} endpoint here: ${indexed.join(", ")}`
+    : `NO chain has a ${kind} endpoint here`;
+  return (
+    ` Chain-explicit: pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); ` +
+    `the response reports \`indexedChainId\` = the chain the rows came from. A chain with no endpoint ` +
+    `returns an error naming ${subgraphEnvVar(kind)}_<chainId> plus the on-chain alternatives ` +
+    `(dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall) — it never answers from another chain.`
+  );
+}
 
 // ---------- queries ----------
 
@@ -230,11 +269,20 @@ export function registerSubgraphTools(server: McpServer, ctx: ToolContext): void
 
 // ---------- dexe_graph_query ----------
 
-const SUBGRAPH_URL_KEY = {
-  pools: "subgraphPoolsUrl",
-  interactions: "subgraphInteractionsUrl",
-  validators: "subgraphValidatorsUrl",
-} as const;
+/**
+ * graph_query picks its subgraph per call, so it advertises coverage for all
+ * three kinds rather than the single-kind note the other tools use.
+ */
+function graphQueryChainNote(ctx: ToolContext): string {
+  const per = SUBGRAPH_KINDS.map(
+    (k) => `${k}: ${subgraphChains(ctx.config, k).join("/") || "none"}`,
+  ).join(", ");
+  return (
+    `Chain-explicit: pass \`chainId\` (endpoints configured here — ${per}; default ${ctx.config.defaultChainId}); ` +
+    "the response reports `indexedChainId`. Asking for a chain that has no endpoint for the chosen subgraph " +
+    "returns an error naming DEXE_SUBGRAPH_<KIND>_URL_<chainId>, never another chain's rows. "
+  );
+}
 
 /** Response cap — beyond this the caller should paginate, not stream megabytes into a conversation. */
 const GRAPH_QUERY_MAX_RESPONSE_CHARS = 120_000;
@@ -269,7 +317,7 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
         "Full entity/field reference: MCP resource dexe://graph-schema (docs/GRAPH.md in the package); " +
         "usage rules + source-picking guidance: dexe_guide flow:'read_dao_data'. " +
         "ALWAYS bound results with `first:` (max 1000) and paginate with `skip:`; oversized responses are rejected. " +
-        "Data covers BSC mainnet only (endpoints are env-bound: DEXE_SUBGRAPH_*_URL). " +
+        graphQueryChainNote(ctx) +
         "Example — most-voted proposals with their DAO: subgraph='pools', query='{ proposals(first: 20, orderBy: votersVoted, orderDirection: desc) { proposalId votersVoted currentVotesFor pool { id name } } }'. " +
         "Proposal has NO `creationTime` — order by `votersVoted`/`quorumReachedTimestamp`/`executionTimestamp`, or use DaoPool.creationTime for DAOs. " +
         "Schema unsure? Introspect: query='{ __type(name: \"Proposal\") { fields { name } } }'.",
@@ -277,15 +325,16 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
         query: z.string().min(1).max(10_000).describe("GraphQL query document (read-only)"),
         variables: z.record(z.unknown()).optional().describe("GraphQL variables referenced by the query"),
+        chainId: chainIdParam,
       },
     },
-    async ({ subgraph, query, variables }) => {
+    async ({ subgraph, query, variables, chainId }) => {
       const guardError = graphQueryGuard(query);
       if (guardError) return errorResult(guardError);
-      const url = requireUrl(ctx, SUBGRAPH_URL_KEY[subgraph]);
-      if (!url) return errorResult(`${ENV_HINT[SUBGRAPH_URL_KEY[subgraph]]} is not set.`);
+      const sg = resolveEndpoint(ctx, subgraph, chainId);
+      if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<Record<string, unknown>>(url, query, variables as Record<string, unknown> | undefined);
+        const data = await gqlRequest<Record<string, unknown>>(sg.url, query, variables as Record<string, unknown> | undefined);
         const json = JSON.stringify(data);
         if (json.length > GRAPH_QUERY_MAX_RESPONSE_CHARS) {
           return errorResult(
@@ -297,8 +346,13 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
           .map(([k, v]) => `${k}: ${Array.isArray(v) ? `${v.length} row(s)` : typeof v}`)
           .join(", ");
         return {
-          content: [{ type: "text" as const, text: `graph_query(${subgraph}) → ${topLevel}` }],
-          structuredContent: { subgraph, data },
+          content: [
+            {
+              type: "text" as const,
+              text: `graph_query(${subgraph}, chain ${sg.chainId}) → ${topLevel}`,
+            },
+          ],
+          structuredContent: { subgraph, indexedChainId: sg.chainId, data },
         };
       } catch (err) {
         return errorResult(`graph_query failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -315,27 +369,29 @@ function registerDaoList(server: McpServer, ctx: ToolContext): void {
     {
       title: "Discover and list DAOs (subgraph)",
       description:
-        "Paginated DAO discovery via the pools subgraph. Search by name (case-insensitive), ordered by voter count descending. Requires DEXE_SUBGRAPH_POOLS_URL.",
+        "Paginated DAO discovery via the pools subgraph. Search by name (case-insensitive), ordered by voter count descending." +
+        chainNote(ctx, "pools"),
       inputSchema: {
         query: z.string().default("").describe("Name search (case-insensitive, empty = all)"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
+        chainId: chainIdParam,
       },
     },
-    async ({ query = "", offset = 0, limit = 20 }) => {
-      const url = requireUrl(ctx, "subgraphPoolsUrl");
-      if (!url) return errorResult(`${ENV_HINT.subgraphPoolsUrl} is not set.`);
+    async ({ query = "", offset = 0, limit = 20, chainId }) => {
+      const sg = resolveEndpoint(ctx, "pools", chainId);
+      if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ daoPools: unknown[] }>(url, DAO_LIST_QUERY, {
+        const data = await gqlRequest<{ daoPools: unknown[] }>(sg.url, DAO_LIST_QUERY, {
           offset,
           limit,
           queryString: query,
         });
         const pools = data.daoPools;
-        const text = `Found ${pools.length} DAO(s) (offset=${offset}, limit=${limit}, query="${query}")`;
+        const text = `Found ${pools.length} DAO(s) on chain ${sg.chainId} (offset=${offset}, limit=${limit}, query="${query}")`;
         return {
           content: [{ type: "text" as const, text }],
-          structuredContent: { query, offset, limit, daoPools: pools },
+          structuredContent: { query, offset, limit, indexedChainId: sg.chainId, daoPools: pools },
         };
       } catch (err) {
         return errorResult(`read_dao_list failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -350,28 +406,30 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
     {
       title: "List DAO members with voting power (subgraph)",
       description:
-        "Paginated member list for a DAO — includes voting power, delegation counts, rewards, expert status. Requires DEXE_SUBGRAPH_POOLS_URL.",
+        "Paginated member list for a DAO — includes voting power, delegation counts, rewards, expert status." +
+        chainNote(ctx, "pools"),
       inputSchema: {
         govPool: z.string().describe("GovPool address (lowercased for subgraph)"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
+        chainId: chainIdParam,
       },
     },
-    async ({ govPool, offset = 0, limit = 20 }) => {
+    async ({ govPool, offset = 0, limit = 20, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
-      const url = requireUrl(ctx, "subgraphPoolsUrl");
-      if (!url) return errorResult(`${ENV_HINT.subgraphPoolsUrl} is not set.`);
+      const sg = resolveEndpoint(ctx, "pools", chainId);
+      if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ voterInPools: unknown[] }>(url, DAO_MEMBERS_QUERY, {
+        const data = await gqlRequest<{ voterInPools: unknown[] }>(sg.url, DAO_MEMBERS_QUERY, {
           poolId: govPool.toLowerCase(),
           offset,
           limit,
         });
         const members = data.voterInPools;
-        const text = `${members.length} member(s) in ${govPool} (offset=${offset}, limit=${limit})`;
+        const text = `${members.length} member(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`;
         return {
           content: [{ type: "text" as const, text }],
-          structuredContent: { govPool, offset, limit, members },
+          structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, members },
         };
       } catch (err) {
         return errorResult(`read_dao_members failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -401,7 +459,8 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
     {
       title: "Delegation relationships — outgoing or incoming (subgraph)",
       description:
-        "Query delegation pairs from the pools subgraph. Use direction='outgoing' to see who a user delegated to, or 'incoming' to see who delegated to them. Requires DEXE_SUBGRAPH_POOLS_URL. NOTE: the subgraph URL is env-bound to ONE chain (DEXE_SUBGRAPH_POOLS_URL); pass `chainId` matching that subgraph — a mismatch with the configured default chain is surfaced as a warning (the URL is not switched per call).",
+        "Query delegation pairs from the pools subgraph. Use direction='outgoing' to see who a user delegated to, or 'incoming' to see who delegated to them." +
+        chainNote(ctx, "pools"),
       inputSchema: {
         addresses: z
           .array(z.string())
@@ -416,14 +475,11 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ addresses, direction = "outgoing", offset = 0, limit = 50, chainId }) => {
-      const url = requireUrl(ctx, "subgraphPoolsUrl");
-      if (!url) return errorResult(`${ENV_HINT.subgraphPoolsUrl} is not set.`);
-      const warnings: string[] = [];
-      if (chainId !== undefined && chainId !== ctx.config.defaultChainId) {
-        warnings.push(
-          `chainId ${chainId} differs from the configured default chain ${ctx.config.defaultChainId}; the pools subgraph URL is env-bound (DEXE_SUBGRAPH_POOLS_URL) and is NOT switched per call — results come from whatever chain that URL indexes. Set DEXE_SUBGRAPH_POOLS_URL to the chain you want.`,
-        );
-      }
+      // Pre-0.30.2 this only WARNED on a chain mismatch, because one env var
+      // held one URL and there was nothing to switch to. Now the endpoint is
+      // per chain, so the mismatch is resolved rather than narrated.
+      const sg = resolveEndpoint(ctx, "pools", chainId);
+      if (typeof sg === "string") return errorResult(sg);
       const lc = addresses.map(toVoterAddress);
       const bad = lc.filter((a) => !/^0x[0-9a-f]{40}$/.test(a));
       if (bad.length) {
@@ -437,12 +493,19 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
           direction === "outgoing"
             ? { offset, limit, delegatorIn: lc }
             : { offset, limit, voterIn: lc };
-        const data = await gqlRequest<{ voterInPoolPairs: unknown[] }>(url, query, variables);
+        const data = await gqlRequest<{ voterInPoolPairs: unknown[] }>(sg.url, query, variables);
         const pairs = data.voterInPoolPairs;
-        const text = `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es)${warnings.length ? `\n⚠ ${warnings.join(" ")}` : ""}`;
+        const text = `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es) on chain ${sg.chainId}`;
         return {
           content: [{ type: "text" as const, text }],
-          structuredContent: { addresses, direction, offset, limit, delegations: pairs, ...(warnings.length ? { warnings } : {}) },
+          structuredContent: {
+            addresses,
+            direction,
+            offset,
+            limit,
+            indexedChainId: sg.chainId,
+            delegations: pairs,
+          },
         };
       } catch (err) {
         return errorResult(`read_delegation_map failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -457,28 +520,29 @@ function registerValidatorList(server: McpServer, ctx: ToolContext): void {
     {
       title: "List validators in a DAO (subgraph)",
       description:
-        "Paginated validator list ordered by balance descending. Requires DEXE_SUBGRAPH_VALIDATORS_URL.",
+        "Paginated validator list ordered by balance descending." + chainNote(ctx, "validators"),
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(50),
+        chainId: chainIdParam,
       },
     },
-    async ({ govPool, offset = 0, limit = 50 }) => {
+    async ({ govPool, offset = 0, limit = 50, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
-      const url = requireUrl(ctx, "subgraphValidatorsUrl");
-      if (!url) return errorResult(`${ENV_HINT.subgraphValidatorsUrl} is not set.`);
+      const sg = resolveEndpoint(ctx, "validators", chainId);
+      if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ validatorInPools: unknown[] }>(url, VALIDATORS_QUERY, {
+        const data = await gqlRequest<{ validatorInPools: unknown[] }>(sg.url, VALIDATORS_QUERY, {
           offset,
           limit,
           address: govPool.toLowerCase(),
         });
         const validators = data.validatorInPools;
-        const text = `${validators.length} validator(s) in ${govPool} (offset=${offset}, limit=${limit})`;
+        const text = `${validators.length} validator(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`;
         return {
           content: [{ type: "text" as const, text }],
-          structuredContent: { govPool, offset, limit, validators },
+          structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, validators },
         };
       } catch (err) {
         return errorResult(`read_validator_list failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -493,19 +557,21 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
     {
       title: "User transaction history across DAOs (subgraph)",
       description:
-        "Paginated transaction history for a user — proposals created, votes cast, delegations, claims. Ordered by timestamp descending. Requires DEXE_SUBGRAPH_INTERACTIONS_URL.",
+        "Paginated transaction history for a user — proposals created, votes cast, delegations, claims. Ordered by timestamp descending." +
+        chainNote(ctx, "interactions"),
       inputSchema: {
         user: z.string().describe("User wallet address"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(50),
+        chainId: chainIdParam,
       },
     },
-    async ({ user, offset = 0, limit = 50 }) => {
+    async ({ user, offset = 0, limit = 50, chainId }) => {
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
-      const url = requireUrl(ctx, "subgraphInteractionsUrl");
-      if (!url) return errorResult(`${ENV_HINT.subgraphInteractionsUrl} is not set.`);
+      const sg = resolveEndpoint(ctx, "interactions", chainId);
+      if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ transactions: Array<Record<string, unknown>> }>(url, USER_ACTIVITY_QUERY, {
+        const data = await gqlRequest<{ transactions: Array<Record<string, unknown>> }>(sg.url, USER_ACTIVITY_QUERY, {
           offset,
           limit,
           address: user.toLowerCase(),
@@ -514,10 +580,10 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
           ...tx,
           typeLabels: transactionTypeLabels(Array.isArray(tx.type) ? tx.type : [tx.type]),
         }));
-        const text = `${txs.length} transaction(s) for ${user} (offset=${offset}, limit=${limit})`;
+        const text = `${txs.length} transaction(s) for ${user} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`;
         return {
           content: [{ type: "text" as const, text }],
-          structuredContent: { user, offset, limit, transactions: txs },
+          structuredContent: { user, offset, limit, indexedChainId: sg.chainId, transactions: txs },
         };
       } catch (err) {
         return errorResult(`read_user_activity failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -532,28 +598,30 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
     {
       title: "List local experts in a DAO (subgraph)",
       description:
-        "Paginated list of local experts (holders of DAO-specific expert NFTs) with their delegation info. Requires DEXE_SUBGRAPH_POOLS_URL.",
+        "Paginated list of local experts (holders of DAO-specific expert NFTs) with their delegation info." +
+        chainNote(ctx, "pools"),
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(50),
+        chainId: chainIdParam,
       },
     },
-    async ({ govPool, offset = 0, limit = 50 }) => {
+    async ({ govPool, offset = 0, limit = 50, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
-      const url = requireUrl(ctx, "subgraphPoolsUrl");
-      if (!url) return errorResult(`${ENV_HINT.subgraphPoolsUrl} is not set.`);
+      const sg = resolveEndpoint(ctx, "pools", chainId);
+      if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ voterInPools: unknown[] }>(url, EXPERTS_QUERY, {
+        const data = await gqlRequest<{ voterInPools: unknown[] }>(sg.url, EXPERTS_QUERY, {
           offset,
           limit,
           daoAddress: govPool.toLowerCase(),
         });
         const experts = data.voterInPools;
-        const text = `${experts.length} expert(s) in ${govPool} (offset=${offset}, limit=${limit})`;
+        const text = `${experts.length} expert(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`;
         return {
           content: [{ type: "text" as const, text }],
-          structuredContent: { govPool, offset, limit, experts },
+          structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, experts },
         };
       } catch (err) {
         return errorResult(`read_dao_experts failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -586,7 +654,7 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
     {
       title: "List OTC sale tiers for a DAO",
       description:
-        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with `totalSold` and status (`upcoming` / `active` / `ended` / `off`) computed against current block timestamp and the tier's on-chain isOff flag. On-chain reads follow the optional `chainId` param (defaults to the MCP's default chain); no subgraph required, though subgraph indexing only exists on mainnet. " +
+        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with `totalSold` and status (`upcoming` / `active` / `ended` / `off`) computed against current block timestamp and the tier's on-chain isOff flag. Pure on-chain read — no subgraph involved, so it works on any chain with an RPC. `chainId` selects the chain (defaults to the MCP's default chain) and the response echoes the resolved `chainId`. " +
         "When `tokenSaleProposal` is omitted the tool returns an error pointing at the helper-discovery follow-up; supply it explicitly until per-DAO helper discovery lands.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
@@ -605,6 +673,9 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
         const pr = rpc.tryProvider(chainId);
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
+        // Echoed on every return: this read is on-chain, so the answer belongs
+        // to the chain the provider resolved to, not to any subgraph index.
+        const readChainId = rpc.resolveChainId(chainId);
 
         // Validate the GovPool actually exists (helper read is the cheapest
         // smoke test — reverts cleanly on EOA/empty address).
@@ -644,12 +715,13 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
             content: [
               {
                 type: "text" as const,
-                text: `${tokenSaleProposal}: zero tiers (latestTierId=0). DAO has not opened a sale yet.`,
+                text: `${tokenSaleProposal}: zero tiers (latestTierId=0) on chain ${readChainId}. DAO has not opened a sale yet.`,
               },
             ],
             structuredContent: {
               govPool,
               tokenSaleProposal,
+              chainId: readChainId,
               tiers: [],
             },
           };
@@ -718,12 +790,13 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
           content: [
             {
               type: "text" as const,
-              text: `${tokenSaleProposal}: ${tiers.length} tier(s) — ${counts.active} active, ${counts.upcoming} upcoming, ${counts.ended} ended, ${counts.off} off (block ts ${nowSec}).`,
+              text: `${tokenSaleProposal}: ${tiers.length} tier(s) on chain ${readChainId} — ${counts.active} active, ${counts.upcoming} upcoming, ${counts.ended} ended, ${counts.off} off (block ts ${nowSec}).`,
             },
           ],
           structuredContent: {
             govPool,
             tokenSaleProposal,
+            chainId: readChainId,
             tiers,
             counts,
           },
