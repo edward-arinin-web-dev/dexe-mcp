@@ -496,7 +496,7 @@ export const GOTCHAS: readonly Gotcha[] = [
       "'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, " +
       "and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single " +
       "RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / " +
-      "dexe_get_abi (devtools toolset).",
+      "dexe_get_abi (`dev` toolset).",
     applies: { tools: ["dexe_read_multicall"] },
   },
 ] as const;

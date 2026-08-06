@@ -6,6 +6,27 @@ something on your side.
 
 ---
 
+## 0.29.0 → 0.30.0 — no action for most users; one behavior change if your `DEXE_TOOLSETS` has a typo
+
+Tool count unchanged (165 / 19 groups).
+
+### Behavior change
+- **An unrecognized name in `DEXE_TOOLSETS` no longer escalates to `full`.**
+  Previously `DEXE_TOOLSETS=core,raed` loaded every tool; now the unknown entry
+  is dropped (with a stderr warning) and `core` alone applies. If you were
+  relying on that accident to get the full surface, set `DEXE_TOOLSETS=full`
+  explicitly. Valid sets: `core`, `proposals`, `read`, `vote`, `governor`,
+  `dev`, plus `full`. Check the startup banner or `dexe_doctor` — it reports
+  `unknownSets` and the active profile.
+
+### New
+- Two MCP resources: `dexe://graph-schema` (full subgraph entity/field
+  reference) and `dexe://tools` (full tool catalog), joining `dexe://playbook`.
+- `dexe_guide {flow:"read_dao_data"}` — how to pick between `dexe_read_*`,
+  free-form `dexe_graph_query`, backend REST reads, and `dexe_read_multicall`.
+
+---
+
 ## 0.28.0 → 0.29.0 — validators_allocation params changed (1 breaking); new preflights may refuse what used to reach the chain
 
 Tool count unchanged (165 / 19 groups).

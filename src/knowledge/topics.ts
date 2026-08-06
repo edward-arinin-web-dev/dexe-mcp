@@ -64,7 +64,7 @@ export const TOPICS: readonly Topic[] = [
           "is the full fragment 'function balanceOf(address) view returns (uint256)'; all calls batch into one RPC " +
           "round-trip. dexe_sim_calldata (dev toolset) eth_call-simulates arbitrary {to, data, value} and decodes " +
           "revert reasons. To discover DeXe contract methods: dexe_compile once per session, then dexe_get_methods " +
-          "/ dexe_get_abi / dexe_find_selector (devtools toolset).",
+          "/ dexe_get_abi / dexe_find_selector (`dev` toolset).",
       },
       {
         heading: "Toolset gating",

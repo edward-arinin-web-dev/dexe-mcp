@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.30.0 — 2026-08-06
 
 Read-surface discoverability: a fresh AI connected to the server can now find
 the whole query surface in-band. Tool count unchanged (**165 / 19 groups**).
@@ -24,6 +24,21 @@ the whole query surface in-band. Tool count unchanged (**165 / 19 groups**).
 - `dexe_graph_query` description claimed the entity schema was "also
   summarized by dexe_guide" — it wasn't. Now true (topic `read_dao_data`) and
   the description points at `dexe://graph-schema` for the full reference.
+- **`dexe_graph_query`'s paste-able example query was invalid** and failed on
+  first use — `Proposal` has no `creationTime` field (that is `DaoPool`), so the
+  gateway answered `Type 'Proposal' has no field 'creationTime'`. Replaced with
+  a verified-working "most-voted proposals with their DAO" query, plus an
+  explicit note on which Proposal fields are orderable and a one-line
+  introspection recipe (`{ __type(name: "Proposal") { fields { name } } }`) so
+  an agent can self-recover from any future field error.
+- **A typo in `DEXE_TOOLSETS` no longer loads all 165 tools.** Unknown set names
+  were treated as `full`, silently registering the entire surface (~50K tokens
+  of `tools/list`) including the dev and write sets the user never asked for.
+  Unknown names are now dropped with a loud stderr line and the recognized sets
+  still apply; when nothing recognizable remains the defaults are used.
+- Two knowledge entries named a nonexistent `devtools` toolset — the real name
+  is `dev` (`src/knowledge/gotchas.ts`, `src/knowledge/topics.ts`, and the
+  generated `docs/PLAYBOOK.md` regions).
 
 ### Tests
 - New swarm scenarios (live BSC mainnet, read-only, zero gas):

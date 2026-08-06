@@ -246,7 +246,7 @@ Fixed wrappers over the DeXe backend — no auth needed: dexe_read_treasury (eve
 
 #### Free-form contract reads
 
-dexe_read_multicall reads ANY contract: each call is {target, signature, method, args} where signature is the full fragment 'function balanceOf(address) view returns (uint256)'; all calls batch into one RPC round-trip. dexe_sim_calldata (dev toolset) eth_call-simulates arbitrary {to, data, value} and decodes revert reasons. To discover DeXe contract methods: dexe_compile once per session, then dexe_get_methods / dexe_get_abi / dexe_find_selector (devtools toolset).
+dexe_read_multicall reads ANY contract: each call is {target, signature, method, args} where signature is the full fragment 'function balanceOf(address) view returns (uint256)'; all calls batch into one RPC round-trip. dexe_sim_calldata (dev toolset) eth_call-simulates arbitrary {to, data, value} and decodes revert reasons. To discover DeXe contract methods: dexe_compile once per session, then dexe_get_methods / dexe_get_abi / dexe_find_selector (`dev` toolset).
 
 #### Toolset gating
 
@@ -255,7 +255,7 @@ The default DEXE_TOOLSETS profile ('core,proposals') exposes only a few reads (d
 **Pitfalls (danger first):**
 - ⚠ ALWAYS bound dexe_graph_query list fields with `first:` (gateway max 1000) and paginate with `skip:` — responses over 120000 chars are rejected outright, so an unbounded query fails instead of streaming. Entity ids are lowercased concatenated bytes (e.g. proposal id = poolAddress + uint32-LE(proposalId), no separator); relation filters use the `_` suffix (pool_: {id: "0x…"}). Full entity/field reference: MCP resource dexe://graph-schema.
 - ⚠ Subgraph and DeXe-backend data exist for BSC MAINNET (56) only — on testnet (97) dexe_graph_query and the subgraph/backend read tools (dexe_read_dao_list, dexe_read_dao_members, dexe_read_user_activity, dexe_read_token_holders, dexe_read_dao_stats, dexe_read_protocol_stats, dexe_read_nfts, dexe_proposal_voters) return empty or fail. For testnet DAOs read on-chain instead: dexe_read_gov_state, dexe_read_settings, dexe_proposal_state, dexe_read_multicall (dexe_read_treasury falls back to RPC automatically).
-- ℹ dexe_read_multicall calls need the FULL function fragment as `signature` — 'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / dexe_get_abi (devtools toolset).
+- ℹ dexe_read_multicall calls need the FULL function fragment as `signature` — 'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / dexe_get_abi (`dev` toolset).
 <!-- END GENERATED: topics -->
 
 ## Protocol gotchas (the rule corpus)
@@ -306,7 +306,7 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 - ℹ **offchain-decimal-quorum** — Off-chain (backend) quorum percentages are DECIMALS: 0.5 = 50%, not 50. The `type` field must be a registered template name (e.g. default_single_option_type), never an arbitrary string.
 - ℹ **amount-conventions** — Amount strings: digits-only = RAW smallest units (wei); a decimal point ("12.5") = human units scaled by the token's REAL on-chain decimals (never assumed 18). Durations and delays are SECONDS (86400 = 1 day). Composite quorum/percent params are plain percent numbers (51).
 - ℹ **testnet-first** — Chains: 56 = BSC mainnet, 97 = BSC testnet. Rehearse on 97 first (free faucet BNB) except for features that don't exist there (staking, subgraph, off-chain backend). Mainnet gas is cents per tx (~0.1 gwei) — never size budgets from Ethereum L1 intuition.
-- ℹ **multicall-signature-form** — dexe_read_multicall calls need the FULL function fragment as `signature` — 'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / dexe_get_abi (devtools toolset).
+- ℹ **multicall-signature-form** — dexe_read_multicall calls need the FULL function fragment as `signature` — 'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / dexe_get_abi (`dev` toolset).
 <!-- END GENERATED: gotchas -->
 
 ## Error → remedy
