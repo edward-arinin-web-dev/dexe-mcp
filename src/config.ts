@@ -4,6 +4,7 @@ import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
 import { resolveStatePath } from "./lib/stateStore.js";
 import { parseEnv } from "./env/parse.js";
 import { PER_CHAIN_SUBGRAPH_URL_RE, subgraphUrlStr } from "./env/schema.js";
+import { safeErrorMessage } from "./lib/redact.js";
 
 /**
  * Split an RPC env value into its endpoint list: `url` or `url1,url2,…`.
@@ -654,7 +655,7 @@ export async function loadConfig(): Promise<DexeConfig> {
     } catch (err) {
       degrade(
         "DEXE_PRIVATE_KEY",
-        `DEXE_PRIVATE_KEY is not a usable private key: ${err instanceof Error ? err.message : String(err)}`,
+        `DEXE_PRIVATE_KEY is not a usable private key: ${safeErrorMessage(err)}`,
         "signing disabled (readonly) — fix the key and restart to re-enable",
       );
       privateKey = undefined;
@@ -692,7 +693,7 @@ export async function loadConfig(): Promise<DexeConfig> {
       } catch (err) {
         degrade(
           `DEXE_AGENT_PK_* (${slot})`,
-          `agent keyring slot "${slot}" is not a usable private key: ${err instanceof Error ? err.message : String(err)}`,
+          `agent keyring slot "${slot}" is not a usable private key: ${safeErrorMessage(err)}`,
           "that slot is dropped; the other slots still load",
         );
         delete agentKeys[slot];

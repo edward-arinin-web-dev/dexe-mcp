@@ -91,9 +91,14 @@ export const TALLY_PROPOSALS_QUERY = `
   }
 `;
 
+/** Deadline for the Tally query — 8s, matching the other HTTP clients. */
+export const TALLY_TIMEOUT_MS = 8_000;
+
 export interface TallyClient {
   apiKey: string;
   endpoint?: string;
+  /** Per-request deadline in ms. Default {@link TALLY_TIMEOUT_MS}. */
+  timeoutMs?: number;
 }
 
 export async function fetchTallyProposals(
@@ -102,32 +107,56 @@ export async function fetchTallyProposals(
   limit: number,
 ): Promise<TallyProposalSnapshot[]> {
   const endpoint = client.endpoint ?? "https://api.tally.xyz/query";
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "api-key": client.apiKey,
-    },
-    body: JSON.stringify({
-      query: TALLY_PROPOSALS_QUERY,
-      variables: {
-        input: {
-          filters: { governorId: governorChainAddress },
-          page: { limit },
-          sort: { sortBy: "id", isDescending: true },
-        },
+  const timeoutMs = client.timeoutMs ?? TALLY_TIMEOUT_MS;
+  // The deadline spans the body read too, so a stalled response body can't
+  // outlive it — clearTimeout only runs once the whole exchange is done.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        "api-key": client.apiKey,
       },
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Tally HTTP ${res.status}: ${await res.text()}`);
+      body: JSON.stringify({
+        query: TALLY_PROPOSALS_QUERY,
+        variables: {
+          input: {
+            filters: { governorId: governorChainAddress },
+            page: { limit },
+            sort: { sortBy: "id", isDescending: true },
+          },
+        },
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      const hint =
+        res.status === 401 || res.status === 403
+          ? " — TALLY_API_KEY was rejected; get a fresh key at tally.xyz/user/api-keys"
+          : res.status === 429
+            ? " — rate-limited by Tally; re-run in a minute or lower the sample size"
+            : "";
+      throw new Error(`Tally HTTP ${res.status}${hint}: ${detail.slice(0, 200)}`);
+    }
+    const body = (await res.json()) as any;
+    if (body.errors) throw new Error(`Tally GraphQL: ${JSON.stringify(body.errors)}`);
+    const nodes = body.data?.proposals?.nodes ?? [];
+    return nodes
+      .filter((n: any) => n?.onchainId && n?.status)
+      .map((n: any) => ({ onchainId: String(n.onchainId), status: String(n.status) }));
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `Tally request timed out after ${timeoutMs}ms — transient, re-run the parity check.`,
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  const body = (await res.json()) as any;
-  if (body.errors) throw new Error(`Tally GraphQL: ${JSON.stringify(body.errors)}`);
-  const nodes = body.data?.proposals?.nodes ?? [];
-  return nodes
-    .filter((n: any) => n?.onchainId && n?.status)
-    .map((n: any) => ({ onchainId: String(n.onchainId), status: String(n.status) }));
 }
 
 export function tallyGovernorId(chainId: number, address: string): string {

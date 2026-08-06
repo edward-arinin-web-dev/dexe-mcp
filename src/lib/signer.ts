@@ -2,6 +2,7 @@ import { Wallet } from "ethers";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
 import { hintFor, type EnvGuardResult } from "./requireEnv.js";
+import { safeErrorMessage } from "./redact.js";
 
 /**
  * Signer registry. The primary key (`DEXE_PRIVATE_KEY`) is the default; the
@@ -113,7 +114,7 @@ export class SignerManager {
       return { ok: this.requireSigner(chainId, signerKey) };
     } catch (err) {
       return {
-        error: err instanceof Error ? err.message : String(err),
+        error: safeErrorMessage(err),
         remediation: hintFor(["DEXE_PRIVATE_KEY"]),
       };
     }

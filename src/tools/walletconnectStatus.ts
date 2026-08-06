@@ -4,6 +4,7 @@ import type { DexeConfig } from "../config.js";
 import type { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { wcPairingContent } from "../lib/qr.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * C12 — WalletConnect tools.
@@ -122,7 +123,7 @@ export function registerWalletConnectTools(
             {
               type: "text" as const,
               text: JSON.stringify(
-                { status: "error", reason: e instanceof Error ? e.message : String(e) },
+                { status: "error", reason: safeErrorMessage(e) },
                 null,
                 2,
               ),

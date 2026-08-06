@@ -21,6 +21,7 @@ import { CHANGE_VOTE_POWER_ADVISORY } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
 import { RpcProvider } from "../rpc.js";
 import type { DexeConfig } from "../config.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 3c — 10 complex named wrappers. Same contract as 3a/3b:
@@ -574,7 +575,7 @@ function registerTokenDistribution(server: McpServer): void {
           detail: `Target: DistributionProposal(${distributionProposal}).execute (${actions.length} actions)`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1026,7 +1027,7 @@ function registerTokenSaleMulti(server: McpServer): void {
           })`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1099,7 +1100,7 @@ function registerTokenSale(server: McpServer): void {
           })`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1169,7 +1170,7 @@ function registerTokenSaleWhitelist(server: McpServer): void {
           detail: `Target: TokenSaleProposal(${tokenSaleProposal}).addToWhitelist`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1220,7 +1221,7 @@ function registerTokenSaleRecover(server: McpServer): void {
           detail: `Target: TokenSaleProposal(${tokenSaleProposal}).recover`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1304,7 +1305,7 @@ function registerCreateStakingTier(server: McpServer): void {
           detail: `Target: StakingProposal(${stakingProposal}).createStaking`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1356,7 +1357,7 @@ function registerChangeMathModel(server: McpServer): void {
           detail: `Target: GovPool(${govPool}).changeVotePower\n\n${CHANGE_VOTE_POWER_ADVISORY}`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1412,7 +1413,7 @@ function registerModifyDaoProfile(server: McpServer): void {
           detail: `Target: GovPool(${govPool}).editDescriptionURL`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1484,7 +1485,7 @@ function registerBlacklistManagement(server: McpServer): void {
           detail: `Target: ERC20Gov(${erc20Gov}).blacklist (${actions.length} action${actions.length === 1 ? "" : "s"})`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1687,7 +1688,7 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
           ...(warnings.length ? { advisories: warnings } : {}),
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1788,7 +1789,7 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
             (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1894,7 +1895,7 @@ function registerNewProposalType(server: McpServer): void {
           detail: `Target: GovSettings(${govSettings}).addSettings + changeExecutors (2 actions)`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );

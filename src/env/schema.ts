@@ -196,6 +196,17 @@ export const ENV_SPEC = {
     example: "",
     doc: "Absolute path to a .env file to load first, for hosts/CI/containers that can inject one variable but not a working directory. Must be set in the real process environment (not inside a .env), since it is read before any file loads. The default cwd-independent search (<cwd>/.env, then ~/.dexe-mcp/.env) needs no override.",
   },
+  // Deliberately `z.string()` rather than an enum: an unparseable DEXE_DEBUG
+  // must never be the thing that spoils a startup, and the reader
+  // (isDebugEnabled() in src/runtime.ts) already treats anything outside the
+  // truthy set as "off".
+  DEXE_DEBUG: {
+    schema: z.string().optional(),
+    category: "core",
+    required: false,
+    example: "1",
+    doc: "Set to 1 (or true/yes/on) for verbose diagnostics on stderr — startup facts, transport errors, RPC/state activity, and full stack traces for crashes the server survives. Every line is redacted (credentialed RPC URLs are masked) and goes to stderr only, never stdout. Off by default; this is what to enable before filing a bug report.",
+  },
 
   // ─── rpc ──────────────────────────────────────────────────────────────────
   DEXE_RPC_URL: {
@@ -228,6 +239,16 @@ export const ENV_SPEC = {
     example: "https://bsc-dataseed.bnbchain.org",
     doc: "RPC URL for BSC mainnet (chain 56). Accepts a comma-separated fallback list — the first is primary, the rest rotate on transport failures.",
     enablesFlows: ["read", "broadcast"],
+  },
+  // Registered here (not by src/rpc.ts, which owns the timeout itself) because
+  // ENV_SPEC is the single source of truth: an unregistered DEXE_* var is
+  // reported as a typo by the loader and is invisible to dexe_doctor.
+  DEXE_RPC_TIMEOUT_MS: {
+    schema: intStr("a timeout in milliseconds", "15000 for 15 seconds"),
+    category: "rpc",
+    required: false,
+    example: "15000",
+    doc: "Per-request timeout (milliseconds) for a single JSON-RPC call. Without it a blackholing endpoint stalls the whole tool call until the OS gives up (~20 min) and the host shows a frozen tool. On timeout the request fails fast and rotates to the next URL in the fallback list. Default 15000.",
   },
   DEXE_TX_WAIT_TIMEOUT_MS: {
     schema: intStr("a timeout in milliseconds", "180000 for 3 minutes"),

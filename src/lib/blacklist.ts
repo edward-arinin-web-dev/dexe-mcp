@@ -1,6 +1,7 @@
 import { Contract, JsonRpcProvider } from "ethers";
 import { RpcProvider } from "../rpc.js";
 import type { DexeConfig } from "../config.js";
+import { safeErrorMessage } from "./redact.js";
 
 // F20b: ERC20Gov has NO isBlacklisted(address) — the real interface is the
 // enumerable pair below (see DeXe-Protocol contracts/gov/ERC20/ERC20Gov.sol).
@@ -49,7 +50,7 @@ export async function checkBlacklist(
       provider = new RpcProvider(config).requireProvider();
     }
   } catch (err) {
-    return { status: "skipped", reason: err instanceof Error ? err.message : String(err) };
+    return { status: "skipped", reason: safeErrorMessage(err) };
   }
   try {
     const contract = new Contract(token, ERC20_GOV_BLACKLIST_ABI as unknown as string[], provider) as unknown as {
@@ -68,7 +69,7 @@ export async function checkBlacklist(
   } catch (err) {
     return {
       status: "skipped",
-      reason: `blacklist getters unavailable on ${token} — not an ERC20Gov? (${err instanceof Error ? err.message : String(err)})`,
+      reason: `blacklist getters unavailable on ${token} — not an ERC20Gov? (${safeErrorMessage(err)})`,
     };
   }
 }

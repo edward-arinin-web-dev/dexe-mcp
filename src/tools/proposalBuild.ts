@@ -17,6 +17,7 @@ import {
   INTERNAL_PROPOSAL_TYPE_LABELS,
   type ProposalTypeEntry,
 } from "../lib/proposalCatalog.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 const GOV_POOL_ABI = [
   "function createProposal(string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst)",
@@ -207,7 +208,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
         }
         return payloadResult(payload, treasuryAdvisory);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -255,7 +256,7 @@ function registerBuildInternal(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -318,7 +319,7 @@ function registerBuildCustomAbi(server: McpServer, ctx: ToolContext): void {
           structuredContent: { action, preview },
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -468,7 +469,7 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
           structuredContent: { metadata, actions, nextStep },
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );

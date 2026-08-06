@@ -11,6 +11,8 @@
  * - `safeErrorMessage(err)` — prefer ethers' `shortMessage` (which stays
  *   URL-free) over the verbose `message`, then redact as a backstop. Use this
  *   wherever a caught error is surfaced to the user.
+ * - `redactErrorInPlace(err)` — same sanitation, but for an error that has to
+ *   be RETHROWN with its ethers fields (`code`, `data`) intact.
  * - `redactUrlCredentials(text)` — mask every URL found in arbitrary text
  *   (path + query + userinfo), so any embedded API key is removed regardless
  *   of provider.
@@ -24,8 +26,12 @@
 /** Userinfo in a URL: `scheme://user:pass@` (used only in the parse fallback). */
 const USERINFO_RE = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g;
 
-/** Any http(s) URL token, bounded by whitespace / common punctuation. */
-const URL_RE = /\bhttps?:\/\/[^\s'"`)<>\]},;]+/gi;
+/**
+ * Any http(s)/ws(s) URL token, bounded by whitespace / common punctuation.
+ * `wss://` is in scope because an RPC or relay endpoint carries its API key in
+ * exactly the same path/query position as the https form.
+ */
+const URL_RE = /\b(?:https?|wss?):\/\/[^\s'"`)<>\]},;]+/gi;
 
 /**
  * Mask a single URL: keep scheme + host, drop userinfo, and replace any
@@ -69,4 +75,89 @@ export function safeErrorMessage(err: unknown): string {
     msg = String(err);
   }
   return redactUrlCredentials(msg);
+}
+
+/**
+ * Sanitize a caught error and return it ready to RETHROW: the human-readable
+ * text becomes `safeErrorMessage(err)`, everything else is left alone.
+ *
+ * WHY in place rather than `new Error(safeErrorMessage(err))`: ethers puts the
+ * fields callers branch on ON the error object — `code` ("CALL_EXCEPTION" vs
+ * "TIMEOUT"/"SERVER_ERROR") and the revert `data`/`info.error.data`.
+ * `src/tools/simulate.ts` uses exactly those to tell a genuine contract revert
+ * from a transport failure before it lets a broadcast through, so flattening
+ * the error into a plain `Error` would make every revert look like a network
+ * blip and defeat that guard. Only the leaky text is rewritten.
+ */
+/**
+ * Overwrite one property when its descriptor allows it. Returns whether the
+ * write actually stuck.
+ *
+ * ESM is strict mode, so assigning to a non-writable property THROWS rather
+ * than failing quietly — which is the whole reason each field below needs its
+ * own guard instead of one shared try block.
+ */
+function trySet(obj: object, key: string, value: unknown): boolean {
+  try {
+    (obj as Record<string, unknown>)[key] = value;
+    return (obj as Record<string, unknown>)[key] === value;
+  } catch {
+    return false;
+  }
+}
+
+/** Fields worth carrying onto a copy: they classify the failure, not describe it. */
+const CLASSIFYING_FIELDS = ["code", "data", "reason"] as const;
+
+export function redactErrorInPlace(err: unknown): Error {
+  const safe = safeErrorMessage(err);
+  if (err instanceof Error) {
+    const e = err as unknown as Record<string, unknown>;
+    // Each field is guarded SEPARATELY. ethers declares `shortMessage` as
+    // `writable: false`, so a single try wrapping all of these aborts on the
+    // first assignment and falls through to the copy path — which used to drop
+    // `data`, the field that identifies a custom-error revert (the DeXe/SphereX
+    // norm). src/tools/simulate.ts reads `data` to tell a genuine revert from a
+    // transport failure, so losing it turned every revert into a "network
+    // error" and defeated the B9 pre-broadcast guard.
+    const messageStuck = trySet(err, "message", safe);
+
+    // `shortMessage` is declared writable:false AND configurable:false, so it
+    // can be neither assigned nor redefined — if it holds a credential there is
+    // no way to scrub it on this object. When that happens we must NOT hand the
+    // object back: the key would stay one property lookup away. Fall through to
+    // the copy instead, which now carries `data`/`code`/`reason` explicitly, so
+    // revert classification survives the detour.
+    let shortMessageLeaks = false;
+    if (typeof e.shortMessage === "string") {
+      const cleaned = redactUrlCredentials(e.shortMessage);
+      if (cleaned !== e.shortMessage && !trySet(err, "shortMessage", cleaned)) {
+        shortMessageLeaks = true;
+      }
+    }
+    // The key also rides in `stack` and in ethers' `info.requestUrl`; redacting
+    // only `message` would leave it one property lookup away.
+    if (typeof e.stack === "string") trySet(err, "stack", redactUrlCredentials(e.stack));
+    const info = e.info;
+    if (info && typeof info === "object") {
+      const requestUrl = (info as Record<string, unknown>).requestUrl;
+      if (typeof requestUrl === "string") trySet(info, "requestUrl", maskUrl(requestUrl));
+    }
+    if (messageStuck && !shortMessageLeaks) return err;
+  }
+
+  // Frozen/sealed error: copy rather than throw a TypeError that would replace
+  // the real failure. Carry the classifying fields across explicitly — an
+  // allowlist, so nothing that could hold a credential rides along.
+  const copy = new Error(safe);
+  const src = err as Record<string, unknown> | null | undefined;
+  const target = copy as unknown as Record<string, unknown>;
+  for (const key of CLASSIFYING_FIELDS) {
+    const v = src?.[key];
+    if (v !== undefined) target[key] = typeof v === "string" ? redactUrlCredentials(v) : v;
+  }
+  if (typeof src?.shortMessage === "string") {
+    target.shortMessage = redactUrlCredentials(src.shortMessage as string);
+  }
+  return copy;
 }

@@ -6,6 +6,37 @@ something on your side.
 
 ---
 
+## 0.30.3 → 0.30.4 — no action required; slow endpoints now fail fast instead of hanging
+
+Tool count unchanged (165 / 19 groups). No emitted calldata changed.
+
+### Security — worth knowing even though there is nothing to do
+If you configured a paid RPC endpoint (Alchemy / Infura / QuickNode), your API
+key could previously reach the model context and the transcript: ethers appends
+the full provider URL to error messages on any non-2xx response, and the
+redaction layer was bypassed on the private-RPC path. That is closed. **If a
+transcript or log from an earlier version may have captured a provider error,
+treat that key as exposed and rotate it.**
+
+### Behavior changes
+- **Every outbound call now has a deadline.** A slow-but-working endpoint that
+  used to answer after 10+ seconds will now fail fast and rotate to the next
+  configured URL. Raise `DEXE_RPC_TIMEOUT_MS` (default `10000` ms) if you are on
+  a deliberately slow or distant endpoint. Subgraph 8s (one retry on 429/5xx),
+  Pinata 8s ping / 15s JSON / 30s file, backend and Safe and Tally 8s.
+- **RPC worst case is now ~44s** (4 attempts × 10s + backoff), deliberately
+  under the common 60s MCP client timeout so you see the server's actionable
+  message rather than the client's generic one.
+- The server no longer exits on an unhandled rejection; it logs a redacted
+  report to stderr and keeps serving. The call that triggered it has already
+  failed — retry that call.
+
+### New env
+- `DEXE_RPC_TIMEOUT_MS` — per-request RPC deadline in ms. Default `10000`.
+- `DEXE_DEBUG` — set to `1` for verbose redacted diagnostics on **stderr**.
+
+---
+
 ## 0.30.2 → 0.30.3 — re-check any saved validator proposal type; `value` is now validated
 
 Tool count unchanged (165 / 19 groups). **No emitted calldata changed.**

@@ -5,6 +5,7 @@ import { FunctionFragment, id as keccakId } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { ArtifactsMissingError } from "../artifacts.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 export function registerIntrospectTools(server: McpServer, ctx: ToolContext): void {
   registerListContracts(server, ctx);
@@ -32,7 +33,7 @@ async function guarded<T>(
     if (err instanceof ArtifactsMissingError) {
       return { ok: false, error: err.message };
     }
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: safeErrorMessage(err) };
   }
 }
 

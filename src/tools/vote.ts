@@ -6,6 +6,8 @@ import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { voteTypeFromString, VOTE_TYPE_NAMES } from "../lib/govEnums.js";
 import { chainIdParam } from "../lib/params.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 const GOV_POOL_HELPERS_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -137,7 +139,7 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(
-          `vote_user_power failed: ${err instanceof Error ? err.message : String(err)}`,
+          toActionableError(err, "dexe_vote_user_power").message,
         );
       }
     },
@@ -226,7 +228,7 @@ function registerGetVotes(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(
-          `vote_get_votes failed: ${err instanceof Error ? err.message : String(err)}`,
+          toActionableError(err, "dexe_vote_get_votes").message,
         );
       }
     },

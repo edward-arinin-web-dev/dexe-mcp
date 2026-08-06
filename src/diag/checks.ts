@@ -21,6 +21,7 @@ import {
 } from "../config.js";
 import { extractGraphApiKey, isTrustedGraphHost } from "../lib/subgraph.js";
 import { maskUrl, redactUrlCredentials } from "../lib/redact.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 export type CheckCategory = EnvCategory | "network" | "process";
@@ -498,7 +499,7 @@ async function ipfsGatewayDnsCheck(timeoutMs: number): Promise<CheckResult | nul
       id: "ipfs.gateway.dns",
       category: "ipfs",
       status: "fail",
-      message: `DNS lookup for ${host} failed: ${err instanceof Error ? err.message : String(err)}`,
+      message: `DNS lookup for ${host} failed: ${safeErrorMessage(err)}`,
       remediation:
         "Check the hostname in DEXE_IPFS_GATEWAY. Pinata dedicated gateways follow https://<subdomain>.mypinata.cloud.",
     };
@@ -1068,7 +1069,7 @@ async function fetchJsonWithTimeout(
     return { kind: "ok", status: r.status, body };
   } catch (err) {
     if ((err as { name?: string }).name === "AbortError") return { kind: "timeout" };
-    return { kind: "error", error: err instanceof Error ? err.message : String(err) };
+    return { kind: "error", error: safeErrorMessage(err) };
   } finally {
     clearTimeout(timer);
   }

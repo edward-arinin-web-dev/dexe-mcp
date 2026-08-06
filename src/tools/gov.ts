@@ -6,8 +6,8 @@ import { CalldataDecoder, type DecodedProposalAction, type DecodedCall } from ".
 import { GovAddressResolver } from "../lib/govAddresses.js";
 import { RpcProvider } from "../rpc.js";
 import { ArtifactsMissingError } from "../artifacts.js";
-import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted } from "../lib/sanitize.js";
+import { toActionableError } from "../lib/errors.js";
 
 /**
  * Chain id param for the gov tools. Custom wording (no BSC examples) because
@@ -179,7 +179,7 @@ function registerDecodeProposal(
       try {
         views = await pool.getFunction("getProposals")(proposalId - 1, 1);
       } catch (err) {
-        return errorResult(`RPC call to getProposals failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_decode_proposal getProposals").message);
       }
       if (!views || views.length === 0) {
         return errorResult(`Proposal ${proposalId} not found at ${govPool}.`);
@@ -350,7 +350,7 @@ function registerReadGovState(
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`Failed to read gov state: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_gov_state").message);
       }
     },
   );

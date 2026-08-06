@@ -6,6 +6,7 @@ import type { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { DEFAULTS } from "../config.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 3d — off-chain proposals via the DeXe backend API.
@@ -29,6 +30,60 @@ const PROPOSAL_ENDPOINT = "/integrations/voting/proposals";
 const VOTE_ENDPOINT = "/integrations/voting/vote";
 const NONCE_ENDPOINT = "/integrations/nonce-auth-svc/nonce";
 const LOGIN_ENDPOINT = "/integrations/nonce-auth-svc/login";
+
+/**
+ * Deadline for the two HTTP calls dexe_auth_login makes itself. 8s, the same
+ * ceiling as every other DeXe backend client (`backendGetJson` in read.ts,
+ * `SUBGRAPH_TIMEOUT_MS` in lib/subgraph.ts) — one number so a stalled backend
+ * looks identical whichever tool hit it.
+ */
+export const AUTH_TIMEOUT_MS = 8000;
+
+/**
+ * POST to the backend auth service under a hard deadline.
+ *
+ * WHY: `fetch` has no default timeout. dexe_auth_login is the ONLY tool in this
+ * file that dispatches HTTP itself (the builders just return a request object),
+ * and both of its calls used a bare `fetch`. Against a blackholing backend the
+ * call never settled — the MCP tool call froze until the client gave up minutes
+ * later, with nothing printed to say why. An AbortSignal turns that freeze into
+ * a bounded, self-explaining failure.
+ *
+ * The message must also answer "did I get logged in?", because the caller
+ * cannot tell a stalled request from a slow one: both auth steps are
+ * side-effect-free (a nonce hand-out and a token issue), so re-running is
+ * always safe, and saying so out loud stops the caller inventing recovery.
+ */
+export async function authPost(
+  url: string,
+  body: unknown,
+  label: string,
+  timeoutMs: number = AUTH_TIMEOUT_MS,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    // A bare AbortError reads "This operation was aborted" — true and useless.
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `${label} timed out after ${timeoutMs}ms — the DeXe backend did not respond. ` +
+          `You are NOT logged in and no access token was issued; nothing was changed, so it is ` +
+          `safe to re-run dexe_auth_login. If it persists: check network access to the backend, ` +
+          `or set DEXE_BACKEND_API_URL to a reachable host.`,
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Bug #27: backend rejects unix-timestamp `type` with
 // "proposal type was not found". Real values are registered template names.
@@ -239,11 +294,11 @@ function registerAuthLoginComposite(
 
       try {
         // Step 1 — nonce.
-        const nonceRes = await fetch(`${base}${NONCE_ENDPOINT}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: { type: "auth_nonce_request", attributes: { address: signerAddress } } }),
-        });
+        const nonceRes = await authPost(
+          `${base}${NONCE_ENDPOINT}`,
+          { data: { type: "auth_nonce_request", attributes: { address: signerAddress } } },
+          "Nonce request",
+        );
         if (!nonceRes.ok) {
           return errorResult(`Nonce request failed (HTTP ${nonceRes.status}): ${await safeBody(nonceRes)}`);
         }
@@ -252,16 +307,22 @@ function registerAuthLoginComposite(
         if (!message) return errorResult(`Nonce response missing message field: ${JSON.stringify(nonceJson)}`);
 
         // Step 2 — sign (never exposes the key to the caller).
+        // Deliberately NOT under a deadline, unlike the two HTTP steps: on the
+        // WalletConnect path this blocks on a human tapping approve in a phone
+        // wallet, which routinely takes longer than any network ceiling. Timing
+        // that out would turn a working flow into a spurious failure; the WC
+        // session has its own expiry. Machine-paced calls get deadlines,
+        // human-paced ones do not.
         const signature = eoa ? await signer.signMessage(message) : await wc.signMessage(message);
 
         // Step 3 — login.
-        const loginRes = await fetch(`${base}${LOGIN_ENDPOINT}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const loginRes = await authPost(
+          `${base}${LOGIN_ENDPOINT}`,
+          {
             data: { type: "login_request", attributes: { auth_pair: { address: signerAddress, signed_message: signature } } },
-          }),
-        });
+          },
+          "Login request",
+        );
         if (!loginRes.ok) {
           return errorResult(`Login failed (HTTP ${loginRes.status}): ${await safeBody(loginRes)}`);
         }
@@ -285,7 +346,7 @@ function registerAuthLoginComposite(
             "(dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry.",
         });
       } catch (err) {
-        return errorResult(`Auth login failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(`Auth login failed: ${safeErrorMessage(err)}`);
       }
     },
   );

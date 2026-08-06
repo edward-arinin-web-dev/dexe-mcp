@@ -7,6 +7,7 @@ import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { buildChainIdParam } from "../lib/params.js";
 import { settingsAdvisories } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 3b named wrappers. Every wrapper returns the same scaffold shape as
@@ -227,7 +228,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
           advisories,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -290,7 +291,7 @@ function registerManageValidators(server: McpServer): void {
           detail: `Target: GovValidators(${govValidators}).changeBalances\nCalldata: ${data.slice(0, 66)}…`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -350,7 +351,7 @@ function registerAddExpert(server: McpServer): void {
           detail: `Target: ExpertNft(${expertNftContract}).mint\nCalldata: ${data.slice(0, 66)}…`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -404,7 +405,7 @@ function registerRemoveExpert(server: McpServer): void {
           detail: `Target: ExpertNft(${expertNftContract}).burn\nCalldata: ${data.slice(0, 66)}…`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -516,7 +517,7 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
             (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -578,7 +579,7 @@ function registerDelegateToExpert(server: McpServer): void {
           detail: `Target: GovPool(${govPool}).delegateTreasury\nCalldata: ${data.slice(0, 66)}…`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -638,7 +639,7 @@ function registerRevokeFromExpert(server: McpServer): void {
           detail: `Target: GovPool(${govPool}).undelegateTreasury\nCalldata: ${data.slice(0, 66)}…`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );

@@ -10,6 +10,8 @@ import { registerDocResources } from "./resources.js";
 import { homedir } from "node:os";
 import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadReport } from "./env/loader.js";
 import { envKeys } from "./env/schema.js";
+import { debugHint, debugLog, formatDiagnostic } from "./runtime.js";
+import { safeErrorMessage } from "./lib/redact.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -127,6 +129,136 @@ async function runSubcommand(name: "doctor" | "init" | "skills"): Promise<void> 
   process.exit(0);
 }
 
+/* ─────────────────────── runtime crash safety (0.30.4) ───────────────────── */
+
+/**
+ * Is this failure one we cannot serve through?
+ *
+ * The stdio pipe being gone is the whole list. Once stdout is closed there is
+ * no channel left to explain anything over, and every subsequent write throws
+ * the same error — staying up would just spin. Everything else keeps the
+ * server alive: the request that triggered it has already failed on its own,
+ * and the next call is far more likely to succeed than a dead server is.
+ */
+export function isTransportGoneError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  return code === "EPIPE" || code === "ERR_STREAM_DESTROYED";
+}
+
+/**
+ * The stderr block emitted for a process-level failure.
+ *
+ * An MCP host renders a dead server as "server disconnected" with no reason
+ * attached — the user loses the tools AND the explanation. So we say what
+ * happened, whether we survived it, and where to get more detail. The
+ * diagnostic is redacted: `formatDiagnostic()` strips credentialed RPC URLs,
+ * which ethers appends verbatim to error messages on any non-2xx response.
+ */
+export function formatCrashReport(kind: string, err: unknown, fatal: boolean): string {
+  const verdict = fatal
+    ? "the stdio channel is gone, so the server is shutting down"
+    : "the server is STILL RUNNING — the call that triggered this already failed, so retry it";
+  return (
+    `[dexe-mcp] ${kind} — ${verdict}.\n` +
+    `${formatDiagnostic(err)}\n` +
+    debugHint()
+  );
+}
+
+/** Minimal shape of the emitter the guards attach to — `process`, or a fake in tests. */
+type GuardEmitter = { on(event: string, listener: (...args: never[]) => void): unknown };
+
+/** Guards are process-global; installing twice would double every report. */
+let processGuardsInstalled = false;
+
+/**
+ * Keep the server alive through the failures that used to kill it silently.
+ *
+ * Node exits on an unhandled rejection (>= 15) and on an uncaught exception,
+ * and neither prints anything the MCP host relays — the user just sees the
+ * server vanish. This is the same silent-death class 0.30.1 removed from the
+ * startup path; these handlers remove it from the *running* path.
+ *
+ * Deliberately install-once and only on the long-lived server path: the
+ * `doctor`/`init` subcommands must keep Node's default "print and exit
+ * non-zero" behaviour, or a broken CLI run would hang instead of failing.
+ *
+ * Every dependency is injectable so tests can drive the handlers without
+ * touching the real process.
+ */
+export function installProcessGuards(
+  opts: {
+    emitter?: GuardEmitter;
+    write?: (line: string) => void;
+    exit?: (code: number) => void;
+  } = {},
+): void {
+  const usingRealProcess = !opts.emitter;
+  if (usingRealProcess) {
+    if (processGuardsInstalled) return;
+    processGuardsInstalled = true;
+  }
+  const emitter = opts.emitter ?? (process as unknown as GuardEmitter);
+  const write = opts.write ?? ((line: string) => void process.stderr.write(line));
+  const exit = opts.exit ?? ((code: number) => process.exit(code));
+
+  emitter.on("unhandledRejection", ((reason: unknown) => {
+    // Always survivable: a rejected promise cannot have corrupted the
+    // interpreter, and whatever awaited it has already surfaced its own error.
+    write(formatCrashReport("unhandled promise rejection", reason, false));
+  }) as (...args: never[]) => void);
+
+  emitter.on("uncaughtException", ((err: unknown) => {
+    const fatal = isTransportGoneError(err);
+    write(formatCrashReport("uncaught exception", err, fatal));
+    // Exit 0, not 1: a closed pipe means the host went away, which is a normal
+    // end of session, not a dexe-mcp failure worth flagging in the host's UI.
+    if (fatal) exit(0);
+  }) as (...args: never[]) => void);
+
+  // Node's own warnings (deprecations, MaxListenersExceeded, unsettled
+  // promises) are invisible in most hosts. Surface them only under DEXE_DEBUG,
+  // where the user has already asked for noise.
+  emitter.on("warning", ((warning: unknown) => {
+    debugLog("node-warning", "node emitted a process warning", warning);
+  }) as (...args: never[]) => void);
+}
+
+/**
+ * Wire the transport's out-of-band callbacks.
+ *
+ * The SDK reports transport-level trouble through `onerror`/`onclose` and does
+ * nothing with them when they are unset: a malformed frame was swallowed, and
+ * a host that closed stdin left this process running with nobody on the other
+ * end — a stray WalletConnect socket or pending timer is enough to keep the
+ * event loop alive forever, which is how orphaned `node` processes pile up.
+ *
+ * Safe to call before `server.connect()`: `Protocol.connect()` captures the
+ * handlers already on the transport and chains its own behind them, so ours
+ * run first and the SDK's still run.
+ */
+export function installTransportGuards(
+  transport: { onerror?: (error: Error) => void; onclose?: () => void },
+  opts: { write?: (line: string) => void; exit?: (code: number) => void } = {},
+): void {
+  const write = opts.write ?? ((line: string) => void process.stderr.write(line));
+  const exit = opts.exit ?? ((code: number) => process.exit(code));
+
+  transport.onerror = (err: Error) => {
+    // Non-fatal by the SDK's own contract ("errors are not necessarily
+    // fatal") — one bad frame must not cost the user their session.
+    write(`[dexe-mcp] transport error (session continues):\n${formatDiagnostic(err)}\n${debugHint()}`);
+  };
+
+  transport.onclose = () => {
+    write("[dexe-mcp] stdio transport closed by the host — shutting down.\n");
+    // Deferred one loop turn: the SDK's own onclose is chained behind this one
+    // and is what rejects the in-flight requests. Exiting inline would skip
+    // that cleanup and truncate the line above on a piped stderr.
+    setImmediate(() => exit(0));
+  };
+}
+
 /**
  * Diagnostic-only server, served when startup failed.
  *
@@ -181,7 +313,9 @@ export function createDegradedServer(err: unknown, envFiles: readonly string[] =
 async function startDegraded(err: unknown, envFiles: readonly string[]): Promise<void> {
   try {
     const server = createDegradedServer(err, envFiles);
-    await server.connect(new StdioServerTransport());
+    const transport = new StdioServerTransport();
+    installTransportGuards(transport);
+    await server.connect(transport);
     process.stderr.write(
       "[dexe-mcp] DEGRADED mode: startup failed, serving dexe_doctor only. " +
         "Call it (or run `npx dexe-mcp doctor`) for the cause and the fix.\n",
@@ -224,6 +358,7 @@ async function main(): Promise<void> {
   registerDocResources(server, resolve(__dirname, ".."));
 
   const transport = new StdioServerTransport();
+  installTransportGuards(transport);
   await server.connect(transport);
 
   // Log-only, not protocol. stdout is the MCP channel.
@@ -231,6 +366,15 @@ async function main(): Promise<void> {
     `[dexe-mcp] connected on stdio. DEXE_PROTOCOL_PATH=${config.protocolPath}${
       config.rpcUrl ? " (rpc enabled)" : ""
     }\n`,
+  );
+
+  // The startup facts a field report needs, behind DEXE_DEBUG so a normal
+  // session pays nothing. debugLog redacts, so the RPC URL is safe to name.
+  debugLog(
+    "startup",
+    `pid=${process.pid} node=${process.versions.node} version=${packageVersion()} ` +
+      `defaultChain=${config.defaultChainId} chains=[${[...config.chains.keys()].join(",")}] ` +
+      `rpc=${config.rpcUrl ?? "(none)"} statePath=${config.statePath}`,
   );
 }
 
@@ -247,8 +391,9 @@ async function bootstrap(): Promise<void> {
   } catch (err: unknown) {
     // Env loading is best-effort by contract; a broken file must never cost the
     // user their tools — process env alone may still be a working config.
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[dexe-mcp] warn: .env loading failed (${msg}) — using process env only\n`);
+    process.stderr.write(
+      `[dexe-mcp] warn: .env loading failed (${safeErrorMessage(err)}) — using process env only\n`,
+    );
   }
 
   const subcommand = process.argv[2];
@@ -258,11 +403,16 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
+  // From here on the process is long-lived, so a stray rejection anywhere in
+  // the tool surface must not take the session with it. Installed AFTER the
+  // subcommand dispatch on purpose — `doctor`/`init` keep Node's default
+  // die-loudly behaviour, otherwise a failing CLI run would hang.
+  installProcessGuards();
+
   try {
     await main();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.stack || err.message : String(err);
-    process.stderr.write(`[dexe-mcp] startup failed:\n${msg}\n`);
+    process.stderr.write(`[dexe-mcp] startup failed:\n${formatDiagnostic(err)}\n${debugHint()}`);
     await startDegraded(err, envCandidates);
   }
 }

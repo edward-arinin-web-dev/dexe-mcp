@@ -7,6 +7,8 @@ import { multicall, type Call } from "../lib/multicall.js";
 import { gqlRequest, resolveSubgraphUrl, subgraphChains } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 import { chainIdParam } from "../lib/params.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 /**
  * dexe_user_inbox — multi-DAO attention aggregator.
@@ -257,7 +259,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
           // The resolver's message is already the user-facing remediation; the
           // one thing it can't know is that this tool has a subgraph-free path.
           return err(
-            `${e instanceof Error ? e.message : String(e)}\n\n` +
+            `${safeErrorMessage(e)}\n\n` +
               `dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself — ` +
               `pass \`daos: ["0x…"]\`. Only auto-discovery needs the subgraph.`,
           );
@@ -272,7 +274,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
           resolvedDaos = data.voterInPools.map((v) => getAddress(v.pool.id));
         } catch (e) {
           return err(
-            `Subgraph DAO discovery failed on chain ${sg.chainId}: ${e instanceof Error ? e.message : String(e)}`,
+            toActionableError(e, `dexe_user_inbox DAO discovery on chain ${sg.chainId}`).message,
           );
         }
       }
@@ -406,7 +408,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
         } catch (e) {
           // Best-effort per DAO — skip on failure, but SAY so (a silently
           // dropped DAO reads as "nothing pending" — F6).
-          scanErrors.push({ dao, step: "scan", error: e instanceof Error ? e.message : String(e) });
+          scanErrors.push({ dao, step: "scan", error: safeErrorMessage(e) });
           continue;
         }
 

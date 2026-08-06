@@ -9,6 +9,7 @@ import { waitWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/errors.js";
 import { chainIdParam } from "../lib/params.js";
 import { parseAmount } from "../lib/units.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Agent-keyring tools (0.28.0, use-cases campaign Phase C).
@@ -222,7 +223,7 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
       try {
         amountWei = parseAmount(amount, decimals);
       } catch (e) {
-        return err(`Invalid amount: ${e instanceof Error ? e.message : String(e)}`);
+        return err(`Invalid amount: ${safeErrorMessage(e)}`);
       }
       const cap = fundCapWei();
       if (amountWei > cap) {

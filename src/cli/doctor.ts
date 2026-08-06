@@ -1,6 +1,7 @@
 import { loadConfig } from "../config.js";
 import { runAllChecks } from "../diag/checks.js";
 import { getEnvLoadState } from "../env/loader.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * CLI entrypoint: `npx dexe-mcp doctor`. Runs the same check suite as the
@@ -17,7 +18,7 @@ import { getEnvLoadState } from "../env/loader.js";
 export async function run(): Promise<void> {
   const config = await loadConfig().catch(err => {
     process.stderr.write(
-      `[dexe-mcp doctor] config load failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      `[dexe-mcp doctor] config load failed: ${safeErrorMessage(err)}\n`,
     );
     process.exit(2);
   });

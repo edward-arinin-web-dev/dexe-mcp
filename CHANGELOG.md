@@ -1,5 +1,85 @@
 # Changelog
 
+## 0.30.4 — 2026-08-06
+
+**Nothing hangs, and nothing leaks.** No outbound call in the server had a
+timeout, and the credential-redaction helper that exists for exactly one reason
+was being bypassed on the path it was written for. Tool count unchanged
+(**165 / 19 groups**). No emitted calldata changed.
+
+### Security
+- **The operator's RPC API key could reach the model context and the
+  transcript.** ethers v6 appends the full provider URL — key included — to
+  `err.message` on any non-2xx response (401/429/5xx are routine under load),
+  and it also rides in `err.stack` and `err.info.requestUrl`. `src/rpc.ts`
+  deliberately returned the *raw* error whenever a **private** RPC was
+  configured — precisely the case the redaction existed for, so it failed open
+  for exactly the users who followed this project's own advice to set a paid
+  endpoint. Every exit from the provider is now redacted, across `message`,
+  `stack` and `info.requestUrl`.
+- **~90 call sites echoed raw caught errors.** All replaced with
+  `safeErrorMessage` / `toActionableError`, and locked by a test that scans the
+  whole `src/` tree — this repo has no eslint config, so that test *is* the lint
+  rule. One documented exemption exists (`isTransportError` reads the message to
+  classify a failure; redacting it would drop the `429`/`timeout` token the
+  match depends on and silently reclassify a retryable error as permanent). The
+  exemption is a greppable in-code marker that must state a reason, not an
+  invisible allowlist.
+- Credentialed URLs are also scrubbed where they were printed *outside* an error
+  path: the IPFS per-gateway failure list, `dexe_ipfs_cid_info`'s gateway echo,
+  and the Safe endpoint the tool prints on dry-run. `fetch()` refuses a
+  credentialed URL by quoting the whole URL back in a `TypeError`, so those
+  strings genuinely carried keys.
+
+### Fixed
+- **Every outbound call now has a deadline**, verified against a real blackhole
+  socket rather than a mock: RPC (bounded, was effectively ~20 minutes), the
+  three subgraphs, Pinata (ping/pinJson/pinFile sized by payload), the DeXe
+  backend, Safe transaction service, Tally, and IPFS gateways. `dexe_auth_login`
+  had two fetches with no deadline at all and did not settle within 30s.
+- **RPC worst case tuned to 43.9s** (was 63.9s). Exceeding the common 60s MCP
+  client timeout made the failure *quieter*, not louder — the user saw the
+  client's generic timeout instead of the server's actionable message. The
+  budget is now a computed, asserted number rather than a comment.
+  `DEXE_RPC_TIMEOUT_MS` is the escape hatch.
+- **`redactErrorInPlace` was destroying revert information.** ethers declares
+  `shortMessage` as `writable: false, configurable: false`, so assigning to it
+  throws in strict-mode ESM; a shared `try` swallowed that and sent every real
+  error down a copy path that dropped `data` — the field identifying a
+  **custom-error revert** (the DeXe/SphereX norm) and the one `simulate.ts`
+  reads to tell a revert from a transport failure. Every revert would have been
+  reclassified as a network error, defeating the B9 pre-broadcast guard. Fields
+  are now guarded independently, the copy path carries an explicit allowlist,
+  and when `shortMessage` holds a credential that cannot be scrubbed in place
+  the copy is returned so the key is never one property lookup away.
+- **The server survives an unhandled rejection.** There were no process-level
+  handlers, so any stray rejection killed it — rendered by an MCP host as
+  "server disconnected" with no reason, the runtime twin of the startup crash
+  0.30.1 removed. Proven on a live server: after an injected rejection *and* an
+  uncaught exception it still answered `listTools` and `dexe_get_config`. Only a
+  gone stdio pipe is treated as fatal, because there is no channel left to
+  explain anything over.
+- **`state.json` writes were silently dropped under concurrency** — measured at
+  20% with two writers and 44% with four, because the rename retry fired
+  immediately and colliding writers simply collided again. Now jittered
+  exponential backoff. Atomic publish was already correct (zero torn reads
+  across 507 polls) — only the retry policy was wrong.
+- A read-path catch reported a genuine RPC failure as *"token auto-discovery is
+  unavailable on this path (the backend covers mainnets only)"*, blaming a
+  benign structural reason for a transport error and sending the user after the
+  wrong thing.
+
+### Added
+- `DEXE_DEBUG=1` — verbose, **redacted**, stderr-only diagnostics (stdout is the
+  MCP protocol channel).
+- `DEXE_RPC_TIMEOUT_MS` — per-request RPC deadline, default 10000 ms.
+
+### Tests
+- 115 files / 1327 passing. Redaction is now tested against errors built with
+  ethers' own `makeError`: the previous test asserted `data` survived and passed
+  only because its mock used `Object.assign`, giving writable properties that
+  real ethers errors do not have.
+
 ## 0.30.3 — 2026-08-06
 
 **The default profile tells the truth.** Every defect here sat in a tool loaded

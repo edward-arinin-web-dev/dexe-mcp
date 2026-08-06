@@ -27,6 +27,8 @@ import { chainIdParam, signerKeyParam } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -352,7 +354,7 @@ export function registerOtcTools(
         });
         return { content: [...qrBlocks, ...merged.content] };
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeErrorMessage(e));
       }
     },
   );
@@ -590,7 +592,7 @@ export function registerOtcTools(
 
         return ok({ tokenSaleProposal, user: userAddr, tiers: summaries });
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(toActionableError(e, "dexe_otc_buyer_status").message);
       }
     },
   );
@@ -658,7 +660,7 @@ export function registerOtcTools(
       try {
         amountBn = parseAmount(input.amount, 18);
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeErrorMessage(e));
       }
       const native = isNativeSentinel(input.tokenToBuyWith);
       // Contract-canonical payment token: native buys MUST carry
@@ -723,7 +725,7 @@ export function registerOtcTools(
         try {
           rawNeeded = from18(amountBn, payDecimals);
         } catch (e) {
-          return err(e instanceof Error ? e.message : String(e));
+          return err(safeErrorMessage(e));
         }
 
         if (!input.dryRun && balance < rawNeeded) {
@@ -843,15 +845,22 @@ export function registerOtcTools(
       if ("error" in pr2) return errorResult(`${pr2.error}\n${pr2.remediation}`);
       const provider = pr2.ok;
 
-      const res = await multicall(provider, [
-        {
-          target: input.tokenSaleProposal,
-          iface: TOKEN_SALE_ABI,
-          method: "getUserViews",
-          args: [userAddr, tierIdBns, tierIdBns.map(() => [])],
-          allowFailure: true,
-        },
-      ]);
+      // Unguarded, an RPC stall/429 here escapes the handler as a raw ethers
+      // dump — which on a keyed endpoint carries the API key (W36).
+      let res;
+      try {
+        res = await multicall(provider, [
+          {
+            target: input.tokenSaleProposal,
+            iface: TOKEN_SALE_ABI,
+            method: "getUserViews",
+            args: [userAddr, tierIdBns, tierIdBns.map(() => [])],
+            allowFailure: true,
+          },
+        ]);
+      } catch (e) {
+        return err(toActionableError(e, "dexe_otc_buyer_claim_all getUserViews").message);
+      }
       if (!res[0]!.success) return err(`getUserViews failed: ${res[0]!.error}`);
 
       const userViews = res[0]!.value as unknown as unknown[];
@@ -921,7 +930,12 @@ export function registerOtcTools(
         });
       }
 
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
+      let result;
+      try {
+        result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
+      } catch (e) {
+        return err(toActionableError(e, "dexe_otc_buyer_claim_all broadcast").message);
+      }
       if (result.mode === "failed") {
         return flowFailureResult(result, { user: userAddr, tokenSaleProposal: input.tokenSaleProposal });
       }

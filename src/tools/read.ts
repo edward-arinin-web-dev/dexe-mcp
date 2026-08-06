@@ -9,6 +9,7 @@ import { renderUntrusted } from "../lib/sanitize.js";
 import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "./otc.js";
 import { DEFAULTS } from "../config.js";
 import { chainIdParam } from "../lib/params.js";
+import { toActionableError } from "../lib/errors.js";
 
 const GOV_POOL_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -164,7 +165,7 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(
-          `read_multicall failed: ${safeErrorMessage(err)}`,
+          toActionableError(err, "dexe_read_multicall").message,
         );
       }
     },
@@ -366,6 +367,11 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         // empty treasury (the RPC path can't enumerate arbitrary holdings).
         let discoveryNote = "";
         if (tokens.length === 0) {
+          // Why the gov-token discovery produced nothing. A throw and an empty
+          // result are DIFFERENT failures and the old code printed the same
+          // sentence for both — see the note below the try/catch.
+          let discoveryError: string | null = null;
+          let discoveryReason = "";
           try {
             const helperIface = new Interface([
               "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -374,29 +380,51 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
             const [helpersR] = await multicall(provider, [
               { target: holder, iface: helperIface, method: "getHelperContracts", args: [], allowFailure: true },
             ]);
-            if (helpersR?.success) {
+            if (!helpersR?.success) {
+              discoveryReason =
+                `${holder} is not a DeXe GovPool (getHelperContracts reverted), so it has no gov token to discover`;
+            } else {
               const userKeeper = (helpersR.value as unknown as { userKeeper: string }).userKeeper;
               const [tokenR] = await multicall(provider, [
                 { target: userKeeper, iface: keeperIface, method: "tokenAddress", args: [], allowFailure: true },
               ]);
-              if (tokenR?.success) {
+              if (!tokenR?.success) {
+                discoveryReason = `this DAO's UserKeeper (${userKeeper}) did not answer tokenAddress()`;
+              } else {
                 const govToken = tokenR.value as string;
-                if (isAddress(govToken) && govToken !== "0x0000000000000000000000000000000000000000") {
+                if (isAddress(govToken) && govToken !== ZeroAddress) {
                   tokens = [govToken];
                   discoveryNote =
                     "\n  note: token auto-discovery is unavailable on this path — showing the DAO's own gov token only. " +
                     "Pass `tokens` explicitly to read other holdings.";
+                } else {
+                  discoveryReason =
+                    "this DAO's UserKeeper reports no ERC20 gov token (tokenAddress() is the zero address) — " +
+                    "it is NFT-governed or not initialized";
                 }
               }
             }
-          } catch {
-            /* holder isn't a GovPool or reads failed — fall through */
+          } catch (err) {
+            // A throw here is a TRANSPORT failure, never "not a GovPool": both
+            // discovery calls use allowFailure, so a non-GovPool address comes
+            // back as `success: false` and cannot reach this branch. Swallowing
+            // it and then printing the structural note blamed the backend's
+            // mainnet-only scope for what was actually a dead RPC — the exact
+            // misattribution shape 0.30.2 was burned by. Keep the reason.
+            discoveryError = safeErrorMessage(err);
           }
           if (tokens.length === 0) {
-            discoveryNote =
+            const scopeNote =
               `\n  note: token auto-discovery is unavailable on this path (${
                 backendError != null ? "the backend fetch failed" : "the backend covers mainnets only"
               }) — pass \`tokens\` (ERC20 addresses) explicitly to read balances.`;
+            discoveryNote =
+              (discoveryError != null
+                ? `\n  DISCOVERY FAILED: the gov-token discovery read failed — ${discoveryError}. ` +
+                  `That is a transport error (RPC/Multicall3 unreachable), NOT evidence that ${holder} is not a ` +
+                  `GovPool — a non-GovPool address returns a failed call, it does not throw. Re-run once the RPC ` +
+                  `responds, or pass \`tokens\` explicitly.`
+                : `\n  discovery: ${discoveryReason || "no gov token was found"}.`) + scopeNote;
           }
         }
         const calls: Call[] = [];
@@ -443,7 +471,7 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(
-          `read_treasury failed: ${safeErrorMessage(err)}`,
+          toActionableError(err, "dexe_read_treasury").message,
         );
       }
     },
@@ -528,7 +556,7 @@ function registerTokenHolders(server: McpServer, rpc: RpcProvider): void {
           (holders.length > 20 ? `\n  … +${holders.length - 20} more` : "");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
-        return errorResult(`read_token_holders failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_token_holders").message);
       }
     },
   );
@@ -600,7 +628,7 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
             : "  (no data — DAO may have no tracked activity in this window; freshly created DAOs take a while to appear in the tracker)");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
-        return errorResult(`read_dao_stats failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_dao_stats").message);
       }
     },
   );
@@ -665,6 +693,11 @@ function registerProtocolStats(server: McpServer): void {
         const { tvl_dots: _omit, ...summary } = attrs;
 
         let top: Array<Record<string, unknown>> = [];
+        // A chain the tracker doesn't index shouldn't sink the whole call — but
+        // swallowing the reason makes a failed leaderboard fetch look like "this
+        // chain has no DAOs", which an agent will report as fact. Name the
+        // chains that failed instead.
+        const topErrors: string[] = [];
         if (topDaos > 0) {
           const perChain = await Promise.all(
             chainIds.map(async (cid) => {
@@ -673,8 +706,9 @@ function registerProtocolStats(server: McpServer): void {
                   `/integrations/tracker/${cid}/pools/gov/top`,
                 );
                 return (t.data ?? []).map((d) => d.attributes ?? {});
-              } catch {
-                return []; // a chain the tracker doesn't index shouldn't sink the whole call
+              } catch (e) {
+                topErrors.push(`chain ${cid}: ${safeErrorMessage(e)}`);
+                return [];
               }
             }),
           );
@@ -711,10 +745,14 @@ function registerProtocolStats(server: McpServer): void {
                 .slice(0, 5)
                 .map((t) => `${t.name} ($${String(t.tvlUsd).split(".")[0]})`)
                 .join(", ")}${top.length > 5 ? ` … +${top.length - 5}` : ""}`
+            : "") +
+          (topErrors.length
+            ? `\n  ⚠️ the top-DAO leaderboard is INCOMPLETE — ${topErrors.length} of ${chainIds.length} chain(s) failed: ` +
+              `${topErrors.join("; ")}. Do not read the list above as the full set; re-run to retry.`
             : "");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
-        return errorResult(`read_protocol_stats failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_protocol_stats").message);
       }
     },
   );
@@ -772,7 +810,7 @@ function registerNftsByWallet(server: McpServer, rpc: RpcProvider): void {
           (nfts.length > 20 ? `\n  … +${nfts.length - 20} more` : "");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
-        return errorResult(`read_nfts failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_nfts").message);
       }
     },
   );
@@ -866,7 +904,7 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(
-          `read_validators failed: ${safeErrorMessage(err)}`,
+          toActionableError(err, "dexe_read_validators").message,
         );
       }
     },
@@ -976,7 +1014,7 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(
-          `read_settings failed: ${safeErrorMessage(err)}`,
+          toActionableError(err, "dexe_read_settings").message,
         );
       }
     },
@@ -1039,7 +1077,7 @@ function registerExpertStatus(server: McpServer, rpc: RpcProvider): void {
         };
       } catch (err) {
         return errorResult(
-          `read_expert_status failed: ${safeErrorMessage(err)}`,
+          toActionableError(err, "dexe_read_expert_status").message,
         );
       }
     },
@@ -1089,7 +1127,7 @@ function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_token_sale_tiers failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_token_sale_tiers").message);
       }
     },
   );
@@ -1133,7 +1171,7 @@ function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_token_sale_user failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_token_sale_user").message);
       }
     },
   );
@@ -1184,7 +1222,7 @@ function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_distribution_status failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_distribution_status").message);
       }
     },
   );
@@ -1297,7 +1335,7 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_staking_info failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_staking_info").message);
       }
     },
   );
@@ -1343,7 +1381,7 @@ function registerPrivacyPolicyStatus(server: McpServer, rpc: RpcProvider): void 
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(`read_privacy_policy_status failed: ${safeErrorMessage(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_privacy_policy_status").message);
       }
     },
   );

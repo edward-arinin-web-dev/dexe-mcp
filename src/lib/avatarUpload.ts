@@ -12,6 +12,7 @@
 import { readFile } from "node:fs/promises";
 import { assertRasterAvatar, type RasterFormat } from "./imageSniff.js";
 import { toCidV1, type PinataClient } from "./ipfs.js";
+import { safeErrorMessage } from "./redact.js";
 
 /** Avatars render at ≤512px on app.dexe.io — 10 MB is already generous. */
 export const MAX_AVATAR_BYTES = 10 * 1024 * 1024;
@@ -53,7 +54,7 @@ export async function readAvatarInput({ filePath, base64 }: AvatarInput): Promis
       buf = await readFile(filePath);
     } catch (e) {
       throw new Error(
-        `Cannot read avatar file at "${filePath}": ${e instanceof Error ? e.message : String(e)}. ` +
+        `Cannot read avatar file at "${filePath}": ${safeErrorMessage(e)}. ` +
           "Pass an absolute path to an existing image file (JPEG/PNG/WebP/GIF).",
       );
     }
