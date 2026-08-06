@@ -24,6 +24,7 @@ function shipped(path: string): boolean {
 const CRITICAL = [
   "docs/PLAYBOOK.md",
   "docs/TOOLS.md",
+  "docs/GRAPH.md",
   "docs/USE_CASES.md",
   "README.md",
   "CHANGELOG.md",

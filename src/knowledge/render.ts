@@ -1,5 +1,6 @@
-import type { Flow, Gotcha } from "./types.js";
+import type { Flow, Gotcha, Topic } from "./types.js";
 import { FLOWS } from "./flows.js";
+import { TOPICS } from "./topics.js";
 import { GOTCHAS } from "./gotchas.js";
 import { KNOWN_FAILURES } from "../lib/errors.js";
 
@@ -46,6 +47,34 @@ function renderFlow(f: Flow): string {
 /** The `flows` generated region: every flow as a compact recipe. */
 export function renderFlowsSection(): string {
   return FLOWS.map(renderFlow).join("\n\n");
+}
+
+function renderTopic(t: Topic): string {
+  const rank = { danger: 0, warn: 1, info: 2 } as const;
+  const gotchas = GOTCHAS.filter((g) => (t.gotchaIds ?? []).includes(g.id)).sort(
+    (a, b) => rank[a.severity] - rank[b.severity],
+  );
+  const lines: string[] = [];
+  lines.push(`### ${t.title} (\`${t.id}\`)`);
+  lines.push("");
+  lines.push(t.summary);
+  for (const s of t.sections) {
+    lines.push("");
+    lines.push(`#### ${s.heading}`);
+    lines.push("");
+    lines.push(s.text);
+  }
+  if (gotchas.length) {
+    lines.push("");
+    lines.push("**Pitfalls (danger first):**");
+    for (const g of gotchas) lines.push(`- ${SEVERITY_MARK[g.severity]} ${g.text}`);
+  }
+  return lines.join("\n");
+}
+
+/** The `topics` generated region: reference topics (non-journey knowledge). */
+export function renderTopicsSection(): string {
+  return TOPICS.map(renderTopic).join("\n\n");
 }
 
 /** The `gotchas` generated region: the full rule corpus, danger-first. */

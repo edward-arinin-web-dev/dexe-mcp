@@ -1,0 +1,55 @@
+{
+  "id": "S60-graph-query-live",
+  "title": "Free-form dexe_graph_query against all three subgraphs (live mainnet)",
+  "priority": 4,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56],
+  "requiresBrowser": false,
+  "notes": "First live e2e for free-form dexe_graph_query (the unit test in tests/tools/graph-query.test.ts only covers the read-only guard). Read-only, zero gas. One bounded query per subgraph; step 1 also exercises GraphQL variables. Depends on The Graph gateway — a transient gateway failure is re-runnable.",
+  "agents": [
+    { "alias": "R", "role": "Voter", "wallet": "AGENT_PK_2" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "R",
+      "tool": "dexe_graph_query",
+      "args": {
+        "subgraph": "pools",
+        "query": "query Top($n: Int!) { daoPools(first: $n, orderBy: votersCount, orderDirection: desc) { id name votersCount proposalCount } }",
+        "variables": { "n": 5 }
+      },
+      "broadcast": false,
+      "captureAs": "pools"
+    },
+    {
+      "step": 2,
+      "agent": "R",
+      "tool": "dexe_graph_query",
+      "args": {
+        "subgraph": "interactions",
+        "query": "{ transactions(first: 5, orderBy: timestamp, orderDirection: desc) { id type user timestamp } }"
+      },
+      "broadcast": false,
+      "captureAs": "interactions"
+    },
+    {
+      "step": 3,
+      "agent": "R",
+      "tool": "dexe_graph_query",
+      "args": {
+        "subgraph": "validators",
+        "query": "{ validatorInPools(first: 5, orderBy: balance, orderDirection: desc) { id validatorAddress balance } }"
+      },
+      "broadcast": false,
+      "captureAs": "validators"
+    }
+  ],
+  "successCriteria": [
+    { "id": "pools-nonempty", "check": "pools.data.daoPools is a non-empty array; every row has id and name; votersCount is non-increasing across rows" },
+    { "id": "interactions-nonempty", "check": "interactions.data.transactions is a non-empty array; timestamps are descending" },
+    { "id": "validators-shape", "check": "validators.data.validatorInPools is an array; rows (if any) have validatorAddress and balance" },
+    { "id": "no-errors", "check": "no step returned isError; every capture has {subgraph, data}" }
+  ]
+}

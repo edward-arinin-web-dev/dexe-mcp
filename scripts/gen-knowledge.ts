@@ -16,6 +16,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   renderFlowsSection,
+  renderTopicsSection,
   renderGotchasSection,
   renderErrorTable,
   renderSkillRecipe,
@@ -29,6 +30,7 @@ const TARGETS: Array<{ file: string; regions: Record<string, () => string> }> = 
     file: "docs/PLAYBOOK.md",
     regions: {
       flows: renderFlowsSection,
+      topics: renderTopicsSection,
       gotchas: renderGotchasSection,
       "error-slugs": renderErrorTable,
     },

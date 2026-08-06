@@ -273,19 +273,24 @@ export interface ResolvedToolsets {
 }
 
 /**
- * Resolve the requested profiles into a concrete allowlist. An explicit `full`
- * OR any unknown set name → `full` (register everything) so a typo never
- * silently strips the toolset. Pure — no side effects.
+ * Resolve the requested profiles into a concrete allowlist. Only an explicit
+ * `full` bypasses filtering. Unknown set names are DROPPED (loudly, by the
+ * caller) and the recognized ones still apply — a typo in one entry must not
+ * dump the entire 165-tool surface (~50K tokens) plus the dev/write sets the
+ * user never asked for. When nothing recognizable remains, fall back to the
+ * defaults rather than registering nothing. Pure — no side effects.
  */
 export function resolveToolsets(requested: readonly string[]): ResolvedToolsets {
   const req = requested.length > 0 ? [...requested] : [...DEFAULT_TOOLSETS];
   const unknown = req.filter((s) => s !== "full" && !(s in TOOLSETS));
-  if (req.includes("full") || unknown.length > 0) {
+  if (req.includes("full")) {
     return { names: null, unknown, full: true, requested: req };
   }
+  const known = req.filter((s) => s in TOOLSETS);
+  const effective = known.length > 0 ? known : [...DEFAULT_TOOLSETS];
   const names = new Set<string>();
-  for (const s of req) for (const n of TOOLSETS[s]!) names.add(n);
-  return { names, unknown, full: false, requested: req };
+  for (const s of effective) for (const n of TOOLSETS[s]!) names.add(n);
+  return { names, unknown, full: false, requested: effective };
 }
 
 /**
@@ -298,7 +303,8 @@ export function applyToolGate(server: McpServer, config: DexeConfig): McpServer 
 
   if (resolved.unknown.length > 0) {
     process.stderr.write(
-      `[dexe-mcp] unknown DEXE_TOOLSETS: [${resolved.unknown.join(", ")}] — loading all tools (full). ` +
+      `[dexe-mcp] unknown DEXE_TOOLSETS: [${resolved.unknown.join(", ")}] — ignored. ` +
+        `Active: [${resolved.full ? "full" : resolved.requested.join(", ")}]. ` +
         `Valid sets: ${Object.keys(TOOLSETS).join(", ")}, full.\n`,
     );
   }

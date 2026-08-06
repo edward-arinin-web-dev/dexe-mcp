@@ -1,0 +1,35 @@
+{
+  "id": "S62-dao-discovery-subgraph",
+  "title": "DAO discovery + membership via subgraph: dao_list and dao_members",
+  "priority": 4,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [56],
+  "requiresBrowser": false,
+  "notes": "Read-only, zero gas. Covers the two subgraph tools no other scenario touches: dexe_read_dao_list (protocol-wide discovery) and dexe_read_dao_members (per-DAO membership). The allowlisted DAO must have at least one member (its own history in this suite guarantees that).",
+  "agents": [
+    { "alias": "R", "role": "Voter", "wallet": "AGENT_PK_4" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "R",
+      "tool": "dexe_read_dao_list",
+      "args": { "query": "", "offset": 0, "limit": 10 },
+      "broadcast": false,
+      "captureAs": "daoList"
+    },
+    {
+      "step": 2,
+      "agent": "R",
+      "tool": "dexe_read_dao_members",
+      "args": { "govPool": "{{dao}}", "offset": 0, "limit": 10 },
+      "broadcast": false,
+      "captureAs": "members"
+    }
+  ],
+  "successCriteria": [
+    { "id": "list-nonempty", "check": "daoList returned a non-empty DAO array; rows have id and name" },
+    { "id": "members-nonempty", "check": "members returned a non-empty member list for the allowlisted DAO" }
+  ]
+}

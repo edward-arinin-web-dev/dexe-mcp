@@ -42,16 +42,19 @@ await build({
   logLevel: "info",
 });
 
-// The server reads two files at runtime via fs, relative to its own dir
-// (__dirname/..). After bundling __dirname is dexe-plugin/server, so these must
+// The server reads these files at runtime via fs, relative to its own dir
+// (__dirname/..). After bundling __dirname is dexe-plugin/server, so they must
 // live at the plugin root:
-//   - package.json  → the version reported in the MCP handshake
-//   - docs/PLAYBOOK.md → backs the dexe://playbook resource
+//   - package.json → the version reported in the MCP handshake
+//   - docs/*.md    → back the dexe://playbook / dexe://graph-schema /
+//                    dexe://tools resources (src/resources.ts DOC_RESOURCES)
 writeFileSync(
   resolve(pluginDir, "package.json"),
   JSON.stringify({ name: "dexe-mcp-plugin", version: pkg.version, private: true }, null, 2) + "\n",
 );
 mkdirSync(resolve(pluginDir, "docs"), { recursive: true });
-copyFileSync(resolve(root, "docs/PLAYBOOK.md"), resolve(pluginDir, "docs/PLAYBOOK.md"));
+for (const doc of ["PLAYBOOK.md", "GRAPH.md", "TOOLS.md"]) {
+  copyFileSync(resolve(root, `docs/${doc}`), resolve(pluginDir, `docs/${doc}`));
+}
 
 console.log(`bundled dexe-plugin/server/index.mjs (v${pkg.version})`);

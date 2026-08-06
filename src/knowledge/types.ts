@@ -107,3 +107,28 @@ export interface Flow {
   /** Composition: this flow runs other flows in order (fetch each via dexe_guide). */
   subFlows?: string[];
 }
+
+/** One markdown-ish section of a reference topic. Text must be self-contained. */
+export interface TopicSection {
+  heading: string;
+  text: string;
+}
+
+/**
+ * A reference topic — knowledge that is NOT a step journey (no interview, no
+ * broadcast, no confirmation protocol): e.g. how to query the read surface.
+ * Served by `dexe_guide` next to the flows, matched via the same triggers.
+ */
+export interface Topic {
+  /** Stable snake_case id; shares the id namespace with flows (test-enforced disjoint). */
+  id: string;
+  title: string;
+  /** Lowercase keyword/phrase list for intent matching. */
+  triggers: string[];
+  /** One sentence for the index tier. */
+  summary: string;
+  sections: TopicSection[];
+  /** Tools this topic documents — must exist in the gate.ts toolset union (test-enforced). */
+  tools: string[];
+  gotchaIds?: string[];
+}

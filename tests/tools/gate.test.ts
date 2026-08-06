@@ -35,10 +35,20 @@ describe("resolveToolsets", () => {
     expect(r.full).toBe(true);
     expect(r.names).toBeNull();
   });
-  it("unknown set name falls back to full (never silently strips)", () => {
+  it("drops an unknown set name but keeps the recognized ones", () => {
     const r = resolveToolsets(["core", "typo"]);
-    expect(r.full).toBe(true);
+    expect(r.full).toBe(false);
     expect(r.unknown).toContain("typo");
+    expect(r.requested).toEqual(["core"]);
+    expect(r.names!.has("dexe_dao_create")).toBe(true); // core survived
+    expect(r.names!.has("dexe_compile")).toBe(false); // did NOT escalate to full
+  });
+  it("falls back to the defaults when every requested set is unknown", () => {
+    const r = resolveToolsets(["devtools"]);
+    expect(r.full).toBe(false);
+    expect(r.unknown).toEqual(["devtools"]);
+    expect(r.requested).toEqual([...DEFAULT_TOOLSETS]);
+    expect(r.names!.has("dexe_compile")).toBe(false);
   });
   it("unions the requested sets", () => {
     const r = resolveToolsets(["core", "vote"]);

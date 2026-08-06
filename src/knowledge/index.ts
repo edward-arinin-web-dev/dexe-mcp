@@ -1,5 +1,6 @@
-import type { Flow, Gotcha, ParamSpec } from "./types.js";
+import type { Flow, Gotcha, ParamSpec, Topic, TopicSection } from "./types.js";
 import { FLOWS, FLOW_BY_ID } from "./flows.js";
+import { TOPICS, TOPIC_BY_ID } from "./topics.js";
 import { GOTCHAS, GOTCHA_BY_ID } from "./gotchas.js";
 import { TOOLSETS } from "../tools/gate.js";
 
@@ -19,6 +20,18 @@ export interface FlowIndexEntry {
 /** The compact index tier (~300 tokens serialized). */
 export function flowIndex(): FlowIndexEntry[] {
   return FLOWS.map((f) => ({ flow: f.id, title: f.title, summary: f.summary, triggers: f.triggers }));
+}
+
+export interface TopicIndexEntry {
+  topic: string;
+  title: string;
+  summary: string;
+  triggers: string[];
+}
+
+/** Reference topics for the index tier — fetched the same way as flows. */
+export function topicIndex(): TopicIndexEntry[] {
+  return TOPICS.map((t) => ({ topic: t.id, title: t.title, summary: t.summary, triggers: t.triggers }));
 }
 
 export interface ResolvedGotcha {
@@ -137,7 +150,40 @@ export function flowDetail(id: string, opts?: { chainId?: number }): FlowDetail 
   };
 }
 
+/** The detail tier for one reference topic (~1-2k tokens serialized). */
+export interface TopicToolRef {
+  tool: string;
+  /** Toolset(s) that expose the tool, when it is NOT in the default profile. */
+  requiresToolset?: string;
+}
+
+export interface TopicDetail {
+  topic: string;
+  title: string;
+  summary: string;
+  sections: TopicSection[];
+  tools: TopicToolRef[];
+  gotchas: ResolvedGotcha[];
+}
+
+export function topicDetail(id: string, opts?: { chainId?: number }): TopicDetail | null {
+  const t = TOPIC_BY_ID.get(id);
+  if (!t) return null;
+  return {
+    topic: t.id,
+    title: t.title,
+    summary: t.summary,
+    sections: [...t.sections],
+    tools: t.tools.map((tool) => ({
+      tool,
+      ...(requiresToolset(tool) ? { requiresToolset: requiresToolset(tool) } : {}),
+    })),
+    gotchas: resolveGotchas(t.gotchaIds, opts?.chainId),
+  };
+}
+
 export interface IntentMatch {
+  /** Flow OR topic id — the two share one id namespace (test-enforced disjoint). */
   flow: string;
   score: number;
 }
@@ -145,11 +191,13 @@ export interface IntentMatch {
 /**
  * Deliberately dumb keyword scoring over `triggers` — the calling model does
  * the semantic matching once it sees the index; a wrong confident match would
- * be worse than a visible menu. Returns matches sorted by score desc.
+ * be worse than a visible menu. Scores flows and reference topics in one
+ * pass (shared id namespace). Returns matches sorted by score desc.
  */
 export function matchIntent(text: string): IntentMatch[] {
   const t = text.toLowerCase();
-  const scored = FLOWS.map((f) => {
+  const candidates: Array<Pick<Flow | Topic, "id" | "triggers">> = [...FLOWS, ...TOPICS];
+  const scored = candidates.map((f) => {
     let score = 0;
     for (const trigger of f.triggers) {
       if (t.includes(trigger)) score += trigger.split(/\s+/).length + 1; // longer phrases weigh more
@@ -180,4 +228,4 @@ export function bestMatch(text: string): string | null {
   return m[0]!.score >= m[1]!.score * 2 ? m[0]!.flow : null;
 }
 
-export { FLOWS, FLOW_BY_ID, GOTCHAS, GOTCHA_BY_ID };
+export { FLOWS, FLOW_BY_ID, TOPICS, TOPIC_BY_ID, GOTCHAS, GOTCHA_BY_ID };

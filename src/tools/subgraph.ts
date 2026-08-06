@@ -266,10 +266,13 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
         "'pools' (DaoPool, Proposal, Voter, VoterInPool, VoterInPoolPair, ProposalInteraction, TokenSaleTier, ExpertNft, DelegationHistory, …), " +
         "'interactions' (Transaction feed by type + per-event entities: DaoPoolCreate, DaoPoolDelegate, DaoPoolExecute, DaoPoolVest, DaoProposalCreate, …), " +
         "'validators' (ValidatorInPool, Proposal, ValidatorInProposal, …). " +
-        "Full entity/field reference: docs/GRAPH.md (also summarized by dexe_guide). " +
+        "Full entity/field reference: MCP resource dexe://graph-schema (docs/GRAPH.md in the package); " +
+        "usage rules + source-picking guidance: dexe_guide flow:'read_dao_data'. " +
         "ALWAYS bound results with `first:` (max 1000) and paginate with `skip:`; oversized responses are rejected. " +
         "Data covers BSC mainnet only (endpoints are env-bound: DEXE_SUBGRAPH_*_URL). " +
-        "Example — most active DAOs by recent proposals: subgraph='pools', query='{ proposals(first: 20, orderBy: creationTime, orderDirection: desc) { pool { id } creationTime } }'.",
+        "Example — most-voted proposals with their DAO: subgraph='pools', query='{ proposals(first: 20, orderBy: votersVoted, orderDirection: desc) { proposalId votersVoted currentVotesFor pool { id name } } }'. " +
+        "Proposal has NO `creationTime` — order by `votersVoted`/`quorumReachedTimestamp`/`executionTimestamp`, or use DaoPool.creationTime for DAOs. " +
+        "Schema unsure? Introspect: query='{ __type(name: \"Proposal\") { fields { name } } }'.",
       inputSchema: {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
         query: z.string().min(1).max(10_000).describe("GraphQL query document (read-only)"),

@@ -27,6 +27,11 @@ describe("intent matching", () => {
     expect(bestMatch("do something with my tokens")).toBeNull();
   });
 
+  it("data-read intents match the read_dao_data topic", () => {
+    expect(bestMatch("how do I query the subgraph for dao analytics")).toBe("read_dao_data");
+    expect(bestMatch("show me the token holders and protocol stats")).toBe("read_dao_data");
+  });
+
   it("matchIntent scores are sorted descending", () => {
     const m = matchIntent(CANONICAL_INTENT);
     for (let i = 1; i < m.length; i++) expect(m[i - 1]!.score).toBeGreaterThanOrEqual(m[i]!.score);
@@ -137,6 +142,25 @@ describe("dexe_guide (real server)", () => {
     expect(out.context.chainId).toBe(97);
     expect(out.context.chainIdSource).toBe("last-used");
     expect(out.context.knownDao.govPool).toBe("0x1111111111111111111111111111111111111111");
+  });
+
+  it("index tier lists the reference topics next to the flows", async () => {
+    const out = await callGuide({});
+    const ids = out.topics.map((t: any) => t.topic);
+    expect(ids).toContain("read_dao_data");
+  });
+
+  it("flow:read_dao_data → topic-detail with sections, gated tools, and the mainnet gotcha", async () => {
+    const out = await callGuide({ flow: "read_dao_data", chainId: 97 });
+    expect(out.mode).toBe("topic-detail");
+    expect(out.topic).toBe("read_dao_data");
+    expect(out.sections.length).toBeGreaterThanOrEqual(5);
+    expect(out.gotchas.some((g: any) => g.id === "subgraph-backend-mainnet-only")).toBe(true);
+    const graphQuery = out.tools.find((t: any) => t.tool === "dexe_graph_query");
+    expect(graphQuery.requiresToolset).toContain("read");
+    // Reference material must NOT carry the flow interview/broadcast framing.
+    expect(out.agentProtocol).toBeUndefined();
+    expect(out.interview).toBeUndefined();
   });
 
   it("mid-journey activeFlow surfaces with progress + next pointer (Phase B)", async () => {
