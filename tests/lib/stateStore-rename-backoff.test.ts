@@ -17,6 +17,19 @@ import { tmpdir } from "node:os";
  * polls: zero torn reads, zero zero-byte reads, no orphaned temps) — only the
  * retry policy was wrong. These tests pin the new policy: more attempts,
  * exponential, and jittered so two writers desynchronize.
+ *
+ * **How the policy is asserted (0.31.0).** These tests used to time the gaps
+ * between rename attempts with `Date.now()`. That measures the scheduler, not
+ * the backoff: under a loaded runner the first 5-10ms gap was observed at 93ms
+ * and the suite failed for reasons entirely outside this file. Widening the
+ * threshold would have deleted the assertion's meaning, so instead the retry
+ * loop now takes its randomness and its waiting as parameters
+ * (`RenameRetryHooks`) and the tests read back the schedule it computed. The
+ * delays are asserted directly — exact values under a pinned `rand`, window
+ * membership and growth under the real one — so a machine under load cannot
+ * change the outcome. Exactly one test still touches a clock, and only as a
+ * lower bound (see "the default sleep really blocks"), which load can only push
+ * further into passing.
  */
 
 /** Controls the mocked `renameSync` below. Hoisted so `vi.mock` can close over it. */
@@ -25,8 +38,6 @@ const ctl = vi.hoisted(() => ({
   /** How many leading calls throw before the real rename runs. */
   failures: 0,
   code: "EPERM" as string,
-  /** Wall-clock of every rename attempt, for measuring the gaps between them. */
-  stamps: [] as number[],
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -35,7 +46,6 @@ vi.mock("node:fs", async (importOriginal) => {
     ...actual,
     renameSync: (from: Parameters<typeof actual.renameSync>[0], to: Parameters<typeof actual.renameSync>[1]) => {
       ctl.calls += 1;
-      ctl.stamps.push(Date.now());
       if (ctl.calls <= ctl.failures) {
         const err = new Error(`${ctl.code}: simulated contention, rename '${String(from)}' -> '${String(to)}'`);
         (err as NodeJS.ErrnoException).code = ctl.code;
@@ -61,7 +71,6 @@ beforeEach(() => {
   ctl.calls = 0;
   ctl.failures = 0;
   ctl.code = "EPERM";
-  ctl.stamps = [];
 });
 
 afterEach(() => {
@@ -81,6 +90,19 @@ function probe(target: string): string {
   writeFileSync(tmp, "payload", "utf8");
   return tmp;
 }
+
+/**
+ * A `sleep` that records the schedule instead of spending it. The delays the
+ * loop computed are the policy; how long the OS actually parked the thread is
+ * the machine's business.
+ */
+function recordingSleep() {
+  const delays: number[] = [];
+  return { delays, sleep: (ms: number) => void delays.push(ms) };
+}
+
+/** Window for attempt N: [5·2^N, 10·2^N) ms. */
+const windowFor = (attempt: number) => ({ min: 5 * 2 ** attempt, max: 10 * 2 ** attempt });
 
 let daoSeq = 0;
 const dao = (name: string) => ({
@@ -141,42 +163,89 @@ describe("renameBackoffMs", () => {
   });
 });
 
-/* ──────────────────────────── the retry loop ─────────────────────────────── */
+/* ──────────────── the schedule the retry loop actually computes ──────────── */
 
-describe("renameWithRetry under simulated contention", () => {
-  it("survives more consecutive EPERMs than the old 3-attempt budget allowed", () => {
+describe("renameWithRetry backoff schedule", () => {
+  it("sleeps once per failed attempt, and not after the one that succeeds", () => {
     const p = tmpState();
     const tmp = probe(p);
-    ctl.failures = RENAME_ATTEMPTS - 1; // fails on every attempt but the last
+    ctl.failures = RENAME_ATTEMPTS - 1;
+    const rec = recordingSleep();
 
-    expect(() => renameWithRetry(tmp, p)).not.toThrow();
+    renameWithRetry(tmp, p, { sleep: rec.sleep });
+
     expect(ctl.calls).toBe(RENAME_ATTEMPTS);
+    expect(rec.delays).toHaveLength(RENAME_ATTEMPTS - 1);
     expect(readFileSync(p, "utf8")).toBe("payload");
   });
 
-  it("actually sleeps between attempts (the old policy retried with zero delay)", () => {
+  it("threads the jitter source through: rand()=0 is the floor of every window", () => {
     const p = tmpState();
     const tmp = probe(p);
-    ctl.failures = 3; // three sleeps: >=5ms, >=10ms, >=20ms
-    const t0 = Date.now();
-    renameWithRetry(tmp, p);
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(35);
+    ctl.failures = RENAME_ATTEMPTS - 1;
+    const rec = recordingSleep();
+
+    renameWithRetry(tmp, p, { rand: () => 0, sleep: rec.sleep });
+
+    // The whole 5-sleep budget, exactly. ~155ms floor / ~310ms ceiling per persist.
+    expect(rec.delays).toEqual([5, 10, 20, 40, 80]);
   });
 
-  it("the gaps grow — the last retry waits far longer than the first", () => {
+  it("never exceeds the ceiling, even on the slowest possible draw", () => {
     const p = tmpState();
     const tmp = probe(p);
-    ctl.failures = 5;
-    renameWithRetry(tmp, p);
+    ctl.failures = RENAME_ATTEMPTS - 1;
+    const rec = recordingSleep();
 
-    const gaps = ctl.stamps.slice(1).map((t, i) => t - ctl.stamps[i]!);
-    expect(gaps).toHaveLength(5);
-    // Windows timers are coarse (~15ms), so assert the shape with slack rather
-    // than exact per-step values: first gap is drawn from [5,10), last from
-    // [80,160).
-    expect(gaps[0]!).toBeLessThan(45);
-    expect(gaps.at(-1)!).toBeGreaterThanOrEqual(60);
-    expect(gaps.at(-1)!).toBeGreaterThan(gaps[0]!);
+    // `half + rand*half` with rand one ulp below 1 rounds to exactly `ceiling`
+    // in doubles, so the bound is inclusive here. That is the guarantee worth
+    // pinning: the delay is capped by the ceiling, never a step past it.
+    renameWithRetry(tmp, p, { rand: () => 1 - Number.EPSILON, sleep: rec.sleep });
+
+    rec.delays.forEach((d, attempt) => {
+      expect(d).toBeLessThanOrEqual(windowFor(attempt).max);
+    });
+    // A run that draws high everywhere is still bounded: ~310ms, the number
+    // RENAME_ATTEMPTS is documented against.
+    expect(rec.delays.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(310);
+  });
+
+  it("grows monotonically under the real Math.random, every attempt in its own window", () => {
+    const p = tmpState();
+    const tmp = probe(p);
+    ctl.failures = RENAME_ATTEMPTS - 1;
+    const rec = recordingSleep();
+
+    renameWithRetry(tmp, p, { sleep: rec.sleep });
+
+    rec.delays.forEach((d, attempt) => {
+      const { min, max } = windowFor(attempt);
+      expect(d).toBeGreaterThanOrEqual(min);
+      expect(d).toBeLessThan(max);
+    });
+    for (let i = 1; i < rec.delays.length; i++) {
+      expect(rec.delays[i]!).toBeGreaterThan(rec.delays[i - 1]!);
+    }
+    // The point of the exponential: the last retry waits an order of magnitude
+    // longer than the first, no matter how the draws land.
+    expect(rec.delays.at(-1)! / rec.delays[0]!).toBeGreaterThan(8);
+  });
+
+  it("draws a fresh schedule per run — two contended writers never re-collide on the same curve", () => {
+    const runOnce = () => {
+      const p = tmpState();
+      const tmp = probe(p);
+      ctl.calls = 0;
+      ctl.failures = RENAME_ATTEMPTS - 1;
+      const rec = recordingSleep();
+      renameWithRetry(tmp, p, { sleep: rec.sleep });
+      return rec.delays;
+    };
+    const a = runOnce();
+    const b = runOnce();
+    // Identical schedules would mean the jitter was drawn once (or not at all)
+    // — the failure mode that leaves two writers colliding step for step.
+    expect(a).not.toEqual(b);
   });
 
   it("jitters every retry — one Math.random draw per sleep, none reused", () => {
@@ -184,15 +253,46 @@ describe("renameWithRetry under simulated contention", () => {
     const tmp = probe(p);
     const spy = vi.spyOn(Math, "random");
     ctl.failures = 4;
-    renameWithRetry(tmp, p);
+    renameWithRetry(tmp, p, { sleep: recordingSleep().sleep });
     expect(spy).toHaveBeenCalledTimes(4); // one fresh draw per backoff
+  });
+
+  it("the default sleep really blocks — the retry loop cannot spin at full speed", () => {
+    // The ONLY clock assertion left, and deliberately a lower bound: a busy
+    // machine can only push elapsed time UP, so load cannot fail this. What it
+    // catches is the pre-0.30.4 policy coming back (zero delay → ~0ms elapsed).
+    // rand is pinned so the floor is exact — 5+10+20 = 35ms of real sleeping —
+    // and the threshold sits below it to absorb timer-resolution slop.
+    const p = tmpState();
+    const tmp = probe(p);
+    ctl.failures = 3;
+    const t0 = performance.now();
+    renameWithRetry(tmp, p, { rand: () => 0 });
+    expect(performance.now() - t0).toBeGreaterThanOrEqual(25);
+  });
+});
+
+/* ──────────────────────────── the retry loop ─────────────────────────────── */
+
+describe("renameWithRetry under simulated contention", () => {
+  /** No wall clock in this block: the delays are already pinned above. */
+  const noSleep = () => {};
+
+  it("survives more consecutive EPERMs than the old 3-attempt budget allowed", () => {
+    const p = tmpState();
+    const tmp = probe(p);
+    ctl.failures = RENAME_ATTEMPTS - 1; // fails on every attempt but the last
+
+    expect(() => renameWithRetry(tmp, p, { sleep: noSleep })).not.toThrow();
+    expect(ctl.calls).toBe(RENAME_ATTEMPTS);
+    expect(readFileSync(p, "utf8")).toBe("payload");
   });
 
   it("gives up after the full budget and rethrows the real error", () => {
     const p = tmpState();
     const tmp = probe(p);
     ctl.failures = Number.MAX_SAFE_INTEGER;
-    expect(() => renameWithRetry(tmp, p)).toThrow(/EPERM/);
+    expect(() => renameWithRetry(tmp, p, { sleep: noSleep })).toThrow(/EPERM/);
     expect(ctl.calls).toBe(RENAME_ATTEMPTS);
   });
 
@@ -203,20 +303,22 @@ describe("renameWithRetry under simulated contention", () => {
       ctl.failures = 2;
       const p = tmpState();
       const tmp = probe(p);
-      expect(() => renameWithRetry(tmp, p)).not.toThrow();
+      expect(() => renameWithRetry(tmp, p, { sleep: noSleep })).not.toThrow();
       expect(ctl.calls).toBe(3);
     }
   });
 
-  it("does not burn the budget (or the wall clock) on a non-transient error", () => {
+  it("does not burn the budget — or a single backoff — on a non-transient error", () => {
     const p = tmpState();
     const tmp = probe(p);
     ctl.code = "ENOSPC";
     ctl.failures = Number.MAX_SAFE_INTEGER;
-    const t0 = Date.now();
-    expect(() => renameWithRetry(tmp, p)).toThrow(/ENOSPC/);
+    const rec = recordingSleep();
+    expect(() => renameWithRetry(tmp, p, { sleep: rec.sleep })).toThrow(/ENOSPC/);
     expect(ctl.calls).toBe(1);
-    expect(Date.now() - t0).toBeLessThan(30);
+    // A full disk is not contention; waiting on it only delays the error the
+    // caller has to report. (Asserted as "zero sleeps", not "fast wall clock".)
+    expect(rec.delays).toEqual([]);
   });
 });
 
@@ -261,4 +363,3 @@ describe("StateStore.persist under contention", () => {
     expect(onDisk.knownDaos.map((d) => d.name)).toEqual(["Cinder", "Boreal", "Aurora"]);
   });
 });
-

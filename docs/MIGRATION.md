@@ -6,6 +6,50 @@ something on your side.
 
 ---
 
+## 0.30.4 → 0.31.0 — the default profile changed; reports and subgraph reads now work with zero config
+
+Tool count **165 → 167 tools** across 19 groups: `dexe_dao_report` and
+`dexe_graph_schema`.
+
+### Breaking — the default `DEXE_TOOLSETS` profile is now `core` alone
+It was `core,proposals`. The ~30 single-purpose `dexe_proposal_build_*` tools
+moved out of the default, because `dexe_proposal_create` (still in `core`) takes
+`proposalType` + `params` and already covers every on-chain catalog type. They
+cost ~45 KB of `tools/list` to duplicate a capability the default already had.
+
+**If you call a `dexe_proposal_build_*` tool directly**, set
+`DEXE_TOOLSETS=core,proposals` and restart — that reproduces the pre-0.31
+surface exactly. Nothing was removed: every demoted tool is still documented in
+`docs/TOOLS.md` and loadable. `dexe_proposal_catalog` stays in `core`, so type
+discovery works without loading the builders.
+
+What you gain: the reporting reads (`dexe_dao_report`, `dexe_graph_query`,
+`dexe_read_dao_list` / `_dao_stats` / `_dao_members` / `_token_holders` /
+`_delegation_map`, `dexe_ipfs_fetch`, `dexe_graph_schema`) are now in the
+default profile. Before this release "reads work zero-config" was false for
+everything except plain on-chain calls — the subgraph and analytics tools were
+gated behind `DEXE_TOOLSETS=read` while the README and the shipped
+`dexe://graph-schema` resource advertised them. Net: the default `tools/list`
+**shrank from ~134 KB to ~84 KB** while gaining the whole reporting surface.
+
+### New
+- **`dexe_dao_report`** — one call returning identity, settings, treasury,
+  membership, delegation, experts, validators, proposals, turnout, activity and
+  deadlines. It replaces ~41 calls (13 tools plus one `dexe_proposal_voters` per
+  proposal). `since` reports only what CHANGED — new proposals, state moves,
+  member and delegation deltas — so a scheduled run is a digest, not a repeat.
+  Sections degrade independently: on a chain with no subgraph the on-chain
+  sections still render and the rest are named with the reason.
+  See `docs/REPORTING.md` for `/schedule` and `/loop` recipes.
+- **`dexe_graph_schema`** — live GraphQL introspection, the recovery path from
+  `Type 'X' has no field 'Y'`. It also maps entity names to their root query
+  fields, several of which are not derivable (`DaoPool` → `daoPools`,
+  `ProposalSettings` → `proposalSettings_collection`).
+- `dexe_graph_query` now accepts fragment-first documents, which the read-only
+  guard previously rejected as if they were mutations.
+
+---
+
 ## 0.30.3 → 0.30.4 — no action required; slow endpoints now fail fast instead of hanging
 
 Tool count unchanged (165 / 19 groups). No emitted calldata changed.

@@ -64,6 +64,12 @@ function resolveEndpoint(
  * The chain paragraph appended to each tool description, built at registration
  * from the endpoints this install actually has. A hardcoded "BSC mainnet only"
  * sentence goes stale the moment someone sets DEXE_SUBGRAPH_POOLS_URL_97.
+ *
+ * The on-chain alternatives are listed default-visible ones FIRST, and the
+ * gated ones carry `(needs DEXE_TOOLSETS=…)`. Three of the tools that append
+ * this note (dao_list / dao_members / delegation_map) are in the default
+ * profile, so an unqualified "read it on-chain with dexe_read_multicall" told a
+ * zero-config session to call a tool it does not have.
  */
 function chainNote(ctx: ToolContext, kind: SubgraphKind): string {
   const indexed = subgraphChains(ctx.config, kind);
@@ -74,7 +80,9 @@ function chainNote(ctx: ToolContext, kind: SubgraphKind): string {
     ` Chain-explicit: pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); ` +
     `the response reports \`indexedChainId\` = the chain the rows came from. A chain with no endpoint ` +
     `returns an error naming ${subgraphEnvVar(kind)}_<chainId> plus the on-chain alternatives ` +
-    `(dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall) — it never answers from another chain.`
+    `(dexe_proposal_list / dexe_read_settings / dexe_dao_info; also dexe_read_gov_state ` +
+    `(needs DEXE_TOOLSETS=core,dev) and dexe_read_multicall (needs DEXE_TOOLSETS=core,read)) — ` +
+    `it never answers from another chain.`
   );
 }
 
@@ -267,6 +275,7 @@ export function registerSubgraphTools(server: McpServer, ctx: ToolContext): void
   registerDaoExperts(server, ctx);
   registerOtcListSalesForDao(server, ctx);
   registerGraphQuery(server, ctx);
+  registerGraphSchema(server, ctx);
 }
 
 // ---------- dexe_graph_query ----------
@@ -280,9 +289,9 @@ function graphQueryChainNote(ctx: ToolContext): string {
     (k) => `${k}: ${subgraphChains(ctx.config, k).join("/") || "none"}`,
   ).join(", ");
   return (
-    `Chain-explicit: pass \`chainId\` (endpoints configured here — ${per}; default ${ctx.config.defaultChainId}); ` +
-    "the response reports `indexedChainId`. Asking for a chain that has no endpoint for the chosen subgraph " +
-    "returns an error naming DEXE_SUBGRAPH_<KIND>_URL_<chainId>, never another chain's rows. "
+    `Chain-explicit: pass \`chainId\` (endpoints here — ${per}; default ${ctx.config.defaultChainId}); ` +
+    "the response reports `indexedChainId`. A chain with no endpoint for the chosen subgraph errors " +
+    "(naming DEXE_SUBGRAPH_<KIND>_URL_<chainId>) instead of serving another chain's rows."
   );
 }
 
@@ -290,18 +299,102 @@ function graphQueryChainNote(ctx: ToolContext): string {
 const GRAPH_QUERY_MAX_RESPONSE_CHARS = 120_000;
 
 /**
- * Light read-only guard. The Graph gateway has no mutations, but reject the
- * keywords up front so a bad query fails with a clear message instead of a
- * gateway error.
+ * The operation keyword of every TOP-LEVEL definition in `doc`, in source
+ * order. The `{ … }` shorthand reports as `query`.
+ *
+ * A scanner rather than a regex because the thing being guarded is a whole
+ * document, not its first token. `fragment F on Proposal { … } query { …F }` is
+ * ordinary GraphQL that the pre-0.31.0 first-token test rejected outright, and
+ * a regex loose enough to admit it would also match the word `mutation`
+ * wherever it appeared — as a field name, inside a string, in a comment.
+ * Brace/paren/bracket depth is tracked so only genuine definition heads are
+ * read: variable definitions, arguments and nested selection sets are skipped.
+ */
+export function topLevelDefinitions(doc: string): string[] {
+  const out: string[] = [];
+  let brace = 0;
+  let paren = 0;
+  let bracket = 0;
+  // True while the scanner is positioned where a definition head may start.
+  let expectKeyword = true;
+  const topLevel = () => brace === 0 && paren === 0 && bracket === 0;
+
+  let i = 0;
+  while (i < doc.length) {
+    const c = doc[i]!;
+    if (c === "#") {
+      while (i < doc.length && doc[i] !== "\n") i++;
+      continue;
+    }
+    if (doc.startsWith('"""', i)) {
+      const end = doc.indexOf('"""', i + 3);
+      i = end === -1 ? doc.length : end + 3;
+      continue;
+    }
+    if (c === '"') {
+      i++;
+      while (i < doc.length && doc[i] !== '"') i += doc[i] === "\\" ? 2 : 1;
+      i++;
+      continue;
+    }
+    if (c === "(") { paren++; i++; continue; }
+    if (c === ")") { paren = Math.max(0, paren - 1); i++; continue; }
+    if (c === "[") { bracket++; i++; continue; }
+    if (c === "]") { bracket = Math.max(0, bracket - 1); i++; continue; }
+    if (c === "{") {
+      if (topLevel() && expectKeyword) {
+        out.push("query"); // anonymous shorthand
+        expectKeyword = false;
+      }
+      brace++;
+      i++;
+      continue;
+    }
+    if (c === "}") {
+      brace = Math.max(0, brace - 1);
+      // Only a brace that closes at the true top level ends a definition — a
+      // `{…}` default value inside a variable definition does not.
+      if (topLevel()) expectKeyword = true;
+      i++;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      let j = i;
+      while (j < doc.length && /[A-Za-z0-9_]/.test(doc[j]!)) j++;
+      if (topLevel() && expectKeyword) {
+        out.push(doc.slice(i, j).toLowerCase());
+        expectKeyword = false;
+      }
+      i = j;
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Read-only guard. The Graph gateway has no mutations, but rejecting the write
+ * keywords here fails a bad document with a clear message instead of a gateway
+ * error — and, since 0.31.0, WITHOUT rejecting fragment-first documents, which
+ * are legal GraphQL an agent has every reason to send.
  */
 export function graphQueryGuard(query: string): string | null {
-  const stripped = query.replace(/#[^\n]*/g, "").trim();
-  if (!stripped) return "Empty query.";
-  if (/^\s*(mutation|subscription)\b/i.test(stripped)) {
+  const defs = topLevelDefinitions(query);
+  if (defs.length === 0) return "Empty query.";
+
+  if (defs.some((d) => d === "mutation" || d === "subscription")) {
     return "Only read queries are supported (subgraphs have no mutations/subscriptions).";
   }
-  if (!/^\s*(query\b|\{)/i.test(stripped)) {
-    return "Query must start with 'query' or '{'.";
+  const alien = defs.find((d) => d !== "query" && d !== "fragment");
+  if (alien) {
+    return `Query must start with 'query', '{' or 'fragment' — got '${alien}'. This is GraphQL, not SQL.`;
+  }
+  if (!defs.includes("query")) {
+    return (
+      "Document defines only fragment(s) and no operation — the gateway has nothing to execute. " +
+      "Add a `query { … }` that spreads them."
+    );
   }
   return null;
 }
@@ -311,18 +404,22 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
     "dexe_graph_query",
     {
       title: "Free-form GraphQL query against a DeXe subgraph",
+      // This tool is in the DEFAULT profile as of 0.31.0, so every character
+      // here is paid on every session's tools/list. The entity catalogue that
+      // used to live in this string is one dexe_graph_schema call away and also
+      // ships as dexe://graph-schema — what stays is only what a caller cannot
+      // recover after the fact: the traps that make a query silently wrong.
       description:
-        "Run ANY read-only GraphQL query against one of the three DeXe subgraphs: " +
-        "'pools' (DaoPool, Proposal, Voter, VoterInPool, VoterInPoolPair, ProposalInteraction, TokenSaleTier, ExpertNft, DelegationHistory, …), " +
-        "'interactions' (Transaction feed by type + per-event entities: DaoPoolCreate, DaoPoolDelegate, DaoPoolExecute, DaoPoolVest, DaoProposalCreate, …), " +
-        "'validators' (ValidatorInPool, Proposal, ValidatorInProposal, …). " +
-        "Full entity/field reference: MCP resource dexe://graph-schema (docs/GRAPH.md in the package); " +
-        "usage rules + source-picking guidance: dexe_guide flow:'read_dao_data'. " +
-        "ALWAYS bound results with `first:` (max 1000) and paginate with `skip:`; oversized responses are rejected. " +
-        graphQueryChainNote(ctx) +
-        "Example — most-voted proposals with their DAO: subgraph='pools', query='{ proposals(first: 20, orderBy: votersVoted, orderDirection: desc) { proposalId votersVoted currentVotesFor pool { id name } } }'. " +
-        "Proposal has NO `creationTime` — order by `votersVoted`/`quorumReachedTimestamp`/`executionTimestamp`, or use DaoPool.creationTime for DAOs. " +
-        "Schema unsure? Introspect: query='{ __type(name: \"Proposal\") { fields { name } } }'.",
+        "Read-only GraphQL against a DeXe subgraph — 'pools' (DAOs, proposals, voters, delegations, experts, token sales), " +
+        "'interactions' (per-user tx/event feed), 'validators' (validator chamber). " +
+        "Bound every list with `first:` (max 1000), page with `skip:`; oversized responses are rejected. " +
+        "NEVER guess a name: dexe_graph_schema returns the live root fields, an entity's fields, its `<Entity>_filter` " +
+        "where-keys and `<Entity>_orderBy` values; static copy = dexe://graph-schema. " +
+        "Root fields are NOT entity names (DaoPool → `daoPools`, ProposalSettings → `proposalSettings_collection`). " +
+        "pools Proposal has NO `creationTime` — order by `votersVoted`/`quorumReachedTimestamp`/`executionTimestamp`, " +
+        "or use DaoPool.creationTime. Example: subgraph='pools', query='{ proposals(first: 20, orderBy: votersVoted, " +
+        "orderDirection: desc) { proposalId votersVoted pool { id name } } }'. " +
+        graphQueryChainNote(ctx),
       inputSchema: {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
         query: z.string().min(1).max(10_000).describe("GraphQL query document (read-only)"),
@@ -357,7 +454,323 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
           structuredContent: { subgraph, indexedChainId: sg.chainId, data },
         };
       } catch (err) {
-        return errorResult(toActionableError(err, "dexe_graph_query").message);
+        return errorResult(withSchemaRecoveryHint(toActionableError(err, "dexe_graph_query").message, subgraph));
+      }
+    },
+  );
+}
+
+/**
+ * Schema rejections are the one subgraph failure the caller can fix without a
+ * human, and the one they most often "fix" by inventing a plausible field name
+ * instead. Name the introspection call in the error itself so the recovery step
+ * arrives with the failure rather than having to be remembered.
+ */
+export function withSchemaRecoveryHint(message: string, subgraph: string): string {
+  // The Graph's wording for the whole family: unknown field, unknown type,
+  // unknown argument, unknown enum value in `orderBy`.
+  if (!/has no field|Unknown (field|type|argument|directive|enum)|Cannot query field|no field named/i.test(message)) {
+    return message;
+  }
+  return (
+    `${message}\n\n[recover] Do NOT guess the name. Call dexe_graph_schema { subgraph: "${subgraph}" } for the ` +
+    `root query field map, or { subgraph: "${subgraph}", entity: "<Entity>" } for one type's fields ` +
+    `("<Entity>_filter" for valid \`where:\` keys, "<Entity>_orderBy" for valid \`orderBy:\` values).`
+  );
+}
+
+// ---------- dexe_graph_schema (introspection) ----------
+
+/**
+ * A GraphQL type reference as introspection returns it: a chain of LIST /
+ * NON_NULL wrappers ending in a named type.
+ */
+export interface GraphTypeRef {
+  kind: string;
+  name: string | null;
+  ofType?: GraphTypeRef | null;
+}
+
+export interface GraphFieldInfo {
+  name: string;
+  type: GraphTypeRef;
+  args?: Array<{ name: string }>;
+}
+
+/** SDL spelling of a type reference — `[Proposal!]!`, `BigInt!`, `String`. */
+export function typeRefLabel(ref: GraphTypeRef | null | undefined): string {
+  if (!ref) return "?";
+  if (ref.kind === "NON_NULL") return `${typeRefLabel(ref.ofType)}!`;
+  if (ref.kind === "LIST") return `[${typeRefLabel(ref.ofType)}]`;
+  return ref.name ?? "?";
+}
+
+/** The named type a reference ultimately points at, unwrapping LIST/NON_NULL. */
+export function namedType(ref: GraphTypeRef | null | undefined): string | null {
+  if (!ref) return null;
+  return ref.name ?? namedType(ref.ofType);
+}
+
+/** True when any wrapper in the chain is a LIST — i.e. the collection field. */
+function isListRef(ref: GraphTypeRef | null | undefined): boolean {
+  if (!ref) return false;
+  return ref.kind === "LIST" || isListRef(ref.ofType);
+}
+
+export interface RootFieldPair {
+  entity: string;
+  /** `daoPool(id: …)` — one row by id. Null if the schema has no singular. */
+  single: string | null;
+  /** `daoPools(where:, first:, skip:, orderBy:)`. Null if there is no list form. */
+  list: string | null;
+}
+
+/**
+ * Root Query fields grouped by the entity they return.
+ *
+ * This is the mapping an agent cannot guess and cannot derive: The Graph
+ * pluralizes entity names with its own rules, and where the rule breaks it
+ * appends `_collection` instead (`ProposalSettings` → `proposalSettings_collection`,
+ * `DaoPoolMovedToValidators` → `daoPoolMovedToValidators_collection`) or lowercases
+ * the whole thing (`DPContract` → `dpcontracts`). Documenting the ENTITY name,
+ * as docs/GRAPH.md did before 0.31.0, leaves that gap wide open.
+ *
+ * Introspection meta fields (`_meta`, `_logs`) are dropped — they are schema
+ * plumbing, not DeXe data.
+ */
+export function summarizeRootFields(fields: readonly GraphFieldInfo[]): RootFieldPair[] {
+  const byEntity = new Map<string, RootFieldPair>();
+  for (const f of fields) {
+    const entity = namedType(f.type);
+    if (!entity || entity.startsWith("_")) continue;
+    const pair = byEntity.get(entity) ?? { entity, single: null, list: null };
+    if (isListRef(f.type)) pair.list = f.name;
+    else pair.single = f.name;
+    byEntity.set(entity, pair);
+  }
+  return [...byEntity.values()].sort((a, b) => a.entity.localeCompare(b.entity));
+}
+
+/** Levenshtein distance, capped — only used to rank "did you mean" candidates. */
+export function editDistance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const cur = new Array<number>(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + cost);
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = cur[j]!;
+  }
+  return prev[b.length]!;
+}
+
+/**
+ * Candidate type names for a miss, best first. Ordered by how the miss actually
+ * happens in practice: wrong case (`daoPool` for `DaoPool`), the root field name
+ * instead of the entity (`daoPools`), then near-spellings.
+ */
+export function suggestEntities(wanted: string, known: readonly string[], max = 5): string[] {
+  const w = wanted.toLowerCase().replace(/s$/, "");
+  const scored = known
+    .map((name) => {
+      const n = name.toLowerCase();
+      let score: number;
+      if (n === wanted.toLowerCase()) score = 0;
+      else if (n.replace(/s$/, "") === w) score = 1;
+      else if (n.startsWith(w) || w.startsWith(n)) score = 2;
+      else if (n.includes(w) || w.includes(n)) score = 3;
+      else score = 4 + editDistance(n, wanted.toLowerCase());
+      return { name, score };
+    })
+    .filter((s) => s.score <= 7)
+    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name));
+  return scored.slice(0, max).map((s) => s.name);
+}
+
+/**
+ * One round trip answers both questions: the root Query field map (always) and
+ * the requested type (when asked). Fetching the root map even on the type path
+ * is what makes a MISS self-service — the suggestion list and the "query it as
+ * `daoPools`" line both come from it, with no second call on the error path.
+ */
+export const GRAPH_SCHEMA_QUERY = /* GraphQL */ `
+  query DexeGraphSchema($name: String!, $withType: Boolean!) {
+    __schema {
+      queryType {
+        fields {
+          name
+          type {
+            ...TypeRef
+          }
+        }
+      }
+    }
+    __type(name: $name) @include(if: $withType) {
+      name
+      kind
+      fields {
+        name
+        type {
+          ...TypeRef
+        }
+        args {
+          name
+        }
+      }
+      inputFields {
+        name
+        type {
+          ...TypeRef
+        }
+      }
+      enumValues {
+        name
+      }
+    }
+  }
+
+  fragment TypeRef on __Type {
+    kind
+    name
+    ofType {
+      kind
+      name
+      ofType {
+        kind
+        name
+        ofType {
+          kind
+          name
+        }
+      }
+    }
+  }
+`;
+
+interface GraphSchemaPayload {
+  __schema: { queryType: { fields: GraphFieldInfo[] } };
+  __type?: {
+    name: string;
+    kind: string;
+    fields: GraphFieldInfo[] | null;
+    inputFields: GraphFieldInfo[] | null;
+    enumValues: Array<{ name: string }> | null;
+  } | null;
+}
+
+function registerGraphSchema(server: McpServer, ctx: ToolContext): void {
+  server.registerTool(
+    "dexe_graph_schema",
+    {
+      title: "Introspect a DeXe subgraph schema (entities, fields, root query names)",
+      description:
+        "Live GraphQL introspection of a DeXe subgraph — the recovery path when dexe_graph_query returns " +
+        "\"Type 'X' has no field 'Y'\" or you do not know what to type. NEVER guess a field name; call this instead. " +
+        "Omit `entity` for the ROOT QUERY FIELD MAP: every entity plus the exact field name to query it by. " +
+        "Those names are not derivable from the entity — DaoPool is `daoPools`, ProposalSettings is " +
+        "`proposalSettings_collection`, DPContract is `dpcontracts`. " +
+        "Pass `entity` (e.g. 'Proposal') for that type's fields with their GraphQL types; an unknown name returns " +
+        "ranked 'did you mean' candidates rather than an error you cannot act on. " +
+        "Filter and sort vocabularies are types too: ask for '<Entity>_filter' (every `where:` key, e.g. " +
+        "`name_contains_nocase`, `timestamp_gt`) or '<Entity>_orderBy'. " +
+        "Static entity reference (may lag the deployed schema): MCP resource dexe://graph-schema. " +
+        graphQueryChainNote(ctx),
+      inputSchema: {
+        subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to introspect"),
+        entity: z
+          .string()
+          .min(1)
+          .max(120)
+          .optional()
+          .describe(
+            "Type name to expand, e.g. 'Proposal', 'VoterInPool', 'DaoPool_filter', 'Proposal_orderBy'. Omit for the root query field map.",
+          ),
+        chainId: chainIdParam,
+      },
+    },
+    async ({ subgraph, entity, chainId }) => {
+      const sg = resolveEndpoint(ctx, subgraph, chainId);
+      if (typeof sg === "string") return errorResult(sg);
+      try {
+        const data = await gqlRequest<GraphSchemaPayload>(sg.url, GRAPH_SCHEMA_QUERY, {
+          name: entity ?? "",
+          withType: entity !== undefined,
+        });
+        const rootFields = summarizeRootFields(data.__schema.queryType.fields);
+        const where = `${subgraph}, chain ${sg.chainId}`;
+
+        if (!entity) {
+          const lines = rootFields.map(
+            (r) => `${r.entity}: query as ${r.list ?? "(no list field)"}${r.single ? ` / ${r.single}(id:)` : ""}`,
+          );
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  `graph_schema(${where}) → ${rootFields.length} queryable entities.\n` +
+                  `${lines.join("\n")}\n\n` +
+                  `Expand one with dexe_graph_schema { subgraph: "${subgraph}", entity: "<Entity>" }; ` +
+                  `its where-keys live in "<Entity>_filter", its orderBy values in "<Entity>_orderBy".`,
+              },
+            ],
+            structuredContent: { subgraph, indexedChainId: sg.chainId, rootFields },
+          };
+        }
+
+        const t = data.__type;
+        if (!t) {
+          const candidates = suggestEntities(entity, rootFields.map((r) => r.entity));
+          return errorResult(
+            `No type named '${entity}' in the ${subgraph} subgraph (chain ${sg.chainId}). ` +
+              (candidates.length
+                ? `Did you mean: ${candidates.join(", ")}? `
+                : "") +
+              `Entity names are PascalCase — 'daoPools' is the root query FIELD, 'DaoPool' is the type. ` +
+              `Call dexe_graph_schema { subgraph: "${subgraph}" } with no entity for the full map.`,
+          );
+        }
+
+        // `fields` is populated for OBJECT/INTERFACE, `inputFields` for
+        // INPUT_OBJECT (the `_filter` types), `enumValues` for `_orderBy`.
+        const fields = (t.fields ?? t.inputFields ?? []).map((f) => ({
+          name: f.name,
+          type: typeRefLabel(f.type),
+          ...(f.args?.length ? { args: f.args.map((a) => a.name) } : {}),
+        }));
+        const enumValues = t.enumValues?.map((e) => e.name) ?? [];
+        const roots = rootFields.filter((r) => r.entity === t.name);
+
+        const header = roots.length
+          ? `Query it as ${roots.map((r) => [r.list, r.single].filter(Boolean).join(" / ")).join(", ")}.`
+          : `Not a root query field — reachable only through a parent selection or as a where/orderBy vocabulary.`;
+        const body = fields.length
+          ? fields.map((f) => `  ${f.name}: ${f.type}`).join("\n")
+          : enumValues.map((e) => `  ${e}`).join("\n");
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `graph_schema(${where}) → ${t.name} (${t.kind}), ` +
+                `${fields.length || enumValues.length} member(s). ${header}\n${body}`,
+            },
+          ],
+          structuredContent: {
+            subgraph,
+            indexedChainId: sg.chainId,
+            entity: t.name,
+            kind: t.kind,
+            fields,
+            enumValues,
+            rootFields: roots,
+          },
+        };
+      } catch (err) {
+        return errorResult(toActionableError(err, "dexe_graph_schema").message);
       }
     },
   );

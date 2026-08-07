@@ -12,6 +12,16 @@ import { safeErrorMessage } from "./redact.js";
  * sink for the W36 credential leak: no call site that uses it can print a keyed
  * RPC URL. Reaching for the raw `err.message` instead is what
  * tests/lib/no-raw-error-echo.test.ts exists to stop.
+ *
+ * TOOL NAMES IN `remedy` ARE A PROMISE. These strings are read by a model that
+ * will immediately call whatever they name, and the default `DEXE_TOOLSETS`
+ * profile is a subset of the surface (v0.31.0 narrowed it to `core`). A remedy
+ * that names a gated tool without saying so sends a zero-config session to a
+ * 404 — worse than no advice, because it is confident. Rule: prefer a tool the
+ * default profile has; when only a gated one will do, append
+ * `(needs DEXE_TOOLSETS=core,<set>)` right after the name — the same convention
+ * the knowledge layer and the subgraph tool descriptions use, and the one
+ * tests/tools/default-profile-references.test.ts enforces for `tools/list`.
  */
 
 export interface KnownFailure {
@@ -86,10 +96,13 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
       "The subgraph (indexer) failed, so this read returned NO data — that is NOT the same as 'the DAO has none'. Do not report an empty result.",
     remedy:
       "Re-run once (429/5xx/timeouts are usually transient). If it persists, read the same facts on-chain instead — " +
-      "dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall need no indexer. " +
+      "dexe_proposal_list / dexe_read_settings / dexe_dao_info need no indexer and are in the default profile; " +
+      "dexe_read_gov_state (needs DEXE_TOOLSETS=core,dev) and dexe_read_multicall (needs DEXE_TOOLSETS=core,read) " +
+      "cover the rest. " +
       "A 401/403/429 on the shipped default endpoint means you are sharing the packaged Graph key: get a free one at " +
       "thegraph.com/studio, set DEXE_SUBGRAPH_POOLS_URL / _VALIDATORS_URL / _INTERACTIONS_URL in .env, and restart. " +
-      "Entity/field names for a hand-written query live in the dexe://graph-schema resource.",
+      "Entity/field names for a hand-written query: call dexe_graph_schema (live introspection, default profile) " +
+      "or read the dexe://graph-schema resource.",
   },
   {
     // DeXe backend (api.dexe.io) — treasury/NFT/holder reads and the off-chain
@@ -101,7 +114,7 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
     remedy:
       "For reads, re-run: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). " +
       "For off-chain proposals/votes there is no on-chain fallback — the backend is the system of record, so wait and retry. " +
-      "A 401 means the Bearer token expired: re-run dexe_auth_login to mint a new one. " +
+      "A 401 means the Bearer token expired: re-run dexe_auth_login (needs DEXE_TOOLSETS=core,proposals) to mint a new one. " +
       "Point DEXE_BACKEND_API_URL at another host only if you run your own.",
   },
   {

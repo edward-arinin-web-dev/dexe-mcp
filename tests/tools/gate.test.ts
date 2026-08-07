@@ -24,7 +24,7 @@ async function listTools(toolsetsEnv: string | undefined) {
 }
 
 describe("resolveToolsets", () => {
-  it("defaults to core,proposals when empty", () => {
+  it("defaults to core alone when empty", () => {
     const r = resolveToolsets([]);
     expect(r.full).toBe(false);
     expect(r.requested).toEqual([...DEFAULT_TOOLSETS]);
@@ -70,9 +70,14 @@ describe("tool gating (real server)", () => {
     ({ names: defaultNames, bytes: defaultBytes } = await listTools(undefined));
   });
 
-  it("full loads every registered tool (165)", () => {
-    expect(fullNames.length).toBe(165);
-    expect(new Set(fullNames).size).toBe(165); // no dupes
+  it("full registers each tool exactly once", () => {
+    // No hardcoded surface count here. The count is pinned by a chain of
+    // derived equalities instead — registered surface == TOOLSETS union (below)
+    // == docs/TOOLS.md rows (tests/docs/doc-count-consistency.test.ts) — which
+    // cannot go stale the way a literal repeated in three files does. The floor
+    // still catches a catastrophic registration failure.
+    expect(new Set(fullNames).size).toBe(fullNames.length);
+    expect(fullNames.length).toBeGreaterThan(150);
   });
 
   it("every name in every TOOLSET is a real registered tool (no typos)", () => {
@@ -89,50 +94,92 @@ describe("tool gating (real server)", () => {
     for (const names of Object.values(TOOLSETS)) for (const n of names) union.add(n);
     const missing = fullNames.filter((n) => !union.has(n));
     expect(missing, `tools reachable only under full: ${missing.join(", ")}`).toEqual([]);
-    expect(union.size).toBe(165);
+    expect(union.size).toBe(fullNames.length);
   });
 
-  it("default profile is a strict, slim subset", () => {
+  it("default profile is core alone — composites in, single-purpose builders out", () => {
     expect(defaultNames.length).toBeLessThan(fullNames.length);
-    expect(defaultNames.length).toBeGreaterThan(50);
-    // core present
+    expect(defaultNames.length).toBeGreaterThan(30);
+    // composites + orientation
     expect(defaultNames).toContain("dexe_context");
     expect(defaultNames).toContain("dexe_dao_create");
     expect(defaultNames).toContain("dexe_proposal_create");
-    // proposals present
-    expect(defaultNames).toContain("dexe_proposal_build_token_sale");
-    // gated out of default
+    // discovery for dexe_proposal_create stays in, so demoting the builders
+    // does not hide which proposal types exist
+    expect(defaultNames).toContain("dexe_proposal_catalog");
+    expect(defaultNames).toContain("dexe_guide");
+    // 0.31.0: the zero-config reporting surface is now default-visible. These
+    // are what README and dexe://graph-schema have always advertised; before
+    // this release they needed DEXE_TOOLSETS=read to exist at all.
+    for (const t of [
+      "dexe_graph_query",
+      "dexe_read_dao_list",
+      "dexe_read_dao_stats",
+      "dexe_read_dao_members",
+      "dexe_read_token_holders",
+      "dexe_read_delegation_map",
+      "dexe_ipfs_fetch",
+    ]) {
+      expect(defaultNames, `${t} must be default-visible`).toContain(t);
+    }
+    // 0.31.0: paid for by demoting the builders dexe_proposal_create subsumes.
+    expect(defaultNames).not.toContain("dexe_proposal_build_token_sale");
+    expect(defaultNames).not.toContain("dexe_proposal_build_token_transfer");
+    // gated out of default (unchanged)
     expect(defaultNames).not.toContain("dexe_compile"); // dev
     expect(defaultNames).not.toContain("dexe_gov_build_propose"); // governor
     expect(defaultNames).not.toContain("dexe_vote_build_delegate"); // vote
   });
 
-  it("default profile is a big tools/list cut; core-only clears 60%", async () => {
-    const { bytes: coreBytes, names: coreNames } = await listTools("core");
+  it("the pre-0.31.0 default is one env var away", async () => {
+    // The demotion must be reversible in place: DEXE_TOOLSETS=core,proposals
+    // reproduces exactly what a 0.30.x session loaded, so an upgrade that
+    // depended on a builder tool has a one-line fix, not a rollback.
+    const { names } = await listTools("core,proposals");
+    for (const t of defaultNames) expect(names).toContain(t);
+    expect(names).toContain("dexe_proposal_build_token_sale");
+    expect(names).toContain("dexe_proposal_build_offchain_single_option");
+    expect(names).toContain("dexe_auth_login");
+  });
+
+  it("default profile clears 60% off tools/list and stays under budget", async () => {
+    const { bytes: withProposalsBytes, names: withProposalsNames } = await listTools("core,proposals");
     const defReduction = 1 - defaultBytes / fullBytes;
-    const coreReduction = 1 - coreBytes / fullBytes;
     // eslint-disable-next-line no-console
     console.log(
       `tools/list bytes — full: ${fullBytes} (${fullNames.length}t), ` +
-        `default core,proposals: ${defaultBytes} (${defaultNames.length}t, −${(defReduction * 100).toFixed(1)}%), ` +
-        `core-only: ${coreBytes} (${coreNames.length}t, −${(coreReduction * 100).toFixed(1)}%)`,
+        `default core: ${defaultBytes} (${defaultNames.length}t, −${(defReduction * 100).toFixed(1)}%), ` +
+        `core,proposals: ${withProposalsBytes} (${withProposalsNames.length}t)`,
     );
-    // Default (core,proposals) keeps every proposal builder discoverable — a
-    // meaningful cut, not the deepest. core-only is the max-slim path.
-    expect(defReduction).toBeGreaterThan(0.4);
-    // 0.30.3 raised this from 130_000 (which had 45 bytes of headroom) to pay
-    // for the `chainId` param across the builder surface — the thing that stops
-    // a payload built for one chain being broadcast on another. Correctness the
-    // default profile should carry, so the bytes are the right trade.
+
+    // History of this ceiling:
+    //   0.13.0  default became core,proposals  — the first slim default
+    //   0.30.3  raised 130_000 → 138_000       — recorded as DEBT: paying for
+    //           the `chainId` param across ~30 builders the default carried
+    //   0.31.0  measured 134_263 → ~87_000 B  — the debt is PAID, not rolled
     //
-    // This ceiling is DEBT, not a target. 0.31.0 restructures the default slice
-    // (the audit found ~45 KB of redundant single-purpose builders loaded by
-    // default while every analytics tool is gated off) and must bring this
-    // number DOWN, not raise it again. Raising it a second time means the slim-
-    // default promise has quietly stopped being true.
-    expect(defaultBytes).toBeLessThan(138_000);
-    // The documented "maximum slim" default alternative clears the 60% target.
-    expect(coreReduction).toBeGreaterThan(0.6);
+    // Keeping `proposals` in the default would have forced a THIRD raise: the
+    // old core,proposals profile measures ~154 KB on this tree, past the 138_000
+    // it was already straining. The console.log above prints it every run.
+    //
+    // 0.31.0 stopped loading the single-purpose proposal builders by default:
+    // `dexe_proposal_create` already covers every on-chain catalog type from
+    // proposalType + params, so those ~45 KB bought a second way to do what core
+    // could already do — while the analytics reads a DAO report needs were gated
+    // off entirely. Swapping the builders out for the reporting surface (incl.
+    // dexe_dao_report, ~10 KB on its own) cut the default 35% AND made it
+    // strictly more capable: a fresh install can now query the subgraph.
+    //
+    // This is a budget, not debt. Anything that pushes past it should demote
+    // something, not raise the line.
+    expect(defaultBytes).toBeLessThan(95_000);
+    // Well below the 0.30.x default it replaces — the whole point of the swap.
+    expect(defaultBytes).toBeLessThan(134_263);
+    // The default is now the "maximum slim" profile that used to require opting
+    // out of `proposals`, so it inherits that profile's 60% target.
+    expect(defReduction).toBeGreaterThan(0.6);
+    // Opting the builders back in is still a real, larger surface.
+    expect(withProposalsBytes).toBeGreaterThan(defaultBytes);
   });
 
   it("dev profile exposes dev tools, hides the composites", async () => {

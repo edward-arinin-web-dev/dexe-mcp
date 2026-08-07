@@ -26,8 +26,36 @@ you get out of the box, not a property of the subgraphs themselves.
 
 Full env reference: [ENVIRONMENT.md § 8](./ENVIRONMENT.md#8-subgraph-configuration).
 
+## Don't guess — introspect
+
+`dexe_graph_schema` runs live GraphQL introspection against the same endpoint
+`dexe_graph_query` uses, so it answers from the **deployed** schema rather than
+from this file:
+
+| you want | call |
+| --- | --- |
+| every entity + the field name to query it by | `dexe_graph_schema { subgraph: "pools" }` |
+| one type's fields and their types | `dexe_graph_schema { subgraph: "pools", entity: "Proposal" }` |
+| valid `where:` keys | `dexe_graph_schema { subgraph: "pools", entity: "Proposal_filter" }` |
+| valid `orderBy:` values | `dexe_graph_schema { subgraph: "pools", entity: "Proposal_orderBy" }` |
+
+A wrong name comes back as ranked "did you mean" candidates, not a dead end, and
+`dexe_graph_query` appends the same pointer to any schema rejection. **Never
+invent a field name** — this file is a snapshot and the subgraphs get redeployed.
+
 Rules of thumb:
 - ALWAYS bound list fields with `first:` (gateway max 1000) and paginate with `skip:`.
+- The **root Query field is not the entity name** — see the per-subgraph tables
+  below. The Graph pluralizes the entity, except where it can't: then it appends
+  `_collection` (`ProposalSettings` → `proposalSettings_collection`) or lowercases
+  the lot (`DPContract` → `dpcontracts`).
+- Every entity also gets `<Entity>_filter` (the `where:` vocabulary) and
+  `<Entity>_orderBy` (the `orderBy:` vocabulary) — introspectable types, not
+  documented here because they are mechanical.
+- `_meta { block { number } hasIndexingErrors }` tells you how far the index has
+  caught up; it is not DeXe data and is omitted from the tables below.
+- Only `query` and `fragment` definitions are accepted (`fragment`-first documents
+  are fine); the subgraphs have no mutations or subscriptions.
 - Entity IDs are `Bytes` — lowercased hex, often CONCATENATED (no separators):
   `VoterInPool.id` = voter+pool, `VoterInPoolPair.id` = pool+delegator+delegatee,
   pools `Proposal.id` = pool + uint32-LE(proposalId), interaction entity ids = txHash + interactionCount.
@@ -62,6 +90,31 @@ query Active($since: BigInt!) {
 ```
 
 ## `pools` subgraph — DAOs, proposals, voters, delegations, experts, token sales
+
+Root Query fields — **type these, not the entity name**:
+
+| Entity | list field (`first:` / `where:` / `orderBy:`) | single (`id:`) |
+| --- | --- | --- |
+| `DPContract` | `dpcontracts` | `dpcontract` |
+| `DaoPool` | `daoPools` | `daoPool` |
+| `DelegationHistory` | `delegationHistories` | `delegationHistory` |
+| `Executor` | `executors` | `executor` |
+| `ExpertNft` | `expertNfts` | `expertNft` |
+| `ExpertNftContract` | `expertNftContracts` | `expertNftContract` |
+| `InteractionCount` | `interactionCounts` | `interactionCount` |
+| `Proposal` | `proposals` | `proposal` |
+| `ProposalInteraction` | `proposalInteractions` | `proposalInteraction` |
+| `ProposalSettings` | `proposalSettings_collection` | `proposalSettings` |
+| `SettingsContract` | `settingsContracts` | `settingsContract` |
+| `TokenSaleContract` | `tokenSaleContracts` | `tokenSaleContract` |
+| `TokenSaleTier` | `tokenSaleTiers` | `tokenSaleTier` |
+| `TokenSaleTierBuyHistory` | `tokenSaleTierBuyHistories` | `tokenSaleTierBuyHistory` |
+| `TreasuryDelegationHistory` | `treasuryDelegationHistories` | `treasuryDelegationHistory` |
+| `UserKeeperContract` | `userKeeperContracts` | `userKeeperContract` |
+| `Voter` | `voters` | `voter` |
+| `VoterInPool` | `voterInPools` | `voterInPool` |
+| `VoterInPoolPair` | `voterInPoolPairs` | `voterInPoolPair` |
+| `VoterInProposal` | `voterInProposals` | `voterInProposal` |
 
 ### DPContract
 ```
@@ -311,6 +364,27 @@ interactions: [ProposalInteraction!]!
 
 ## `interactions` subgraph — flat per-user/per-event feed — every on-chain touch as its own entity + a Transaction envelope with numeric type[]
 
+Root Query fields — **type these, not the entity name**:
+
+| Entity | list field (`first:` / `where:` / `orderBy:`) | single (`id:`) |
+| --- | --- | --- |
+| `DaoPoolCreate` | `daoPoolCreates` | `daoPoolCreate` |
+| `DaoPoolDelegate` | `daoPoolDelegates` | `daoPoolDelegate` |
+| `DaoPoolExecute` | `daoPoolExecutes` | `daoPoolExecute` |
+| `DaoPoolMovedToValidators` | `daoPoolMovedToValidators_collection` | `daoPoolMovedToValidators` |
+| `DaoPoolOffchainResultsSaved` | `daoPoolOffchainResultsSaveds` | `daoPoolOffchainResultsSaved` |
+| `DaoPoolProposalInteraction` | `daoPoolProposalInteractions` | `daoPoolProposalInteraction` |
+| `DaoPoolRewardClaim` | `daoPoolRewardClaims` | `daoPoolRewardClaim` |
+| `DaoPoolTreasuryDelegate` | `daoPoolTreasuryDelegates` | `daoPoolTreasuryDelegate` |
+| `DaoPoolVest` | `daoPoolVests` | `daoPoolVest` |
+| `DaoPoolVotingRewardClaim` | `daoPoolVotingRewardClaims` | `daoPoolVotingRewardClaim` |
+| `DaoProposalCreate` | `daoProposalCreates` | `daoProposalCreate` |
+| `DaoValidatorProposalCreate` | `daoValidatorProposalCreates` | `daoValidatorProposalCreate` |
+| `DaoValidatorProposalExecute` | `daoValidatorProposalExecutes` | `daoValidatorProposalExecute` |
+| `DaoValidatorProposalVote` | `daoValidatorProposalVotes` | `daoValidatorProposalVote` |
+| `Pool` | `pools` | `pool` |
+| `Transaction` | `transactions` | `transaction` |
+
 ### DaoPoolCreate
 ```
 id: Bytes!
@@ -456,6 +530,18 @@ daoValidatorProposalExecute: [DaoValidatorProposalExecute!]!
 
 ## `validators` subgraph — validator chamber: balances + internal proposals
 
+Root Query fields — **type these, not the entity name**:
+
+| Entity | list field (`first:` / `where:` / `orderBy:`) | single (`id:`) |
+| --- | --- | --- |
+| `DaoPool` | `daoPools` | `daoPool` |
+| `InteractionCount` | `interactionCounts` | `interactionCount` |
+| `Proposal` | `proposals` | `proposal` |
+| `ProposalInteraction` | `proposalInteractions` | `proposalInteraction` |
+| `ValidatorInPool` | `validatorInPools` | `validatorInPool` |
+| `ValidatorInProposal` | `validatorInProposals` | `validatorInProposal` |
+| `ValidatorsContract` | `validatorsContracts` | `validatorsContract` |
+
 ### DaoPool
 ```
 id: Bytes!
@@ -518,4 +604,22 @@ interactions: [ProposalInteraction!]!
 id: Bytes!
 pool: Bytes!
 ```
+
+## Keeping this file honest
+
+This file is served as `dexe://graph-schema`, so drift here misleads every agent
+that reads it — 0.30.2 found an invalid query that had shipped for months. The
+guard is a drift test against the **live** schema:
+
+```sh
+DEXE_GRAPH_DRIFT_CHECK=1 npx vitest run tests/docs/graph-schema-drift.test.ts
+```
+
+It is opt-in because CI has no network. Without the flag the same file still
+runs its offline checks (every documented entity has a root-field row and vice
+versa); with it, each subgraph is introspected and any added / removed / renamed
+field or root field fails the test with the exact edit to make here.
+
+When it fails, fix **this file** — the deployed schema is the source of truth,
+and `dexe_graph_schema` will already be reporting the new shape to callers.
 

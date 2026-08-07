@@ -250,7 +250,9 @@ export interface DexeConfig {
 
   /**
    * Phase 2 — active tool profiles from `DEXE_TOOLSETS` (comma list, lowercased).
-   * Default `["core","proposals"]`. An explicit `full` or any unknown set name
+   * EMPTY means the user did not choose: `resolveToolsets` then applies
+   * `DEFAULT_TOOLSETS`, which is the single source of truth for the default
+   * profile (src/tools/gate.ts). An explicit `full` or any unknown set name
    * loads every tool. Consumed by `applyToolGate` in src/tools/gate.ts.
    */
   toolsets: string[];
@@ -859,13 +861,16 @@ export async function loadConfig(): Promise<DexeConfig> {
   }
 
   // ---- Phase 2 toolset profiles (DEXE_TOOLSETS) --------------------------
-  // Comma list of profile names; default is the slim core+proposals surface.
-  // Validation (unknown names → fall back to full) happens in applyToolGate,
-  // which has the TOOLSETS registry; config.ts stays layer-clean.
+  // Comma list of profile names. Unset → [] ("user made no choice"), NOT a
+  // literal default: `resolveToolsets` fills in DEFAULT_TOOLSETS. Spelling the
+  // default here too made it a second source of truth that silently won — it
+  // pinned the pre-0.31.0 core+proposals profile after gate.ts had already
+  // moved on. Validation (unknown names) also happens in applyToolGate, which
+  // has the TOOLSETS registry; config.ts stays layer-clean.
   const toolsetsRaw = process.env.DEXE_TOOLSETS?.trim();
   const toolsets = toolsetsRaw
     ? toolsetsRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
-    : ["core", "proposals"];
+    : [];
 
   // ---- fail closed on a malformed broadcast guard -------------------------
   // Falling back to "no guard" would silently widen what an autonomous agent is

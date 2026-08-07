@@ -2,7 +2,7 @@ import type { Flow, Gotcha, ParamSpec, Topic, TopicSection } from "./types.js";
 import { FLOWS, FLOW_BY_ID } from "./flows.js";
 import { TOPICS, TOPIC_BY_ID } from "./topics.js";
 import { GOTCHAS, GOTCHA_BY_ID } from "./gotchas.js";
-import { TOOLSETS } from "../tools/gate.js";
+import { TOOLSETS, defaultProfileToolNames } from "../tools/gate.js";
 
 /**
  * Pure knowledge-query functions — no I/O, no server types. `dexe_guide`
@@ -68,10 +68,13 @@ export interface FlowDetail {
   agentProtocol: string;
 }
 
-const DEFAULT_PROFILE_TOOLS: ReadonlySet<string> = new Set([
-  ...TOOLSETS.core!,
-  ...TOOLSETS.proposals!,
-]);
+/**
+ * Read from `defaultProfileToolNames()`, never from a hardcoded profile list:
+ * `DEFAULT_TOOLSETS` moved once (0.31.0, core+proposals → core) and a copy here
+ * would have kept telling agents that tools they can see need enabling — and,
+ * worse, kept silent about the ones that genuinely do.
+ */
+const DEFAULT_PROFILE_TOOLS: ReadonlySet<string> = defaultProfileToolNames();
 
 /** Composites that accept `flowContext` and return structured `next` chaining. */
 const CHAINING_TOOLS: ReadonlySet<string> = new Set([
@@ -186,6 +189,12 @@ export interface IntentMatch {
   /** Flow OR topic id — the two share one id namespace (test-enforced disjoint). */
   flow: string;
   score: number;
+  /**
+   * How many MULTI-WORD triggers the text contained verbatim. The strong
+   * signal: "who voted" appearing literally means something the bag-of-words
+   * partial path (which fires on a single shared word) cannot mean.
+   */
+  phraseHits: number;
 }
 
 /**
@@ -199,16 +208,20 @@ export function matchIntent(text: string): IntentMatch[] {
   const candidates: Array<Pick<Flow | Topic, "id" | "triggers">> = [...FLOWS, ...TOPICS];
   const scored = candidates.map((f) => {
     let score = 0;
+    let phraseHits = 0;
     for (const trigger of f.triggers) {
-      if (t.includes(trigger)) score += trigger.split(/\s+/).length + 1; // longer phrases weigh more
-      else {
+      const words = trigger.split(/\s+/);
+      if (t.includes(trigger)) {
+        score += words.length + 1; // longer phrases weigh more
+        if (words.length > 1) phraseHits++;
+      } else {
         // partial: count trigger words present individually
-        const words = trigger.split(/\s+/).filter((w) => w.length > 3);
-        const hits = words.filter((w) => t.includes(w)).length;
-        if (words.length > 0 && hits === words.length) score += 1;
+        const long = words.filter((w) => w.length > 3);
+        const hits = long.filter((w) => t.includes(w)).length;
+        if (long.length > 0 && hits === long.length) score += 1;
       }
     }
-    return { flow: f.id, score };
+    return { flow: f.id, score, phraseHits };
   }).filter((m) => m.score > 0);
   return scored.sort((a, b) => b.score - a.score);
 }
@@ -225,7 +238,16 @@ export function bestMatch(text: string): string | null {
   const spansMany = m.length >= 3 && m.some((x) => x.flow === "launch_token_economy");
   if (spansMany) return "launch_token_economy";
   if (m.length === 1) return m[0]!.flow;
-  return m[0]!.score >= m[1]!.score * 2 ? m[0]!.flow : null;
+  const [top, runnerUp] = [m[0]!, m[1]!];
+  if (top.score >= runnerUp.score * 2) return top.flow;
+  // The 2× rule compares two different kinds of evidence as if they were one.
+  // "who voted on proposal 3" contains the phrase "who voted" (report topic)
+  // and merely shares the word "vote" with the vote_execute triggers — 3 vs 2,
+  // which the ratio calls a tie and answers with a menu. A verbatim multi-word
+  // phrase beating a match with none is not a tie; anything weaker still falls
+  // through to the menu, which stays the safe default.
+  if (top.phraseHits > 0 && runnerUp.phraseHits === 0 && top.score > runnerUp.score) return top.flow;
+  return null;
 }
 
 export { FLOWS, FLOW_BY_ID, TOPICS, TOPIC_BY_ID, GOTCHAS, GOTCHA_BY_ID };

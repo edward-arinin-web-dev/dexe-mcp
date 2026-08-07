@@ -1,28 +1,35 @@
 # dexe-mcp tool catalog
 
-`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **165** across **19** groups. Call **`dexe_context`** first each session — it returns the signer, active chain, env readiness, and the DAOs/proposals recorded in prior sessions.
+`dexe-mcp` is an MCP (Model Context Protocol) server that exposes DeXe Protocol DAO operations and Solidity-dev tooling to AI agents — plus a generic `dexe_gov_*` surface for external OpenZeppelin Governor + Compound Bravo DAOs (Uniswap, Compound, Optimism). Total tools: **167** across **19** groups. Call **`dexe_context`** first each session — it returns the signer, active chain, env readiness, the toolset profiles that are off (and what each unlocks), and the DAOs/proposals recorded in prior sessions.
 
-The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Four composite tools (`dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
+> **Not every tool below is loaded in your session.** A default session loads the **`core`** profile only — 43 of the 167. Each section names the profile it needs; `dexe_context` reports the active set. Calling a tool from a profile you have not loaded fails as "unknown tool", so check before you plan a flow around one.
 
-Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_proposal_catalog` for the live list of supported proposal types and which builder maps to each.
+The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_report`, `dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, `dexe_graph_query` / `dexe_graph_schema`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Four composite tools (`dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.
+
+Discover tools at runtime via the MCP client's `tools/list`, or call `dexe_proposal_catalog` for the live list of supported proposal types and which builder maps to each. `dexe_proposal_catalog` is in `core`, so the full type list stays discoverable even when the per-type builders are not loaded.
 
 ## Toolset profiles
 
-Registering all 165 tools costs ~234 KB of `tools/list` per session. **`DEXE_TOOLSETS`** (comma list) gates which profiles load. **The default changed to `core,proposals` in v0.13.0** (breaking) — a slim surface instead of everything.
+Registering all 167 tools costs ~257 KB of `tools/list` per session. **`DEXE_TOOLSETS`** (comma list) gates which profiles load.
+
+**The default is `core` alone as of v0.31.0** (it was `core,proposals` from v0.13.0). Two things changed:
+
+- The **zero-config reporting reads moved into `core`** — `dexe_dao_report`, `dexe_graph_query`, `dexe_read_dao_list/dao_members/dao_stats/token_holders/delegation_map`, `dexe_ipfs_fetch`. Before 0.31.0 these needed `DEXE_TOOLSETS=read`, so a fresh install could not actually build the DAO report the docs advertised.
+- The ~30 single-purpose **`dexe_proposal_build_*` builders left the default** to pay for it. `dexe_proposal_create` (in `core`) covers every on-chain catalog type from `proposalType` + `params`, and `dexe_proposal_catalog` still enumerates all 33. **`DEXE_TOOLSETS=core,proposals` restores the pre-0.31 default exactly** — nothing was removed, only ungated by default.
 
 | Profile | Tools | What it covers |
 |---------|------:|----------------|
-| `core` | 35 | Everyday flow: `dexe_context` (call first), `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, all 5 `dexe_otc_*`, `dexe_tx_send/status`, `dexe_wc_*`, key vote builders (deposit/withdraw/vote/execute/erc20_approve) + `dexe_vote_user_power`, IPFS upload trio + avatar, `dexe_read_treasury/settings`, `dexe_proposal_state/list/catalog`, `dexe_dao_info/registry_lookup/predict_addresses`, `dexe_doctor`, `dexe_get_config`. |
-| `proposals` | 42 | Every `dexe_proposal_build_*` builder (33 types), the offchain + backend-auth surface, and proposal/DAO IPFS writes. |
-| `read` | 32 | All `dexe_read_*` (chain + subgraph + backend balances/holders/stats/NFTs), `dexe_proposal_voters`, `dexe_user_inbox`, `dexe_proposal_forecast`, `dexe_proposal_risk_assess`, IPFS reads. |
+| `core` (default) | 43 | Everyday flow **plus the zero-config report surface**: `dexe_context` (call first), `dexe_guide`, `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, all 5 `dexe_otc_*`, `dexe_tx_send/status`, `dexe_wc_*`, key vote builders (deposit/withdraw/vote/execute/erc20_approve) + `dexe_vote_user_power`, IPFS upload trio + avatar + `dexe_ipfs_fetch`, `dexe_read_treasury/settings`, `dexe_proposal_state/list/catalog`, `dexe_dao_info/registry_lookup/predict_addresses`, `dexe_doctor`, `dexe_get_config`, and the reporting reads `dexe_dao_report`, `dexe_graph_query`, `dexe_read_dao_list/dao_members/dao_stats/token_holders/delegation_map`. |
+| `proposals` | 42 | Every `dexe_proposal_build_*` builder (33 types), the offchain + backend-auth surface, and proposal/DAO IPFS writes. **Opt-in since v0.31.0.** |
+| `read` | 36 | All `dexe_read_*` (chain + subgraph + backend balances/holders/stats/NFTs), `dexe_dao_report`, `dexe_graph_query`, `dexe_graph_schema`, `dexe_proposal_voters`, `dexe_user_inbox`, `dexe_proposal_forecast`, `dexe_proposal_risk_assess`, IPFS reads. Superset of `core`'s reads — the long-tail ones a report does not need. |
 | `vote` | 30 | Every direct `dexe_vote_build_*` builder (delegate, staking, NFT multiplier, claims, privacy policy, …) + `dexe_vote_get_votes` + the agent keyring (`dexe_agents_list`, `dexe_agents_fund`). |
 | `governor` | 18 | The external `dexe_gov_*` OpenZeppelin/Bravo Governor surface. |
 | `dev` | 23 | `dexe_compile/test/coverage/lint`, introspection (`dexe_get_*`, `dexe_list_*`, `dexe_find_selector`), `dexe_decode_*`, `dexe_read_gov_state`, simulator, merkle, Safe, and the low-level `dexe_dao_build_deploy`. |
-| `full` | 165 | Everything (pre-v0.13.0 behavior). |
+| `full` | 167 | Everything (pre-v0.13.0 behavior). |
 
-Sets union; a typo/unknown name → falls back to `full` (never silently strips). The union of the six named sets equals all 165 tools, so every tool is reachable under some profile.
+Sets union, and profiles overlap by design (a tool in both `core` and `read` is the same tool). An unrecognized name is **dropped** with a stderr warning and the recognized ones still apply — a typo never escalates to `full`; if nothing recognizable is left, the default applies. The union of the six named sets equals all 167 tools, so every tool is reachable under some profile.
 
-Measured `tools/list` sizes: **full ~234 KB (165 tools)** · **default `core,proposals` ~130 KB (76 tools, −45%)** · **`core` alone ~66 KB (37 tools, −72%)**. Set `DEXE_TOOLSETS=core` for the deepest cut (the composites cover the common proposal types), or `DEXE_TOOLSETS=full` to restore everything. `dexe_doctor` reports the active profile.
+Measured `tools/list` sizes on this tree: **full 263,607 B / ~257 KB (167 tools)** · **default `core` 83,946 B / ~82 KB (43 tools, −68%)** · **`core,proposals` 151,302 B / ~148 KB (82 tools)**. `dexe_doctor` and `dexe_context` both report the active profile.
 
 ## Table of contents
 
@@ -52,6 +59,8 @@ Each row links to the runtime schema. Args, return shapes, and zod input validat
 
 ## 1. Dev tooling
 
+**Profile: `dev`** — not in a default session; set `DEXE_TOOLSETS=core,dev`.
+
 Source: `src/tools/build.ts`. All four operate on a DeXe-Protocol Hardhat workspace — auto-cloned (shallow) on first use, or set `DEXE_PROTOCOL_PATH` to an existing checkout.
 
 | Tool | What it does | Required env |
@@ -64,6 +73,8 @@ Source: `src/tools/build.ts`. All four operate on a DeXe-Protocol Hardhat worksp
 ---
 
 ## 2. Contract introspection
+
+**Profile: `dev`** — not in a default session; set `DEXE_TOOLSETS=core,dev`.
 
 Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. All require `dexe_compile` to have run at least once. Reads compiled artifacts from `DEXE_PROTOCOL_PATH/artifacts/`.
 
@@ -84,12 +95,15 @@ Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. All require `dexe_compil
 
 ## 3. DAO reads
 
-Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/tools/vote.ts`, `src/tools/read.ts`, `src/tools/risk.ts`, `src/tools/subgraph.ts`. All on-chain reads need `DEXE_RPC_URL`.
+**Profiles: `core` + `read`.** A default session gets the zero-config reporting subset — `dexe_dao_report`, `dexe_graph_query`, `dexe_read_dao_list/dao_members/dao_stats/token_holders/delegation_map`, `dexe_read_treasury/settings`, `dexe_dao_info/registry_lookup/predict_addresses`, `dexe_proposal_state/list`, `dexe_vote_user_power`, `dexe_otc_list_sales_for_dao`. Everything else in this section (incl. `dexe_graph_schema`, `dexe_proposal_voters`, `dexe_read_validator_list`, `dexe_read_user_activity`, `dexe_read_dao_experts`, `dexe_read_protocol_stats`, `dexe_read_nfts`, `dexe_read_gov_state`) needs `DEXE_TOOLSETS=core,read` (`dexe_read_gov_state`: `core,dev`).
+
+Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/tools/vote.ts`, `src/tools/read.ts`, `src/tools/report.ts`, `src/tools/risk.ts`, `src/tools/subgraph.ts`. All on-chain reads need `DEXE_RPC_URL`.
 
 **Subgraph reads are chain-explicit (0.30.2).** One endpoint indexes one chain, so every subgraph-backed tool below takes `chainId` (default: the MCP's default chain) and returns **`indexedChainId`** in `structuredContent` — the chain the rows actually came from. Endpoint resolution is per *(kind, chain)*: `DEXE_SUBGRAPH_<KIND>_URL_<chainId>`, else the unsuffixed `DEXE_SUBGRAPH_<KIND>_URL` for the chain named by `DEXE_SUBGRAPH_CHAIN_ID` (default 56), else the baked chain-56 default. **A chain with no endpoint returns an error**, naming the var to set plus the subgraph-free alternatives (`dexe_read_gov_state`, `dexe_proposal_list`, `dexe_read_multicall`) — it never answers from another chain's index. The "Required env" column below names the chain-56 var; append `_<chainId>` for any other chain. See [ENVIRONMENT.md § 8](ENVIRONMENT.md#8-subgraph-configuration).
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
+| `dexe_dao_report` | **One call → the whole DAO.** Eleven independent sections (`identity`, `settings`, `treasury`, `membership`, `delegation`, `experts`, `validators`, `proposals`, `turnout`, `activity`, `deadlines`) composed from on-chain multicalls plus one batched query per subgraph — so per-proposal turnout costs no extra round-trips. `since` (ISO-8601, Unix seconds, `block:<n>`, or `"last"`) returns only what changed: new proposals, proposals that MOVED STATE, members joined, delegation shifts, treasury deltas. Each run persists a small per-DAO snapshot (`reports.json`, beside `state.json`) so `since:"last"` has a baseline — **the first run must omit `since`, or it errors with no baseline**. `user` adds that wallet's unvoted proposals + claimable rewards to `deadlines`. Sections degrade independently: one that cannot render comes back `available:false` with a `reason` and a `followUp` naming the tool to call instead, and is listed in `unavailable[]` — never a silent omission. Typed `outputSchema`. Narrow with `sections`; `proposalLimit` (default 30) / `memberLimit` (default 50) bound the window. Full guide: [REPORTING.md](./REPORTING.md). | (none — public RPC + subgraph defaults; set `DEXE_RPC_URL` / `DEXE_SUBGRAPH_*_URL` for reliability or non-default chains) |
 | `dexe_dao_info` | Helpers + NFT contracts + descriptionURL + validator count for a GovPool. One multicall. | `DEXE_RPC_URL` |
 | `dexe_dao_predict_addresses` | `PoolFactory.predictGovAddresses(deployer, poolName)` → 6 CREATE2 addresses. Useful for pre-deploy wiring. | `DEXE_RPC_URL` |
 | `dexe_dao_registry_lookup` | `PoolRegistry.isGovPool(address)` — true if address is a registered DeXe GovPool. | `DEXE_RPC_URL` |
@@ -119,13 +133,16 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 | `dexe_read_validator_list` | Paginated validators ordered by balance descending. → `{govPool, offset, limit, indexedChainId, validators[]}` | `DEXE_SUBGRAPH_VALIDATORS_URL` |
 | `dexe_read_user_activity` | Paginated tx history per user — proposals/votes/delegations/claims by timestamp desc. → `{user, offset, limit, indexedChainId, transactions[]}` | `DEXE_SUBGRAPH_INTERACTIONS_URL` |
 | `dexe_read_delegation_map` | Outgoing or incoming delegation pairs for a user (accepts wallet addresses or VoterInPool composite ids). → `{addresses, direction, offset, limit, indexedChainId, delegations[]}` | `DEXE_SUBGRAPH_POOLS_URL` |
-| `dexe_graph_query` | Free-form read-only GraphQL against the pools / interactions / validators subgraphs. Entity reference: [GRAPH.md](GRAPH.md) (served in-band as the MCP resource `dexe://graph-schema`). Bound results with `first:`; oversized responses rejected. `chainId` picks the chain for the chosen `subgraph`. → `{subgraph, indexedChainId, data}` | `DEXE_SUBGRAPH_*_URL` (of the requested `subgraph`) |
+| `dexe_graph_query` | Free-form read-only GraphQL against the pools / interactions / validators subgraphs. Entity reference: [GRAPH.md](GRAPH.md) (served in-band as the MCP resource `dexe://graph-schema`); live names via `dexe_graph_schema`. Bound results with `first:`; oversized responses rejected. `chainId` picks the chain for the chosen `subgraph`. → `{subgraph, indexedChainId, data}` | `DEXE_SUBGRAPH_*_URL` (of the requested `subgraph`) |
+| `dexe_graph_schema` | Live GraphQL introspection of one subgraph — the recovery path when `dexe_graph_query` answers `Type 'X' has no field 'Y'`, and the way to stop guessing names. Omit `entity` for the **root query field map**: the query field is not derivable from the entity (`DaoPool` → `daoPools`, `ProposalSettings` → `proposalSettings_collection`, `DPContract` → `dpcontracts`). Pass `entity` (e.g. `'Proposal'`) for that type's fields with their GraphQL types; an unknown name returns ranked "did you mean" candidates instead of a dead end. Filter/sort vocabularies are types too — ask for `'<Entity>_filter'` (every valid `where:` key) or `'<Entity>_orderBy'`. → `{subgraph, indexedChainId, entity, kind, fields, enumValues, rootFields}`. Static copy that may lag the deployed schema: [GRAPH.md](GRAPH.md) / `dexe://graph-schema`. | `DEXE_SUBGRAPH_*_URL` (of the requested `subgraph`) |
 | `dexe_read_protocol_stats` | Protocol-wide aggregates (app.dexe.io landing numbers): total TVL across all DAOs on the selected chains, total proposals, DAO count, voting-locked value, TVL time series (downsampled), optional top-N DAOs by TVL. Backend-only. | `DEXE_BACKEND_API_URL` |
 | `dexe_otc_list_sales_for_dao` | Reads `latestTierId()` + `getTierViews(0, latestTierId)` on a DAO's TokenSaleProposal helper. Returns tiers with `totalSold`, `upcoming`/`active`/`ended`/`off` status (block timestamp + on-chain `isOff`), and both raw + `saleStartTimeUTC`/`saleEndTimeUTC` human-readable UTC times. Works chain 56 + 97, no subgraph needed. Pass `tokenSaleProposal` explicitly until per-DAO helper discovery lands. | `DEXE_RPC_URL` |
 
 ---
 
 ## 4. IPFS
+
+**Profiles: `core` + `proposals` + `read`.** Default session: `dexe_ipfs_upload_file`, `_upload_avatar`, `_upload_proposal_metadata`, `dexe_dao_generate_avatar`, `dexe_ipfs_fetch`. The DAO-metadata writes (`_upload_dao_metadata`, `_update_dao_metadata`) need `DEXE_TOOLSETS=core,proposals`; `_cid_info` / `_cid_for_json` need `core,read`.
 
 Source: `src/tools/ipfs.ts`. Pinata-backed; reads use the configured gateway with optional fallback chain.
 
@@ -145,6 +162,8 @@ Source: `src/tools/ipfs.ts`. Pinata-backed; reads use the configured gateway wit
 
 ## 5. DAO deploy
 
+**Profiles: `core` (`dexe_dao_create`) + `dev` (`dexe_dao_build_deploy`).** The low-level encoder needs `DEXE_TOOLSETS=core,dev`; the composite is default-visible.
+
 Source: `src/tools/daoDeploy.ts`.
 
 | Tool | What it does | Required env |
@@ -155,6 +174,8 @@ Source: `src/tools/daoDeploy.ts`.
 ---
 
 ## 6. Proposal catalog and primitives
+
+**Profiles: `core` (`dexe_proposal_catalog`) + `proposals` (the four primitives).** The catalog stays default-visible so every proposal type is discoverable; the primitives need `DEXE_TOOLSETS=core,proposals`.
 
 Source: `src/tools/proposalBuild.ts`. The catalog tool is your runtime registry of proposal types; the four `*_build_external|internal|custom_abi|offchain` tools are raw primitives every wrapper composes through.
 
@@ -169,6 +190,8 @@ Source: `src/tools/proposalBuild.ts`. The catalog tool is your runtime registry 
 ---
 
 ## 7. External proposal wrappers
+
+**Profile: `proposals`** — **not in a default session since v0.31.0**; set `DEXE_TOOLSETS=core,proposals`. Without it, use `dexe_proposal_create` (in `core`) with the matching `proposalType` + `params` — it builds the same actions server-side and broadcasts them. Reach for these builders when you want the raw calldata: inspecting actions before creating, hand-assembling a multi-action proposal, or composing through `dexe_proposal_build_external`.
 
 Sources: `src/tools/proposalBuild.ts`, `src/tools/proposalBuildMore.ts`, `src/tools/proposalBuildComplex.ts`. Each returns: IPFS metadata to upload, the encoded `ProposalAction`(s), and a hint about how to compose into `dexe_proposal_build_external`.
 
@@ -199,6 +222,8 @@ Sources: `src/tools/proposalBuild.ts`, `src/tools/proposalBuildMore.ts`, `src/to
 
 ## 8. Internal validator wrappers
 
+**Profile: `proposals`** — not in a default session; set `DEXE_TOOLSETS=core,proposals`. `dexe_proposal_create` covers these four types too (it auto-routes internal types to `GovValidators.createInternalProposal`).
+
 Source: `src/tools/proposalBuildInternal.ts`. Each returns the `data` bytes you feed to `dexe_proposal_build_internal`.
 
 | Tool | What it does | Required env |
@@ -211,6 +236,8 @@ Source: `src/tools/proposalBuildInternal.ts`. Each returns the `data` bytes you 
 ---
 
 ## 9. Off-chain wrappers and auth
+
+**Profile: `proposals`** — not in a default session; set `DEXE_TOOLSETS=core,proposals`. The off-chain types are the one family `dexe_proposal_create` deliberately does **not** execute (they are backend API calls, not transactions) — it signposts here instead, so this profile is required for off-chain voting and for `dexe_auth_login`.
 
 Source: `src/tools/proposalBuildOffchain.ts`. All return ready HTTP request objects (method/url/headers/body) — your client sends them. The DeXe backend uses Bearer-token auth via signed nonce.
 
@@ -229,6 +256,8 @@ Source: `src/tools/proposalBuildOffchain.ts`. All return ready HTTP request obje
 ---
 
 ## 10. Vote, stake, delegate, execute, claim builders
+
+**Profiles: `core` + `vote`.** A default session gets the five it needs to vote a proposal through — `dexe_vote_build_erc20_approve`, `_deposit`, `_withdraw`, `_vote`, `_execute` — plus `dexe_vote_user_power`. Everything else here (delegation, staking, NFT multiplier, claims, token-sale, privacy policy, `dexe_vote_build_multicall`, `dexe_vote_get_votes`) needs `DEXE_TOOLSETS=core,vote`.
 
 Source: `src/tools/voteBuild.ts`. All return calldata `TxPayload`. None require env beyond your wallet (no RPC reads happen here — these are pure encoders).
 
@@ -265,6 +294,8 @@ Source: `src/tools/voteBuild.ts`. All return calldata `TxPayload`. None require 
 
 ## 11. Composite signing flows
 
+**Profile: `core`** (default-visible), except the agent keyring `dexe_agents_list` / `dexe_agents_fund`, which live in `vote` (`DEXE_TOOLSETS=core,vote`).
+
 Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`, `src/tools/getConfig.ts`. The signing flows (`dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`) **require `DEXE_PRIVATE_KEY` for the auto-signed mode** — they sign and broadcast directly (and run the B6/B7/B10 broadcast guards first; `dexe_tx_send` also runs B9 simulation). Other tools always return calldata for an external signer.
 
 | Tool | What it does | Required env |
@@ -283,6 +314,8 @@ Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`, `src/tools/getConfig.ts`. T
 
 ## 12. Merkle utility
 
+**Profile: `dev`** — not in a default session; set `DEXE_TOOLSETS=core,dev`. (The OTC composites in section 13 derive merkle roots/proofs internally, so a plain whitelist sale does not need these.)
+
 Source: `src/tools/merkle.ts`. OZ `StandardMerkleTree`-compatible. No env required (pure compute).
 
 | Tool | What it does |
@@ -293,6 +326,8 @@ Source: `src/tools/merkle.ts`. OZ `StandardMerkleTree`-compatible. No env requir
 ---
 
 ## 13. OTC composites
+
+**Profile: `core`** — all five `dexe_otc_*` tools are default-visible (the fifth, `dexe_otc_list_sales_for_dao`, is listed in section 3).
 
 Source: `src/tools/otc.ts`. Composites that orchestrate `proposal_create` + `TokenSaleProposal` reads/writes for an end-to-end OTC sale flow. See [`docs/OTC.md`](./OTC.md) for the full project-owner + buyer recipe.
 
@@ -307,6 +342,8 @@ Source: `src/tools/otc.ts`. Composites that orchestrate `proposal_create` + `Tok
 
 ## 14. Safe multisig
 
+**Profile: `dev`** — not in a default session; set `DEXE_TOOLSETS=core,dev`.
+
 Source: `src/tools/safe.ts`, `src/lib/ethersProvider.ts`. Alternative signer posture: instead of broadcasting from a hot EOA, **queue** the tx in the [Safe Transaction Service](https://docs.safe.global/) for the Safe's owners to co-sign and execute. Use when the DAO/treasury operator key is custodied in a Gnosis Safe rather than a bare `DEXE_PRIVATE_KEY`. See [`docs/SAFE.md`](./SAFE.md).
 
 | Tool | What it does | Required env |
@@ -317,6 +354,8 @@ Source: `src/tools/safe.ts`, `src/lib/ethersProvider.ts`. Alternative signer pos
 ---
 
 ## 15. Simulator
+
+**Profile: `dev`** — not in a default session; set `DEXE_TOOLSETS=core,dev`. (The `core` composites `dexe_dao_create` and `dexe_tx_send` already simulate before broadcasting; these are the standalone gates.)
 
 Source: `src/tools/simulate.ts`. `eth_call`-based preflight gate. Catches reverts before broadcast without spending real money. See [`docs/SIMULATOR.md`](./SIMULATOR.md).
 
@@ -330,6 +369,8 @@ Source: `src/tools/simulate.ts`. `eth_call`-based preflight gate. Catches revert
 
 ## 16. Multi-DAO inbox + forecast
 
+**Profile: `read`** — not in a default session; set `DEXE_TOOLSETS=core,read`. For a single DAO, `dexe_dao_report`'s `deadlines` section (with `user`) covers the same ground from the default profile; `dexe_user_inbox` is the multi-DAO sweep.
+
 Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my attention" tools. See [`docs/INBOX.md`](./INBOX.md).
 
 | Tool | What it does | Required env |
@@ -340,6 +381,8 @@ Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my 
 ---
 
 ## 17. External Governor DAOs (`dexe_gov_*`)
+
+**Profile: `governor`** — not in a default session; set `DEXE_TOOLSETS=core,governor`.
 
 Sources: `src/governor/tools/read.ts`, `src/governor/tools/build.ts`,
 `src/governor/tools/simulate.ts`. Configs: `src/governor/configs/*.json`.
@@ -378,6 +421,8 @@ mode gated by `TALLY_API_KEY` + chain RPCs.
 
 ## 18. WalletConnect
 
+**Profile: `core`** — all three are default-visible.
+
 Source: `src/tools/walletconnectStatus.ts` + `src/lib/walletconnect.ts`. A fourth signer mode (`readonly` | `eoa` | `safe` | `walletconnect`): broadcast convenience **without a hot key** — every tx is approved on the operator's phone wallet, key never leaves the device. When active, `dexe_tx_send` forwards the tx over the WalletConnect v2 relay; the wallet signs **and broadcasts**. Only `dexe_tx_send`/`dexe_tx_status` route through WC — composite flows still require a hot key. See [`docs/WALLETCONNECT.md`](./WALLETCONNECT.md).
 
 | Tool | What it does | Required env |
@@ -390,6 +435,8 @@ Source: `src/tools/walletconnectStatus.ts` + `src/lib/walletconnect.ts`. A fourt
 
 ## 19. Diagnostics
 
+**Profile: `core`** — default-visible.
+
 Source: `src/tools/doctor.ts` + `src/diag/checks.ts`. Pure reads. First stop when an env-related failure shows up. Also runnable as a CLI: `npx dexe-mcp doctor` (exit 0 pass, 1 warn-only, 2 any fail).
 
 | Tool | What it does | Required env |
@@ -401,6 +448,7 @@ Source: `src/tools/doctor.ts` + `src/diag/checks.ts`. Pure reads. First stop whe
 ## Notes
 
 - **Calldata model.** Default mode for every builder is "return calldata, you sign it." The MCP server never holds a key unless `DEXE_PRIVATE_KEY` is set; only the four tools in section 11 use it.
-- **Composing wrappers.** Wrappers (`dexe_proposal_build_*`) return `{ipfsMetadata, action(s), hint}`. Upload metadata via `dexe_ipfs_upload_proposal_metadata` to get a CID, then call `dexe_proposal_build_external` with that CID + the actions.
+- **Toolset profiles.** Every section above names the profile its tools need. A default session is `core` (43 tools); anything else must be added via `DEXE_TOOLSETS`, and calling a tool from an unloaded profile fails as an unknown tool. `dexe_context` lists which sets are off and what each unlocks.
+- **Composing wrappers.** Wrappers (`dexe_proposal_build_*`, profile `proposals`) return `{ipfsMetadata, action(s), hint}`. Upload metadata via `dexe_ipfs_upload_proposal_metadata` to get a CID, then call `dexe_proposal_build_external` with that CID + the actions. From the default profile, `dexe_proposal_create` does all of that in one call.
 - **Settings auto-expand.** `dexe_dao_build_deploy` accepts 1 setting and auto-expands to all 5 slots (default / internal / validators / distributionProposal / tokenSale). Override individually if you need non-default behavior on any.
 - **Frontend parity.** All builders are cross-checked against `C:/dev/investing-dashboard` (the DeXe frontend). When in doubt, that is the source of truth — see `feedback_frontend_source_of_truth.md` in user memory.

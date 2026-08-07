@@ -15,7 +15,7 @@
 
 An MCP (Model Context Protocol) server for [DeXe Protocol](https://dexe.io) governance on BNB Chain, with an additional generic surface for OpenZeppelin and Compound-Bravo Governor DAOs (Uniswap, Compound, Optimism).
 
-It exposes 165 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, IPFS metadata, transaction simulation, and diagnostics. Any MCP client can use it — Claude Code, Claude Desktop, Cursor, or a custom agent.
+It exposes 167 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, one-call DAO reporting, IPFS metadata, transaction simulation, and diagnostics. Any MCP client can use it — Claude Code, Claude Desktop, Cursor, or a custom agent.
 
 Writes are calldata-first: tools return a `{ to, data, value, chainId }` payload for your own wallet to sign. Broadcasting from the server is opt-in, either through WalletConnect (transactions are approved on your phone; no key on disk) or a private key you explicitly configure.
 
@@ -82,24 +82,29 @@ The `env` block is optional — without it the server falls back to a public BSC
 > **Windows:** if your MCP client can't resolve the `dexe-mcp` shim on PATH, point it at the script directly:
 > `{ "command": "node", "args": ["<npm root -g>/dexe-mcp/dist/index.js"] }`
 
-**Example calls:**
+**Example calls** (all four are in the default profile — no `DEXE_TOOLSETS`, no env):
 
 ```jsonc
+// The whole DAO in one call: identity, treasury, members, delegation,
+// turnout, and everything with a deadline
+dexe_dao_report({ govPool: "0x...", chainId: 56 })
+
+// ...and on the next run, only what moved since the previous one
+dexe_dao_report({ govPool: "0x...", chainId: 56, since: "last" })
+
 // Enumerate every proposal type the server can build
 dexe_proposal_catalog({ category: "all", implementedOnly: true })
 
-// Resolve a DAO's contract layout: settings/userKeeper/validators addresses,
-// NFT contracts, metadata CID, validator count
-dexe_dao_info({ govPool: "0x..." })
-
-// Build a token-transfer proposal; returns ready-to-sign calldata
-dexe_proposal_build_token_transfer({
-  govPool:   "0x...",
-  token:     "0x...",
-  recipient: "0x...",
-  amount:    "1000000000000000000"
+// Create a proposal of ANY catalog type — proposalType + params
+dexe_proposal_create({
+  govPool:      "0x...",
+  title:        "Pay the audit invoice",
+  proposalType: "token_transfer",
+  params:       { token: "0x...", recipient: "0x...", amount: "1000.0" }
 })
 ```
+
+`dexe_proposal_create` covers every on-chain catalog type; the single-purpose `dexe_proposal_build_*` builders (raw calldata, one tool per type) need `DEXE_TOOLSETS=core,proposals`.
 
 Each write tool returns a `TxPayload` you pass to your wallet. To let the server broadcast instead, connect a wallet over WalletConnect (`dexe_wc_connect`) or set `DEXE_PRIVATE_KEY`; that enables the composite flows `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, and `dexe_tx_send`.
 
@@ -112,7 +117,7 @@ Each write tool returns a `TxPayload` you pass to your wallet. To let the server
 
 - DeXe governance coverage: the 33 proposal types (24 external, 4 internal validator, 5 off-chain), validator chamber, expert delegation, multi-tier OTC sales with merkle whitelists.
 - Calldata-first key model: no private key is required for any build tool. Broadcasting is a separate, explicit opt-in.
-- Zero-config reads: public RPC, subgraph, backend, and IPFS gateway defaults let read tools work out of the box.
+- Zero-config reads: public RPC, subgraph, backend, and IPFS gateway defaults let read tools work out of the box — including `dexe_dao_report`, which returns a whole DAO (identity, treasury, membership, delegation, turnout, deadlines) in one call, and can diff itself against its own previous run. [docs/REPORTING.md](./docs/REPORTING.md)
 - External Governor support: 18 `dexe_gov_*` tools read, build, simulate, and decode against OpenZeppelin and Bravo Governors; new DAOs are a config entry.
 - Tested on-chain: a 59-scenario multi-agent harness exercises the builders against BSC-testnet fixture DAOs — build-only checks for all proposal types, full propose → vote → execute lifecycles for the broadcast paths.
 - MIT-licensed, no telemetry, no hosted dependency — requests go only to endpoints you configure.
@@ -122,22 +127,26 @@ Each write tool returns a `TxPayload` you pass to your wallet. To let the server
 Verified, prompt-level scenarios live in **[docs/USE_CASES.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/USE_CASES.md)** — each with the exact tools it exercises and on-chain evidence. Highlights:
 
 - **Basics** — create a DAO with its own token in one call; propose → vote → execute; join an existing DAO.
-- **Q&A over live data** — "does DAO X have validators?", whale maps, TVL charts, delegation graphs, per-proposal voter lists. _(The deeper analytics reads — token-holder/whale maps, DAO stats, delegation maps, validator lists, user activity — live in the `read` profile, which the default session does not load; set `DEXE_TOOLSETS=read` (or `full`), or ask `dexe_context` which sets are off and how to enable them.)_
-- **Automation** — pair reads with your agent's scheduler (`/loop`, `/schedule`): proposal watchdogs, daily governance digests (`dexe_user_inbox`), quorum trackers, treasury monitors, policy-based delegate agents.
+- **Q&A over live data** — "does DAO X have validators?", whale maps, TVL charts, delegation graphs, per-proposal voter lists. _(Since v0.31.0 the reporting reads are in the default profile and need no keys: `dexe_dao_report`, `dexe_graph_query`, DAO list/members/stats, token holders, delegation map. `dexe_dao_report`'s `turnout` section already carries per-proposal voter counts. The long-tail reads — named voter lists (`dexe_proposal_voters`), validator rosters, per-user activity, local experts, protocol stats, NFTs, inbox/forecast/risk, `dexe_graph_schema` — still live in the `read` profile: set `DEXE_TOOLSETS=core,read` (or `full`), or ask `dexe_context` which sets are off and how to enable them.)_
+- **Automation** — pair reads with your agent's scheduler (`/loop`, `/schedule`): a scheduled `dexe_dao_report` with `since: "last"` reports only what moved since its own previous run, plus proposal watchdogs, daily governance digests (`dexe_user_inbox`), quorum trackers, treasury monitors, policy-based delegate agents.
 - **Analysis** — decode + risk-assess any proposal (quorum safety, treasury at risk, who profits); due-diligence a DAO before buying in; simulate before broadcasting.
 - **Advanced ops** — make the DAO call ANY external contract (`custom_abi`), OTC sales, cross-DAO delegation (one DAO voting inside another — live on mainnet), external Governor DAOs, Safe multisig.
 
 ## Tool catalog
 
-165 tools in 19 groups. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+167 tools in 19 groups. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
-A default session loads the `core,proposals` profile (~72 tools) to keep the MCP tool list small. Set `DEXE_TOOLSETS=full` for everything, or add profiles (`read`, `vote`, `governor`, `dev`) as needed — see [Toolset profiles](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md#toolset-profiles). Call `dexe_context` first in a session: it returns the signer, active chain, env readiness, and DAOs/proposals recorded in prior sessions.
+**A default session loads the `core` profile — 43 tools, ~82 KB of `tools/list`.** That is orientation (`dexe_context`, `dexe_guide`, `dexe_doctor`), the one-call composites (`dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, the five `dexe_otc_*`), signing (`dexe_tx_send`, WalletConnect, the key vote builders), and the zero-config reporting reads (`dexe_dao_report`, `dexe_graph_query`, DAO list/members/stats, token holders, delegation map).
+
+Changed in v0.31.0: the ~30 single-purpose `dexe_proposal_build_*` builders are **no longer loaded by default** — `dexe_proposal_create` covers every on-chain catalog type from `proposalType` + `params`, and `dexe_proposal_catalog` still enumerates them. Set `DEXE_TOOLSETS=core,proposals` to restore the pre-0.31 default exactly. Add profiles (`proposals`, `read`, `vote`, `governor`, `dev`) or `DEXE_TOOLSETS=full` for everything — see [Toolset profiles](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md#toolset-profiles). Call `dexe_context` first in a session: it returns the signer, active chain, env readiness, which profiles are off and what each unlocks, and DAOs/proposals recorded in prior sessions.
+
+The `Tools` column counts the whole group, not what a default session loads — most groups sit behind a profile. [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md) names the profile at the top of every section.
 
 | Group | Tools | Summary |
 |-------|-------|---------|
 | Dev tooling | 4 | Hardhat lifecycle for the DeXe-Protocol workspace: `dexe_compile`, `_test`, `_coverage`, `_lint`. |
 | Contract introspection | 10 | List contracts, fetch ABIs, look up selectors, read NatSpec and source, decode calldata and proposal payloads. |
-| DAO reads | 32 | DAO info, proposal state/list/voters, voting power, treasury, settings, validators, staking, distributions, risk assessment, protocol-wide stats, plus subgraph queries (DAO list, members, experts, delegation map, user activity, free-form `dexe_graph_query`). |
+| DAO reads | 34 | `dexe_dao_report` — one call for a whole DAO (identity, settings, treasury, membership, delegation, experts, validators, proposals, turnout, activity, deadlines) with an optional `since` diff — plus DAO info, proposal state/list/voters, voting power, treasury, settings, validators, staking, distributions, risk assessment, protocol-wide stats, and subgraph queries (DAO list, members, experts, delegation map, user activity, free-form `dexe_graph_query`, live schema introspection via `dexe_graph_schema`). |
 | IPFS | 9 | Pinata uploads for files, avatars, and DAO/proposal metadata; metadata updates; JPEG avatar generation; gateway-fallback fetch; local CID computation. |
 | DAO deploy | 2 | `dexe_dao_create` (one-call composite with pre-flight revert guards) and `dexe_dao_build_deploy` (full `deployGovPool` struct encoder). |
 | Proposal catalog and primitives | 5 | `dexe_proposal_catalog` plus generic `_build_external`, `_build_internal`, `_build_custom_abi`, `_build_offchain`. |
@@ -170,7 +179,7 @@ No variable is required to start the server; tools that need a missing one fail 
 | `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK` | hardening | Set `1` to disable public gateway fallback. |
 | `DEXE_WALLETCONNECT_PROJECT_ID` | WalletConnect signing | A shared default ships; set your own project ID for production use. |
 | `DEXE_PRIVATE_KEY` | broadcast mode | Hot-key signing. Opt-in; prefer WalletConnect. Never required for build tools. |
-| `DEXE_TOOLSETS` | tool gating | Comma list of profiles; default `core,proposals`. |
+| `DEXE_TOOLSETS` | tool gating | Comma list of profiles; default `core` (v0.31.0; was `core,proposals`). Valid: `core`, `proposals`, `read`, `vote`, `governor`, `dev`, `full`. |
 | `DEXE_SUBGRAPH_POOLS_URL` / `_VALIDATORS_URL` / `_INTERACTIONS_URL` | subgraph reads | The Graph endpoints; defaults target the decentralized network. |
 | `DEXE_GRAPH_API_KEY` | subgraph reads | Only when the URL doesn't embed the key. |
 | `DEXE_BACKEND_API_URL` | off-chain proposals | DeXe backend, e.g. `https://api.dexe.io`. |
@@ -181,7 +190,8 @@ No variable is required to start the server; tools that need a missing one fail 
 
 - [docs/USE_CASES.md](./docs/USE_CASES.md) — verified use-case catalog: what to say to your agent, what happens, on-chain evidence.
 - [docs/PLAYBOOK.md](./docs/PLAYBOOK.md) — the AI playbook: intent → exact call, per-type params, error → remedy. Also served as the MCP resource `dexe://playbook`.
-- [docs/TOOLS.md](./docs/TOOLS.md) — all 165 tools, grouped, with one-line descriptions and required env vars. Also served as the MCP resource `dexe://tools`.
+- [docs/TOOLS.md](./docs/TOOLS.md) — all 167 tools, grouped, with one-line descriptions, the toolset profile each section needs, and required env vars. Also served as the MCP resource `dexe://tools`.
+- [docs/REPORTING.md](./docs/REPORTING.md) — `dexe_dao_report`: the one-call DAO report, its sections, the `since` diff, and running it on a schedule.
 - [docs/USAGE.md](./docs/USAGE.md) — worked examples with copy-pasteable JSON.
 - [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) — full env-var reference and common pitfalls.
 - [docs/INSTALL.md](./docs/INSTALL.md) — install instructions per MCP client.

@@ -2,22 +2,45 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 
 /**
- * Toolset gating (Phase 2 / v0.13.0). Registering all 160 tools unconditionally
- * costs ~50K tokens (~206 KB) of `tools/list` per session. `DEXE_TOOLSETS`
+ * Toolset gating (Phase 2 / v0.13.0). Registering every tool unconditionally
+ * costs ~62K tokens (~255 KB) of `tools/list` per session. `DEXE_TOOLSETS`
  * selects named profiles so a default session loads a slim subset.
  *
  * `TOOLSETS` maps a profile name → the exact tool names it enables. Sets may
  * overlap; the active allowlist is their union. `full` is special — it bypasses
  * filtering entirely (registers everything). The union of all named sets equals
- * the full 159-tool surface (asserted in tests/tools/gate.test.ts), so every
- * tool is reachable under at least one non-`full` profile.
+ * the full surface (asserted in tests/tools/gate.test.ts), so every tool is
+ * reachable under at least one non-`full` profile.
  *
  * Applied as a one-line wrap in `registerAll()` — the wrapped server proxies
  * `registerTool`/`tool`, dropping any name not in the active allowlist. The 30+
  * register files are unchanged.
  */
 
-// ── core: the everyday flow surface (~one session's worth) ──────────────────
+/**
+ * ── core: the default profile (v0.31.0) ────────────────────────────────────
+ *
+ * Two jobs, and nothing else:
+ *
+ *   1. REPORT. Every read a fresh install can actually perform with the shipped
+ *      defaults — no API key, no RPC of your own. Before 0.31.0 the subgraph and
+ *      analytics reads sat in the `read` set, so "reads work zero-config" was
+ *      false for everything except plain on-chain calls, while the README and
+ *      the dexe://graph-schema resource advertised exactly those tools. A DAO
+ *      health report was unbuildable out of the box.
+ *   2. DRIVE THE COMPOSITES. `dexe_proposal_create` takes proposalType + params
+ *      and covers every on-chain catalog type, so the ~30 single-purpose
+ *      `dexe_proposal_build_*` tools it subsumes are NOT here — they cost ~45 KB
+ *      of `tools/list` to duplicate a capability core already has. They live in
+ *      `proposals` (DEXE_TOOLSETS=core,proposals restores the pre-0.31 default)
+ *      and stay documented in docs/TOOLS.md. `dexe_proposal_catalog` +
+ *      `dexe_guide` are in core precisely so an agent can still DISCOVER every
+ *      type without loading the builders.
+ *
+ * tests/tools/default-profile-capability.test.ts pins both halves: the read
+ * surface must be here, and every catalog proposal type must remain reachable
+ * from this profile through `dexe_proposal_create`.
+ */
 const CORE = [
   "dexe_context",
   "dexe_guide",
@@ -51,7 +74,7 @@ const CORE = [
   "dexe_ipfs_upload_avatar",
   "dexe_ipfs_upload_proposal_metadata",
   "dexe_dao_generate_avatar",
-  // common reads
+  // on-chain reads + proposal-type discovery for dexe_proposal_create
   "dexe_read_treasury",
   "dexe_read_settings",
   "dexe_proposal_state",
@@ -60,9 +83,39 @@ const CORE = [
   "dexe_dao_info",
   "dexe_dao_registry_lookup",
   "dexe_dao_predict_addresses",
+  // reporting surface — subgraph + backend analytics, all key-free. These are
+  // what "pull a report about a DAO: activity, members, who voted, statistics"
+  // resolves to; dexe_dao_report is the one-call composite over them.
+  "dexe_dao_report",
+  "dexe_graph_query",
+  // The recovery path for the most common failure of a tool that IS in core.
+  // A bad field name in dexe_graph_query answers with "[recover] … call
+  // dexe_graph_schema" (src/tools/subgraph.ts withSchemaRecoveryHint); if the
+  // session cannot see that tool, the documented recovery is a 404 and the
+  // caller's only remaining move is to guess another field name. Pinned by
+  // tests/tools/default-profile-references.test.ts, which fails on ANY tool
+  // named from a default description that the default profile does not have.
+  "dexe_graph_schema",
+  "dexe_read_dao_list",
+  "dexe_read_dao_stats",
+  "dexe_read_dao_members",
+  "dexe_read_token_holders",
+  "dexe_read_delegation_map",
+  // reports resolve IPFS metadata pointers (DAO profile, proposal descriptions)
+  "dexe_ipfs_fetch",
 ];
 
-// ── proposals: every builder + the offchain/auth surface + proposal IPFS ────
+/**
+ * ── proposals: every single-purpose builder + the offchain/auth surface ─────
+ *
+ * NOT in the default profile since v0.31.0. `dexe_proposal_create` (core) covers
+ * every on-chain catalog type via proposalType + params, so loading these by
+ * default paid ~45 KB of `tools/list` for a second way to do the same thing.
+ * Opt in with DEXE_TOOLSETS=core,proposals when you want the raw calldata
+ * builders — e.g. to inspect actions before creating, to hand-assemble a
+ * multi-action proposal, or for the off-chain (backend API) types, which the
+ * composite deliberately refuses and signposts here.
+ */
 const PROPOSALS = [
   // proposalBuild.ts
   "dexe_proposal_catalog",
@@ -114,7 +167,13 @@ const PROPOSALS = [
   "dexe_ipfs_update_dao_metadata",
 ];
 
-// ── read: chain + subgraph reads, inbox/forecast/risk, IPFS reads ───────────
+/**
+ * ── read: chain + subgraph reads, inbox/forecast/risk, IPFS reads ───────────
+ *
+ * The zero-config reporting subset of this list is ALSO in `core` (sets may
+ * overlap) — `read` remains the "give me every read tool" profile, including the
+ * long-tail ones a report doesn't need.
+ */
 const READ = [
   // read.ts
   "dexe_read_multicall",
@@ -140,6 +199,13 @@ const READ = [
   "dexe_read_dao_experts",
   "dexe_otc_list_sales_for_dao",
   "dexe_graph_query",
+  // Also in `core` (sets overlap) — it is the recovery path for a core tool's
+  // most common failure, so it cannot be gated behind an env var. The static
+  // dexe://graph-schema resource covers the same ground for anyone reading
+  // rather than calling, but a resource cannot be reached from an error string
+  // the model is acting on.
+  "dexe_graph_schema",
+  "dexe_dao_report",
   // proposal.ts
   "dexe_proposal_state",
   "dexe_proposal_list",
@@ -258,8 +324,29 @@ export const TOOLSETS: Record<string, Set<string>> = {
   dev: new Set(DEV),
 };
 
-/** Default profiles when `DEXE_TOOLSETS` is unset (breaking change in v0.13.0). */
-export const DEFAULT_TOOLSETS = ["core", "proposals"] as const;
+/**
+ * Default profiles when `DEXE_TOOLSETS` is unset.
+ *
+ * v0.13.0 made this `core,proposals`; v0.31.0 narrows it to `core` alone. The
+ * `proposals` half was ~45 KB of `tools/list` spent on builders that
+ * `dexe_proposal_create` already subsumes, which left no room for the reads a
+ * report needs. Nothing is lost: `DEXE_TOOLSETS=core,proposals` restores the
+ * previous default exactly, and every demoted builder stays documented in
+ * docs/TOOLS.md.
+ */
+export const DEFAULT_TOOLSETS = ["core"] as const;
+
+/**
+ * The tool names a session sees when `DEXE_TOOLSETS` is unset. Callers that need
+ * to answer "is this tool visible by default?" (knowledge annotations, doctor,
+ * `dexe_context`) must use this instead of hardcoding the profile names, so the
+ * answer can never drift from `DEFAULT_TOOLSETS`.
+ */
+export function defaultProfileToolNames(): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const set of DEFAULT_TOOLSETS) for (const n of TOOLSETS[set]!) names.add(n);
+  return names;
+}
 
 export interface ResolvedToolsets {
   /** Active allowlist, or null when everything should register (`full`). */
@@ -276,8 +363,8 @@ export interface ResolvedToolsets {
  * Resolve the requested profiles into a concrete allowlist. Only an explicit
  * `full` bypasses filtering. Unknown set names are DROPPED (loudly, by the
  * caller) and the recognized ones still apply — a typo in one entry must not
- * dump the entire 165-tool surface (~50K tokens) plus the dev/write sets the
- * user never asked for. When nothing recognizable remains, fall back to the
+ * dump the entire surface (~62K tokens) plus the dev/write sets the user never
+ * asked for. When nothing recognizable remains, fall back to the
  * defaults rather than registering nothing. Pure — no side effects.
  */
 export function resolveToolsets(requested: readonly string[]): ResolvedToolsets {

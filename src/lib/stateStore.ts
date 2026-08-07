@@ -182,6 +182,27 @@ function sleepSync(ms: number): void {
 }
 
 /**
+ * The two halves of "wait a bit", injectable. Production calls
+ * `renameWithRetry(tmp, target)` and gets both defaults.
+ *
+ * They exist because the retry policy IS timing behaviour, and the only honest
+ * way to check timing behaviour is to not use a clock. A test that measures the
+ * gaps between attempts measures the machine's scheduler: under a loaded test
+ * runner a 5ms backoff is observed as 90ms, and the assertion fails for reasons
+ * that have nothing to do with this file — which trains everyone to re-run
+ * until green, which is how a real regression walks through. Handing the loop
+ * its randomness (`rand`) and its waiting (`sleep`) lets a test read back the
+ * exact schedule the loop computed and assert the policy — grows, jittered, one
+ * sleep per failed attempt — with no wall clock anywhere.
+ */
+export interface RenameRetryHooks {
+  /** Jitter source, one draw per backoff. Default `Math.random`. */
+  rand?: () => number;
+  /** Blocking wait. Default parks the thread for `ms` (see `sleepSync`). */
+  sleep?: (ms: number) => void;
+}
+
+/**
  * Publish the temp file over the target.
  *
  * POSIX rename is unconditional, but Windows raises EPERM/EACCES/EBUSY while
@@ -197,7 +218,11 @@ function sleepSync(ms: number): void {
  * desynchronizes them. Only the retry policy was wrong: the atomic publish
  * itself (private temp + rename) never produced a torn or zero-byte read.
  */
-export function renameWithRetry(tmp: string, target: string): void {
+export function renameWithRetry(tmp: string, target: string, hooks: RenameRetryHooks = {}): void {
+  // Read at call time, never at import time: a module-level capture would pin
+  // the jitter for the whole process (and defeat a spy installed by a test).
+  const rand = hooks.rand ?? Math.random;
+  const sleep = hooks.sleep ?? sleepSync;
   for (let attempt = 0; ; attempt++) {
     try {
       renameSync(tmp, target);
@@ -206,12 +231,12 @@ export function renameWithRetry(tmp: string, target: string): void {
       const code = (err as { code?: unknown }).code;
       const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
       if (!transient || attempt >= RENAME_ATTEMPTS - 1) throw err;
-      const delay = renameBackoffMs(attempt);
+      const delay = renameBackoffMs(attempt, rand);
       debugLog(
         "state",
         `rename contended (${String(code)}); retry ${attempt + 1} in ${delay.toFixed(1)}ms`,
       );
-      sleepSync(delay);
+      sleep(delay);
     }
   }
 }

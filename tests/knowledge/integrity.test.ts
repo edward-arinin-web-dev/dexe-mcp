@@ -177,8 +177,13 @@ describe("knowledge corpus integrity", () => {
     for (let i = 1; i < d.gotchas.length; i++) {
       expect(rank[d.gotchas[i - 1]!.severity]).toBeLessThanOrEqual(rank[d.gotchas[i]!.severity]);
     }
+    // 0.31.0 moved dexe_graph_query into the default profile, so the annotation
+    // it must now carry is NONE — an agent told to enable `read` for a tool it
+    // can already see is the same failure as the reverse, just quieter.
     const graphQuery = d.tools.find((t) => t.tool === "dexe_graph_query")!;
-    expect(graphQuery.requiresToolset).toContain("read");
+    expect(graphQuery.requiresToolset).toBeUndefined();
+    const simCalldata = d.tools.find((t) => t.tool === "dexe_sim_calldata")!;
+    expect(simCalldata.requiresToolset).toContain("dev");
   });
 
   it("chain-gated gotchas only surface on their chains", () => {

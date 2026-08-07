@@ -20,6 +20,7 @@ import { registerProposalBuildInternalTools } from "./proposalBuildInternal.js";
 import { registerVoteBuildTools } from "./voteBuild.js";
 import { registerDaoDeployTools } from "./daoDeploy.js";
 import { registerSubgraphTools } from "./subgraph.js";
+import { registerReportTools } from "./report.js";
 import { registerTxTools } from "./txSend.js";
 import { registerAgentTools } from "./agents.js";
 import { registerGetConfigTool } from "./getConfig.js";
@@ -74,6 +75,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
   registerSubgraphTools(server, ctx);
+  registerReportTools(server, ctx);
   registerMerkleTools(server, ctx);
   registerInboxTools(server, ctx);
   registerPredictTools(server, ctx);
