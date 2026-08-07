@@ -178,7 +178,11 @@ describe("docs/REPORTING.md", () => {
 
 describe("dexe-report skill", () => {
   const path = resolve(root, "dexe-plugin", "skills", "dexe-report", "SKILL.md");
-  const skill = existsSync(path) ? readFileSync(path, "utf8") : "";
+  // Normalize CRLF. The repo is developed on Windows with core.autocrlf=true, so
+  // a checked-out file has \r\n while a freshly written one has \n — meaning a
+  // literal "---\nname:" assertion passes when the file is created and fails
+  // after the next checkout. Line endings are not what these tests are about.
+  const skill = existsSync(path) ? readFileSync(path, "utf8").replace(/\r\n/g, "\n") : "";
 
   it("exists with the same frontmatter shape as the other shipped skills", () => {
     expect(existsSync(path), "dexe-plugin/skills/dexe-report/SKILL.md missing").toBe(true);
