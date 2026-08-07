@@ -6,6 +6,7 @@ import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { parseUintString } from "../lib/amount.js";
 import { buildChainIdParam } from "../lib/params.js";
 import { ETHEREUM_ADDRESS, isNativeSentinel } from "./otc.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 4 — user-facing write calldata builders.
@@ -212,7 +213,7 @@ function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -268,7 +269,7 @@ function registerDeposit(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -311,7 +312,7 @@ function registerWithdraw(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -364,7 +365,7 @@ function registerDelegate(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -409,7 +410,7 @@ function registerUndelegate(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -463,7 +464,7 @@ function registerVote(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -499,7 +500,7 @@ function registerCancelVote(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -547,7 +548,7 @@ function registerValidatorVote(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -586,7 +587,7 @@ function registerValidatorCancelVote(server: McpServer, ctx: ToolContext): void 
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -622,7 +623,7 @@ function registerMoveToValidators(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -680,7 +681,7 @@ function registerExecute(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -718,7 +719,7 @@ function registerClaimRewards(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -759,7 +760,7 @@ function registerClaimMicropoolRewards(server: McpServer, ctx: ToolContext): voi
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -795,7 +796,7 @@ function registerNftMultiplierLock(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -828,7 +829,7 @@ function registerNftMultiplierUnlock(server: McpServer, ctx: ToolContext): void 
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -898,7 +899,7 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -932,7 +933,7 @@ function registerTokenSaleClaim(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -966,7 +967,7 @@ function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): 
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1004,7 +1005,7 @@ function registerDistributionClaim(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1045,7 +1046,7 @@ function registerStakingStake(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1079,7 +1080,7 @@ function registerStakingClaim(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1112,7 +1113,7 @@ function registerStakingClaimAll(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1146,7 +1147,7 @@ function registerStakingReclaim(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1236,7 +1237,7 @@ function registerPrivacyPolicyAgree(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -1285,7 +1286,7 @@ function registerMulticall(server: McpServer, ctx: ToolContext): void {
         });
         return payloadResult(payload);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );

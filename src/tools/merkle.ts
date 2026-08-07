@@ -8,6 +8,7 @@ import {
   computeLeafHash,
   verifyProof,
 } from "../lib/merkleTree.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Merkle utility tools — produce roots and proofs compatible with
@@ -107,7 +108,7 @@ export function registerMerkleTools(server: McpServer, _ctx: ToolContext): void 
           proofs: result.proofs,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -198,7 +199,7 @@ export function registerMerkleTools(server: McpServer, _ctx: ToolContext): void 
           verified: verifyProof(proof, tree.root, leaf),
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );

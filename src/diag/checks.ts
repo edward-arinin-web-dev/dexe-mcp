@@ -21,6 +21,7 @@ import {
 } from "../config.js";
 import { extractGraphApiKey, isTrustedGraphHost } from "../lib/subgraph.js";
 import { maskUrl, redactUrlCredentials } from "../lib/redact.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 export type CheckStatus = "pass" | "warn" | "fail";
 export type CheckCategory = EnvCategory | "network" | "process";
@@ -38,6 +39,11 @@ export interface RunCheckOpts {
   config?: DexeConfig;
   /** Per-network-check timeout. Defaults to 3000ms. */
   timeoutMs?: number;
+  /**
+   * Ceiling for the whole network phase, however many probes it fans out to.
+   * Defaults to `timeoutMs * 4` (so 12s at the 3s default).
+   */
+  networkBudgetMs?: number;
   /** Override the recorded `.env` resolution. Defaults to what this process loaded. */
   envSource?: EnvSourceState;
 }
@@ -48,6 +54,29 @@ export interface RunCheckOpts {
  * Network checks have a hard timeout that downgrades to `warn`, never `fail` —
  * an offline laptop or VPN flake should not make the doctor scream red.
  */
+/** Sentinel for "the deadline won" — distinct from any legitimate result. */
+const TIMED_OUT = Symbol("timed-out");
+
+/**
+ * Resolve `p`, or `TIMED_OUT` after `ms`. The abandoned promise keeps running
+ * to completion in the background; every probe it contains is individually
+ * bounded and writes to nothing, so letting it finish unobserved is harmless
+ * and cheaper than threading an AbortSignal through every check.
+ */
+async function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult[]> {
   const timeoutMs = opts.timeoutMs ?? 3000;
   const results: CheckResult[] = [];
@@ -59,16 +88,42 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
   results.push(...envSourceChecks(envSource));
   results.push(...envPresenceChecks());
 
-  const network = await Promise.all([
-    ...rpcReachabilityChecks(opts.config, timeoutMs),
-    pinataJwtCheck(timeoutMs),
-    pinataPinQuotaCheck(timeoutMs),
-    ipfsGatewayDnsCheck(timeoutMs),
-    ...subgraphChecks(opts.config, timeoutMs),
-    backendCheck(timeoutMs),
-  ]);
-  for (const r of network) {
-    if (r) results.push(r);
+  // Every probe below already carries its own `timeoutMs`, but the number of
+  // probes now scales with configuration — 0.30.2 made the subgraph check run
+  // per chain per kind, so a multi-chain install fans out. An overall deadline
+  // keeps doctor's total cost bounded no matter how many endpoints are
+  // configured, and matters most in the case doctor exists for: a user whose
+  // environment is broken, where several probes are simultaneously slow.
+  // A doctor that hangs is a doctor that cannot diagnose the hang.
+  // Proportional to the per-probe timeout on purpose: a caller that asks for
+  // fast probes (tests, a scripted health check) gets a fast ceiling too. A
+  // fixed floor here would make `timeoutMs: 100` mean "up to 12 seconds", which
+  // is exactly the surprise this guard is meant to remove.
+  const networkBudgetMs = opts.networkBudgetMs ?? timeoutMs * 4;
+  const network = await withDeadline(
+    Promise.all([
+      ...rpcReachabilityChecks(opts.config, timeoutMs),
+      pinataJwtCheck(timeoutMs),
+      pinataPinQuotaCheck(timeoutMs),
+      ipfsGatewayDnsCheck(timeoutMs),
+      ...subgraphChecks(opts.config, timeoutMs),
+      backendCheck(timeoutMs),
+    ]),
+    networkBudgetMs,
+  );
+  if (network === TIMED_OUT) {
+    results.push({
+      id: "network.probes",
+      category: "network",
+      status: "warn",
+      message: `reachability probes exceeded the ${networkBudgetMs}ms budget and were abandoned — the checks above are complete, the network ones are not.`,
+      remediation:
+        "Usually a blackholing endpoint or DNS. Re-run with a larger budget, or set DEXE_RPC_TIMEOUT_MS / your own DEXE_RPC_URL_* and DEXE_SUBGRAPH_*_URL to skip the slow endpoint.",
+    });
+  } else {
+    for (const r of network) {
+      if (r) results.push(r);
+    }
   }
 
   results.push(...subgraphCoverageCheck(opts.config));
@@ -498,7 +553,7 @@ async function ipfsGatewayDnsCheck(timeoutMs: number): Promise<CheckResult | nul
       id: "ipfs.gateway.dns",
       category: "ipfs",
       status: "fail",
-      message: `DNS lookup for ${host} failed: ${err instanceof Error ? err.message : String(err)}`,
+      message: `DNS lookup for ${host} failed: ${safeErrorMessage(err)}`,
       remediation:
         "Check the hostname in DEXE_IPFS_GATEWAY. Pinata dedicated gateways follow https://<subdomain>.mypinata.cloud.",
     };
@@ -1068,7 +1123,7 @@ async function fetchJsonWithTimeout(
     return { kind: "ok", status: r.status, body };
   } catch (err) {
     if ((err as { name?: string }).name === "AbortError") return { kind: "timeout" };
-    return { kind: "error", error: err instanceof Error ? err.message : String(err) };
+    return { kind: "error", error: safeErrorMessage(err) };
   } finally {
     clearTimeout(timer);
   }

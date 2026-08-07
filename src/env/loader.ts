@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { safeErrorMessage } from "../lib/redact.js";
 import {
   ENV_REGISTRY,
   DYNAMIC_PER_CHAIN_RPC_RE,
@@ -227,7 +228,7 @@ export function loadEnvFile(
       parseIssues.push({
         trap: "unreadable",
         severity: "fail",
-        message: `${envFilePath} could not be read: ${err instanceof Error ? err.message : String(err)}`,
+        message: `${envFilePath} could not be read: ${safeErrorMessage(err)}`,
         remediation: `Check the file's permissions and that it is a regular file, then restart Claude Code.`,
       });
     }
@@ -244,7 +245,7 @@ export function loadEnvFile(
         trap: "load-failed",
         severity: "fail",
         message: `${envFilePath} was NOT loaded — process.loadEnvFile threw (Node < 21.7, or a syntax error): ${
-          err instanceof Error ? err.message : String(err)
+          safeErrorMessage(err)
         }`,
         remediation:
           "Upgrade to Node 22 LTS, then check the file for lines that are not `KEY=value`. Restart Claude Code after fixing.",

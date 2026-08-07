@@ -7,6 +7,7 @@ import { multicall } from "../lib/multicall.js";
 import { gqlRequest, resolveSubgraphUrl, type ResolvedSubgraph } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 import { chainIdParam } from "../lib/params.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -141,7 +142,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
       } catch (e) {
         // The resolver's message IS the user-facing remediation (it names the
         // chains that do have an index and the env var to set).
-        noSubgraphReason = e instanceof Error ? e.message : String(e);
+        noSubgraphReason = safeErrorMessage(e);
       }
       if (!subgraph && !forceRpcOnly) {
         return ok({
@@ -228,7 +229,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
           // invalid field set above survived unnoticed.
           noSubgraphReason =
             `history cross-check failed against the chain-${subgraph.chainId} index: ` +
-            `${queryErr instanceof Error ? queryErr.message : String(queryErr)}`;
+            `${safeErrorMessage(queryErr)}`;
         }
       }
 

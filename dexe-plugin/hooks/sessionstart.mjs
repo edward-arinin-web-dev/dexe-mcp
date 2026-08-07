@@ -11,7 +11,7 @@
  * Best-effort by design: any error exits 0 silently. A SessionStart hook must
  * never block or slow the session.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
@@ -56,18 +56,17 @@ async function main() {
   const baseDir = stateEnv ? dirname(stateEnv) : join(homedir(), ".dexe-mcp");
   const marker = join(baseDir, ".onboarded");
 
-  try {
-    if (existsSync(marker)) process.exit(0); // already nudged once
-  } catch {
-    /* fall through and nudge */
-  }
-
-  // Record the nudge so it fires only once, ever.
+  // Claim the marker ATOMICALLY: "wx" creates it or fails with EEXIST, so the
+  // check and the write are one operation. A separate existsSync() first was a
+  // check-then-write race — two sessions starting at the same moment both saw
+  // "absent" and both nudged, and CodeQL flags the pattern (js/file-system-race).
   try {
     mkdirSync(baseDir, { recursive: true });
-    writeFileSync(marker, new Date().toISOString() + "\n", "utf8");
-  } catch {
-    /* best effort — still nudge this one time */
+    writeFileSync(marker, new Date().toISOString() + "\n", { encoding: "utf8", flag: "wx" });
+  } catch (err) {
+    // EEXIST means someone already nudged — that is the normal steady state.
+    if (err && err.code === "EEXIST") process.exit(0);
+    // Anything else (read-only HOME, no permission): best effort, nudge once.
   }
 
   console.log(

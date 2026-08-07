@@ -15,6 +15,8 @@ import { pinataUploadHint } from "../lib/requireEnv.js";
 import { renderAvatarJpeg } from "../lib/avatarImage.js";
 import { assertRasterAvatar, checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
+import { redactUrlCredentials, safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 import { readFile } from "node:fs/promises";
 
 export function registerIpfsTools(server: McpServer, ctx: ToolContext): void {
@@ -33,6 +35,56 @@ export function registerIpfsTools(server: McpServer, ctx: ToolContext): void {
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
+/**
+ * The one sink every IPFS tool's catch-all goes through.
+ *
+ * WHY it exists rather than calling `toActionableError` directly at each site:
+ * a gateway URL is operator-supplied and may carry credentials in the URL
+ * itself (`https://user:pass@gw/…`, or a token in the query). `fetch()` refuses
+ * such a URL with "Request cannot be constructed from a URL that includes
+ * credentials: <the whole URL>", and `fetchIpfs` aggregates that verbatim into
+ * its per-gateway error list — so an echo of the raw message publishes the
+ * gateway key into the model context. Both helpers below redact; the raw
+ * `err.message` never leaves this file.
+ *
+ * WHY the `IPFS fetch failed` carve-out: the shared remedy table
+ * (src/lib/errors.ts) has no IPFS-gateway entry, so a stalled gateway ("… →
+ * timed out after 4000ms") falls through to `rpc-timeout` and would tell the
+ * agent to set DEXE_RPC_URL_* and check the tx with dexe_tx_status — the wrong
+ * knob and the wrong tool for an IPFS read. `fetchIpfs` already appends the
+ * correct hint (set DEXE_IPFS_GATEWAY), so those keep their own advice.
+ */
+function ipfsToolError(err: unknown, step: string): string {
+  const raw = safeErrorMessage(err);
+  if (/IPFS fetch failed/i.test(raw)) return `${step} failed: ${raw}`;
+  return toActionableError(err, step).message;
+}
+
+/**
+ * Drop `user:pass@` from a gateway URL we DELIBERATELY print (the gateway list
+ * in `dexe_ipfs_cid_info`), keeping scheme/host/path so the URL still names the
+ * CID it resolves. `redactUrlCredentials` is the right tool for error text but
+ * the wrong one here — it collapses the path to `/***`, which would erase the
+ * `/ipfs/<cid>` the tool exists to show. Never throws.
+ *
+ * Mirrors the same helper in src/tools/safe.ts; both belong in lib/redact.ts
+ * once that file is free to edit.
+ */
+function stripUrlUserinfo(raw: string): string {
+  try {
+    const u = new URL(raw);
+    // Nothing to strip → return the original: URL.toString() normalizes (adds a
+    // trailing slash to a bare origin) and these strings are compared by eye
+    // against what the operator configured.
+    if (!u.username && !u.password) return raw;
+    u.username = "";
+    u.password = "";
+    return u.toString();
+  } catch {
+    return raw.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g, "$1");
+  }
 }
 
 /**
@@ -64,7 +116,9 @@ async function warmDexeIpfsCache(cidV0: string): Promise<{ ok: boolean; status?:
     });
     return { ok: r.ok, status: r.status };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    // Surfaced in the tool text as `prewarm → skipped (<error>)`, so it needs
+    // the same redaction as a hard failure.
+    return { ok: false, error: safeErrorMessage(err) };
   }
 }
 
@@ -192,7 +246,7 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_ipfs_upload_proposal_metadata"));
       }
     },
   );
@@ -299,8 +353,14 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
           // By-reference CID: the local byte gate never saw these bytes, so
           // best-effort fetch + sniff. Confirmed non-raster → hard block.
           const check = await checkAvatarCidBytes(avatarCidV1, avatarFileName, resolveGateways(ctx));
-          if (!check.ok) return errorResult(check.error ?? "avatarCID failed raster validation");
-          avatarWarning = check.warning;
+          // Both strings embed the gateway URL and the raw fetch failure (see
+          // checkAvatarCidBytes' `attempts` list), so they bypass ipfsToolError
+          // and need the same scrub — the warning too, since it rides out on
+          // the SUCCESS path.
+          if (!check.ok) {
+            return errorResult(redactUrlCredentials(check.error ?? "avatarCID failed raster validation"));
+          }
+          avatarWarning = check.warning ? redactUrlCredentials(check.warning) : undefined;
         }
 
         const outerPayload = {
@@ -347,7 +407,7 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_ipfs_upload_dao_metadata"));
       }
     },
   );
@@ -404,7 +464,7 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
             buf = await readFile(filePath);
           } catch (e) {
             return errorResult(
-              `Cannot read file at "${filePath}": ${e instanceof Error ? e.message : String(e)}. Pass an absolute path to an existing file.`,
+              `Cannot read file at "${filePath}": ${safeErrorMessage(e)}. Pass an absolute path to an existing file.`,
             );
           }
           const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -450,7 +510,7 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_ipfs_upload_file"));
       }
     },
   );
@@ -507,7 +567,7 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_ipfs_fetch"));
       }
     },
   );
@@ -538,7 +598,9 @@ function registerCidInfo(server: McpServer, gateways: string[]): void {
       try {
         const info = parseCid(cid);
         const gatewayUrls = gateways.length
-          ? gateways.map((g) => `${g.replace(/\/+$/, "").replace(/\/ipfs$/, "")}/ipfs/${info.cid}`)
+          ? gateways.map((g) =>
+              stripUrlUserinfo(`${g.replace(/\/+$/, "").replace(/\/ipfs$/, "")}/ipfs/${info.cid}`),
+            )
           : [];
         const structured = { ...info, gatewayUrls };
         return {
@@ -557,7 +619,7 @@ function registerCidInfo(server: McpServer, gateways: string[]): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_ipfs_cid_info"));
       }
     },
   );
@@ -588,7 +650,7 @@ function registerCidForJson(server: McpServer): void {
           structuredContent: { cid, codec: "json" },
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_ipfs_cid_for_json"));
       }
     },
   );
@@ -660,7 +722,7 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_ipfs_upload_avatar"));
       }
     },
   );
@@ -726,7 +788,7 @@ function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_dao_generate_avatar"));
       }
     },
   );
@@ -839,7 +901,11 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
           // SVG/HTML CID can't be wired into the profile (hard block only on
           // confirmed non-raster bytes; unreachable → proceed).
           const check = await checkAvatarCidBytes(avatarCidV1, avatarFileName, gateways);
-          if (!check.ok) return errorResult(check.error ?? "avatarCID failed raster validation");
+          // Carries the gateway URL + raw fetch failure — scrub before it is
+          // shown (same reason as in dexe_ipfs_upload_dao_metadata).
+          if (!check.ok) {
+            return errorResult(redactUrlCredentials(check.error ?? "avatarCID failed raster validation"));
+          }
         } else if (overrides.avatarCID === "") {
           // Explicit clear.
           avatarUrl = "";
@@ -908,7 +974,7 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
           structuredContent: structured,
         };
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(ipfsToolError(err, "dexe_ipfs_update_dao_metadata"));
       }
     },
   );

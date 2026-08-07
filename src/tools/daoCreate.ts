@@ -31,6 +31,8 @@ import { quorumPctFromRaw } from "../lib/quorumRisk.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
 import { resolveGateways } from "./ipfs.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 /**
  * `dexe_dao_create` — the one-call DAO deploy composite. Two ways to call it:
@@ -400,7 +402,7 @@ export function registerDaoCreateTools(
             deployer,
           );
         } catch (e) {
-          return err(`Could not synthesize DAO config: ${e instanceof Error ? e.message : String(e)}`);
+          return err(`Could not synthesize DAO config: ${safeErrorMessage(e)}`);
         }
       }
 
@@ -443,7 +445,7 @@ export function registerDaoCreateTools(
             : []),
         ]);
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeErrorMessage(e));
       }
 
       // ---------- safety proof (reachability is the hard rule) ----------
@@ -548,7 +550,7 @@ export function registerDaoCreateTools(
           daoMeta.avatarFileName = pinned.avatarFileName;
           daoMeta.avatarUrl = pinned.avatarUrl;
         } catch (e) {
-          return err(e instanceof Error ? e.message : String(e));
+          return err(safeErrorMessage(e));
         }
       } else if (input.avatarCID) {
         // avatarCID arrives by reference — the upload tools validate their own
@@ -572,7 +574,7 @@ export function registerDaoCreateTools(
           const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${input.daoName.slice(0, 30)}` });
           descriptionURL = `ipfs://${daoMetaRes.cid}`;
         } catch (e) {
-          return err(`Failed to upload DAO metadata to IPFS: ${e instanceof Error ? e.message : String(e)}`);
+          return err(`Failed to upload DAO metadata to IPFS: ${safeErrorMessage(e)}`);
         }
       }
 
@@ -616,7 +618,10 @@ export function registerDaoCreateTools(
       try {
         result = await sendOrCollect(signer, [res.payload], { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
       } catch (e) {
-        return err(`Deploy broadcast failed: ${e instanceof Error ? e.message : String(e)}`);
+        // The deploy broadcast is a write: no gas / nonce clash / RPC stall all
+        // land here, and each has a different next step. Classify rather than
+        // handing back the ethers dump.
+        return err(toActionableError(e, "dexe_dao_create deploy broadcast").message);
       }
       if (result.mode === "failed") {
         // R3/R7: a mined-but-reverted (or timed-out) deploy must not read as

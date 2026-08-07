@@ -42,6 +42,7 @@ import { flowChainFields, flowContextSchema, type FlowContext } from "../lib/flo
 import { parseAmount, formatAmount } from "../lib/units.js";
 import { signerKeyParam } from "../lib/params.js";
 import type { StateStore } from "../lib/stateStore.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 // ---------- ABI fragments ----------
 
@@ -195,7 +196,7 @@ async function assessExecuteRisk(
     if (!res?.success) return { error: res?.error ?? "getProposals reverted" };
     value = res.value;
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
+    return { error: safeErrorMessage(e) };
   }
   const arr = value as unknown[];
   if (!Array.isArray(arr) || arr.length === 0) return { error: `Proposal ${proposalId} not found` };
@@ -806,7 +807,7 @@ export async function runProposalCreate(
               currentMetaFetchError = `fetched but not JSON object (contentType=${fetched.contentType})`;
             }
           } catch (e) {
-            currentMetaFetchError = e instanceof Error ? e.message : String(e);
+            currentMetaFetchError = safeErrorMessage(e);
           }
         }
         // Hard guard: if we wanted to merge but couldn't fetch the current
@@ -1002,7 +1003,7 @@ export async function runProposalCreate(
           ? parseAmount(input.voteAmount, prereqs.tokenDecimals)
           : prereqs.depositedPower + prereqs.walletBalance;
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeErrorMessage(e));
       }
       if (voteAmount === 0n) {
         return err(
@@ -1212,7 +1213,7 @@ async function runInternalProposalCreate(
   try {
     await assertRegisteredGovPool(provider, rpc, ctx.config, chainId, govPool);
   } catch (e) {
-    return err(e instanceof Error ? e.message : String(e));
+    return err(safeErrorMessage(e));
   }
 
   // Resolve the GovValidators helper from the pool.
@@ -1783,7 +1784,7 @@ export function registerFlowTools(
             ? prereqs.depositedPower
             : prereqs.depositedPower + prereqs.walletBalance;
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeErrorMessage(e));
       }
 
       if (voteAmt === 0n) {

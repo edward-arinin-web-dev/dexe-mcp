@@ -5,6 +5,7 @@ import { RpcProvider } from "../../rpc.js";
 import { resolveGovernor } from "../loader.js";
 import { governorContract, isBravo, projectVoteImpact, readProposal, readQuorum, stateName } from "../adapter.js";
 import { buildExecute, decodeGovernorWrite, type QueueExecuteArgs } from "../encoder.js";
+import { safeErrorMessage } from "../../lib/redact.js";
 
 const ERROR_STRING_SELECTOR = "0x08c379a0";
 const PANIC_SELECTOR = "0x4e487b71";
@@ -136,7 +137,7 @@ function registerSimulateProposal(server: McpServer, rpc: RpcProvider): void {
             governor: cfg.id,
             governorVersion: cfg.governorVersion,
             success: false,
-            revertReason: reason ?? (e instanceof Error ? e.message : String(e)),
+            revertReason: reason ?? (safeErrorMessage(e)),
             currentState,
             executeCalldata: built,
           });

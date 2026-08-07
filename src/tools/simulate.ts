@@ -5,6 +5,7 @@ import type { ToolContext } from "./context.js";
 import { SignerManager } from "../lib/signer.js";
 import { RpcProvider } from "../rpc.js";
 import { chainIdParam } from "../lib/params.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -226,7 +227,7 @@ export function registerSimulateTools(
         });
         return ok({ ...result, from: fromResolved });
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeErrorMessage(e));
       }
     },
   );
@@ -300,7 +301,7 @@ export function registerSimulateTools(
           from: fromResolved,
         });
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeErrorMessage(e));
       }
     },
   );
@@ -384,7 +385,7 @@ export function registerSimulateTools(
           from: fromResolved,
         });
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeErrorMessage(e));
       }
     },
   );

@@ -3,6 +3,7 @@ import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 3e — internal proposal wrappers.
@@ -124,7 +125,7 @@ function registerChangeValidatorBalances(server: McpServer): void {
           title: `Change Validator Balances (${changes.length} changes)`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -174,7 +175,7 @@ function registerChangeValidatorSettings(server: McpServer): void {
           title: `Change Validator Settings (duration=${duration}s, delay=${executionDelay}s, quorum=${quorum})`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );
@@ -226,7 +227,7 @@ function registerMonthlyWithdraw(server: McpServer): void {
           title: `Monthly Withdraw (${withdrawals.length} tokens → ${destination})`,
         });
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
     },
   );

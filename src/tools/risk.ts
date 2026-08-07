@@ -15,6 +15,8 @@ import {
 } from "../lib/quorumRisk.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 /**
  * Layer 6 — `dexe_proposal_risk_assess`. A treasury-safety risk readout for a
@@ -127,7 +129,7 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
       try {
         chain = resolveChain(ctx.config, chainId);
       } catch (e) {
-        return errorResult(e instanceof Error ? e.message : String(e));
+        return errorResult(safeErrorMessage(e));
       }
       const pr = rpc.tryProvider(chain.chainId);
       if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
@@ -282,7 +284,7 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
 
         return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: structured };
       } catch (err) {
-        return errorResult(`risk_assess failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(toActionableError(err, "dexe_proposal_risk_assess").message);
       }
     },
   );

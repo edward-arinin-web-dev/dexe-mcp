@@ -15,11 +15,60 @@ import {
   SAFE_TX_TYPES,
 } from "../lib/ethersProvider.js";
 import { assertAllowlistAndValueCap, BroadcastGuardError } from "../lib/broadcastGuards.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 // ---------- helpers ----------
 
 function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
+/**
+ * Drop `user:pass@` from a URL, keeping scheme/host/path/query.
+ *
+ * WHY not `maskUrl` from lib/redact: this is used on the endpoint we
+ * DELIBERATELY show the operator (they asked "where would this POST go?"), and
+ * `maskUrl` collapses the path to `/***`, which would hide the Safe address and
+ * the API version — the whole point of showing it. Userinfo is the one part of
+ * a `DEXE_SAFE_TX_SERVICE_URL` that is a credential, so that is all we strip.
+ * Never throws: an unparseable override falls back to a regex strip.
+ */
+function stripUrlUserinfo(raw: string): string {
+  try {
+    const u = new URL(raw);
+    // Return the original string when there is nothing to strip: URL.toString()
+    // normalizes (adds a trailing slash to a bare origin), and the endpoint we
+    // print should stay byte-identical to what the operator configured.
+    if (!u.username && !u.password) return raw;
+    u.username = "";
+    u.password = "";
+    return u.toString();
+  } catch {
+    return raw.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g, "$1");
+  }
+}
+
+/**
+ * The one sink both Safe tools' catch-alls go through.
+ *
+ * WHY: `DEXE_SAFE_TX_SERVICE_URL` is operator-supplied and may carry
+ * credentials in the URL itself even though the API key normally rides in a
+ * Bearer header. `fetch()` refuses such a URL outright with "Request cannot be
+ * constructed from a URL that includes credentials: <the whole URL>", so
+ * echoing the raw message publishes it into the model context and the
+ * transcript. Same class as W36 (ethers appends the RPC URL to err.message).
+ *
+ * WHY the `Safe service POST` carve-out: that message (see postSafeTransaction)
+ * already answers the only question a timed-out queue POST raises — "did it
+ * land, and is re-POSTing safe?" — and the shared remedy table has no Safe
+ * entry, so it would fall through to `rpc-timeout` and tell the operator to set
+ * DEXE_RPC_URL_* and check dexe_tx_status. Wrong knob, wrong tool.
+ */
+function safeToolError(e: unknown, step: string): string {
+  const raw = safeErrorMessage(e);
+  if (/Safe service POST/i.test(raw)) return `${step} failed: ${raw}`;
+  return toActionableError(e, step).message;
 }
 
 function ok(data: Record<string, unknown>) {
@@ -38,6 +87,51 @@ function safeEnv(): { serviceUrl?: string; apiKey?: string } {
     serviceUrl: process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined,
     apiKey: process.env.DEXE_SAFE_API_KEY?.trim() || undefined,
   };
+}
+
+/** Deadline for the Safe Transaction Service POST — 8s, as elsewhere. */
+export const SAFE_SERVICE_TIMEOUT_MS = 8_000;
+
+/**
+ * POST the queue request under a deadline.
+ *
+ * Deliberately NOT retried: this is a write to the Safe service, and a timeout
+ * leaves the outcome genuinely unknown — an automatic second POST would be
+ * issued blind. We hand the decision back to the caller instead, with the one
+ * fact that makes it decidable: `safeTxHash` is deterministic over
+ * (chainId, safe, tx, nonce), so a re-POST addresses the SAME queue entry
+ * rather than creating a second one.
+ */
+export async function postSafeTransaction(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  timeoutMs: number = SAFE_SERVICE_TIMEOUT_MS,
+): Promise<{ ok: boolean; status: number; statusText: string; text: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, statusText: res.statusText, text };
+  } catch (e) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `Safe service POST timed out after ${timeoutMs}ms — it is unknown whether the transaction was ` +
+          `queued. Check the Safe UI (or the service's multisig-transactions list) before retrying. ` +
+          `Re-POSTing is not a second transaction: safeTxHash is deterministic for this ` +
+          `(chain, safe, nonce, payload), so the service addresses the same queue entry.`,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------- register ----------
@@ -81,9 +175,13 @@ export function registerSafeTools(
         let endpoint: { base: string; hosted: boolean; postUrl: string } | { error: string };
         try {
           const ep = resolveSafeServiceEndpoint(chain.chainId, serviceUrl);
-          endpoint = { base: ep.base, hosted: ep.hosted, postUrl: ep.multisigTransactions(state.safe) };
+          endpoint = {
+            base: stripUrlUserinfo(ep.base),
+            hosted: ep.hosted,
+            postUrl: stripUrlUserinfo(ep.multisigTransactions(state.safe)),
+          };
         } catch (e) {
-          endpoint = { error: e instanceof Error ? e.message : String(e) };
+          endpoint = { error: safeErrorMessage(e) };
         }
 
         const signerAddr = signer.hasSigner() ? getAddress(signer.getAddress()) : null;
@@ -108,7 +206,7 @@ export function registerSafeTools(
           },
         });
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeToolError(e, "dexe_safe_info"));
       }
     },
   );
@@ -252,9 +350,13 @@ export function registerSafeTools(
           let endpoint: { base: string; hosted: boolean; postUrl: string } | { error: string };
           try {
             const ep = resolveSafeServiceEndpoint(chainId, serviceUrl);
-            endpoint = { base: ep.base, hosted: ep.hosted, postUrl: ep.multisigTransactions(safe) };
+            endpoint = {
+              base: stripUrlUserinfo(ep.base),
+              hosted: ep.hosted,
+              postUrl: stripUrlUserinfo(ep.multisigTransactions(safe)),
+            };
           } catch (e) {
-            endpoint = { error: e instanceof Error ? e.message : String(e) };
+            endpoint = { error: safeErrorMessage(e) };
           }
           return ok({
             mode: "dryRun",
@@ -289,14 +391,9 @@ export function registerSafeTools(
           );
         }
 
-        const res = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-        });
-        const text = await res.text();
+        const res = await postSafeTransaction(url, headers, body);
         if (!res.ok) {
-          return err(`Safe service POST failed (${res.status} ${res.statusText}): ${text}`);
+          return err(`Safe service POST failed (${res.status} ${res.statusText}): ${res.text}`);
         }
 
         return ok({
@@ -306,12 +403,12 @@ export function registerSafeTools(
           nonce,
           safeTxHash,
           sender,
-          postUrl: url,
+          postUrl: stripUrlUserinfo(url),
           status: res.status,
-          response: text ? safeJsonParse(text) : null,
+          response: res.text ? safeJsonParse(res.text) : null,
         });
       } catch (e) {
-        return err(e instanceof Error ? e.message : String(e));
+        return err(safeToolError(e, "dexe_safe_propose_tx"));
       }
     },
   );

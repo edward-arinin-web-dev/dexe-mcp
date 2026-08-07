@@ -21,6 +21,7 @@ import {
 } from "../lib/preflight.js";
 import { simulateDeployGovPool } from "../lib/deploySim.js";
 import { roundTripDeployCalldata, type DeployStructView } from "../lib/deployGuard.js";
+import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 5 — deploy a new DAO via `PoolFactory.deployGovPool(GovPoolDeployParams)`.
@@ -346,7 +347,7 @@ export async function buildDeployGovPool(
       );
     }
   } catch (err) {
-    return fail(`Failed to encode vote power initData: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(`Failed to encode vote power initData: ${safeErrorMessage(err)}`);
   }
 
   // ---------- default validatorsParams when omitted ----------
@@ -421,7 +422,7 @@ export async function buildDeployGovPool(
       factoryAddress = await book.resolve(CONTRACT_NAMES.POOL_FACTORY);
     } catch (err) {
       return fail(
-        `poolFactory address needed: pass it explicitly, or configure DEXE_RPC_URL so the ContractsRegistry lookup works. (${err instanceof Error ? err.message : String(err)})`,
+        `poolFactory address needed: pass it explicitly, or configure DEXE_RPC_URL so the ContractsRegistry lookup works. (${safeErrorMessage(err)})`,
       );
     }
   }
@@ -473,7 +474,7 @@ export async function buildDeployGovPool(
     }
   } catch (err) {
     return fail(
-      `Failed to predict gov addresses / run pre-deploy checks: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to predict gov addresses / run pre-deploy checks: ${safeErrorMessage(err)}`,
     );
   }
 
@@ -626,7 +627,7 @@ export async function buildDeployGovPool(
             expandedSettings[3] = { ...expandedSettings[3]!, executorDescription: cid };
           }
         } catch (err) {
-          pinataWarning += `\n⚠️  Failed to upload ${label} executorDescription: ${err instanceof Error ? err.message : String(err)}`;
+          pinataWarning += `\n⚠️  Failed to upload ${label} executorDescription: ${safeErrorMessage(err)}`;
         }
       }
     }
@@ -723,7 +724,7 @@ export async function buildDeployGovPool(
       iface = new Interface(FALLBACK_POOL_FACTORY_ABI as unknown as string[]);
       ifaceSource = "fallback (no artifacts — run dexe_compile for strict parity)";
     } else {
-      return fail(`Failed to load PoolFactory ABI: ${err instanceof Error ? err.message : String(err)}`);
+      return fail(`Failed to load PoolFactory ABI: ${safeErrorMessage(err)}`);
     }
   }
 
@@ -740,7 +741,7 @@ export async function buildDeployGovPool(
       description: `PoolFactory.deployGovPool("${params.name}") via ${ifaceSource}`,
     });
   } catch (err) {
-    return fail(`deployGovPool encoding failed: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(`deployGovPool encoding failed: ${safeErrorMessage(err)}`);
   }
 
   // ---------- round-trip self-check (offline encoding guard) ----------
@@ -784,7 +785,7 @@ export async function buildDeployGovPool(
       rt = roundTripDeployCalldata(payload.data, iface, expected);
     } catch (err) {
       return fail(
-        `deployGovPool calldata self-check could not decode the built calldata (${err instanceof Error ? err.message : String(err)}). ` +
+        `deployGovPool calldata self-check could not decode the built calldata (${safeErrorMessage(err)}). ` +
           `This is an ABI/encoding mismatch — run dexe_compile to refresh the PoolFactory ABI. Refusing to emit un-decodable calldata.`,
       );
     }

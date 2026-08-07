@@ -8,6 +8,8 @@ import { proposalStateLabel } from "../lib/govEnums.js";
 import { gqlRequest, resolveSubgraphUrl, PROPOSAL_INTERACTIONS_QUERY } from "../lib/subgraph.js";
 import { chainIdParam } from "../lib/params.js";
 import { proposalInteractionLabel } from "../lib/interactionTypes.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 const GOV_POOL_READ_ABI = [
   "function getProposalState(uint256 proposalId) view returns (uint8)",
@@ -83,7 +85,7 @@ function registerProposalState(server: McpServer, ctx: ToolContext, rpc: RpcProv
         };
       } catch (err) {
         return errorResult(
-          `proposal_state failed: ${err instanceof Error ? err.message : String(err)}`,
+          toActionableError(err, "dexe_proposal_state").message,
         );
       }
     },
@@ -180,7 +182,7 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
         };
       } catch (err) {
         return errorResult(
-          `proposal_list failed: ${err instanceof Error ? err.message : String(err)}`,
+          toActionableError(err, "dexe_proposal_list").message,
         );
       }
     },
@@ -231,7 +233,7 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
       try {
         sg = resolveSubgraphUrl(ctx.config, "pools", chainId);
       } catch (err) {
-        return errorResult(err instanceof Error ? err.message : String(err));
+        return errorResult(safeErrorMessage(err));
       }
       const id = BigInt(proposalId as string).toString();
       const num = Number(id);
@@ -281,7 +283,7 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
         };
       } catch (err) {
         return errorResult(
-          `proposal_voters failed: ${err instanceof Error ? err.message : String(err)}`,
+          toActionableError(err, "dexe_proposal_voters").message,
         );
       }
     },

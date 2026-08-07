@@ -2,6 +2,7 @@ import type { DexeConfig } from "../config.js";
 import { RpcProvider } from "../rpc.js";
 import { simulateCalldata } from "../tools/simulate.js";
 import { mapDeployRevert, type DeployRevertVerdict } from "./deployRevertMap.js";
+import { safeErrorMessage } from "./redact.js";
 
 /**
  * Pre-sign simulation for the GovPool deploy — the one on-chain check no
@@ -53,7 +54,7 @@ export async function simulateDeployGovPool(args: {
   try {
     sim = await simulateCalldata(rpc, { to: args.to, data: args.data, from: args.deployer });
   } catch (e) {
-    const reason = e instanceof Error ? e.message : String(e);
+    const reason = safeErrorMessage(e);
     return {
       status: "unavailable",
       reason,

@@ -1,4 +1,5 @@
 import { resolveChain, type DexeConfig } from "../config.js";
+import { safeErrorMessage } from "./redact.js";
 
 /**
  * C12 Phase B — WalletConnect (Reown) signer session.
@@ -200,7 +201,7 @@ export class WalletConnectManager {
         })
         .catch((e: unknown) => {
           this.connecting = false;
-          this.lastError = e instanceof Error ? e.message : String(e);
+          this.lastError = safeErrorMessage(e);
           provider.removeListener?.("display_uri", onUri);
           // If the URI never made it out, the caller is still awaiting — reject.
           if (!uriEmitted) rejectUri(e);

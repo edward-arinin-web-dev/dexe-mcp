@@ -127,7 +127,7 @@ export function registerTxTools(
                   text: JSON.stringify(
                     {
                       status: "rejected",
-                      reason: `WalletConnect pairing failed: ${e instanceof Error ? e.message : String(e)}`,
+                      reason: toActionableError(e, "WalletConnect pairing").message,
                       chainId: chain.chainId,
                     },
                     null,
@@ -173,7 +173,11 @@ export function registerTxTools(
               {
                 type: "text" as const,
                 text: JSON.stringify(
-                  { status: "rejected", reason: e instanceof Error ? e.message : String(e), chainId: chain.chainId },
+                  {
+                    status: "rejected",
+                    reason: toActionableError(e, "WalletConnect broadcast").message,
+                    chainId: chain.chainId,
+                  },
                   null,
                   2,
                 ),
@@ -286,18 +290,46 @@ export function registerTxTools(
         throw e;
       }
 
-      const tx = await signer.withBroadcastLock(
-        chain.chainId,
-        () =>
-          wallet.sendTransaction({
-            to,
-            data,
-            value: BigInt(value),
-            chainId: BigInt(chain.chainId),
-            ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
-          }),
-        wallet.address,
-      );
+      // The broadcast itself is the single most common failure in the server
+      // (no gas, nonce clash, gas estimation reverting, RPC 429/timeout). An
+      // uncaught throw here escapes as a raw ethers dump — which on a keyed
+      // endpoint carries the RPC URL, API key and all (W36). Classify it.
+      let tx;
+      try {
+        tx = await signer.withBroadcastLock(
+          chain.chainId,
+          () =>
+            wallet.sendTransaction({
+              to,
+              data,
+              value: BigInt(value),
+              chainId: BigInt(chain.chainId),
+              ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
+            }),
+          wallet.address,
+        );
+      } catch (e) {
+        const actionable = toActionableError(e, "dexe_tx_send broadcast");
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  status: "rejected",
+                  reason: actionable.message,
+                  ...(actionable.slug ? { failure: actionable.slug } : {}),
+                  from: wallet.address,
+                  chainId: chain.chainId,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+          isError: true,
+        };
+      }
 
       if (waitConfirmations === 0) {
         return {
@@ -388,13 +420,24 @@ export function registerTxTools(
       // readonly modes too.
       const provider = createChainProvider(chain, config);
 
-      const receipt = await provider.getTransactionReceipt(txHash);
-      if (!receipt) {
+      // dexe_tx_status is the tool users reach for when a broadcast already went
+      // sideways — an unclassified RPC failure here strands them twice.
+      let receipt;
+      let pendingTx = null;
+      try {
+        receipt = await provider.getTransactionReceipt(txHash);
         // A null receipt is ambiguous: the tx may be genuinely pending, or the
         // hash is a typo / on the wrong chain. Probe getTransaction to tell them
         // apart instead of reporting a nonexistent hash as perpetually pending.
-        const tx = await provider.getTransaction(txHash);
-        const status = txStatusFromLookup(false, tx !== null);
+        if (!receipt) pendingTx = await provider.getTransaction(txHash);
+      } catch (e) {
+        return {
+          content: [{ type: "text" as const, text: toActionableError(e, "dexe_tx_status lookup").message }],
+          isError: true,
+        };
+      }
+      if (!receipt) {
+        const status = txStatusFromLookup(false, pendingTx !== null);
         return {
           content: [
             {

@@ -127,3 +127,29 @@ describe("runAllChecks", () => {
     expect(calledUrls.some((u) => u.includes("api.pinata.cloud"))).toBe(false);
   });
 });
+
+/**
+ * 0.30.4 — doctor's total cost must stay bounded no matter how many endpoints
+ * are configured. 0.30.2 made the subgraph probe run per chain per kind, so the
+ * fan-out now scales with configuration; without an overall ceiling a caller
+ * asking for fast probes could still wait on the slowest one indefinitely.
+ * This surfaced as a CI-only 5s test timeout, which is the mild version of the
+ * user-facing failure: a doctor that hangs cannot diagnose the hang.
+ */
+describe("runAllChecks stays inside an overall network budget", () => {
+  it("abandons the network phase rather than waiting on a blackhole", async () => {
+    const realFetch = globalThis.fetch;
+    // Never resolves — the shape a blackholing endpoint presents.
+    globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
+    try {
+      const started = Date.now();
+      const results = await runAllChecks({ timeoutMs: 50, networkBudgetMs: 200 });
+      const elapsed = Date.now() - started;
+      expect(elapsed).toBeLessThan(3000);
+      // The synchronous checks still ran and are still reported.
+      expect(results.length).toBeGreaterThan(0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

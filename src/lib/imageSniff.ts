@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "./redact.js";
 /**
  * Magic-byte sniffing for avatar uploads.
  *
@@ -111,6 +112,11 @@ export async function checkAvatarCidBytes(
   perRequestTimeoutMs = 4000,
 ): Promise<{ ok: boolean; error?: string; warning?: string }> {
   const pinataGatewayToken = process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
+  // Why each gateway was skipped. The old bare `catch {}` made "every gateway
+  // timed out", "wrong gateway host", and "403, needs a gateway token" produce
+  // one identical warning, so a permanently misconfigured gateway was
+  // indistinguishable from a fresh pin that hadn't propagated yet.
+  const attempts: string[] = [];
   for (const gw of gateways.slice(0, 3)) {
     const base = gw.replace(/\/+$/, "").replace(/\/ipfs$/, "");
     const url = `${base}/ipfs/${cid}/${fileName}`;
@@ -128,7 +134,10 @@ export async function checkAvatarCidBytes(
         headers["x-pinata-gateway-token"] = pinataGatewayToken;
       }
       const res = await fetch(url, { headers, signal: controller.signal });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        attempts.push(`${base} → HTTP ${res.status}`);
+        continue;
+      }
       const head = new Uint8Array(await res.arrayBuffer());
       try {
         assertRasterAvatar(head);
@@ -136,20 +145,27 @@ export async function checkAvatarCidBytes(
       } catch (err) {
         return {
           ok: false,
-          error: `avatarCID ${cid}/${fileName} does not contain a usable avatar: ${err instanceof Error ? err.message : String(err)}`,
+          error: `avatarCID ${cid}/${fileName} does not contain a usable avatar: ${safeErrorMessage(err)}`,
         };
       }
-    } catch {
-      // gateway unreachable/timeout — try the next one
+    } catch (err) {
+      // Gateway unreachable/timeout — try the next one, but record WHY so the
+      // final warning can distinguish a slow pin from a broken configuration.
+      attempts.push(
+        controller.signal.aborted
+          ? `${base} → timed out after ${perRequestTimeoutMs}ms`
+          : `${base} → ${safeErrorMessage(err)}`,
+      );
     } finally {
       clearTimeout(t);
     }
   }
+  const why = attempts.length > 0 ? ` (${attempts.join("; ")})` : " (no gateways configured)";
   return {
     ok: true,
     warning:
-      `avatar bytes at ${cid}/${fileName} were not reachable on any configured gateway (fresh pins can take a while ` +
-      `to propagate) — byte validation skipped. If this CID did not come from dexe_ipfs_upload_avatar or ` +
-      `dexe_dao_generate_avatar, verify it is a real raster image.`,
+      `avatar bytes at ${cid}/${fileName} were not reachable on any configured gateway${why} — byte ` +
+      `validation skipped; fresh pins can take a while to propagate. If this CID did not come from ` +
+      `dexe_ipfs_upload_avatar or dexe_dao_generate_avatar, verify it is a real raster image.`,
   };
 }

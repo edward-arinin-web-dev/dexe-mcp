@@ -4,6 +4,7 @@ import { homedir, platform } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { envWithNodeBinDir, hasGit, npmCommand } from "./runtime.js";
+import { safeErrorMessage } from "./lib/redact.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -153,7 +154,7 @@ export async function ensureBuildReady(protocolPath: string): Promise<void> {
             { cwd: cacheDir, windowsHide: true },
           );
         } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = safeErrorMessage(err);
           throw new Error(
             `Failed to clone DeXe-Protocol. Check internet access and git credentials.\n${msg}`,
           );
@@ -185,7 +186,7 @@ export async function ensureBuildReady(protocolPath: string): Promise<void> {
             },
           );
         } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = safeErrorMessage(err);
           throw new Error(
             `\`npm install\` failed inside ${protocolPath}.\n` +
               `If your Node install lacks a bundled npm (e.g. a stripped node.exe), ` +

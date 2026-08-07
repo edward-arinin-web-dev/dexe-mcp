@@ -16,6 +16,8 @@ import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
 import { chainIdParam } from "../lib/params.js";
 import { transactionTypeLabels } from "../lib/interactionTypes.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 /**
  * Subgraph-backed read tools. Each tool queries one of the three DeXe
@@ -54,7 +56,7 @@ function resolveEndpoint(
   try {
     return resolveSubgraphUrl(ctx.config, kind, chainId);
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    return safeErrorMessage(err);
   }
 }
 
@@ -355,7 +357,7 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
           structuredContent: { subgraph, indexedChainId: sg.chainId, data },
         };
       } catch (err) {
-        return errorResult(`graph_query failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(toActionableError(err, "dexe_graph_query").message);
       }
     },
   );
@@ -394,7 +396,7 @@ function registerDaoList(server: McpServer, ctx: ToolContext): void {
           structuredContent: { query, offset, limit, indexedChainId: sg.chainId, daoPools: pools },
         };
       } catch (err) {
-        return errorResult(`read_dao_list failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_dao_list").message);
       }
     },
   );
@@ -432,7 +434,7 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
           structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, members },
         };
       } catch (err) {
-        return errorResult(`read_dao_members failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_dao_members").message);
       }
     },
   );
@@ -508,7 +510,7 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
           },
         };
       } catch (err) {
-        return errorResult(`read_delegation_map failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_delegation_map").message);
       }
     },
   );
@@ -545,7 +547,7 @@ function registerValidatorList(server: McpServer, ctx: ToolContext): void {
           structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, validators },
         };
       } catch (err) {
-        return errorResult(`read_validator_list failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_validator_list").message);
       }
     },
   );
@@ -586,7 +588,7 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
           structuredContent: { user, offset, limit, indexedChainId: sg.chainId, transactions: txs },
         };
       } catch (err) {
-        return errorResult(`read_user_activity failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_user_activity").message);
       }
     },
   );
@@ -624,7 +626,7 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
           structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, experts },
         };
       } catch (err) {
-        return errorResult(`read_dao_experts failed: ${err instanceof Error ? err.message : String(err)}`);
+        return errorResult(toActionableError(err, "dexe_read_dao_experts").message);
       }
     },
   );
@@ -803,7 +805,7 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
         };
       } catch (e) {
         return errorResult(
-          `otc_list_sales_for_dao failed: ${e instanceof Error ? e.message : String(e)}`,
+          toActionableError(e, "dexe_otc_list_sales_for_dao").message,
         );
       }
     },

@@ -8,6 +8,8 @@ import { multicall, type Call } from "../lib/multicall.js";
 import type { EnvGuardResult } from "../lib/requireEnv.js";
 import { renderUntrusted } from "../lib/sanitize.js";
 import { chainIdParam } from "../lib/params.js";
+import { safeErrorMessage } from "../lib/redact.js";
+import { toActionableError } from "../lib/errors.js";
 
 const POOL_FACTORY_ABI = [
   "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
@@ -112,7 +114,7 @@ function registerPredictAddresses(
         };
       } catch (err) {
         return errorResult(
-          `Failed to predict addresses: ${err instanceof Error ? err.message : String(err)}`,
+          toActionableError(err, "dexe_dao_predict_addresses").message,
         );
       }
     },
@@ -169,7 +171,7 @@ function registerRegistryLookup(
         };
       } catch (err) {
         return errorResult(
-          `Registry lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+          toActionableError(err, "dexe_dao_registry_lookup").message,
         );
       }
     },
@@ -316,7 +318,7 @@ function registerDaoInfo(
         };
       } catch (err) {
         return errorResult(
-          `dao_info failed: ${err instanceof Error ? err.message : String(err)}`,
+          toActionableError(err, "dexe_dao_info").message,
         );
       }
     },
