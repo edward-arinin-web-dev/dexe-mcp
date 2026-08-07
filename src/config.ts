@@ -5,6 +5,7 @@ import { resolveStatePath } from "./lib/stateStore.js";
 import { parseEnv } from "./env/parse.js";
 import { PER_CHAIN_SUBGRAPH_URL_RE, subgraphUrlStr } from "./env/schema.js";
 import { safeErrorMessage } from "./lib/redact.js";
+import { resolveTreasuryGuardMode, type TreasuryGuardMode } from "./lib/quorumRisk.js";
 
 /**
  * Split an RPC env value into its endpoint list: `url` or `url1,url2,…`.
@@ -210,13 +211,22 @@ export interface DexeConfig {
    */
   minSafeQuorumPct: number;
   /**
-   * Treasury-safety advisory posture. `off` = silent; `warn` (default) =
-   * advisories / alerts everywhere (build, deploy, execute, risk_assess).
-   * **Advisory only — it never blocks.** Harm-reduction for an operator/agent
-   * configuring a DAO; the durable control is an adequate on-chain quorum
+   * Treasury-safety posture. `off` = silent; `warn` (the default) = advisories /
+   * alerts everywhere (build, deploy, execute, risk_assess) that never stop a
+   * broadcast; `block` = the opt-in that turns the note into a control, refusing
+   * a deploy/execute whose treasury-safety checks actually FAILED.
+   *
+   * All three postures are first-class here. Typing this field `off | warn`
+   * while `treasuryGuardMode()` returned `block` from the same env var is what
+   * made an operator who asked for the strictest posture get a startup warning
+   * calling their value invalid — and two halves of the server behaving
+   * differently. The value is produced by `resolveTreasuryGuardMode`, the ONE
+   * parser every surface funnels through. See src/lib/quorumRisk.ts.
+   *
+   * Harm-reduction only: the durable control is an adequate on-chain quorum
    * threshold configured per DAO.
    */
-  treasuryGuard: "off" | "warn";
+  treasuryGuard: TreasuryGuardMode;
 
   /**
    * Number of top token holders (by voting weight) included in the treasury-
@@ -818,19 +828,24 @@ export async function loadConfig(): Promise<DexeConfig> {
       minSafeQuorumPct = n;
     }
   }
-  let treasuryGuard: "off" | "warn" = "warn";
-  const treasuryGuardRaw = process.env.DEXE_TREASURY_GUARD?.trim().toLowerCase();
-  if (treasuryGuardRaw) {
-    if (treasuryGuardRaw !== "off" && treasuryGuardRaw !== "warn") {
-      degrade(
-        "DEXE_TREASURY_GUARD",
-        `DEXE_TREASURY_GUARD must be one of off|warn, got: ${treasuryGuardRaw}`,
-        "using the default 'warn' (advisories stay on)",
-      );
-    } else {
-      treasuryGuard = treasuryGuardRaw;
-    }
-  }
+  // DEXE_TREASURY_GUARD resolves through `resolveTreasuryGuardMode` — the same
+  // function the ENV_SPEC validator refines with and `treasuryGuardMode()` calls
+  // at tool time, so startup, doctor and every call site read one raw value the
+  // same way. The hand-written copy that used to stand here knew only
+  // `off|warn`: it rejected `block` as MALFORMED and degraded to `warn` while
+  // the runtime honoured it, so an operator who asked for the strictest posture
+  // got a warning saying their value was invalid and two halves of the server
+  // behaving differently.
+  //
+  // No second rejection branch here on purpose. A malformed value has already
+  // been recorded as a startup issue AND deleted from `process.env` by the
+  // ENV_SPEC pass above (0.30.1: degrade, never exit), so it arrives as
+  // `undefined` and lands on the SAFE default — `warn`, never `off`, because a
+  // typo must not silence the guard. Re-checking it here would be a branch that
+  // can never run, which is how a "guard" becomes decoration.
+  const treasuryGuard: TreasuryGuardMode = resolveTreasuryGuardMode(
+    process.env.DEXE_TREASURY_GUARD,
+  ).mode;
   let controllingTopN = 5;
   const controllingTopNRaw = process.env.DEXE_CONTROLLING_TOPN?.trim();
   if (controllingTopNRaw) {

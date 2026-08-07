@@ -7,6 +7,17 @@ import { parseUintString } from "../lib/amount.js";
 import { buildChainIdParam } from "../lib/params.js";
 import { ETHEREUM_ADDRESS, isNativeSentinel } from "./otc.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { RpcProvider } from "../rpc.js";
+import { multicall, type Call } from "../lib/multicall.js";
+import {
+  POST_EXECUTE_LOCK_ADVISORY,
+  VALIDATOR_CANCEL_VOTE_ADVISORY,
+  VESTING_WITHDRAW_ADVISORY,
+  executeAddSettingsAdvisory,
+  lockedPowerAdvisory,
+  renderAdvisories,
+  type UpstreamAdvisory,
+} from "../lib/protocolAdvisories.js";
 
 /**
  * Phase 4 — user-facing write calldata builders.
@@ -114,16 +125,156 @@ function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
-function payloadResult(payload: TxPayload) {
+/**
+ * Every builder in this file returns through here, so an upstream-defect
+ * warning is attached in ONE place: pass the advisories that apply to the call
+ * being built and they land in both the human text and `structuredContent`.
+ * Calldata is untouched — these tools stay pure builders.
+ */
+function payloadResult(payload: TxPayload, ...advisories: (UpstreamAdvisory | null)[]) {
+  const live = advisories.filter((a): a is UpstreamAdvisory => Boolean(a));
+  const block = renderAdvisories(live);
   return {
     content: [
       {
         type: "text" as const,
-        text: `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…`,
+        text:
+          `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…` +
+          (block ? `\n\n${block}` : ""),
       },
     ],
-    structuredContent: { payload: { ...payload } as Record<string, unknown> },
+    structuredContent: {
+      payload: { ...payload } as Record<string, unknown>,
+      ...(live.length > 0
+        ? {
+            advisories: live.map((a) => ({
+              id: a.id,
+              severity: a.severity,
+              upstream: a.upstream,
+              text: a.text,
+            })),
+          }
+        : {}),
+    },
   };
+}
+
+// ---------- deposit lock (upstream mode 5) — ONE resolution point ----------
+
+const GOV_POOL_HELPERS_IFACE = new Interface([
+  "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+]);
+
+/**
+ * The exact pair `checkTokensUnlocked` is written against:
+ *   deposited = tokenBalance(voter, PersonalVote).balance − ownedBalance
+ *   available = votingPower([voter], [PersonalVote], false)[0].power
+ * `votingPower` is what reads 0 while a prior vote still holds the deposit
+ * (bug: "VP locked after execute"); `tokenBalance` keeps showing the deposit.
+ * That divergence IS the lock.
+ */
+const USER_KEEPER_POWER_IFACE = new Interface([
+  "function tokenBalance(address voter, uint8 voteType) view returns (uint256 balance, uint256 ownedBalance)",
+  "function votingPower(address[] users, uint8[] voteTypes, bool perNftPowerArray) view returns (tuple(uint256 power, uint256 rawPower, uint256 nftPower, uint256 rawNftPower, uint256[] perNftPower, uint256 ownedBalance, uint256 ownedLength, uint256[] nftIds)[] votingPowers)",
+]);
+
+/** `IGovPool.VoteType.PersonalVote` — the deposit the lock applies to. */
+const PERSONAL_VOTE = 0;
+
+/** Opt-in for the live check. Kept short: it is paid on every tools/list. */
+const voterParam = z
+  .string()
+  .optional()
+  .describe(
+    "Your address. When set, the deposit-lock warning is checked against your live power and shown only if your tokens really are locked.",
+  );
+
+/**
+ * The deposit lock, stated as what WILL happen — for the case where the caller's
+ * position is unknown.
+ *
+ * `POST_EXECUTE_LOCK_ADVISORY` cannot serve here: its text ends in
+ * `checkTokensUnlocked`'s FAILURE remediation, which reads as a live observation
+ * ("deposited tokens appear locked from a prior vote/execute — available power =
+ * 0 while deposited > 0"). Attached unconditionally to every vote build, that
+ * asserts a false fact about every caller whose tokens are not locked. Same id
+ * and upstream, so anything keying on the id still sees one advisory.
+ */
+const DEPOSIT_LOCK_NOTE: UpstreamAdvisory = {
+  id: POST_EXECUTE_LOCK_ADVISORY.id,
+  severity: "WARN",
+  upstream: POST_EXECUTE_LOCK_ADVISORY.upstream,
+  text:
+    "⚠ WARN — deposit lock: voting binds your deposited tokens to that proposal, and executing it does NOT " +
+    "release them; until you withdraw, your available power for the NEXT proposal reads 0 while the deposit " +
+    "still shows. Withdraw between proposals (dexe_vote_build_withdraw) before voting again. Pass `voter` to " +
+    "have this checked against your live position instead of stated in general.",
+};
+
+/**
+ * Decide the deposit-lock advisory for one build — the single point both
+ * `vote` (where the lock BITES) and `execute` (which CREATES it) go through, so
+ * a third builder cannot start emitting its own version of this warning.
+ *
+ * With a `voter` the real numbers are read and `lockedPowerAdvisory` decides:
+ * present ⇒ the DANGER advisory quoting the live figures, absent ⇒ NOTHING. An
+ * advisory that fires when it is false is what made this one unreadable.
+ * Without a voter — or when the read fails — the position is unknown, so the
+ * caller gets `fallback`, which states the trap without claiming to observe it.
+ * Never throws and never touches calldata: these stay pure builders.
+ */
+async function depositLockAdvisory(
+  rpc: RpcProvider,
+  args: { govPool: string; voter?: string; chainId?: number; fallback: UpstreamAdvisory },
+): Promise<UpstreamAdvisory | null> {
+  const { voter, govPool, chainId, fallback } = args;
+  if (!voter || !isAddress(voter) || !isAddress(govPool)) return fallback;
+  const pr = rpc.tryProvider(chainId);
+  if ("error" in pr) return fallback;
+  try {
+    const helperCall: Call[] = [
+      {
+        target: govPool,
+        iface: GOV_POOL_HELPERS_IFACE,
+        method: "getHelperContracts",
+        args: [],
+        allowFailure: true,
+      },
+    ];
+    const [helpers] = await multicall(pr.ok, helperCall);
+    if (!helpers?.success) return fallback;
+    const userKeeper = (helpers.value as string[])[1];
+    if (!userKeeper || !isAddress(userKeeper)) return fallback;
+
+    // allowFailure on both: votingPower reverts for a user who never deposited
+    // (see the votingPower/allowFailure bug), and a whole-batch revert here
+    // would turn an advisory into a build failure.
+    const powerCalls: Call[] = [
+      {
+        target: userKeeper,
+        iface: USER_KEEPER_POWER_IFACE,
+        method: "tokenBalance",
+        args: [voter, PERSONAL_VOTE],
+        allowFailure: true,
+      },
+      {
+        target: userKeeper,
+        iface: USER_KEEPER_POWER_IFACE,
+        method: "votingPower",
+        args: [[voter], [PERSONAL_VOTE], false],
+        allowFailure: true,
+      },
+    ];
+    const [balanceRes, powerRes] = await multicall(pr.ok, powerCalls);
+    if (!balanceRes?.success || !powerRes?.success) return fallback;
+    const [balance, ownedBalance] = balanceRes.value as [bigint, bigint];
+    const deposited = balance - ownedBalance;
+    const available = (powerRes.value as { power: bigint }[])[0]?.power ?? 0n;
+    return lockedPowerAdvisory(deposited, available);
+  } catch {
+    // Unknown, not safe: fall back to the general note rather than going quiet.
+    return fallback;
+  }
 }
 
 function payloadOutputSchema() {
@@ -135,23 +286,37 @@ function payloadOutputSchema() {
       chainId: z.number(),
       description: z.string(),
     }),
+    advisories: z
+      .array(
+        z.object({
+          id: z.string(),
+          severity: z.string(),
+          upstream: z.string(),
+          text: z.string(),
+        }),
+      )
+      .optional()
+      .describe("Known upstream protocol defects that affect this exact call. Read before signing."),
   };
 }
 
 // ---------- register ----------
 
 export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): void {
+  // Only the two deposit-lock builders use it, and only when the caller names a
+  // `voter`; construction is lazy (no connection is opened here).
+  const rpc = new RpcProvider(ctx.config);
   registerErc20Approve(server, ctx);
   registerDeposit(server, ctx);
   registerWithdraw(server, ctx);
   registerDelegate(server, ctx);
   registerUndelegate(server, ctx);
-  registerVote(server, ctx);
+  registerVote(server, ctx, rpc);
   registerCancelVote(server, ctx);
   registerValidatorVote(server, ctx);
   registerValidatorCancelVote(server, ctx);
   registerMoveToValidators(server, ctx);
-  registerExecute(server, ctx);
+  registerExecute(server, ctx, rpc);
   registerClaimRewards(server, ctx);
   registerClaimMicropoolRewards(server, ctx);
   // NFT multiplier
@@ -418,7 +583,7 @@ function registerUndelegate(server: McpServer, ctx: ToolContext): void {
 
 // ---------- vote ----------
 
-function registerVote(server: McpServer, ctx: ToolContext): void {
+function registerVote(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_vote",
     {
@@ -437,11 +602,12 @@ function registerVote(server: McpServer, ctx: ToolContext): void {
             ),
           ),
         nftIds: z.array(z.string()).default([]),
+        voter: voterParam,
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalId, isVoteFor, amount, nftIds = [], chainId }) => {
+    async ({ govPool, proposalId, isVoteFor, amount, nftIds = [], voter, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
@@ -462,7 +628,19 @@ function registerVote(server: McpServer, ctx: ToolContext): void {
           contractLabel: "GovPool",
           description: `GovPool.multicall([vote(#${proposalId}, ${isVoteFor ? "FOR" : "AGAINST"}, ${amount} wei, ${nftIds.length} NFTs)])`,
         });
-        return payloadResult(payload);
+        // The vote is where the deposit lock BITES (available power reads 0, so
+        // the vote under-counts or reverts). Warning here is the last point
+        // before the caller pays gas to find out — but only once it is TRUE, or
+        // as the general note when `voter` was not given to check it with.
+        return payloadResult(
+          payload,
+          await depositLockAdvisory(rpc, {
+            govPool,
+            voter,
+            chainId: chainId ?? ctx.config.defaultChainId,
+            fallback: DEPOSIT_LOCK_NOTE,
+          }),
+        );
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }
@@ -562,7 +740,10 @@ function registerValidatorCancelVote(server: McpServer, ctx: ToolContext): void 
     {
       title: "Validator: cancel your vote on internal/external proposal",
       description:
-        "Builds `GovValidators.cancelVote{Internal,External}Proposal(proposalId)`.",
+        "Builds `GovValidators.cancelVote{Internal,External}Proposal(proposalId)`. " +
+        "Heads up: this call is refused by the on-chain firewall on fresh (SphereX-era) pools and " +
+        "GovValidators has no multicall to wrap it in, so there is no workaround there — an upstream " +
+        "protocol defect, reported with every payload this tool builds.",
       inputSchema: {
         govValidators: z.string(),
         scope: z.enum(["internal", "external"]),
@@ -585,7 +766,10 @@ function registerValidatorCancelVote(server: McpServer, ctx: ToolContext): void 
           contractLabel: "GovValidators",
           description: `GovValidators.${method}(#${proposalId})`,
         });
-        return payloadResult(payload);
+        // F12 — warn in-band: nothing here can make this call succeed on a
+        // fresh pool, and the caller cannot tell which kind of pool they have
+        // from the address alone.
+        return payloadResult(payload, VALIDATOR_CANCEL_VOTE_ADVISORY);
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }
@@ -631,7 +815,7 @@ function registerMoveToValidators(server: McpServer, ctx: ToolContext): void {
 
 // ---------- execute ----------
 
-function registerExecute(server: McpServer, ctx: ToolContext): void {
+function registerExecute(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_execute",
     {
@@ -644,12 +828,22 @@ function registerExecute(server: McpServer, ctx: ToolContext): void {
         proposalId: z.string(),
         scope: z.enum(["external", "internal"]).default("external"),
         govValidators: z.string().optional().describe("Required for scope:'internal' (dexe_dao_info.helpers.validators)"),
+        voter: voterParam,
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalId, scope = "external", govValidators, chainId }) => {
+    async ({ govPool, proposalId, scope = "external", govValidators, voter, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
+      const targetChain = chainId ?? ctx.config.defaultChainId;
+      // Execute is what CREATES the lock, so the caller is told before they pay
+      // for it — live when `voter` lets us check, general note otherwise.
+      const lockAdvisory = await depositLockAdvisory(rpc, {
+        govPool,
+        voter,
+        chainId: targetChain,
+        fallback: POST_EXECUTE_LOCK_ADVISORY,
+      });
       try {
         if (scope === "internal") {
           if (!govValidators || !isAddress(govValidators)) {
@@ -663,11 +857,11 @@ function registerExecute(server: McpServer, ctx: ToolContext): void {
             iface: vIface,
             method: "executeInternalProposal",
             args: [parseUintString(proposalId, "proposalId")],
-            chainId: chainId ?? ctx.config.defaultChainId,
+            chainId: targetChain,
             contractLabel: "GovValidators",
             description: `GovValidators.executeInternalProposal(#${proposalId})`,
           });
-          return payloadResult(payload);
+          return payloadResult(payload, lockAdvisory);
         }
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
         const payload = buildPayload({
@@ -675,11 +869,14 @@ function registerExecute(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "execute",
           args: [parseUintString(proposalId, "proposalId")],
-          chainId: chainId ?? ctx.config.defaultChainId,
+          chainId: targetChain,
           contractLabel: "GovPool",
           description: `GovPool.execute(#${proposalId})`,
         });
-        return payloadResult(payload);
+        // #36 fires AT execute, so this is the last point before the revert at
+        // which the chain can be named. The deposit-lock warning rides along
+        // because execute is what creates the lock that breaks the NEXT vote.
+        return payloadResult(payload, executeAddSettingsAdvisory(targetChain), lockAdvisory);
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }
@@ -945,7 +1142,10 @@ function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): 
     {
       title: "Withdraw vested tokens from token sale tiers",
       description:
-        "Builds calldata for `TokenSaleProposal.vestingWithdraw(tierIds)`. For tiers with vesting schedules — withdraws the currently unlocked portion.",
+        "Builds calldata for `TokenSaleProposal.vestingWithdraw(tierIds)`. For tiers with vesting schedules — withdraws the currently unlocked portion. " +
+        "Heads up: this call is refused by the on-chain firewall in every shape on current pools — an upstream " +
+        "protocol defect that strands the vested allocation. The payload is still returned (older pools work), " +
+        "with the defect reported alongside it.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         tierIds: z.array(z.string()).min(1).describe("Tier IDs to withdraw vested tokens from"),
@@ -965,7 +1165,9 @@ function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): 
           chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "TokenSaleProposal",
         });
-        return payloadResult(payload);
+        // F15 — the caller asked for this exact primitive, so build it, but
+        // never hand it over without the funds-loss warning attached.
+        return payloadResult(payload, VESTING_WITHDRAW_ADVISORY);
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }

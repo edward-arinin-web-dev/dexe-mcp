@@ -9,6 +9,7 @@ import { gqlRequest, resolveSubgraphUrl, PROPOSAL_INTERACTIONS_QUERY } from "../
 import { chainIdParam } from "../lib/params.js";
 import { proposalInteractionLabel } from "../lib/interactionTypes.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { untrustedResult } from "../lib/sanitize.js";
 import { toActionableError } from "../lib/errors.js";
 
 const GOV_POOL_READ_ABI = [
@@ -167,8 +168,12 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
             requiredQuorum: (v.requiredQuorum ?? 0n).toString(),
           };
         });
+        // `descriptionURL` is written by whoever created the proposal — anyone
+        // with creating power — and an agent will often follow it. The per-row
+        // summary below is all server-derived (ids, enum labels, uint256s); the
+        // URL rides out through structuredContent, deep-sanitized.
         const structured = { govPool, offset, limit, proposals };
-        const text =
+        const summary =
           `Proposals on ${govPool} [offset=${offset}, limit=${limit}] — ${proposals.length} returned\n` +
           proposals
             .map(
@@ -176,10 +181,11 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
                 `  #${p.proposalId}  ${p.state.padEnd(22)}  for=${p.votesFor}  against=${p.votesAgainst}  ${p.executed ? "executed" : ""}`,
             )
             .join("\n");
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: structured,
-        };
+        return untrustedResult({
+          summary,
+          label: "proposal descriptionURLs (proposer-authored)",
+          structured,
+        });
       } catch (err) {
         return errorResult(
           toActionableError(err, "dexe_proposal_list").message,
@@ -272,15 +278,11 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
           };
         });
         const structured = { govPool, proposalId: id, indexedChainId: sg.chainId, voters };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Voters for proposal ${id} on ${govPool} (chain ${sg.chainId}): ${voters.length} returned (first=${first}, skip=${skip})`,
-            },
-          ],
-          structuredContent: structured,
-        };
+        return untrustedResult({
+          summary: `Voters for proposal ${id} on ${govPool} (chain ${sg.chainId}): ${voters.length} returned (first=${first}, skip=${skip})`,
+          label: `voter rows (chain ${sg.chainId})`,
+          structured,
+        });
       } catch (err) {
         return errorResult(
           toActionableError(err, "dexe_proposal_voters").message,

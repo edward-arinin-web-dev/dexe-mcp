@@ -19,15 +19,21 @@ import {
   checkLinearInitData,
   checkCustomVotePower,
   checkQuorumReachable,
-  checkMinVotesVsDistribution,
-  checkSettingsBounds,
+  meritocraticVotingPower,
   assertPreflight,
 } from "../lib/preflight.js";
+import { checkAllProposalSettings, formatSettingsSlotIssues } from "../lib/deployGuard.js";
 import { simulateDeployGovPool } from "../lib/deploySim.js";
 import { mapDeployRevert } from "../lib/deployRevertMap.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { signerKeyParam } from "../lib/params.js";
-import { quorumPctFromRaw } from "../lib/quorumRisk.js";
+import {
+  quorumPctFromRaw,
+  checkQuorumMargin,
+  treasuryGate,
+  treasuryGuardMode,
+  QUORUM_TURNOUT_CEILING,
+} from "../lib/quorumRisk.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
 import { resolveGateways } from "./ipfs.js";
@@ -40,16 +46,25 @@ import { toActionableError } from "../lib/errors.js";
  *   1. SIMPLE (recommended): pass a few high-level fields (`symbol`,
  *      `totalSupply`, optional `treasuryPercent`/`quorumPercent`/`voteModel`)
  *      and the tool synthesizes a coherent, frontend-equivalent config —
- *      LINEAR power, treasury as an implicit remainder, a reachable quorum. It
- *      does NOT invent distribution/quorum silently: it returns a `preview` of
- *      the resolved config + a safety proof, and only broadcasts on a second
- *      call with `confirm: true` (mainnet always requires the confirm).
+ *      LINEAR power, treasury as an implicit remainder, and a quorum that
+ *      passes on realistic turnout (not merely a "reachable" one). It does NOT
+ *      invent distribution/quorum silently: it returns a `preview` of the
+ *      resolved config + a safety proof, and only broadcasts on a second call
+ *      with `confirm: true` (mainnet always requires the confirm).
  *
  *   2. ADVANCED: pass a full `params` deploy struct (as `dexe_dao_build_deploy`).
  *
  * Either way the deploy goes through `buildDeployGovPool`, whose governance
  * coherence guards (unreachable quorum, min-votes > every holder, treasury in
  * the voter list, out-of-range settings) block any config the frontend blocks.
+ *
+ * 0.33.0 adds two things a DAO cannot survive without, because neither is
+ * repairable after deploy (repairing governance requires passing a proposal
+ * under the broken governance):
+ *   - a TURNOUT MARGIN on the quorum — "reachable" allowed 100%-turnout DAOs;
+ *   - coherence over ALL FIVE settings slots, not just `proposalSettings[0]`.
+ * Both are surfaced BEFORE anything is signed, on every path, and can be made
+ * blocking with DEXE_TREASURY_GUARD=block.
  *
  * Mainnet (chain 56) is a supported target (the frontend ships there daily);
  * it just requires `confirm: true` because it spends real BNB.
@@ -207,12 +222,218 @@ export function synthesizeParams(c: SimpleConfig, deployer: string): DaoCreatePa
   };
 }
 
+// ─── SIMPLE-mode treasury/quorum split (0.33.0) ──────────────────────────────
+// The old defaults (49% treasury / 51% quorum) are REACHABLE and unusable: they
+// demand a 100.0% turnout of every votable token, so one sleeping holder freezes
+// governance permanently. SIMPLE mode now synthesizes a split that clears the
+// turnout ceiling with real headroom, and refuses to invent an unusable one.
+
+/** Treasury share SIMPLE mode picks when the caller doesn't. */
+export const SAFE_DEFAULT_TREASURY_PCT = 30;
+/** Quorum SIMPLE mode picks when the caller doesn't (≥ the 50% safety floor). */
+export const SAFE_DEFAULT_QUORUM_PCT = 51;
+
+const floor2 = (n: number) => Math.floor(n * 100) / 100;
+const ceil2 = (n: number) => Math.ceil(n * 100) / 100;
+
+/** Nominal supply for scale-free vote-power math (the curve depends on the ratio). */
+const POWER_BASIS = 10n ** 24n;
+
+/**
+ * Vote POWER, as a % of supply, produced by `votablePct` of supply sitting in
+ * wallets. LINEAR is the identity. POLYNOMIAL applies the meritocratic curve —
+ * which REDUCES a large holder's power, capping effective power near 56% of
+ * supply even when 100% is votable. A quorum has to clear the power, not the
+ * token count, or the DAO looks fine and passes nothing.
+ */
+export function votablePowerPct(votablePct: number, voteModel: "LINEAR" | "POLYNOMIAL"): number {
+  if (voteModel !== "POLYNOMIAL") return votablePct;
+  if (!(votablePct > 0)) return 0;
+  const votable = (POWER_BASIS * BigInt(Math.round(votablePct * 100))) / 10000n;
+  return Number((meritocraticVotingPower(votable, POWER_BASIS) * 10000n) / POWER_BASIS) / 100;
+}
+
+/** Highest quorum % a `votablePct` share can clear within the turnout ceiling. */
+function maxQuorumForVotable(votablePct: number, ceiling: number, voteModel: "LINEAR" | "POLYNOMIAL"): number {
+  return floor2(votablePowerPct(votablePct, voteModel) * ceiling);
+}
+
+/**
+ * Smallest votable % whose POWER clears `quorumPct` within the ceiling, or null
+ * when no distribution can (POLYNOMIAL's curve makes high quorums unreachable
+ * at any split). Binary search — `votablePowerPct` is strictly increasing.
+ */
+function minVotableForQuorum(
+  quorumPct: number,
+  ceiling: number,
+  voteModel: "LINEAR" | "POLYNOMIAL",
+): number | null {
+  if (voteModel !== "POLYNOMIAL") {
+    const v = ceil2(quorumPct / ceiling);
+    return v <= 100 ? v : null;
+  }
+  if (maxQuorumForVotable(100, ceiling, voteModel) < quorumPct) return null;
+  let lo = 0;
+  let hi = 100;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (votablePowerPct(mid, voteModel) * ceiling >= quorumPct) hi = mid;
+    else lo = mid;
+  }
+  return Math.min(100, ceil2(hi));
+}
+
+export interface QuorumSplit {
+  treasuryPercent: number;
+  quorumPercent: number;
+  /** What the tool decided for the caller, in caller-facing words. */
+  adjustments: string[];
+  /** Set when no coherent split exists for the caller's explicit input. */
+  error?: string;
+}
+
+/**
+ * Resolve the SIMPLE-mode treasury/quorum split.
+ *
+ * Omitted fields are SYNTHESIZED to a split that passes the turnout margin —
+ * "the tool invented it" is only acceptable if the tool invented something that
+ * works. Explicit fields are never silently rewritten: a caller-supplied pair
+ * that cannot work comes back as an `error` with the two numeric ways out.
+ */
+export function resolveQuorumSplit(args: {
+  treasuryPercent?: number | undefined;
+  quorumPercent?: number | undefined;
+  /** Minimum safe quorum (DEXE_MIN_SAFE_QUORUM_PCT). Default 50. */
+  floorPct?: number;
+  ceiling?: number;
+  /** POLYNOMIAL power is not the token share — the split must account for it. */
+  voteModel?: "LINEAR" | "POLYNOMIAL";
+}): QuorumSplit {
+  const ceiling = args.ceiling ?? QUORUM_TURNOUT_CEILING;
+  const floorPct = args.floorPct ?? 50;
+  const voteModel = args.voteModel ?? "LINEAR";
+  const adjustments: string[] = [];
+  const t = args.treasuryPercent;
+  const q = args.quorumPercent;
+
+  /** Largest treasury share that still supports quorum `qq`; null ⇒ none does. */
+  const maxTreasuryFor = (qq: number) => {
+    const v = minVotableForQuorum(qq, ceiling, voteModel);
+    return v === null ? null : floor2(100 - v);
+  };
+  /** Highest quorum a `100 − tt` votable share supports. */
+  const maxQuorumFor = (tt: number) => maxQuorumForVotable(100 - tt, ceiling, voteModel);
+  const curveNote =
+    voteModel === "POLYNOMIAL"
+      ? ` POLYNOMIAL vote power caps effective power near ${maxQuorumForVotable(100, 1, voteModel)}% of supply ` +
+        `even with everything in wallets, so high quorums are unreachable under this model — voteModel:'LINEAR' ` +
+        `lifts that cap.`
+      : "";
+
+  if (q !== undefined && t !== undefined) {
+    return { treasuryPercent: t, quorumPercent: q, adjustments };
+  }
+
+  if (q !== undefined) {
+    const maxT = maxTreasuryFor(q);
+    if (maxT === null || maxT < 0) {
+      return {
+        treasuryPercent: 0,
+        quorumPercent: q,
+        adjustments,
+        error:
+          `quorumPercent ${q}% cannot leave a participation margin: even with a 0% treasury (every token in a ` +
+          `voting wallet) clearing it needs more than the ${ceiling * 100}% turnout ceiling. ` +
+          `Use quorumPercent ≤ ${maxQuorumFor(0)}.${curveNote}`,
+      };
+    }
+    const treasuryPercent = Math.min(SAFE_DEFAULT_TREASURY_PCT, maxT);
+    if (treasuryPercent !== SAFE_DEFAULT_TREASURY_PCT) {
+      adjustments.push(
+        `treasuryPercent set to ${treasuryPercent}% (not the ${SAFE_DEFAULT_TREASURY_PCT}% default): a ${q}% ` +
+          `quorum needs ≥${floor2(100 - maxT)}% of supply in voting wallets to stay under the ` +
+          `${ceiling * 100}% turnout ceiling.`,
+      );
+    } else {
+      adjustments.push(`treasuryPercent defaulted to ${treasuryPercent}% (votable ${100 - treasuryPercent}%).`);
+    }
+    return { treasuryPercent, quorumPercent: q, adjustments };
+  }
+
+  if (t !== undefined) {
+    const maxQ = maxQuorumFor(t);
+    if (maxQ < floorPct) {
+      const maxT = maxTreasuryFor(floorPct);
+      const powerPct = votablePowerPct(100 - t, voteModel);
+      const turnout = powerPct > 0 ? Math.round((floorPct / powerPct) * 10000) / 100 : Infinity;
+      return {
+        treasuryPercent: t,
+        quorumPercent: floorPct,
+        adjustments,
+        error:
+          `treasuryPercent ${t}% leaves only ${floor2(100 - t)}% of supply able to vote` +
+          `${voteModel === "POLYNOMIAL" ? ` (${powerPct}% of vote power under the meritocratic curve)` : ""}, ` +
+          `so the lowest SAFE quorum (${floorPct}%) would need ${turnout}% turnout — above the ` +
+          `${ceiling * 100}% ceiling. ` +
+          (maxT === null || maxT < 0
+            ? `No treasury share works at this quorum under this vote model.${curveNote} `
+            : `Lower treasuryPercent to ≤${maxT}. `) +
+          `Or set quorumPercent explicitly and accept the risk with confirmRisky:true.`,
+      };
+    }
+    const quorumPercent = Math.min(SAFE_DEFAULT_QUORUM_PCT, maxQ);
+    adjustments.push(
+      quorumPercent === SAFE_DEFAULT_QUORUM_PCT
+        ? `quorumPercent defaulted to ${quorumPercent}%.`
+        : `quorumPercent set to ${quorumPercent}% (not the ${SAFE_DEFAULT_QUORUM_PCT}% default): a ${t}% ` +
+            `treasury caps the quorum a ${floor2(100 - t)}% votable share can clear under the ` +
+            `${ceiling * 100}% turnout ceiling.`,
+    );
+    return { treasuryPercent: t, quorumPercent, adjustments };
+  }
+
+  // Nothing supplied: the defaults must THEMSELVES pass the margin under this
+  // vote model, or SIMPLE mode is inventing an un-passable DAO on the user's
+  // behalf — the exact failure this release is closing.
+  if (maxQuorumFor(SAFE_DEFAULT_TREASURY_PCT) >= SAFE_DEFAULT_QUORUM_PCT) {
+    const power = votablePowerPct(100 - SAFE_DEFAULT_TREASURY_PCT, voteModel);
+    adjustments.push(
+      `treasury ${SAFE_DEFAULT_TREASURY_PCT}% / quorum ${SAFE_DEFAULT_QUORUM_PCT}% defaults: ` +
+        `${100 - SAFE_DEFAULT_TREASURY_PCT}% of supply can vote, so a proposal passes on ` +
+        `${Math.round((SAFE_DEFAULT_QUORUM_PCT / power) * 10000) / 100}% turnout (ceiling ${ceiling * 100}%).`,
+    );
+    return {
+      treasuryPercent: SAFE_DEFAULT_TREASURY_PCT,
+      quorumPercent: SAFE_DEFAULT_QUORUM_PCT,
+      adjustments,
+    };
+  }
+  const maxT = maxTreasuryFor(SAFE_DEFAULT_QUORUM_PCT);
+  if (maxT === null || maxT < 0) {
+    return {
+      treasuryPercent: SAFE_DEFAULT_TREASURY_PCT,
+      quorumPercent: SAFE_DEFAULT_QUORUM_PCT,
+      adjustments,
+      error:
+        `no treasury/quorum split can hold a ≥${floorPct}% quorum and still pass on realistic turnout under ` +
+        `voteModel '${voteModel}'.${curveNote} Pick voteModel:'LINEAR', or set quorumPercent explicitly ` +
+        `(≤${maxQuorumFor(0)}) and accept the treasury risk with confirmRisky:true.`,
+    };
+  }
+  adjustments.push(
+    `treasuryPercent set to ${maxT}% (not the ${SAFE_DEFAULT_TREASURY_PCT}% default) so the default ` +
+      `${SAFE_DEFAULT_QUORUM_PCT}% quorum still passes within the ${ceiling * 100}% turnout ceiling.`,
+  );
+  return { treasuryPercent: maxT, quorumPercent: SAFE_DEFAULT_QUORUM_PCT, adjustments };
+}
+
 /**
  * Compute a human-readable safety proof for a resolved deploy config: the
  * votable share, the quorum, whether the quorum is reachable (the hard rule),
- * and whether it clears the ≥50% treasury-safety floor (advisory). `feasible`
- * is false only when the quorum is unreachable — the same rule the builder
- * enforces, surfaced early so the preview can explain it.
+ * whether it leaves a real participation margin (0.33.0), and whether it clears
+ * the ≥50% treasury-safety floor (advisory). `feasible` is false only when the
+ * quorum is unreachable — the same rule the builder enforces, surfaced early so
+ * the preview can explain it.
  */
 export function computeSafetyProof(p: DaoCreateParams): {
   isTokenCreation: boolean;
@@ -224,6 +445,15 @@ export function computeSafetyProof(p: DaoCreateParams): {
   reachablePct: number;
   floorOk: boolean;
   feasible: boolean;
+  /** % of votable power that must turn out to clear quorum. Null when unknown. */
+  requiredTurnoutPct: number | null;
+  /** False when that turnout exceeds the ceiling — reachable but un-passable. */
+  marginOk: boolean;
+  /** Highest quorum this distribution supports with margin. */
+  maxQuorumPct: number;
+  /** Lowest votable share that supports this quorum. */
+  minVotablePct: number;
+  marginMessage?: string;
   message?: string;
 } {
   const isTokenCreation = p.tokenParams.name.length > 0;
@@ -240,8 +470,12 @@ export function computeSafetyProof(p: DaoCreateParams): {
     isTokenCreation,
   });
   const votablePct = supply > 0n ? Number((votable * 10000n) / supply) / 100 : 0;
-  const reachablePct =
-    voteType === "LINEAR_VOTES" ? votablePct : supply > 0n ? Number((votable * 10000n) / supply) / 100 : 0;
+  // POLYNOMIAL power ≠ token share: use the same meritocratic curve the
+  // reachability rule uses, so the reported ceiling matches the enforced one.
+  const votablePower =
+    voteType === "POLYNOMIAL_VOTES" && supply > 0n ? meritocraticVotingPower(votable, supply) : votable;
+  const reachablePct = supply > 0n ? Number((votablePower * 10000n) / supply) / 100 : 0;
+  const margin = checkQuorumMargin({ quorumPct, votablePct: reachablePct });
   return {
     isTokenCreation,
     supply: supply.toString(),
@@ -252,6 +486,13 @@ export function computeSafetyProof(p: DaoCreateParams): {
     reachablePct,
     floorOk: !Number.isNaN(quorumPct) && quorumPct >= 50,
     feasible: reach.ok,
+    requiredTurnoutPct: margin.requiredTurnoutPct,
+    // Margin only means something for a DAO whose distribution we know; an
+    // external gov token's holders are unknown at deploy time.
+    marginOk: isTokenCreation ? margin.ok : true,
+    maxQuorumPct: margin.maxQuorumPct,
+    minVotablePct: margin.minVotablePct,
+    ...(isTokenCreation && !margin.ok && margin.remediation ? { marginMessage: margin.remediation } : {}),
     ...(reach.ok ? {} : { message: reach.remediation }),
   };
 }
@@ -269,11 +510,14 @@ export function registerDaoCreateTools(
     "dexe_dao_create",
     "Create (deploy) a new DeXe DAO in ONE call. SIMPLE mode (recommended): pass `symbol` + `totalSupply` " +
       "(+ optional `treasuryPercent`/`quorumPercent`/`voteModel`/`minVotesTokens`/`earlyCompletion`/`recipients`) and the tool synthesizes a coherent, " +
-      "frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a reachable quorum). It " +
+      "frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a quorum that passes on " +
+      "realistic turnout — omit treasuryPercent/quorumPercent and it picks a governable split). It " +
       "returns a `preview` of the resolved config + a safety proof and only broadcasts on a second call with " +
       "`confirm: true`. ADVANCED mode: pass a full `params` deploy struct. Either way the deploy runs the same " +
-      "governance coherence guards the frontend enforces (unreachable quorum, min-votes above every holder, " +
-      "out-of-range settings, name collision), a calldata round-trip self-check, and a pre-sign eth_call SIMULATION: " +
+      "governance coherence guards the frontend enforces — applied to ALL FIVE settings slots (default / internal / " +
+      "validators / distribution / tokenSale), since one un-passable slot bricks that whole class of proposal " +
+      "forever: unreachable quorum, quorum needing implausible turnout, min-votes above every holder, " +
+      "out-of-range settings, name collision. Plus a calldata round-trip self-check and a pre-sign eth_call SIMULATION: " +
       "a provable revert is refused with a classified cause + fix BEFORE any gas is spent; an RPC outage only " +
       "downgrades to a warning. On success the result includes readiness + nextSteps. Mainnet (56) needs " +
       "`confirm: true` (real BNB); validate on testnet (97) first. `deployer` defaults to the signer. " +
@@ -313,14 +557,22 @@ export function registerDaoCreateTools(
         .number()
         .min(0)
         .max(100)
-        .default(49)
-        .describe("SIMPLE mode: % of supply held by the DAO treasury (implicit remainder — cannot vote). Default 49."),
+        .optional()
+        .describe(
+          `SIMPLE mode: % of supply held by the DAO treasury (implicit remainder — cannot vote). ` +
+            `Omit to let the tool pick one that leaves a real voting margin (default ${SAFE_DEFAULT_TREASURY_PCT}).`,
+        ),
       quorumPercent: z
         .number()
         .min(0)
         .max(100)
-        .default(51)
-        .describe("SIMPLE mode: quorum %. Default 51. Must be ≥50 (security) and ≤ the votable %, i.e. ≤ 100−treasuryPercent."),
+        .optional()
+        .describe(
+          `SIMPLE mode: quorum %. Omit to let the tool pick (default ${SAFE_DEFAULT_QUORUM_PCT}). Must be ≥50 ` +
+            `(treasury safety) and low enough that clearing it needs at most ${QUORUM_TURNOUT_CEILING * 100}% of ` +
+            `the votable supply to turn out — a quorum equal to the votable share demands 100% turnout and ` +
+            `freezes the DAO forever.`,
+        ),
       voteModel: z
         .enum(["LINEAR", "POLYNOMIAL"])
         .default("LINEAR")
@@ -347,6 +599,15 @@ export function registerDaoCreateTools(
       params: DaoCreateDeployParams.optional().describe(
         "ADVANCED mode: full deployGovPool params. Omit to use SIMPLE mode (symbol + totalSupply).",
       ),
+      confirmRisky: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Proceed despite a governance-safety refusal (quorum below the safety floor, or a quorum that needs " +
+            "an implausible turnout). Read the returned `risks` to the user FIRST — these configs cannot be " +
+            "repaired after deploy, because repairing them requires passing a proposal. Ignored when " +
+            "DEXE_TREASURY_GUARD=block.",
+        ),
       confirm: z
         .boolean()
         .default(false)
@@ -371,27 +632,43 @@ export function registerDaoCreateTools(
       const isMainnet = chainId === 56 || chainId === 1;
       const pinata = new PinataClient(ctx.config.pinataJwt);
 
+      // The posture in force for THIS call: off | warn | block. `block` turns
+      // every governance-safety advisory below into a refusal (see treasuryGate).
+      const guardMode = treasuryGuardMode({ configured: ctx.config.treasuryGuard });
+      const floorPct = ctx.config.minSafeQuorumPct;
+
       // ---------- resolve the deploy config: SIMPLE synthesis vs ADVANCED params ----------
       const synthesized = !input.params;
       let deployParams: DaoCreateParams;
+      let split: QuorumSplit = { treasuryPercent: 0, quorumPercent: 0, adjustments: [] };
       if (input.params) {
         deployParams = input.params;
       } else {
         if (!input.symbol || !input.totalSupply) {
           return err(
             "SIMPLE mode needs `symbol` and `totalSupply` (whole tokens), or pass a full `params` struct (ADVANCED mode). " +
-              "Example: { daoName, symbol: 'GENA', totalSupply: '1000000' } → deployer gets 51%, treasury 49% (implicit), " +
-              "quorum 51%, LINEAR power.",
+              `Example: { daoName, symbol: 'GENA', totalSupply: '1000000' } → deployer gets ` +
+              `${100 - SAFE_DEFAULT_TREASURY_PCT}%, treasury ${SAFE_DEFAULT_TREASURY_PCT}% (implicit), ` +
+              `quorum ${SAFE_DEFAULT_QUORUM_PCT}%, LINEAR power.`,
           );
         }
+        // Omitted treasury/quorum are synthesized into a split that clears the
+        // turnout margin; an explicit pair is kept verbatim and judged below.
+        split = resolveQuorumSplit({
+          ...(input.treasuryPercent !== undefined ? { treasuryPercent: input.treasuryPercent } : {}),
+          ...(input.quorumPercent !== undefined ? { quorumPercent: input.quorumPercent } : {}),
+          floorPct,
+          voteModel: input.voteModel,
+        });
+        if (split.error) return err(`Could not synthesize a governable DAO config: ${split.error}`);
         try {
           deployParams = synthesizeParams(
             {
               daoName: input.daoName,
               symbol: input.symbol,
               totalSupply: input.totalSupply,
-              treasuryPercent: input.treasuryPercent,
-              quorumPercent: input.quorumPercent,
+              treasuryPercent: split.treasuryPercent,
+              quorumPercent: split.quorumPercent,
               voteModel: input.voteModel,
               durationSeconds: input.durationSeconds,
               executionDelaySeconds: input.executionDelaySeconds,
@@ -411,7 +688,6 @@ export function registerDaoCreateTools(
       // prediction/RPC — preview and confirm must fail IDENTICALLY on the
       // first call, or the preview's "config looks coherent" claim is wrong.
       const isTokenCreation = deployParams.tokenParams.name.length > 0;
-      const base0 = deployParams.settingsParams.proposalSettings[0];
       try {
         assertPreflight([
           checkDeployCap(deployParams.tokenParams.cap, deployParams.tokenParams.mintedTotal, isTokenCreation),
@@ -427,25 +703,36 @@ export function registerDaoCreateTools(
             deployParams.votePowerParams.initData,
             deployParams.votePowerParams.presetAddress,
           ),
-          ...(base0
-            ? [
-                checkMinVotesVsDistribution(
-                  base0.minVotesForVoting,
-                  base0.minVotesForCreating,
-                  deployParams.tokenParams.amounts,
-                  isTokenCreation,
-                ),
-                checkSettingsBounds({
-                  quorum: base0.quorum,
-                  quorumValidators: base0.quorumValidators,
-                  duration: base0.duration,
-                  durationValidators: base0.durationValidators,
-                }),
-              ]
-            : []),
         ]);
       } catch (e) {
         return err(safeErrorMessage(e));
+      }
+
+      // ---------- EVERY settings slot, not just [0] ----------
+      // deployGovPool takes five settings entries (default / internal /
+      // validators / distributionProposal / tokenSale). A slot whose quorum
+      // exceeds the votable supply, whose min-votes exceed every holder, or
+      // whose duration is 0 makes that entire class of proposal impossible —
+      // and it can never be repaired, because repairing it needs a proposal.
+      const slotVerdict = checkAllProposalSettings({
+        proposalSettings: deployParams.settingsParams.proposalSettings,
+        amounts: deployParams.tokenParams.amounts,
+        mintedTotal: deployParams.tokenParams.mintedTotal,
+        voteType: deployParams.votePowerParams.voteType,
+        isTokenCreation,
+        floorPct,
+      });
+      // Advisories (not the hard issues) honour the `off` opt-out, exactly as
+      // the quorum-floor advisory does in dexe_dao_build_deploy.
+      const settingsAdvisories = guardMode === "off" ? [] : slotVerdict.advisories;
+      const hardSlotIssues = slotVerdict.issues.filter((i) => i.check !== "deploy.quorum-margin");
+      if (hardSlotIssues.length > 0) {
+        return err(
+          `This DAO would be un-governable — ${hardSlotIssues.length} settings slot ` +
+            `${hardSlotIssues.length === 1 ? "issue" : "issues"} (of ` +
+            `${deployParams.settingsParams.proposalSettings.length} supplied; deployGovPool expands 1 → 5):\n` +
+            `${formatSettingsSlotIssues(hardSlotIssues)}`,
+        );
       }
 
       // ---------- safety proof (reachability is the hard rule) ----------
@@ -454,9 +741,60 @@ export function registerDaoCreateTools(
         return err(
           `This DAO would be governance-dead: ${proof.message} ` +
             (synthesized
-              ? `Adjust so quorumPercent ≤ ${Math.floor(100 - input.treasuryPercent)} (100 − treasuryPercent) while staying ≥50.`
+              ? `Adjust so quorumPercent ≤ ${Math.floor(proof.reachablePct)} (the votable share) while staying ≥${floorPct}, ` +
+                `or lower treasuryPercent to ≤${proof.minVotablePct === 100 ? 0 : Math.floor(100 - proof.minVotablePct)}.`
               : ""),
         );
+      }
+
+      // ---------- governance-safety gate: BEFORE the irreversible act ----------
+      // A DAO's quorum cannot be repaired after deploy — repairing it requires
+      // passing a proposal under the quorum being repaired. So both risks below
+      // are delivered BEFORE anything is signed, on EVERY path (preview,
+      // dryRun, and the one-call confirm:true path where no preview is shown).
+      // Default posture stays advisory: confirmRisky:true proceeds. Under
+      // DEXE_TREASURY_GUARD=block the gate refuses and confirmRisky is ignored.
+      const risks: string[] = [];
+      if (!proof.marginOk && proof.marginMessage) risks.push(proof.marginMessage);
+      if (!proof.floorOk) {
+        risks.push(
+          `quorum ${Number.isFinite(proof.quorumPct) ? `${proof.quorumPct}%` : "unparseable"} is below the ` +
+            `${floorPct}% treasury-safety floor — a low quorum lets a small group pass proposals, including ` +
+            `ones that drain the treasury. ${floorPct + 1}%+ recommended.`,
+        );
+      }
+      if (risks.length > 0) {
+        const gate = treasuryGate({
+          mode: guardMode,
+          stage: "deploy",
+          reasons: risks,
+          act: `DAO '${input.daoName}' on chain ${chainId}`,
+        });
+        if (gate.blocked) return err(gate.refusal ?? "refused by the treasury guard");
+        if (!input.confirmRisky && guardMode !== "off") {
+          return ok({
+            mode: "blocked-risky",
+            action: "acknowledge-then-re-run",
+            chainId,
+            daoName: input.daoName,
+            risks,
+            ...(settingsAdvisories.length ? { settingsAdvisories } : {}),
+            resolvedQuorumPercent: proof.quorumPct,
+            votablePercent: proof.votablePct,
+            requiredTurnoutPercent: proof.requiredTurnoutPct,
+            safeAlternatives: {
+              maxQuorumPercentForThisDistribution: proof.maxQuorumPct,
+              minVotablePercentForThisQuorum: proof.minVotablePct,
+              ...(synthesized
+                ? { suggestion: `omit treasuryPercent/quorumPercent to get a governable ${SAFE_DEFAULT_TREASURY_PCT}/${SAFE_DEFAULT_QUORUM_PCT} split` }
+                : {}),
+            },
+            next:
+              "NOTHING was broadcast. Read the risks to the user — a DAO cannot fix its own quorum, since fixing " +
+              "it requires passing a proposal under that quorum. To deploy anyway, re-run the SAME call with " +
+              "confirmRisky:true (plus confirm:true to broadcast).",
+          });
+        }
       }
 
       // ---------- confirm gate: preview before broadcasting ----------
@@ -466,13 +804,8 @@ export function registerDaoCreateTools(
         const t = deployParams.tokenParams;
         const supplyTokens = formatUnits(t.mintedTotal || "0", 18);
         const treasuryWei = BigInt(t.mintedTotal || "0") - t.amounts.reduce((a, b) => a + BigInt(b || "0"), 0n);
-        const warnings: string[] = [];
-        if (!proof.floorOk) {
-          warnings.push(
-            `⚠️ quorum ${proof.quorumPct}% is below the 50% treasury-safety floor — a low quorum lets a small group ` +
-              "pass proposals (incl. draining treasury). 51%+ recommended. [advisory]",
-          );
-        }
+        const warnings: string[] =
+          guardMode === "off" ? [] : [...risks.map((r) => `⚠️ ${r} [advisory]`), ...settingsAdvisories];
         if (isMainnet) warnings.push("⚠️ MAINNET (chain " + chainId + ") — this will spend real BNB.");
         return ok({
           mode: "preview",
@@ -506,7 +839,12 @@ export function registerDaoCreateTools(
             quorumReachable: proof.reachable,
             maxReachableQuorumPercent: proof.reachablePct,
             treasuryFloorOk: proof.floorOk,
+            requiredTurnoutPercent: proof.requiredTurnoutPct,
+            turnoutMarginOk: proof.marginOk,
+            maxQuorumPercentWithMargin: proof.maxQuorumPct,
+            settingsSlotsChecked: slotVerdict.slots.length,
           },
+          ...(split.adjustments.length ? { adjustments: split.adjustments } : {}),
           ...(warnings.length ? { warnings } : {}),
           next:
             `Config looks coherent. Re-call dexe_dao_create with the SAME arguments plus confirm:true to broadcast` +
@@ -710,6 +1048,16 @@ export function registerDaoCreateTools(
         predictedGovPool: res.predictedGovPool ?? null,
         predicted: res.predicted,
         note: simSummary ? `${res.note}\n${simSummary}` : res.note,
+        // What the tool decided for the caller, and what it warned about — the
+        // one-call path (confirm:true, no preview) shows no other copy of these.
+        ...(split.adjustments.length ? { adjustments: split.adjustments } : {}),
+        ...(settingsAdvisories.length ? { advisories: settingsAdvisories } : {}),
+        governance: {
+          quorumPercent: proof.quorumPct,
+          votablePercent: proof.votablePct,
+          requiredTurnoutPercent: proof.requiredTurnoutPct,
+          settingsSlotsChecked: slotVerdict.slots.length,
+        },
         steps: result.steps,
         ...(result.signer ? { signer: result.signer } : {}),
         ...(readiness ? { readiness } : {}),

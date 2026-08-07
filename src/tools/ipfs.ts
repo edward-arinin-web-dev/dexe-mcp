@@ -16,6 +16,7 @@ import { renderAvatarJpeg } from "../lib/avatarImage.js";
 import { assertRasterAvatar, checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
 import { redactUrlCredentials, safeErrorMessage } from "../lib/redact.js";
+import { untrustedResult } from "../lib/sanitize.js";
 import { toActionableError } from "../lib/errors.js";
 import { readFile } from "node:fs/promises";
 
@@ -553,19 +554,20 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
           attempts: res.attempts,
           json: res.json,
         };
-        const preview =
-          res.json != null
-            ? JSON.stringify(res.json, null, 2).slice(0, 800)
-            : `(${res.bytes.length} bytes of ${res.contentType})`;
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `CID ${res.cid} via ${res.gateway} (attempts=${res.attempts})\n${preview}`,
-            },
-          ],
-          structuredContent: structured,
-        };
+        // Whoever pinned this CID wrote every byte of it, and a descriptionURL
+        // an agent follows is chosen by whoever created the DAO/proposal. So the
+        // preview is fenced rather than pasted into the summary line, and the
+        // parsed JSON in structuredContent is deep-sanitized on the way out.
+        return untrustedResult({
+          summary: `CID ${res.cid} via ${res.gateway} (attempts=${res.attempts})`,
+          label: `IPFS content of ${res.cid}`,
+          body:
+            res.json != null
+              ? res.json
+              : `(${res.bytes.length} bytes of ${res.contentType})`,
+          structured,
+          maxBodyChars: 800,
+        });
       } catch (err) {
         return errorResult(ipfsToolError(err, "dexe_ipfs_fetch"));
       }

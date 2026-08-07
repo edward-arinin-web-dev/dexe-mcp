@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { safeErrorMessage } from "../lib/redact.js";
-import { renderUntrusted } from "../lib/sanitize.js";
+import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "./otc.js";
 import { DEFAULTS } from "../config.js";
 import { chainIdParam } from "../lib/params.js";
@@ -146,6 +146,9 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
           };
         });
         const results = await multicall(provider, batch);
+        // The target is arbitrary and the ABI says "returns (string)" whenever
+        // the caller asks it to, so a decoded value is whatever a hostile
+        // contract chose to return.
         const structured = {
           results: results.map((r) => ({
             success: r.success,
@@ -154,15 +157,11 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
             error: r.error,
           })),
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `${results.length} calls: ${results.filter((r) => r.success).length} ok, ${results.filter((r) => !r.success).length} failed`,
-            },
-          ],
-          structuredContent: structured,
-        };
+        return untrustedResult({
+          summary: `${results.length} calls: ${results.filter((r) => r.success).length} ok, ${results.filter((r) => !r.success).length} failed`,
+          label: "decoded return values (contract-authored)",
+          structured,
+        });
       } catch (err) {
         return errorResult(
           toActionableError(err, "dexe_read_multicall").message,
@@ -326,7 +325,7 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
           const top = [...tokensOut]
             .sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0))
             .slice(0, 15);
-          const text =
+          const summary =
             `Treasury for ${holder} (chain ${chainId}, source: backend)\n` +
             `  tokens: ${tokensOut.length}` +
             (totalUsd != null ? `   total: $${totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "") +
@@ -338,11 +337,17 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
                     ? (Number(t.balance) / 10 ** t.decimals).toLocaleString("en-US", { maximumFractionDigits: 4 })
                     : (t.balance ?? "?");
                 const usd = t.usdValue != null ? ` = $${t.usdValue.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "";
-                return `  ${(t.symbol != null ? renderUntrusted(t.symbol) : "?").padEnd(10)} ${amt}${usd}`;
+                return `  ${(t.symbol != null ? renderUntrusted(t.symbol, 40) : "?").padEnd(10)} ${amt}${usd}`;
               })
               .join("\n") +
             (tokensOut.length > top.length ? `\n  … +${tokensOut.length - top.length} more` : "");
-          return { content: [{ type: "text" as const, text }], structuredContent: structured };
+          // Anyone can mint an ERC20 and airdrop it into a treasury, so both
+          // `symbol` and `name` are attacker-chosen for any row here.
+          return untrustedResult({
+            summary,
+            label: "token symbols/names (any address can airdrop a token)",
+            structured,
+          });
         } catch (err) {
           // Actually fall through to the on-chain path. The tool description,
           // docs/PLAYBOOK.md and the knowledge corpus all promise this fallback;
@@ -458,17 +463,21 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
             ? `\n  DEGRADED: the DeXe backend failed (${backendError}), so this is an on-chain read — ` +
               `no USD prices and no token auto-discovery. Check DEXE_BACKEND_API_URL, or re-run with explicit \`tokens\`.`
             : "";
-        const text =
+        const summary =
           `Treasury for ${holder} (chain ${chainId}, source: rpc)\n  native: ${native}\n` +
           tokensOut
             .map(
               (t) =>
-                `  ${t.symbol != null ? renderUntrusted(t.symbol) : "?"} (${t.token}): ${t.balance ?? "?"}${t.decimals != null ? ` (decimals=${t.decimals})` : ""}`,
+                `  ${t.symbol != null ? renderUntrusted(t.symbol, 40) : "?"} (${t.token}): ${t.balance ?? "?"}${t.decimals != null ? ` (decimals=${t.decimals})` : ""}`,
             )
             .join("\n") +
           discoveryNote +
           degradedNote;
-        return { content: [{ type: "text" as const, text }], structuredContent: structured };
+        return untrustedResult({
+          summary,
+          label: "token symbols (ERC20.symbol() is whatever the token returns)",
+          structured,
+        });
       } catch (err) {
         return errorResult(
           toActionableError(err, "dexe_read_treasury").message,
@@ -619,14 +628,18 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
         };
         const latest = rows[rows.length - 1] as Record<string, unknown> | undefined;
         const text =
-          `DAO stats ${govPool} (chain ${chainId}, period '${period}'): ${rows.length} point(s)` +
+          `DAO stats ${govPool} (chain ${chainId}, period '${renderUntrusted(period, 40)}'): ${rows.length} point(s)` +
           (structured.downsampled ? ` → ${sampled.length} returned (downsampled; raise maxPoints for more)` : "") +
           "\n" +
           (latest
             ? `  latest → tvl_usd: ${latest.tvl_usd ?? "?"}, active_members: ${latest.active_members_count ?? "?"}, ` +
               `external_proposals: ${latest.external_proposals_count ?? "?"}`
             : "  (no data — DAO may have no tracked activity in this window; freshly created DAOs take a while to appear in the tracker)");
-        return { content: [{ type: "text" as const, text }], structuredContent: structured };
+        return untrustedResult({
+          summary: text,
+          label: "tracker rows (third-party index)",
+          structured,
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_stats").message);
       }
@@ -736,21 +749,28 @@ function registerProtocolStats(server: McpServer): void {
           tvlDotsTotal: allDots.length,
           top,
         };
+        // `t.name` is the DAO's own name — the leaderboard is exactly the list a
+        // hostile DAO wants to appear in, so it is escaped and capped before it
+        // is printed, and the whole payload is announced as third-party.
         const text =
-          `Protocol stats (chains ${chainIds.join(",")}, period '${period}')\n` +
-          `  TVL: $${summary.tvl_usd ?? "?"} (${summary.tvl_changes_percent ?? "?"}% / ${period}) across ${summary.total_pools_count ?? "?"} DAOs\n` +
+          `Protocol stats (chains ${chainIds.join(",")}, period '${renderUntrusted(period, 40)}')\n` +
+          `  TVL: $${summary.tvl_usd ?? "?"} (${summary.tvl_changes_percent ?? "?"}% / ${renderUntrusted(period, 40)}) across ${summary.total_pools_count ?? "?"} DAOs\n` +
           `  proposals: ${summary.total_proposals_count ?? "?"} total (${summary.proposals_changes_percent ?? "?"}%), voting-locked: $${summary.voting_locked_tokens ?? "?"}\n` +
           (top.length
             ? `  top by TVL: ${top
                 .slice(0, 5)
-                .map((t) => `${t.name} ($${String(t.tvlUsd).split(".")[0]})`)
+                .map((t) => `${renderUntrusted(t.name ?? "?", 60)} ($${String(t.tvlUsd).split(".")[0]})`)
                 .join(", ")}${top.length > 5 ? ` … +${top.length - 5}` : ""}`
             : "") +
           (topErrors.length
             ? `\n  ⚠️ the top-DAO leaderboard is INCOMPLETE — ${topErrors.length} of ${chainIds.length} chain(s) failed: ` +
               `${topErrors.join("; ")}. Do not read the list above as the full set; re-run to retry.`
             : "");
-        return { content: [{ type: "text" as const, text }], structuredContent: structured };
+        return untrustedResult({
+          summary: text,
+          label: "DAO names + tracker figures (DAO-authored)",
+          structured,
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_protocol_stats").message);
       }
@@ -798,17 +818,24 @@ function registerNftsByWallet(server: McpServer, rpc: RpcProvider): void {
           nextPageToken: json.next_page_token ?? "",
           nfts,
         };
+        // NFT rows carry whole attacker-written metadata blobs (name, symbol,
+        // token_uri, and any indexer-flattened attributes) — anyone can airdrop
+        // an NFT to any address, so this list is unsolicited third-party text.
         const text =
           `NFTs for ${holder} (chain ${chainId}): ${nfts.length}\n` +
           nfts
             .slice(0, 20)
             .map((n) => {
               const name = (n.name ?? n.symbol ?? "?") as string;
-              return `  ${renderUntrusted(String(name))}  #${n.token_id ?? "?"} (${n.token_address ?? "?"})`;
+              return `  ${renderUntrusted(String(name), 60)}  #${renderUntrusted(n.token_id ?? "?", 40)} (${renderUntrusted(n.token_address ?? "?", 42)})`;
             })
             .join("\n") +
           (nfts.length > 20 ? `\n  … +${nfts.length - 20} more` : "");
-        return { content: [{ type: "text" as const, text }], structuredContent: structured };
+        return untrustedResult({
+          summary: text,
+          label: "NFT metadata (any address can airdrop an NFT)",
+          structured,
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_nfts").message);
       }
@@ -1000,18 +1027,19 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
           defaultSettings: labelProposalSettings(jsonSafe(defR?.value ?? null)),
           internalSettings: labelProposalSettings(jsonSafe(intR?.value ?? null)),
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text:
-                `Settings for ${govPool}\n  contract: ${settings}\n\n` +
-                `default: ${JSON.stringify(structured.defaultSettings, null, 2)}\n\n` +
-                `internal: ${JSON.stringify(structured.internalSettings, null, 2)}`,
-            },
-          ],
-          structuredContent: structured,
-        };
+        // `executorDescription` is a DAO-authored string inside each settings
+        // struct, and the whole struct is pretty-printed into the reply — so the
+        // printed block is fenced rather than pasted.
+        return untrustedResult({
+          summary: `Settings for ${govPool}\n  contract: ${settings}`,
+          label: `proposal settings for ${govPool} (executorDescription is DAO-authored)`,
+          body: {
+            default: structured.defaultSettings,
+            internal: structured.internalSettings,
+          },
+          structured,
+          maxBodyChars: 6000,
+        });
       } catch (err) {
         return errorResult(
           toActionableError(err, "dexe_read_settings").message,
@@ -1122,10 +1150,13 @@ function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
         ]);
         const tiers = tiersR?.success ? jsonSafe(tiersR.value) : [];
         const structured = { tokenSaleProposal, totalTiers, offset, limit, tiers };
-        return {
-          content: [{ type: "text" as const, text: `TokenSale ${tokenSaleProposal}: ${totalTiers} tier(s), showing offset=${offset} limit=${limit}` }],
-          structuredContent: structured,
-        };
+        // TierMetadata.name / .description and TierInfo.uri are free text written
+        // by whoever opened the sale.
+        return untrustedResult({
+          summary: `TokenSale ${tokenSaleProposal}: ${totalTiers} tier(s), showing offset=${offset} limit=${limit}`,
+          label: "tier metadata (sale-opener-authored)",
+          structured,
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_token_sale_tiers").message);
       }
@@ -1330,10 +1361,13 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
         };
         let text = `Staking ${stakingProposal}: ${count} tier(s)` + (user ? `, user ${user} info included` : "");
         if (warnings.length) text += "\n⚠ " + warnings.join("\n⚠ ");
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: structured,
-        };
+        // Each active staking carries a free-text `metadata` string set by the
+        // DAO that created the tier.
+        return untrustedResult({
+          summary: text,
+          label: "staking tier metadata (DAO-authored)",
+          structured,
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_staking_info").message);
       }

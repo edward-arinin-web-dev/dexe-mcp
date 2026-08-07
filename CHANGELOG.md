@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.33.0 — 2026-08-07
+
+**Revert prevention and harm warnings.** The project's bar is "no contract
+reverts, and warn before anything that could damage the DAO, the vote, or the
+proposal." This release closes the part of that bar still unmet: known-in-advance
+traps now refuse *before* gas is spent, and advisories arrive *before* the
+irreversible act rather than after. Tool count unchanged (**168 / 19 groups**).
+No emitted calldata changed.
+
+### Fixed — the resume ledger was not idempotent
+Every composite failure told the caller *"fix the cause and re-run this same
+call — completed steps are skipped."* That was true for approve/deposit and
+**false for create and vote**.
+
+- **Create** re-ran into a duplicate. `GovPool` does not dedupe
+  `descriptionURL` — verified against the protocol source — so a re-run after a
+  timed-out receipt minted a *second identical proposal*, silently, for real
+  gas, leaving the DAO voting on two copies. The pinned metadata CID makes the
+  same call reproduce the same URL, so the duplicate is now detectable before
+  the transaction. `allowDuplicate: true` is the escape hatch; re-proposing
+  something Defeated or Executed is still allowed.
+- **Vote** re-ran into a guaranteed revert. `_canVote` asserts
+  `require(!_isVoted(...), "Gov: need cancel")` and `_vote` assigns
+  `tokensVoted = amount` absolutely, so a "top-up" was never possible — and the
+  revert also killed the `execute` queued behind it. The vote (and the deposit
+  that existed only to fund it) are now skipped, and the flow continues to
+  execute. A *different* requested vote gets an advisory naming the two-tx
+  cancel path and its cost: cancelling removes your weight from the tally first
+  and can drop the proposal below quorum.
+- **A timeout is not a failure.** That branch now says `DO NOT re-run this call
+  yet`, carries the tx hash, and routes to `dexe_tx_status` with what each
+  outcome means. The resume text enumerates the steps that are genuinely
+  auto-skipped and names the two that are not, instead of claiming all of them.
+
+### Fixed — four known traps now refuse before gas, not after
+Each is deterministic and knowable at build time. Read
+`docs/UPSTREAM-ISSUES.md`; every advisory says plainly that it is an upstream
+protocol defect, not a dexe-mcp bug, and what to do instead.
+
+- **F15** (funds-loss): a tier with `vestingPercentage > 0` is refused before any
+  calldata is built, and `dexe_otc_buyer_claim_all` no longer auto-appends the
+  permanently blocked `vestingWithdraw` payload.
+- **#36**: an `addSettings`-carrying proposal on chain 97 passes the vote and
+  then bricks at execute — a whole governance cycle burned with nothing left to
+  undo it. Now a DANGER refusal at build time, overridable with `confirmRisky`.
+- **F12**: validator `cancelVote*` warns in-band that it reverts on fresh pools.
+- **Tokens locked after execute**: the guard existed and was dead code.
+
+### Fixed — advisories now precede the irreversible act
+- The treasury guard computed its advisory before broadcasting and surfaced it
+  after. `DEXE_TREASURY_GUARD=block` now genuinely blocks a treasury-moving
+  execute, and in `warn` the advisory is in the response before the send.
+  `block` is also a first-class config value: it was accepted by one resolution
+  path and rejected as malformed by the other.
+- The composite that spends gas carries the same advisories the build-only tool
+  does. Previously `dexe_vote_build_execute` warned about #36 and the deposit
+  lock while the composite — the one the server instructions tell agents to
+  prefer — broadcast silently.
+
+### Fixed — coherence guards
+- **Quorum reachability now requires a real margin.** The SIMPLE default
+  (49% treasury / 51% quorum) needed 100% turnout of every votable token:
+  reachable on paper, a DAO that can never pass anything in practice.
+- **All five `proposalSettings` slots are validated**, on both deploy surfaces.
+  A slot shipped un-governable is unrecoverable — fixing it requires passing a
+  proposal under those very settings.
+
+### Security — attacker-controlled text is fenced
+Anyone can deploy a DAO or open a sale, so `name` / `description` is hostile
+input arriving at an agent that may be driving a signer. `sanitize.ts` was well
+built and wired into ~5 call sites. Now every free-text field from chain, IPFS,
+subgraph or backend is sanitized or fenced, in `content[].text` **and**
+`structuredContent`. `dexe_otc_buyer_status` and `dexe_read_token_sale_tiers`
+read the *same on-chain bytes* and disagreed: one stripped zero-width and RLO
+characters and defanged a forged fence-close, the other passed all three
+through. `docs/SECURITY.md` claimed this was already true; it now is.
+
+### Tests
+- 1959 passing (+249). A **structural guard-wiring test** is the important one:
+  four guards in this release were written, unit-tested, and called from
+  nothing. A unit test cannot see that — it passes whether or not anything
+  invokes the guard. The new test fails when an exported `check*` / `assert*` /
+  `*Advisory` / `find*Trap` has no production call site, and names it.
+- The `custom` proposal branch takes caller-supplied actions verbatim and had
+  bypassed the new trap guard — the **third** time a raw-calldata path walked
+  around a check every other path passes (0.32.0: the GovUserKeeper denylist).
+  The check moved to where the branches converge, and a test pins it there.
+
 ## 0.32.1 — 2026-08-07
 
 **Three live advisories in the shipped dependency tree.** Tool count unchanged

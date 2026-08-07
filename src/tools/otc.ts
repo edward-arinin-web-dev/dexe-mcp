@@ -29,6 +29,13 @@ import type { StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
+import { untrustedResult } from "../lib/sanitize.js";
+import {
+  VESTING_WITHDRAW_ADVISORY,
+  findVestingTiers,
+  vestingBlockedReport,
+  type VestingTierRisk,
+} from "../lib/protocolAdvisories.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -89,14 +96,86 @@ function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
+/**
+ * What the untrusted half of an OTC payload actually is. Opening a sale is
+ * permissionless, so `TierMetadata.name` / `.description` and `TierInfo.uri`
+ * are free text chosen by whoever opened it — the same class of channel as a
+ * DAO name, aimed at an agent that may be holding a signer.
+ */
+const OTC_UNTRUSTED_LABEL =
+  "OTC tier metadata (name / description / uri authored by whoever opened the sale)";
+
+/**
+ * Where the provenance sentence lives inside the JSON body. Written last on
+ * purpose: a payload key of the same name would be attacker-influenced, and the
+ * server-authored value must win the collision.
+ */
+const PROVENANCE_KEY = "_untrustedContent";
+
+/**
+ * THE result funnel for this file — every OTC tool that returns a payload
+ * returns it through here, and none of them build a result any other way.
+ *
+ * All the sanitizing is `untrustedResult`'s, unchanged: NFKC, control-char
+ * escaping, zero-width/bidi stripping and fence-marker defanging applied to
+ * every string AND every key, plus the provenance sentence. Nothing here
+ * reimplements any of it. Before 0.33.0 this helper was a raw `JSON.stringify`,
+ * so `dexe_otc_buyer_status` handed back sale-opener text with its zero-width
+ * characters and forged fence-closes intact — while `dexe_read_token_sale_tiers`
+ * returned the SAME on-chain bytes neutralized.
+ *
+ * Both channels below are literally the one object `untrustedResult` produced,
+ * so "sanitize the prose, leak the rows through `structuredContent`" is not
+ * expressible here.
+ *
+ * The text block stays a single JSON document rather than
+ * `untrustedResult`'s summary-above-payload prose: these results carry signable
+ * `TxPayload`s and are consumed by `JSON.parse` on that block (scripts,
+ * orchestrators, tests). So the provenance line is folded INTO the document as
+ * `_untrustedContent` instead of being printed above it.
+ */
 function ok(data: Record<string, unknown>) {
+  const funnelled = untrustedResult({
+    summary: "",
+    label: OTC_UNTRUSTED_LABEL,
+    structured: data,
+  });
+  const body = {
+    ...funnelled.structuredContent,
+    [PROVENANCE_KEY]: funnelled.content[0]!.text.trim(),
+  };
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(data, bigintReplacer, 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(body, null, 2) }],
+    structuredContent: body,
   };
 }
 
-function bigintReplacer(_k: string, v: unknown): unknown {
-  return typeof v === "bigint" ? v.toString() : v;
+/**
+ * F15 pre-block for sale creation. A tier with `vestingPercentage > 0` strands
+ * its vested allocation forever on any current pool, so the refusal has to land
+ * BEFORE anything is encoded, uploaded or broadcast — not as a note attached to
+ * a payload the caller is about to sign. `acknowledgeVestingBlocked: true` is
+ * the deliberate override for a caller who is opening the tier on a
+ * known-unaffected (pre-SphereX) pool or accepts the loss.
+ */
+function vestingTierGuard(
+  tiers: readonly TierSpec[],
+  acknowledged: boolean,
+): { risks: VestingTierRisk[]; refusal: string | null } {
+  const risks = findVestingTiers(tiers);
+  if (risks.length === 0 || acknowledged) return { risks, refusal: null };
+  const listed = risks
+    .map((r) => `  • tier[${r.index}] "${r.name}" — vestingPercentage=${r.vestingPercentage}`)
+    .join("\n");
+  return {
+    risks,
+    refusal:
+      `REFUSED before building any calldata — ${risks.length} tier(s) would strand their vested allocation:\n` +
+      `${listed}\n\n${VESTING_WITHDRAW_ADVISORY.text}\n\n` +
+      `Fix: set vestingSettings.vestingPercentage to "0" on the tier(s) above (buyers then get the whole ` +
+      `allocation through \`claim\`, which works). To open them anyway — only do this on a pre-SphereX pool ` +
+      `where vestingWithdraw is known to work — re-run with acknowledgeVestingBlocked: true.`,
+  };
 }
 
 /**
@@ -244,10 +323,24 @@ export function registerOtcTools(
       signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       buildOnly: z.boolean().default(false).describe("If true, return just the envelope (actions + metadata + merkle roots) without running the proposal_create flow. Skips IPFS upload and DAO state reads."),
+      acknowledgeVestingBlocked: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Opt in to opening a tier with vestingPercentage > 0. Refused by default: on current pools the vested " +
+            "leg can never be withdrawn (upstream protocol defect F15) and those tokens are stranded. Only set " +
+            "true on a pool where vestingWithdraw is known to work.",
+        ),
       flowContext: flowContextSchema,
     },
     async (input) => {
       try {
+        // F15 first: a stranded-vesting tier must be refused before any
+        // encoding, IPFS pin or DAO read — the damage is done at createTiers,
+        // not at withdraw time.
+        const vesting = vestingTierGuard(input.tiers, input.acknowledgeVestingBlocked);
+        if (vesting.refusal) return err(vesting.refusal);
+
         // Frontend-compat: merkle tiers must reference their whitelist on
         // IPFS or app.dexe.io buyers cannot derive proofs. buildOnly skips
         // uploads by design — the caller owns IPFS there.
@@ -281,6 +374,16 @@ export function registerOtcTools(
               tierIdsAfterExecute: input.tiers.map(
                 (_, i) => (parseUintString(input.latestTierId, "latestTierId") + 1n + BigInt(i)).toString(),
               ),
+              ...(vesting.risks.length > 0
+                ? {
+                    vestingBlocked: {
+                      acknowledged: true,
+                      tiers: vesting.risks,
+                      reason: VESTING_WITHDRAW_ADVISORY.text,
+                      upstream: VESTING_WITHDRAW_ADVISORY.upstream,
+                    },
+                  }
+                : {}),
             },
             metadata: built.metadata,
             actions: built.actions,
@@ -356,9 +459,22 @@ export function registerOtcTools(
             tierIdsAfterExecute: input.tiers.map(
               (_, i) => (parseUintString(input.latestTierId, "latestTierId") + 1n + BigInt(i)).toString(),
             ),
+            ...(vesting.risks.length > 0
+              ? {
+                  vestingBlocked: {
+                    acknowledged: true,
+                    tiers: vesting.risks,
+                    reason: VESTING_WITHDRAW_ADVISORY.text,
+                    upstream: VESTING_WITHDRAW_ADVISORY.upstream,
+                  },
+                }
+              : {}),
           },
         });
-        return { content: [...qrBlocks, ...merged.content] };
+        // Keep the funnel's `structuredContent`: dropping it here would put the
+        // sanitized payload in one channel and nothing in the other, which is
+        // the asymmetry this release exists to remove.
+        return { content: [...qrBlocks, ...merged.content], structuredContent: merged.structuredContent };
       } catch (e) {
         return err(safeErrorMessage(e));
       }
@@ -592,6 +708,16 @@ export function registerOtcTools(
                   : 0n,
               vestingWithdrawable: uv.vestingUserView.amountToWithdraw,
             },
+            // F15: a non-zero vested leg is unrecoverable on current pools, so
+            // say so next to the number that claims to be withdrawable.
+            ...(tier.vestingSettings.vestingPercentage > 0n
+              ? {
+                  vestingWithdrawBlocked: {
+                    reason: VESTING_WITHDRAW_ADVISORY.text,
+                    upstream: VESTING_WITHDRAW_ADVISORY.upstream,
+                  },
+                }
+              : {}),
             ...(merkle ? { merkle } : {}),
           };
         });
@@ -820,8 +946,10 @@ export function registerOtcTools(
   server.tool(
     "dexe_otc_buyer_claim_all",
     "OTC buyer composite — reads `getUserViews(user, tierIds)`, picks tier ids with " +
-      "`claimableAmount > 0` and broadcasts `claim`, then picks tier ids with " +
-      "`vestingWithdrawAmount > 0` and broadcasts `vestingWithdraw`. When DEXE_PRIVATE_KEY " +
+      "`claimableAmount > 0` and broadcasts `claim`. Tiers whose only balance is the VESTED leg are " +
+      "reported under `vestingBlocked` and NOT broadcast: `vestingWithdraw` is refused by the pool's " +
+      "firewall in every call shape (upstream protocol defect F15), so sending it only burns gas. " +
+      "Pass `includeVesting: true` to attempt it anyway. When DEXE_PRIVATE_KEY " +
       "is unset, returns ordered TxPayloads. Skips silently if no tiers have anything claimable.",
     {
       tokenSaleProposal: z.string(),
@@ -835,6 +963,14 @@ export function registerOtcTools(
       user: z.string().optional(),
       signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+      includeVesting: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Attempt `vestingWithdraw` for tiers with a withdrawable vested amount. Off by default because that " +
+            "call reverts on every current pool (upstream F15) — turn it on only for a pool where it is known " +
+            "to work.",
+        ),
     },
     async (input) => {
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);
@@ -909,12 +1045,29 @@ export function registerOtcTools(
         });
       }
 
+      // F15: vestingWithdraw is refused by the pool firewall in EVERY shape, so
+      // auto-appending it (as this tool used to) guaranteed a reverted tx and
+      // told the buyer nothing about why their vested tokens never arrived.
+      // Report it instead; broadcast only on an explicit opt-in.
+      let vestingBlocked:
+        | (ReturnType<typeof vestingBlockedReport> & { attempted?: boolean })
+        | undefined;
       if (vestingReady.length === 0) {
         skipped.push({
           label: "TokenSaleProposal.vestingWithdraw",
           reason: "No tiers have vestingWithdrawAmount > 0",
         });
+      } else if (!input.includeVesting) {
+        vestingBlocked = vestingBlockedReport(vestingReady, "includeVesting: true");
+        skipped.push({
+          label: "TokenSaleProposal.vestingWithdraw",
+          reason: `Blocked upstream (F15) for tier(s) ${vestingReady.join(",")} — not broadcast. ${VESTING_WITHDRAW_ADVISORY.text}`,
+        });
       } else {
+        vestingBlocked = {
+          ...vestingBlockedReport(vestingReady, "includeVesting: true"),
+          attempted: true,
+        };
         payloads.push({
           to: input.tokenSaleProposal,
           data: TOKEN_SALE_ABI.encodeFunctionData("vestingWithdraw", [
@@ -922,7 +1075,7 @@ export function registerOtcTools(
           ]),
           value: "0",
           chainId,
-          description: `TokenSaleProposal.vestingWithdraw([${vestingReady.join(",")}])`,
+          description: `TokenSaleProposal.vestingWithdraw([${vestingReady.join(",")}]) — upstream F15: expected to revert`,
         });
       }
 
@@ -933,6 +1086,7 @@ export function registerOtcTools(
           tokenSaleProposal: input.tokenSaleProposal,
           summary,
           steps: skipped,
+          ...(vestingBlocked ? { vestingBlocked } : {}),
         });
       }
 
@@ -951,7 +1105,10 @@ export function registerOtcTools(
         user: userAddr,
         tokenSaleProposal: input.tokenSaleProposal,
         claimedTierIds: claimable,
-        vestingWithdrawTierIds: vestingReady,
+        // Only the ids actually broadcast; the blocked ones live under
+        // `vestingBlocked` so a caller cannot read this as "withdrawn".
+        vestingWithdrawTierIds: input.includeVesting ? vestingReady : [],
+        ...(vestingBlocked ? { vestingBlocked } : {}),
         summary,
         steps: [...skipped, ...result.steps],
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
