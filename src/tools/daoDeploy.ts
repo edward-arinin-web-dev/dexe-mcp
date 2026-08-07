@@ -12,15 +12,17 @@ import { quorumPctFromRaw, judgeQuorum } from "../lib/quorumRisk.js";
 import {
   firstFailure,
   checkTreasuryRemainder,
-  checkQuorumReachable,
-  checkMinVotesVsDistribution,
-  checkSettingsBounds,
   checkNoTreasuryRecipient,
   checkValidatorsCoherence,
   checkCustomVotePower,
 } from "../lib/preflight.js";
 import { simulateDeployGovPool } from "../lib/deploySim.js";
-import { roundTripDeployCalldata, type DeployStructView } from "../lib/deployGuard.js";
+import {
+  roundTripDeployCalldata,
+  checkAllProposalSettings,
+  formatSettingsSlotIssues,
+  type DeployStructView,
+} from "../lib/deployGuard.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
 /**
@@ -538,7 +540,6 @@ export async function buildDeployGovPool(
   params.tokenParams.users.forEach((u, i) => {
     if (!gpLower || u.toLowerCase() !== gpLower) votable += BigInt(params.tokenParams.amounts[i] ?? "0");
   });
-  const base0 = expandedSettings[0]!;
   const coherence = firstFailure([
     checkCustomVotePower(
       params.votePowerParams.voteType,
@@ -553,26 +554,62 @@ export async function buildDeployGovPool(
     }),
     checkNoTreasuryRecipient(params.tokenParams.users, predictedGovPool),
     checkTreasuryRemainder(params.tokenParams.mintedTotal, params.tokenParams.amounts, isTokenCreation),
-    checkSettingsBounds({
-      quorum: base0.quorum,
-      quorumValidators: base0.quorumValidators,
-      duration: base0.duration,
-      durationValidators: base0.durationValidators,
-    }),
-    checkMinVotesVsDistribution(base0.minVotesForVoting, base0.minVotesForCreating, params.tokenParams.amounts, isTokenCreation),
-    checkQuorumReachable({
-      voteType: params.votePowerParams.voteType,
-      quorumRaw: base0.quorum,
-      mintedTotal: params.tokenParams.mintedTotal,
-      votable: votable.toString(),
-      isTokenCreation,
-    }),
   ]);
   if (coherence) {
     return fail(
       `Preflight [${coherence.check}] failed: ${coherence.remediation}${coherence.detail ? ` (${coherence.detail})` : ""}`,
     );
   }
+
+  // ---------- EVERY settings slot, not just [0] ----------
+  // deployGovPool takes FIVE settings entries, one per executor family (default
+  // / internal / validators / distributionProposal / tokenSale). Reading only
+  // `expandedSettings[0]` — as the bounds / min-votes / reachability checks used
+  // to — lets an ADVANCED 5-slot config ship a DAO whose default proposals work
+  // while one of the other four families is permanently un-passable. That DAO is
+  // UNRECOVERABLE: repairing a slot needs a proposal passed under that very slot.
+  //
+  // `checkAllProposalSettings` owns those three checks now (it runs each of them
+  // per slot), so they are NOT also listed above — one chokepoint, one verdict.
+  // It runs on the EXPANDED array, i.e. exactly what reaches the chain, inside
+  // the one function both `dexe_dao_build_deploy` and `dexe_dao_create` funnel
+  // through.
+  const slotVerdict = checkAllProposalSettings({
+    proposalSettings: expandedSettings,
+    amounts: params.tokenParams.amounts,
+    mintedTotal: params.tokenParams.mintedTotal,
+    voteType: params.votePowerParams.voteType,
+    isTokenCreation,
+    // Treasury-excluded votable power (computed above) — the treasury holds the
+    // implicit remainder and cannot vote.
+    votable: votable.toString(),
+    floorPct: ctx.config.minSafeQuorumPct,
+  });
+  // Same split as dexe_dao_create: every issue except the turnout margin is a
+  // refusal; the margin is delivered as an advisory. Keeping the split (and the
+  // wording) identical is what makes the two deploy surfaces return the same
+  // verdict on the same config.
+  const hardSlotIssues = slotVerdict.issues.filter((i) => i.check !== "deploy.quorum-margin");
+  if (hardSlotIssues.length > 0) {
+    return fail(
+      `This DAO would be un-governable — ${hardSlotIssues.length} settings slot ` +
+        `${hardSlotIssues.length === 1 ? "issue" : "issues"} (of ` +
+        `${params.settingsParams.proposalSettings.length} supplied; deployGovPool expands 1 → 5):\n` +
+        `${formatSettingsSlotIssues(hardSlotIssues)}`,
+    );
+  }
+
+  // ---------- turnout-margin advisory (per slot, never blocking) ----------
+  const marginSlots = slotVerdict.slots.filter((s) => !s.marginOk && s.reachable);
+  const marginWarning =
+    ctx.config.treasuryGuard !== "off" && marginSlots.length > 0
+      ? `\n⚠️  Quorum leaves no turnout margin on proposalSettings ` +
+        `${marginSlots.map((s) => `[${s.index}] ${s.slot} (needs ${s.requiredTurnoutPct ?? "?"}% turnout)`).join(", ")}. ` +
+        `Votable power is ${slotVerdict.votablePowerPct}% of supply. A quorum that demands near-total turnout freezes ` +
+        `that whole class of proposal the first time a holder abstains, sells, or loses a key — and no proposal can ` +
+        `repair it, because the repair must pass under the same settings. Fix: raise the votable share (shrink the ` +
+        `treasury / distribute more) or lower that slot's quorum. [governance-safety advisory]`
+      : "";
 
   // ---------- treasury-safety advisory: quorum floor ----------
   const quorumWarning = ctx.config.treasuryGuard !== "off"
@@ -810,6 +847,7 @@ export async function buildDeployGovPool(
   note += "\n✓ Calldata round-trip self-check passed (decoded == intended params).";
   if (pinataWarning) note += pinataWarning;
   if (quorumWarning) note += quorumWarning;
+  if (marginWarning) note += marginWarning;
   if (rewardWarning) note += rewardWarning;
 
   return {

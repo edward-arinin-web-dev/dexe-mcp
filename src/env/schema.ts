@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveTreasuryGuardMode, TREASURY_GUARD_MODES } from "../lib/quorumRisk.js";
 
 /**
  * Single source of truth for every DEXE_* env var the MCP recognizes.
@@ -132,7 +133,7 @@ const addressStr = () => {
   return z.string().regex(hex40, msg).optional().describe(msg);
 };
 
-const TREASURY_GUARD_MSG = "must be exactly 'off' or 'warn' (lowercase), e.g. warn";
+const TREASURY_GUARD_MSG = `must be one of ${TREASURY_GUARD_MODES.join(" | ")}, e.g. warn`;
 
 /**
  * One GraphQL endpoint URL. Shared by the three unsuffixed subgraph vars AND
@@ -159,14 +160,20 @@ export const ENV_SPEC = {
     doc: "Minimum safe quorum percent (0–100). Quorum below this is flagged as a governance-safety risk for treasury-moving proposals. Default 50.",
   },
   DEXE_TREASURY_GUARD: {
+    // Validated by the SAME parser the config and every tool call resolve with
+    // (`resolveTreasuryGuardMode`), so this layer cannot reject a posture the
+    // runtime honours. A hardcoded `off|warn` enum here rejected `block` as
+    // malformed — deleting the value and degrading the operator to `warn`
+    // while `treasuryGuardMode()` still reported `block`.
     schema: z
-      .enum(["off", "warn"], { errorMap: () => ({ message: TREASURY_GUARD_MSG }) })
+      .string()
+      .refine((v) => resolveTreasuryGuardMode(v).issue === undefined, TREASURY_GUARD_MSG)
       .optional()
       .describe(TREASURY_GUARD_MSG),
     category: "core",
     required: false,
     example: "warn",
-    doc: "Treasury-safety advisory posture: off | warn. 'warn' (default) emits advisories/alerts everywhere (build, deploy, execute, risk_assess) but NEVER blocks; 'off' silences them.",
+    doc: "Treasury-safety posture: off | warn | block. 'warn' (default) emits advisories/alerts everywhere (build, deploy, execute, risk_assess) but NEVER blocks; 'block' additionally REFUSES a deploy/execute whose treasury-safety checks failed; 'off' silences them.",
   },
   DEXE_CONTROLLING_TOPN: {
     schema: intStr("how many top holders to include", "5"),

@@ -21,10 +21,16 @@ import {
   classifyTreasuryActions,
   quorumPctFromRaw,
   judgeQuorum,
-  treasuryExecuteAdvisory,
-  TREASURY_RISK_ADVISORY,
+  treasuryGate,
+  treasuryGuardMode,
   type TreasuryHit,
 } from "../lib/quorumRisk.js";
+import {
+  checkAddSettingsTrap,
+  executeAddSettingsAdvisory,
+  POST_EXECUTE_LOCK_ADVISORY,
+  type UpstreamAdvisory,
+} from "../lib/protocolAdvisories.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import {
@@ -67,6 +73,11 @@ const GOV_POOL_ABI = new Interface([
   "function editDescriptionURL(string newDescriptionURL)",
   "function getProposalState(uint256 proposalId) view returns (uint8)",
   "function getProposalRequiredQuorum(uint256 proposalId) view returns (uint256)",
+  // Resume-ledger idempotency reads (finding A). `latestProposalId` +
+  // `getProposals` bound the duplicate-create scan; `getUserVotes` tells a
+  // re-run whether this wallet's vote already landed.
+  "function latestProposalId() view returns (uint256)",
+  "function getUserVotes(uint256 proposalId, address voter, uint8 voteType) view returns (tuple(bool isVoteFor, uint256 totalVoted, uint256 tokensVoted, uint256 totalRawVoted, uint256[] nftsVoted))",
   // Full IGovPool.ProposalView[] — lets the execute-gate read a proposal's
   // on-chain actions + its own quorum setting without compiled artifacts.
   GET_PROPOSALS_FRAGMENT,
@@ -237,24 +248,171 @@ async function assessExecuteRisk(
 }
 
 /**
- * Compute a treasury-safety advisory string for an execute step, or null when
- * there's nothing to say. ADVISORY ONLY — never blocks; it surfaces the note and
- * proceeds. Fail-soft on read errors. The durable control is an adequate on-chain
- * quorum threshold configured per DAO.
+ * Everything the caller is owed BEFORE `GovPool.execute` goes on the wire, plus
+ * the broadcast result when it was allowed to go.
  */
-async function treasuryExecuteGuard(args: {
+interface ExecuteDecision {
+  /** True iff the treasury guard refused: NOTHING was broadcast. */
+  blocked: boolean;
+  /** Why it was refused, and every way forward. Present iff `blocked`. */
+  refusal: string | null;
+  /** Treasury-safety advisory for this execute, or null when there is none. */
+  treasuryRisk: string | null;
+  /** Execute-time upstream protocol defects (#36, deposit lock). */
+  advisories: UpstreamAdvisory[];
+  /**
+   * Ledger entries for the advisories above, ordered so they precede the
+   * execute step in the response — the advisory is delivered ahead of the act,
+   * not narrated after it.
+   */
+  preSteps: FlowStep[];
+  /** The broadcast outcome. Absent iff `blocked`. */
+  result?: Awaited<ReturnType<typeof sendOrCollect>>;
+}
+
+/**
+ * Execute a passed proposal — the ONE place this composite broadcasts
+ * `GovPool.execute`, and therefore the one place the execute-time guards have
+ * to be wired.
+ *
+ * Two defects are fixed by that single funnel:
+ *
+ *  • The build-only `dexe_vote_build_execute` carried the #36 execute trap and
+ *    the deposit-lock warning; this path — the one the server instructions tell
+ *    agents to PREFER, and the only one that actually spends gas — carried
+ *    neither. The warning sat on the path nobody is told to take.
+ *
+ *  • The treasury guard computed its advisory, pushed it into the step ledger
+ *    and called `sendOrCollect` in the same breath, so the advisory reached the
+ *    caller only after the irreversible act. Here the gate decides FIRST, and
+ *    under `DEXE_TREASURY_GUARD=block` a treasury-moving execute whose safety
+ *    checks failed is refused with nothing broadcast.
+ *
+ * Wired in one function on purpose: 0.32.0 shipped a guard that a second
+ * entrypoint walked straight past, so each of the three execute call sites
+ * below calls this instead of re-deriving the rule.
+ */
+async function executeProposal(args: {
   provider: JsonRpcProvider;
+  signer: SignerManager;
+  wc?: WalletConnectManager;
+  cfg: DexeConfig;
+  chainId: number;
   govPool: string;
   proposalId: number;
-  cfg: DexeConfig;
-}): Promise<string | null> {
-  if (args.cfg.treasuryGuard === "off") return null;
-  const risk = await assessExecuteRisk(args.provider, args.govPool, args.proposalId, args.cfg);
-  if ("error" in risk) return `⚠ treasury-risk pre-check skipped: ${risk.error}`;
-  if (risk.treasuryHits.length === 0) return null;
-  // Treasury-touching with a failing check (low quorum or no controlling
-  // participation) → the pointed advisory; otherwise the static one.
-  return risk.reasons.length > 0 ? treasuryExecuteAdvisory(risk.reasons) : TREASURY_RISK_ADVISORY;
+  dryRun: boolean;
+  signerKey?: string;
+}): Promise<ExecuteDecision> {
+  const { provider, cfg, chainId, govPool, proposalId } = args;
+  const act = `GovPool.execute(${proposalId})`;
+
+  // ---- treasury gate: decided BEFORE anything is signed --------------------
+  // Env-first resolution (the same one daoCreate uses) is what lets `block`
+  // work through a config field that only carries off|warn.
+  const mode = treasuryGuardMode({ configured: cfg.treasuryGuard });
+  let treasuryRisk: string | null = null;
+  let blocked = false;
+  let refusal: string | null = null;
+  if (mode !== "off") {
+    const risk = await assessExecuteRisk(provider, govPool, proposalId, cfg);
+    if ("error" in risk) {
+      // Fail-soft: an RPC hiccup must never brick an execute — but say so, so
+      // "no advisory" is never mistaken for "no risk".
+      treasuryRisk = `⚠ treasury-risk pre-check skipped: ${risk.error}`;
+    } else {
+      const gate = treasuryGate({
+        mode,
+        stage: "execute",
+        hits: risk.treasuryHits,
+        reasons: risk.reasons,
+        act,
+      });
+      treasuryRisk = gate.advisory;
+      blocked = gate.blocked;
+      refusal = gate.refusal;
+    }
+  }
+
+  // ---- upstream defects that fire AT execute -------------------------------
+  // #36 is chain-scoped (null off the affected chains); the deposit lock always
+  // applies, because execute is what creates the lock that breaks the NEXT vote.
+  const advisories = [executeAddSettingsAdvisory(chainId), POST_EXECUTE_LOCK_ADVISORY].filter(
+    (a): a is UpstreamAdvisory => Boolean(a),
+  );
+
+  // Ledger markers, not copies: the full text lives once, in the response's
+  // `treasuryRisk` / `advisories` fields. These exist to put the advisory ahead
+  // of the execute step in `steps`, which is where "delivered BEFORE the act"
+  // is visible.
+  const preSteps: FlowStep[] = [];
+  if (treasuryRisk) {
+    preSteps.push({ label: "treasury-risk", skipped: true, reason: "see `treasuryRisk` — read it before this executes" });
+  }
+  for (const a of advisories) {
+    preSteps.push({ label: `advisory:${a.id}`, skipped: true, reason: `${a.severity} — see \`advisories\` (${a.upstream})` });
+  }
+
+  if (blocked) return { blocked, refusal, treasuryRisk, advisories, preSteps };
+
+  const result = await sendOrCollect(
+    args.signer,
+    [makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, act)],
+    { dryRun: args.dryRun, chainId, wc: args.wc, signerKey: args.signerKey },
+  );
+  return { blocked: false, refusal: null, treasuryRisk, advisories, preSteps, result };
+}
+
+/** The advisory fields every execute response carries, ready to spread. */
+function executeAdvisoryFields(d: ExecuteDecision): Record<string, unknown> {
+  return {
+    ...(d.treasuryRisk ? { treasuryRisk: d.treasuryRisk } : {}),
+    ...(d.advisories.length > 0
+      ? {
+          advisories: d.advisories.map((a) => ({
+            id: a.id,
+            severity: a.severity,
+            upstream: a.upstream,
+            text: a.text,
+          })),
+        }
+      : {}),
+  };
+}
+
+/**
+ * Response for an execute the treasury guard refused. It is an error (the
+ * caller asked for something that did not happen) and it carries the ledger of
+ * whatever DID land earlier in the flow, so a blocked execute after a landed
+ * vote is not mistaken for a lost vote.
+ */
+function executeBlockedResult(
+  d: ExecuteDecision,
+  priorSteps: FlowStep[],
+  extra: Record<string, unknown>,
+) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(
+          {
+            mode: "blocked-treasury",
+            ...extra,
+            ...executeAdvisoryFields(d),
+            refusal: d.refusal,
+            steps: [...priorSteps, ...d.preSteps],
+            next:
+              "NOTHING was broadcast for the execute. The proposal stays executable: fix the cause, or set " +
+              "DEXE_TREASURY_GUARD=warn and restart the MCP server to make this an advisory, then re-run this " +
+              "same call.",
+          },
+          bigintReplacer,
+          2,
+        ),
+      },
+    ],
+    isError: true,
+  };
 }
 
 const POOL_REGISTRY_ISGOV_ABI = ["function isGovPool(address) view returns (bool)"];
@@ -303,6 +461,166 @@ async function assertRegisteredGovPool(
     return; // registry unresolvable / call failed — cannot verify, proceed
   }
   refuseIfNotGovPool(govPool, isGov);
+}
+
+// ---------- resume-ledger idempotency (finding A) ----------
+
+/**
+ * How many of the most recent proposals the duplicate-create scan reads.
+ *
+ * A resumed create is always at the END of the list: the create payload is the
+ * LAST step of the sequence, so the only way one lands and the caller still
+ * re-runs is a failure at (or after) the final tx. 20 covers that with room for
+ * concurrent DAO activity in between, in one `getProposals` call.
+ */
+const CREATE_DEDUPE_SCAN = 20;
+
+/**
+ * Proposal states from which a proposal is still ACTIONABLE — Voting,
+ * WaitingForVotingTransfer, ValidatorVoting, SucceededFor, SucceededAgainst,
+ * Locked. A duplicate is only suppressed against one of these: re-proposing
+ * something that was Defeated (3) or already Executed (7/8) is a legitimate
+ * intent (retry a lost vote, run next month's transfer), and blocking it would
+ * make the guard a nuisance rather than a safety net.
+ */
+const LIVE_PROPOSAL_STATES = new Set([0, 1, 2, 4, 5, 6]);
+
+export interface ExistingProposal {
+  proposalId: number;
+  state: number;
+  stateName: string;
+}
+
+/**
+ * Find a still-live proposal on `govPool` whose `descriptionURL` equals
+ * `descriptionURL`.
+ *
+ * This is the create leg's idempotency key. A proposal's descriptionURL is the
+ * CID of its pinned metadata, so re-running the SAME `dexe_proposal_create`
+ * with the SAME arguments re-derives the SAME URL — which makes "did my create
+ * already land?" answerable BEFORE spending gas. GovPool itself does not dedupe
+ * descriptionURL (GovPoolCreate just assigns it), so without this a resumed
+ * flow mints a second identical proposal, silently, for real gas — and the DAO
+ * is left voting on two copies of the same thing.
+ *
+ * Fail-soft by construction: any read/decode problem returns null and the
+ * caller proceeds exactly as it did before. A missed duplicate is the old
+ * behavior; a false positive would block a legitimate create, so every
+ * uncertain path resolves to "no duplicate".
+ */
+export async function findLiveProposalByDescriptionURL(
+  provider: JsonRpcProvider,
+  govPool: string,
+  descriptionURL: string,
+  scan: number = CREATE_DEDUPE_SCAN,
+): Promise<ExistingProposal | null> {
+  if (!descriptionURL) return null;
+  try {
+    const [latestRes] = await multicall(provider, [
+      { target: govPool, iface: GOV_POOL_ABI, method: "latestProposalId", args: [], allowFailure: true },
+    ]);
+    if (!latestRes?.success) return null;
+    const latest = Number(latestRes.value as bigint);
+    if (!Number.isSafeInteger(latest) || latest <= 0) return null;
+
+    const limit = Math.min(scan, latest);
+    // getProposals is 0-indexed over a 1-indexed proposal space:
+    // proposalId === offset + index + 1.
+    const offset = latest - limit;
+    const [res] = await multicall(provider, [
+      {
+        target: govPool,
+        iface: GOV_POOL_ABI,
+        method: "getProposals",
+        args: [offset, limit],
+        allowFailure: true,
+      },
+    ]);
+    if (!res?.success) return null;
+    const rows = res.value as unknown[];
+    if (!Array.isArray(rows)) return null;
+
+    // Newest first — a duplicate is far likelier to be the last thing created.
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const decoded = decodeProposalView(rows[i]);
+      if (!decoded || decoded.descriptionURL !== descriptionURL) continue;
+      if (!LIVE_PROPOSAL_STATES.has(decoded.proposalState)) continue;
+      return {
+        proposalId: offset + i + 1,
+        state: decoded.proposalState,
+        stateName: proposalStateName(decoded.proposalState),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** A wallet's existing personal vote on one proposal. */
+export interface PriorVote {
+  /** True when GovPool would reject a second vote from this wallet. */
+  voted: boolean;
+  isVoteFor: boolean;
+  /** Personal ERC20 weight already locked into this vote. */
+  tokensVoted: bigint;
+  /** Voter-level total across personal/micropool/treasury. */
+  totalVoted: bigint;
+  nftCount: number;
+}
+
+/**
+ * Read this wallet's existing vote on `proposalId`.
+ *
+ * The vote leg's idempotency key. `GovPoolVote._canVote` asserts
+ * `!_isVoted(voteInfo)` — a SECOND vote from the same wallet on the same
+ * proposal reverts "Gov: need cancel", and `_vote` assigns `tokensVoted =
+ * amount` (absolute, not additive), so there is no such thing as topping a vote
+ * up in one call. Re-running a composite after its vote landed therefore burned
+ * gas on a guaranteed revert AND could never reach the execute step queued
+ * behind it. Knowing this before broadcasting turns that into a skip.
+ *
+ * Fail-soft: a null return means "could not tell", and the caller votes as it
+ * always did.
+ */
+export async function readPriorVote(
+  provider: JsonRpcProvider,
+  govPool: string,
+  proposalId: number,
+  voter: string,
+): Promise<PriorVote | null> {
+  try {
+    const [res] = await multicall(provider, [
+      {
+        target: govPool,
+        iface: GOV_POOL_ABI,
+        method: "getUserVotes",
+        // voteType 0 = PersonalVote; `totalVoted` on the view is voter-level, so
+        // a micropool/treasury-only vote is still visible through it.
+        args: [proposalId, voter, 0],
+        allowFailure: true,
+      },
+    ]);
+    if (!res?.success || res.value == null) return null;
+    const v = res.value as {
+      isVoteFor: boolean;
+      totalVoted: bigint;
+      tokensVoted: bigint;
+      nftsVoted: unknown;
+    };
+    const tokensVoted = BigInt(v.tokensVoted ?? 0n);
+    const totalVoted = BigInt(v.totalVoted ?? 0n);
+    const nftCount = Array.isArray(v.nftsVoted) ? v.nftsVoted.length : 0;
+    return {
+      voted: tokensVoted > 0n || totalVoted > 0n || nftCount > 0,
+      isVoteFor: Boolean(v.isVoteFor),
+      tokensVoted,
+      totalVoted,
+      nftCount,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function resolvePrereqs(
@@ -483,6 +801,70 @@ export interface FlowFailure {
   resume: string;
 }
 
+/**
+ * What a re-run ACTUALLY re-derives from chain state, named step by step.
+ *
+ * The previous wording promised that "approve / deposit / vote" were all
+ * "detected on-chain and skipped automatically". Two of the three were true.
+ * The create leg was never checked at all (a re-run minted a duplicate
+ * proposal) and the vote leg was never checked either (a re-run reverted "Gov:
+ * need cancel"). Both are now genuinely re-derived — but the lesson is that an
+ * idempotency claim has to enumerate, not generalize, so this string names the
+ * steps that are skipped AND the steps that are not.
+ */
+export const RESUME_RECHECKS =
+  "On re-run this flow re-reads chain state first and skips what is already true: " +
+  "ERC20.approve (allowance already covers the deposit), GovPool.deposit (deposited power already covers the vote), " +
+  "createProposalAndVote (a still-live proposal with the same metadata URL already exists — no duplicate is minted), " +
+  "and GovPool.vote (this wallet already voted on this proposal; GovPool reverts a second vote with \"Gov: need cancel\"). " +
+  "NOT auto-skipped: GovPool.execute and the validator round (moveProposalToValidators / validator vote) — " +
+  "if one of those was the failing step, check dexe_proposal_state first so the re-run does not repeat a step that landed.";
+
+/**
+ * True when a step failed because the RECEIPT WAIT timed out rather than
+ * because the transaction failed. `waitWithTimeout` normalizes ethers'
+ * TimeoutError into this sentence (src/lib/txWait.ts) and ethers itself tags
+ * the raw error `code: "TIMEOUT"`.
+ *
+ * The distinction is the whole point: a timed-out step was BROADCAST. Telling
+ * the caller to "re-run this same call" there is an instruction to double-send
+ * a transaction that may be one confirmation away from landing — the exact
+ * double-execution the ledger exists to prevent.
+ */
+export function broadcastTimeout(err: unknown): { txHash?: string } | null {
+  const raw = safeErrorMessage(err);
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  if (code !== "TIMEOUT" && !/was broadcast but not mined within/i.test(raw)) return null;
+  const hash = /0x[0-9a-fA-F]{64}/.exec(raw);
+  return hash ? { txHash: hash[0] } : {};
+}
+
+/**
+ * Resume guidance for a step whose receipt wait timed out. Never says "re-run":
+ * the first attempt may still land, so the only safe next move is to look the
+ * transaction up.
+ */
+export function timeoutResume(
+  step: string,
+  chainId: number,
+  landed: FlowStep[],
+  txHash?: string,
+): string {
+  const hashArg = txHash ? `"${txHash}"` : '"<the 0x… hash in the error above>"';
+  return (
+    `DO NOT re-run this call yet. "${step}" WAS BROADCAST — the wait for its receipt timed out, which is not the ` +
+    `same as the transaction failing, and it may still be mined. Re-sending now risks executing it twice.\n` +
+    `Next step: dexe_tx_status {"txHash":${hashArg},"chainId":${chainId}}.\n` +
+    `  • reports success → that step is DONE; re-run this same call to continue from the step after it.\n` +
+    `  • still pending → wait and check again; do nothing else.\n` +
+    `  • not_found (dropped from the mempool) → nothing landed for this step; re-run this same call.\n` +
+    (landed.length > 0
+      ? `${landed.length} earlier step(s) already landed on-chain (see landedSteps txHashes). `
+      : "") +
+    RESUME_RECHECKS
+  );
+}
+
 const flowSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -631,6 +1013,10 @@ export async function sendOrCollect(
     } catch (e) {
       const landed = steps.filter((s) => s.txHash);
       const actionable = toActionableError(e, p.description);
+      // A receipt-wait timeout is NOT a failed step — the tx is in flight. It
+      // gets its own resume that points at dexe_tx_status and never says
+      // "re-run" (re-running is how a broadcast tx becomes two).
+      const timedOut = broadcastTimeout(e);
       return {
         mode: "failed",
         steps,
@@ -639,12 +1025,12 @@ export async function sendOrCollect(
           failedStep: p.description,
           error: actionable.message,
           landedSteps: landed,
-          resume:
-            landed.length > 0
+          resume: timedOut
+            ? timeoutResume(p.description, Number(p.chainId), landed, timedOut.txHash)
+            : landed.length > 0
               ? `${landed.length} earlier step(s) already landed on-chain (see landedSteps txHashes). ` +
-                "Fix the cause above and re-run this same call — already-satisfied steps (approve / deposit / vote) " +
-                "are detected on-chain and skipped automatically."
-              : "No steps landed on-chain. Fix the cause above and re-run this same call.",
+                `Fix the cause above and re-run this same call. ${RESUME_RECHECKS}`
+              : `No steps landed on-chain. Fix the cause above and re-run this same call. ${RESUME_RECHECKS}`,
         },
       };
     }
@@ -695,6 +1081,13 @@ export interface ProposalCreateInput {
    * territory). Without it the flow refuses BEFORE any transaction.
    */
   confirmRisky?: boolean;
+  /**
+   * Opt out of the duplicate-create guard. By default a create is suppressed
+   * when a still-live proposal on this DAO already carries the same metadata
+   * URL (i.e. this exact call already landed). Set true to mint a second copy
+   * on purpose.
+   */
+  allowDuplicate?: boolean;
   /** Guided-flow position (from dexe_guide) — enables flowProgress/next chaining. */
   flowContext?: { flow: string; step: string };
 }
@@ -1014,6 +1407,42 @@ export async function runProposalCreate(
         }
       }
 
+      // Step 3c: #36 trap check on the FINAL actions, whatever produced them.
+      //
+      // The catalog builders are already wrapped by the registry guard, but the
+      // `custom` branch above takes caller-supplied actionsOnFor verbatim and
+      // never touches PROPOSAL_BUILDERS — so it bypassed that guard entirely.
+      // This is the third time in this codebase that a "custom"/raw-calldata
+      // path has walked around a check every other path passes through (0.32.0:
+      // the GovUserKeeper denylist). Running it HERE, once, on the assembled
+      // actions means the branch that produced them cannot matter — including
+      // any branch added later.
+      //
+      // Deduped by advisory id so a catalog build already carrying #36 is not
+      // annotated twice.
+      {
+        const trap = checkAddSettingsTrap({ chainId, actions: actionsOnFor });
+        if (trap.blocked && trap.advisory) {
+          const already = (governanceAdvisories ?? []).some((a) => a.includes(trap.advisory!.id));
+          if (!already) {
+            governanceAdvisories = [...(governanceAdvisories ?? []), trap.advisory.text];
+          }
+          if (!input.confirmRisky) {
+            return ok({
+              mode: "blocked-risky",
+              proposalType: input.proposalType,
+              risk: "DANGER",
+              governanceAdvisories,
+              note:
+                "No transaction was broadcast. On this chain the proposal would PASS the vote and " +
+                "then revert at execute, burning a full governance cycle and leaving nothing to " +
+                "undo it. Re-run with confirmRisky: true only if you know the chain has been fixed " +
+                "upstream.",
+            });
+          }
+        }
+      }
+
       // Step 4: upload proposal metadata (field names must match frontend exactly)
       const proposalMeta = {
         proposalName: input.title,
@@ -1030,6 +1459,68 @@ export async function runProposalCreate(
         ? await cidForJson(proposalMeta)
         : (await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` })).cid;
       const descriptionURL = `ipfs://${proposalMetaCid}`;
+
+      // Step 4b: duplicate-create guard (finding A).
+      //
+      // Every composite failure tells the caller "fix the cause and re-run this
+      // same call — completed steps are skipped". For the CREATE leg that was
+      // false: nothing checked whether the create had already landed, and
+      // GovPool does not dedupe descriptionURL, so a re-run after a timed-out
+      // receipt / a failed later step minted a SECOND identical proposal —
+      // silently, for real gas, leaving the DAO voting on two copies.
+      //
+      // The pinned metadata CID makes the same call produce the same URL, so
+      // the duplicate is detectable BEFORE the transaction. Skipped under
+      // dryRun (its placeholder CID uses a different codec than a real Pinata
+      // pin and could never match a live proposal).
+      if (!input.dryRun && !input.allowDuplicate) {
+        const prDup = rpc.tryProvider(chainId);
+        if (!("error" in prDup)) {
+          const existing = await findLiveProposalByDescriptionURL(prDup.ok, govPool, descriptionURL);
+          if (existing) {
+            // The proposal is real even though THIS call did not create it — the
+            // run that did may have died before recording it. Best-effort, so a
+            // state-write error never turns a clean no-op into a failure.
+            if (deps.state) {
+              try {
+                deps.state.recordProposal({
+                  govPool,
+                  chainId,
+                  title: input.title,
+                  descriptionURL,
+                  createdAt: new Date().toISOString(),
+                });
+              } catch {
+                /* ignore */
+              }
+            }
+            return ok({
+              mode: "already-created",
+              govPool,
+              chainId,
+              proposalId: existing.proposalId,
+              proposalState: existing.stateName,
+              descriptionURL,
+              proposalMetadataCID: proposalMetaCid,
+              steps: [
+                {
+                  label: "GovPool.createProposalAndVote",
+                  skipped: true,
+                  reason:
+                    `Proposal #${existing.proposalId} on this DAO already carries this exact descriptionURL ` +
+                    `and is still live ("${existing.stateName}") — this call already landed.`,
+                },
+              ],
+              note:
+                "NOTHING WAS BROADCAST. Creating it again would mint a second identical proposal (GovPool does not " +
+                "reject duplicate descriptionURLs) and split the DAO's votes across two copies. " +
+                `Continue with the existing one: dexe_proposal_vote_and_execute {"govPool":"${govPool}",` +
+                `"proposalId":${existing.proposalId},"chainId":${chainId}} — or inspect it with dexe_proposal_state. ` +
+                "If a second copy is genuinely intended, re-call with allowDuplicate:true.",
+            });
+          }
+        }
+      }
 
       // Step 5: build tx payloads
       const payloads: TxPayload[] = [];
@@ -1630,6 +2121,14 @@ export function registerFlowTools(
           "Required to proceed when the built proposal carries a DANGER governance-safety advisory " +
             "(e.g. quorum lowered into treasury-drain territory). Without it the flow refuses BEFORE any transaction.",
         ),
+      allowDuplicate: z
+        .boolean()
+        .default(false)
+        .describe(
+          "By default the create is SKIPPED when a still-live proposal on this DAO already carries the same IPFS " +
+            "metadata URL — i.e. this exact call already landed (a resumed run). Set true to mint a second identical " +
+            "proposal on purpose.",
+        ),
       flowContext: flowContextSchema,
     },
     // Every broadcast underneath — approve, deposit, createProposalAndVote, and
@@ -1727,30 +2226,49 @@ export function registerFlowTools(
       // earlyCompletion, the proposal lands directly in Locked, so we must
       // recognize it here as executable.
       if ((stateNum === 4 || stateNum === 5 || stateNum === 6) && input.autoExecute) {
-        const treasuryRisk = await treasuryExecuteGuard({
+        const voteSkipped: FlowStep = {
+          label: "GovPool.vote",
+          skipped: true,
+          reason: `Proposal already in "${stateName}" — no vote needed`,
+        };
+        const decision = await executeProposal({
           provider,
+          signer,
+          wc,
+          cfg: ctx.config,
+          chainId,
           govPool,
           proposalId,
-          cfg: ctx.config,
+          dryRun: input.dryRun,
+          signerKey: input.signerKey,
         });
-        const execResult = await sendOrCollect(signer, [
-          makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-        ], { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
-        if (execResult.mode === "failed") {
-          return flowFailureResult(execResult, {
+        if (decision.blocked) {
+          return executeBlockedResult(decision, [voteSkipped], {
             proposalId,
             proposalStateBefore: stateName,
-            ...(execResult.signer ? { signer: execResult.signer } : {}),
           });
+        }
+        const execResult = decision.result!;
+        if (execResult.mode === "failed") {
+          return flowFailureResult(
+            { steps: [...decision.preSteps, ...execResult.steps], failure: execResult.failure },
+            {
+              proposalId,
+              proposalStateBefore: stateName,
+              ...executeAdvisoryFields(decision),
+              ...(execResult.signer ? { signer: execResult.signer } : {}),
+            },
+          );
         }
         return attachPairingQr(ok({
           mode: execResult.mode,
           proposalId,
           proposalStateBefore: stateName,
           ...(execResult.signer ? { signer: execResult.signer } : {}),
-          ...(treasuryRisk ? { treasuryRisk } : {}),
+          ...executeAdvisoryFields(decision),
           steps: [
-            { label: "GovPool.vote", skipped: true, reason: `Proposal already in "${stateName}" — no vote needed` },
+            voteSkipped,
+            ...decision.preSteps,
             ...execResult.steps,
           ],
           executed: execResult.mode === "executed",
@@ -1780,15 +2298,31 @@ export function registerFlowTools(
           }
           const execSteps: FlowStep[] = [];
           let executed = false;
+          let decision: ExecuteDecision | undefined;
+          const voteSkipped: FlowStep = {
+            label: "GovPool.vote",
+            skipped: true,
+            reason: `Proposal already past member voting ("${stateName}") — drove the validator round`,
+          };
           if (drive.state === 4 || drive.state === 5) {
-            const treasuryRisk = await treasuryExecuteGuard({ provider, govPool, proposalId, cfg: ctx.config });
-            if (treasuryRisk) execSteps.push({ label: "treasury-risk", skipped: true, reason: treasuryRisk });
-            const execResult = await sendOrCollect(signer, [
-              makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-            ], { dryRun: false, chainId, wc, signerKey: input.signerKey });
-            execSteps.push(...execResult.steps);
+            decision = await executeProposal({
+              provider, signer, wc, cfg: ctx.config, chainId, govPool, proposalId,
+              dryRun: false, signerKey: input.signerKey,
+            });
+            if (decision.blocked) {
+              return executeBlockedResult(decision, [voteSkipped, ...drive.steps], {
+                proposalId,
+                proposalStateBefore: stateName,
+                proposalStateAfter: proposalStateName(drive.state),
+              });
+            }
+            const execResult = decision.result!;
+            execSteps.push(...decision.preSteps, ...execResult.steps);
             if (execResult.mode === "failed") {
-              return flowFailureResult({ steps: [...drive.steps, ...execSteps], failure: execResult.failure }, { proposalId, proposalStateBefore: stateName });
+              return flowFailureResult(
+                { steps: [...drive.steps, ...execSteps], failure: execResult.failure },
+                { proposalId, proposalStateBefore: stateName, ...executeAdvisoryFields(decision) },
+              );
             }
             executed = true;
           }
@@ -1797,8 +2331,9 @@ export function registerFlowTools(
             proposalId,
             proposalStateBefore: stateName,
             proposalStateAfter: proposalStateName(drive.state),
+            ...(decision ? executeAdvisoryFields(decision) : {}),
             steps: [
-              { label: "GovPool.vote", skipped: true, reason: `Proposal already past member voting ("${stateName}") — drove the validator round` },
+              voteSkipped,
               ...drive.steps,
               ...execSteps,
             ],
@@ -1836,6 +2371,26 @@ export function registerFlowTools(
       const payloads: TxPayload[] = [];
       const skippedSteps: FlowStep[] = [];
 
+      // Step 2b: already-voted read (finding A).
+      //
+      // `GovPoolVote._canVote` asserts `!_isVoted(voteInfo)` — a SECOND vote
+      // from the same wallet on the same proposal reverts "Gov: need cancel" —
+      // and `_vote` assigns `tokensVoted = amount` (absolute, not additive), so
+      // a vote cannot be topped up in one call either. Yet the failure ledger
+      // told callers to re-run and promised the vote step was skipped when
+      // already satisfied. It was not: a re-run after a landed vote burned gas
+      // on a guaranteed revert and, worse, could never reach the execute step
+      // queued behind it.
+      //
+      // Read BEFORE the vote-amount guards below: those guards protect the vote
+      // that is about to be sent, and when no vote will be sent they would fail
+      // a resumed call over an amount nobody is going to use (an NFT-only voter
+      // holding zero tokens hits "No voting power available" on every re-run).
+      //
+      // Fail-soft: a null read leaves the pre-existing behavior untouched.
+      const priorVote = await readPriorVote(provider, govPool, proposalId, user);
+      const alreadyVoted = priorVote?.voted === true;
+
       // Step 3: target vote amount (raw wei digits-only, or human decimal).
       let voteAmt: bigint;
       try {
@@ -1848,7 +2403,7 @@ export function registerFlowTools(
         return err(safeErrorMessage(e));
       }
 
-      if (voteAmt === 0n) {
+      if (voteAmt === 0n && !alreadyVoted) {
         return err(
           input.depositFirst === false
             ? `No deposited voting power (wallet holds ${formatAmount(prereqs.walletBalance, d, sym)}, deposited 0). ` +
@@ -1859,7 +2414,7 @@ export function registerFlowTools(
       }
       // Units trap (same as proposal_create): digits-only voteAmount is RAW
       // WEI — below minVotesForVoting the vote reverts "Gov: low voting power".
-      if (prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
+      if (!alreadyVoted && prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
         return err(
           `voteAmount ${voteAmt} wei is below this DAO's minVotesForVoting ` +
             `(${formatAmount(prereqs.minVotesForVoting, d, sym)}) — the vote would revert "Gov: low voting power". ` +
@@ -1874,12 +2429,47 @@ export function registerFlowTools(
         );
       }
 
+      // Step 3b: turn the already-voted read into the skip + its advisories.
+      let voteAlreadyCast: string | undefined;
+      let voteChangeAdvisory: string | undefined;
+      if (priorVote?.voted) {
+        voteAlreadyCast =
+          `${user} has already voted on proposal #${proposalId} — ${priorVote.isVoteFor ? "FOR" : "AGAINST"}, ` +
+          `${formatAmount(priorVote.tokensVoted, d, sym)}` +
+          `${priorVote.nftCount > 0 ? ` + ${priorVote.nftCount} NFT(s)` : ""}. ` +
+          `GovPool rejects a second vote from the same wallet ("Gov: need cancel"), so this call did NOT re-send it: ` +
+          `no gas was spent on a guaranteed revert.`;
+        const wantsDifferent =
+          priorVote.isVoteFor !== input.isVoteFor ||
+          voteAmt > priorVote.tokensVoted ||
+          input.voteNftIds.length > priorVote.nftCount;
+        if (wantsDifferent) {
+          voteChangeAdvisory =
+            `⚠ This call asked to vote ${input.isVoteFor ? "FOR" : "AGAINST"} with ${formatAmount(voteAmt, d, sym)}, ` +
+            `which differs from the vote already on-chain — and it was NOT applied. ` +
+            `A vote cannot be amended or topped up: GovPool.vote SETS the amount and refuses a second call. ` +
+            `Changing it takes two transactions — cancel the existing vote ` +
+            `(dexe_vote_build_cancel_vote (needs DEXE_TOOLSETS=core,vote)), then re-run this call. ` +
+            `⚠ HARM WARNING: cancelling REMOVES your weight from the tally first, which can drop the proposal below ` +
+            `quorum — and if voting closes before the new vote lands, your weight is gone from the result entirely.`;
+        }
+      }
+
       // Step 4: deposit decision.
       //   'auto'  → deposit exactly the shortfall (frontend-equivalent bundled deposit+vote)
       //   true    → legacy explicit: deposit the full wallet balance
       //   false   → never deposit
       let depositAmount = 0n;
-      if (input.depositFirst === true) {
+      if (voteAlreadyCast) {
+        // The approve + deposit exist only to fund the vote that is being
+        // skipped. Sending them anyway would spend gas to lock tokens for a
+        // transaction that can never be broadcast.
+        skippedSteps.push({
+          label: "GovPool.deposit",
+          skipped: true,
+          reason: "Vote already cast — the deposit exists only to fund it, so it is not needed.",
+        });
+      } else if (input.depositFirst === true) {
         depositAmount = prereqs.walletBalance;
       } else if (input.depositFirst !== false && voteAmt > prereqs.depositedPower) {
         const shortfall = voteAmt - prereqs.depositedPower;
@@ -1903,30 +2493,43 @@ export function registerFlowTools(
           `ERC20.approve(${prereqs.userKeeper}, ${depositAmount})`,
         ));
       }
-      if (depositAmount === 0n && input.depositFirst !== false) {
+      if (!voteAlreadyCast && depositAmount === 0n && input.depositFirst !== false) {
         skippedSteps.push({ label: "GovPool.deposit", skipped: true, reason: "Deposited power already covers voteAmount" });
       }
 
       // (minVotesForVoting is enforced up-front, before the deposit decision —
       // the earlier guard returns first, so no duplicate check is needed here.)
 
-      // SphereX on new pools rejects a raw top-level vote(); the frontend
-      // always sends multicall([...maybe deposit, vote]) (useGovPoolVote.ts),
-      // so mirror that exact shape (verified live on chain 97, F4 2026-07-21).
-      const govCalls: string[] = [];
-      if (depositAmount > 0n) {
-        govCalls.push(GOV_POOL_ABI.encodeFunctionData("deposit", [depositAmount, []]));
+      if (voteAlreadyCast) {
+        skippedSteps.push({ label: "GovPool.vote", skipped: true, reason: voteAlreadyCast });
+      } else {
+        // SphereX on new pools rejects a raw top-level vote(); the frontend
+        // always sends multicall([...maybe deposit, vote]) (useGovPoolVote.ts),
+        // so mirror that exact shape (verified live on chain 97, F4 2026-07-21).
+        const govCalls: string[] = [];
+        if (depositAmount > 0n) {
+          govCalls.push(GOV_POOL_ABI.encodeFunctionData("deposit", [depositAmount, []]));
+        }
+        govCalls.push(GOV_POOL_ABI.encodeFunctionData("vote", [proposalId, input.isVoteFor, voteAmt, input.voteNftIds.map(id => BigInt(id))]));
+        payloads.push(makeTxPayload(
+          govPool, GOV_POOL_ABI, "multicall",
+          [govCalls],
+          chainId,
+          `GovPool.multicall([${depositAmount > 0n ? `deposit(${depositAmount}), ` : ""}vote(${proposalId}, ${input.isVoteFor}, ${voteAmt})])`,
+        ));
       }
-      govCalls.push(GOV_POOL_ABI.encodeFunctionData("vote", [proposalId, input.isVoteFor, voteAmt, input.voteNftIds.map(id => BigInt(id))]));
-      payloads.push(makeTxPayload(
-        govPool, GOV_POOL_ABI, "multicall",
-        [govCalls],
-        chainId,
-        `GovPool.multicall([${depositAmount > 0n ? `deposit(${depositAmount}), ` : ""}vote(${proposalId}, ${input.isVoteFor}, ${voteAmt})])`,
-      ));
 
-      // Step 5: send or collect
-      const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
+      // Step 5: send or collect. With the vote skipped there is nothing left to
+      // broadcast for this leg — do NOT call sendOrCollect with an empty list
+      // (a no-signer session would answer "payloads" with zero payloads and an
+      // enable-writes hint for a write that no longer exists). Synthesize the
+      // no-op so the autoExecute stage below can still carry the proposal
+      // forward, which is the whole point: a re-run after a landed vote used to
+      // revert here and never reach execute.
+      const nothingToBroadcast = payloads.length === 0;
+      const result: Awaited<ReturnType<typeof sendOrCollect>> = nothingToBroadcast
+        ? { mode: input.dryRun ? "dryRun" : "executed", steps: [] }
+        : await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
       if (result.mode === "failed") {
         return flowFailureResult(result, {
           proposalId,
@@ -1937,6 +2540,7 @@ export function registerFlowTools(
 
       // Step 6: auto-execute (only in executed mode)
       let executed = false;
+      let executeDecision: ExecuteDecision | undefined;
       if (input.autoExecute && result.mode === "executed") {
         // Re-read state after vote
         const postRes = await multicall(provider, [
@@ -1968,26 +2572,42 @@ export function registerFlowTools(
         const postStateName = proposalStateName(postState);
 
         if (postState === 4 || postState === 5) {
-          // SucceededFor or SucceededAgainst — execute (attach treasury advisory).
-          const treasuryRisk = await treasuryExecuteGuard({
+          // SucceededFor or SucceededAgainst — execute through the ONE funnel,
+          // which decides the treasury gate and assembles the execute-time
+          // advisories BEFORE the broadcast.
+          executeDecision = await executeProposal({
             provider,
+            signer,
+            wc,
+            cfg: ctx.config,
+            chainId,
             govPool,
             proposalId,
-            cfg: ctx.config,
+            dryRun: input.dryRun,
+            signerKey: input.signerKey,
           });
-          if (treasuryRisk) {
-            skippedSteps.push({ label: "treasury-risk", skipped: true, reason: treasuryRisk });
+          if (executeDecision.blocked) {
+            // The vote landed; only the execute was refused. Report both.
+            return executeBlockedResult(
+              executeDecision,
+              [...skippedSteps, ...result.steps],
+              { proposalId, proposalStateBefore: stateName, voteLanded: true },
+            );
           }
-          const execResult = await sendOrCollect(signer, [
-            makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
-          ], { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
-          result.steps.push(...execResult.steps);
+          const execResult = executeDecision.result!;
+          result.steps.push(...executeDecision.preSteps, ...execResult.steps);
           if (execResult.mode === "failed") {
-            // The vote landed; only the execute failed. Surface the ledger —
+            // The vote landed; only the execute failed. Surface the ledger AND
+            // the execute-time advisories — a #36 revert is explained by them —
             // the proposal stays executable via a re-run or dexe_vote_build_execute.
             return flowFailureResult(
               { steps: result.steps, failure: execResult.failure },
-              { proposalId, proposalStateBefore: stateName, voteLanded: true },
+              {
+                proposalId,
+                proposalStateBefore: stateName,
+                voteLanded: true,
+                ...executeAdvisoryFields(executeDecision),
+              },
             );
           }
           executed = true;
@@ -2001,12 +2621,18 @@ export function registerFlowTools(
       }
 
       return attachPairingQr(ok({
-        mode: result.mode,
+        // Don't report "executed" for a call that broadcast nothing: with the
+        // vote skipped and no execute to run, the honest answer is that the
+        // vote was already on-chain before this call.
+        mode: nothingToBroadcast && !executed ? "already-voted" : result.mode,
         proposalId,
         proposalStateBefore: stateName,
+        ...(executeDecision ? executeAdvisoryFields(executeDecision) : {}),
         steps: [...skippedSteps, ...result.steps],
         ...(result.signer ? { signer: result.signer } : {}),
         executed,
+        ...(voteAlreadyCast ? { voteAlreadyCast } : {}),
+        ...(voteChangeAdvisory ? { voteChangeAdvisory } : {}),
         ...(executed
           ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
           : {}),

@@ -17,6 +17,7 @@ import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
 import { chainIdParam } from "../lib/params.js";
 import { transactionTypeLabels } from "../lib/interactionTypes.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { toActionableError } from "../lib/errors.js";
 
 /**
@@ -441,18 +442,18 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
               `Narrow the selection set or paginate with first/skip.`,
           );
         }
+        // Row shape is whatever the caller selected, so the summary reports only
+        // key + arity — both server-derived. Every string INSIDE the rows is
+        // written by whoever deployed the DAO / created the proposal, so `data`
+        // goes out deep-sanitized and announced.
         const topLevel = Object.entries(data)
-          .map(([k, v]) => `${k}: ${Array.isArray(v) ? `${v.length} row(s)` : typeof v}`)
+          .map(([k, v]) => `${renderUntrusted(k, 60)}: ${Array.isArray(v) ? `${v.length} row(s)` : typeof v}`)
           .join(", ");
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `graph_query(${subgraph}, chain ${sg.chainId}) → ${topLevel}`,
-            },
-          ],
-          structuredContent: { subgraph, indexedChainId: sg.chainId, data },
-        };
+        return untrustedResult({
+          summary: `graph_query(${subgraph}, chain ${sg.chainId}) → ${topLevel}`,
+          label: `subgraph rows (${subgraph}, chain ${sg.chainId})`,
+          structured: { subgraph, indexedChainId: sg.chainId, data },
+        });
       } catch (err) {
         return errorResult(withSchemaRecoveryHint(toActionableError(err, "dexe_graph_query").message, subgraph));
       }
@@ -701,32 +702,33 @@ function registerGraphSchema(server: McpServer, ctx: ToolContext): void {
         const rootFields = summarizeRootFields(data.__schema.queryType.fields);
         const where = `${subgraph}, chain ${sg.chainId}`;
 
+        // Every name below is read off the wire. The endpoint is operator-
+        // configured rather than permissionless, so this is a weaker channel
+        // than a DAO name — but it is still remote text pasted into prose, and
+        // the fence costs one line.
         if (!entity) {
           const lines = rootFields.map(
             (r) => `${r.entity}: query as ${r.list ?? "(no list field)"}${r.single ? ` / ${r.single}(id:)` : ""}`,
           );
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text:
-                  `graph_schema(${where}) → ${rootFields.length} queryable entities.\n` +
-                  `${lines.join("\n")}\n\n` +
-                  `Expand one with dexe_graph_schema { subgraph: "${subgraph}", entity: "<Entity>" }; ` +
-                  `its where-keys live in "<Entity>_filter", its orderBy values in "<Entity>_orderBy".`,
-              },
-            ],
-            structuredContent: { subgraph, indexedChainId: sg.chainId, rootFields },
-          };
+          return untrustedResult({
+            summary:
+              `graph_schema(${where}) → ${rootFields.length} queryable entities. ` +
+              `Expand one with dexe_graph_schema { subgraph: "${subgraph}", entity: "<Entity>" }; ` +
+              `its where-keys live in "<Entity>_filter", its orderBy values in "<Entity>_orderBy".`,
+            label: `entity names reported by the ${subgraph} endpoint`,
+            body: lines.join("\n"),
+            structured: { subgraph, indexedChainId: sg.chainId, rootFields },
+            maxBodyChars: 12_000,
+          });
         }
 
         const t = data.__type;
         if (!t) {
           const candidates = suggestEntities(entity, rootFields.map((r) => r.entity));
           return errorResult(
-            `No type named '${entity}' in the ${subgraph} subgraph (chain ${sg.chainId}). ` +
+            `No type named '${renderUntrusted(entity, 120)}' in the ${subgraph} subgraph (chain ${sg.chainId}). ` +
               (candidates.length
-                ? `Did you mean: ${candidates.join(", ")}? `
+                ? `Did you mean: ${candidates.map((c) => renderUntrusted(c, 120)).join(", ")}? `
                 : "") +
               `Entity names are PascalCase — 'daoPools' is the root query FIELD, 'DaoPool' is the type. ` +
               `Call dexe_graph_schema { subgraph: "${subgraph}" } with no entity for the full map.`,
@@ -750,16 +752,13 @@ function registerGraphSchema(server: McpServer, ctx: ToolContext): void {
           ? fields.map((f) => `  ${f.name}: ${f.type}`).join("\n")
           : enumValues.map((e) => `  ${e}`).join("\n");
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text:
-                `graph_schema(${where}) → ${t.name} (${t.kind}), ` +
-                `${fields.length || enumValues.length} member(s). ${header}\n${body}`,
-            },
-          ],
-          structuredContent: {
+        return untrustedResult({
+          summary:
+            `graph_schema(${where}) → ${renderUntrusted(t.name, 120)} (${renderUntrusted(t.kind, 40)}), ` +
+            `${fields.length || enumValues.length} member(s). ${renderUntrusted(header, 400)}`,
+          label: `field names reported by the ${subgraph} endpoint`,
+          body,
+          structured: {
             subgraph,
             indexedChainId: sg.chainId,
             entity: t.name,
@@ -768,7 +767,8 @@ function registerGraphSchema(server: McpServer, ctx: ToolContext): void {
             enumValues,
             rootFields: roots,
           },
-        };
+          maxBodyChars: 12_000,
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_graph_schema").message);
       }
@@ -803,11 +803,14 @@ function registerDaoList(server: McpServer, ctx: ToolContext): void {
           queryString: query,
         });
         const pools = data.daoPools;
-        const text = `Found ${pools.length} DAO(s) on chain ${sg.chainId} (offset=${offset}, limit=${limit}, query="${query}")`;
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: { query, offset, limit, indexedChainId: sg.chainId, daoPools: pools },
-        };
+        // `name` here is chosen by whoever deployed the DAO — deploying one is
+        // permissionless, so this list is the cheapest injection channel in the
+        // whole server at an agent that may be holding a signer.
+        return untrustedResult({
+          summary: `Found ${pools.length} DAO(s) on chain ${sg.chainId} (offset=${offset}, limit=${limit}, query="${renderUntrusted(query, 80)}")`,
+          label: `DAO rows (names are attacker-chosen; chain ${sg.chainId})`,
+          structured: { query, offset, limit, indexedChainId: sg.chainId, daoPools: pools },
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_list").message);
       }
@@ -841,11 +844,11 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
           limit,
         });
         const members = data.voterInPools;
-        const text = `${members.length} member(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`;
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, members },
-        };
+        return untrustedResult({
+          summary: `${members.length} member(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          label: `member rows (chain ${sg.chainId})`,
+          structured: { govPool, offset, limit, indexedChainId: sg.chainId, members },
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_members").message);
       }
@@ -910,10 +913,10 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
             : { offset, limit, voterIn: lc };
         const data = await gqlRequest<{ voterInPoolPairs: unknown[] }>(sg.url, query, variables);
         const pairs = data.voterInPoolPairs;
-        const text = `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es) on chain ${sg.chainId}`;
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: {
+        return untrustedResult({
+          summary: `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es) on chain ${sg.chainId}`,
+          label: `delegation rows (chain ${sg.chainId})`,
+          structured: {
             addresses,
             direction,
             offset,
@@ -921,7 +924,7 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
             indexedChainId: sg.chainId,
             delegations: pairs,
           },
-        };
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_delegation_map").message);
       }
@@ -954,11 +957,11 @@ function registerValidatorList(server: McpServer, ctx: ToolContext): void {
           address: govPool.toLowerCase(),
         });
         const validators = data.validatorInPools;
-        const text = `${validators.length} validator(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`;
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, validators },
-        };
+        return untrustedResult({
+          summary: `${validators.length} validator(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          label: `validator rows (chain ${sg.chainId})`,
+          structured: { govPool, offset, limit, indexedChainId: sg.chainId, validators },
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_validator_list").message);
       }
@@ -995,11 +998,11 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
           ...tx,
           typeLabels: transactionTypeLabels(Array.isArray(tx.type) ? tx.type : [tx.type]),
         }));
-        const text = `${txs.length} transaction(s) for ${user} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`;
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: { user, offset, limit, indexedChainId: sg.chainId, transactions: txs },
-        };
+        return untrustedResult({
+          summary: `${txs.length} transaction(s) for ${user} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          label: `transaction rows (chain ${sg.chainId})`,
+          structured: { user, offset, limit, indexedChainId: sg.chainId, transactions: txs },
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_user_activity").message);
       }
@@ -1033,11 +1036,11 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
           daoAddress: govPool.toLowerCase(),
         });
         const experts = data.voterInPools;
-        const text = `${experts.length} expert(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`;
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: { govPool, offset, limit, indexedChainId: sg.chainId, experts },
-        };
+        return untrustedResult({
+          summary: `${experts.length} expert(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          label: `expert rows (chain ${sg.chainId})`,
+          structured: { govPool, offset, limit, indexedChainId: sg.chainId, experts },
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_experts").message);
       }
@@ -1201,21 +1204,19 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
           off: tiers.filter((t) => t.status === "off").length,
         };
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `${tokenSaleProposal}: ${tiers.length} tier(s) on chain ${readChainId} — ${counts.active} active, ${counts.upcoming} upcoming, ${counts.ended} ended, ${counts.off} off (block ts ${nowSec}).`,
-            },
-          ],
-          structuredContent: {
+        // Tier `name` is on-chain metadata written by the DAO that opened the
+        // sale — free text, same class as a DAO name.
+        return untrustedResult({
+          summary: `${tokenSaleProposal}: ${tiers.length} tier(s) on chain ${readChainId} — ${counts.active} active, ${counts.upcoming} upcoming, ${counts.ended} ended, ${counts.off} off (block ts ${nowSec}).`,
+          label: `tier rows (names are DAO-authored; chain ${readChainId})`,
+          structured: {
             govPool,
             tokenSaleProposal,
             chainId: readChainId,
             tiers,
             counts,
           },
-        };
+        });
       } catch (e) {
         return errorResult(
           toActionableError(e, "dexe_otc_list_sales_for_dao").message,

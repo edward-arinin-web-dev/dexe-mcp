@@ -6,6 +6,53 @@ something on your side.
 
 ---
 
+## 0.32.1 → 0.33.0 — some calls that used to broadcast now refuse first
+
+Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.
+
+### Breaking — four situations that used to proceed now stop
+All four were deterministic failures the server could see coming:
+
+1. **An OTC tier with `vestingPercentage > 0`** is refused (F15 — vested funds
+   become permanently unwithdrawable). Set vesting to `0`, or pass the documented
+   override if you accept stranding them.
+2. **An `addSettings`-carrying proposal on chain 97** is refused (#36 — it passes
+   the vote and then reverts at execute). Pass `settingsIds` to use `editSettings`
+   instead, run on chain 56, or `confirmRisky: true`.
+3. **A 49%-treasury / 51%-quorum DAO config** is refused: it needs 100% turnout
+   of every votable token, so the DAO could never pass anything — including a
+   proposal to fix itself. SIMPLE mode now synthesizes a reachable split.
+4. **A treasury-moving execute under `DEXE_TREASURY_GUARD=block`** refuses
+   instead of warning after the fact. `warn` (the default) is unchanged in
+   effect, but the advisory now arrives *before* the broadcast.
+
+### Behavior changes — re-running a failed composite
+- **`dexe_proposal_create` no longer creates a duplicate on re-run.** It detects
+  a live proposal carrying the same metadata URL and returns
+  `mode: "already-created"` with the existing `proposalId`. `allowDuplicate: true`
+  restores the old behavior; re-proposing something Defeated or Executed is
+  unaffected.
+- **`dexe_proposal_vote_and_execute` no longer re-votes on re-run.** It returns
+  `mode: "already-voted"`, skips the vote *and* its funding deposit, and
+  continues to execute — which previously reverted, taking the execute with it.
+- **A timed-out step no longer advises "re-run".** It returns the tx hash and
+  tells you to check `dexe_tx_status` first, because the original may still land.
+
+### New
+- `DEXE_TREASURY_GUARD=block` — a third mode alongside `off` and `warn`.
+- Response fields: `mode: "already-created" | "already-voted" | "blocked-risky" |
+  "blocked-treasury"`, `voteAlreadyCast`, `voteChangeAdvisory`, `advisories`.
+- Input: `allowDuplicate` on `dexe_proposal_create`.
+
+### Note for anyone parsing tool output
+Free-text originating on-chain, from IPFS, the subgraph or the backend (DAO
+names, proposal and sale descriptions, token symbols) is now sanitized and
+fenced before it reaches you. Zero-width and bidi characters are stripped and
+control characters escaped, so a string may not be byte-identical to what is
+stored on chain. Use the structured id/address fields for equality checks.
+
+---
+
 ## 0.31.0 → 0.32.0 — agent funding now refuses by default; one new tool and one new toolset
 
 Tool count **167 → 168 tools** across 19 groups: `dexe_agents_ledger`.

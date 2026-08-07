@@ -1,4 +1,12 @@
 import type { Interface } from "ethers";
+import {
+  checkSettingsBounds,
+  checkMinVotesVsDistribution,
+  checkQuorumReachable,
+  meritocraticVotingPower,
+  type PreflightResult,
+} from "./preflight.js";
+import { checkQuorumMargin, judgeQuorum, lowQuorumAdvisory, quorumPctFromRaw } from "./quorumRisk.js";
 
 /**
  * deployGovPool encode → decode round-trip verifier.
@@ -21,6 +29,236 @@ export interface DeployFieldMismatch {
   field: string;
   expected: string;
   got: string;
+}
+
+// ==========================================================================
+// Governance coherence across ALL FIVE settings slots (0.33.0)
+// ==========================================================================
+/**
+ * `deployGovPool` takes FIVE `proposalSettings` entries, one per executor
+ * family, and every one of them governs a different class of proposal. Checking
+ * only `proposalSettings[0]` passes a DAO whose default proposals work while its
+ * internal / validator / distribution / token-sale proposals are permanently
+ * un-passable (quorum above the votable supply, min-votes above every holder,
+ * duration 0). That DAO is UNRECOVERABLE: changing those settings requires
+ * passing a proposal, under the settings that cannot pass.
+ *
+ * `checkAllProposalSettings` runs the deploy coherence checks over every slot
+ * the caller supplies (1 pre-expansion or 5 post-expansion) and labels each
+ * failure with the executor family it bricks.
+ */
+
+/** The five GovSettings executor slots, in on-chain order. */
+export const PROPOSAL_SETTINGS_SLOTS = [
+  "default",
+  "internal",
+  "validators",
+  "distributionProposal",
+  "tokenSale",
+] as const;
+
+export type ProposalSettingsSlot = (typeof PROPOSAL_SETTINGS_SLOTS)[number] | "extra";
+
+/** Name of slot `i`, or `extra` for an out-of-range index. */
+export function settingsSlotName(index: number): ProposalSettingsSlot {
+  return PROPOSAL_SETTINGS_SLOTS[index] ?? "extra";
+}
+
+/** The settings fields the coherence checks read (structural — extras welcome). */
+export interface ProposalSettingsSlotView {
+  quorum: string;
+  quorumValidators: string;
+  duration: string;
+  durationValidators: string;
+  minVotesForVoting: string;
+  minVotesForCreating: string;
+}
+
+export interface SettingsSlotIssue {
+  index: number;
+  slot: ProposalSettingsSlot;
+  /** Stable check id from preflight, or `deploy.quorum-margin`. */
+  check: string;
+  remediation: string;
+  detail?: string;
+}
+
+export interface SettingsSlotFacts {
+  index: number;
+  slot: ProposalSettingsSlot;
+  quorumPct: number;
+  /** % of the votable POWER that must turn out. Null when incomputable. */
+  requiredTurnoutPct: number | null;
+  reachable: boolean;
+  marginOk: boolean;
+  floorOk: boolean;
+}
+
+export interface AllSettingsVerdict {
+  /** Empty ⇒ every slot can govern itself. Non-empty ⇒ refuse the deploy. */
+  issues: SettingsSlotIssue[];
+  /** Below-floor-quorum advisories, one per offending slot. Never blocking. */
+  advisories: string[];
+  slots: SettingsSlotFacts[];
+  /** Votable tokens as a % of minted supply. */
+  votablePct: number;
+  /** Votable VOTE POWER as a % of supply (== votablePct under LINEAR). */
+  votablePowerPct: number;
+}
+
+const HUNDRED_BPS = 10000n;
+
+/**
+ * Run the deploy coherence checks over EVERY supplied settings slot.
+ * Pure + offline: no RPC, never throws (a malformed numeric string surfaces as
+ * an issue, not an exception). `votable` defaults to the sum of `amounts` —
+ * correct because the treasury is an implicit remainder that is never a
+ * recipient (enforced separately by `checkNoTreasuryRecipient`).
+ */
+export function checkAllProposalSettings(args: {
+  proposalSettings: readonly ProposalSettingsSlotView[];
+  amounts: readonly string[];
+  mintedTotal: string;
+  voteType: string;
+  isTokenCreation: boolean;
+  votable?: string;
+  /** Advisory quorum floor (DEXE_MIN_SAFE_QUORUM_PCT). Default 50. */
+  floorPct?: number;
+  /** Turnout ceiling override; see QUORUM_TURNOUT_CEILING. */
+  turnoutCeiling?: number;
+}): AllSettingsVerdict {
+  const floorPct = args.floorPct ?? 50;
+  const issues: SettingsSlotIssue[] = [];
+  const advisories: string[] = [];
+  const slots: SettingsSlotFacts[] = [];
+  const belowFloor: Array<{ index: number; slot: ProposalSettingsSlot; quorumPct: number }> = [];
+
+  let supply = 0n;
+  let votable = 0n;
+  try {
+    supply = BigInt(args.mintedTotal || "0");
+    votable =
+      args.votable !== undefined
+        ? BigInt(args.votable)
+        : args.amounts.reduce((a, b) => a + BigInt(b || "0"), 0n);
+  } catch {
+    // Unparseable token math — the token guards (checkDeployCap etc.) own that
+    // failure; here we simply cannot judge the slots.
+    supply = 0n;
+    votable = 0n;
+  }
+  const votablePower =
+    args.voteType === "POLYNOMIAL_VOTES" && supply > 0n ? meritocraticVotingPower(votable, supply) : votable;
+  const votablePct = supply > 0n ? Number((votable * HUNDRED_BPS) / supply) / 100 : 0;
+  const votablePowerPct = supply > 0n ? Number((votablePower * HUNDRED_BPS) / supply) / 100 : 0;
+
+  args.proposalSettings.forEach((s, index) => {
+    const slot = settingsSlotName(index);
+    const add = (r: PreflightResult) => {
+      if (!r.ok) {
+        issues.push({
+          index,
+          slot,
+          check: r.check,
+          remediation: r.remediation ?? "",
+          ...(r.detail ? { detail: r.detail } : {}),
+        });
+      }
+    };
+
+    let bounds: PreflightResult;
+    let minVotes: PreflightResult;
+    let reach: PreflightResult;
+    try {
+      bounds = checkSettingsBounds({
+        quorum: s.quorum,
+        quorumValidators: s.quorumValidators,
+        duration: s.duration,
+        durationValidators: s.durationValidators,
+      });
+      minVotes = checkMinVotesVsDistribution(
+        s.minVotesForVoting,
+        s.minVotesForCreating,
+        [...args.amounts],
+        args.isTokenCreation,
+      );
+      reach = checkQuorumReachable({
+        voteType: args.voteType,
+        quorumRaw: s.quorum,
+        mintedTotal: supply.toString(),
+        votable: votable.toString(),
+        isTokenCreation: args.isTokenCreation,
+      });
+    } catch {
+      issues.push({
+        index,
+        slot,
+        check: "deploy.settings-unparseable",
+        remediation:
+          `proposalSettings[${index}] (${slot}) holds a non-numeric quorum/duration/min-votes value. ` +
+          `All of these are decimal strings in wei / 1e25-percent units.`,
+      });
+      return;
+    }
+    add(bounds);
+    add(minVotes);
+    add(reach);
+
+    const quorumPct = quorumPctFromRaw(s.quorum);
+    // Margin is only meaningful for a DAO whose distribution we know (token
+    // creation); an external token's holders are unknown at deploy time — the
+    // same reason checkQuorumReachable exempts it.
+    const margin = args.isTokenCreation
+      ? checkQuorumMargin({
+          quorumPct,
+          votablePct: votablePowerPct,
+          ...(args.turnoutCeiling !== undefined ? { ceiling: args.turnoutCeiling } : {}),
+        })
+      : null;
+    // Reachability failing already says "impossible"; don't pile the margin text
+    // on top of it — one cause, one fix.
+    if (margin && !margin.ok && reach.ok) {
+      issues.push({
+        index,
+        slot,
+        check: "deploy.quorum-margin",
+        remediation:
+          `proposalSettings[${index}] (${slot}): ${margin.remediation} ` +
+          `Every ${slot} proposal is governed by this slot — a slot that cannot pass leaves that whole ` +
+          `class of proposal permanently un-passable, and no proposal can repair it.`,
+      });
+    }
+
+    const floorOk = judgeQuorum(quorumPct, floorPct) === "SAFE";
+    if (!floorOk) belowFloor.push({ index, slot, quorumPct });
+
+    slots.push({
+      index,
+      slot,
+      quorumPct,
+      requiredTurnoutPct: margin?.requiredTurnoutPct ?? null,
+      reachable: reach.ok,
+      marginOk: margin ? margin.ok : true,
+      floorOk,
+    });
+  });
+
+  // One advisory per distinct below-floor quorum, naming every slot it governs —
+  // the 1→5 auto-expansion clones one setting, and five identical paragraphs
+  // train the reader to skip them.
+  for (const pct of [...new Set(belowFloor.map((b) => b.quorumPct))]) {
+    const where = belowFloor.filter((b) => b.quorumPct === pct).map((b) => `[${b.index}] ${b.slot}`);
+    advisories.push(`proposalSettings ${where.join(", ")} — ${lowQuorumAdvisory(pct, floorPct)}`);
+  }
+
+  return { issues, advisories, slots, votablePct, votablePowerPct };
+}
+
+/** One-line-per-issue rendering for a tool error message. */
+export function formatSettingsSlotIssues(issues: readonly SettingsSlotIssue[]): string {
+  return issues
+    .map((i) => `• proposalSettings[${i.index}] (${i.slot}) [${i.check}]: ${i.remediation}${i.detail ? ` (${i.detail})` : ""}`)
+    .join("\n");
 }
 
 export interface RoundTripResult {

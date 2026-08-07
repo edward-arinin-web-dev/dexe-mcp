@@ -17,6 +17,7 @@ import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalVi
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
+import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 
 /**
  * Layer 6 — `dexe_proposal_risk_assess`. A treasury-safety risk readout for a
@@ -275,14 +276,31 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
             ? `  quorum threshold: ~${qConc.pctOfSupplyForQuorum}% of token supply required to meet quorum (indicative)`
             : `  quorum threshold: unknown (supply/weight unavailable)`,
           treasuryAtRisk.length > 0
-            ? `  treasury at risk: ${treasuryAtRisk.map((t) => `${t.symbol ?? "?"}=${t.balance ?? "?"}`).join(", ")}`
+            ? // `symbol()` is whatever the token's deployer chose to return, and a
+              // treasury row lists tokens anyone can airdrop in. Rendered raw it
+              // forges lines in this readout (a newline paints a second
+              // "treasury at risk" entry) — so it goes through the same
+              // `renderUntrusted` that `dexe_read_treasury` uses on the
+              // identical field.
+              `  treasury at risk: ${treasuryAtRisk
+                .map((t) => `${t.symbol != null ? renderUntrusted(t.symbol, 40) : "?"}=${t.balance ?? "?"}`)
+                .join(", ")}`
             : "",
           `  controlling-holders voted For: ${controllingHoldersVotedFor === null ? "unknown (no subgraph)" : controllingHoldersVotedFor}`,
           ``,
           structured.recommendation,
         ].filter(Boolean);
 
-        return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: structured };
+        // Same funnel `dexe_read_treasury` uses: the prose above is
+        // server-authored except for the symbols, which are already rendered
+        // through `renderUntrusted`, and `structuredContent` carries those same
+        // symbols — so the payload is deep-sanitized and announced rather than
+        // handed over raw beside escaped prose.
+        return untrustedResult({
+          summary: lines.join("\n"),
+          label: "treasury token symbols (chosen by each token's deployer)",
+          structured,
+        });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_proposal_risk_assess").message);
       }

@@ -4,6 +4,7 @@ import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { VALIDATOR_VOTE_IRREVOCABLE_ADVISORY } from "../lib/protocolAdvisories.js";
 
 /**
  * Phase 3e — internal proposal wrappers.
@@ -36,6 +37,14 @@ function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
+/**
+ * The single funnel every internal-proposal wrapper already returns through —
+ * so the F12 warning is attached once here rather than restated in four
+ * builders (and cannot be forgotten by a fifth). Every internal proposal ends
+ * up in front of the validator chamber, where a cast vote is irrevocable on
+ * SphereX-era pools; that is the fact the DAO needs BEFORE it creates one, not
+ * after a validator discovers cancelVote reverts.
+ */
 function internalResult(params: {
   metadata: unknown;
   proposalType: 0 | 1 | 2 | 3;
@@ -53,13 +62,22 @@ function internalResult(params: {
           `${params.title}\nproposalType=${params.proposalType} (${typeLabel})\n` +
           `data=${params.data === "0x" ? "0x (empty — required for OffchainProposal)" : params.data.slice(0, 66) + "…"}\n\nNext:\n` +
           `1) dexe_ipfs_upload_proposal_metadata → get CID\n` +
-          `2) dexe_proposal_build_internal with validators=<address>, proposalType=${params.proposalType}, descriptionURL=<CID>, data=<this data>`,
+          `2) dexe_proposal_build_internal with validators=<address>, proposalType=${params.proposalType}, descriptionURL=<CID>, data=<this data>` +
+          `\n\n${VALIDATOR_VOTE_IRREVOCABLE_ADVISORY.text}`,
       },
     ],
     structuredContent: {
       metadata: params.metadata,
       proposalType: params.proposalType,
       data: params.data,
+      advisories: [
+        {
+          id: VALIDATOR_VOTE_IRREVOCABLE_ADVISORY.id,
+          severity: VALIDATOR_VOTE_IRREVOCABLE_ADVISORY.severity,
+          upstream: VALIDATOR_VOTE_IRREVOCABLE_ADVISORY.upstream,
+          text: VALIDATOR_VOTE_IRREVOCABLE_ADVISORY.text,
+        },
+      ],
     },
   };
 }
@@ -69,6 +87,16 @@ function outputSchema() {
     metadata: z.unknown(),
     proposalType: z.number(),
     data: z.string(),
+    advisories: z
+      .array(
+        z.object({
+          id: z.string(),
+          severity: z.string(),
+          upstream: z.string(),
+          text: z.string(),
+        }),
+      )
+      .describe("Upstream protocol defects that affect this proposal once it reaches the validators."),
   };
 }
 

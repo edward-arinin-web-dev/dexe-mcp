@@ -18,7 +18,7 @@ import { z } from "zod";
 import { Interface, isAddress, getAddress, ZeroAddress } from "ethers";
 import type { ToolContext } from "../tools/context.js";
 import { checkBlacklist, blacklistError } from "./blacklist.js";
-import { settingsAdvisories } from "./protocolAdvisories.js";
+import { settingsAdvisories, checkAddSettingsTrap } from "./protocolAdvisories.js";
 import { quorumPctFromRaw, judgeQuorum } from "./quorumRisk.js";
 import { findForbiddenSelector, dangerousSelectorError } from "./dangerousSelectors.js";
 import {
@@ -1092,6 +1092,68 @@ const newProposalTypeBuilder: CatalogBuilder = {
   },
 };
 
+// ---------- the single build-time upstream-trap chokepoint ----------
+
+/**
+ * Memo so a builder reachable under several catalog names keeps ONE wrapper
+ * object — `PROPOSAL_BUILDERS.enable_staking === PROPOSAL_BUILDERS.new_proposal_type`
+ * is an asserted invariant, and re-wrapping per key would quietly break it.
+ */
+const trapGuarded = new WeakMap<CatalogBuilder, CatalogBuilder>();
+
+/**
+ * Wraps a builder so upstream trap #36 is caught at BUILD time, before any
+ * metadata is pinned and before a single wei of gas is spent.
+ *
+ * Why here and not in each builder: the check is SELECTOR-keyed, so it has to
+ * see the calldata a builder actually emitted, not the params it was handed.
+ * Every catalog type — `change_voting_settings` with no `settingsIds`,
+ * `new_proposal_type`/`enable_staking`, and a hand-rolled `custom_abi` action
+ * that happens to encode `addSettings` — funnels through `CatalogBuilder.build`,
+ * so wrapping the registry once covers all of them and cannot be bypassed by
+ * adding another catalog entry later.
+ *
+ * Severity is DANGER, which rides the risk gate `dexe_proposal_create` already
+ * has: the composite refuses to broadcast and returns `mode: "blocked-risky"`
+ * unless the caller re-runs with `confirmRisky: true`. Refusing by default is
+ * right because the revert is deterministic and unrecoverable — the proposal
+ * passes the vote and then bricks at execute, burning a whole governance cycle.
+ * Keeping the override is right because
+ * `ADD_SETTINGS_BLOCKED_CHAINS` is measured evidence, not a protocol invariant:
+ * when the chain is allowlisted upstream, a hard refusal would strand callers
+ * until the next release, whereas a DANGER gate still lets them through.
+ */
+function withUpstreamTrapGuard(base: CatalogBuilder): CatalogBuilder {
+  const memo = trapGuarded.get(base);
+  if (memo) return memo;
+  const wrapped: CatalogBuilder = {
+    schema: base.schema,
+    async build(params, deps) {
+      const built = await base.build(params, deps);
+      const trap = checkAddSettingsTrap({ chainId: deps.chainId, actions: built.actionsOnFor });
+      if (!trap.blocked || !trap.advisory) return built;
+      const where = trap.actionIndices.map((i) => `actionsOnFor[${i}]`).join(", ");
+      // Calldata is returned untouched — the guard only annotates the build.
+      return {
+        ...built,
+        advisories: [...(built.advisories ?? []), `${trap.advisory.text} Carried by ${where}.`],
+        risk: "DANGER",
+      };
+    },
+  };
+  trapGuarded.set(base, wrapped);
+  return wrapped;
+}
+
+/** Apply the trap guard to every entry of the catalog registry, once. */
+function guardCatalog(builders: Record<string, CatalogBuilder>): Record<string, CatalogBuilder> {
+  const out: Record<string, CatalogBuilder> = {};
+  for (const [type, builder] of Object.entries(builders)) {
+    out[type] = withUpstreamTrapGuard(builder);
+  }
+  return out;
+}
+
 /**
  * Registry keyed by the short `proposalType` accepted by `dexe_proposal_create`.
  * Extend this to wire another catalog type into the composite. Aliases point at
@@ -1099,8 +1161,11 @@ const newProposalTypeBuilder: CatalogBuilder = {
  * StakingProposal among executors — matching the frontend, which reuses
  * useGovPoolCreateProposalType). validators_allocation is its own builder
  * (GovPool.setCreditInfo) — NOT an alias of manage_validators.
+ *
+ * Every entry is passed through `withUpstreamTrapGuard`, so a new catalog type
+ * inherits the #36 pre-block for free — there is nothing to remember to add.
  */
-export const PROPOSAL_BUILDERS: Record<string, CatalogBuilder> = {
+export const PROPOSAL_BUILDERS: Record<string, CatalogBuilder> = guardCatalog({
   token_transfer: tokenTransferBuilder,
   withdraw_treasury: withdrawTreasuryBuilder,
   change_voting_settings: changeVotingSettingsBuilder,
@@ -1132,7 +1197,7 @@ export const PROPOSAL_BUILDERS: Record<string, CatalogBuilder> = {
   add_global_expert: scopedExpertAlias(addExpertBuilder, "global"),
   remove_local_expert: scopedExpertAlias(removeExpertBuilder, "local"),
   remove_global_expert: scopedExpertAlias(removeExpertBuilder, "global"),
-};
+});
 
 // ---------- v0.22: internal proposals (GovValidators.createInternalProposal) ----------
 
