@@ -241,6 +241,7 @@ export function registerOtcTools(
       voteAmount: z.string().optional(),
       voteNftIds: z.array(z.string()).default([]),
       user: z.string().optional(),
+      signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       buildOnly: z.boolean().default(false).describe("If true, return just the envelope (actions + metadata + merkle roots) without running the proposal_create flow. Skips IPFS upload and DAO state reads."),
       flowContext: flowContextSchema,
@@ -306,6 +307,11 @@ export function registerOtcTools(
           voteNftIds: input.voteNftIds,
           user: input.user,
           dryRun: input.dryRun,
+          // Opening a sale is a write composite like any other, so it must be
+          // signable as a named persona. It was the one broadcast composite
+          // 0.32.0 missed — and docs/AGENTS.md had already listed it as
+          // supporting signerKey, which is how the gap surfaced.
+          signerKey: input.signerKey,
         };
         const result = await runProposalCreate(proposalInput, { ctx, signer, rpc, wc, state });
 

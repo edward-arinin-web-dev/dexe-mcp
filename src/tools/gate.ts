@@ -224,9 +224,27 @@ const READ = [
   "dexe_ipfs_cid_for_json",
 ];
 
+/**
+ * ── agents: the multi-agent orchestration surface (v0.32.0) ────────────────
+ *
+ * The keyring tools' real job is running a FLEET — list the personas, fund
+ * them, reconcile what each one did and what it cost. That is a different task
+ * from "build a vote calldata", so they get their own profile
+ * (`DEXE_TOOLSETS=core,agents`) instead of riding along in `vote`, where
+ * `dexe_agents_list`/`dexe_agents_fund` have lived since 0.28.0.
+ *
+ * Those two stay in `vote` as well (profiles overlap by design) so an existing
+ * `DEXE_TOOLSETS=vote` session keeps exactly the surface it had.
+ */
+const AGENTS = [
+  "dexe_agents_list",
+  "dexe_agents_fund",
+  "dexe_agents_ledger",
+];
+
 // ── vote: every direct vote/stake/delegate/execute/claim builder ────────────
 const VOTE = [
-  // agent keyring (multi-persona/swarm signing surface)
+  // agent keyring (multi-persona/swarm signing surface) — also in `agents`
   "dexe_agents_list",
   "dexe_agents_fund",
   "dexe_vote_build_erc20_approve",
@@ -320,6 +338,7 @@ export const TOOLSETS: Record<string, Set<string>> = {
   proposals: new Set(PROPOSALS),
   read: new Set(READ),
   vote: new Set(VOTE),
+  agents: new Set(AGENTS),
   governor: new Set(GOVERNOR),
   dev: new Set(DEV),
 };

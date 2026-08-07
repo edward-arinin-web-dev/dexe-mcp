@@ -14,7 +14,11 @@ import {
   SAFE_OPERATION,
   SAFE_TX_TYPES,
 } from "../lib/ethersProvider.js";
-import { assertAllowlistAndValueCap, BroadcastGuardError } from "../lib/broadcastGuards.js";
+import {
+  assertAllowlistAndValueCap,
+  assertNoForbiddenCalldata,
+  BroadcastGuardError,
+} from "../lib/broadcastGuards.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
 
@@ -305,6 +309,18 @@ export function registerSafeTools(
         // sense of protection from DEXE_SIGNER_ALLOWLIST / DEXE_SIGNER_MAX_VALUE_WEI.
         try {
           assertAllowlistAndValueCap({ to: tx.to, value: String(tx.value) }, signer.getConfig());
+          // B12 on this path too. A Safe propose does not broadcast, but it
+          // produces a SIGNED, queue-ready body — an owner signature over the
+          // payload. For the GovUserKeeper denylist that is the harm: the
+          // multisig threshold still gates execution, but this server must not
+          // manufacture an owner's signature on calldata it calls a hard block.
+          assertNoForbiddenCalldata({
+            to: tx.to,
+            data: String(tx.data ?? "0x"),
+            value: String(tx.value),
+            chainId,
+            from: "",
+          });
         } catch (e) {
           if (e instanceof BroadcastGuardError) return err(`[${e.guard}] ${e.message}`);
           throw e;

@@ -9,6 +9,7 @@ import { RpcProvider } from "../rpc.js";
 import { subgraphChains } from "../lib/subgraph.js";
 import { maskUrl } from "../lib/redact.js";
 import { resolveToolsets, TOOLSETS } from "./gate.js";
+import { getAgentLedger, DAY_MS, type SpendRow } from "../lib/agentLedger.js";
 
 /** One-line "what you're missing" summary per gateable set (U5 discoverability). */
 const TOOLSET_UNLOCKS: Record<string, string> = {
@@ -16,6 +17,7 @@ const TOOLSET_UNLOCKS: Record<string, string> = {
   proposals: "dexe_proposal_create + every dexe_proposal_build_* + vote_and_execute",
   read: "subgraph reads (dao members, delegation map, validator list), proposal_forecast, risk_assess, user_inbox",
   vote: "delegate/undelegate to experts, claim_rewards, staking, NFT multiplier, cancel_vote, validator_vote",
+  agents: "multi-agent keyring: dexe_agents_list (personas + addresses), dexe_agents_fund (guarded funding), dexe_agents_ledger (who did what, spend per persona)",
   governor: "dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs (Uniswap, Compound, Optimism…)",
   dev: "dexe_compile + contract introspection (get_abi/get_methods/find_selector), dao_build_deploy, simulate/decode, merkle, safe",
 };
@@ -114,6 +116,129 @@ async function depositedPowerFor(
   }
 }
 
+/**
+ * One persona an orchestrator can act as. Labels and addresses only — key
+ * material never appears here, and `SignerManager` is the only object that
+ * holds it.
+ */
+interface KeyringSigner {
+  /** Value to pass as `signerKey` ("primary" means: omit the field). */
+  signerKey: string;
+  address: string;
+  role: "primary" | "keyring";
+  /** Native balance on `balanceChainId`; null when the probe was skipped or failed. */
+  balanceWei: string | null;
+  /** balanceWei > 0 — "can this persona pay for its own gas". */
+  funded: boolean | null;
+  /** Broadcasts attributed to this persona in the last 24h (agent ledger). */
+  actions24h: number;
+  /** Native value + gas charged to this persona in the last 24h, wei. */
+  spentWei24h: string;
+}
+
+/**
+ * The fleet an orchestrating agent can command: every configured persona, its
+ * address, whether it can pay for gas, and what it has already done today.
+ *
+ * Before 0.32.0 `dexe_context` reported one signer address and nothing else, so
+ * an agent asked to "run five personas" had no way to discover that four of them
+ * existed — the keyring was configured in `.env`, resolvable by
+ * `SignerManager`, threaded through every composite, and invisible. A fleet
+ * cannot be planned from a surface that does not admit it exists.
+ *
+ * Balances are ONE `eth_getBalance` per persona on the default chain, issued in
+ * parallel and individually best-effort; `includeAgentBalances: false` skips
+ * them entirely. The 24h activity comes from the local agent ledger — a file
+ * read, no RPC.
+ */
+export async function keyringReport(
+  config: DexeConfig,
+  signer: SignerManager,
+  rpc: RpcProvider,
+  includeBalances: boolean,
+): Promise<{
+  configured: number;
+  balanceChainId: number | null;
+  fundedCount: number | null;
+  signers: KeyringSigner[];
+  spend24h: { actions: number; totalWei: string };
+  hint: string;
+}> {
+  const rows: Array<{ signerKey: string; address: string; role: "primary" | "keyring" }> = [];
+  if (signer.hasSigner()) {
+    rows.push({ ...signer.describeSigner(), role: "primary" });
+  }
+  for (const a of signer.listAgents()) {
+    // A slot whose key IS the primary key would otherwise be listed twice under
+    // two labels; keep both labels only when the addresses differ.
+    if (rows.some((r) => r.address.toLowerCase() === a.address.toLowerCase())) continue;
+    rows.push({ ...a, role: "keyring" });
+  }
+
+  // Per-persona 24h spend — the same ledger a budget guard reads, so the plan
+  // and the enforcement agree on the numbers.
+  const spend = getAgentLedger().spendSince({ windowMs: DAY_MS });
+  const byAgent = new Map<string, SpendRow>(spend.byAgent.map((r) => [r.signerKey, r]));
+
+  const wantBalances = includeBalances && rows.length > 0;
+  const pr = wantBalances ? rpc.tryProvider(config.defaultChainId) : null;
+  const provider = pr && !("error" in pr) ? pr.ok : null;
+
+  const balances = await Promise.all(
+    rows.map(async (r) => {
+      if (!provider) return null;
+      try {
+        return (await provider.getBalance(r.address)).toString();
+      } catch {
+        // A rate-limited public endpoint must not fail the orientation call.
+        return null;
+      }
+    }),
+  );
+
+  const signers: KeyringSigner[] = rows.map((r, i) => {
+    const row = byAgent.get(r.signerKey);
+    const balanceWei = balances[i] ?? null;
+    return {
+      signerKey: r.signerKey,
+      address: r.address,
+      role: r.role,
+      balanceWei,
+      funded: balanceWei === null ? null : BigInt(balanceWei) > 0n,
+      actions24h: row?.actions ?? 0,
+      spentWei24h: row?.totalWei ?? "0",
+    };
+  });
+
+  // null = "not known", never an optimistic 0/allFunded: an orchestrator that
+  // reads a skipped probe as "0 funded" would fund a fleet that is already funded.
+  const fundedCount =
+    signers.length === 0 || signers.some((s) => s.funded === null)
+      ? null
+      : signers.filter((s) => s.funded).length;
+  const agents = signers.filter((s) => s.role === "keyring").length;
+
+  const hint =
+    agents === 0
+      ? "No agent keyring configured — every write signs with the primary key. Set DEXE_AGENT_PK_1..16 " +
+        "(and DEXE_AGENT_FUNDER_PK for a gas funder) to run multiple personas, then pass signerKey on " +
+        "dexe_dao_create / dexe_proposal_create / dexe_proposal_vote_and_execute / dexe_tx_send."
+      : `${agents} agent persona(s) available. Pass signerKey:'<slot>' on any write tool to act as one; ` +
+        "omitting signerKey always signs with the primary key — a persona is never chosen implicitly. " +
+        (fundedCount === 0
+          ? "NONE of them holds native gas yet: fund them before they can broadcast."
+          : "Unfunded personas can build calldata but cannot broadcast.");
+
+  return {
+    configured: signers.length,
+    balanceChainId: provider ? config.defaultChainId : null,
+    fundedCount,
+    signers,
+    spend24h: { actions: spend.total.actions, totalWei: spend.total.totalWei },
+    hint,
+  };
+}
+
 export function registerOperationalContextTools(
   server: McpServer,
   config: DexeConfig,
@@ -129,14 +254,23 @@ export function registerOperationalContextTools(
       "chains, env-readiness (RPC/IPFS/subgraph/signer), which toolsets are enabled/hidden and what the hidden ones " +
       "unlock, and the persisted state: DAOs you deployed and proposals you broadcast in prior sessions (via " +
       "dexe_dao_create / dexe_proposal_create), plus your deposited voting power in the most recent DAO. " +
+      "Also returns the agent KEYRING — every persona you can sign as (signerKey + address + whether it holds " +
+      "gas + what it broadcast in the last 24h) — which is how a multi-agent run discovers the fleet it commands. " +
       "Read-only; never writes.",
     {
       includeDepositedPower: z
         .boolean()
         .default(true)
         .describe("Read deposited voting power for the most recent DAO (one extra RPC call). Set false to skip."),
+      includeAgentBalances: z
+        .boolean()
+        .default(true)
+        .describe(
+          "Probe each keyring persona's native balance (one parallel eth_getBalance per configured signer on the " +
+            "default chain). Set false to list the keyring without any RPC.",
+        ),
     },
-    async ({ includeDepositedPower = true }) => {
+    async ({ includeDepositedPower = true, includeAgentBalances = true }) => {
       const st = state.getState();
 
       const chains = [...config.chains.values()]
@@ -169,8 +303,12 @@ export function registerOperationalContextTools(
       // reported "no subgraph reads" for a server whose mainnet endpoints work.
       const subgraphCovered = subgraphChains(config);
 
+      // The fleet. Never key material — labels, addresses, balances, counts.
+      const keyring = await keyringReport(config, signer, rpc, includeAgentBalances);
+
       const result = {
         signer: { mode, address },
+        keyring,
         chain: {
           defaultChainId: config.defaultChainId,
           defaultChainName: CHAIN_NAMES[config.defaultChainId] ?? `chain ${config.defaultChainId}`,

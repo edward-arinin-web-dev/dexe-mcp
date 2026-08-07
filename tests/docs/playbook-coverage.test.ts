@@ -18,9 +18,58 @@ describe("PLAYBOOK.md coverage", () => {
     expect(missing, `proposalTypes missing from PLAYBOOK: ${missing.join(", ")}`).toEqual([]);
   });
 
+  /**
+   * "Documents a toolset" used to mean `\b<name>\b` anywhere in the file, which
+   * is wrong in both directions.
+   *
+   * Too lax: most profile names are ordinary English. "read the revert reason"
+   * documented `read`, "vote on proposal N" documented `vote`, and `core`/`dev`
+   * occur in prose — four of the seven profiles could not have failed whatever
+   * the doc said. Too strict where it did fire: `agents` appeared only as
+   * `dexe_agents_list`, and the underscores suppress the word boundary. Right
+   * verdict, wrong reason — naming a tool is not documenting the profile that
+   * ships it, and that rule should be stated, not left to a regex quirk.
+   *
+   * So the guard is split into the two things a reader actually needs: an entry
+   * in the catalog saying what the profile unlocks, and a paste-able line that
+   * turns it on.
+   */
   it("documents every toolset", () => {
-    const missing = Object.keys(TOOLSETS).filter((s) => !new RegExp(`\\b${s}\\b`).test(playbook));
-    expect(missing, `toolsets missing from PLAYBOOK: ${missing.join(", ")}`).toEqual([]);
+    const start = playbook.indexOf("## Toolsets");
+    expect(start, "PLAYBOOK has no '## Toolsets' section").toBeGreaterThan(-1);
+    const rest = playbook.slice(start);
+    const end = rest.indexOf("\n## ", 1);
+    const catalog = end === -1 ? rest : rest.slice(0, end);
+
+    // | agents | dexe_agents_list (roster) … | → "agents" ➜ "dexe_agents_list …"
+    const unlocks = new Map(
+      catalog
+        .split("\n")
+        .filter((l) => l.startsWith("|") && !/^\|\s*-+/.test(l))
+        .map((l) => l.split("|").slice(1, -1).map((c) => c.trim()))
+        .filter((cells) => cells.length >= 2 && cells[0] !== "Set")
+        .map((cells) => [cells[0]!.replace(/`/g, "").replace(/\s*\(default\)$/, ""), cells[1]!] as const),
+    );
+
+    const missing = Object.keys(TOOLSETS).filter((s) => !unlocks.has(s));
+    expect(missing, `toolsets with no row in the PLAYBOOK toolset catalog: ${missing.join(", ")}`).toEqual([]);
+
+    const thin = Object.keys(TOOLSETS).filter((s) => (unlocks.get(s) ?? "").length < 40);
+    expect(thin, `catalog rows that name a profile without saying what it unlocks: ${thin.join(", ")}`).toEqual([]);
+  });
+
+  it("gives a paste-able DEXE_TOOLSETS line for every toolset", () => {
+    // A profile the reader cannot turn on is not documented. This wants the
+    // literal assignment — `DEXE_TOOLSETS=core,agents` — not a prose mention and
+    // not an elided `DEXE_TOOLSETS=…,agents`, which is not paste-able.
+    const enableLine = (set: string) => new RegExp(String.raw`DEXE_TOOLSETS=[a-z,]*\b${set}\b`);
+
+    const missing = Object.keys(TOOLSETS).filter((s) => !enableLine(s).test(playbook));
+    expect(missing, `no paste-able DEXE_TOOLSETS=… line enabling: ${missing.join(", ")}`).toEqual([]);
+
+    // The rule cannot be satisfied by naming a tool or using the word in prose —
+    // which is exactly how the old `\bagents\b` check could have been silenced.
+    expect(enableLine("agents").test("call dexe_agents_list; set DEXE_TOOLSETS and restart")).toBe(false);
   });
 
   it("covers the core failure remedies", () => {

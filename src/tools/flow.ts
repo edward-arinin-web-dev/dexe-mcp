@@ -43,6 +43,7 @@ import { parseAmount, formatAmount } from "../lib/units.js";
 import { signerKeyParam } from "../lib/params.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { withActionContext, currentActionContext } from "../lib/agentLedger.js";
 
 // ---------- ABI fragments ----------
 
@@ -484,6 +485,27 @@ export interface FlowFailure {
 
 const flowSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * The persona behind a broadcast: the keyring label the agent ledger attributes
+ * to, plus the resolved EOA. Composites report it so "who did what" is answerable
+ * from the tool response, not only from the ledger file.
+ *
+ * Falls back to the wallet's own address if the signer cannot label it (a key
+ * that is configured but matches no slot) — an unlabelled broadcast is still an
+ * attributable one.
+ */
+export function describeBroadcaster(
+  signer: SignerManager,
+  wallet: { address: string },
+  signerKey?: string,
+): { signerKey: string; address: string } {
+  try {
+    return signer.describeSigner(signerKey);
+  } catch {
+    return { signerKey: signerKey?.trim().toLowerCase() || "primary", address: wallet.address };
+  }
+}
+
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
@@ -492,6 +514,12 @@ export async function sendOrCollect(
     chainId?: number;
     wc?: WalletConnectManager;
     signerKey?: string;
+    /**
+     * MCP tool this sequence belongs to, recorded on every ledger entry. Omit
+     * inside a `withActionContext` block (the enclosing tool's label is
+     * inherited); the recorder falls back to a stack guess if neither is set.
+     */
+    tool?: string;
     /**
      * Awaited after a payload's receipt succeeds and before the next payload is
      * sent. Best-effort: a throwing hook never fails the flow. Used to wait out
@@ -507,6 +535,8 @@ export async function sendOrCollect(
   pairing?: FlowPairing;
   /** QR content blocks (ASCII + PNG) — pass to `attachPairingQr` so the QR renders inline. */
   pairingContent?: PairingContent[];
+  /** Which persona signed — present only when this call actually broadcast. */
+  signer?: { signerKey: string; address: string };
 }> {
   const steps: FlowStep[] = [];
 
@@ -542,6 +572,11 @@ export async function sendOrCollect(
   if ("error" in sg) throw new Error(`${sg.error}\n${sg.remediation}`);
   const wallet = sg.ok;
   const cfg = signer.getConfig();
+  // Attribution for this whole sequence: the persona, and the tool label every
+  // ledger entry is stamped with. `opts.tool` wins; otherwise the enclosing
+  // `withActionContext` (set by the tool handler) carries through.
+  const who = describeBroadcaster(signer, wallet, opts?.signerKey);
+  const tool = opts?.tool ?? currentActionContext()?.tool;
   for (const [i, p] of payloads.entries()) {
     // Any step failing mid-sequence: STOP (dependent steps must not run on top
     // of unchanged state — R3), report which steps already landed (gas spent),
@@ -564,16 +599,20 @@ export async function sendOrCollect(
         cfg,
         { skipSimulation: true },
       );
-      const tx = await signer.withBroadcastLock(
-        Number(p.chainId),
+      const tx = await withActionContext(
+        { ...(tool ? { tool } : {}), action: p.description },
         () =>
-          wallet.sendTransaction({
-            to: p.to,
-            data: p.data,
-            value: BigInt(p.value),
-            chainId: BigInt(p.chainId),
-          }),
-        wallet.address,
+          signer.withBroadcastLock(
+            Number(p.chainId),
+            () =>
+              wallet.sendTransaction({
+                to: p.to,
+                data: p.data,
+                value: BigInt(p.value),
+                chainId: BigInt(p.chainId),
+              }),
+            wallet.address,
+          ),
       );
       const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
       assertReceiptSuccess(receipt, p.description);
@@ -595,6 +634,7 @@ export async function sendOrCollect(
       return {
         mode: "failed",
         steps,
+        signer: who,
         failure: {
           failedStep: p.description,
           error: actionable.message,
@@ -609,7 +649,7 @@ export async function sendOrCollect(
       };
     }
   }
-  return { mode: "executed", steps };
+  return { mode: "executed", steps, signer: who };
 }
 
 // ---------- exported runner ----------
@@ -1126,7 +1166,11 @@ export async function runProposalCreate(
             : undefined,
       });
       if (result.mode === "failed") {
-        return flowFailureResult(result, { descriptionURL, proposalMetadataCID: proposalMetaCid });
+        return flowFailureResult(result, {
+          descriptionURL,
+          proposalMetadataCID: proposalMetaCid,
+          ...(result.signer ? { signer: result.signer } : {}),
+        });
       }
 
       // Phase 3: record a broadcast proposal so dexe_context surfaces it next
@@ -1160,6 +1204,7 @@ export async function runProposalCreate(
             tokenAddress: prereqs.tokenAddress,
           },
           steps: [...skippedSteps, ...result.steps],
+          ...(result.signer ? { signer: result.signer } : {}),
           ...(governanceAdvisories ? { governanceAdvisories } : {}),
           ...(result.mode === "executed"
             ? flowChainFields(input.flowContext, deps.state, { chainId, govPool })
@@ -1339,6 +1384,7 @@ async function runInternalProposalCreate(
   if (result.mode === "failed") {
     return flowFailureResult(result, {
       proposalKind: "internal",
+      ...(result.signer ? { signer: result.signer } : {}),
       descriptionURL,
       note: "Internal proposals can only be created by a CURRENT validator of this DAO — a non-validator sender reverts.",
     });
@@ -1370,6 +1416,7 @@ async function runInternalProposalCreate(
       proposalMetadataCID: cid,
       summary: built.summary,
       steps: result.steps,
+      ...(result.signer ? { signer: result.signer } : {}),
       note:
         "Internal proposals are created and voted on by the DAO's validators only (their own validator balances — " +
         "no token deposit). The sender must be a current validator or the tx reverts.",
@@ -1585,7 +1632,14 @@ export function registerFlowTools(
         ),
       flowContext: flowContextSchema,
     },
-    (input) => runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc, state, wc }),
+    // Every broadcast underneath — approve, deposit, createProposalAndVote, and
+    // the validator-round helpers several calls deep — is stamped with this tool
+    // name in the agent ledger. Set once, at the boundary, so no call site can
+    // forget it.
+    (input) =>
+      withActionContext({ tool: "dexe_proposal_create" }, () =>
+        runProposalCreate(input as ProposalCreateInput, { ctx, signer, rpc, state, wc }),
+      ),
   );
 
   // =============================================
@@ -1639,7 +1693,9 @@ export function registerFlowTools(
       signerKey: signerKeyParam,
       flowContext: flowContextSchema,
     },
-    async (input) => {
+    // Vote, validator round, and execute can each broadcast; the ledger labels
+    // all of them with this tool (see dexe_proposal_create above).
+    (input) => withActionContext({ tool: "dexe_proposal_vote_and_execute" }, async () => {
       const user =
         input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
@@ -1681,12 +1737,17 @@ export function registerFlowTools(
           makeTxPayload(govPool, GOV_POOL_ABI, "execute", [proposalId], chainId, `GovPool.execute(${proposalId})`),
         ], { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
         if (execResult.mode === "failed") {
-          return flowFailureResult(execResult, { proposalId, proposalStateBefore: stateName });
+          return flowFailureResult(execResult, {
+            proposalId,
+            proposalStateBefore: stateName,
+            ...(execResult.signer ? { signer: execResult.signer } : {}),
+          });
         }
         return attachPairingQr(ok({
           mode: execResult.mode,
           proposalId,
           proposalStateBefore: stateName,
+          ...(execResult.signer ? { signer: execResult.signer } : {}),
           ...(treasuryRisk ? { treasuryRisk } : {}),
           steps: [
             { label: "GovPool.vote", skipped: true, reason: `Proposal already in "${stateName}" — no vote needed` },
@@ -1867,7 +1928,11 @@ export function registerFlowTools(
       // Step 5: send or collect
       const result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
       if (result.mode === "failed") {
-        return flowFailureResult(result, { proposalId, proposalStateBefore: stateName });
+        return flowFailureResult(result, {
+          proposalId,
+          proposalStateBefore: stateName,
+          ...(result.signer ? { signer: result.signer } : {}),
+        });
       }
 
       // Step 6: auto-execute (only in executed mode)
@@ -1940,6 +2005,7 @@ export function registerFlowTools(
         proposalId,
         proposalStateBefore: stateName,
         steps: [...skippedSteps, ...result.steps],
+        ...(result.signer ? { signer: result.signer } : {}),
         executed,
         ...(executed
           ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
@@ -1947,6 +2013,6 @@ export function registerFlowTools(
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);
-    },
+    }),
   );
 }

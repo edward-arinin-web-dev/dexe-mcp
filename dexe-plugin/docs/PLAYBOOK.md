@@ -43,7 +43,8 @@ source to figure out parameters. Also served as the MCP resource `dexe://playboo
 | "What sales does this DAO have?" | `dexe_otc_list_sales_for_dao` / `dexe_otc_buyer_status` | `{govPool}` / `{tokenSaleProposal, tierIds, user}` |
 | "Update the DAO profile/avatar" | `dexe_proposal_create` | `proposalType:"modify_dao_profile"`, pass only the fields to change; avatar via LOCAL `newAvatarPath` |
 | "Send this transaction" | `dexe_tx_send` | the TxPayload fields; check with `dexe_tx_status` |
-| "Vote on Uniswap/Compound/OP governance" | `dexe_gov_*` surface | needs `DEXE_TOOLSETS=…,governor` |
+| "Vote on Uniswap/Compound/OP governance" | `dexe_gov_*` surface | needs `DEXE_TOOLSETS=core,governor` |
+| "Run agents / a swarm — several wallets voting against each other" | `dexe_guide {flow:"agent_team"}`, then `dexe_agents_list` → `dexe_agents_fund` → act per persona with `signerKey` → `dexe_agents_ledger` | needs `DEXE_TOOLSETS=core,agents` (add `vote` for the raw builders). Burner keys only — the full safety model is `docs/AGENTS.md` |
 
 ## proposalType reference (`dexe_proposal_create`)
 
@@ -218,6 +219,31 @@ The end-to-end journey: deploy a DAO + token, put tokens in specific hands, open
 2. `dexe_proposal_create` — LEG 2 — distribute to the address list: ONE token_transfer proposal PER recipient (proposalType:'token_transfer', params:{token: govToken, recipient, amount}). Each auto-votes your power; execute each via dexe_proposal_vote_and_execute. Withdraw (unlock) tokens between proposals.
 3. `dexe_guide` — LEG 3 — open the OTC sale. Fetch flow 'otc_sale' and run its interview + steps.
 4. `dexe_guide` — LEG 4 — set up staking. Fetch flow 'staking_setup'. On chain 97 this leg MUST be deferred to mainnet — relay the chain note instead of attempting it.
+
+### Run an agent team (multi-persona DAO simulation) (`agent_team`)
+
+Drive several keyring personas (proposer / voter / validator / delegator) through one DAO: configure the keyring, fund inside a budget, run the sequence that works on-chain, reconcile per-persona from the agent ledger.
+- **chain 56:** MAINNET — every persona holds a plaintext hot key that signs without asking, and the fleet spends real BNB unattended. Only after the same scenario is green on 97, with throwaway wallets and a budget you can afford to lose. Relay this and get an explicit go-ahead first.
+- **chain 97:** Testnet (97) is where an agent team belongs: free faucet BNB, throwaway DAOs, nothing real at stake — rehearse here first. Subgraph reconciliation (turnout / who-voted) does NOT exist on 97; use dexe_proposal_state plus the local ledger.
+
+**Ask the user:**
+- `scenario` — What should the team exercise? (contested vote, delegation hub, validator round) · constraint: One on-chain outcome you can check afterwards.
+- `govPool` — Which DAO do the personas act on? · ⚠ Hot keys on a real treasury can create AND pass real proposals unprompted.
+- `chainId` (optional) — Chain — 97 (testnet rehearsal, free) or 56 (mainnet, real BNB)? · default `97` · ⚠ On 56 every persona spends real BNB unattended.
+- `roles` — Which signerKey plays which role? (agent1 proposer, agent2 FOR, agent3 AGAINST, agent4 delegates) · constraint: Only slots dexe_agents_list reports; a validator role needs a registered validator.
+- `gasPerAgent` (optional) — Native gas target per persona (BNB)? · default `0.01` · ⚠ Capped per transfer by DEXE_AGENT_FUND_MAX_WEI. A refusal is the cap working — raise it deliberately.
+- `powerPerAgent` — How many gov tokens per voting persona? · ⚠ Below minVotesForVoting a persona cannot vote; below minVotesForCreating it cannot propose.
+- `dailyBudget` (optional) — Daily spend ceiling, BNB (SWARM_DAILY_BNB_BUDGET)? · default `0.05` · ⚠ Checked against the ledger's rolling 24h spend (value + gas); a crossing broadcast is refused. Unset on faucet testnets it is NOT armed.
+
+**Steps:**
+1. `dexe_agents_list` — Discover the personas this session HAS: signerKey ('agent1'…'agent16', 'funder'), address, native balance, and — with `token` — gov-token balance. Assign roles only to slots you can see. Tool not found = the PROFILE, not the keyring: DEXE_TOOLSETS=core,agents unlocks dexe_agents_list, dexe_agents_fund and dexe_agents_ledger (add `vote` for the raw builders), then restart. Tool there but roster empty = keyring unset (DEXE_AGENT_PK_1..16). Either way the flow stops here.
+2. `dexe_agents_fund` — Top the personas up from the primary signer (or source:'funder'). PREVIEWS FIRST: the call returns who would be funded plus the budget impact, and broadcasts only on a second call with confirm:true. Run again with `token: <govToken>` to give voters power. Recipients can ONLY be keyring addresses; amounts are top-up-to-target, so re-running is safe.
+3. `dexe_vote_build_delegate` — Delegation leg in the order that works on-chain (swarm S01): the delegator first approves the UserKeeper and deposits its OWN tokens (dexe_vote_build_erc20_approve → dexe_vote_build_deposit), then delegates to the hub. Build each payload here; the next step signs it. _(skip when: the scenario has no delegation leg)_
+4. `dexe_tx_send` — Broadcast a built payload AS one persona: its to/data/value plus signerKey:'agent<n>'. The pattern for every per-persona action the composites don't cover (deposit, delegate, validator vote, claims, withdraw). Send it VERBATIM — raw vote()/delegate() revert on fresh SphereX-era pools and the builders already emit the multicall([call]) wrapper. signerKey is hot-key only; WalletConnect rejects it. _(skip when: no per-persona raw action is needed)_
+5. `dexe_proposal_create` — The PROPOSER persona creates the proposal: signerKey picks its wallet and the one call runs approve → deposit → createProposalAndVote, auto-voting that persona's power FOR. Proposal content follows the create_proposal flow (sub-flow).
+6. `dexe_proposal_vote_and_execute` — ONE call per voting persona: signerKey picks the wallet, isVoteFor picks the side (this is how personas vote against each other), depositFirst:'auto' deposits the missing power. Keep autoExecute:false for every persona but the last, or the round executes mid-way and the rest have nothing to vote on. Only a validator persona drives the validator round (flow vote_execute).
+7. `dexe_agents_ledger` — Who did what, and what it cost: every broadcast attributed to the persona that made it (tool, action, tx hash, outcome broadcast/confirmed/reverted/failed), per-agent and total spend, and the remaining daily budget. Read-only and local — no RPC needed.
+8. `dexe_dao_report` — Did the governance outcome actually land? The turnout section shows who voted and with what weight (subgraph-backed: mainnet only — on 97 use dexe_proposal_state per proposal and say the section is missing).
 <!-- END GENERATED: flows -->
 
 ## Reading DAO data (reference topics)
@@ -417,18 +443,20 @@ budget commission ≈ 0.3 × expectedVote × coefficient per executed proposal; 
 rewards change must edit ALL FIVE settings ids (see change_voting_settings
 note) or untouched executors keep paying.
 
-## Toolsets (DEXE_TOOLSETS, default `core,proposals`)
+## Toolsets (DEXE_TOOLSETS, default `core`)
 
 | Set | Unlocks |
 |---|---|
-| core (default) | context, doctor, dao_create, dao_info, treasury/settings reads, tx_send/status, WalletConnect, all OTC composites, IPFS uploads |
-| proposals (default) | proposal_create (all types), every proposal_build_*, vote_and_execute, proposal_state/list, vote power reads |
-| read | subgraph reads (members, delegation map, validator list), proposal_forecast, risk_assess, user_inbox |
-| vote | delegate/undelegate, claim_rewards, staking, NFT multiplier, cancel_vote, validator votes |
-| governor | dexe_gov_* for external OZ/Compound Governor DAOs |
-| dev | compile + ABI introspection, dao_build_deploy (raw), simulate/decode, merkle, safe |
+| core (default) | `DEXE_TOOLSETS=core` — context, doctor, guide, dao_create, proposal_create (all 33 types), vote_and_execute, all OTC composites, tx_send/status, WalletConnect, IPFS uploads, plus the zero-config reporting reads (dao_report, graph_query/graph_schema, dao_info, treasury/settings, dao_list/stats/members, token_holders, delegation_map, proposal_state/list) |
+| proposals | `DEXE_TOOLSETS=core,proposals` — every single-purpose `dexe_proposal_build_*` builder, the off-chain (backend) proposal types and `dexe_auth_login`. This is the pre-0.31.0 default, restored verbatim |
+| read | `DEXE_TOOLSETS=core,read` — the long-tail reads core leaves out: read_multicall, nfts, validators, protocol_stats, expert_status, staking/token-sale/distribution reads, user_activity, proposal_voters, user_inbox, proposal_forecast, risk_assess |
+| vote | `DEXE_TOOLSETS=core,vote` — delegate/undelegate, claim_rewards, staking, NFT multiplier, cancel_vote, validator votes, and the raw `dexe_vote_build_*` payloads the composites don't cover (also carries agents_list/agents_fund, unchanged since 0.28.0) |
+| agents | `DEXE_TOOLSETS=core,agents` — the fleet surface: `dexe_agents_list` (keyring roster + balances), `dexe_agents_fund` (preview → `confirm:true` top-ups, bounded by `DEXE_AGENT_FUND_MAX_WEI` and the rolling-24h `SWARM_DAILY_BNB_BUDGET`), `dexe_agents_ledger` (per-persona actions, spend, remaining budget). Add `vote` (`core,agents,vote`) when a delegation or validator leg needs the raw builders. Safety model: `docs/AGENTS.md` |
+| governor | `DEXE_TOOLSETS=core,governor` — dexe_gov_* for external OZ/Compound Governor DAOs |
+| dev | `DEXE_TOOLSETS=core,dev` — compile + ABI introspection, dao_build_deploy (raw), simulate/decode, merkle, safe |
 
 `DEXE_TOOLSETS=full` loads everything. Change requires a Claude Code restart.
+Sets are additive and may overlap; `dexe_context` reports which are off and what they unlock.
 
 ## Signer bootstrap (first write)
 
