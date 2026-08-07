@@ -594,7 +594,7 @@ export class AgentLedger {
     try {
       const dir = dirname(this.path);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      writeFileSync(tmp, JSON.stringify(file, null, 2), "utf8");
+      writeFileSync(tmp, JSON.stringify(file, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
       // Deliberately AFTER the temp write, so the only gap left between the
       // check and the rename is the rename call itself.
       if (cas && !this.diskStillHolds(cas.expect)) {

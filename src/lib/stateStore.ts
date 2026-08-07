@@ -132,9 +132,17 @@ let tempSeq = 0;
  * the temp is in the SAME directory as the target, which is why the name is
  * built by suffixing the target rather than using the OS temp dir.
  */
+/*
+ * 96 bits of randomness, and every writer opens the result with `wx` + 0600.
+ * The randomness alone is not the guard: without exclusive create, a symlink
+ * planted at the predicted path would be FOLLOWED, so the write lands wherever
+ * the attacker chose (js/insecure-temporary-file). `DEXE_STATE_PATH` can point
+ * the whole state dir at a shared location, which is when that stops being
+ * theoretical.
+ */
 export function tempStatePath(target: string): string {
   tempSeq = (tempSeq + 1) >>> 0;
-  return `${target}.${process.pid}.${tempSeq.toString(36)}.${randomBytes(4).toString("hex")}.tmp`;
+  return `${target}.${process.pid}.${tempSeq.toString(36)}.${randomBytes(12).toString("hex")}.tmp`;
 }
 
 /**
@@ -329,7 +337,7 @@ export function withWriteLock<T>(target: string, fn: () => T): T {
     const deadline = waitedFrom + LOCK_BUDGET_MS;
     for (let attempt = 0; !held && Date.now() < deadline; attempt++) {
       try {
-        const fd = openSync(lock, "wx");
+        const fd = openSync(lock, "wx", 0o600);
         try {
           writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`);
         } finally {
@@ -483,7 +491,7 @@ export class StateStore {
     try {
       const dir = dirname(this.path);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
+      writeFileSync(tmp, JSON.stringify(state, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
       // Deliberately AFTER the temp write, so the only gap left between the
       // check and the rename is the rename call itself.
       if (cas && !this.diskStillHolds(cas.expect)) {
