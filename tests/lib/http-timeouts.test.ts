@@ -186,7 +186,10 @@ describe("gqlRequest — status-specific remediation", () => {
     const msg = await messageFor(status);
     expect(msg).toMatch(/rejected the request/);
     expect(msg).toMatch(/DEXE_SUBGRAPH_\*_URL/);
-    expect(msg).toMatch(/thegraph\.com\/studio/);
+    // Substring assertion, not a regex: an unanchored host pattern is the
+    // shape CodeQL flags as js/regex/missing-regexp-anchor, and `toContain`
+    // says what is actually meant here anyway.
+    expect(msg).toContain("thegraph.com/studio");
     expect(msg).toMatch(/restart/);
   });
 

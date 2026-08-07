@@ -23,8 +23,18 @@
  * covers any RPC vendor and cannot be bypassed by an unrecognized host.
  */
 
-/** Userinfo in a URL: `scheme://user:pass@` (used only in the parse fallback). */
-const USERINFO_RE = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g;
+/**
+ * Userinfo in a URL: `scheme://user:pass@` — used ONLY on the `maskUrl` parse
+ * fallback, which always receives a single URL token, never free text.
+ *
+ * Anchored and length-bounded deliberately. Unanchored, with two adjacent
+ * unbounded quantifiers, the engine retries the scheme match at every offset of
+ * a long non-matching token — quadratic work on input we do not control, in the
+ * one function that runs on every error message (js/polynomial-redos). Since
+ * this only ever sees one token, `^` is correct rather than merely defensive,
+ * and the ceilings are far above any real scheme or userinfo.
+ */
+const USERINFO_RE = /^([a-zA-Z][a-zA-Z0-9+.-]{0,31}:\/\/)[^/?#\s@]{1,256}@/;
 
 /**
  * Any http(s)/ws(s) URL token, bounded by whitespace / common punctuation.

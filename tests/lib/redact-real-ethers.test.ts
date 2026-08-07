@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { makeError } from "ethers";
-import { redactErrorInPlace, safeErrorMessage } from "../../src/lib/redact.js";
+import { redactErrorInPlace, redactUrlCredentials, safeErrorMessage } from "../../src/lib/redact.js";
 
 /**
  * These tests build errors with ethers' own `makeError`, NOT `Object.assign`.
@@ -84,5 +84,39 @@ describe("redactErrorInPlace against errors ethers actually produces", () => {
   it("safeErrorMessage alone never returns the key", () => {
     const raw = makeError(`server response 500 (url=${KEYED_URL})`, "SERVER_ERROR", {});
     expect(safeErrorMessage(raw)).not.toContain(KEY);
+  });
+});
+
+/**
+ * redactUrlCredentials runs on every error message that leaves the server, so
+ * its input is whatever a remote endpoint chose to send back. A quadratic
+ * regex there is a denial-of-service reachable by anyone who can make the
+ * server produce an error (js/polynomial-redos).
+ */
+describe("redaction stays linear on hostile input", () => {
+  it("handles a long scheme-like run without blowing up", () => {
+    // The adversarial shape: many characters the scheme class accepts, with no
+    // `://` to ever complete the match.
+    const hostile = "a".repeat(50_000) + "!";
+    const started = Date.now();
+    const out = redactUrlCredentials(hostile);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(out).toBe(hostile);
+  });
+
+  it("drops userinfo from a credentialed http URL", () => {
+    // Scoped to http(s)/ws(s) on purpose: those are the schemes whose URLs
+    // carry provider credentials. `new URL()` parses this, so `u.host` — which
+    // excludes userinfo — does the masking; the anchored USERINFO_RE is only
+    // the fallback for a token that matched but failed to parse.
+    const masked = redactUrlCredentials("https://user:hunter2@rpc.example.com/v2/abc");
+    expect(masked).not.toContain("hunter2");
+    expect(masked).toContain("rpc.example.com");
+  });
+
+  it("masks a normal keyed URL", () => {
+    const masked = redactUrlCredentials(`see ${KEYED_URL} for details`);
+    expect(masked).not.toContain(KEY);
+    expect(masked).toContain("eth-mainnet.g.alchemy.com");
   });
 });

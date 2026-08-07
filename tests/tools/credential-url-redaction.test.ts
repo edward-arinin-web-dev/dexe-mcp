@@ -176,7 +176,19 @@ describe("credentialed endpoint URLs never reach the tool result", () => {
       const realFetch = globalThis.fetch;
       vi.stubGlobal("fetch", (input: unknown, init?: RequestInit) => {
         const url = String(input instanceof Request ? input.url : input);
-        if (url.includes("api.pinata.cloud") || url.includes("api.dexe.io")) {
+        // Compare the parsed hostname exactly. `url.includes("api.dexe.io")`
+        // also matches https://api.dexe.io.evil.example — the substring check
+        // CodeQL flags as js/incomplete-url-substring-sanitization. In a stub
+        // that decides which requests to fake, matching too much would silently
+        // stub a request the test meant to leave alone.
+        const host = (() => {
+          try {
+            return new URL(url).hostname;
+          } catch {
+            return "";
+          }
+        })();
+        if (host === "api.pinata.cloud" || host === "api.dexe.io") {
           return Promise.resolve(
             new Response(
               JSON.stringify({ IpfsHash: SOME_CID, PinSize: 571, Timestamp: "2026-08-06T00:00:00.000Z" }),
