@@ -6,6 +6,36 @@ something on your side.
 
 ---
 
+## 0.30.2 → 0.30.3 — re-check any saved validator proposal type; `value` is now validated
+
+Tool count unchanged (165 / 19 groups). **No emitted calldata changed.**
+
+### Action required
+- **If you have a stored/scripted `dexe_proposal_build_internal` call, re-check
+  its `proposalType`.** The tool documented `0=ChangeBalances, 1=ChangeSettings`;
+  the contract is the reverse (`0=ChangeSettings, 1=ChangeBalances`). Anything
+  written against the old description picked the wrong number. Values 2
+  (`MonthlyWithdraw`) and 3 (`OffchainProposal`) were always correct.
+- **`value` on `dexe_vote_build_deposit` / `_multicall` / `_token_sale_buy` is
+  now rejected unless it is digits-only.** It was previously passed through
+  unvalidated, so `'1.5'` or a typo reached the payload and failed later. If a
+  script sent decimals, scale to wei first.
+
+### Behavior changes
+- `dexe_tx_send` refuses a payload whose `chainId` differs from the chain being
+  broadcast on, and refuses a calldata-carrying payload whose destination has no
+  contract code on that chain (guard **B11**). Plain native transfers to an EOA
+  still pass.
+- `dexe_proposal_build_internal` rejects a `proposalType` outside 0–3 instead of
+  building a proposal with an unnamed type.
+
+### New
+- `chainId` (optional) on 32 calldata builders. It stamps the payload envelope
+  and directs any on-chain precheck the builder performs. Omitted = the MCP's
+  default chain, exactly as before.
+
+---
+
 ## 0.30.1 → 0.30.2 — subgraph reads refuse a chain they cannot answer for
 
 Tool count unchanged (165 / 19 groups).

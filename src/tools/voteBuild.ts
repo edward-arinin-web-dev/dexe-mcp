@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { parseUintString } from "../lib/amount.js";
+import { buildChainIdParam } from "../lib/params.js";
 import { ETHEREUM_ADDRESS, isNativeSentinel } from "./otc.js";
 
 /**
@@ -80,6 +81,34 @@ const USER_KEEPER_ABI = [
   "function stakeTokens(uint256 tierId, uint256 amount)",
 ] as const;
 
+/**
+ * Every amount-ish param in this file is encoded with `parseUintString`, which
+ * accepts ONLY a digits-only base-10 integer — `"1.5"` throws. That is narrower
+ * than the server-wide contract advertised in the MCP instructions ("amounts
+ * accept raw wei or human units with a decimal point"), which holds for the
+ * composites (`dexe_proposal_create`, `dexe_otc_*`) because they route through
+ * `parseAmount` in lib/units.ts. These low-level builders never see a token's
+ * `decimals`, so they cannot scale a human amount and must not pretend to.
+ *
+ * A bare `z.string()` left an agent guessing whether "100" meant 100 wei or
+ * 100 tokens — a 10^18 error on a fund-moving call, and `dexe_vote_build_vote`
+ * ships in the DEFAULT toolset profile. So every amount param spells out both
+ * notations (the one that works and the one that does not) with a concrete
+ * example of each, plus what the number is denominated in.
+ */
+function amountDesc(denomination: string, extra?: string): string {
+  // Kept deliberately tight: this string is repeated on ~12 params across tools
+  // that ship in the DEFAULT profile, so every character is paid on every
+  // tools/list. It still has to carry both notations — the ambiguity it removes
+  // is a 10^18 error on a fund-moving call.
+  return (
+    `${denomination}. RAW base units, digits only ('1500000000000000000' = 1.5 at 18 decimals). ` +
+    `Decimals like '1.5' are REJECTED here — scale first, or use the dexe_proposal_create / ` +
+    `dexe_otc_* composites, which do accept them` +
+    (extra ? `. ${extra}` : "")
+  );
+}
+
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
@@ -155,11 +184,19 @@ function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         token: z.string(),
         spender: z.string().describe("For deposits: the DAO's GovUserKeeper address (NOT the GovPool)"),
-        amount: z.string().describe("Wei amount; use max uint256 to grant unlimited"),
+        amount: z
+          .string()
+          .describe(
+            amountDesc(
+              "Allowance denominated in the ERC20 at `token`, in that token's own decimals",
+              "Unlimited = max uint256, i.e. '115792089237316195423570985008687907853269984665640564039457584007913129639935'",
+            ),
+          ),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ token, spender, amount }) => {
+    async ({ token, spender, amount, chainId }) => {
       if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
       if (!isAddress(spender)) return errorResult(`Invalid spender: ${spender}`);
       try {
@@ -169,7 +206,7 @@ function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "approve",
           args: [spender, parseUintString(amount, "amount")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "ERC20",
           description: `ERC20(${token}).approve(${spender}, ${amount})`,
         });
@@ -192,16 +229,26 @@ function registerDeposit(server: McpServer, ctx: ToolContext): void {
         "Builds `GovPool.deposit(amount, nftIds)`. **payable** — for native-coin staking, pass `value` (wei). For ERC20 staking, pass `value=0` and ensure an ERC20 approve is already submitted.",
       inputSchema: {
         govPool: z.string(),
-        amount: z.string().describe("Token amount in wei"),
+        amount: z
+          .string()
+          .describe(
+            amountDesc("Amount of the DAO's governance token to stake, in that token's own decimals"),
+          ),
         nftIds: z.array(z.string()).default([]),
         value: z
           .string()
           .default("0")
-          .describe("Native coin (wei) for native-staking DAOs; 0 for ERC20"),
+          .describe(
+            amountDesc(
+              "Native coin (BNB/ETH, always 18 decimals) attached to the tx — for native-staking DAOs only",
+              "Pass '0' for ERC20-staking DAOs",
+            ),
+          ),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, amount, nftIds = [], value = "0" }) => {
+    async ({ govPool, amount, nftIds = [], value = "0", chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
@@ -210,8 +257,12 @@ function registerDeposit(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "deposit",
           args: [parseUintString(amount, "amount"), nftIds.map((n) => parseUintString(n, "nftId"))],
-          value,
-          chainId: ctx.config.chainId,
+          // Validated, not passed through: buildPayload only .toString()s this,
+          // so 'abc' or '1.5' used to be stamped into the payload verbatim and
+          // failed later, far from the cause — while the param description
+          // claimed decimals were rejected here.
+          value: parseUintString(value, "value"),
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.deposit(${amount} wei, ${nftIds.length} NFTs)${value !== "0" ? ` + ${value} native` : ""}`,
         });
@@ -234,12 +285,17 @@ function registerWithdraw(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         govPool: z.string(),
         receiver: z.string(),
-        amount: z.string(),
+        amount: z
+          .string()
+          .describe(
+            amountDesc("Amount of the DAO's governance token to unstake, in that token's own decimals"),
+          ),
         nftIds: z.array(z.string()).default([]),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, receiver, amount, nftIds = [] }) => {
+    async ({ govPool, receiver, amount, nftIds = [], chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(receiver)) return errorResult(`Invalid receiver: ${receiver}`);
       try {
@@ -249,7 +305,7 @@ function registerWithdraw(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "withdraw",
           args: [receiver, parseUintString(amount, "amount"), nftIds.map((n) => parseUintString(n, "nftId"))],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.withdraw → ${receiver} (${amount} wei, ${nftIds.length} NFTs)`,
         });
@@ -273,12 +329,19 @@ function registerDelegate(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         govPool: z.string(),
         delegatee: z.string(),
-        amount: z.string(),
+        amount: z
+          .string()
+          .describe(
+            amountDesc(
+              "Amount of your ALREADY-STAKED governance token power to delegate, in that token's own decimals",
+            ),
+          ),
         nftIds: z.array(z.string()).default([]),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, delegatee, amount, nftIds = [] }) => {
+    async ({ govPool, delegatee, amount, nftIds = [], chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(delegatee)) return errorResult(`Invalid delegatee: ${delegatee}`);
       try {
@@ -295,7 +358,7 @@ function registerDelegate(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "multicall",
           args: [[inner]],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.multicall([delegate → ${delegatee} (${amount} wei, ${nftIds.length} NFTs)])`,
         });
@@ -318,12 +381,19 @@ function registerUndelegate(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         govPool: z.string(),
         delegatee: z.string(),
-        amount: z.string(),
+        amount: z
+          .string()
+          .describe(
+            amountDesc(
+              "Amount of previously-delegated governance token power to pull back, in that token's own decimals",
+            ),
+          ),
         nftIds: z.array(z.string()).default([]),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, delegatee, amount, nftIds = [] }) => {
+    async ({ govPool, delegatee, amount, nftIds = [], chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(delegatee)) return errorResult(`Invalid delegatee: ${delegatee}`);
       try {
@@ -333,7 +403,7 @@ function registerUndelegate(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "undelegate",
           args: [delegatee, parseUintString(amount, "amount"), nftIds.map((n) => parseUintString(n, "nftId"))],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.undelegate ← ${delegatee} (${amount} wei, ${nftIds.length} NFTs)`,
         });
@@ -358,12 +428,19 @@ function registerVote(server: McpServer, ctx: ToolContext): void {
         govPool: z.string(),
         proposalId: z.string(),
         isVoteFor: z.boolean(),
-        amount: z.string(),
+        amount: z
+          .string()
+          .describe(
+            amountDesc(
+              "Amount of your staked/delegated governance token power to cast, in that token's own decimals",
+            ),
+          ),
         nftIds: z.array(z.string()).default([]),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalId, isVoteFor, amount, nftIds = [] }) => {
+    async ({ govPool, proposalId, isVoteFor, amount, nftIds = [], chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
@@ -380,7 +457,7 @@ function registerVote(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "multicall",
           args: [[inner]],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.multicall([vote(#${proposalId}, ${isVoteFor ? "FOR" : "AGAINST"}, ${amount} wei, ${nftIds.length} NFTs)])`,
         });
@@ -403,10 +480,11 @@ function registerCancelVote(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         govPool: z.string(),
         proposalId: z.string(),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalId }) => {
+    async ({ govPool, proposalId, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
@@ -415,7 +493,7 @@ function registerCancelVote(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "cancelVote",
           args: [parseUintString(proposalId, "proposalId")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.cancelVote(#${proposalId})`,
         });
@@ -440,12 +518,20 @@ function registerValidatorVote(server: McpServer, ctx: ToolContext): void {
         govValidators: z.string(),
         scope: z.enum(["internal", "external"]),
         proposalId: z.string(),
-        amount: z.string(),
+        amount: z
+          .string()
+          .describe(
+            amountDesc(
+              "Amount of your validator-token balance to vote with, in the validator token's own decimals " +
+                "(this is the GovValidators token, NOT the DAO governance token)",
+            ),
+          ),
         isVoteFor: z.boolean(),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govValidators, scope, proposalId, amount, isVoteFor }) => {
+    async ({ govValidators, scope, proposalId, amount, isVoteFor, chainId }) => {
       if (!isAddress(govValidators)) return errorResult(`Invalid govValidators: ${govValidators}`);
       try {
         const iface = new Interface(GOV_VALIDATORS_WRITE_ABI as unknown as string[]);
@@ -455,7 +541,7 @@ function registerValidatorVote(server: McpServer, ctx: ToolContext): void {
           iface,
           method,
           args: [parseUintString(proposalId, "proposalId"), parseUintString(amount, "amount"), isVoteFor],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovValidators",
           description: `GovValidators.${method}(#${proposalId}, ${amount}, ${isVoteFor ? "FOR" : "AGAINST"})`,
         });
@@ -480,10 +566,11 @@ function registerValidatorCancelVote(server: McpServer, ctx: ToolContext): void 
         govValidators: z.string(),
         scope: z.enum(["internal", "external"]),
         proposalId: z.string(),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govValidators, scope, proposalId }) => {
+    async ({ govValidators, scope, proposalId, chainId }) => {
       if (!isAddress(govValidators)) return errorResult(`Invalid govValidators: ${govValidators}`);
       try {
         const iface = new Interface(GOV_VALIDATORS_WRITE_ABI as unknown as string[]);
@@ -493,7 +580,7 @@ function registerValidatorCancelVote(server: McpServer, ctx: ToolContext): void 
           iface,
           method,
           args: [parseUintString(proposalId, "proposalId")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovValidators",
           description: `GovValidators.${method}(#${proposalId})`,
         });
@@ -516,10 +603,11 @@ function registerMoveToValidators(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         govPool: z.string(),
         proposalId: z.string(),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalId }) => {
+    async ({ govPool, proposalId, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
         const iface = new Interface(GOV_POOL_WRITE_ABI as unknown as string[]);
@@ -528,7 +616,7 @@ function registerMoveToValidators(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "moveProposalToValidators",
           args: [parseUintString(proposalId, "proposalId")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.moveProposalToValidators(#${proposalId})`,
         });
@@ -555,10 +643,11 @@ function registerExecute(server: McpServer, ctx: ToolContext): void {
         proposalId: z.string(),
         scope: z.enum(["external", "internal"]).default("external"),
         govValidators: z.string().optional().describe("Required for scope:'internal' (dexe_dao_info.helpers.validators)"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalId, scope = "external", govValidators }) => {
+    async ({ govPool, proposalId, scope = "external", govValidators, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       try {
         if (scope === "internal") {
@@ -573,7 +662,7 @@ function registerExecute(server: McpServer, ctx: ToolContext): void {
             iface: vIface,
             method: "executeInternalProposal",
             args: [parseUintString(proposalId, "proposalId")],
-            chainId: ctx.config.chainId,
+            chainId: chainId ?? ctx.config.defaultChainId,
             contractLabel: "GovValidators",
             description: `GovValidators.executeInternalProposal(#${proposalId})`,
           });
@@ -585,7 +674,7 @@ function registerExecute(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "execute",
           args: [parseUintString(proposalId, "proposalId")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.execute(#${proposalId})`,
         });
@@ -609,10 +698,11 @@ function registerClaimRewards(server: McpServer, ctx: ToolContext): void {
         govPool: z.string(),
         proposalIds: z.array(z.string()).min(1),
         user: z.string(),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalIds, user }) => {
+    async ({ govPool, proposalIds, user, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(user)) return errorResult(`Invalid user: ${user}`);
       try {
@@ -622,7 +712,7 @@ function registerClaimRewards(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "claimRewards",
           args: [proposalIds.map((p) => parseUintString(p, "proposalId")), user],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.claimRewards([${proposalIds.join(",")}], ${user})`,
         });
@@ -648,10 +738,11 @@ function registerClaimMicropoolRewards(server: McpServer, ctx: ToolContext): voi
         proposalIds: z.array(z.string()).min(1),
         delegator: z.string(),
         delegatee: z.string(),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, proposalIds, delegator, delegatee }) => {
+    async ({ govPool, proposalIds, delegator, delegatee, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (!isAddress(delegator)) return errorResult(`Invalid delegator: ${delegator}`);
       if (!isAddress(delegatee)) return errorResult(`Invalid delegatee: ${delegatee}`);
@@ -662,7 +753,7 @@ function registerClaimMicropoolRewards(server: McpServer, ctx: ToolContext): voi
           iface,
           method: "claimMicropoolRewards",
           args: [proposalIds.map((p) => parseUintString(p, "proposalId")), delegator, delegatee],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.claimMicropoolRewards([${proposalIds.join(",")}], ${delegator} → ${delegatee})`,
         });
@@ -686,10 +777,11 @@ function registerNftMultiplierLock(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info → nftMultiplier)"),
         tokenId: z.string().describe("NFT token ID to lock"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ nftMultiplier, tokenId }) => {
+    async ({ nftMultiplier, tokenId, chainId }) => {
       if (!isAddress(nftMultiplier)) return errorResult(`Invalid nftMultiplier: ${nftMultiplier}`);
       try {
         const iface = new Interface(NFT_MULTIPLIER_WRITE_ABI as unknown as string[]);
@@ -698,7 +790,7 @@ function registerNftMultiplierLock(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "lock",
           args: [parseUintString(tokenId, "tokenId")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "ERC721Multiplier",
         });
         return payloadResult(payload);
@@ -718,10 +810,11 @@ function registerNftMultiplierUnlock(server: McpServer, ctx: ToolContext): void 
         "Builds calldata for `ERC721Multiplier.unlock()`. Removes the locked reward-multiplier NFT, returning it to the caller and removing the voting power bonus.",
       inputSchema: {
         nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info → nftMultiplier)"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ nftMultiplier }) => {
+    async ({ nftMultiplier, chainId }) => {
       if (!isAddress(nftMultiplier)) return errorResult(`Invalid nftMultiplier: ${nftMultiplier}`);
       try {
         const iface = new Interface(NFT_MULTIPLIER_WRITE_ABI as unknown as string[]);
@@ -730,7 +823,7 @@ function registerNftMultiplierUnlock(server: McpServer, ctx: ToolContext): void 
           iface,
           method: "unlock",
           args: [],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "ERC721Multiplier",
         });
         return payloadResult(payload);
@@ -761,14 +854,27 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
         amount: z
           .string()
           .describe(
-            "Payment amount as an 18-decimal-normalized quantity. On-chain buy() converts it via from18Safe(token) to the payment token's native decimals: for an 18-decimal token this equals raw wei; for a token with d<18 decimals pass rawAmount * 10^(18-d). Passing raw native wei for a non-18-decimal token under-pays by 10^(18-d) and reverts below 1e(18-d).",
+            amountDesc(
+              "Payment amount in `tokenToBuyWith`, 18-DECIMAL-NORMALIZED rather than in that token's own " +
+                "decimals — buy() converts via from18Safe(token), so for a d<18 token pass rawAmount * 10^(18-d) " +
+                "(raw units there under-pay by 10^(18-d) and revert below 1e(18-d))",
+            ),
           ),
         proof: z.array(z.string()).default([]).describe("Merkle proof bytes32[] (empty if no whitelist)"),
-        value: z.string().default("0").describe("Native-coin value in wei (for native purchases)"),
+        value: z
+          .string()
+          .default("0")
+          .describe(
+            amountDesc(
+              "Native coin (BNB/ETH, always 18 decimals) attached to the tx, for native-coin purchases",
+              "Leave at '0' for a native buy and it is auto-set to `amount` (the contract requires msg.value == amount)",
+            ),
+          ),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ tokenSaleProposal, tierId, tokenToBuyWith, amount, proof = [], value = "0" }) => {
+    async ({ tokenSaleProposal, tierId, tokenToBuyWith, amount, proof = [], value = "0", chainId }) => {
       if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       if (!isAddress(tokenToBuyWith)) return errorResult(`Invalid tokenToBuyWith: ${tokenToBuyWith}`);
       try {
@@ -787,7 +893,7 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
           method: "buy",
           args: [parseUintString(tierId, "tierId"), tokenArg, amountBn, proof],
           value: valueBn,
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "TokenSaleProposal",
         });
         return payloadResult(payload);
@@ -808,10 +914,11 @@ function registerTokenSaleClaim(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         tierIds: z.array(z.string()).min(1).describe("Tier IDs to claim from"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ tokenSaleProposal, tierIds }) => {
+    async ({ tokenSaleProposal, tierIds, chainId }) => {
       if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       try {
         const iface = new Interface(TOKEN_SALE_WRITE_ABI as unknown as string[]);
@@ -820,7 +927,7 @@ function registerTokenSaleClaim(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "claim",
           args: [tierIds.map((id) => parseUintString(id, "tierId"))],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "TokenSaleProposal",
         });
         return payloadResult(payload);
@@ -841,10 +948,11 @@ function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): 
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         tierIds: z.array(z.string()).min(1).describe("Tier IDs to withdraw vested tokens from"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ tokenSaleProposal, tierIds }) => {
+    async ({ tokenSaleProposal, tierIds, chainId }) => {
       if (!isAddress(tokenSaleProposal)) return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       try {
         const iface = new Interface(TOKEN_SALE_WRITE_ABI as unknown as string[]);
@@ -853,7 +961,7 @@ function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): 
           iface,
           method: "vestingWithdraw",
           args: [tierIds.map((id) => parseUintString(id, "tierId"))],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "TokenSaleProposal",
         });
         return payloadResult(payload);
@@ -877,10 +985,11 @@ function registerDistributionClaim(server: McpServer, ctx: ToolContext): void {
         distributionProposal: z.string().describe("DistributionProposal contract address"),
         voter: z.string().describe("Address of the voter claiming their share"),
         proposalIds: z.array(z.string()).min(1).describe("Proposal IDs to claim from"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ distributionProposal, voter, proposalIds }) => {
+    async ({ distributionProposal, voter, proposalIds, chainId }) => {
       if (!isAddress(distributionProposal)) return errorResult(`Invalid distributionProposal: ${distributionProposal}`);
       if (!isAddress(voter)) return errorResult(`Invalid voter: ${voter}`);
       try {
@@ -890,7 +999,7 @@ function registerDistributionClaim(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "claim",
           args: [voter, proposalIds.map((id) => parseUintString(id, "proposalId"))],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "DistributionProposal",
         });
         return payloadResult(payload);
@@ -913,11 +1022,16 @@ function registerStakingStake(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         userKeeper: z.string().describe("GovUserKeeper contract address"),
         tierId: z.string().describe("Staking tier ID"),
-        amount: z.string().describe("Amount to stake in wei"),
+        amount: z
+          .string()
+          .describe(
+            amountDesc("Amount of the DAO's governance token to stake into the tier, in that token's own decimals"),
+          ),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ userKeeper, tierId, amount }) => {
+    async ({ userKeeper, tierId, amount, chainId }) => {
       if (!isAddress(userKeeper)) return errorResult(`Invalid userKeeper: ${userKeeper}`);
       try {
         const iface = new Interface(USER_KEEPER_ABI as unknown as string[]);
@@ -926,7 +1040,7 @@ function registerStakingStake(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "stakeTokens",
           args: [parseUintString(tierId, "tierId"), parseUintString(amount, "amount")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovUserKeeper",
         });
         return payloadResult(payload);
@@ -947,10 +1061,11 @@ function registerStakingClaim(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         stakingProposal: z.string().describe("StakingProposal contract address"),
         stakingId: z.string().describe("Staking tier ID to claim rewards from"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ stakingProposal, stakingId }) => {
+    async ({ stakingProposal, stakingId, chainId }) => {
       if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
       try {
         const iface = new Interface(STAKING_WRITE_ABI as unknown as string[]);
@@ -959,7 +1074,7 @@ function registerStakingClaim(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "claim",
           args: [parseUintString(stakingId, "stakingId")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "StakingProposal",
         });
         return payloadResult(payload);
@@ -979,10 +1094,11 @@ function registerStakingClaimAll(server: McpServer, ctx: ToolContext): void {
         "Builds calldata for `StakingProposal.claimAll()`. Claims accumulated rewards from every active staking tier in one transaction.",
       inputSchema: {
         stakingProposal: z.string().describe("StakingProposal contract address"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ stakingProposal }) => {
+    async ({ stakingProposal, chainId }) => {
       if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
       try {
         const iface = new Interface(STAKING_WRITE_ABI as unknown as string[]);
@@ -991,7 +1107,7 @@ function registerStakingClaimAll(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "claimAll",
           args: [],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "StakingProposal",
         });
         return payloadResult(payload);
@@ -1012,10 +1128,11 @@ function registerStakingReclaim(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         stakingProposal: z.string().describe("StakingProposal contract address"),
         stakingId: z.string().describe("Staking tier ID to unstake from"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ stakingProposal, stakingId }) => {
+    async ({ stakingProposal, stakingId, chainId }) => {
       if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
       try {
         const iface = new Interface(STAKING_WRITE_ABI as unknown as string[]);
@@ -1024,7 +1141,7 @@ function registerStakingReclaim(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "reclaim",
           args: [parseUintString(stakingId, "stakingId")],
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "StakingProposal",
         });
         return payloadResult(payload);
@@ -1047,18 +1164,23 @@ function registerPrivacyPolicySign(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         userRegistry: z.string().describe("UserRegistry contract address"),
         documentHash: z.string().describe("Privacy policy document hash (bytes32). Read from UserRegistry.documentHash() or use DEXE_PRIVACY_POLICY_HASH env var."),
+        chainId: buildChainIdParam,
       },
     },
-    async ({ userRegistry, documentHash }) => {
+    async ({ userRegistry, documentHash, chainId }) => {
       if (!isAddress(userRegistry)) return errorResult(`Invalid userRegistry: ${userRegistry}`);
       if (!documentHash.startsWith("0x") || documentHash.length !== 66) {
         return errorResult(`documentHash must be a bytes32 hex string (0x + 64 hex chars), got: ${documentHash}`);
       }
+      // The domain chainId is part of what gets signed: a signature produced for
+      // the default chain is rejected by the UserRegistry on any other chain, so
+      // the caller must be able to name the chain the agreement is destined for.
+      const resolvedChainId = chainId ?? ctx.config.defaultChainId;
       const typedData = {
         domain: {
           name: "USER_REGISTRY",
           version: "1",
-          chainId: ctx.config.chainId,
+          chainId: resolvedChainId,
           verifyingContract: userRegistry,
         },
         types: {
@@ -1073,7 +1195,7 @@ function registerPrivacyPolicySign(server: McpServer, ctx: ToolContext): void {
         content: [
           {
             type: "text" as const,
-            text: `EIP712 typed data for privacy policy agreement on ${userRegistry} (chainId=${ctx.config.chainId}). Sign with wallet's signTypedData, then pass signature to dexe_vote_build_privacy_policy_agree.`,
+            text: `EIP712 typed data for privacy policy agreement on ${userRegistry} (chainId=${resolvedChainId}). Sign with wallet's signTypedData, then pass signature to dexe_vote_build_privacy_policy_agree.`,
           },
         ],
         structuredContent: { typedData },
@@ -1093,10 +1215,11 @@ function registerPrivacyPolicyAgree(server: McpServer, ctx: ToolContext): void {
         userRegistry: z.string().describe("UserRegistry contract address"),
         signature: z.string().describe("EIP712 signature bytes (0x-prefixed hex)"),
         profileURL: z.string().optional().describe("Optional IPFS URL for user profile — if set, calls changeProfileAndAgreeToPrivacyPolicy instead"),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ userRegistry, signature, profileURL }) => {
+    async ({ userRegistry, signature, profileURL, chainId }) => {
       if (!isAddress(userRegistry)) return errorResult(`Invalid userRegistry: ${userRegistry}`);
       if (!signature.startsWith("0x")) return errorResult(`Signature must be 0x-prefixed hex`);
       try {
@@ -1108,7 +1231,7 @@ function registerPrivacyPolicyAgree(server: McpServer, ctx: ToolContext): void {
           iface,
           method,
           args,
-          chainId: ctx.config.chainId,
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "UserRegistry",
         });
         return payloadResult(payload);
@@ -1131,11 +1254,19 @@ function registerMulticall(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         govPool: z.string(),
         calls: z.array(z.string()).min(1).describe("Array of 0x-hex calldatas to batch (single-element allowed — the frontend wraps even lone vote/delegate calls, and SphereX-protected pools require that shape)"),
-        value: z.string().default("0").describe("Total native-coin value across the batch"),
+        value: z
+          .string()
+          .default("0")
+          .describe(
+            amountDesc(
+              "Total native coin (BNB/ETH, always 18 decimals) attached to the tx, summed across the whole batch",
+            ),
+          ),
+        chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ govPool, calls, value = "0" }) => {
+    async ({ govPool, calls, value = "0", chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       for (const c of calls) {
         if (!c.startsWith("0x")) return errorResult(`call must be 0x-prefixed hex: ${c.slice(0, 16)}…`);
@@ -1147,8 +1278,8 @@ function registerMulticall(server: McpServer, ctx: ToolContext): void {
           iface,
           method: "multicall",
           args: [calls],
-          value,
-          chainId: ctx.config.chainId,
+          value: parseUintString(value, "value"),
+          chainId: chainId ?? ctx.config.defaultChainId,
           contractLabel: "GovPool",
           description: `GovPool.multicall(${calls.length} calls)`,
         });

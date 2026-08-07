@@ -25,19 +25,6 @@ describe("runAllChecks", () => {
   beforeEach(() => {
     for (const k of ENV_KEYS_TO_RESET) original[k] = process.env[k];
     realFetch = globalThis.fetch;
-    // Only some tests below installed a mock, so the rest were reaching the real
-    // network — the file docstring's "without touching the network" was aspirational.
-    // That stayed invisible until 0.30.2 probed each configured chain's three
-    // subgraph endpoints separately: the extra round-trips pushed a test that
-    // asserts on nothing but env parsing past the 5s limit, in CI only.
-    // A default mock makes the claim true; tests needing specific HTTP outcomes
-    // still override it.
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: {} }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    );
   });
 
   afterEach(() => {

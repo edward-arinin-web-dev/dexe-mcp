@@ -548,7 +548,7 @@ export async function sendOrCollect(
     // work (allowance, deposited power, proposal state) on re-run, so "fix the
     // cause and re-run this same call" is the correct resume for every flow.
     try {
-      // Same B6/B7/B10 broadcast guards as dexe_tx_send. B9 simulation is skipped:
+      // Same B6/B7/B10/B11 broadcast guards as dexe_tx_send. B9 simulation is skipped:
       // these payloads are an ordered, *dependent* sequence, so simming a later
       // step against pre-sequence state would falsely revert. A BroadcastGuardError
       // aborts the flow before the offending send (gas spent only on prior steps).

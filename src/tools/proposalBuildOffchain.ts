@@ -374,9 +374,18 @@ function pctToFraction(p: number): number {
   return p / 100;
 }
 
+// `chainId` is deliberately REQUIRED (never defaulted from the MCP's configured
+// chain): it is written verbatim into `attributes.chain_id`, which is how the
+// backend files the proposal against a pool. A silent default would file a
+// mainnet DAO's proposal under testnet — accepted by the API, invisible in the
+// DAO's UI. Make the caller say which chain they mean.
 const commonInputSchema = {
   poolAddress: z.string(),
-  chainId: z.number().int().positive(),
+  chainId: z
+    .number()
+    .int()
+    .positive()
+    .describe("Chain the pool is on (56 mainnet / 97 testnet). Sent as attributes.chain_id."),
   title: z.string().min(1),
   description: z.string().default("").describe(
     "Proposal description — supports Markdown: # headings, **bold**, *italic*, " +
@@ -504,7 +513,12 @@ function registerSettingsProposal(server: McpServer): void {
       inputSchema: {
         mode: z.enum(["edit_proposal_type", "create_proposal_type"]),
         poolAddress: z.string(),
-        chainId: z.number().int().positive(),
+        // Required, never defaulted — see the note on `commonInputSchema`.
+        chainId: z
+          .number()
+          .int()
+          .positive()
+          .describe("Chain the pool is on (56 mainnet / 97 testnet). Sent as attributes.chain_id."),
         title: z.string().min(1),
         description: z.string().default("").describe(
           "Proposal description — supports Markdown. Auto-converted to Slate format.",

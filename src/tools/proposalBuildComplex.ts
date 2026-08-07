@@ -15,6 +15,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
+import { buildChainIdParam } from "../lib/params.js";
 import { parseUintString } from "../lib/amount.js";
 import { CHANGE_VOTE_POWER_ADVISORY } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
@@ -1500,6 +1501,14 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
         "Four modes: 'set_address' (GovPool.setNftMultiplierAddress — ZERO to disable), 'set_token_uri', 'mint' (ERC721Multiplier.mint(to, multiplier, duration, uri_)), 'change_token' (modify an existing NFT). UNITS: `multiplier` is PRECISION-scaled — 1e25 = 1x, so 1.5x = 15000000000000000000000000; `rewardPeriod` = lock duration in SECONDS (uint64). The ERC721Multiplier MUST be owned by the GovPool (mint is onlyOwner): pass `govPool` to refuse up-front (needs RPC) when the contract is undeployed or not GovPool-owned — else the proposal sticks in SucceededFor (bug #31).",
       inputSchema: {
         mode: z.enum(["set_address", "set_token_uri", "mint", "change_token"]),
+        // The bug #31 pre-checks (code / selector / owner() / getNftMultiplierAddress)
+        // are only meaningful against the chain the proposal will actually run on.
+        // Probed on the default chain instead, a mainnet multiplier looks
+        // undeployed on testnet (false refuse) and — worse — a testnet address
+        // that happens to hold code on mainnet "passes" a check it never ran.
+        chainId: buildChainIdParam.describe(
+          "Chain the proposal targets (56 mainnet / 97 testnet; default: MCP default chain). Pre-checks read it.",
+        ),
         govPool: z
           .string()
           .optional()
@@ -1525,6 +1534,7 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
     },
     async (input) => {
       const { mode, proposalName = "Reward Multiplier", proposalDescription = "" } = input;
+      const chainId = input.chainId ?? ctx.config.defaultChainId;
       try {
         const actions: Action[] = [];
         const warnings: string[] = [];
@@ -1544,11 +1554,15 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
             return errorResult(`set_token_uri requires valid nftMultiplierContract`);
           if (!input.tokenId) return errorResult(`set_token_uri requires tokenId`);
           if (input.uri === undefined) return errorResult(`set_token_uri requires uri`);
-          const pre = await precheckMultiplierContract(ctx.config, {
-            govPool: input.govPool,
-            multiplierContract: input.nftMultiplierContract,
-            checkCurrentAddress: false,
-          });
+          const pre = await precheckMultiplierContract(
+            ctx.config,
+            {
+              govPool: input.govPool,
+              multiplierContract: input.nftMultiplierContract,
+              checkCurrentAddress: false,
+            },
+            chainId,
+          );
           if (pre.refuse) return errorResult(pre.refuse);
           warnings.push(...pre.warnings);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
@@ -1578,12 +1592,16 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
           const durationBn = BigInt(input.rewardPeriod ?? "0");
           if (durationBn > UINT64_MAX)
             return errorResult(`change_token: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
-          const pre = await precheckMultiplierContract(ctx.config, {
-            govPool: input.govPool,
-            multiplierContract: input.nftMultiplierContract,
-            checkCurrentAddress: true,
-            selectorCheck: "change_token",
-          });
+          const pre = await precheckMultiplierContract(
+            ctx.config,
+            {
+              govPool: input.govPool,
+              multiplierContract: input.nftMultiplierContract,
+              checkCurrentAddress: true,
+              selectorCheck: "change_token",
+            },
+            chainId,
+          );
           if (pre.refuse) return errorResult(pre.refuse);
           warnings.push(...pre.warnings);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
@@ -1627,12 +1645,16 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
             return errorResult(`mint: rewardPeriod must be > 0 seconds (lock duration).`);
           if (durationBn > UINT64_MAX)
             return errorResult(`mint: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
-          const pre = await precheckMultiplierContract(ctx.config, {
-            govPool: input.govPool,
-            multiplierContract: input.nftMultiplierContract,
-            checkCurrentAddress: true,
-            selectorCheck: "mint",
-          });
+          const pre = await precheckMultiplierContract(
+            ctx.config,
+            {
+              govPool: input.govPool,
+              multiplierContract: input.nftMultiplierContract,
+              checkCurrentAddress: true,
+              selectorCheck: "mint",
+            },
+            chainId,
+          );
           if (pre.refuse) return errorResult(pre.refuse);
           warnings.push(...pre.warnings);
           const iface = new Interface(ERC721_MULTIPLIER_ABI as unknown as string[]);
@@ -1681,6 +1703,12 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
       description:
         "Builds an 'Apply to DAO' external proposal. If the DAO treasury has enough tokens, emits one ERC20.transfer action. If not, emits ERC20Gov.transfer + ERC20Gov.mint for the shortfall. Pass `treasuryBalance` (in wei) so we decide correctly. When DEXE_RPC_URL is set the receiver is checked against ERC20Gov.isBlacklisted; build aborts if blacklisted (avoids stuck SucceededFor proposals).",
       inputSchema: {
+        // The blacklist probe must hit the chain the proposal will run on: on any
+        // other chain the token has no code, the probe degrades to `skipped`, and a
+        // blacklisted recipient sails through a guard that never actually ran.
+        chainId: buildChainIdParam.describe(
+          "Chain the proposal targets (56 mainnet / 97 testnet; default: MCP default chain). Blacklist check reads it.",
+        ),
         token: z.string().describe("The token contract (ERC20 or ERC20Gov)"),
         receiver: z.string(),
         amount: z.string().describe("Total amount to grant, in wei"),
@@ -1694,6 +1722,7 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
       outputSchema: payloadOutputSchema(),
     },
     async ({
+      chainId,
       token,
       receiver,
       amount,
@@ -1704,7 +1733,7 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
       if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
       if (!isAddress(receiver)) return errorResult(`Invalid receiver: ${receiver}`);
       try {
-        const bl = await checkBlacklist(ctx.config, token, receiver);
+        const bl = await checkBlacklist(ctx.config, token, receiver, chainId ?? ctx.config.defaultChainId);
         if (bl.status === "blacklisted") return errorResult(blacklistError(token, receiver));
         const iface = new Interface(ERC20_GOV_ABI as unknown as string[]);
         const actions: Action[] = [];

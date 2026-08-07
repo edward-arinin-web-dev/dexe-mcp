@@ -328,10 +328,7 @@ export function resolveSubgraphEndpoints(
   const validate = (key: string, raw: string, fallback: string): string | undefined => {
     const r = urlSchema.safeParse(raw);
     if (r.success) return raw;
-    // De-duplicate: urlStr() attaches the same message to both its .url() and
-    // its scheme .refine(), so a bad URL otherwise reports it twice in one line.
-    const messages = [...new Set(r.error.issues.map((i) => i.message))];
-    onIssue(key, `Invalid ${key}=${raw}: ${messages.join("; ")}`, fallback);
+    onIssue(key, `Invalid ${key}=${raw}: ${r.error.issues.map((i) => i.message).join("; ")}`, fallback);
     return undefined;
   };
 

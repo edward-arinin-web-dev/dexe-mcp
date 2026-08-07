@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.30.3 — 2026-08-06
+
+**The default profile tells the truth.** Every defect here sat in a tool loaded
+by the default `core,proposals` toolset, so a first-time user hit them with no
+opt-in — and each caused a *wrong action*, not a crash. Tool count unchanged
+(**165 / 19 groups**). **No emitted calldata byte changed** — verified against
+the golden fixtures and by diffing 33 builders across two worktrees.
+
+### Fixed
+- **`dexe_proposal_build_internal` documented the INVERTED validator enum.** It
+  said `0=ChangeBalances, 1=ChangeSettings`; `GovValidators` says the opposite
+  (`IGovValidators.sol`: `ChangeSettings, ChangeBalances, MonthlyWithdraw,
+  OffchainProposal`). The runtime label array was wrong too, so an agent picked
+  the wrong number *and* got a receipt confirming the wrong operation. This is
+  a regression of a previously-fixed bug, confined to this one file. Both the
+  description and the labels are now derived from a single exported constant,
+  and `proposalType` is a literal union that rejects out-of-enum values instead
+  of building an unnamed proposal. `docs/TOOLS.md` — served as the
+  `dexe://tools` resource — carried the inverted table too, and is corrected.
+- **The catalog advertised a target that reverts.** `external.withdraw_treasury`
+  named `GovPool.withdraw(receiver, amount, nftIds)` — bug #30's exact failure
+  mode re-shipped as guidance. That is the *personal deposit-withdraw* path, not
+  a treasury transfer. It now describes what the builder actually emits
+  (`ERC20.transfer` / `ERC721.transferFrom` as `actionsOnFor`), says "NOT
+  GovPool.withdraw", and points native transfers at `token_transfer`
+  `isNative=true` — which the old `effect` line wrongly promised this builder
+  could do.
+- **`dexe_proposal_build_token_transfer` ran its blacklist check on the wrong
+  chain.** The probe reads the token contract; without a chain it hit the
+  default one, where the token has no code, so the guard degraded to `skipped`
+  and a blacklisted recipient produced a proposal that passes the vote and then
+  reverts forever (bug #29). It is the primary fund-moving builder and the
+  rewritten catalog routes treasury movements to it.
+- **Native `value` was described as validated but was not.** The new
+  `amountDesc` text promised decimals are rejected — true for `amount`, false
+  for `value`, which `buildPayload` merely `.toString()`s. `'1.5'` and even
+  `'abc'` were stamped into the payload verbatim and failed later, far from the
+  cause. Now enforced rather than softened.
+- Five vote builders declared `amount: z.string()` with **no description at
+  all** — nothing told an agent whether `100` meant 100 wei or 100 tokens, a
+  10^18 error on a fund-moving call. Every amount param now states both
+  notations, which one is accepted here, and what the number denominates.
+
+### Added
+- **`chainId` on the builder surface** (32 tools). Builders previously stamped
+  the default chain into the payload with no caller control. Where a builder
+  performs an on-chain read (blacklist probe, NFT-multiplier precheck) that read
+  now uses the same chain — a preflight against the wrong chain is worse than
+  none, because it *passes*.
+- **Broadcast guard B11 — chain coherence.** `dexe_tx_send` now refuses when
+  (a) the destination has no contract code on the chain being broadcast to and
+  the payload carries calldata, or (b) the payload's `chainId` differs from the
+  one being broadcast on. That mismatch is never intentional; depending on what
+  sits at the address on the other chain it ranges from a revert to a real
+  transfer to a stranger.
+- A distinct `buildChainIdParam`. Reusing the read-tool param published two
+  false claims on 28 builders ("chain id to **read from**", "**rejects** if no
+  RPC is configured"); builders only stamp the envelope.
+
+### Tests
+- 99 files / 1123 passing (+8 files, +231 tests). The enum parity guard derives
+  *both* label lists from running code, so neither copy can drift alone.
+  `src/tools/proposalBuildOffchain.ts` — zero tests before, despite two shipped
+  production bugs and an explicit entry in `docs/TEST_BACKLOG.md` — now has
+  coverage.
+- The `tools/list` byte ceiling moved 130,000 → 138,000 to pay for `chainId`
+  across the builder surface. It is recorded in the test as **debt**: 0.31.0
+  restructures the default slice and must bring it down, not raise it again.
+
 ## 0.30.2 — 2026-08-06
 
 **Right chain, or no answer.** Subgraph-backed reads took no `chainId` and their

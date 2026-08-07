@@ -4,6 +4,7 @@ import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
+import { buildChainIdParam } from "../lib/params.js";
 import { settingsAdvisories } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
 
@@ -424,6 +425,12 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
       description:
         "Builds a 'Withdraw from Treasury' external proposal that emits one ERC20.transfer(receiver, amount) action per token and/or one ERC721.transferFrom(govPool, receiver, tokenId) action per NFT. Treasury sits in the GovPool address as a regular ERC20/721 holding, so each withdrawal is just an external token call. At least one of `token` (with non-zero `amount`) or (`nftAddress` + `nftIds`) must be supplied. When DEXE_RPC_URL is set and `token` is ERC20Gov, the receiver is checked against isBlacklisted; build aborts if blacklisted.",
       inputSchema: {
+        // The blacklist probe must hit the chain the proposal will run on: on any
+        // other chain the token has no code, the probe degrades to `skipped`, and a
+        // blacklisted recipient sails through a guard that never actually ran.
+        chainId: buildChainIdParam.describe(
+          "Chain the proposal targets (56 mainnet / 97 testnet; default: MCP default chain). Blacklist check reads it.",
+        ),
         govPool: z.string().describe("DAO GovPool address — used as the `from` for NFT transferFrom"),
         receiver: z.string(),
         token: z.string().default("").describe("ERC20 token contract for the cash withdrawal (omit for NFT-only)"),
@@ -436,6 +443,7 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
       outputSchema: payloadOutputSchema(),
     },
     async ({
+      chainId,
       govPool,
       receiver,
       token = "",
@@ -459,7 +467,7 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
       try {
         let blacklistNote = "";
         if (wantToken) {
-          const bl = await checkBlacklist(ctx.config, token, receiver);
+          const bl = await checkBlacklist(ctx.config, token, receiver, chainId ?? ctx.config.defaultChainId);
           if (bl.status === "blacklisted") return errorResult(blacklistError(token, receiver));
           blacklistNote =
             bl.status === "skipped"
