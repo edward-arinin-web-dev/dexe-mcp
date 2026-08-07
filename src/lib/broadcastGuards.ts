@@ -2,6 +2,7 @@ import pLimit from "p-limit";
 import type { DexeConfig } from "../config.js";
 import { RpcProvider } from "../rpc.js";
 import { simulateCalldata } from "../tools/simulate.js";
+import { scanForbiddenCalldata, forbiddenBroadcastError } from "./dangerousSelectors.js";
 
 /**
  * Signer broadcast guards. A single `runBroadcastGuards` chains opt-in checks
@@ -16,6 +17,7 @@ import { simulateCalldata } from "../tools/simulate.js";
  *   B9  auto-simulation        — eth_call preflight, abort on revert
  *   B10 rate limit             — `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`
  *   B11 wrong-chain broadcast  — (always) payload chain vs send chain + code at `to`
+ *   B12 GovUserKeeper denylist — (always) refuse denylisted selectors, leading or embedded
  *
  * B6/B7/B10 are stateless and safe on any broadcast. B9 simulates against
  * *current* chain state, so it is unsound for dependent multi-step sequences
@@ -40,7 +42,7 @@ export interface BroadcastTx {
   payloadChainId?: number;
 }
 
-/** Thrown when a guard refuses a broadcast. `guard` is the backlog id (B6/B7/B9/B10/B11). */
+/** Thrown when a guard refuses a broadcast. `guard` is the backlog id (B6/B7/B9/B10/B11/B12). */
 export class BroadcastGuardError extends Error {
   constructor(
     readonly guard: string,
@@ -151,6 +153,17 @@ export async function runBroadcastGuards(
   // ---- B6 + B7: destination allowlist & value cap -----------------------
   assertAllowlistAndValueCap(tx, cfg);
 
+  // ---- B12: GovUserKeeper denylist --------------------------------------
+  // First, because it is free and unconditional: no config enables it, nothing
+  // overrides it. It lives HERE rather than at each call site because that is
+  // what failed — 0.32.0 added the check at dexe_tx_send, and review then
+  // proved the identical drain calldata still reached the chain through
+  // dexe_proposal_create's `custom` type, which copies caller-supplied action
+  // data through verbatim. Every broadcast path already funnels through this
+  // function, so putting it here makes the "hard block, no override" claim
+  // true by construction instead of by everyone remembering.
+  assertNoForbiddenCalldata(tx);
+
   // ---- B11: wrong-chain broadcast ---------------------------------------
   // Before B9: the chain compare is free, and the getCode probe answers a
   // question the sim structurally cannot (eth_call to a codeless address
@@ -210,4 +223,14 @@ export async function runBroadcastGuards(
       broadcastTimestamps.push(now);
     });
   }
+}
+
+/**
+ * B12 — refuse calldata carrying a denylisted `GovUserKeeper` selector, whether
+ * it leads the payload or is embedded in an argument (how a proposal action
+ * carries one). Unconditional: no env enables it, nothing overrides it.
+ */
+export function assertNoForbiddenCalldata(tx: BroadcastTx): void {
+  const hit = scanForbiddenCalldata(tx.data ?? "0x");
+  if (hit) throw new BroadcastGuardError("B12", forbiddenBroadcastError(hit, tx.to));
 }

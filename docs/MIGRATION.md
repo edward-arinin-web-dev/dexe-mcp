@@ -6,6 +6,59 @@ something on your side.
 
 ---
 
+## 0.31.0 → 0.32.0 — agent funding now refuses by default; one new tool and one new toolset
+
+Tool count **167 → 168 tools** across 19 groups: `dexe_agents_ledger`.
+
+### Breaking — `dexe_agents_fund` no longer transfers on the first call
+It now **previews and requires `confirm: true`**. It previously broadcast
+immediately, with *none* of the broadcast guards applied, while
+`docs/SECURITY.md` published a table saying they did. Now B6 (destination
+allowlist), B7 (value cap), B9 (simulation), B10 (rate limit) and B11 (chain
+coherence) all run, and the per-agent cap is applied in the token's **own
+decimals** — a `0.1` cap used to permit 100,000,000,000 units of a 6-decimal
+token. If `decimals()` cannot be read, the transfer is refused rather than sent
+with an unbounded cap.
+
+`SWARM_DAILY_BNB_BUDGET` is now enforced instead of decorative: it was
+documented as a spend guard and read by no code. It is re-checked per transfer
+in a batch, counts gas as well as value, and a value this server cannot parse
+disables spending rather than disabling the guard.
+
+### Breaking — a denylisted `GovUserKeeper` selector is refused at every broadcast
+`src/lib/dangerousSelectors.ts` has always said "hard block, no override", but
+until now only the proposal *builders* consulted it. The same bytes reached the
+chain through `dexe_proposal_create { proposalType: "custom" }`, which copies
+caller-supplied action `data` through verbatim. The check (guard **B12**) now
+runs inside `runBroadcastGuards`, so every path inherits it, and it also refuses
+to produce a signed Safe queue entry carrying one. If you were relying on a
+hand-assembled action containing one of those selectors, it will now be refused
+— that is the intent; use the GovPool entrypoints (`dexe_vote_build_deposit` /
+`dexe_vote_build_withdraw`) instead.
+
+### New
+- **`agents` toolset** — `DEXE_TOOLSETS=core,agents` unlocks `dexe_agents_list`,
+  `dexe_agents_fund`, `dexe_agents_ledger`. Not in the default profile.
+- **`dexe_agents_ledger`** — who did what: per-persona action history and spend
+  (value + gas) over a rolling window, with the remaining daily budget. Makes no
+  RPC call, so it answers even on an unreachable chain. Stores slot labels and
+  addresses only, never key material.
+- **Per-persona attribution.** `signerKey` already existed on the write
+  composites; what is new is that every broadcast is recorded against the
+  persona that signed it, so an orchestrator running a fleet can reconcile
+  afterwards. `dexe_otc_dao_open_sale` gained `signerKey` — it was the one
+  broadcast composite that lacked it.
+- `dexe_context` now reports the keyring (personas, addresses, 24h actions and
+  spend) so an orchestrating agent can discover its own fleet.
+- `docs/AGENTS.md`, a `dexe-agent-team` skill, and a `dexe_guide` flow.
+
+### New env
+- `DEXE_AGENT_LEDGER_PATH` — override the ledger location (default: beside
+  `state.json`). `DEXE_AGENT_LEDGER=off` disables recording;
+  `DEXE_AGENT_LEDGER_MAX` caps retained entries (default 500).
+
+---
+
 ## 0.30.4 → 0.31.0 — the default profile changed; reports and subgraph reads now work with zero config
 
 Tool count **165 → 167 tools** across 19 groups: `dexe_dao_report` and

@@ -82,3 +82,51 @@ export function dangerousSelectorError(match: ForbiddenSelector, target?: string
 export function forbiddenSelectors(): ForbiddenSelector[] {
   return [...FORBIDDEN_BY_SELECTOR.values()];
 }
+
+/**
+ * Find a denylisted `GovUserKeeper` selector anywhere in `data` — as the
+ * leading selector, or embedded in an argument, which is exactly how a proposal
+ * action carries one: `createProposal(…, actions[{executor, value, data}])`.
+ *
+ * This file has always published "hard block, no override", but for a long time
+ * only the proposal BUILDERS consulted it. 0.32.0 added the check at
+ * `dexe_tx_send` — and an adversarial review then proved the identical bytes
+ * still reached the chain through `dexe_proposal_create`'s `custom` type, which
+ * copies caller-supplied action `data` through verbatim. The scanner lived in a
+ * TOOL module, so the shared broadcast guard could not see it.
+ *
+ * It lives here now and runs inside `runBroadcastGuards`, i.e. at the one gate
+ * every broadcast path already passes through. A guard each call site has to
+ * remember to call is a guard that will be forgotten — that is the whole reason
+ * this defect existed twice.
+ *
+ * Scan is at 4-byte alignment: an embedded selector begins at
+ * `4 (outer selector) + 32·k` bytes, always a multiple of 4. A false positive
+ * needs a random 4-byte window to equal one of 12 specific selectors (~1e-8 for
+ * a large payload); a false NEGATIVE would let a drain through, so the scan
+ * errs toward refusing.
+ */
+export function scanForbiddenCalldata(data: string): { match: ForbiddenSelector; atByte: number } | null {
+  if (typeof data !== "string" || !data.startsWith("0x")) return null;
+  const head = findForbiddenSelector(data);
+  if (head) return { match: head, atByte: 0 };
+  const body = data.slice(2).toLowerCase();
+  for (let i = 8; i + 8 <= body.length; i += 8) {
+    const hit = FORBIDDEN_BY_SELECTOR.get(`0x${body.slice(i, i + 8)}`);
+    if (hit) return { match: hit, atByte: i / 2 };
+  }
+  return null;
+}
+
+/** Refusal text for a denylisted selector found in a payload about to be sent. */
+export function forbiddenBroadcastError(hit: { match: ForbiddenSelector; atByte: number }, to: string): string {
+  const where = hit.atByte === 0 ? "as the leading selector" : `embedded at byte offset ${hit.atByte}`;
+  return (
+    `Refusing to broadcast: calldata carries ${hit.match.selector} ` +
+    `(GovUserKeeper.${hit.match.signature}) ${where}, targeting ${to}. ` +
+    `These are privileged onlyOwner accounting functions whose 'payer'/'delegator' argument is decoupled ` +
+    `from the funds' owner, so a call can debit an account that never authorized it. Users deposit / ` +
+    `withdraw / delegate their OWN funds through the GovPool entrypoints (dexe_vote_build_deposit, ` +
+    `dexe_vote_build_withdraw), never directly and never as a proposal action. Hard block, no override.`
+  );
+}

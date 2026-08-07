@@ -7,8 +7,17 @@ import { createChainProvider } from "../rpc.js";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
 import { waitWithTimeout, waitForHashWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/errors.js";
-import { ENABLE_WRITES_HINT } from "./flow.js";
+import { ENABLE_WRITES_HINT, describeBroadcaster } from "./flow.js";
 import { wcPairingContent } from "../lib/qr.js";
+import { withActionContext } from "../lib/agentLedger.js";
+import {
+  findForbiddenSelector,
+  forbiddenSelectors,
+  selectorOf,
+  scanForbiddenCalldata,
+  forbiddenBroadcastError,
+  type ForbiddenSelector,
+} from "../lib/dangerousSelectors.js";
 
 /**
  * R3 — receipt.status===0 (mined but REVERTED) must surface as a failure, not
@@ -33,6 +42,14 @@ export function txStatusFromLookup(hasReceipt: boolean, hasTx: boolean): "mined"
   return hasTx ? "pending" : "not_found";
 }
 
+/* ───────────────── GovUserKeeper denylist — enforced at broadcast ──────────── */
+
+// Re-exported for callers that already import these from here. The
+// implementation lives in src/lib/dangerousSelectors.ts alongside the denylist
+// itself: while it sat in this TOOL module, `runBroadcastGuards` could not see
+// it, so every composite broadcast path silently skipped the "hard block".
+export { scanForbiddenCalldata, forbiddenBroadcastError };
+
 export function registerTxTools(
   server: McpServer,
   config: DexeConfig,
@@ -47,7 +64,8 @@ export function registerTxTools(
       "Pass the TxPayload fields returned by any dexe_*_build_* tool. " +
       "Waits for on-chain confirmation and returns the receipt. " +
       "When the MCP has multiple chains configured, pass `chainId` explicitly to pick which one to broadcast on; otherwise the default chain is used. " +
-      "Also pass the payload's own chainId as `payloadChainId` — the send is refused when the two disagree.",
+      "Also pass the payload's own chainId as `payloadChainId` — the send is refused when the two disagree. " +
+      "Calldata carrying a privileged GovUserKeeper accounting selector is refused outright (hard block, no override).",
     {
       to: z.string().describe("Destination contract address"),
       data: z.string().describe("ABI-encoded calldata (0x-prefixed hex)"),
@@ -86,9 +104,41 @@ export function registerTxTools(
       signerKey: z
         .string()
         .optional()
-        .describe("Keyring signer: omit = primary key; 'agent<n>' or address = DEXE_AGENT_PK_* key. Hot-key mode only."),
+        .describe(
+          "Which persona signs. Omit = the primary DEXE_PRIVATE_KEY (never implicit fallback to an agent). " +
+            "'agent<n>' / 'funder' / an address = that DEXE_AGENT_PK_* keyring key; dexe_context lists the " +
+            "configured slots. Hot-key mode only.",
+        ),
     },
     async ({ to, data, value, chainId, payloadChainId, gasLimit, waitConfirmations, signerKey }) => {
+      // Denylist FIRST — before chain resolution, signer lookup, WalletConnect
+      // pairing, or any RPC. A refusal that only fires once the rest of the call
+      // is well-formed is not a hard block; these bytes must never reach a node
+      // whatever else is wrong with the request.
+      const forbidden = scanForbiddenCalldata(data);
+      if (forbidden) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  status: "rejected",
+                  guard: "denylist",
+                  selector: forbidden.match.selector,
+                  signature: forbidden.match.signature,
+                  reason: forbiddenBroadcastError(forbidden, to),
+                  chainId: chainId ?? config.defaultChainId,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const chain = resolveChain(config, chainId);
 
       if (signerKey && wcActive()) {
@@ -258,6 +308,9 @@ export function registerTxTools(
         };
       }
       const wallet = sg.ok;
+      // Who is acting. Reported on every response so a fleet's transactions are
+      // attributable in the transcript, not just in the ledger file.
+      const who = describeBroadcaster(signer, wallet, signerKey);
 
       // Signer broadcast guards (B6/B7/B9/B10/B11) — B6/B7/B10 are no-ops
       // unless their env vars are set. Run before spending any gas.
@@ -296,17 +349,21 @@ export function registerTxTools(
       // endpoint carries the RPC URL, API key and all (W36). Classify it.
       let tx;
       try {
-        tx = await signer.withBroadcastLock(
-          chain.chainId,
+        tx = await withActionContext(
+          { tool: "dexe_tx_send", action: `${selectorOf(data) ?? "0x"} → ${to}` },
           () =>
-            wallet.sendTransaction({
-              to,
-              data,
-              value: BigInt(value),
-              chainId: BigInt(chain.chainId),
-              ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
-            }),
-          wallet.address,
+            signer.withBroadcastLock(
+              chain.chainId,
+              () =>
+                wallet.sendTransaction({
+                  to,
+                  data,
+                  value: BigInt(value),
+                  chainId: BigInt(chain.chainId),
+                  ...(gasLimit ? { gasLimit: BigInt(gasLimit) } : {}),
+                }),
+              wallet.address,
+            ),
         );
       } catch (e) {
         const actionable = toActionableError(e, "dexe_tx_send broadcast");
@@ -340,6 +397,7 @@ export function registerTxTools(
                 {
                   txHash: tx.hash,
                   from: wallet.address,
+                  signerKey: who.signerKey,
                   chainId: chain.chainId,
                   signer: "eoa",
                   status: "submitted",
@@ -371,7 +429,15 @@ export function registerTxTools(
             {
               type: "text" as const,
               text: JSON.stringify(
-                { txHash: tx.hash, chainId: chain.chainId, signer: "eoa", status: "unknown", safety: HOT_KEY_SAFETY },
+                {
+                  txHash: tx.hash,
+                  from: wallet.address,
+                  signerKey: who.signerKey,
+                  chainId: chain.chainId,
+                  signer: "eoa",
+                  status: "unknown",
+                  safety: HOT_KEY_SAFETY,
+                },
                 null,
                 2,
               ),
@@ -384,6 +450,7 @@ export function registerTxTools(
       const result = {
         txHash: receipt.hash,
         from: wallet.address,
+        signerKey: who.signerKey,
         chainId: chain.chainId,
         signer: "eoa",
         blockNumber: receipt.blockNumber,

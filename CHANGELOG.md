@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.32.0 — 2026-08-07
+
+**Multi-agent orchestration, MCP-side.** Anyone can now run a fleet of agent
+personas that create DAOs, create proposals, vote, and interact — and, because
+that capability is a hot key in a loop, this release spends most of its weight
+on bounding it. **167 → 168 tools** across 19 groups.
+
+### Security
+- **`dexe_agents_fund` broadcast value transfers with every guard bypassed.**
+  B6 (destination allowlist), B7 (value cap), B9 (simulation) and B10 (rate
+  limit) were all skipped on a fund-moving path, while `docs/SECURITY.md`
+  published a table stating they applied. All now run, plus B11 and B12.
+- **The per-agent cap was decimals-blind.** A `0.1` cap was applied in native
+  units to ERC20 amounts, permitting 100,000,000,000 units of a 6-decimal
+  token. It is now applied in the token's own decimals, and an unreadable
+  `decimals()` refuses rather than funding uncapped.
+- **`SWARM_DAILY_BNB_BUDGET` was documented as an enforced spend guard and read
+  by no code.** It is now real: re-checked per transfer, counts gas as well as
+  value, and a value the server cannot parse disables *spending* rather than
+  disabling the guard.
+- **The GovUserKeeper denylist was enforced at one gate, not the last one.**
+  `dangerousSelectors.ts` has always published "hard block, no override", but
+  only the proposal builders consulted it. Adversarial review pushed the
+  identical drain calldata through `dexe_proposal_create
+  { proposalType: "custom" }` — which copies caller-supplied action `data`
+  through verbatim — and watched it reach the node while `dexe_tx_send` refused
+  the same bytes. The scanner had been written into a *tool* module, so the
+  shared broadcast guard could not see it. It now lives in `src/lib/` and runs
+  as guard **B12** inside `runBroadcastGuards`, the one gate every broadcast
+  path already funnels through, so a new entrypoint inherits it by construction
+  instead of by someone remembering. `dexe_safe_propose_tx` gets it too: it does
+  not broadcast, but it manufactures an owner's signature over the payload.
+
+### Added
+- **`dexe_agents_ledger`** — per-persona action history and spend (value + gas)
+  over a rolling window, plus the remaining daily budget. Answers without any
+  RPC call, so it works on an unreachable chain. An orchestrator running eight
+  personas previously had no way to ask "which agent did what?".
+- **`agents` toolset** (`DEXE_TOOLSETS=core,agents`). Not in the default profile.
+- **Attribution on every broadcast.** The hook attaches to the *wallet* inside
+  `requireSigner`, not to the three call sites — a guard each call site must
+  remember is the failure mode this release just spent its security budget on.
+- `dexe_context` reports the keyring (personas, addresses, 24h actions and
+  spend), so a fleet can discover itself.
+- `dexe_otc_dao_open_sale` gained `signerKey` — the one broadcast composite that
+  lacked it. Surfaced because `docs/AGENTS.md` had already documented it.
+- `docs/AGENTS.md`, a `dexe-agent-team` skill, and a `dexe_guide` agent flow.
+  The safety model is stated plainly rather than sold: hot keys in plaintext,
+  which guards enforce versus advise, and validate on BSC testnet 97 first.
+
+### Fixed
+- The playbook's toolset drift guard matched the bare word `agents`, which five
+  of seven profile names ("read", "vote", "core", "dev") satisfy as ordinary
+  English — it could never have failed. Replaced with two rules that check each
+  profile has a real description and a paste-able `DEXE_TOOLSETS=` line. Both
+  immediately found real gaps: `governor` was documented with an ellipsis
+  instead of a runnable value, and `vote` had no enable string at all.
+- Key material cannot reach the ledger: only labels and addresses are stored,
+  and a digest registry catches a key arriving through any free-text field —
+  including the `txHash` slot, since a private key and a tx hash are the same
+  shape. A test greps a populated ledger for every configured key in every
+  spelling.
+
 ## 0.31.0 — 2026-08-07
 
 **Read & report GA.** "Pull a report about a DAO — activity, members, who voted,

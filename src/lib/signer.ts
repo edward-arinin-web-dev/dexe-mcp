@@ -3,12 +3,26 @@ import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
 import { hintFor, type EnvGuardResult } from "./requireEnv.js";
 import { safeErrorMessage } from "./redact.js";
+import { attachBroadcastRecorder, registerLedgerSecrets } from "./agentLedger.js";
 
 /**
  * Signer registry. The primary key (`DEXE_PRIVATE_KEY`) is the default; the
  * opt-in agent keyring (`DEXE_AGENT_PK_1..16` → signerKey "agent1"…"agent16")
  * backs multi-persona/swarm flows. Keys are chain-agnostic; only the provider
  * differs per chain, so wallets are cached per (signer, chain).
+ *
+ * **Attribution (0.32.0).** Resolving a key used to record nothing, so a fleet
+ * of personas produced a pile of unattributable transactions. Every wallet this
+ * class hands out is instrumented at creation
+ * (`attachBroadcastRecorder`), which means a broadcast is logged to the agent
+ * ledger from *any* call site — present or future — instead of from the ones
+ * that remembered to. `dexe_agents_fund` shipped with every broadcast guard
+ * missing; a logging call would have been forgotten in exactly the same way.
+ *
+ * The keys themselves never reach the ledger: only the slot label and the
+ * resolved address are recorded, and the constructor hands the ledger's
+ * scrubber a SHA-256 of each configured key so a key that arrives through some
+ * *other* field can be recognized and dropped without ever being stored.
  */
 export class SignerManager {
   private readonly cache = new Map<string, Wallet>();
@@ -22,6 +36,10 @@ export class SignerManager {
     this.key = config.privateKey;
     this.agentKeys = config.agentKeys ?? {};
     this.config = config;
+    // Digests only — the ledger scrubber can then recognize a key that arrives
+    // through a free-text or hash-shaped field (a tx hash and a private key are
+    // byte-identical in shape) without anything holding the key itself.
+    registerLedgerSecrets([this.key, ...Object.values(this.agentKeys)]);
   }
 
   /**
@@ -42,6 +60,37 @@ export class SignerManager {
       this.failUnknownSigner(signerKey);
     }
     this.failUnknownSigner(signerKey);
+  }
+
+  /**
+   * Canonical slot label for a resolved key: "primary", a keyring slot
+   * ("agent1"…, "funder"), or "unknown" for a key that is somehow neither.
+   *
+   * The requested name wins when it names a real slot, so a key that is BOTH
+   * `DEXE_PRIVATE_KEY` and `AGENT_PK_1` is attributed to whichever identity the
+   * caller acted as. Comparison is on the key values, which never leave this
+   * object.
+   */
+  private labelFor(key: string, requested?: string): string {
+    const norm = requested?.trim().toLowerCase();
+    if (norm && this.agentKeys[norm]) return norm;
+    const k = key.toLowerCase();
+    if (this.key && this.key.toLowerCase() === k) return "primary";
+    for (const [slot, pk] of Object.entries(this.agentKeys)) {
+      if (pk.toLowerCase() === k) return slot;
+    }
+    return "unknown";
+  }
+
+  /**
+   * Who a `signerKey` resolves to — the label the agent ledger attributes to,
+   * plus the address. Lets an orchestrating tool report "agent3 (0xabc…) did
+   * X" without touching key material. Throws if the key is not configured.
+   */
+  describeSigner(signerKey?: string): { signerKey: string; address: string } {
+    const key = this.resolveKey(signerKey);
+    if (!key) this.failNoKey();
+    return { signerKey: this.labelFor(key, signerKey), address: new Wallet(key).address };
   }
 
   /** Registered keyring entries (never the keys themselves). */
@@ -98,6 +147,14 @@ export class SignerManager {
       // at the transport layer (see ResilientRpcProvider).
       const provider = createChainProvider(chain, this.config);
       wallet = new Wallet(key, provider);
+      // Attribution hook: instrument the wallet ONCE, here, where every signer
+      // in the process is born. Doing it at the broadcast call sites would make
+      // the record optional, and an optional record is a missing record.
+      attachBroadcastRecorder(wallet, {
+        signerKey: this.labelFor(key, signerKey),
+        address: wallet.address,
+        chainId: chain.chainId,
+      });
       this.cache.set(cacheKey, wallet);
     }
     return wallet;

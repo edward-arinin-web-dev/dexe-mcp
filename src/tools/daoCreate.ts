@@ -616,7 +616,15 @@ export function registerDaoCreateTools(
       // ---------- send or collect ----------
       let result;
       try {
-        result = await sendOrCollect(signer, [res.payload], { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
+        result = await sendOrCollect(signer, [res.payload], {
+          dryRun: input.dryRun,
+          chainId,
+          wc,
+          signerKey: input.signerKey,
+          // Attribution: a fleet that deploys DAOs under different personas must
+          // be answerable for which persona deployed which pool.
+          tool: "dexe_dao_create",
+        });
       } catch (e) {
         // The deploy broadcast is a write: no gas / nonce clash / RPC stall all
         // land here, and each has a different next step. Classify rather than
@@ -632,6 +640,7 @@ export function registerDaoCreateTools(
         return flowFailureResult(result, {
           daoName: input.daoName,
           chainId,
+          ...(result.signer ? { signer: result.signer } : {}),
           predictedGovPool: res.predictedGovPool ?? null,
           ...(kb.known ? { knownCause: { slug: kb.slug, cause: kb.cause, fix: kb.fix } } : {}),
         });
@@ -702,6 +711,7 @@ export function registerDaoCreateTools(
         predicted: res.predicted,
         note: simSummary ? `${res.note}\n${simSummary}` : res.note,
         steps: result.steps,
+        ...(result.signer ? { signer: result.signer } : {}),
         ...(readiness ? { readiness } : {}),
         ...(nextSteps ? { nextSteps } : {}),
         ...(result.mode === "executed"
