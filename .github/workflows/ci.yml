@@ -58,6 +58,19 @@ jobs:
       # Belt-and-suspenders: prove `npm ci` did not mutate the committed lockfile.
       - name: Assert lockfile unchanged
         run: git diff --exit-code package-lock.json
+      # The `overrides` block in package.json pins transitive deps above their
+      # advisory lines. Nothing re-checked those pins, so they silently fell
+      # BELOW the fix line as advisories widened: the block kept looking like it
+      # had handled the alerts while `npm audit --omit=dev` was red with two HIGH
+      # SSRF issues. Dependabot cannot catch this either — these packages are
+      # transitive-only behind the overrides, so its update jobs error out.
+      # This is the only thing that actually notices.
+      - name: Audit the shipped dependency tree
+        run: npm audit --omit=dev --audit-level=moderate
+      # Dev deps are a build-time supply-chain surface, not a runtime one — a
+      # finding here should be visible without failing a release.
+      - name: Audit dev dependencies (advisory)
+        run: npm audit --audit-level=moderate || echo "::warning::dev-dependency advisories present"
       # Integrity check: the full installed tree must be internally consistent —
       # no missing, extraneous, or invalidly-resolved dependencies. `npm ls`
       # exits non-zero on any of these, catching override/peer drift.

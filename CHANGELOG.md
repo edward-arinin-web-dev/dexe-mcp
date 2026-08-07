@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.32.1 — 2026-08-07
+
+**Three live advisories in the shipped dependency tree.** Tool count unchanged
+(**168 / 19 groups**). No source change.
+
+### Security
+The `overrides` block pinned transitive dependencies above their advisory lines
+when it was written — and nothing ever re-checked those pins. As the advisories
+widened, the floors fell **below** the fix line, so the block kept looking like
+it had handled the alerts while `npm audit --omit=dev` was red:
+
+| package | old floor | installed | advisory |
+|---|---|---|---|
+| `ip-address` | `>=10.1.1` | 10.2.0 | `<=10.3.0` — **HIGH**, 3 SSRF / trust-boundary CVEs |
+| `fast-uri` | `>=3.1.4` | 4.1.1 | 4.0.0–4.1.1 — **HIGH** |
+| `hono` | `>=4.12.27` | 4.12.31 | `<4.12.34` — moderate |
+
+Raised to `>=10.4.0`, `>=4.1.2`, `>=4.13.0`. The shipped tree audits clean.
+Also floors `postcss` (`>=8.5.26`, dev-only, reached through vitest → vite).
+
+Dependabot could not have caught this: these are transitive-only behind the
+overrides, so its security-update jobs error out rather than opening a PR.
+
+### Fixed
+- `package-lock.json` recorded version `0.28.0` — four releases stale — while
+  `npm ci` passed, because `npm ci` validates the dependency tree, not the root
+  version field. Resynced.
+
+### CI
+- **`npm audit --omit=dev` is now a required gate.** Nothing checked the
+  shipped tree, which is exactly how floors written once could rot for months
+  while looking deliberate. Dev-dependency findings warn instead of failing —
+  they are a build-time surface, not something a consumer installs.
+
 ## 0.32.0 — 2026-08-07
 
 **Multi-agent orchestration, MCP-side.** Anyone can now run a fleet of agent
