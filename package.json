@@ -1,6 +1,6 @@
 {
   "name": "dexe-mcp",
-  "version": "0.32.0",
+  "version": "0.32.1",
   "description": "MCP server for the DeXe Protocol — full DAO operations coverage: deploy DAOs, build every proposal type, IPFS metadata, stake/vote/delegate/execute/claim calldata. Plus dev tooling (build/test/introspect/decode).",
   "type": "module",
   "license": "MIT",
@@ -82,14 +82,15 @@
     "zod": "^3.23.8"
   },
   "overrides": {
-    "fast-uri": ">=3.1.4",
-    "hono": ">=4.12.27",
+    "fast-uri": ">=4.1.2",
+    "hono": ">=4.13.0",
     "@hono/node-server": ">=2.0.5",
-    "ip-address": ">=10.1.1",
+    "ip-address": ">=10.4.0",
     "express-rate-limit": ">=8.4.0",
     "esbuild": ">=0.28.1",
     "ws": ">=8.21.0",
-    "body-parser": ">=2.3.0"
+    "body-parser": ">=2.3.0",
+    "postcss": ">=8.5.26"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
