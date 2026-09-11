@@ -102,7 +102,7 @@ jobs:
       - name: Setup Node
         # Pinned to a commit SHA — see the checkout step. Resolve an update with:
         #   gh api repos/actions/setup-node/git/ref/tags/v6 -q .object.sha
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         # Node 24 ships npm 11.x. OIDC trusted publishing needs npm >= 11.5.1,
         # and Node 22's bundled npm 10.x is below that line — hence 24 here even
         # though the package supports Node >= 20.12 at runtime.
