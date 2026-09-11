@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AbiCoder, getAddress } from "ethers";
+import { PinataClient } from "../../src/lib/ipfs.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -329,6 +330,72 @@ describe("the two deploy surfaces agree on the same config", () => {
     });
     expect(text(fromCreate)).not.toContain("un-governable");
     expect((await build()).ok).toBe(true);
+  });
+
+  // ── D4-6: the one impure *_build_* tool gets an opt-out ──────────────────
+  //
+  // `buildDeployGovPool` PINS up to two settings JSONs whenever a JWT is set,
+  // and `dexe_dao_build_deploy` had no way to say no — so a tool whose whole
+  // contract is "here is some calldata" wrote to the caller's Pinata account on
+  // every default-shaped call, including calls that were then discarded.
+  describe("executorDescription auto-upload", () => {
+    const pinCtx = () =>
+      ({
+        config: {
+          chains: new Map([[97, { chainId: 97 }]]),
+          defaultChainId: 97,
+          minSafeQuorumPct: 50,
+          treasuryGuard: "warn",
+          pinataJwt: "test-jwt",
+        },
+        artifacts: { get: () => [] },
+      }) as unknown as ToolContext;
+
+    it("pins two settings JSONs by default", async () => {
+      const pinJson = vi
+        .spyOn(PinataClient.prototype, "pinJson")
+        .mockResolvedValue({ cid: "QmFAKE", size: 1, pinnedAt: "x" } as never);
+      try {
+        const res = await buildDeployGovPool(
+          { chainId: 97, poolFactory: FACTORY, deployer: DEPLOYER, params: advancedParams() },
+          pinCtx(),
+          rpc,
+        );
+        if (!res.ok) throw new Error(res.error);
+        expect(pinJson).toHaveBeenCalledTimes(2);
+        expect(res.executorDescriptions.every((e) => e.pinned)).toBe(true);
+      } finally {
+        pinJson.mockRestore();
+      }
+    });
+
+    it("dryRun pins nothing and emits the CIDs a real pin would have returned", async () => {
+      const pinJson = vi
+        .spyOn(PinataClient.prototype, "pinJson")
+        .mockRejectedValue(new Error("test: dryRun must never touch the network"));
+      try {
+        const res = await buildDeployGovPool(
+          { chainId: 97, poolFactory: FACTORY, deployer: DEPLOYER, params: advancedParams(), dryRun: true },
+          pinCtx(),
+          rpc,
+        );
+        if (!res.ok) throw new Error(res.error);
+        expect(pinJson).not.toHaveBeenCalled();
+        expect(res.executorDescriptions).toHaveLength(2);
+        for (const e of res.executorDescriptions) {
+          expect(e.pinned).toBe(false);
+          expect(e.exact).toBe(true);
+          expect(e.uri).toMatch(/^ipfs:\/\/Qm/);
+        }
+        expect(res.note).toContain("computed locally, not pinned (dryRun)");
+      } finally {
+        pinJson.mockRestore();
+      }
+    });
+
+    // The `previewOnly` opt-out at the TOOL boundary is asserted in
+    // tests/tools/dryrun-no-pin.test.ts, which stubs the RPC provider this
+    // file deliberately leaves unreachable.
   });
 
   it("dexe_dao_build_deploy's handler returns the builder's refusal verbatim", async () => {

@@ -7,7 +7,7 @@ import { resolveChain } from "../config.js";
 import { ArtifactsMissingError } from "../artifacts.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { RpcProvider } from "../rpc.js";
-import { PinataClient } from "../lib/ipfs.js";
+import { PinataClient, pinJsonOrPreview } from "../lib/ipfs.js";
 import { quorumPctFromRaw, judgeQuorum } from "../lib/quorumRisk.js";
 import {
   firstFailure,
@@ -302,6 +302,22 @@ export interface DeployBuildInput {
   poolFactory?: string;
   deployer: string;
   params: DeployParams;
+  /**
+   * Preview: compute the `executorDescription` CIDs locally and pin NOTHING.
+   * The composite's `dryRun` threads through here — before 0.34.0 it did not,
+   * so every "side-effect-free" `dexe_dao_create` preview wrote two permanent
+   * JSON pins to the user's Pinata account.
+   */
+  dryRun?: boolean;
+}
+
+/** One settings JSON whose `ipfs://` ref was written into the deploy calldata. */
+export interface ExecutorDescriptionRef {
+  /** `default` (slots 0/1/2/4) or `distributionProposal` (slot 3). */
+  label: string;
+  uri: string;
+  pinned: boolean;
+  exact: boolean;
 }
 
 export type DeployBuildResult =
@@ -316,6 +332,11 @@ export type DeployBuildResult =
         distributionProposal?: string;
         govTokenSale?: string;
       };
+      /**
+       * What the auto-upload actually did, per settings JSON — so the caller's
+       * IPFS disclosure block is derived from reality instead of guessed.
+       */
+      executorDescriptions: ExecutorDescriptionRef[];
     }
   | { ok: false; error: string };
 
@@ -331,7 +352,7 @@ export async function buildDeployGovPool(
   ctx: ToolContext,
   rpc: RpcProvider,
 ): Promise<DeployBuildResult> {
-  const { chainId, poolFactory, deployer, params } = input;
+  const { chainId, poolFactory, deployer, params, dryRun = false } = input;
   const fail = (error: string): DeployBuildResult => ({ ok: false, error });
   const chain = resolveChain(ctx.config, chainId);
   const isTokenCreation = params.tokenParams.name.length > 0;
@@ -622,9 +643,12 @@ export async function buildDeployGovPool(
     : "";
 
   // ---------- auto-upload executorDescription to IPFS ----------
+  // Under dryRun the CIDs are computed locally (identical bytes → identical
+  // CID, so the preview calldata matches the real run) and nothing is pinned.
   let pinataWarning = "";
-  if (ctx.config.pinataJwt) {
-    const pinata = new PinataClient(ctx.config.pinataJwt);
+  const executorDescriptions: ExecutorDescriptionRef[] = [];
+  const pinata = ctx.config.pinataJwt ? new PinataClient(ctx.config.pinataJwt) : undefined;
+  if (pinata || dryRun) {
     const settingsToUpload: Array<{ index: number; label: string }> = [
       { index: 0, label: "default" },
       { index: 3, label: "distributionProposal" },
@@ -653,8 +677,13 @@ export async function buildDeployGovPool(
             minVotesForReadProposalDiscussion: "0",
             minVotesForCreatingComment: "1000000000000000000",
           };
-          const res = await pinata.pinJson(settingsJson, { name: `dao-settings-${label}:${params.name.slice(0, 40)}` });
-          const cid = `ipfs://${res.cid}`;
+          const pin = await pinJsonOrPreview(settingsJson, {
+            dryRun,
+            pinata,
+            name: `dao-settings-${label}:${params.name.slice(0, 40)}`,
+          });
+          executorDescriptions.push({ label, uri: pin.uri, pinned: pin.pinned, exact: pin.exact });
+          const cid = pin.uri;
           if (index === 0) {
             expandedSettings[0] = { ...expandedSettings[0]!, executorDescription: cid };
             expandedSettings[1] = { ...expandedSettings[1]!, executorDescription: cid };
@@ -666,6 +695,21 @@ export async function buildDeployGovPool(
         } catch (err) {
           pinataWarning += `\n⚠️  Failed to upload ${label} executorDescription: ${safeErrorMessage(err)}`;
         }
+      }
+    }
+    if (dryRun && executorDescriptions.length > 0) {
+      pinataWarning +=
+        "\n⚠️  Preview only — the executorDescription CIDs above were computed locally, not pinned (dryRun). " +
+        "They are byte-identical to what a real run pins, so this calldata matches; the content itself is not on IPFS yet.";
+      // Widening the gate to `pinata || dryRun` must not swallow the no-key
+      // warning for the dryRun-without-key combination: the REAL run would
+      // still ship empty executorDescriptions and a broken settings UI, so a
+      // preview that showed plausible CIDs and said nothing would mislead.
+      if (!pinata) {
+        pinataWarning +=
+          "\n⚠️  DEXE_PINATA_JWT is not configured, so the REAL run cannot pin them — it would deploy with EMPTY " +
+          "executorDescription fields and the DAO's proposal settings would render broken on app.dexe.io. " +
+          "Set DEXE_PINATA_JWT before deploying (run dexe_doctor to verify).";
       }
     }
   } else {
@@ -861,6 +905,7 @@ export async function buildDeployGovPool(
       distributionProposal: predictedDistribution,
       govTokenSale: predictedTokenSale,
     },
+    executorDescriptions,
   };
 }
 
@@ -894,9 +939,10 @@ function registerBuildDeploy(
         "- `minVotesForVoting`, `minVotesForCreating`, `creationReward`, `executionReward`, token `cap`/`mintedTotal`/`amounts`, `individualPower`: 18-decimal wei. 100 tokens = `\"100000000000000000000\"` (100 × 10^18).\n" +
         "- `duration`, `durationValidators`, `executionDelay`: plain seconds as string. 1 day = `\"86400\"`.\n" +
         "- `polynomialCoefficients` (coefficient1/2/3): 25-decimal wei.\n\n" +
-        "**executorDescription auto-upload:** When `DEXE_PINATA_JWT` is configured and `executorDescription` is empty, " +
-        "the tool auto-uploads proposal settings JSON to IPFS and sets the CID (matching frontend behavior). " +
-        "Without this, the DAO's proposal settings won't display correctly in the frontend UI.\n\n" +
+        "**executorDescription auto-upload — this call WRITES to IPFS:** when `DEXE_PINATA_JWT` is set and " +
+        "`executorDescription` is empty, the tool PINS up to two proposal-settings JSONs to your Pinata account and " +
+        "sets the CIDs (matching frontend behavior). Without them the DAO's proposal settings won't display correctly. " +
+        "`previewOnly: true` computes the same CIDs locally and pins nothing.\n\n" +
         "**Token cap constraint:** When creating a new gov token (`tokenParams.name` non-empty), `cap` MUST be > 0 and ≥ `mintedTotal` (cap == mintedTotal is a valid fixed supply; there is NO uncapped mode). The tool pre-flight-rejects violations with a clear error.\n\n" +
         "**Pre-sign simulation:** After building, the calldata is simulated via eth_call from the deployer against live chain state. " +
         "A provable revert → the tool REFUSES to emit the payload and returns the cause + fix (no gas can be wasted on it). " +
@@ -926,18 +972,34 @@ function registerBuildDeploy(
             "Bypass the pre-sign eth_call simulation (deliberate override for offline/flaky-RPC use). " +
               "Default false: a provably-reverting payload is refused with cause + fix.",
           ),
+        previewOnly: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Network-write-free: compute the executorDescription CIDs locally instead of PINNING two settings JSONs " +
+              "to Pinata. The result is NOT BROADCASTABLE — the CIDs are right but nothing was uploaded, so the DAO " +
+              "would ship with unresolvable settings. Re-run without previewOnly for a sendable payload.",
+          ),
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ chainId, poolFactory, deployer, params, skipSimulation }) => {
-      const res = await buildDeployGovPool({ chainId, poolFactory, deployer, params }, ctx, rpc);
+    async ({ chainId, poolFactory, deployer, params, skipSimulation, previewOnly }) => {
+      const res = await buildDeployGovPool({ chainId, poolFactory, deployer, params, dryRun: previewOnly }, ctx, rpc);
       if (!res.ok) return errorResult(res.error);
 
       // Pre-sign simulation: never hand out a payload that provably reverts —
       // the caller would sign and burn gas on it. Transport failures fail open
       // (verdict lands in the note); `skipSimulation` is the deliberate bypass.
-      let note = res.note;
-      if (!skipSimulation) {
+      //
+      // previewOnly forces the bypass: eth_call cannot detect an unpinned
+      // executorDescription (the contract never validates the string), so a
+      // PASS verdict on a preview payload would read as "safe to send" and be
+      // exactly wrong.
+      let note = previewOnly
+        ? "NOT BROADCASTABLE — previewOnly: the executorDescription CIDs were computed locally and nothing was " +
+          "pinned to IPFS. Re-run without previewOnly before sending this payload.\n" + res.note
+        : res.note;
+      if (!skipSimulation && !previewOnly) {
         const verdict = await simulateDeployGovPool({
           to: res.payload.to,
           data: res.payload.data,

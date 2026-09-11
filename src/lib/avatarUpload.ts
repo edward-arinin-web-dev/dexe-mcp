@@ -90,21 +90,58 @@ export interface PinnedAvatar {
   byteLength: number;
 }
 
+/** What a dryRun preview can honestly say about an avatar: everything but the CID. */
+export interface PreviewedAvatar {
+  avatarFileName: string;
+  detectedFormat: RasterFormat;
+  byteLength: number;
+}
+
+/**
+ * The local half of `pinAvatarFromInput`: read → validate (magic bytes) →
+ * normalize the filename. No network.
+ *
+ * This is what a dryRun runs. Before 0.34.0 a preview skipped the avatar step
+ * entirely, so a missing path, an oversized file or an SVG impostor (the bug
+ * #34 gate) passed the preview and failed only on the broadcast call — the one
+ * call the preview existed to de-risk.
+ *
+ * It deliberately returns NO CID. Pinata's `pinFile` wraps the image in a
+ * directory, so the real `avatarCID` is a dag-pb directory CID whose child is
+ * the filename; a locally computed raw-codec CID of the bytes would produce an
+ * `avatarUrl` that can never resolve (a raw block has no path children) and
+ * would land in `daoMeta`. Omitting it keeps the preview honest.
+ */
+export async function previewAvatarFromInput(input: AvatarInput & { fileName?: string }): Promise<PreviewedAvatar> {
+  const bytes = await readAvatarInput(input);
+  const sniffed = assertRasterAvatar(bytes);
+  return { avatarFileName: normalizeAvatarFileName(input.fileName), detectedFormat: sniffed.format, byteLength: bytes.length };
+}
+
+/** `.jpeg` is the frontend contract — the serving chain keys off that extension. */
+function normalizeAvatarFileName(fileName: string | undefined): string {
+  const raw = fileName ?? "avatar";
+  const base = raw.includes(".") ? raw.substring(0, raw.lastIndexOf(".")) : raw;
+  return `${base || "avatar"}.jpeg`;
+}
+
 /**
  * Read → validate (magic bytes) → pin → return the
  * `{avatarCID, avatarFileName, avatarUrl}` triple DAO metadata expects.
  * The filename is normalized to `.jpeg` to match the frontend contract
  * (the serving chain keys off that extension); the pinned MIME is the
  * format actually sniffed from the bytes.
+ *
+ * Shares its read+validate+normalize half with `previewAvatarFromInput`, so a
+ * dryRun preview and the real run can never disagree about whether an image is
+ * acceptable or what it will be called.
  */
 export async function pinAvatarFromInput(
   input: AvatarInput & { fileName?: string; pinata: PinataClient },
 ): Promise<PinnedAvatar> {
   const bytes = await readAvatarInput(input);
   const sniffed = assertRasterAvatar(bytes);
-  const raw = input.fileName ?? "avatar";
-  const base = raw.includes(".") ? raw.substring(0, raw.lastIndexOf(".")) : raw;
-  const normalized = `${base || "avatar"}.jpeg`;
+  const normalized = normalizeAvatarFileName(input.fileName);
   const res = await input.pinata.pinFile(bytes, {
     fileName: normalized,
     contentType: sniffed.mime,

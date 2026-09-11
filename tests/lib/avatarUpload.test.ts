@@ -2,7 +2,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_AVATAR_BYTES, buildAvatarUrl, pinAvatarFromInput, readAvatarInput } from "../../src/lib/avatarUpload.js";
+import {
+  MAX_AVATAR_BYTES,
+  buildAvatarUrl,
+  pinAvatarFromInput,
+  previewAvatarFromInput,
+  readAvatarInput,
+} from "../../src/lib/avatarUpload.js";
 import { renderAvatarJpeg } from "../../src/lib/avatarImage.js";
 import type { PinataClient } from "../../src/lib/ipfs.js";
 
@@ -82,5 +88,59 @@ describe("pinAvatarFromInput", () => {
   it("normalizes a custom fileName to .jpeg", async () => {
     const pinned = await pinAvatarFromInput({ filePath: jpegPath, fileName: "logo.png", pinata });
     expect(pinned.avatarFileName).toBe("logo.jpeg");
+  });
+});
+
+/**
+ * The preview half, split out in 0.34.0 so a dryRun can validate an avatar
+ * without publishing it. It returns NO CID on purpose: Pinata's `pinFile` wraps
+ * the image in a directory, so the real `avatarCID` is a dag-pb directory CID —
+ * a locally derived raw-codec CID would produce an `avatarUrl` that can never
+ * resolve (a raw block has no path children), and that string lands in DAO
+ * metadata and gets echoed to users as a link.
+ */
+describe("previewAvatarFromInput", () => {
+  const pinFile = vi.fn(async () => {
+    throw new Error("a preview must never pin");
+  });
+  const pinata = { pinFile } as unknown as PinataClient;
+
+  afterEach(() => pinFile.mockClear());
+
+  it("validates and normalizes without touching the network", async () => {
+    const p = await previewAvatarFromInput({ filePath: jpegPath });
+    expect(p.detectedFormat).toBe("jpeg");
+    expect(p.avatarFileName).toBe("avatar.jpeg");
+    expect(p.byteLength).toBe(JPEG_BYTES.length);
+    expect(pinFile).not.toHaveBeenCalled();
+    expect(p).not.toHaveProperty("avatarCID");
+  });
+
+  it("normalizes a custom fileName exactly like the pinning path", async () => {
+    const preview = await previewAvatarFromInput({ filePath: jpegPath, fileName: "logo.png" });
+    expect(preview.avatarFileName).toBe("logo.jpeg");
+  });
+
+  it("still rejects an SVG — the whole point of running it in the preview", async () => {
+    await expect(previewAvatarFromInput({ filePath: svgPath })).rejects.toThrow(/SVG/);
+  });
+
+  it("still rejects a path that does not exist", async () => {
+    await expect(previewAvatarFromInput({ filePath: join(dir, "missing.jpeg") })).rejects.toThrow(
+      /Cannot read avatar file/,
+    );
+  });
+
+  it("agrees with pinAvatarFromInput on the filename, so daoMeta cannot drift", async () => {
+    const okPin = vi.fn(async () => ({ cid: "QmSLwX3b5hpMK57vtaReB35EKog2xxMRskmLicK92L8EAD", size: 1, pinnedAt: "x" }));
+    const real = await pinAvatarFromInput({
+      filePath: jpegPath,
+      fileName: "brand.webp",
+      pinata: { pinFile: okPin } as unknown as PinataClient,
+    });
+    const preview = await previewAvatarFromInput({ filePath: jpegPath, fileName: "brand.webp" });
+    expect(preview.avatarFileName).toBe(real.avatarFileName);
+    expect(preview.detectedFormat).toBe(real.detectedFormat);
+    expect(pinata).toBeDefined();
   });
 });

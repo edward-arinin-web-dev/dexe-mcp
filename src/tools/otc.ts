@@ -14,7 +14,8 @@ import {
   tierSchema,
   type TierSpec,
 } from "./proposalBuildComplex.js";
-import { PinataClient } from "../lib/ipfs.js";
+import { PinataClient, pinataCidForJson } from "../lib/ipfs.js";
+import type { IpfsArtifact } from "../lib/ipfsPreview.js";
 import {
   buildAddressMerkleTree,
   computeLeafHash,
@@ -220,15 +221,16 @@ export function buildExactApproval(
  * `ipfs://<cid>` into the participation spec (matches the frontend's
  * `IpfsEntity.path` format; addresses lowercased like the frontend does).
  */
-async function resolveMerkleUris(
+export async function resolveMerkleUris(
   tiers: readonly TierSpec[],
   pinataJwt: string | undefined,
+  opts: { dryRun: boolean },
 ): Promise<{
   tiers: TierSpec[];
-  uploaded: { tierName: string; uri: string }[];
+  uploaded: { tierName: string; uri: string; pinned: boolean }[];
   warnings: string[];
 }> {
-  const uploaded: { tierName: string; uri: string }[] = [];
+  const uploaded: { tierName: string; uri: string; pinned: boolean }[] = [];
   const warnings: string[] = [];
   const out: TierSpec[] = [];
   for (const tier of tiers) {
@@ -241,25 +243,41 @@ async function resolveMerkleUris(
       continue;
     }
     if (!pinataJwt) {
+      // Two different truths, and a preview must tell the right one. Without a
+      // key the REAL run emits an empty uri — so a dryRun that fabricated one
+      // would advertise calldata the real run will never produce.
       warnings.push(
-        `Tier "${tier.name}": MerkleWhitelist uri left empty (DEXE_PINATA_JWT unset) — ` +
-          `app.dexe.io buyers cannot regenerate proofs for this tier; distribute the whitelist out-of-band.`,
+        opts.dryRun
+          ? `Tier "${tier.name}": preview only — DEXE_PINATA_JWT is unset, so a real run will leave this ` +
+              `MerkleWhitelist uri EMPTY and app.dexe.io buyers will not be able to derive proofs. ` +
+              `Set DEXE_PINATA_JWT (see dexe_doctor) before the real run.`
+          : `Tier "${tier.name}": MerkleWhitelist uri left empty (DEXE_PINATA_JWT unset) — ` +
+              `app.dexe.io buyers cannot regenerate proofs for this tier; distribute the whitelist out-of-band.`,
       );
       out.push(tier);
       continue;
     }
-    const pinata = new PinataClient(pinataJwt);
+    // Under dryRun no client is constructed at all, so a spy on `pinJson`
+    // provably cannot fire.
+    const pinata = opts.dryRun ? undefined : new PinataClient(pinataJwt);
     const newParts: TierSpec["participation"] = [];
     for (const p of parts) {
       if (p.type === "MerkleWhitelist" && !p.uri && (p.users?.length ?? 0) > 0) {
         const list = p.users.map((u) => u.toLowerCase());
-        const res = await pinata.pinJson(
-          { list },
-          { name: `otc-whitelist:${tier.name.slice(0, 24)}` },
-        );
-        const uri = `ipfs://${res.cid}`;
-        uploaded.push({ tierName: tier.name, uri });
+        const cid = pinata
+          ? (await pinata.pinJson({ list }, { name: `otc-whitelist:${tier.name.slice(0, 24)}` })).cid
+          : (await pinataCidForJson({ list })).cid;
+        const uri = `ipfs://${cid}`;
+        uploaded.push({ tierName: tier.name, uri, pinned: !!pinata });
         newParts.push({ ...p, uri });
+        if (!pinata) {
+          warnings.push(
+            `Tier "${tier.name}": whitelist NOT pinned (dryRun). The uri ${uri} was computed locally — it is the ` +
+              `same CID a real run pins, so this createTiers calldata matches, but the list itself is on nobody's ` +
+              `IPFS node. Do not broadcast these payloads as-is: buyers could not derive proofs and the tier would ` +
+              `be unbuyable on app.dexe.io. Re-run without dryRun to pin it.`,
+          );
+        }
       } else {
         newParts.push(p);
       }
@@ -314,7 +332,13 @@ export function registerOtcTools(
       voteNftIds: z.array(z.string()).default([]),
       user: z.string().optional(),
       signerKey: signerKeyParam,
-      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+      dryRun: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Preview: no broadcast, no IPFS pin (merkle whitelists too). CIDs are right but unpinned — do " +
+            "NOT broadcast this calldata.",
+        ),
       buildOnly: z.boolean().default(false).describe("If true, return just the envelope (actions + metadata + merkle roots) without running the proposal_create flow. Skips IPFS upload and DAO state reads."),
       acknowledgeVestingBlocked: z
         .boolean()
@@ -338,14 +362,22 @@ export function registerOtcTools(
         // IPFS or app.dexe.io buyers cannot derive proofs. buildOnly skips
         // uploads by design — the caller owns IPFS there.
         let tiers: readonly TierSpec[] = input.tiers;
-        let whitelistUploads: { tierName: string; uri: string }[] = [];
+        let whitelistUploads: { tierName: string; uri: string; pinned: boolean }[] = [];
         let whitelistWarnings: string[] = [];
         if (!input.buildOnly) {
-          const resolved = await resolveMerkleUris(input.tiers, ctx.config.pinataJwt);
+          const resolved = await resolveMerkleUris(input.tiers, ctx.config.pinataJwt, { dryRun: input.dryRun });
           tiers = resolved.tiers;
           whitelistUploads = resolved.uploaded;
           whitelistWarnings = resolved.warnings;
         }
+        // Whatever the whitelist resolution did rides into the createTiers
+        // calldata, so it belongs in the same `ipfs` disclosure block as the
+        // proposal metadata rather than in a second, separate claim.
+        const merkleArtifacts: IpfsArtifact[] = whitelistUploads.map((u) => ({
+          field: `merkleWhitelist[${u.tierName}]`,
+          uri: u.uri,
+          pinned: u.pinned,
+        }));
 
         const built = buildTokenSaleMultiActions({
           tokenSaleProposal: input.tokenSaleProposal,
@@ -403,6 +435,7 @@ export function registerOtcTools(
           voteNftIds: input.voteNftIds,
           user: input.user,
           dryRun: input.dryRun,
+          extraIpfsArtifacts: merkleArtifacts,
           // Opening a sale is a write composite like any other, so it must be
           // signable as a named persona. It was the one broadcast composite
           // 0.32.0 missed — and docs/AGENTS.md had already listed it as

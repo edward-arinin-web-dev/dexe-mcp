@@ -5,10 +5,11 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
-import { PinataClient, toCidV1, cidForJson } from "../lib/ipfs.js";
+import { toCidV1, pinJsonOrPreview } from "../lib/ipfs.js";
+import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
-import { pinataUploadHint } from "../lib/requireEnv.js";
+import { pinataForWrites } from "../lib/requireEnv.js";
 import { attachPairingQr, sendOrCollect, flowFailureResult } from "./flow.js";
 import { buildDeployGovPool, DeployParamsSchema, type DeployParams } from "./daoDeploy.js";
 import type { StateStore } from "../lib/stateStore.js";
@@ -35,7 +36,7 @@ import {
   QUORUM_TURNOUT_CEILING,
 } from "../lib/quorumRisk.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
-import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
+import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
 import { resolveGateways } from "./ipfs.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
@@ -616,13 +617,17 @@ export function registerDaoCreateTools(
             "ONE-CALL PATH: when the user has already explicitly approved deploying (they said 'deploy it' / confirmed the " +
             "parameters), pass confirm:true on the FIRST call — no preview round-trip needed.",
         ),
-      dryRun: z.boolean().default(false).describe("If true, return the deploy TxPayload even when DEXE_PRIVATE_KEY is set."),
+      dryRun: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Preview: no broadcast, no IPFS pin, no Pinata key needed. CIDs are right but unpinned — do NOT " +
+            "broadcast this calldata.",
+        ),
       signerKey: signerKeyParam,
       flowContext: flowContextSchema,
     },
     async (input) => {
-      if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a DAO"));
-
       const deployer =
         input.deployer ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!deployer) return err("Provide 'deployer' address or set DEXE_PRIVATE_KEY.");
@@ -630,7 +635,6 @@ export function registerDaoCreateTools(
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;
       const isMainnet = chainId === 56 || chainId === 1;
-      const pinata = new PinataClient(ctx.config.pinataJwt);
 
       // The posture in force for THIS call: off | warn | block. `block` turns
       // every governance-safety advisory below into a refusal (see treasuryGate).
@@ -853,18 +857,34 @@ export function registerDaoCreateTools(
       }
 
       // ---------- build + upload DAO profile metadata ----------
-      // dryRun must stay side-effect-free: compute placeholder CIDs locally
-      // instead of pinning to Pinata. (Local CIDs use the json codec; Pinata
-      // pins as dag-pb, so a real run's CIDs differ — fine for a preview.)
+      // The FIRST real pin happens below — which is why the Pinata key is
+      // demanded here and not at the top of the handler. Everything above
+      // (SIMPLE synthesis, the settings-slot guard, the safety proof, the
+      // quorum/treasury gate, the review preview) writes nothing, so a
+      // zero-config user gets all of it without an IPFS key.
+      const pin = pinataForWrites(
+        ctx.config.pinataJwt,
+        input.dryRun,
+        "to BROADCAST a DAO deploy — the preview and dryRun above need no Pinata key",
+      );
+      if ("error" in pin) return err(pin.error);
+      const pinata = pin.ok;
+
+      // dryRun must stay side-effect-free: compute the CIDs locally and pin
+      // nothing. The local CIDs are byte-identical to what a real pin returns
+      // (see pinataCidForJson), so the preview calldata is the real calldata —
+      // only the content is not on IPFS yet.
+      const ipfsArtifacts: IpfsArtifact[] = [];
       let descriptionRef = "";
       if (input.daoDescription && input.daoDescription.length > 0) {
         const descSlate = markdownToSlate(input.daoDescription);
-        if (input.dryRun) {
-          descriptionRef = `ipfs://${await cidForJson(descSlate)}`;
-        } else {
-          const descRes = await pinata.pinJson(descSlate, { name: `dao-desc:${input.daoName.slice(0, 30)}` });
-          descriptionRef = `ipfs://${descRes.cid}`;
-        }
+        const r = await pinJsonOrPreview(descSlate, {
+          dryRun: input.dryRun,
+          pinata,
+          name: `dao-desc:${input.daoName.slice(0, 30)}`,
+        });
+        descriptionRef = r.uri;
+        ipfsArtifacts.push({ field: "daoDescription", uri: r.uri, pinned: r.pinned, exact: r.exact });
       }
       const daoMeta: Record<string, unknown> = {
         daoName: input.daoName,
@@ -876,17 +896,25 @@ export function registerDaoCreateTools(
       if (input.avatarPath && input.avatarCID) {
         return err("Pass either `avatarCID` or `avatarPath`, not both.");
       }
-      if (input.avatarPath && input.dryRun) {
-        // Side-effect-free preview: don't pin the avatar. The real run fills
-        // avatarCID/avatarFileName/avatarUrl from the pinned upload.
-        daoMeta.avatarFileName = input.avatarFileName;
-      } else if (input.avatarPath) {
+      if (input.avatarPath) {
         // One-call path: read + validate (magic bytes) + pin server-side.
+        //
+        // Under dryRun the read and the magic-byte gate STILL run — only the
+        // upload is skipped. Before 0.34.0 the preview skipped the whole step,
+        // so a missing path / oversized file / SVG impostor sailed through the
+        // preview and blew up on the broadcast call. No CID is synthesized:
+        // Pinata wraps the image in a directory, so any locally derived CID
+        // would yield an `avatarUrl` that can never resolve.
         try {
-          const pinned = await pinAvatarFromInput({ filePath: input.avatarPath, pinata });
-          daoMeta.avatarCID = pinned.avatarCID;
-          daoMeta.avatarFileName = pinned.avatarFileName;
-          daoMeta.avatarUrl = pinned.avatarUrl;
+          if (input.dryRun || !pinata) {
+            const preview = await previewAvatarFromInput({ filePath: input.avatarPath });
+            daoMeta.avatarFileName = preview.avatarFileName;
+          } else {
+            const pinned = await pinAvatarFromInput({ filePath: input.avatarPath, pinata });
+            daoMeta.avatarCID = pinned.avatarCID;
+            daoMeta.avatarFileName = pinned.avatarFileName;
+            daoMeta.avatarUrl = pinned.avatarUrl;
+          }
         } catch (e) {
           return err(safeErrorMessage(e));
         }
@@ -905,15 +933,16 @@ export function registerDaoCreateTools(
         daoMeta.avatarUrl = buildAvatarUrl(avatarCidV1, input.avatarFileName);
       }
       let descriptionURL: string;
-      if (input.dryRun) {
-        descriptionURL = `ipfs://${await cidForJson(daoMeta)}`;
-      } else {
-        try {
-          const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${input.daoName.slice(0, 30)}` });
-          descriptionURL = `ipfs://${daoMetaRes.cid}`;
-        } catch (e) {
-          return err(`Failed to upload DAO metadata to IPFS: ${safeErrorMessage(e)}`);
-        }
+      try {
+        const r = await pinJsonOrPreview(daoMeta, {
+          dryRun: input.dryRun,
+          pinata,
+          name: `dao-meta:${input.daoName.slice(0, 30)}`,
+        });
+        descriptionURL = r.uri;
+        ipfsArtifacts.push({ field: "descriptionURL", uri: r.uri, pinned: r.pinned, exact: r.exact });
+      } catch (e) {
+        return err(`Failed to upload DAO metadata to IPFS: ${safeErrorMessage(e)}`);
       }
 
       // ---------- build the deploy tx (shared with dexe_dao_build_deploy) ----------
@@ -923,11 +952,15 @@ export function registerDaoCreateTools(
           poolFactory: input.poolFactory,
           deployer,
           params: { ...deployParams, descriptionURL, name: input.daoName },
+          dryRun: input.dryRun,
         },
         ctx,
         rpc,
       );
       if (!res.ok) return err(res.error);
+      for (const e of res.executorDescriptions) {
+        ipfsArtifacts.push({ field: `executorDescription[${e.label}]`, uri: e.uri, pinned: e.pinned, exact: e.exact });
+      }
 
       // ---------- pre-sign simulation (the one on-chain check) ----------
       // The deploy is a single independent payload, so eth_call against live
@@ -1045,6 +1078,7 @@ export function registerDaoCreateTools(
         chainId,
         deployer,
         descriptionURL,
+        ...ipfsPreviewBlock(ipfsArtifacts),
         predictedGovPool: res.predictedGovPool ?? null,
         predicted: res.predicted,
         note: simSummary ? `${res.note}\n${simSummary}` : res.note,

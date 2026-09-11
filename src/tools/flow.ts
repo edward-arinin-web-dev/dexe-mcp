@@ -5,8 +5,9 @@ import type { ToolContext } from "./context.js";
 import type { TxPayload } from "../lib/calldata.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { PinataClient, fetchIpfs, toCidV1, cidForJson } from "../lib/ipfs.js";
-import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
+import { fetchIpfs, toCidV1, pinJsonOrPreview } from "../lib/ipfs.js";
+import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
+import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { resolveGateways } from "./ipfs.js";
 import { SignerManager, HOT_KEY_SAFETY, hotKeySafetyFields } from "../lib/signer.js";
@@ -14,7 +15,7 @@ import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain, type DexeConfig } from "../config.js";
-import { pinataUploadHint } from "../lib/requireEnv.js";
+import { pinataForWrites } from "../lib/requireEnv.js";
 import { runBroadcastGuards } from "../lib/broadcastGuards.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import {
@@ -1091,6 +1092,13 @@ export interface ProposalCreateInput {
   /** When true, return ordered TxPayloads even if a signer is configured. */
   dryRun?: boolean;
   /**
+   * IPFS refs a WRAPPING composite already resolved (e.g. the OTC merkle
+   * whitelists in `dexe_otc_dao_open_sale`), so the response's `ipfs`
+   * disclosure block covers every artifact that rode into the calldata, not
+   * just the ones this function pinned. Internal — not a tool input.
+   */
+  extraIpfsArtifacts?: IpfsArtifact[];
+  /**
    * Required to proceed when the built proposal carries a DANGER
    * governance-safety advisory (e.g. quorum lowered into treasury-drain
    * territory). Without it the flow refuses BEFORE any transaction.
@@ -1158,13 +1166,23 @@ export async function runProposalCreate(
         return runInternalProposalCreate(input, deps, internalBuilder);
       }
 
-      if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a proposal"));
+      // Pinata is needed only by the pins further down — a dryRun preview pins
+      // nothing, so it must not be gated on a key it will never use. Demanding
+      // it here also meant the creation-threshold check, the DANGER gate and
+      // the #36 trap gate never got to answer a keyless caller.
+      const pin = pinataForWrites(
+        ctx.config.pinataJwt,
+        input.dryRun ?? false,
+        "to create a proposal (dryRun:true previews need no Pinata key)",
+      );
+      if ("error" in pin) return err(pin.error);
+      const pinata = pin.ok;
 
       const user =
         input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
 
-      const pinata = new PinataClient(ctx.config.pinataJwt);
+      const ipfsArtifacts: IpfsArtifact[] = [...(input.extraIpfsArtifacts ?? [])];
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;
       const govPool = input.govPool;
@@ -1285,8 +1303,13 @@ export async function runProposalCreate(
         let descriptionRef = typeof currentMeta.description === "string" ? currentMeta.description : "";
         if (input.newDaoDescription !== undefined || (input.description && input.description.length > 0)) {
           const descSlate = markdownToSlate(input.newDaoDescription ?? input.description ?? "");
-          const descRes = await pinata.pinJson(descSlate, { name: `dao-desc:${govPool.slice(0, 10)}` });
-          descriptionRef = `ipfs://${descRes.cid}`;
+          const r = await pinJsonOrPreview(descSlate, {
+            dryRun: input.dryRun ?? false,
+            pinata,
+            name: `dao-desc:${govPool.slice(0, 10)}`,
+          });
+          descriptionRef = r.uri;
+          ipfsArtifacts.push({ field: "daoDescription", uri: r.uri, pinned: r.pinned, exact: r.exact });
         }
 
         // Merge: start from current, override only fields the caller explicitly supplied.
@@ -1305,14 +1328,33 @@ export async function runProposalCreate(
         if (input.newAvatarPath || input.newAvatarBase64) {
           // One-call avatar rotation: read + validate (magic bytes) + pin the
           // image server-side. The agent should never read image files itself.
-          const pinned = await pinAvatarFromInput({
-            filePath: input.newAvatarPath,
-            base64: input.newAvatarBase64,
-            pinata,
-          });
-          daoMeta.avatarCID = pinned.avatarCID;
-          daoMeta.avatarFileName = pinned.avatarFileName;
-          daoMeta.avatarUrl = pinned.avatarUrl;
+          //
+          // A dryRun reads and validates but does NOT publish the user's image
+          // to public IPFS — a preview that uploads a picture is not a preview.
+          // No CID is synthesized (Pinata wraps the file in a directory, so any
+          // local CID would produce a permanently dead avatarUrl).
+          try {
+            if (input.dryRun || !pinata) {
+              const preview = await previewAvatarFromInput({
+                filePath: input.newAvatarPath,
+                base64: input.newAvatarBase64,
+              });
+              daoMeta.avatarFileName = preview.avatarFileName;
+            } else {
+              const pinned = await pinAvatarFromInput({
+                filePath: input.newAvatarPath,
+                base64: input.newAvatarBase64,
+                pinata,
+              });
+              daoMeta.avatarCID = pinned.avatarCID;
+              daoMeta.avatarFileName = pinned.avatarFileName;
+              daoMeta.avatarUrl = pinned.avatarUrl;
+            }
+          } catch (e) {
+            // Validation now also fires in the preview, so it must surface as a
+            // clean tool error rather than a raw throw out of the handler.
+            return err(safeErrorMessage(e));
+          }
         } else if (input.newAvatarCID) {
           // By-reference CID — the local byte gate never saw these bytes, so
           // best-effort fetch + sniff (hard-block only on confirmed non-raster).
@@ -1327,8 +1369,18 @@ export async function runProposalCreate(
           // load-bearing.
           daoMeta.avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
         }
-        const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${govPool.slice(0, 10)}` });
-        const newDescriptionURL = `ipfs://${daoMetaRes.cid}`;
+        const daoMetaPin = await pinJsonOrPreview(daoMeta, {
+          dryRun: input.dryRun ?? false,
+          pinata,
+          name: `dao-meta:${govPool.slice(0, 10)}`,
+        });
+        const newDescriptionURL = daoMetaPin.uri;
+        ipfsArtifacts.push({
+          field: "editDescriptionURL",
+          uri: daoMetaPin.uri,
+          pinned: daoMetaPin.pinned,
+          exact: daoMetaPin.exact,
+        });
 
         actionsOnFor = [{
           executor: govPool,
@@ -1503,12 +1555,22 @@ export async function runProposalCreate(
       // indexer/diff UI and immutable once pinned — validate before upload.
       const metaCheck = checkProposalMetadata(proposalMeta);
       if (!metaCheck.ok) return err(`Proposal metadata preflight failed: ${metaCheck.remediation}`);
-      // dryRun stays side-effect-free: local placeholder CID (json codec)
-      // instead of a Pinata pin — a real run pins and gets a dag-pb CID.
-      const proposalMetaCid = input.dryRun
-        ? await cidForJson(proposalMeta)
-        : (await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` })).cid;
-      const descriptionURL = `ipfs://${proposalMetaCid}`;
+      // dryRun stays side-effect-free: the CID is computed locally and nothing
+      // is pinned. It is the SAME CID a real pin returns, so the previewed
+      // createProposalAndVote calldata matches the real run byte for byte.
+      const metaPin = await pinJsonOrPreview(proposalMeta, {
+        dryRun: input.dryRun ?? false,
+        pinata,
+        name: `proposal:${input.title.slice(0, 30)}`,
+      });
+      const proposalMetaCid = metaPin.cid;
+      const descriptionURL = metaPin.uri;
+      ipfsArtifacts.push({
+        field: "descriptionURL",
+        uri: metaPin.uri,
+        pinned: metaPin.pinned,
+        exact: metaPin.exact,
+      });
 
       // Step 4b: duplicate-create guard (finding A).
       //
@@ -1520,9 +1582,10 @@ export async function runProposalCreate(
       // silently, for real gas, leaving the DAO voting on two copies.
       //
       // The pinned metadata CID makes the same call produce the same URL, so
-      // the duplicate is detectable BEFORE the transaction. Skipped under
-      // dryRun (its placeholder CID uses a different codec than a real Pinata
-      // pin and could never match a live proposal).
+      // the duplicate is detectable BEFORE the transaction. Still skipped under
+      // dryRun — since 0.34.0 the preview CID WOULD match a live proposal, but
+      // a preview broadcasts nothing, so the extra on-chain scan buys nothing
+      // and a preview should not depend on RPC reachability.
       if (!input.dryRun && !input.allowDuplicate) {
         const prDup = rpc.tryProvider(chainId);
         if (!("error" in prDup)) {
@@ -1738,6 +1801,7 @@ export async function runProposalCreate(
           mode: result.mode,
           descriptionURL,
           proposalMetadataCID: proposalMetaCid,
+          ...ipfsPreviewBlock(ipfsArtifacts),
           prereqs: {
             walletBalance: prereqs.walletBalance.toString(),
             depositedPower: prereqs.depositedPower.toString(),
@@ -1775,7 +1839,14 @@ async function runInternalProposalCreate(
 ) {
   const input = { proposalType: "custom", description: "", ...inputRaw };
   const { ctx, signer, rpc } = deps;
-  if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create an internal proposal"));
+  // Same lazy-Pinata rule as the external path: the only pin is dryRun-gated,
+  // so a preview must not be refused for the want of a key it never uses.
+  const pin = pinataForWrites(
+    ctx.config.pinataJwt,
+    input.dryRun ?? false,
+    "to create an internal proposal (dryRun:true previews need no Pinata key)",
+  );
+  if ("error" in pin) return err(pin.error);
 
   const parsed = builder.schema.safeParse(input.params ?? {});
   if (!parsed.success) {
@@ -1886,26 +1957,29 @@ async function runInternalProposalCreate(
     }
   }
 
-  const pinata = new PinataClient(ctx.config.pinataJwt);
   const proposalMeta = {
     proposalName: input.title,
     proposalDescription: JSON.stringify(markdownToSlate(input.description)),
     category: built.category,
     ...built.metadataExtra,
   };
-  let cid: string;
-  if (input.dryRun) {
-    // Side-effect-free preview: local placeholder CID, no pin.
-    cid = await cidForJson(proposalMeta);
-  } else {
-    try {
-      const res = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
-      cid = res.cid;
-    } catch (e) {
-      return err(toActionableError(e, "upload internal-proposal metadata").message);
-    }
+  let metaPin;
+  try {
+    // Side-effect-free preview: the CID is computed locally (identical to what
+    // a pin returns) and nothing is uploaded.
+    metaPin = await pinJsonOrPreview(proposalMeta, {
+      dryRun: input.dryRun ?? false,
+      pinata: pin.ok,
+      name: `proposal:${input.title.slice(0, 30)}`,
+    });
+  } catch (e) {
+    return err(toActionableError(e, "upload internal-proposal metadata").message);
   }
-  const descriptionURL = `ipfs://${cid}`;
+  const cid = metaPin.cid;
+  const descriptionURL = metaPin.uri;
+  const ipfsArtifacts: IpfsArtifact[] = [
+    { field: "descriptionURL", uri: metaPin.uri, pinned: metaPin.pinned, exact: metaPin.exact },
+  ];
 
   const validatorsIface = new Interface(GOV_VALIDATORS_CREATE_ABI as unknown as string[]);
   const payloads: TxPayload[] = [
@@ -1959,6 +2033,7 @@ async function runInternalProposalCreate(
       internalType: built.internalType,
       descriptionURL,
       proposalMetadataCID: cid,
+      ...ipfsPreviewBlock(ipfsArtifacts),
       summary: built.summary,
       steps: result.steps,
       ...(result.signer ? { signer: result.signer } : {}),
@@ -2168,7 +2243,13 @@ export function registerFlowTools(
       voteNftIds: z.array(z.string()).default([]),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
       signerKey: signerKeyParam,
-      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+      dryRun: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Preview: no broadcast, no IPFS pin, no Pinata key needed. The metadata CID is right but unpinned " +
+            "— do NOT broadcast this calldata.",
+        ),
       confirmRisky: z
         .boolean()
         .default(false)

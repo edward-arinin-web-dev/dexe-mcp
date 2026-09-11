@@ -7,6 +7,7 @@ import {
   DEFAULT_PUBLIC_READ_GATEWAYS,
   fetchIpfs,
   parseCid,
+  pinataCidForJson,
   PinataClient,
   toCidV1,
 } from "../lib/ipfs.js";
@@ -638,23 +639,40 @@ function registerCidForJson(server: McpServer): void {
   server.registerTool(
     "dexe_ipfs_cid_for_json",
     {
-      title: "Compute the CIDv1 for a JSON value locally — no network",
+      title: "Compute a JSON value's IPFS CIDs locally — no network, nothing pinned",
       description:
-        "Computes the deterministic CIDv1 (json codec, sha-256) for arbitrary JSON. Useful for dry-run flows: precompute the CID, build/sign a proposal with it as `descriptionURL`, then upload separately. The CID computed here matches what Pinata returns for the same bytes encoded with the multiformats json codec.",
+        "Computes, offline, the two CIDs for arbitrary JSON. `pinataCid` is the dag-pb CIDv0 that " +
+        "`dexe_ipfs_upload_*` (Pinata pinJSONToIPFS) returns for the SAME value — use this one anywhere a CID goes " +
+        "on-chain (e.g. `descriptionURL`), because it is what a real upload will produce. `cid` is the multiformats " +
+        "json-codec CIDv1 of the same value, kept for content-addressing/verification use. NOTHING IS PINNED: both " +
+        "are local hashes, so content referenced by them is unfetchable until you actually upload it with " +
+        "`dexe_ipfs_upload_proposal_metadata` / `_upload_dao_metadata`.",
       inputSchema: {
         value: z.unknown(),
       },
       outputSchema: {
         cid: z.string(),
         codec: z.string(),
+        pinataCid: z.string(),
+        pinataCidExact: z.boolean(),
+        pinned: z.literal(false),
       },
     },
     async ({ value }) => {
       try {
         const cid = await cidForJson(value);
+        const pin = await pinataCidForJson(value);
         return {
-          content: [{ type: "text" as const, text: `CID (json, sha-256): ${cid}` }],
-          structuredContent: { cid, codec: "json" },
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `Pinata-equivalent CID (dag-pb, what an upload returns): ${pin.cid}\n` +
+                `CID (json codec, sha-256): ${cid}\n` +
+                `Nothing was pinned — these are local hashes.`,
+            },
+          ],
+          structuredContent: { cid, codec: "json", pinataCid: pin.cid, pinataCidExact: pin.exact, pinned: false as const },
         };
       } catch (err) {
         return errorResult(ipfsToolError(err, "dexe_ipfs_cid_for_json"));
