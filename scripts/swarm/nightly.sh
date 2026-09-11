@@ -25,6 +25,15 @@ if ! git diff --quiet HEAD@{1} -- package-lock.json package.json 2>/dev/null; th
   npm install --no-audit --no-fund
 fi
 
+# UNCONDITIONAL, and outside the install guard above: a pulled commit can change
+# src/ without touching package files. The orchestrator spawns `node
+# dist/index.js`, so the server under test is whatever tsc last emitted — while
+# `swarm:run` is tsx, i.e. the HARNESS is always source-of-truth and the SERVER
+# never is. dist/ is gitignored and there is no `prepare` script, so nothing
+# else in this file can refresh it. `set -euo pipefail` aborts on a bad build.
+echo "--- build (the swarm spawns dist/index.js; a stale dist tests the wrong server) ---"
+npm run build
+
 echo "--- preflight ---"
 if ! npm run --silent swarm:preflight; then
   echo "preflight failed — aborting nightly run."

@@ -1,0 +1,90 @@
+{
+  "id": "S64-create-dedupe",
+  "title": "A repeated proposal_create is skipped, not minted twice",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "0.33.0 duplicate guard. The dedupe scan is SKIPPED under dryRun (the placeholder CID uses a different codec than a Pinata pin and could never match a live proposal), so this scenario MUST broadcast — it cannot be proved in --dry-run mode. Step 1 mints proposal N; step 2 re-sends byte-identical args and must come back mode 'already-created' with the create step skipped and no new tx. Written to be IDEMPOTENT: on a re-run while the first proposal is still live, step 1 itself returns 'already-created', which is why its assertion is an `in` over the three legitimate outcomes rather than `ne already-created`. Step 3 proves the allowDuplicate escape hatch is still accepted but keeps dryRun:true so it can never mint a real duplicate. Cost: up to 4 txs (prefund + approve + deposit + createProposalAndVote), ~cents on chain 97. NOTE: `broadcast:false` does not stop the composite — mode 'payloads' is always signed by the orchestrator; the flag only governs single-payload build_* steps.",
+  "agents": [{ "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "prefund": [
+    { "wallet": "P", "token": "{{firstAllowlistedToken}}", "minBalance": "5000000000000000000000" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "chainId": 97,
+        "proposalType": "modify_dao_profile",
+        "title": "Publish the quarterly stewardship note",
+        "description": "Swarm regression — identical metadata, created once.",
+        "newDaoDescription": "Quarterly stewardship note — stable marker for the dedupe regression.",
+        "user": "{{agent:P:address}}",
+        "voteAmount": "1.0"
+      },
+      "broadcast": false,
+      "captureAs": "first",
+      "expect": [
+        { "path": "first.mode", "op": "in", "value": ["payloads", "executed", "already-created"] },
+        { "path": "first.proposalId", "op": "present" },
+        { "path": "first.proposalIdNum", "op": "gte", "value": 1 }
+      ]
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "chainId": 97,
+        "proposalType": "modify_dao_profile",
+        "title": "Publish the quarterly stewardship note",
+        "description": "Swarm regression — identical metadata, created once.",
+        "newDaoDescription": "Quarterly stewardship note — stable marker for the dedupe regression.",
+        "user": "{{agent:P:address}}",
+        "voteAmount": "1.0"
+      },
+      "broadcast": false,
+      "captureAs": "second",
+      "expect": [
+        { "path": "second.mode", "op": "eq", "value": "already-created" },
+        { "path": "second.proposalId", "op": "eq", "value": "{{first.proposalId}}" },
+        { "path": "second.steps.0.skipped", "op": "eq", "value": true },
+        {
+          "path": "second.txHashes.length",
+          "op": "eq",
+          "value": 0,
+          "note": "The resume capture normalizes txHashes to [] — an empty list, never a missing key."
+        }
+      ]
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "chainId": 97,
+        "proposalType": "modify_dao_profile",
+        "title": "Publish the quarterly stewardship note",
+        "description": "Swarm regression — identical metadata, created once.",
+        "newDaoDescription": "Quarterly stewardship note — stable marker for the dedupe regression.",
+        "user": "{{agent:P:address}}",
+        "allowDuplicate": true,
+        "dryRun": true
+      },
+      "broadcast": false,
+      "captureAs": "override",
+      "comment": "dryRun keeps this free AND makes the dedupe path irrelevant; the point is only that allowDuplicate:true is accepted and reaches the payload build.",
+      "expect": [{ "path": "override.mode", "op": "eq", "value": "dryRun" }]
+    }
+  ],
+  "successCriteria": [
+    { "id": "one-proposal-only", "check": "GovPool.latestProposalId() increased by at most 1 across steps 1-2" },
+    { "id": "second-call-skipped", "check": "second.mode == 'already-created' and no tx was broadcast by step 2" }
+  ]
+}

@@ -38,6 +38,24 @@ What is **not** in Phase 0:
 - Triage and Fixer agents (Phase 4).
 - Cron schedule (Phase 5).
 
+### What 0.34.0 added
+
+- **Machine-checked assertions.** `steps[].expect` / `steps[].expectError` are evaluated by
+  the orchestrator; `successCriteria` stays prose for a human reader. Before this, a
+  scenario "passed" whenever nothing threw — every 0.30–0.33 guard is a *returned field*,
+  not an exception, so a regression would still have reported ✅. The run report's new
+  `Asserts` column shows `ok/total` per scenario, and `—` where a scenario is still
+  unverified.
+- **Load-time scenario validation.** `_schema.md` claimed the orchestrator validated on
+  load; now it does. An unknown step key, an unknown `expect` op, or an `expect` path that
+  no step captures aborts the run with the file and step named.
+- **`serverSign`.** Routes a single step through the MCP's own signer so the server-side
+  broadcast guards, nonce queue and agent ledger are exercised. See *Server-signed steps*.
+- **Fixture registration + freshness guards.** Preflight refuses a de-registered fixture DAO
+  and a stale `dist/`. See *Fixture DAOs must be registered* and *Build before you run*.
+- **Seven new scenarios, S63–S69**, covering the 0.30–0.33 write paths (see *Scenario
+  inventory additions*).
+
 ---
 
 ## Workflow at a glance
@@ -104,12 +122,36 @@ SWARM_CHAIN_ID=97
 SWARM_RPC_URL_TESTNET=https://data-seed-prebsc-1-s1.binance.org:8545
 SWARM_DAOS_TESTNET=                     # filled in step 3 after deploy
 SWARM_TOKENS_TESTNET=                   # filled in step 3 after deploy
+SWARM_TOKENSALE_TESTNET=                # optional: TokenSaleProposal helper, one per DAO
+SWARM_DISTRIBUTION_TESTNET=             # optional: DistributionProposal helper, one per DAO
 
 # Stage B — mainnet (fill in when ready to run final pass)
 SWARM_RPC_URL_MAINNET=https://bsc-dataseed.binance.org
 SWARM_DAOS_MAINNET=0x3E224749a18dBF46FdAE027ba152B1d1D5B4568F
 SWARM_TOKENS_MAINNET=0x0051Cf7595BeEA1669a13d23A74B74E6415B721d
 ```
+
+### The four allowlists are INDEX-PARALLEL
+
+`SWARM_TOKENS_<tag>[i]` must be the gov token of `SWARM_DAOS_<tag>[i]`, and the same for
+`SWARM_TOKENSALE_<tag>[i]` / `SWARM_DISTRIBUTION_<tag>[i]`. The orchestrator picks the
+token by the DAO's index (`{{firstAllowlistedToken}}` resolves against the scenario's own
+DAO), and preflight resolves `daos[i]`'s UserKeeper when it counts `tokens[i]`. A second
+DAO appended out of order used to mis-pair in silence: preflight stayed green because a
+wallet passes if *any* allowlisted token clears its floor, and the scenario then failed much
+later with an unrelated-looking "low creating power".
+
+Preflight now refuses a length mismatch and, where it can read the chain, refuses a pair
+whose token is not that DAO's `GovUserKeeper.tokenAddress()`. Both checks fail OPEN on an
+RPC error — a flaky node must never block a valid run.
+
+`SWARM_TOKENSALE_*` / `SWARM_DISTRIBUTION_*` are optional. They exist because `GovPool` has
+no forward getter for either helper (both are factory-*predicted* addresses), and both are
+proposal **executors** — write targets — so they get the same allowlist treatment as tokens
+and DAOs rather than being free-form env. Populate them from the `predicted.govTokenSale` /
+`predicted.distributionProposal` that `dexe_dao_create` returns at deploy time. Scenarios
+S20–S22 and S41–S50 need them; without them `{{dao.tokenSale}}` resolves to an empty string
+and those builders refuse with `Invalid tokenSaleProposal`.
 
 ---
 
@@ -163,6 +205,120 @@ If you don't have 200k DTT, deploy a smaller DAO first. The persona library
 > **Important:** the fund-pool script REFUSES to transfer any token that isn't in
 > `SWARM_TOKENS`. If you add a new DAO with a new gov token, append its address to that env
 > var first.
+
+---
+
+## Fixture DAOs must be registered
+
+Every composite (`dexe_proposal_create`, `dexe_proposal_vote_and_execute`, the
+`dexe_dao_create` follow-ups) refuses a DAO that `PoolRegistry.isGovPool()` does not
+recognize — the W10 guard. The chain-97 protocol has been **redeployed** since the
+2026-05 fixtures were minted, so those pools are no longer registered under the canonical
+registry, and the 2026-07-23 sweep lost 13 scenarios to the same refusal one scenario at a
+time, ~40 minutes in.
+
+Two things make this hard to notice:
+
+- **A de-registered pool still answers READS.** `dexe_proposal_state`,
+  `dexe_proposal_list`, `dexe_dao_info` all work fine against a dead pool, so the read-only
+  scenarios stay green and hide the problem.
+- **A dead pool self-reports its OLD registry.** `getHelperContracts()[3]` returns the
+  registry it was minted under, and *that* registry still answers `isGovPool == true`. Any
+  check that trusts the pool's own answer green-lights exactly the fixture it exists to
+  catch. The guard resolves `POOL_REGISTRY` through `ContractsRegistry` instead.
+
+Preflight (and the orchestrator, once, at startup) now runs this check and fails with the
+offending address, its index, the chain and the remedy. Under `--dry-run` the orchestrator
+warns instead of failing, so `npm run swarm:smoke` stays usable.
+
+### Refresh the fixture DAO
+
+Run this from a Claude Code session with the `dexe` MCP server connected. It is a
+**preview** first: `dexe_dao_create` shows the resolved config and the safety proof, and
+only deploys when you re-run with `confirm: true`.
+
+`daos[0]` — the member DAO. SIMPLE mode, one call, recipients split across the whole pool
+so no separate token-funding step is needed:
+
+```jsonc
+// dexe_dao_create
+{
+  "chainId": 97,
+  "daoName": "Kestrel Research Guild",       // any name from tests/swarm/fixtures/dao-personas.json
+  "daoDescription": "Swarm fixture DAO for the dexe-mcp live regression sweep.",
+  "symbol": "KRT",
+  "totalSupply": "1000000",
+  "durationSeconds": 3600,                    // S65 needs the proposal to still be in Voting
+  "minVotesTokens": "1",
+  "recipients": [
+    // The FUNDER gets 5x a normal slice: `npm run swarm:fund` can only refill from the
+    // funder's own balance, so an even split leaves the pool one-shot.
+    { "address": "0x769345ccC3B1f5EEDc660A7eC45D8EBaF5b674ea", "percent": 25 },  // AGENT_FUNDER_PK
+    { "address": "0xCa543e570e4A1F6DA7cf9C4C7211692Bc105a00A", "percent": 5 },   // primary / deployer
+    { "address": "0x9572f3Bc4F88758259F29D80d73EAc012d7Fa09f", "percent": 5 },   // AGENT_PK_1
+    { "address": "0x425f1072F911f5ee23bF4e9634701898Bd0B0652", "percent": 5 },   // AGENT_PK_2
+    { "address": "0x37dB3c3B51c2980007a8cD086E3a5F0B81c9E37B", "percent": 5 },   // AGENT_PK_3
+    { "address": "0x9e207Ce7E88E5a4Cf8eB08A7e6aF56D504426683", "percent": 5 },   // AGENT_PK_4
+    { "address": "0x1aeB55E2239Fe1C9FC148d8DE93595Be04A508b4", "percent": 5 },   // AGENT_PK_5
+    { "address": "0xf0BF4f08AE3C101fC15bc3E26a600c6fefE67638", "percent": 5 },   // AGENT_PK_6
+    { "address": "0x3E01e90E5361002bF7c02001C7363626168C7ff1", "percent": 5 },   // AGENT_PK_7
+    { "address": "0x7340b46959f4598f86aA23D5d26ec289e2736e77", "percent": 5 }    // AGENT_PK_8
+  ]
+}
+```
+
+Why these numbers:
+
+- `recipients[].percent` are shares of **total** supply and must sum to exactly
+  `100 − treasuryPercent`. Omitting `treasuryPercent` takes the safe default **30**, so the
+  percents above sum to **70**. Change one and you must change the other.
+- The synthesized config is treasury 30 / quorum 51 / votable 70 ⇒ **72.86 %** required
+  turnout, under the 80 % ceiling. Both quorum rules hold: quorum ≤ the votable share, and
+  quorum ≥ the 50 % treasury-safety floor.
+- 5 % of 1,000,000 = **50,000 tokens** per wallet, comfortably over preflight's 5,000 /
+  2,000 / 1,000 floors; the funder keeps **250,000** as the refill reserve.
+
+Then:
+
+1. Re-run the same call with `"confirm": true`. Record `predictedGovPool`, the gov token,
+   and the `predicted.govTokenSale` / `predicted.distributionProposal` helpers.
+2. Put them in `.env` **index-parallel**: `SWARM_DAOS_TESTNET`, `SWARM_TOKENS_TESTNET`,
+   `SWARM_TOKENSALE_TESTNET`, `SWARM_DISTRIBUTION_TESTNET`.
+3. **Warm the pool before the first broadcast sweep**: deposit, wait a block, then create
+   one throwaway proposal. The first create on a freshly deployed pool can revert
+   `Gov: low creating power` because the deposit is not yet credited (bug #35's unbundle
+   race). Without the warm-up, S00/S01/S07 step 1 eats one spurious failure — the ledger
+   resume heals it on a re-run, but the report is misleading.
+4. Restart Claude Code / the MCP server: `process.loadEnvFile()` runs once at startup.
+
+`daos[1]` — the **validator** DAO, needed by `{{secondAllowlistedDao}}` (S02, S03, S07,
+S10, S13, S14, S23–S26, S38). SIMPLE mode **cannot** create validators — the SIMPLE schema
+has no `validators` field at all — so this one needs ADVANCED `params` with
+`validatorsParams.validators = [AGENT_PK_6 addr, AGENT_PK_7 addr]` and matching balances,
+`proposalSettings[].validatorsVote = true`, and `durationValidators` ≥ 600. Model it on
+`tests/swarm/scenarios/S58-dao-create-dry.json`, which is a complete ADVANCED payload
+(remember `cap ≥ mintedTotal > 0`; `cap: 0` reverts `ERC20Capped: cap is 0`).
+
+---
+
+## Build before you run
+
+```bash
+npm run build          # <- the swarm spawns `node dist/index.js`
+npm run swarm:preflight
+```
+
+The harness and the server under test are built by different mechanisms:
+`npm run swarm:run` is `tsx`, so the **harness** is always source-of-truth, while the
+orchestrator spawns the **built** `dist/index.js`. `dist/` is gitignored, there is no
+`prepare` script, and `nightly.sh`'s `npm install` is conditional — so nothing refreshed
+`dist/` and a gas-spending regression pass could certify the previously-built server.
+
+`nightly.sh` now builds unconditionally, and both preflight and the orchestrator check
+`dist/index.js` against the newest mtime under `src/`. A **missing** `dist/index.js` is
+always fatal; a **stale** one is an mtime heuristic and can be overridden with
+`SWARM_SKIP_DIST_CHECK=1` (a `git pull` or the documented CRLF re-checkout bumps `src`
+mtimes without changing content).
 
 ---
 
@@ -232,6 +388,65 @@ It refuses to send unless the state is in `[SucceededFor, SucceededAgainst, Lock
 caps `wait()` at 90 s, and prints the post-execute state. Validated 2026-04-30
 against Sentinel proposal 33 — `SucceededFor` → `ExecutedFor`, tx
 `0x309d2ec42eac1574061abf49b7aaf50c5c8a825a004be2cda0a5980e3e541e69`.
+
+---
+
+## Server-signed steps (`serverSign`)
+
+By default the orchestrator spawns the MCP with `DEXE_PRIVATE_KEY: ""` so the composites
+return TxPayload lists, then signs each payload itself with a local `ethers.Wallet`. That
+is deliberate — one process drives eight personas — but it means the swarm has never
+exercised anything on the **server's** send path: the B6/B7/B9/B10/B11/B12 broadcast
+guards, the SignerManager per-(chain, address) nonce queue, the broadcast recorder and
+agent ledger, and the receipt-timeout / resume handling.
+
+`"serverSign": true` on a step flips that one step:
+
+- the orchestrator derives the keyring slot from the step's **own** agent wallet
+  (`AGENT_PK_3` → `agent3`, `AGENT_FUNDER_PK` → `funder`) and passes it as `signerKey`;
+- the step must NOT also set `"broadcast": true` — the MCP already sent the transaction,
+  and a second local send would double-spend the nonce. Both together is a load-time error.
+- `serverSign` is refused on any tool the orchestrator answers with an inline dispatcher,
+  because MCP zod schemas strip unknown keys and `signerKey` would be dropped in silence.
+- If payloads come back anyway, the run fails loudly: that slot is not configured in the
+  child's env, and signing locally would rescue the step while proving nothing.
+
+`AGENT_PK_1..8` / `AGENT_FUNDER_PK` already reach the keyring as `agent1..agent8` / `funder`
+through the `DEXE_AGENT_PK_*` aliases in `src/config.ts` — no extra env needed.
+
+> **A serverSign run is subject to the RUNNER's own signer guards.** If
+> `DEXE_SIGNER_ALLOWLIST`, `DEXE_SIGNER_MAX_VALUE_WEI`,
+> `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN`, `DEXE_AGENT_FUND_MAX_WEI` or
+> `SWARM_DAILY_BNB_BUDGET` are set, they apply — and B6 fires *before* B12, so a
+> denylist scenario whose destination is not allowlisted fails as B6 and "passes" for the
+> wrong reason. Preflight prints which of these are armed.
+
+---
+
+## Scenario inventory additions (S63–S69)
+
+Scenarios were historically added per shipped FEATURE — a new proposal type meant a new
+S-file. The 0.30–0.33 work shipped **guards on existing tools**, which produce no new tool
+name and so produced no new scenario. These seven close that gap:
+
+| Scenario | Chain | Broadcasts | What it pins |
+|---|---|---|---|
+| `S63-addsettings-refusal` | 97 | no | The #36 addSettings trap refuses `proposal_create` **through the `custom` branch**, which bypasses the builder registry. `mode: blocked-risky`, `risk: DANGER`, advisory names `#36`. |
+| `S64-create-dedupe` | 97 | **yes** | A byte-identical re-create returns `already-created` with the create step skipped and no new tx. Cannot be dry-run — the dedupe scan is skipped under `dryRun`. |
+| `S65-vote-already-cast` | 97 | **yes** (step 1) | The vote leg skips an already-cast vote *and* its deposit; flipping direction adds the `⚠ HARM WARNING` cancel-then-revote advisory. |
+| `S66-tx-send-guards` | 97 | no | B11 wrong-chain, B11 codeless destination, B12 via `dexe_tx_send`, and B12 via the **shared** `runBroadcastGuards` copy (step 4). All `serverSign`. |
+| `S67-keyring-signerkey-routing` | 97 | **yes** (step 2) | `signerKey` picks the persona, the ledger attributes the spend, an unknown slot is refused by name. One `approve(0x…dEaD, 0)` ≈ $0.01. |
+| `S68-agents-fund-preview` | 97 | no | `dexe_agents_fund` previews, caps at `DEXE_AGENT_FUND_MAX_WEI`, and reports the rolling budget. `dryRun: true` is mandatory and test-enforced; **never** add `confirm: true`. |
+| `S69-dao-create-simple-defaults` | 97 | no | SIMPLE-mode synthesis (30 / 51 / turnout ≤ 80) and the refusal of an unreachable treasury+quorum pair. |
+
+S58 and S69 both require **`DEXE_PINATA_JWT`**: `dexe_dao_create` checks for it before any
+dryRun branch, and the composite still pins the settings JSON even under `dryRun` (only the
+DAO-metadata CID is computed locally). Without it both scenarios fail at step 1.
+
+Not scenario-able, and covered by unit tests instead: the receipt-timeout ledger
+(`tests/tools/flow-resume-idempotency.test.ts` — "a timed-out step is told to CHECK, never
+to re-run"). A live chain cannot be made to time out deterministically; do not invent a
+flaky case for it.
 
 ---
 

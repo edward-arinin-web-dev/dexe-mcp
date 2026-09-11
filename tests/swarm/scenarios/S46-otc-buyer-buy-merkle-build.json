@@ -14,7 +14,7 @@
       "agent": "B",
       "tool": "dexe_otc_buyer_buy",
       "args": {
-        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tokenSaleProposal": "{{dao.tokenSale}}",
         "tierId": "2",
         "tokenToBuyWith": "{{firstAllowlistedToken}}",
         "amount": "10000000000000000000",

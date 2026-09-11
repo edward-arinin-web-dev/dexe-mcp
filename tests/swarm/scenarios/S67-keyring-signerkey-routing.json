@@ -1,0 +1,82 @@
+{
+  "id": "S67-keyring-signerkey-routing",
+  "title": "signerKey routes a broadcast to the right persona and the ledger attributes it",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "0.28.0 keyring + 0.32.0 attribution. Until 0.34.0 NOTHING in the suite passed signerKey: the orchestrator blanks DEXE_PRIVATE_KEY in the MCP child so composites return payloads, then signs them with its own ethers Wallet — leaving the SignerManager per-(chain,address) nonce queue, attachBroadcastRecorder attribution, withBroadcastLock and the agent ledger completely dark. Step 2 is the one step in the whole suite that crosses the server's broadcast path end-to-end, and it is deliberately the cheapest possible write: ERC20.approve(UserKeeper, 0) on the fixture's own gov token — a no-op allowance, ~$0.01 on chain 97. Step 3 pins the unknown-slot refusal. AGENT_PK_1..8 / AGENT_FUNDER_PK reach the keyring as agent1..agent8 / funder through the DEXE_AGENT_PK_* aliases in src/config.ts, so no extra env is needed.",
+  "agents": [{ "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_agents_list",
+      "args": { "chainId": 97 },
+      "broadcast": false,
+      "captureAs": "fleet",
+      "expect": [
+        { "path": "fleet.agents.length", "op": "gte", "value": 8 },
+        { "path": "fleet.count", "op": "gte", "value": 8 },
+        { "path": "fleet.agents.0.signerKey", "op": "present" }
+      ]
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_tx_send",
+      "args": {
+        "chainId": 97,
+        "to": "{{firstAllowlistedToken}}",
+        "data": "0x095ea7b3000000000000000000000000000000000000000000000000000000000000dead0000000000000000000000000000000000000000000000000000000000000000",
+        "value": "0"
+      },
+      "serverSign": true,
+      "broadcast": false,
+      "captureAs": "sent",
+      "comment": "approve(spender=0x…dEaD, amount=0) — the cheapest well-formed ERC20 write, and a non-zero spender so a token that rejects the zero address still accepts it. The point is WHO signed it, not what it did. 0x095ea7b3 = ERC20.approve(address,uint256); not on the GovUserKeeper denylist.",
+      "expect": [
+        { "path": "sent.signerKey", "op": "eq", "value": "agent1" },
+        { "path": "sent.from", "op": "eq", "value": "{{agent:P:address}}" },
+        { "path": "sent.txHash", "op": "present" },
+        { "path": "sent.chainId", "op": "eq", "value": 97 }
+      ]
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_agents_ledger",
+      "args": { "chainId": 97, "signerKey": "agent1", "windowHours": 24 },
+      "broadcast": false,
+      "captureAs": "ledger",
+      "expect": [
+        { "path": "ledger.spend", "op": "present" },
+        { "path": "ledger.window.hours", "op": "eq", "value": 24 },
+        { "path": "ledger.budget", "op": "present" },
+        { "path": "ledger.recent", "op": "present" }
+      ]
+    },
+    {
+      "step": 4,
+      "agent": "P",
+      "tool": "dexe_tx_send",
+      "args": {
+        "chainId": 97,
+        "to": "{{firstAllowlistedToken}}",
+        "data": "0x095ea7b3000000000000000000000000000000000000000000000000000000000000dead0000000000000000000000000000000000000000000000000000000000000000",
+        "value": "0",
+        "signerKey": "agent99"
+      },
+      "broadcast": false,
+      "captureAs": "badSlot",
+      "comment": "Raw signerKey arg, NOT serverSign — the point is that an unknown slot is refused by name.",
+      "expectError": "Unknown signerKey"
+    }
+  ],
+  "successCriteria": [
+    { "id": "persona-selected", "check": "sent.signerKey == 'agent1' and sent.from == the AGENT_PK_1 address" },
+    { "id": "ledger-attributes", "check": "the ledger reports a window, a spend total and a budget for agent1" },
+    { "id": "unknown-slot-named", "check": "badSlot error lists the configured keyring slots" }
+  ]
+}

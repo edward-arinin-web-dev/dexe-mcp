@@ -14,14 +14,14 @@
       "agent": "P",
       "tool": "dexe_proposal_build_token_sale_multi",
       "args": {
-        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tokenSaleProposal": "{{dao.tokenSale}}",
         "latestTierId": "0",
         "tiers": [
           {
             "name": "S42 Tier-A Open",
             "totalTokenProvided": "750000000000000000000",
-            "saleStartTime": "1750000000",
-            "saleEndTime": "1760000000",
+            "saleStartTime": "{{now-3600}}",
+            "saleEndTime": "{{now+2592000}}",
             "saleTokenAddress": "{{firstAllowlistedToken}}",
             "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
             "exchangeRates": ["1000000000000000000"]
@@ -29,8 +29,8 @@
           {
             "name": "S42 Tier-B Whitelist",
             "totalTokenProvided": "250000000000000000000",
-            "saleStartTime": "1750000000",
-            "saleEndTime": "1760000000",
+            "saleStartTime": "{{now-3600}}",
+            "saleEndTime": "{{now+2592000}}",
             "saleTokenAddress": "{{firstAllowlistedToken}}",
             "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
             "exchangeRates": ["1500000000000000000"],

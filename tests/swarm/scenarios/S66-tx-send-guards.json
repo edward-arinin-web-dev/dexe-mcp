@@ -1,0 +1,89 @@
+{
+  "id": "S66-tx-send-guards",
+  "title": "The broadcast guards refuse a wrong-chain payload, a codeless destination and denylisted calldata",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": ["S64-create-dedupe"],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "0.32.0/0.33.0 broadcast guards. Every step is a guard REFUSAL, asserted through expectError — nothing here can reach a node. This is the only scenario that touches the SERVER's send path: `serverSign: true` makes the MCP sign as the keyring slot that owns the step's agent wallet (agent1 ← AGENT_PK_1) instead of the orchestrator signing a returned payload locally, which is the whole reason the 0.30–0.33 signer-side work has never been exercised by a swarm run. Step 4 is the important one: it routes the SAME denylisted bytes through dexe_proposal_create's `custom` branch, which copies caller-supplied action data verbatim and never touches PROPOSAL_BUILDERS — so it is the only step that reaches assertNoForbiddenCalldata INSIDE runBroadcastGuards, i.e. the copy that closed the 0.32.0 escape. Steps 1-3 hit dexe_tx_send, whose tool-local denylist pre-check fires before the shared guard. CAVEAT for step 4: proposal_create may emit approve/deposit legs before the create leg, and those would land (cents on 97) before the guard aborts the sequence — depend on S64 so the proposer already has deposited power and the create leg is the only payload. If DEXE_SIGNER_ALLOWLIST is set in the runner's env, B6 fires BEFORE B12 and these steps fail for the wrong reason; preflight prints which signer guards are armed.",
+  "agents": [{ "alias": "S", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "S",
+      "tool": "dexe_tx_send",
+      "args": {
+        "chainId": 97,
+        "to": "{{dao}}",
+        "data": "0x6a11e769",
+        "value": "0",
+        "payloadChainId": 56
+      },
+      "serverSign": true,
+      "broadcast": false,
+      "captureAs": "b11chain",
+      "expectError": "Payload was built for chain 56 but you are broadcasting on chain 97"
+    },
+    {
+      "step": 2,
+      "agent": "S",
+      "tool": "dexe_tx_send",
+      "args": {
+        "chainId": 97,
+        "to": "0x000000000000000000000000000000000000dEaD",
+        "data": "0x70a08231000000000000000000000000000000000000000000000000000000000000dead",
+        "value": "0"
+      },
+      "serverSign": true,
+      "broadcast": false,
+      "captureAs": "b11nocode",
+      "expectError": "has no contract code on chain 97"
+    },
+    {
+      "step": 3,
+      "agent": "S",
+      "tool": "dexe_tx_send",
+      "args": {
+        "chainId": 97,
+        "to": "{{dao.userKeeper}}",
+        "data": "0x5e35359e0000000000000000000000001111111111111111111111111111111111111111000000000000000000000000222222222222222222222222222222222222222200000000000000000000000000000000000000000000000000000000000003e8",
+        "value": "0"
+      },
+      "serverSign": true,
+      "broadcast": false,
+      "captureAs": "b12deny",
+      "comment": "0x5e35359e = GovUserKeeper.withdrawTokens(address,address,uint256), entry 1 of FORBIDDEN_SIGNATURES in src/lib/dangerousSelectors.ts. Literal on purpose — a scenario must never compute selectors itself.",
+      "expectError": "denylist"
+    },
+    {
+      "step": 4,
+      "agent": "S",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "chainId": 97,
+        "proposalType": "custom",
+        "title": "Rebalance the operations sub-treasury",
+        "description": "Swarm regression — the shared broadcast guard must refuse these bytes even though the custom branch skipped the builder registry.",
+        "actionsOnFor": [
+          {
+            "executor": "{{dao.userKeeper}}",
+            "data": "0x5e35359e0000000000000000000000001111111111111111111111111111111111111111000000000000000000000000222222222222222222222222222222222222222200000000000000000000000000000000000000000000000000000000000003e8",
+            "value": "0"
+          }
+        ],
+        "user": "{{agent:S:address}}",
+        "voteAmount": "1.0"
+      },
+      "serverSign": true,
+      "broadcast": false,
+      "captureAs": "b12shared",
+      "expectError": "Refusing to broadcast: calldata carries 0x5e35359e"
+    }
+  ],
+  "successCriteria": [
+    { "id": "all-four-refused", "check": "every step returned an error and no txHash appears in the state log for this scenario" },
+    { "id": "shared-guard-covered", "check": "step 4's refusal came from runBroadcastGuards, not from dexe_tx_send's tool-local pre-check" }
+  ]
+}

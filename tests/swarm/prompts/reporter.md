@@ -53,7 +53,12 @@ Also write per-scenario `<scenario-id>.md` with full agent transcripts, captured
 
 ## Verifying success criteria
 
-For each scenario's `successCriteria[].check`, evaluate it by running the corresponding read tool. Treat as pass only when the read result matches the assertion within ±1 block of tolerance for subgraph-derived data.
+> **Status:** this prompt is NOT wired to anything. No Reporter agent is spawned — `run.md`
+> is written by the orchestrator's own `writeReport()`, and the machine-checked assertions
+> live in `steps[].expect` / `steps[].expectError` (see `scenarios/_schema.md`).
+> `successCriteria[].check` is prose intent for a human reader.
+
+If a Reporter is ever wired: for each scenario's `successCriteria[].check`, evaluate it by running the corresponding read tool. Treat as pass only when the read result matches the assertion within ±1 block of tolerance for subgraph-derived data.
 
 ---
 

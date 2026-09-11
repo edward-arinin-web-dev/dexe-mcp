@@ -14,14 +14,14 @@
       "agent": "P",
       "tool": "dexe_proposal_build_token_sale_multi",
       "args": {
-        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tokenSaleProposal": "{{dao.tokenSale}}",
         "tiers": [
           {
             "name": "S41 Tier-A Open",
             "description": "Open tier — anyone can buy",
             "totalTokenProvided": "1000000000000000000000",
-            "saleStartTime": "1750000000",
-            "saleEndTime": "1760000000",
+            "saleStartTime": "{{now-3600}}",
+            "saleEndTime": "{{now+2592000}}",
             "saleTokenAddress": "{{firstAllowlistedToken}}",
             "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
             "exchangeRates": ["1000000000000000000"]
@@ -30,8 +30,8 @@
             "name": "S41 Tier-B MerkleWhitelist",
             "description": "Gated by merkle root over 3 buyer addresses",
             "totalTokenProvided": "500000000000000000000",
-            "saleStartTime": "1750000000",
-            "saleEndTime": "1760000000",
+            "saleStartTime": "{{now-3600}}",
+            "saleEndTime": "{{now+2592000}}",
             "saleTokenAddress": "{{firstAllowlistedToken}}",
             "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
             "exchangeRates": ["2000000000000000000"],

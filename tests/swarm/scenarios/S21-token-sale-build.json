@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [56, 97],
   "requiresBrowser": false,
-  "notes": "TokenSaleProposal.createTiers single-tier path. tokenSaleProposal addr is Glacier's predicted helper.",
+  "notes": "TokenSaleProposal.createTiers single-tier path. tokenSaleProposal comes from {{dao.tokenSale}} (SWARM_TOKENSALE_<tag>, index-parallel to SWARM_DAOS_<tag>) — GovPool has no forward getter for it.",
   "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
@@ -14,12 +14,12 @@
       "agent": "A",
       "tool": "dexe_proposal_build_token_sale",
       "args": {
-        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tokenSaleProposal": "{{dao.tokenSale}}",
         "tier": {
           "name": "S21 tier",
           "totalTokenProvided": "1000000000000000000000",
-          "saleStartTime": "1750000000",
-          "saleEndTime": "1760000000",
+          "saleStartTime": "{{now-3600}}",
+          "saleEndTime": "{{now+2592000}}",
           "saleTokenAddress": "{{firstAllowlistedToken}}",
           "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
           "exchangeRates": ["1000000000000000000"]

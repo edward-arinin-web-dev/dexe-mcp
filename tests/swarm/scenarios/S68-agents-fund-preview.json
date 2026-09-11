@@ -1,0 +1,71 @@
+{
+  "id": "S68-agents-fund-preview",
+  "title": "dexe_agents_fund previews, caps and budgets before it will move anything",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "0.32.0 hardening of the one tool in the server that exists to MOVE VALUE to autonomous hot keys. NEVER add confirm:true to this scenario. dryRun:true is the belt-and-braces (\"never broadcasts, even with confirm\"), and the hygiene test enforces it — safety must rest on a flag that is PRESENT, not on one that happens to be absent. source:'funder' is mandatory here: the orchestrator spawns the MCP with DEXE_PRIVATE_KEY blanked, so without a source the tool refuses with \"Funding requires a source wallet\" and the scenario would pass for the wrong reason. `agents:['agent8']` targets the Expert/Applicant wallet, whose preflight floor is 0.002 BNB — well under the 0.09 target, so the plan is non-empty. If every targeted agent already holds the target amount the tool returns the \"already meets the target\" shape with no `mode`, and step 1's first assertion is what makes that visible instead of silently green.",
+  "agents": [{ "alias": "F", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "F",
+      "tool": "dexe_agents_fund",
+      "args": {
+        "chainId": 97,
+        "source": "funder",
+        "agents": ["agent8"],
+        "amount": "0.09",
+        "dryRun": true
+      },
+      "broadcast": false,
+      "captureAs": "plan",
+      "expect": [
+        { "path": "plan.mode", "op": "eq", "value": "dryRun" },
+        { "path": "plan.transfers.length", "op": "gte", "value": 1 },
+        { "path": "plan.transfers.0.signerKey", "op": "eq", "value": "agent8" },
+        { "path": "plan.perAgentCap", "op": "present" },
+        { "path": "plan.budget", "op": "present" },
+        { "path": "plan.txHashes", "op": "absent" },
+        { "path": "plan.funded", "op": "absent" }
+      ]
+    },
+    {
+      "step": 2,
+      "agent": "F",
+      "tool": "dexe_agents_fund",
+      "args": {
+        "chainId": 97,
+        "source": "funder",
+        "agents": ["agent8"],
+        "amount": "100",
+        "dryRun": true
+      },
+      "broadcast": false,
+      "captureAs": "overCap",
+      "comment": "100 native > the 0.1 default cap. The refusal must name the env var so the operator knows the knob.",
+      "expectError": "DEXE_AGENT_FUND_MAX_WEI"
+    },
+    {
+      "step": 3,
+      "agent": "F",
+      "tool": "dexe_agents_ledger",
+      "args": { "chainId": 97, "windowHours": 24 },
+      "broadcast": false,
+      "captureAs": "ledger",
+      "expect": [
+        { "path": "ledger.spend", "op": "present" },
+        { "path": "ledger.budget", "op": "present" },
+        { "path": "ledger.window.hours", "op": "eq", "value": 24 },
+        { "path": "ledger.ledger.path", "op": "present" }
+      ]
+    }
+  ],
+  "successCriteria": [
+    { "id": "nothing-moved", "check": "no txHash in the state log for this scenario" },
+    { "id": "cap-refuses", "check": "overCap names DEXE_AGENT_FUND_MAX_WEI and the per-agent cap" },
+    { "id": "budget-reported", "check": "both the preview and the ledger report the rolling 24h budget for chain 97" }
+  ]
+}
