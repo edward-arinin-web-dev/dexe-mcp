@@ -69,8 +69,12 @@ const CORE = [
   "dexe_vote_build_execute",
   "dexe_vote_build_erc20_approve",
   "dexe_vote_user_power",
-  // IPFS upload essentials + avatar
-  "dexe_ipfs_upload_file",
+  // IPFS upload essentials + avatar. `dexe_ipfs_upload_file` — the generic
+  // "pin any bytes" escape hatch — was demoted to `proposals` in 0.34.0 to pay
+  // for the tools/list bytes that MCP annotations and the missing titles cost
+  // (tests/tools/gate.test.ts is a budget, not debt: something has to give).
+  // Nothing in the default profile needs it: dexe_dao_create takes avatarPath
+  // and pins server-side, and the two purposeful pins below stay.
   "dexe_ipfs_upload_avatar",
   "dexe_ipfs_upload_proposal_metadata",
   "dexe_dao_generate_avatar",
@@ -400,6 +404,34 @@ export function resolveToolsets(requested: readonly string[]): ResolvedToolsets 
 }
 
 /**
+ * Size of the whole registered surface, derived from TOOLSETS so it can never
+ * go stale the way a literal would.
+ */
+export const FULL_SURFACE_SIZE = new Set(Object.values(TOOLSETS).flatMap((s) => [...s])).size;
+
+/**
+ * Some MCP hosts cap how many tools may be enabled in one request — VS Code /
+ * GitHub Copilot Chat rejects a request carrying more than 128 enabled tools,
+ * counting its own built-ins and every other connected server. `full` is well
+ * past that on its own, so a user who follows an escalation hint to `full`
+ * there breaks every chat request instead of gaining tools. Warn at startup
+ * rather than letting them discover it as an opaque client-side error.
+ *
+ * Documented, with the profile combinations that fit, in docs/PROFILES.md.
+ */
+const CLIENT_TOOL_CAP = 128;
+
+/** The cap warning, or "" when the loaded surface fits any known client. */
+function capNote(loaded: number): string {
+  if (loaded <= CLIENT_TOOL_CAP) return "";
+  return (
+    ` NOTE: ${loaded} tools exceeds the ${CLIENT_TOOL_CAP}-enabled-tool cap some hosts` +
+    ` (VS Code / GitHub Copilot) apply per chat request — see docs/PROFILES.md for a` +
+    ` smaller profile if your client rejects requests.`
+  );
+}
+
+/**
  * Wrap `server` so tool registrations for names outside the active allowlist
  * are dropped. Returns the original server unchanged when the active profile is
  * `full`. Emits a one-line stderr banner. Call once in `registerAll`.
@@ -415,14 +447,17 @@ export function applyToolGate(server: McpServer, config: DexeConfig): McpServer 
     );
   }
   if (resolved.full) {
-    process.stderr.write(`[dexe-mcp] toolsets: full — all tools loaded.\n`);
+    process.stderr.write(
+      `[dexe-mcp] toolsets: full — all ${FULL_SURFACE_SIZE} tools loaded.${capNote(FULL_SURFACE_SIZE)}\n`,
+    );
     return server;
   }
 
   const allow = resolved.names!;
   process.stderr.write(
     `[dexe-mcp] toolsets: [${resolved.requested.join(", ")}] → ${allow.size} tools loaded ` +
-      `(set DEXE_TOOLSETS=full to load all, or add sets: ${Object.keys(TOOLSETS).join(", ")}).\n`,
+      `(set DEXE_TOOLSETS=full to load all, or add sets: ${Object.keys(TOOLSETS).join(", ")}).` +
+      `${capNote(allow.size)}\n`,
   );
 
   const wrap = (fn: (...a: unknown[]) => unknown) =>

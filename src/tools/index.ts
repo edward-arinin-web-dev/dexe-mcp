@@ -42,6 +42,7 @@ import { SignerManager } from "../lib/signer.js";
 import { WalletConnectManager } from "../lib/walletconnect.js";
 import { registerGovernorTools } from "../governor/index.js";
 import { applyToolGate } from "./gate.js";
+import { applyToolAnnotations } from "./annotations.js";
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
@@ -53,7 +54,11 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   // wrapped server drops any tool name not in the active allowlist; `full`
   // returns the server unchanged. Every register* call below sees the gate, so
   // no register file changes. Reassigning the param keeps it a one-line wrap.
-  server = applyToolGate(server, config);
+  //
+  // The annotation layer wraps OUTSIDE the gate on purpose: applyToolGate
+  // returns the bare server on `full`, so anything inside it would annotate
+  // nothing on the one profile that registers every tool.
+  server = applyToolAnnotations(applyToolGate(server, config));
 
   const artifacts = new Artifacts(config);
   const runner = new HardhatRunner(config);
