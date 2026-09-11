@@ -8,6 +8,7 @@ import { voteTypeFromString, VOTE_TYPE_NAMES } from "../lib/govEnums.js";
 import { chainIdParam } from "../lib/params.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
+import { GOV_POWER_DECIMALS, formatUnitsWithSymbol } from "../lib/units.js";
 
 const GOV_POOL_HELPERS_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -50,6 +51,14 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
           z.object({
             tokenBalance: z.string(),
             tokenOwned: z.string(),
+            // GovUserKeeper.tokenBalance returns 18-DECIMAL-NORMALIZED power
+            // (`balanceOf(voter).to18(token)`), NOT the gov token's own units —
+            // formatting these with a 6-decimal gov token's decimals would
+            // overstate them by 1e12. No `tokenSymbol` for the same reason:
+            // these are power units, not a token quantity.
+            tokenBalanceFormatted: z.string().optional(),
+            tokenOwnedFormatted: z.string().optional(),
+            // Counts, not amounts. Deliberately left raw.
             nftBalance: z.string(),
             nftOwned: z.string(),
           }),
@@ -94,6 +103,8 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
         const power: Record<string, {
           tokenBalance: string;
           tokenOwned: string;
+          tokenBalanceFormatted: string;
+          tokenOwnedFormatted: string;
           nftBalance: string;
           nftOwned: string;
         }> = {};
@@ -118,21 +129,35 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
           power[VOTE_TYPE_NAMES[vt]!] = {
             tokenBalance: tBal,
             tokenOwned: tOwn,
+            tokenBalanceFormatted: formatUnitsWithSymbol(tBal, GOV_POWER_DECIMALS),
+            tokenOwnedFormatted: formatUnitsWithSymbol(tOwn, GOV_POWER_DECIMALS),
             nftBalance: nBal,
             nftOwned: nOwn,
           };
         }
 
-        const structured = { govPool, user, userKeeper, power };
+        const structured = {
+          govPool,
+          user,
+          userKeeper,
+          powerDecimals: GOV_POWER_DECIMALS,
+          power,
+        };
         const lines = VOTE_TYPE_NAMES.map((name) => {
           const p = power[name]!;
-          return `  ${name.padEnd(14)} token=${p.tokenBalance} (owned=${p.tokenOwned})  nft=${p.nftBalance} (owned=${p.nftOwned})`;
+          return (
+            `  ${name.padEnd(14)} token=${p.tokenBalanceFormatted} (owned=${p.tokenOwnedFormatted})` +
+            `  nft=${p.nftBalance} (owned=${p.nftOwned})  [raw ${p.tokenBalance}/${p.tokenOwned}]`
+          );
         });
         return {
           content: [
             {
               type: "text" as const,
-              text: `Voting power for ${user} on ${govPool}\nUserKeeper: ${userKeeper}\n${lines.join("\n")}`,
+              text:
+                `Voting power for ${user} on ${govPool}\nUserKeeper: ${userKeeper}\n` +
+                `Token amounts are 18-decimal-normalized voting power, not the gov token's own units.\n` +
+                lines.join("\n"),
             },
           ],
           structuredContent: structured,
@@ -171,6 +196,12 @@ function registerGetVotes(server: McpServer, rpc: RpcProvider): void {
         totalVoted: z.string(),
         tokensVoted: z.string(),
         totalRawVoted: z.string(),
+        // Same 18-decimal normalization as the keeper balances they derive from.
+        totalVotedFormatted: z.string().optional(),
+        tokensVotedFormatted: z.string().optional(),
+        totalRawVotedFormatted: z.string().optional(),
+        powerDecimals: z.number().optional(),
+        // NFT token ids, not amounts.
         nftsVoted: z.array(z.string()),
       },
     },
@@ -209,6 +240,10 @@ function registerGetVotes(server: McpServer, rpc: RpcProvider): void {
           totalVoted: v.totalVoted.toString(),
           tokensVoted: v.tokensVoted.toString(),
           totalRawVoted: v.totalRawVoted.toString(),
+          totalVotedFormatted: formatUnitsWithSymbol(v.totalVoted, GOV_POWER_DECIMALS),
+          tokensVotedFormatted: formatUnitsWithSymbol(v.tokensVoted, GOV_POWER_DECIMALS),
+          totalRawVotedFormatted: formatUnitsWithSymbol(v.totalRawVoted, GOV_POWER_DECIMALS),
+          powerDecimals: GOV_POWER_DECIMALS,
           nftsVoted: v.nftsVoted.map((n) => n.toString()),
         };
         return {
@@ -218,9 +253,9 @@ function registerGetVotes(server: McpServer, rpc: RpcProvider): void {
               text:
                 `Vote by ${voter} on proposal ${id} (${voteType}):\n` +
                 `  isVoteFor     : ${v.isVoteFor}\n` +
-                `  totalVoted    : ${v.totalVoted}\n` +
-                `  tokensVoted   : ${v.tokensVoted}\n` +
-                `  totalRawVoted : ${v.totalRawVoted}\n` +
+                `  totalVoted    : ${structured.totalVotedFormatted} (raw ${v.totalVoted})\n` +
+                `  tokensVoted   : ${structured.tokensVotedFormatted} (raw ${v.tokensVoted})\n` +
+                `  totalRawVoted : ${structured.totalRawVotedFormatted} (raw ${v.totalRawVoted})\n` +
                 `  nftsVoted     : [${structured.nftsVoted.join(", ")}]`,
             },
           ],

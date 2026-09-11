@@ -44,6 +44,60 @@ export function formatAmount(raw: bigint, decimals: number, symbol?: string): st
 }
 
 /**
+ * Voting power, deposits, rewards and credit limits held inside DeXe governance
+ * are ALWAYS 18-decimal-normalized, whatever the gov token's own `decimals()`:
+ * `GovUserKeeper.sol:564` stores `ERC20(token).balanceOf(voter).to18(token)` and
+ * the inverse `from18Safe` is applied only on the way OUT (withdrawals,
+ * `TokenBalance.sendFunds`). Formatting those numbers with the token's decimals
+ * overstates a 6-decimal gov token by 10^12 — the exact digit-shift class this
+ * constant exists to prevent. Raw ERC20 balances (`balanceOf`, backend holder
+ * lists) are the opposite: they use the token's READ decimals, or nothing.
+ */
+export const GOV_POWER_DECIMALS = 18;
+
+/**
+ * Human rendering for STRUCTURED output: `"1282179.760730788225547277 DEXE"`.
+ * No parentheses and no `raw` — the wei value stays in its own untouched field,
+ * unlike {@link formatAmount}, which is prose-shaped.
+ *
+ * Note ethers trims trailing zeros: `formatUnits(73001100000000n, 18)` is
+ * `"0.0000730011"`, and `formatUnits(10n ** 18n, 18)` is `"1.0"`.
+ */
+export function formatUnitsWithSymbol(
+  raw: bigint | string,
+  decimals: number,
+  symbol?: string,
+): string {
+  return `${formatUnits(BigInt(raw), decimals)}${symbol ? ` ${symbol}` : ""}`;
+}
+
+/**
+ * ADD-ONLY: attach `<field>Formatted` siblings for the named wei fields. Every
+ * pre-existing key is returned byte-identical, so a pre-0.34 consumer is
+ * unaffected.
+ *
+ * `decimals === null` means "unknown" and suppresses formatting entirely —
+ * never guess 18 for a raw ERC20 balance. Non-string and non-numeric values are
+ * left alone, and the input object is never mutated.
+ */
+export function withFormatted<T extends Record<string, unknown>>(
+  row: T,
+  fields: readonly string[],
+  decimals: number | null,
+  symbol?: string,
+): T {
+  if (decimals == null) return row;
+  const out: Record<string, unknown> = { ...row };
+  for (const f of fields) {
+    const v = row[f];
+    if (typeof v === "string" && /^\d+$/.test(v)) {
+      out[`${f}Formatted`] = formatUnitsWithSymbol(v, decimals, symbol);
+    }
+  }
+  return out as T;
+}
+
+/**
  * Convert an 18-decimal-normalized amount to a token's native raw units —
  * mirrors the protocol's from18Safe (DecimalsConverter). Used by the OTC buy
  * preflight: `TokenSaleProposal.buy` takes the 18-dec-normalized amount but

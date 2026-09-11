@@ -5,7 +5,15 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
-import { gqlRequest, resolveSubgraphUrl, PROPOSAL_INTERACTIONS_QUERY } from "../lib/subgraph.js";
+import {
+  gqlRequest,
+  resolveSubgraphUrl,
+  toVoterAddress,
+  withOrphanVoterFallback,
+  PROPOSAL_INTERACTIONS_QUERY,
+} from "../lib/subgraph.js";
+import { pageMeta, truncationNote } from "../lib/page.js";
+import { GOV_POWER_DECIMALS, formatUnitsWithSymbol } from "../lib/units.js";
 import { chainIdParam } from "../lib/params.js";
 import { proposalInteractionLabel } from "../lib/interactionTypes.js";
 import { safeErrorMessage } from "../lib/redact.js";
@@ -46,6 +54,7 @@ function quorumFields(row: QuorumRow) {
 
 const GOV_POOL_READ_ABI = [
   "function getProposalState(uint256 proposalId) view returns (uint8)",
+  "function latestProposalId() view returns (uint256)",
   "function getProposalRequiredQuorum(uint256 proposalId) view returns (uint256)",
   "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst) proposal, tuple(tuple(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter, uint128 quorum, uint256 votesFor, uint256 votesAgainst) core) validatorProposal, uint8 proposalState, uint256 requiredQuorum, uint256 requiredValidatorsQuorum)[])",
 ] as const;
@@ -82,6 +91,13 @@ function registerProposalState(server: McpServer, ctx: ToolContext, rpc: RpcProv
         state: z.string(),
         stateIndex: z.number(),
         requiredQuorum: z.string(),
+        // 18-decimal-normalized human rendering of the weights beside them. Added
+        // 0.34.0 and declared `.optional()`: zod-to-json-schema emits
+        // `additionalProperties: false`, so an undeclared key would make a
+        // spec-conformant MCP client reject an otherwise good read.
+        requiredQuorumFormatted: z.string().optional(),
+        votesForFormatted: z.string().optional(),
+        votesAgainstFormatted: z.string().optional(),
         // Nullable across the board: the votes leg is allowFailure, proposalId 0
         // is never queried, and an id past latestProposalId comes back as an
         // EMPTY array rather than a revert (GovPoolView.sol:56).
@@ -153,14 +169,22 @@ function registerProposalState(server: McpServer, ctx: ToolContext, rpc: RpcProv
               votesShortOfQuorum: null,
             };
 
+        // Every weight here is 18-decimal-normalized voting power
+        // (GovUserKeeper.to18), NOT the gov token's own decimals — and never a
+        // percentage. Formatting is add-only; the wei strings are untouched.
+        const pow = (v: bigint | null) =>
+          v === null ? undefined : formatUnitsWithSymbol(v, GOV_POWER_DECIMALS);
         const structured = {
           govPool,
           proposalId: id.toString(),
           state,
           stateIndex,
           requiredQuorum,
+          requiredQuorumFormatted: pow(requiredQuorumRaw),
           votesFor: row ? row.votesFor.toString() : null,
           votesAgainst: row ? row.votesAgainst.toString() : null,
+          votesForFormatted: pow(row ? row.votesFor : null),
+          votesAgainstFormatted: pow(row ? row.votesAgainst : null),
           ...q,
         };
         const pct = (n: number | null) => (n === null ? "?" : String(n));
@@ -213,6 +237,16 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
         govPool: z.string(),
         offset: z.number(),
         limit: z.number(),
+        // Pagination contract (0.34.0). `truncated: true` means more proposals
+        // exist - page with `offset: nextOffset`. `total` is latestProposalId
+        // when the pool answers it; absent, not guessed, when it does not.
+        // Declared `.optional()` because zod-to-json-schema emits
+        // `additionalProperties: false` and a spec-conformant MCP client
+        // validates structuredContent against the advertised schema.
+        returned: z.number().optional(),
+        truncated: z.boolean().optional(),
+        total: z.number().optional(),
+        nextOffset: z.number().optional(),
         proposals: z.array(
           z.object({
             proposalId: z.string(),
@@ -221,6 +255,8 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
             stateIndex: z.number(),
             votesFor: z.string(),
             votesAgainst: z.string(),
+            votesForFormatted: z.string().optional(),
+            votesAgainstFormatted: z.string().optional(),
             voteEnd: z.string(),
             executed: z.boolean(),
             requiredQuorum: z.string(),
@@ -241,13 +277,18 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
         if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
         const provider = pr.ok;
         const iface = new Interface(GOV_POOL_READ_ABI as unknown as string[]);
-        const [res] = await multicall(provider, [
+        const [res, latestR] = await multicall(provider, [
           {
             target: govPool,
             iface,
             method: "getProposals",
             args: [BigInt(offset), BigInt(limit)],
           },
+          // Rides in the SAME batch - no extra round-trip. allowFailure so an
+          // older pool without the getter degrades to "total omitted" rather
+          // than failing the whole list. Optional-chained below because a test
+          // mocking multicall with one result would otherwise throw here.
+          { target: govPool, iface, method: "latestProposalId", args: [], allowFailure: true },
         ]);
         if (!res?.success) return errorResult("getProposals reverted");
         const views = res.value as unknown as Array<{
@@ -279,19 +320,34 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
             stateIndex: idx,
             votesFor: row.votesFor.toString(),
             votesAgainst: row.votesAgainst.toString(),
+            // 18-dec voting power, never the gov token's decimals.
+            votesForFormatted: formatUnitsWithSymbol(row.votesFor, GOV_POWER_DECIMALS),
+            votesAgainstFormatted: formatUnitsWithSymbol(row.votesAgainst, GOV_POWER_DECIMALS),
             voteEnd: v.proposal.core.voteEnd.toString(),
             executed: v.proposal.core.executed,
             requiredQuorum: row.requiredQuorum.toString(),
             ...quorumFields(row),
           };
         });
+        const rawTotal = latestR?.success ? Number(latestR.value as bigint) : NaN;
+        const meta = pageMeta({
+          offset,
+          limit,
+          returned: proposals.length,
+          ...(Number.isFinite(rawTotal) ? { total: rawTotal } : {}),
+        });
         // `descriptionURL` is written by whoever created the proposal — anyone
         // with creating power — and an agent will often follow it. The per-row
         // summary below is all server-derived (ids, enum labels, uint256s); the
         // URL rides out through structuredContent, deep-sanitized.
-        const structured = { govPool, offset, limit, proposals };
+        const structured = {
+          govPool,
+          ...meta,
+          proposals,
+        };
         const summary =
           `Proposals on ${govPool} [offset=${offset}, limit=${limit}] — ${proposals.length} returned\n` +
+          truncationNote(meta, "dexe_proposal_list", "proposal") +
           proposals
             .map(
               (p) =>
@@ -339,12 +395,25 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
         proposalId: z.string(),
         /** The chain these rows were indexed from — not necessarily the request's default. */
         indexedChainId: z.number(),
+        // Pagination contract (0.34.0), in THIS tool's own cursor names. Its
+        // published input schema is `additionalProperties: false`, so a
+        // remediation that said "call again with offset:" would be rejected
+        // outright — hence `skip`/`first`/`nextSkip`, never offset/limit.
+        skip: z.number().optional(),
+        first: z.number().optional(),
+        returned: z.number().optional(),
+        truncated: z.boolean().optional(),
+        nextSkip: z.number().optional(),
+        // Set when the indexer rejected the normal query over a Voter record it
+        // does not hold; the rows are still real (see the text body).
+        indexerWarning: z.string().nullable().optional(),
         voters: z.array(
           z.object({
             voter: z.string(),
             interactionType: z.string(),
             interactionLabel: z.string().describe("VOTE_FOR | VOTE_AGAINST | VOTE_CANCEL"),
             totalVote: z.string(),
+            totalVoteFormatted: z.string().optional(),
             timestamp: z.string(),
             transactionHash: z.string(),
           }),
@@ -369,38 +438,73 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
       const leHex = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
       const compositeId = `${govPool.toLowerCase()}${leHex}`;
       try {
-        const data = await gqlRequest<{
-          proposalInteractions: Array<{
-            id: string;
-            hash: string;
-            timestamp: string;
-            interactionType: string;
-            totalVote: string;
-            voter: { id: string; voter: { id: string } };
-          }>;
-        }>(sg.url, PROPOSAL_INTERACTIONS_QUERY, {
-          proposalId: compositeId,
-          first,
-          skip,
-        });
+        // One orphaned Voter record makes the gateway reject the WHOLE response
+        // - healthy rows included - so the second pass drops the nested Voter
+        // relation. Nothing is lost here: the wallet comes out of the OUTER
+        // composite id, which is never gated, so no backfill query is needed.
+        const { data, degraded } = await withOrphanVoterFallback((withVoter) =>
+          gqlRequest<{
+            proposalInteractions: Array<{
+              id: string;
+              hash: string;
+              timestamp: string;
+              interactionType: string;
+              totalVote: string;
+              voter: { id: string; voter?: { id: string } };
+            }>;
+          }>(sg.url, PROPOSAL_INTERACTIONS_QUERY, {
+            proposalId: compositeId,
+            first,
+            skip,
+            withVoter,
+          }),
+        );
         const voters = data.proposalInteractions.map((pi) => {
           // Voter entity id = `<userAddr><poolAddr>` (40+40 hex, no separator).
           // Slice the user address out of the composite, falling back to a
           // nested user id if a future schema exposes one.
           const raw = pi.voter?.voter?.id ?? pi.voter?.id ?? "";
-          const userAddr = raw.length >= 42 ? raw.slice(0, 42) : raw;
+          const userAddr = raw.length >= 42 ? toVoterAddress(raw) : raw;
           return {
             voter: userAddr,
             interactionType: pi.interactionType,
             interactionLabel: proposalInteractionLabel(pi.interactionType),
             totalVote: pi.totalVote,
+            // Vote weights are 18-decimal-normalized power, not token units.
+            totalVoteFormatted: /^\d+$/.test(String(pi.totalVote))
+              ? formatUnitsWithSymbol(String(pi.totalVote), GOV_POWER_DECIMALS)
+              : undefined,
             timestamp: pi.timestamp,
             transactionHash: pi.hash,
           };
         });
-        const structured = { govPool, proposalId: id, indexedChainId: sg.chainId, voters };
+        const meta = pageMeta({ offset: skip, limit: first, returned: voters.length });
+        const indexerWarning = degraded
+          ? "DEGRADED (indexer data fault, NOT transient): this proposal has interaction rows pointing at a " +
+            "Voter record the index does not hold, which made the normal query fail outright. The rows below " +
+            "are real and complete - each wallet is derived from the interaction id and is correct. " +
+            "Re-running returns the identical error."
+          : null;
+        const structured = {
+          govPool,
+          proposalId: id,
+          indexedChainId: sg.chainId,
+          skip: meta.offset,
+          first: meta.limit,
+          returned: meta.returned,
+          truncated: meta.truncated,
+          ...(meta.nextOffset != null ? { nextSkip: meta.nextOffset } : {}),
+          indexerWarning,
+          voters,
+        };
         return untrustedResult({
-          summary: `Voters for proposal ${id} on ${govPool} (chain ${sg.chainId}): ${voters.length} returned (first=${first}, skip=${skip})`,
+          summary:
+            (indexerWarning ? `${indexerWarning}\n` : "") +
+            `Voters for proposal ${id} on ${govPool} (chain ${sg.chainId}): ${voters.length} returned (first=${first}, skip=${skip})` +
+            truncationNote(meta, "dexe_proposal_voters", "voter", {
+              offsetKey: "skip",
+              limitKey: "first",
+            }),
           label: `voter rows (chain ${sg.chainId})`,
           structured,
         });

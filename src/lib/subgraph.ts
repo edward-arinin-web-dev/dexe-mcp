@@ -1,6 +1,7 @@
 import type { DexeConfig, SubgraphKind } from "../config.js";
 import { DEFAULT_SUBGRAPH_CHAIN_ID, DEFAULTS, SUBGRAPH_KINDS, subgraphEnvVar } from "../config.js";
 import { maskUrl, safeErrorMessage } from "./redact.js";
+import { defangFenceMarkers, sanitizeUntrusted } from "./sanitize.js";
 
 export type { SubgraphKind };
 
@@ -203,6 +204,96 @@ function httpRemediation(status: number, endpoint: string): { message: string; t
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Third-party text on its way into a tool error.
+ *
+ * The endpoint is operator-configurable (`DEXE_SUBGRAPH_*_URL`) and The Graph's
+ * decentralized gateway relays messages from third-party indexers, so a gateway
+ * body is untrusted input — the same class the 0.33.0 result funnel covers,
+ * reaching the model through the error channel instead. Sanitize BEFORE the
+ * slice so the cap is a real cap (control escaping turns 1 char into 4), and
+ * defang fence markers so a forged `[/UNTRUSTED …]` cannot close a fence
+ * elsewhere in the result.
+ */
+function untrustedGatewayText(raw: string, maxLen: number): string {
+  const s = defangFenceMarkers(sanitizeUntrusted(raw));
+  return s.length > maxLen ? `${s.slice(0, maxLen)}…` : s;
+}
+
+/** Cap on the joined GraphQL `errors[]` text. The array is gateway-controlled. */
+const GQL_ERRORS_MAX_CHARS = 400;
+
+/**
+ * One clause per DISTINCT message, with an occurrence count.
+ *
+ * The orphan-Voter fault returns the identical `Null value resolved for
+ * non-null field \`voter\`` once per bad row — 31 copies on a real mainnet DAO,
+ * ~2.5 KB of the same sentence, which `dexe_dao_report` then denormalises into
+ * every dependent section. The repeat count is genuinely useful (it is how many
+ * rows the indexer lost), so it is reported rather than dropped.
+ */
+function joinGqlErrors(errors: Array<{ message: string }>): string {
+  const msgs = errors.map((e) => String(e.message));
+  const uniq = [...new Set(msgs)];
+  const joined = untrustedGatewayText(uniq.join("; "), GQL_ERRORS_MAX_CHARS);
+  return msgs.length > uniq.length ? `${joined} (×${msgs.length} occurrences)` : joined;
+}
+
+/**
+ * The gateway rejected the WHOLE response over a relation the indexer never
+ * populated. GraphQL non-null propagation walks the null up to the root, so the
+ * body carries `errors[]` and no `data` key at all — the healthy sibling fields
+ * in the same document are annihilated with it.
+ *
+ * Deterministic: re-running returns the identical error. Survivable only by
+ * dropping THAT relation from the selection set, which is why the field name is
+ * returned rather than a bare boolean — a break in some other relation must not
+ * trigger a fallback that cannot help it.
+ *
+ * Two live spellings, both observed against the shipped default pools endpoint
+ * on 2026-09-11:
+ *   - "Null value resolved for non-null field `voter`"
+ *   - "bad indexers: … internal error resolving VoterInPool.delegatee: expected
+ *      prefetched result, but found nothing"
+ *
+ * Matched on the message text, not on the error class: `gqlRequest` re-wraps a
+ * retried failure into a plain `Error`, dropping `SubgraphError`.
+ */
+export const MISSING_RELATION_RE = /Null value resolved for non-null field `(\w+)`/;
+const PREFETCH_FAULT_RE = /internal error resolving \w+\.(\w+): expected prefetched result/;
+
+/** The relation the indexer failed to populate, or null when this is not that fault. */
+export function missingRelationField(err: unknown): string | null {
+  const msg = safeErrorMessage(err);
+  return MISSING_RELATION_RE.exec(msg)?.[1] ?? PREFETCH_FAULT_RE.exec(msg)?.[1] ?? null;
+}
+
+/** True for either spelling of the orphan-relation fault, whatever the field. */
+export function isMissingRelationError(err: unknown): boolean {
+  return missingRelationField(err) !== null;
+}
+
+/**
+ * Run `run(true)`; on a `voter`-orphan fault re-run `run(false)` and say so.
+ *
+ * The second pass sends the same document with `voter` gated off by
+ * `@include(if: $withVoter)`. INVARIANT for every query wired to this: the
+ * PARENT selection set must still contain at least one unconditional field.
+ * Emptying a nested object is a hard graph-node fault, not a degrade —
+ * `internal error resolving VoterInPool.delegatee: expected prefetched result,
+ * but found nothing` (reproduced live 2026-09-11).
+ */
+export async function withOrphanVoterFallback<T>(
+  run: (withVoter: boolean) => Promise<T>,
+): Promise<{ data: T; degraded: boolean }> {
+  try {
+    return { data: await run(true), degraded: false };
+  } catch (err) {
+    if (missingRelationField(err) !== "voter") throw err;
+    return { data: await run(false), degraded: true };
+  }
+}
+
+/**
  * One attempt, with a deadline that covers the body read as well as the
  * headers — a gateway that answers 200 and then stalls the body would otherwise
  * hang forever past the timeout, since the abort timer is what bounds it.
@@ -223,17 +314,14 @@ async function gqlAttempt<T>(
       const detail = await res.text().catch(() => "");
       const { message, transient } = httpRemediation(res.status, endpoint);
       throw new SubgraphError(
-        `${message}${detail ? ` — gateway said: ${detail.slice(0, 200)}` : ""}${defaultEndpointHint(endpoint)}`,
+        `${message}${detail ? ` — gateway said: ${untrustedGatewayText(detail, 200)}` : ""}${defaultEndpointHint(endpoint)}`,
         transient,
       );
     }
     const parsed = (await res.json()) as GqlResponse<T>;
     if (parsed.errors?.length) {
       // A GraphQL-level error is a bad query, not a bad connection — never retry.
-      throw new SubgraphError(
-        `Subgraph errors: ${parsed.errors.map((e) => e.message).join("; ")}`,
-        false,
-      );
+      throw new SubgraphError(`Subgraph errors: ${joinGqlErrors(parsed.errors)}`, false);
     }
     if (!parsed.data) throw new SubgraphError("Subgraph returned empty data", false);
     return parsed.data;
@@ -308,9 +396,86 @@ export async function gqlRequest<T>(
   throw lastErr;
 }
 
-/** Ported from frontend gov-pools subgraph `proposalInteractions` query. */
+/**
+ * The delegation queries filter on `delegator_.voter_in` / `delegatee_.voter_in`,
+ * which match VOTER WALLET addresses — NOT VoterInPool composite ids. A composite
+ * id reaches the store's Bytes parser and fails with "Odd number of digits".
+ * Accept both shapes and extract the wallet: 'govPool-voter' → part after the
+ * dash; 80-hex 'voter+pool' (the real VoterInPool id) → first 40 hex chars.
+ *
+ * The same slice recovers the wallet from a `ProposalInteraction.voter.id`
+ * (`<wallet40><pool40><8hex>`), which is what makes the orphan-Voter fallback
+ * lossless for that tool.
+ */
+export function toVoterAddress(input: string): string {
+  let s = input.trim().toLowerCase();
+  const dash = s.lastIndexOf("-");
+  if (dash >= 0) s = s.slice(dash + 1);
+  const hex = s.startsWith("0x") ? s.slice(2) : s;
+  return `0x${hex.length > 40 ? hex.slice(0, 40) : hex}`;
+}
+
+/** Per-voter stats keyed by wallet — the backfill for a dropped `voter` relation. */
+export const VOTERS_BY_ID_QUERY = /* GraphQL */ `
+  query getVotersByIds($ids: [String!]) {
+    voters(first: 100, where: { id_in: $ids }) {
+      id
+      totalProposalsCreated
+      totalVotedProposals
+      totalVotes
+      currentVotesReceived
+      currentVotesDelegated
+      totalClaimedUSD
+    }
+  }
+`;
+
+/**
+ * Best-effort per-voter stats for wallets recovered from row ids. Chunked at
+ * 100 because that is the `first:` in {@link VOTERS_BY_ID_QUERY}, and a caller
+ * may hold up to 200 rows (`dexe_proposal_voters`).
+ *
+ * `backfillFailed` is reported separately from "found nothing": claiming N
+ * orphan rows when the truth is "the backfill never ran" is the same class of
+ * lie this whole fix is about.
+ */
+export async function backfillVoters(
+  url: string,
+  wallets: string[],
+): Promise<{ found: Map<string, Record<string, unknown>>; backfillFailed: boolean }> {
+  const uniq = [...new Set(wallets.map((w) => w.toLowerCase()))];
+  const found = new Map<string, Record<string, unknown>>();
+  if (uniq.length === 0) return { found, backfillFailed: false };
+  try {
+    for (let i = 0; i < uniq.length; i += 100) {
+      const d = await gqlRequest<{ voters: Array<{ id: string }> }>(url, VOTERS_BY_ID_QUERY, {
+        ids: uniq.slice(i, i + 100),
+      });
+      for (const v of d.voters ?? []) {
+        found.set(String(v.id).toLowerCase(), v as unknown as Record<string, unknown>);
+      }
+    }
+    return { found, backfillFailed: false };
+  } catch {
+    return { found, backfillFailed: true };
+  }
+}
+
+/**
+ * Ported from frontend gov-pools subgraph `proposalInteractions` query.
+ *
+ * Only the INNER `voter { id }` is gated: the OUTER `voter.id` is the 80-hex
+ * VoterInPool composite the wallet is sliced out of, so dropping it would
+ * delete the very field the fallback needs. The outer selection keeps `id`
+ * unconditionally, so the parent never goes empty.
+ */
 export const PROPOSAL_INTERACTIONS_QUERY = /* GraphQL */ `
-  query ProposalInteractions($proposalId: String!, $first: Int!, $skip: Int!) {
+  query ProposalInteractions(
+    $proposalId: String!
+    $first: Int!
+    $skip: Int!
+    $withVoter: Boolean!
+  ) {
     proposalInteractions(
       where: { proposal: $proposalId }
       first: $first
@@ -325,7 +490,7 @@ export const PROPOSAL_INTERACTIONS_QUERY = /* GraphQL */ `
       totalVote
       voter {
         id
-        voter {
+        voter @include(if: $withVoter) {
           id
         }
       }

@@ -9,6 +9,7 @@ import { proposalStateLabel } from "../lib/govEnums.js";
 import { chainIdParam } from "../lib/params.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
+import { GOV_POWER_DECIMALS, formatUnitsWithSymbol } from "../lib/units.js";
 
 /**
  * dexe_user_inbox — multi-DAO attention aggregator.
@@ -90,9 +91,11 @@ export function summarizePendingRewards(
   scannedProposalIds: readonly string[] = [],
 ): {
   totalAmount: string;
+  totalAmountFormatted: string;
   proposalIds: string[];
   rewardTokens: string[];
   offchainTotal?: string;
+  offchainTotalFormatted?: string;
   offchainTokens?: string[];
 } | null {
   const r = value as
@@ -125,12 +128,17 @@ export function summarizePendingRewards(
   for (const a of r.offchainRewards ?? []) offchainTotal += a;
   if (total <= 0n && offchainTotal <= 0n) return null;
   return {
+    // Rewards are paid through TokenBalance.sendFunds, which applies from18 on
+    // the way OUT — so what the keeper reports here is 18-decimal-normalized,
+    // whatever the reward token's own decimals are.
     totalAmount: total.toString(),
+    totalAmountFormatted: formatUnitsWithSymbol(total, GOV_POWER_DECIMALS),
     proposalIds: ids,
     rewardTokens: [...tokens],
     ...(offchainTotal > 0n
       ? {
           offchainTotal: offchainTotal.toString(),
+          offchainTotalFormatted: formatUnitsWithSymbol(offchainTotal, GOV_POWER_DECIMALS),
           offchainTokens: [...(r.offchainTokens ?? [])],
         }
       : {}),
@@ -173,10 +181,16 @@ interface PendingItem {
   proposalIds?: string[];
   deadline?: string;
   totalAmount?: string;
+  // Human rendering of the wei sibling. Every amount the inbox reports comes out
+  // of GovUserKeeper / TokenBalance, which hold 18-decimal-NORMALIZED values
+  // whatever the reward token's own decimals are.
+  totalAmountFormatted?: string;
   amount?: string;
+  amountFormatted?: string;
   govToken?: string;
   rewardTokens?: string[];
   offchainTotal?: string;
+  offchainTotalFormatted?: string;
   offchainTokens?: string[];
 }
 
@@ -335,6 +349,8 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
                 dao,
                 type: "lockedDeposit",
                 amount: deposited.toString(),
+                // GovUserKeeper stores deposits already to18-normalized.
+                amountFormatted: formatUnitsWithSymbol(deposited, GOV_POWER_DECIMALS),
                 govToken,
               });
             }
