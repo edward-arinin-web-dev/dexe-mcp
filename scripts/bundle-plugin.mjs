@@ -16,9 +16,10 @@
 // package.json `overrides.esbuild`); it is intentionally not a direct devDep
 // because that override rejects the direct add (EOVERRIDE).
 import { build } from "esbuild";
-import { mkdirSync, copyFileSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rehostUpTreeLinks, repoBlobRoot } from "./lib/doc-bundle.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginDir = resolve(root, "dexe-plugin");
@@ -48,13 +49,25 @@ await build({
 //   - package.json → the version reported in the MCP handshake
 //   - docs/*.md    → back the dexe://playbook / dexe://graph-schema /
 //                    dexe://tools resources (src/resources.ts DOC_RESOURCES)
+//
+// The WHOLE docs/ tree ships, not just those three: PLAYBOOK/TOOLS/GRAPH link
+// their siblings (AGENTS, REPORTING, OTC, SAFE, …) and dexe_doctor's
+// remediations name docs/ENVIRONMENT.md, so a three-file copy left eleven dead
+// links inside the resources an agent actually reads. Links that leave docs/
+// are rehosted to GitHub, since the plugin has no repo above it. `rmSync`
+// first, so a doc deleted upstream cannot linger in the bundle.
 writeFileSync(
   resolve(pluginDir, "package.json"),
   JSON.stringify({ name: "dexe-mcp-plugin", version: pkg.version, private: true }, null, 2) + "\n",
 );
+rmSync(resolve(pluginDir, "docs"), { recursive: true, force: true });
 mkdirSync(resolve(pluginDir, "docs"), { recursive: true });
-for (const doc of ["PLAYBOOK.md", "GRAPH.md", "TOOLS.md"]) {
-  copyFileSync(resolve(root, `docs/${doc}`), resolve(pluginDir, `docs/${doc}`));
+const blob = repoBlobRoot(pkg);
+for (const doc of readdirSync(resolve(root, "docs")).filter((f) => f.endsWith(".md"))) {
+  writeFileSync(
+    resolve(pluginDir, "docs", doc),
+    rehostUpTreeLinks(readFileSync(resolve(root, "docs", doc), "utf8"), blob),
+  );
 }
 
 console.log(`bundled dexe-plugin/server/index.mjs (v${pkg.version})`);

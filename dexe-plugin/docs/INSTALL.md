@@ -113,7 +113,7 @@ startup_timeout_sec = 60
 
 ### B5 — Any other stdio MCP client
 
-The B2 JSON is the portable shape. [`.mcp.example.json`](../.mcp.example.json) in the package is the same file with every optional env var annotated.
+The B2 JSON is the portable shape. [`.mcp.example.json`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/.mcp.example.json) in the package is the same file with every optional env var annotated.
 
 ### Prefer a fixed local install?
 

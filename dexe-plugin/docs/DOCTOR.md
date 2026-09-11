@@ -67,7 +67,7 @@ still fails, because that is actionable.
 ### Env presence / validation — `env.<KEY>`
 
 One result per recognized `DEXE_*` key that is set. Walks every entry in
-[`ENV_SPEC`](../src/env/schema.ts) and runs its zod schema.
+[`ENV_SPEC`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/src/env/schema.ts) and runs its zod schema.
 
 - `pass` — value is set and matches the schema. Secrets are masked
   (`set (redacted)`).

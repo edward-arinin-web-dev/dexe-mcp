@@ -72,7 +72,7 @@ only found when the server's cwd is that repo.
 > turn the fallback off.
 
 The canonical schema for every recognized env var lives at
-[`src/env/schema.ts`](../src/env/schema.ts) — every key has a category,
+[`src/env/schema.ts`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/src/env/schema.ts) — every key has a category,
 one-line doc, and zod validator. The doctor reads from there.
 
 Minimum env block for read-only against BSC testnet:

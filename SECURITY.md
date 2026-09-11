@@ -2,13 +2,14 @@
 
 ## Supported Versions
 
-Only the latest published version on npm receives security updates. Pin to the latest minor (`^0.29`) in your MCP client config.
+Only the latest published version on npm receives security updates. Pin to the latest minor (`^0.34`) in your MCP client config — note that npm caret ranges on a `0.x` package do not cross minors, so `^0.34` means `>=0.34.0 <0.35.0`; re-pin on every minor bump to keep receiving security updates.
 
 ## Automated security checks
 
 The repo runs four GitHub Actions security workflows continuously:
 
-- **CI** (`ci.yml`) — typecheck and build on every push to `main` and every pull request, against Node 20 and 22, plus a `verify-lockfile` integrity job. The test step (`vitest`) runs whenever test files are present on the branch; it is currently a no-op via `--passWithNoTests` (the suite lives on `governor-adapter`) and becomes an enforcing gate once those tests merge. Read-only `GITHUB_TOKEN` scope.
+- **CI** (`ci.yml`) — typecheck and build on every push to `main` and every pull request, against Node 20, 22 and 24, plus a `verify-lockfile` integrity job. `npm test` runs the full `vitest` suite and `npm run test:compat` runs the frontend↔MCP calldata byte-diff, both on every push and every pull request; a failing test blocks the merge. A knowledge-layer drift guard (`npm run gen:knowledge:check`) runs in the same job. Read-only `GITHUB_TOKEN` scope.
+- **Scheduled audit** (`audit.yml`) — `npm audit --omit=dev` runs daily against the production tree, so a dependency floor that rots while the repo sits untouched is caught without a push.
 - **Dependency Review** (`dependency-review.yml`) — every PR is checked against the GitHub Advisory Database. Fails the PR check if any added/updated dependency carries a `high` or `critical` CVE, or if it introduces a forbidden license (GPL/AGPL).
 - **OSSF Scorecard** (`scorecard.yml`) — weekly + on push to `main`. Audits branch protection, signed releases, pinned dependencies, token permissions, and a dozen other supply-chain checks. Results uploaded to GitHub code-scanning (SARIF) and published as a public score at `https://api.securityscorecards.dev/projects/github.com/edward-arinin-web-dev/dexe-mcp/badge`.
 - **CodeQL** (`codeql.yml`) — GitHub-native SAST with the `security-extended` query suite. Runs on every PR/main push and weekly. Scans for prototype pollution, command injection, ReDoS, unsafe deserialization, path traversal, and other CWE patterns. Findings land in the repo's Security tab.
@@ -84,7 +85,7 @@ If you believe any of the above is broken, please report per the process above.
 
 ## Signer broadcast guards
 
-When signer mode is enabled (`DEXE_PRIVATE_KEY`), `dexe_tx_send` runs four opt-in guards before broadcasting (`src/lib/broadcastGuards.ts`). They narrow the blast radius of a compromised or runaway MCP host — the host can still *call* the tool, but cannot send to arbitrary destinations, drain arbitrary value, pay gas for reverting txs, or loop unbounded. Each is a no-op unless its env var is set; a failed guard returns `{ status: "rejected", guard, reason }` with **no gas spent**.
+When signer mode is enabled (`DEXE_PRIVATE_KEY`), `dexe_tx_send` runs six guards before broadcasting (`src/lib/broadcastGuards.ts`) — three always on, three opt-in behind an env var — plus one on the Safe path. They narrow the blast radius of a compromised or runaway MCP host: the host can still *call* the tool, but cannot send to arbitrary destinations, drain arbitrary value, pay gas for reverting txs, loop unbounded, broadcast to the wrong chain, or slip a denylisted selector through a multicall. A failed guard returns `{ status: "rejected", guard, reason }` with **no gas spent**.
 
 | Guard | Env var | What it blocks |
 |-------|---------|----------------|
@@ -92,9 +93,12 @@ When signer mode is enabled (`DEXE_PRIVATE_KEY`), `dexe_tx_send` runs four opt-i
 | **B7** value cap | `DEXE_SIGNER_MAX_VALUE_WEI` | Broadcasts whose `value` (wei) exceeds the cap. |
 | **B9** auto-simulation | _(always on in signer mode)_ | Doomed txs — `eth_call` preflight aborts with the decoded revert reason before gas is spent. |
 | **B10** rate limit | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | More than N broadcasts in a rolling 60s window. |
+| **B11** wrong-chain broadcast | _(always on in signer mode)_ | Broadcasts whose payload `chainId` differs from the send chain, or whose `to` has no contract code on the send chain. |
+| **B12** GovUserKeeper denylist | _(always on in signer mode)_ | Calldata carrying a denylisted `GovUserKeeper` selector, whether leading or embedded in a multicall. |
+| **B13** Safe DELEGATECALL | `DEXE_SAFE_DELEGATECALL=block` | `dexe_safe_propose_tx` with `operation: 1` unless the caller passes `allowDelegateCall: true`; `block` refuses it outright. A DELEGATECALL runs arbitrary code against the Safe's own storage — it is the one call that can rewrite the owner set. |
 
 These are defense-in-depth, **not** a substitute for keeping the key off-host. For prod governance/treasury actions, prefer calldata mode + Safe Multisig / Ledger. See `docs/ENVIRONMENT.md` §4 for the recommended config block.
 
 ## WalletConnect signer mode (C12)
 
-`signerMode: walletconnect` (activated by `DEXE_WALLETCONNECT_PROJECT_ID` when **no** `DEXE_PRIVATE_KEY` is set) removes the hot key from the threat model entirely: the signing key never leaves the operator's phone wallet, and **every** transaction is gated by an explicit per-tx approval on that device. The MCP process holds only a relay session, never key material. The broadcast guards above (B6/B7/B9/B10) still run on the `tx` *before* it is forwarded to the relay — the phone approval is an **additional** human gate, not a replacement. A hard approval timeout (`DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`, default 120 s) bounds how long a request can block. Phase A (current) ships config + the read-only `dexe_wc_status` tool only — no relay connection, no new dependency. The live session lands in v0.6.0. See `docs/WALLETCONNECT.md`.
+`signerMode: walletconnect` (activated by `DEXE_WALLETCONNECT_PROJECT_ID` when **no** `DEXE_PRIVATE_KEY` is set) removes the hot key from the threat model entirely: the signing key never leaves the operator's phone wallet, and **every** transaction is gated by an explicit per-tx approval on that device. The MCP process holds only a relay session, never key material. The broadcast guards above still run on the `tx` *before* it is forwarded to the relay — the phone approval is an **additional** human gate, not a replacement. A hard approval timeout (`DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`, default 120 s) bounds how long a request can block. The live relay session shipped in **v0.7.0** and QR pairing in **v0.18.0**: `dexe_wc_connect` opens the session and renders a scannable QR, `dexe_wc_status` reports it, `dexe_wc_disconnect` tears it down, and `dexe_tx_send` plus the composite flows auto-print the QR when a write needs a wallet. This adds one runtime dependency, `@walletconnect/universal-provider` (WalletConnect v2 / Reown); it is **lazily imported** inside `src/lib/walletconnect.ts`, so `readonly` / `eoa` / `safe` sessions never load it, and it is covered by the dependency-review and `npm audit --omit=dev` gates above. See `docs/WALLETCONNECT.md`.

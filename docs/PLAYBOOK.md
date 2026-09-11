@@ -19,8 +19,11 @@ source to figure out parameters. Also served as the MCP resource `dexe://playboo
   WalletConnect QR — scan, approve on the phone, re-run. Nothing is lost.
 - Partial failure? Composites return `mode:"failed"` with `failure.landedSteps`
   (txs that DID land), the actionable error, and `resume` guidance. Fix the
-  cause and re-run the SAME call — completed steps (approve/deposit) are
-  detected on-chain and skipped.
+  cause and re-run the SAME call: `approve`, `deposit`, `createProposalAndVote`
+  and `vote` are re-derived from chain state and skipped. `execute` and the
+  validator round are NOT idempotent, and a receipt-wait TIMEOUT means the tx
+  was already broadcast — check `dexe_tx_status` before re-running, never
+  re-send blindly.
 
 ## Intent → call
 

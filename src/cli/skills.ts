@@ -9,7 +9,7 @@ import { installSkills, findRepoRoot } from "./init.js";
  * lightweight path for someone who only wants the tool-sequence recipes.
  *
  * The Claude Code plugin installs these automatically; this is the standalone
- * equivalent for other MCP clients (Cursor, ChatGPT) or a manual top-up.
+ * equivalent for other MCP clients (Cursor, Claude Desktop) or a manual top-up.
  *
  * Target: ./.claude/skills (project, default) or ~/.claude/skills (--global).
  */
