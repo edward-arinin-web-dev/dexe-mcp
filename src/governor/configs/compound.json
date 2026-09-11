@@ -1,8 +1,8 @@
 {
   "id": "compound",
   "chainId": 1,
-  "governorAddress": "0xc0Da02939E1441F497fd74F78cE7Decb17B66529",
-  "governorVersion": "bravo-v3",
+  "governorAddress": "0x309a862bbC1A00e45506cB8A802D1ff10004c8C0",
+  "governorVersion": "oz-v5",
   "votingToken": {
     "type": "ERC20VotesComp",
     "address": "0xc00e94Cb662C3520282E6f5717214004A7f26888",
@@ -24,9 +24,15 @@
     "type": "timelock",
     "id": null
   },
+  "quorumCounting": "for",
+  "legacyGovernor": {
+    "address": "0xc0Da02939E1441F497fd74F78cE7Decb17B66529",
+    "maxProposalId": 393,
+    "label": "GovernorBravo (retired in the 2025 Compound Governor migration)"
+  },
   "explorer": {
     "etherscanBase": "https://etherscan.io",
     "tallyOrgSlug": "compound"
   },
-  "notes": "Compound GovernorBravoDelegate. Bravo signatures, Compound-style votes interface (getPriorVotes / getCurrentVotes — NOT OZ getPastVotes). quorumVotes() is a fixed value (400k COMP); quorumNumerator/Denominator here are descriptive only."
+  "notes": "CompoundGovernor (OZ v5 + GovernorCountingFractional), proxy 0x309a862bbC1A00e45506cB8A802D1ff10004c8C0, impl 0x501Eb63A2120418C581B3bD31CF190b0a0616752, live since the 2025 Bravo migration. Clock is BLOCKNUMBER (CLOCK_MODE = 'mode=blocknumber&from=default'), so votingDelay/votingPeriod are blocks despite oz-v5. COUNTING_MODE = 'support=bravo,fractional&quorum=for&params=fractional' — only For votes count toward quorum (quorumCounting 'for'), which is NOT the OZ-stock GovernorCountingFractional default. quorum(blockNumber) returns a constant 400,000 COMP; quorumNumerator/Denominator here are descriptive only. Proposal ids <= 393 live on the RETIRED GovernorBravo 0xc0Da02939E1441F497fd74F78cE7Decb17B66529 and are NOT readable here; ids >= 394 are on this governor. queue/execute/cancel use the OZ 4-arg shapes (targets, values, calldatas, descriptionHash), not proposalId. Verified on-chain at Ethereum block 25955258."
 }

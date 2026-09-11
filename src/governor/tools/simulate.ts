@@ -2,8 +2,17 @@ import { z } from "zod";
 import { Interface, ZeroAddress, toUtf8String } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
-import { resolveGovernor } from "../loader.js";
-import { governorContract, isBravo, projectVoteImpact, readProposal, readQuorum, stateName } from "../adapter.js";
+import { resolveGovernor, type GovernorConfig } from "../loader.js";
+import {
+  governorContract,
+  legacyIdHint,
+  projectVoteImpact,
+  quorumCountingOf,
+  readProposal,
+  readQuorum,
+  stateName,
+} from "../adapter.js";
+import { governorProvider, governorReadError, rpcNote } from "../rpc.js";
 import { buildExecute, decodeGovernorWrite, type QueueExecuteArgs } from "../encoder.js";
 import { safeErrorMessage } from "../../lib/redact.js";
 
@@ -90,10 +99,14 @@ function registerSimulateProposal(server: McpServer, rpc: RpcProvider): void {
       },
     },
     async (args) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(args.governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(args.governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
+        const note = rpcNote(pr);
         const provider = pr.ok;
         const queueExec: QueueExecuteArgs = {
           proposalId: args.proposalId,
@@ -130,6 +143,7 @@ function registerSimulateProposal(server: McpServer, rpc: RpcProvider): void {
             success: true,
             currentState,
             executeCalldata: built,
+            ...note,
           });
         } catch (e: any) {
           const reason = decodeRevert(e?.data ?? e?.info?.error?.data ?? e?.error?.data);
@@ -140,10 +154,13 @@ function registerSimulateProposal(server: McpServer, rpc: RpcProvider): void {
             revertReason: reason ?? (safeErrorMessage(e)),
             currentState,
             executeCalldata: built,
+            ...note,
           });
         }
       } catch (e) {
-        return err(`dexe_gov_simulate_proposal failed: ${(e as Error).message}`);
+        const detail = cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e);
+        const hint = cfg && args.proposalId ? legacyIdHint(cfg, args.proposalId) : "";
+        return err(`dexe_gov_simulate_proposal failed: ${detail}${hint}`);
       }
     },
   );
@@ -155,7 +172,7 @@ function registerSimulateVoteImpact(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Project proposal outcome after a hypothetical vote",
       description:
-        "Reads current vote tallies + quorum, then projects what the outcome would be if `weight` units of voting power were cast with `support` (0=Against, 1=For, 2=Abstain). Pure projection — no on-chain side effects. Returns currentTallies, projectedTallies, quorumMet, willPass.",
+        "Reads current vote tallies + quorum, then projects what the outcome would be if `weight` units of voting power were cast with `support` (0=Against, 1=For, 2=Abstain). Pure projection — no on-chain side effects. Returns currentTallies, projectedTallies, quorumMet, willPass. Quorum counting follows the governor's COUNTING_MODE (`quorum.counting`): Bravo and CompoundGovernor count For only, vanilla OZ counts For+Abstain, Optimism counts For+Against+Abstain. `willPass` ignores any per-proposal-type approvalThreshold or voting module — see `caveats` when present.",
       inputSchema: {
         governor: governorIdSchema,
         proposalId: z.string(),
@@ -164,10 +181,13 @@ function registerSimulateVoteImpact(server: McpServer, rpc: RpcProvider): void {
       },
     },
     async ({ governor, proposalId, support, weight }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const pid = BigInt(proposalId);
@@ -183,20 +203,37 @@ function registerSimulateVoteImpact(server: McpServer, rpc: RpcProvider): void {
           for: BigInt(readout.votes.for),
           abstain: BigInt(readout.votes.abstain),
         };
+        const counting = quorumCountingOf(cfg);
         const { projected: proj, quorumMet, willPass } = projectVoteImpact(
-          isBravo(cfg),
+          counting,
           cur,
           support,
           w,
           quorum,
         );
 
+        // `willPass` models quorum + (for > against) only. Governors that layer
+        // a per-proposal-type approvalThreshold or a voting module on top of
+        // that are not modelled, and the boolean would otherwise read as
+        // authoritative. Advisory text, never a refusal.
+        const caveats: string[] = [];
+        if (cfg.quorumSource === "votable-supply") {
+          caveats.push(
+            "willPass models only quorum + (for > against). This governor applies a per-proposal-type " +
+              "approvalThreshold (Optimism: 5100 bps Default, 7600 bps Supermajority) and may route the " +
+              "proposal through a voting module (Optimistic type: quorum 0, module-defined passage), " +
+              "neither of which is modelled here. The quorum value is the " +
+              "votableSupply(snapshot) * numerator/denominator approximation, not the governor's own " +
+              "quorum(proposalId). Cross-check on Tally/Agora before acting.",
+          );
+        }
+
         return ok({
           governor: cfg.id,
           governorVersion: cfg.governorVersion,
           proposalId,
           currentState: readout.state,
-          quorum: { required: quorum.toString(), method: quorumMethod },
+          quorum: { required: quorum.toString(), method: quorumMethod, counting },
           currentTallies: {
             against: cur.against.toString(),
             for: cur.for.toString(),
@@ -209,9 +246,13 @@ function registerSimulateVoteImpact(server: McpServer, rpc: RpcProvider): void {
             abstain: proj.abstain.toString(),
           },
           projection: { quorumMet, willPass },
+          ...(caveats.length > 0 ? { caveats } : {}),
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_simulate_vote_impact failed: ${(e as Error).message}`);
+        const detail = cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e);
+        const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+        return err(`dexe_gov_simulate_vote_impact failed: ${detail}${hint}`);
       }
     },
   );

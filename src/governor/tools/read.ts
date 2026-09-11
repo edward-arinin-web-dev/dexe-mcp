@@ -4,12 +4,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
 import {
   governorContract,
+  legacyIdHint,
+  quorumCountingOf,
   votesContract,
   readProposal,
   readQuorum,
   readVotingPower,
 } from "../adapter.js";
-import { loadGovernorConfigs, resolveGovernor } from "../loader.js";
+import { loadGovernorConfigs, resolveGovernor, type GovernorConfig } from "../loader.js";
+import { governorProvider, governorReadError, rpcNote } from "../rpc.js";
+import { safeErrorMessage } from "../../lib/redact.js";
 
 function ok(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -86,10 +90,13 @@ function registerGetProposal(server: McpServer, rpc: RpcProvider): void {
       },
     },
     async ({ governor, proposalId }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const pid = BigInt(proposalId);
@@ -101,9 +108,12 @@ function registerGetProposal(server: McpServer, rpc: RpcProvider): void {
           governorVersion: cfg.governorVersion,
           proposalId,
           ...readout,
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_get_proposal failed: ${(e as Error).message}`);
+        const detail = cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e);
+        const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+        return err(`dexe_gov_get_proposal failed: ${detail}${hint}`);
       }
     },
   );
@@ -128,10 +138,13 @@ function registerGetVotingPower(server: McpServer, rpc: RpcProvider): void {
       },
     },
     async ({ governor, account, blockNumber }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = votesContract(provider, cfg);
         const { power, method } = await readVotingPower(c, cfg, account, blockNumber);
@@ -142,9 +155,12 @@ function registerGetVotingPower(server: McpServer, rpc: RpcProvider): void {
           votingToken: cfg.votingToken,
           votingPower: { raw: power.toString(), decimals: cfg.votingToken.decimals },
           method,
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_get_voting_power failed: ${(e as Error).message}`);
+        return err(
+          `dexe_gov_get_voting_power failed: ${cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e)}`,
+        );
       }
     },
   );
@@ -168,10 +184,13 @@ function registerGetQuorum(server: McpServer, rpc: RpcProvider): void {
       },
     },
     async ({ governor, blockNumber }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const block = blockNumber ?? (await provider.getBlockNumber());
@@ -182,13 +201,17 @@ function registerGetQuorum(server: McpServer, rpc: RpcProvider): void {
           blockNumber: block,
           quorum: quorum.toString(),
           method,
+          counting: quorumCountingOf(cfg),
           configured: {
             numerator: cfg.votingParams.quorumNumerator,
             denominator: cfg.votingParams.quorumDenominator,
           },
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_get_quorum failed: ${(e as Error).message}`);
+        return err(
+          `dexe_gov_get_quorum failed: ${cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e)}`,
+        );
       }
     },
   );
@@ -206,20 +229,31 @@ function registerGetProposalThreshold(server: McpServer, rpc: RpcProvider): void
       },
     },
     async ({ governor }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const threshold: bigint = await c.getFunction("proposalThreshold").staticCall();
+        const configured = cfg.votingParams.proposalThreshold ?? null;
         return ok({
           governor: cfg.id,
           proposalThreshold: { raw: threshold.toString(), decimals: cfg.votingToken.decimals },
-          configured: cfg.votingParams.proposalThreshold ?? null,
+          configured,
+          // The fixture is a static snapshot; a DAO can change its threshold by
+          // proposal. Say so explicitly instead of printing two numbers that
+          // silently disagree (the Uniswap fixture was 2.5x off for months).
+          configuredMatchesChain: configured === null ? null : configured === threshold.toString(),
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_get_proposal_threshold failed: ${(e as Error).message}`);
+        return err(
+          `dexe_gov_get_proposal_threshold failed: ${cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e)}`,
+        );
       }
     },
   );

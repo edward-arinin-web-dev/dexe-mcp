@@ -47,7 +47,8 @@ the `gov` dist-tag of dexe-mcp.
 
 - 18 tools across read / build / simulate / decode (12 at launch). Family-branched
   internally (OZ vs Bravo) — callers see normalized output regardless of target.
-- 3 Tier-1 DAOs supported out of the box: Uniswap, Compound, Optimism.
+- 3 Tier-1 DAOs supported out of the box: Uniswap (Bravo), Compound (OZ v5
+  since the 2025 governor migration), Optimism (OZ v4).
   Adding a DAO is a config-only change (one JSON, one line in loader).
 - Tally state-enum parity harness shipped — 30 sampled proposals match 100%
   on our last live sweep.
@@ -85,17 +86,19 @@ signer).
 Run from the project root:
 
 ```powershell
-$env:DEXE_RPC_URL_MAINNET="..."
-node --experimental-strip-types -e "
+# DEXE_RPC_URL_1 = Ethereum. NOT DEXE_RPC_URL_MAINNET — that is BSC chain 56.
+$env:DEXE_RPC_URL_1="https://eth.drpc.org"
+node -e "
 import('./dist/governor/loader.js').then(async ({ resolveGovernor }) => {
   const cfg = resolveGovernor('uniswap');
   const { JsonRpcProvider } = await import('ethers');
-  const provider = new JsonRpcProvider(process.env.DEXE_RPC_URL_MAINNET);
+  const provider = new JsonRpcProvider(process.env.DEXE_RPC_URL_1);
   const { governorContract } = await import('./dist/governor/adapter.js');
   const c = governorContract(provider, cfg);
-  // Most-recent N proposals via Bravo: enumerate via proposalCount (Compound Bravo getter).
-  // For Uniswap, easier: query Tally for the latest ACTIVE proposal id.
-  console.log('Use Tally for latest ACTIVE proposal id, then call dexe_gov_get_proposal');
+  // Uniswap is Bravo, so ids are sequential: proposalCount() is the newest.
+  // Compound is OZ v5 since the 2025 migration and has no proposalCount on the
+  // read ABI — query Tally, or take an id >= 394 from the explorer.
+  console.log('latest uniswap proposal id:', (await c.getFunction('proposalCount').staticCall()).toString());
 });
 "
 ```
@@ -168,8 +171,8 @@ Either:
 
 ```powershell
 $env:TALLY_API_KEY="..."
-$env:DEXE_RPC_URL_MAINNET="..."
-$env:DEXE_RPC_URL_OPTIMISM="..."
+$env:DEXE_RPC_URL_1="https://eth.drpc.org"
+$env:DEXE_RPC_URL_10="https://optimism.drpc.org"
 npx vitest run tests/governor/parity.test.ts
 ```
 
