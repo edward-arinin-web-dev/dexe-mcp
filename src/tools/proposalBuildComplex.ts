@@ -15,7 +15,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
-import { buildChainIdParam } from "../lib/params.js";
+import { buildChainIdParam, govPoolParam } from "../lib/params.js";
 import { parseUintString } from "../lib/amount.js";
 import { assessActions, withWarnings, legacyGovernanceAdvisories } from "./buildResult.js";
 import { assertStakingWindow } from "../lib/buildAdvisories.js";
@@ -79,27 +79,30 @@ const PARTICIPATION_TYPE_INDEX: Record<ParticipationSpec["type"], number> = {
 };
 
 const participationSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("DAOVotes"), requiredVotes: z.string() }),
   z.object({
-    type: z.literal("Whitelist"),
-    users: z.array(z.string()).default([]),
-    uri: z.string().default(""),
-  }),
-  z.object({ type: z.literal("BABT") }),
-  z.object({
-    type: z.literal("TokenLock"),
-    token: z.string(),
-    amount: z.string(),
+    type: z.literal("DAOVotes").describe("Gate kind: DAO voting power."),
+    requiredVotes: z.string().describe("Minimum DAO voting power, RAW base units (wei)."),
   }),
   z.object({
-    type: z.literal("NftLock"),
-    nft: z.string(),
-    amount: z.string(),
+    type: z.literal("Whitelist").describe("Gate kind: address whitelist."),
+    users: z.array(z.string()).default([]).describe("Whitelisted buyer addresses."),
+    uri: z.string().default("").describe("Optional metadata URI for the whitelist."),
+  }),
+  z.object({ type: z.literal("BABT").describe("Gate kind: BABT token holders.") }),
+  z.object({
+    type: z.literal("TokenLock").describe("Gate kind: locked ERC20."),
+    token: z.string().describe("ERC20 contract the buyer must lock."),
+    amount: z.string().describe("Amount to lock, RAW base units (wei)."),
   }),
   z.object({
-    type: z.literal("MerkleWhitelist"),
-    users: z.array(z.string()).default([]),
-    uri: z.string().default(""),
+    type: z.literal("NftLock").describe("Gate kind: locked ERC721."),
+    nft: z.string().describe("ERC721 contract the buyer must lock."),
+    amount: z.string().describe("Number of NFTs to lock, whole tokens."),
+  }),
+  z.object({
+    type: z.literal("MerkleWhitelist").describe("Gate kind: merkle-proof whitelist."),
+    users: z.array(z.string()).default([]).describe("Addresses the merkle root is built from."),
+    uri: z.string().default("").describe("Optional metadata URI for the whitelist."),
     root: z
       .string()
       .optional()
@@ -551,19 +554,20 @@ function registerTokenDistribution(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: batch token distribution via DistributionProposal",
       description:
-        "Builds a 'Token Distribution' external proposal. Encodes `DistributionProposal.execute(proposalId, token, amount)`. For ERC20 tokens, automatically prepends an `ERC20.approve` action. For native tokens (isNative=true), sets the action value instead. `proposalId` is the DAO's latest proposalId + 1.",
+        "Builds proposal actions; does not broadcast. DistributionProposal.execute(proposalId, token, amount); ERC20 gets a prepended approve, isNative sets the action value.",
       inputSchema: {
         distributionProposal: z
           .string()
           .describe("DistributionProposal address (from catalog / registry lookup)"),
         proposalId: z
           .string()
-          .describe("Expected proposalId for this distribution (usually latestProposalId + 1)"),
-        token: z.string(),
-        amount: z.string(),
+          .describe("Expected proposal id for this distribution, 1-indexed decimal (usually latestProposalId + 1)"),
+        token: z.string().describe("Token being distributed (contract address)."),
+        amount: z.string().describe("Total to distribute, RAW base units (wei)."),
         isNative: z.boolean().default(false).describe("True for native token (BNB/ETH) — sends value instead of approve"),
-        proposalName: z.string().default("Token Distribution"),
-        proposalDescription: z.string().default(""),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Token Distribution").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -623,10 +627,13 @@ function registerTokenDistribution(server: McpServer, ctx: ToolContext): void {
 // order (vestingPercentage, vestingDuration, cliffPeriod, unlockStep).
 const vestingSchema = z
   .object({
-    vestingPercentage: z.string().default("0"),
-    vestingDuration: z.string().default("0"),
-    cliffPeriod: z.string().default("0"),
-    unlockStep: z.string().default("0"),
+    vestingPercentage: z
+      .string()
+      .default("0")
+      .describe("Share of the buy that vests, 25-decimal percent (1e25 = 1%); 0 = none."),
+    vestingDuration: z.string().default("0").describe("Total vesting length, seconds."),
+    cliffPeriod: z.string().default("0").describe("Delay before the first unlock, seconds."),
+    unlockStep: z.string().default("0").describe("Interval between unlocks, seconds."),
   })
   .default({
     vestingPercentage: "0",
@@ -653,40 +660,46 @@ const RATE_SUSPICION_FLOOR = 10n ** 18n;
 
 export const tierSchema = z
   .object({
-    name: z.string(),
-    description: z.string().default(""),
-    totalTokenProvided: z.string(),
+    name: z.string().describe("Tier name shown to buyers."),
+    description: z.string().default("").describe("Tier description shown to buyers."),
+    totalTokenProvided: z.string().describe("Sale tokens funding this tier, RAW base units (wei)."),
     saleStartTime: z.string().describe("Unix seconds"),
     saleEndTime: z.string().describe("Unix seconds"),
-    claimLockDuration: z.string().default("0"),
-    saleTokenAddress: z.string(),
-    purchaseTokenAddresses: z.array(z.string()).min(1),
+    claimLockDuration: z.string().default("0").describe("Lock after purchase before claiming, seconds."),
+    saleTokenAddress: z.string().describe("Token being sold (the DAO's token contract)."),
+    purchaseTokenAddresses: z
+      .array(z.string())
+      .min(1)
+      .describe("Tokens buyers may pay with; parallel to exchangeRates/purchaseRatios."),
     exchangeRates: z
       .array(z.string())
       .min(1)
       .optional()
       .describe(
-        "Raw 25-precision rate wei (PRECISION = 10^25). On-chain: saleAmount = purchaseAmount * 1e25 / rate. " +
-          "For \"0.10 purchase per 1 sale\" pass \"1000000000000000000000000\" (= 0.10 × 10^25). " +
-          "Prefer `purchaseRatios` for human-readable input.",
+        "Raw 25-precision rate wei: saleAmount = purchaseAmount * 1e25 / rate. \"0.10 paid per 1 sold\" = " +
+          "\"1000000000000000000000000\". Prefer `purchaseRatios`.",
       ),
     purchaseRatios: z
       .array(z.string())
       .min(1)
       .optional()
       .describe(
-        "Human decimal ratio of purchase tokens per 1 sale token (e.g. \"0.10\" = 0.10 USDT buys 1 HELIO). " +
-          "Auto-scaled to PRECISION = 10^25. Mutually exclusive with `exchangeRates`.",
+        "Human ratio of purchase tokens per 1 sale token (\"0.10\" = 0.10 USDT buys 1 HELIO); scaled to 1e25. " +
+          "Excludes `exchangeRates`.",
       ),
-    minAllocationPerUser: z.string().default("0"),
-    maxAllocationPerUser: z.string().default("0"),
-    vestingSettings: vestingSchema,
+    minAllocationPerUser: z
+      .string()
+      .default("0")
+      .describe("Minimum sale tokens one buyer may take, RAW base units (wei); 0 = no floor."),
+    maxAllocationPerUser: z
+      .string()
+      .default("0")
+      .describe("Maximum sale tokens one buyer may take, RAW base units (wei); 0 = no cap."),
+    vestingSettings: vestingSchema.describe("Vesting of the purchased tokens; all zeros = none."),
     participation: z
       .array(participationSchema)
       .default([])
-      .describe(
-        "Participation requirements (joined with AND on-chain). Leave empty for an open tier.",
-      ),
+        .describe("Participation requirements, ANDed on-chain. Empty = an open tier."),
   })
   .refine(
     (t) => Boolean(t.exchangeRates) !== Boolean(t.purchaseRatios),
@@ -1035,18 +1048,19 @@ function registerTokenSaleMulti(server: McpServer, ctx: ToolContext): void {
     {
       title: "Build a multi-tier Token Sale proposal (createTiers + optional addToWhitelist)",
       description:
-        "Wraps `TokenSaleProposal.createTiers([...])` for one or more tiers. Each tier may declare zero or more participation requirements (DAOVotes, Whitelist, BABT, TokenLock, NftLock, MerkleWhitelist) — the data payload is encoded per-type to match `TokenSaleProposalCreate.sol`. ERC20 approves are summed and deduped per sale token. For tiers using plain `Whitelist`, the matching `addToWhitelist` action is appended automatically when users are supplied.",
+        "Builds proposal actions; does not broadcast. TokenSaleProposal.createTiers for one or more tiers, each with zero or more participation requirements. ERC20 approves are summed per sale token; plain Whitelist tiers with users also get addToWhitelist.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
-        tiers: z.array(tierSchema).min(1),
+        tiers: z.array(tierSchema).min(1).describe("Tiers to create, in order."),
         latestTierId: z
           .string()
           .default("0")
           .describe(
             "Current `latestTierId()` on TokenSaleProposal. Defaults to 0 — bump when extending an existing sale so addToWhitelist tier ids are correct.",
           ),
-        proposalName: z.string().default("Token Sale"),
-        proposalDescription: z.string().default(""),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Token Sale").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
         acknowledgeVestingBlocked: z
           .boolean()
           .default(false)
@@ -1094,13 +1108,17 @@ function registerTokenSale(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: launch a token-sale tier via TokenSaleProposal.createTiers",
       description:
-        "Builds a Token Sale proposal with a single tier. Forwards to `dexe_proposal_build_token_sale_multi` internally. For multi-tier sales or merkle whitelists, call `_multi` directly.",
+        "Builds proposal actions; does not broadcast. Single-tier TokenSaleProposal.createTiers. Multi-tier or merkle whitelists: dexe_proposal_build_token_sale_multi.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
-        tier: tierSchema,
-        latestTierId: z.string().default("0"),
-        proposalName: z.string().default("Token Sale"),
-        proposalDescription: z.string().default(""),
+        tier: tierSchema.describe("The single tier to create."),
+        latestTierId: z
+          .string()
+          .default("0")
+          .describe("Current `latestTierId()`; bump when extending an existing sale."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Token Sale").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
         acknowledgeVestingBlocked: z
           .boolean()
           .default(false)
@@ -1177,20 +1195,22 @@ function registerTokenSaleWhitelist(server: McpServer, ctx: ToolContext): void {
     {
       title: "Build an addToWhitelist proposal for existing token-sale tiers",
       description:
-        "Builds an external proposal calling `TokenSaleProposal.addToWhitelist([{tierId, users, uri}, ...])`. Use this to extend the whitelist of a tier that's already live (plain `Whitelist` participation type only — merkle tiers are gated by their root, not this list).",
+        "Builds proposal actions; does not broadcast. TokenSaleProposal.addToWhitelist([{tierId, users, uri}, ...]) extends a live tier. Plain Whitelist tiers only; merkle tiers are gated by their root.",
       inputSchema: {
-        tokenSaleProposal: z.string(),
+        tokenSaleProposal: z.string().describe("TokenSaleProposal contract address."),
         requests: z
           .array(
             z.object({
-              tierId: z.string(),
-              users: z.array(z.string()).min(1),
-              uri: z.string().default(""),
+              tierId: z.string().describe("Existing tier id, 1-indexed decimal."),
+              users: z.array(z.string()).min(1).describe("Addresses to whitelist for that tier."),
+              uri: z.string().default("").describe("Optional metadata URI for the whitelist."),
             }),
           )
-          .min(1),
-        proposalName: z.string().default("Whitelist Token Sale Tier"),
-        proposalDescription: z.string().default(""),
+          .min(1)
+          .describe("One entry per tier to extend."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Whitelist Token Sale Tier").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1250,12 +1270,13 @@ function registerTokenSaleRecover(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: recover unsold tokens from token-sale tiers",
       description:
-        "Builds a 'Recover Token Sale' external proposal calling TokenSaleProposal.recover(tierIds).",
+        "Builds proposal actions; does not broadcast. TokenSaleProposal.recover(tierIds) for unsold tokens. Or skip this tool: dexe_proposal_create with proposalType:'token_sale_recover' and params {tokenSaleProposal, tierIds}.",
       inputSchema: {
-        tokenSaleProposal: z.string(),
-        tierIds: z.array(z.string()).min(1),
-        proposalName: z.string().default("Recover Token Sale"),
-        proposalDescription: z.string().default(""),
+        tokenSaleProposal: z.string().describe("TokenSaleProposal contract address."),
+        tierIds: z.array(z.string()).min(1).describe("Tier ids to recover from, 1-indexed decimal."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Recover Token Sale").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1302,19 +1323,22 @@ function registerCreateStakingTier(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: create a staking pool/tier via StakingProposal.createStaking",
       description:
-        "Builds a 'Create Staking Tier' external proposal calling StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata). For ERC20 reward tokens, automatically prepends an ERC20.approve action. For native tokens (isNative=true), sets the action value instead. Address source: GovUserKeeper.stakingProposalAddress() — zero address means it isn't deployed yet (GovUserKeeper.deployStakingProposal() creates it). The dexe_proposal_create composite auto-resolves this when the param is omitted.",
+        "Builds proposal actions; does not broadcast. StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata); ERC20 rewards get a prepended approve, isNative sets the action value.",
       inputSchema: {
         stakingProposal: z
           .string()
-          .describe("StakingProposal contract address (from GovUserKeeper.stakingProposalAddress())"),
-        rewardToken: z.string(),
-        rewardAmount: z.string(),
+          .describe(
+            "StakingProposal address from GovUserKeeper.stakingProposalAddress(); zero until deployStakingProposal() runs.",
+          ),
+        rewardToken: z.string().describe("Reward token contract address."),
+        rewardAmount: z.string().describe("Rewards funding the pool, RAW base units (wei)."),
         startedAt: z.string().describe("Unix seconds"),
         deadline: z.string().describe("Unix seconds"),
         stakingMetadataUrl: z.string().describe("ipfs://<cid> of staking-specific metadata"),
         isNative: z.boolean().default(false).describe("True when reward token is native (BNB/ETH)"),
-        proposalName: z.string().default("Create Staking"),
-        proposalDescription: z.string().default(""),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Create Staking").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1394,12 +1418,13 @@ function registerChangeMathModel(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: swap the DAO's vote-power math contract",
       description:
-        "Builds a 'Change Math Model' external proposal calling GovPool.changeVotePower(newVotePower). `newVotePower` is the address of a deployed power contract (LINEAR_POWER, POLYNOMIAL_POWER, or a custom one registered in PoolRegistry).",
+        "Builds proposal actions; does not broadcast. GovPool.changeVotePower(newVotePower): a deployed power contract (LINEAR_POWER, POLYNOMIAL_POWER, or a custom one).",
       inputSchema: {
-        govPool: z.string(),
-        newVotePower: z.string(),
-        proposalName: z.string().default("Change Vote Power"),
-        proposalDescription: z.string().default(""),
+        govPool: govPoolParam,
+        newVotePower: z.string().describe("Deployed vote-power contract address (registered in PoolRegistry)."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Change Vote Power").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1447,13 +1472,17 @@ function registerModifyDaoProfile(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: update the DAO descriptionURL (name, avatar, links)",
       description:
-        "Builds a 'Modify DAO Profile' external proposal calling GovPool.editDescriptionURL(url). You upload the new DAO metadata JSON to IPFS first (via dexe_ipfs_upload_dao_metadata), then pass the resulting descriptionURL (ipfs://<cid>) here.",
+        "Builds proposal actions; does not broadcast. GovPool.editDescriptionURL(url) — upload the new DAO metadata JSON to IPFS first and pass its ipfs://<cid>.",
       inputSchema: {
-        govPool: z.string(),
+        govPool: govPoolParam,
         newDescriptionURL: z.string().describe("ipfs://<cid> of new DAO metadata JSON"),
-        proposalName: z.string().default("Modify DAO Profile"),
-        proposalDescription: z.string().default(""),
-        previousDescriptionURL: z.string().optional(),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Modify DAO Profile").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
+        previousDescriptionURL: z
+          .string()
+          .optional()
+          .describe("Current ipfs://<cid>, recorded as the 'before' side of the diff."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1504,11 +1533,11 @@ function registerBlacklistManagement(server: McpServer, ctx: ToolContext): void 
     {
       title: "Wrapper: add/remove addresses from the DAO token blacklist",
       description:
-        "Builds a 'Blacklist Management' external proposal. Emits up to 2 actions: one ERC20Gov.blacklist(add, true) and one ERC20Gov.blacklist(remove, false). Pass empty arrays to skip either.",
+        "Builds proposal actions; does not broadcast. One ERC20Gov.blacklist(add, true) action and/or one blacklist(remove, false); an empty array skips either.",
       inputSchema: {
         erc20Gov: z.string().describe("DAO ERC20Gov token contract"),
-        addAddresses: z.array(z.string()).default([]),
-        removeAddresses: z.array(z.string()).default([]),
+        addAddresses: z.array(z.string()).default([]).describe("Addresses to blacklist (blocked from transfers)."),
+        removeAddresses: z.array(z.string()).default([]).describe("Addresses to un-blacklist."),
         // Both optional, both non-breaking: with them the builder can tell you
         // that a target is the DAO's own GovPool or one of its helper contracts,
         // which freezes the treasury or (for the GovUserKeeper) every deposit
@@ -1518,8 +1547,8 @@ function registerBlacklistManagement(server: McpServer, ctx: ToolContext): void 
           .string()
           .optional()
           .describe("DAO GovPool. Enables the self-harm check that flags blacklisting the DAO's own contracts."),
-        proposalName: z.string().default("Blacklist Management"),
-        proposalDescription: z.string().default(""),
+        proposalName: z.string().default("Blacklist Management").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1590,9 +1619,11 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: manage the DAO's reward-multiplier NFT contract",
       description:
-        "Four modes: 'set_address' (GovPool.setNftMultiplierAddress — ZERO to disable), 'set_token_uri', 'mint' (ERC721Multiplier.mint(to, multiplier, duration, uri_)), 'change_token' (modify an existing NFT). UNITS: `multiplier` is PRECISION-scaled — 1e25 = 1x, so 1.5x = 15000000000000000000000000; `rewardPeriod` = lock duration in SECONDS (uint64). The ERC721Multiplier MUST be owned by the GovPool (mint is onlyOwner): pass `govPool` to refuse up-front (needs RPC) when the contract is undeployed or not GovPool-owned — else the proposal sticks in SucceededFor (bug #31).",
+        "Builds proposal actions; does not broadcast. set_address sets GovPool.setNftMultiplierAddress (ZERO disables); the other modes call ERC721Multiplier.setTokenURI / mint(to, multiplier, duration, uri_) / changeToken. Mint is onlyOwner: pass `govPool` so a contract the GovPool does not own is refused up-front.",
       inputSchema: {
-        mode: z.enum(["set_address", "set_token_uri", "mint", "change_token"]),
+        mode: z
+          .enum(["set_address", "set_token_uri", "mint", "change_token"])
+          .describe("Which multiplier operation to encode."),
         // The bug #31 pre-checks (code / selector / owner() / getNftMultiplierAddress)
         // are only meaningful against the chain the proposal will actually run on.
         // Probed on the default chain instead, a mainnet multiplier looks
@@ -1605,7 +1636,10 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
           .string()
           .optional()
           .describe("DAO GovPool. Required for set_address; enables the ownership pre-check for other modes."),
-        nftMultiplierContract: z.string().optional(),
+        nftMultiplierContract: z
+          .string()
+          .optional()
+          .describe("ERC721Multiplier address; required by every mode except set_address."),
         newMultiplierAddress: z.string().optional().describe("For mode=set_address"),
         tokenId: numericIntString.optional().describe("For mode=set_token_uri or change_token"),
         uri: z.string().optional().describe("For mode=set_token_uri"),
@@ -1619,8 +1653,8 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
           .default("0")
           .describe("For mode=mint or change_token. Lock duration in SECONDS (uint64)."),
         metadataUrl: z.string().default("").describe("For mode=mint — metadata URI string"),
-        proposalName: z.string().default("Reward Multiplier"),
-        proposalDescription: z.string().default(""),
+        proposalName: z.string().default("Reward Multiplier").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1794,7 +1828,7 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: apply for/disburse DAO tokens to a receiver (transfer + optional mint)",
       description:
-        "Builds an 'Apply to DAO' external proposal. If the DAO treasury has enough tokens, emits one ERC20.transfer action. If not, emits ERC20Gov.transfer + ERC20Gov.mint for the shortfall. Pass `treasuryBalance` (in wei) so we decide correctly. When DEXE_RPC_URL is set the receiver is checked against ERC20Gov.isBlacklisted; build aborts if blacklisted (avoids stuck SucceededFor proposals).",
+        "Builds proposal actions; does not broadcast. ERC20.transfer when `treasuryBalance` covers `amount`, else the balance plus ERC20Gov.mint for the shortfall. When an RPC is reachable for the target chain (the built-in public RPC counts) the receiver is checked against isBlacklisted; build aborts if blacklisted.",
       inputSchema: {
         // The blacklist probe must hit the chain the proposal will run on: on any
         // other chain the token has no code, the probe degrades to `skipped`, and a
@@ -1803,14 +1837,14 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
           "Chain the proposal targets (56 mainnet / 97 testnet; default: MCP default chain). Blacklist check reads it.",
         ),
         token: z.string().describe("The token contract (ERC20 or ERC20Gov)"),
-        receiver: z.string(),
-        amount: z.string().describe("Total amount to grant, in wei"),
+        receiver: z.string().describe("Address receiving the grant."),
+        amount: z.string().describe("Total to grant, RAW base units (wei)."),
         treasuryBalance: z
           .string()
           .default("0")
-          .describe("Current treasury balance of `token`. If >= amount, a single transfer is used."),
-        proposalName: z.string().default("Apply to DAO"),
-        proposalDescription: z.string().default(""),
+          .describe("Treasury balance of `token`, RAW base units (wei); >= amount means one transfer."),
+        proposalName: z.string().default("Apply to DAO").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1896,29 +1930,41 @@ function registerNewProposalType(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: register a new proposal settings template + bind executors",
       description:
-        "Builds a 'New Proposal Type' external proposal with 2 actions: GovSettings.addSettings([newSettings]) + GovSettings.changeExecutors(executors, [newSettingId, …]). This is also the path for enabling staking (executors include StakingProposal).",
+        "Builds proposal actions; does not broadcast. GovSettings.addSettings([newSettings]) + changeExecutors(executors, [newSettingId]); also the path for enabling staking.",
       inputSchema: {
-        govSettings: z.string(),
-        settings: z.object({
-          earlyCompletion: z.boolean(),
-          delegatedVotingAllowed: z.boolean(),
-          validatorsVote: z.boolean(),
-          duration: z.string(),
-          durationValidators: z.string(),
-          executionDelay: z.string().default("0"),
-          quorum: z.string(),
-          quorumValidators: z.string(),
-          minVotesForVoting: z.string(),
-          minVotesForCreating: z.string(),
-          rewardsInfo: z.object({
-            rewardToken: z.string(),
-            creationReward: z.string().default("0"),
-            executionReward: z.string().default("0"),
-            voteRewardsCoefficient: z.string().default("0"),
-          }),
-          executorDescription: z.string().default(""),
-        }),
-        executors: z.array(z.string()).min(1),
+        govSettings: z
+          .string()
+          .describe("GovSettings contract address (from dexe_dao_info.helpers.settings)."),
+        settings: z
+          .object({
+            earlyCompletion: z.boolean().describe("End the vote as soon as the result is decided."),
+            delegatedVotingAllowed: z.boolean().describe("Allow delegated power to vote on this type."),
+            validatorsVote: z.boolean().describe("Send a passed proposal to the validator chamber."),
+            duration: z.string().describe("Main voting duration, seconds."),
+            durationValidators: z.string().describe("Validator voting duration, seconds."),
+            executionDelay: z.string().default("0").describe("Delay between success and execution, seconds."),
+            quorum: z.string().describe("Main quorum, 25-decimal percent (1e25 = 1%)."),
+            quorumValidators: z.string().describe("Validator quorum, 25-decimal percent (1e25 = 1%)."),
+            minVotesForVoting: z.string().describe("Minimum power to vote, RAW base units (wei)."),
+            minVotesForCreating: z.string().describe("Minimum power to create, RAW base units (wei)."),
+            rewardsInfo: z
+              .object({
+                rewardToken: z.string().describe("Reward token address; zero address disables rewards."),
+                creationReward: z.string().default("0").describe("Paid to the creator, RAW base units (wei)."),
+                executionReward: z.string().default("0").describe("Paid to the executor, RAW base units (wei)."),
+                voteRewardsCoefficient: z
+                  .string()
+                  .default("0")
+                  .describe("Per-vote reward factor, 25-decimal (1e25 = 1x)."),
+              })
+              .describe("Creation / execution / voting reward settings."),
+            executorDescription: z.string().default("").describe("Executor label stored on the settings slot."),
+          })
+          .describe("The settings struct the new slot will hold."),
+        executors: z
+          .array(z.string())
+          .min(1)
+          .describe("Contracts bound to the new settings id (StakingProposal to enable staking)."),
         newSettingId: z
           .string()
           .describe(
@@ -1927,8 +1973,8 @@ function registerNewProposalType(server: McpServer, ctx: ToolContext): void {
         // This ALWAYS emits addSettings, which upstream #36 blocks at execute on
         // some chains. Without a chain to key on the guard could not run here.
         chainId: buildChainIdParam,
-        proposalName: z.string().default("New Proposal Type"),
-        proposalDescription: z.string().default(""),
+        proposalName: z.string().default("New Proposal Type").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },

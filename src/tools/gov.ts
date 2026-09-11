@@ -8,20 +8,7 @@ import { RpcProvider } from "../rpc.js";
 import { ArtifactsMissingError } from "../artifacts.js";
 import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { toActionableError } from "../lib/errors.js";
-
-/**
- * Chain id param for the gov tools. Custom wording (no BSC examples) because
- * these tools also serve external Governor DAOs on chains like 1 or 10.
- */
-const govChainIdParam = z
-  .number()
-  .int()
-  .positive()
-  .optional()
-  .describe(
-    "Chain id to read from. Defaults to the MCP's default chain. " +
-      "Rejects if no RPC is configured for the requested chain.",
-  );
+import { chainIdParam } from "../lib/params.js";
 
 export function registerGovTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
@@ -53,7 +40,7 @@ function registerDecodeCalldata(
     {
       title: "Decode ABI-encoded calldata",
       description:
-        "Decodes a raw '0x…' calldata blob against loaded contract ABIs. If `contract` is given, only that ABI is tried; otherwise every artifact whose selector matches is tried. Useful for understanding captured transactions or proposal action payloads.",
+        "Read-only, local. Decodes a '0x…' calldata blob against the loaded ABIs — only `contract`'s when given, else every matching artifact.",
       inputSchema: {
         data: z
           .string()
@@ -136,11 +123,11 @@ function registerDecodeProposal(
     {
       title: "Read and decode a GovPool proposal",
       description:
-        "Fetches a proposal from an on-chain GovPool via `getProposals(offset, limit)` and decodes every action in BOTH `actionsOnFor` and `actionsOnAgainst` against loaded ABIs. Requires DEXE_RPC_URL.",
+        "Read-only. Fetches a GovPool proposal via `getProposals(offset, limit)` and decodes its for/against actions. Works with the built-in public RPC; set DEXE_RPC_URL_MAINNET / _TESTNET for reliability.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         proposalId: z.number().int().positive().describe("Proposal ID (1-indexed)"),
-        chainId: govChainIdParam,
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -318,10 +305,10 @@ function registerReadGovState(
     {
       title: "Read aggregate GovPool state",
       description:
-        "For a given GovPool address, reads `getHelperContracts()` and `getNftContracts()` on-chain and returns the resolved helper + nft addresses. Requires DEXE_RPC_URL.",
+        "Read-only. Reads `getHelperContracts()` and `getNftContracts()` on a GovPool. Works with the built-in public RPC; set DEXE_RPC_URL_MAINNET / _TESTNET for reliability.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
-        chainId: govChainIdParam,
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -379,7 +366,7 @@ function registerListGovContractTypes(server: McpServer): void {
     {
       title: "Orientation: gov subsystem contract catalog",
       description:
-        "Static catalog describing the DeXe governance subsystem contracts: what each one does and where its source lives. Cheap orientation tool for agents new to the codebase.",
+        "Read-only, local. Catalog of the DeXe governance contracts: what each does and where its source lives.",
       inputSchema: {},
       outputSchema: {
         contracts: z.array(

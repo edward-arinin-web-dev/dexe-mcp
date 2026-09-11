@@ -102,7 +102,6 @@ const TOOL_CLASSES: Record<string, ToolAnnotations> = {
   dexe_gov_decode_calldata: LOCAL_READ,
   dexe_gov_hash_description: LOCAL_READ,
   dexe_gov_hash_proposal: LOCAL_READ,
-  dexe_graph_schema: LOCAL_READ, // static entity reference, not a subgraph call
   dexe_guide: LOCAL_READ,
   dexe_ipfs_cid_for_json: LOCAL_READ,
   dexe_ipfs_cid_info: LOCAL_READ,
@@ -144,6 +143,10 @@ const TOOL_CLASSES: Record<string, ToolAnnotations> = {
   dexe_gov_simulate_proposal: READ_ONLY,
   dexe_gov_simulate_vote_impact: READ_ONLY,
   dexe_graph_query: READ_ONLY,
+  // Live GraphQL introspection against the configured subgraph endpoint
+  // (src/tools/subgraph.ts gqlRequest(GRAPH_SCHEMA_QUERY)) — open world, not a
+  // bundled reference, whatever its position in the toolset profile.
+  dexe_graph_schema: READ_ONLY,
   dexe_ipfs_fetch: READ_ONLY,
   dexe_offchain_build_cancel_vote: READ_ONLY,
   dexe_offchain_build_vote: READ_ONLY,

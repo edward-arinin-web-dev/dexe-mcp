@@ -215,9 +215,18 @@ describe("dexe_guide (real server)", () => {
     expect(out.gotchas.some((g: any) => g.id === "staking-not-on-testnet")).toBe(true);
   });
 
-  it("unknown flow id → index tier with a note", async () => {
-    const out = await callGuide({ flow: "not_a_flow" });
-    expect(out.mode).toBe("flow-index");
-    expect(out.note).toMatch(/Unknown flow/);
+  // 0.34.0: `flow` is a z.enum built from FLOWS + TOPICS, so an id that does
+  // not exist is refused at the schema boundary and the handler never runs.
+  // That is the point of the enum: the ten valid ids are in `tools/list`, and
+  // the rejection names them too — the old free-string form answered a guess
+  // with a menu one round-trip later. The handler's index fall-through is kept
+  // for programmatic callers of the knowledge layer (flowDetail("nope") → null,
+  // asserted above).
+  it("an id outside the enum is refused, and the refusal lists the valid ids", async () => {
+    const res = await client.callTool({ name: "dexe_guide", arguments: { flow: "not_a_flow" } });
+    expect(res.isError).toBe(true);
+    const text = (res.content as Array<{ type: string; text: string }>)[0]!.text;
+    expect(text).toMatch(/create_dao/);
+    expect(text).toMatch(/read_dao_data/);
   });
 });

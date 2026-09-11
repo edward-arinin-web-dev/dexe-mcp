@@ -916,17 +916,11 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
     {
       title: "Full DAO report — one call, every section, with a since-diff",
       description:
-        "The whole picture of one DAO in a single call: identity + settings, treasury, membership, delegation " +
-        "(who delegated to whom — no address list needed), experts, validators, proposal throughput and outcomes, " +
-        "per-proposal voter turnout, recent activity, and everything with a DEADLINE (open votes, executable " +
-        "proposals, and — with `user` — unvoted proposals and claimable rewards). Replaces the 12-18 read calls " +
-        "this used to take, plus one per proposal for turnout. " +
-        "Pass `since` (ISO timestamp, Unix seconds, `block:<n>`, or `last`) to get ONLY what changed — new " +
-        "proposals, proposals that moved state, members joined, delegation shifts, treasury deltas — which is what " +
-        "makes it usable on a schedule. Each run stores a small snapshot so the next `since` diff has a baseline. " +
-        "Sections degrade independently: on a chain with no subgraph the on-chain sections still render and the " +
-        "unavailable ones are NAMED in `unavailable[]` with the reason and the tool to call instead. " +
-        "Narrow the work with `sections`. Read-only.",
+        "Read-only. The whole picture of one DAO in one call — every section named by `sections` (default all), plus " +
+        "everything with a DEADLINE: open votes, executable proposals and, with `user`, unvoted proposals and claimable " +
+        "rewards. Pass `since` (ISO timestamp, Unix seconds, `block:<n>`, or `last`) for ONLY what changed; each run stores " +
+        "a snapshot so the next `since` diff has a baseline. Sections degrade independently; unavailable ones are NAMED in " +
+        "`unavailable[]` with the reason.",
       inputSchema: {
         govPool: z.string().describe("GovPool / DAO address"),
         chainId: chainIdParam,

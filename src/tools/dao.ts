@@ -66,7 +66,8 @@ function registerPredictAddresses(
     {
       title: "Predict addresses for a future DAO deployment",
       description:
-        "Calls `PoolFactory.predictGovAddresses(deployer, poolName)` and returns the six CREATE2-predicted addresses (govPool, govTokenSale, govToken, distributionProposal, expertNft, nftMultiplier). Useful for wiring configs before a DAO is actually deployed.",
+        "Read-only. Calls `PoolFactory.predictGovAddresses(deployer, poolName)` — the six CREATE2-predicted contract " +
+        "addresses for a DAO before it is deployed.",
       inputSchema: {
         deployer: z.string().describe("Address that will send the deployGovPool tx (tx.origin)"),
         poolName: z.string().describe("Unique pool name — part of the CREATE2 salt"),
@@ -133,7 +134,7 @@ function registerRegistryLookup(
     {
       title: "Check whether an address is a DeXe GovPool",
       description:
-        "Calls `PoolRegistry.isGovPool(address)` on the configured chain. Returns true if the address is a registered DeXe DAO GovPool.",
+        "Read-only. Calls `PoolRegistry.isGovPool(address)` — true when the address is a registered DeXe DAO GovPool.",
       inputSchema: {
         address: z.string().describe("Candidate GovPool address"),
         chainId: chainIdParam,
@@ -191,7 +192,7 @@ function registerDaoInfo(
     {
       title: "DAO overview — helpers, NFT contracts, validator count",
       description:
-        "Given a GovPool address, batch-reads helper addresses (settings/userKeeper/validators/poolRegistry/votePower), NFT contract addresses, description URL, and live validator count. One multicall RPC round-trip.",
+        "Read-only. One multicall on a GovPool: helper addresses, NFT contract addresses, description URL, and live validator count.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         chainId: chainIdParam,

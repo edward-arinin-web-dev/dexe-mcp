@@ -5,7 +5,7 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { voteTypeFromString, VOTE_TYPE_NAMES } from "../lib/govEnums.js";
-import { chainIdParam } from "../lib/params.js";
+import { chainIdParam, govPoolParam, PROPOSAL_ID_DESC } from "../lib/params.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
 import { GOV_POWER_DECIMALS, formatUnitsWithSymbol } from "../lib/units.js";
@@ -37,7 +37,9 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
     {
       title: "User staking + delegation power across VoteTypes",
       description:
-        "Reads `tokenBalance` and `nftBalance` on GovUserKeeper for every VoteType (Personal/Micropool/Delegated/Treasury). One multicall round-trip.",
+        "Read-only. Reads `tokenBalance` and `nftBalance` on GovUserKeeper for every VoteType " +
+        "(Personal/Micropool/Delegated/Treasury) in one multicall. tokenBalance includes the un-deposited wallet balance; " +
+        "deposited power = tokenBalance - tokenOwned.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         user: z.string().describe("User wallet address"),
@@ -177,14 +179,15 @@ function registerGetVotes(server: McpServer, rpc: RpcProvider): void {
     {
       title: "User's votes on a specific proposal",
       description:
-        "Reads `GovPool.getUserVotes(proposalId, voter, voteType)` and returns the VoteInfoView. Defaults to PersonalVote.",
+        "Read-only. Reads `GovPool.getUserVotes(proposalId, voter, voteType)` and returns the VoteInfoView. Defaults to PersonalVote.",
       inputSchema: {
-        govPool: z.string(),
-        proposalId: z.union([z.string(), z.number()]),
-        voter: z.string(),
+        govPool: govPoolParam,
+        proposalId: z.union([z.string(), z.number()]).describe(PROPOSAL_ID_DESC),
+        voter: z.string().describe("Wallet whose votes to read."),
         voteType: z
           .enum(["PersonalVote", "MicropoolVote", "DelegatedVote", "TreasuryVote"])
-          .default("PersonalVote"),
+          .default("PersonalVote")
+          .describe("Which VoteType bucket to read."),
         chainId: chainIdParam,
       },
       outputSchema: {

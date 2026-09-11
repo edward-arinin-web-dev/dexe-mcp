@@ -1,10 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { TOOLSETS } from "../../src/tools/gate.js";
-import { registerAll } from "../../src/tools/index.js";
-import { loadConfig } from "../../src/config.js";
+import { listTools } from "../helpers/listTools.js";
 
 /**
  * ── No dangling tool references in the default profile ─────────────────────
@@ -38,20 +34,6 @@ import { loadConfig } from "../../src/config.js";
  * is how the prose actually reads.
  */
 
-async function listTools(toolsetsEnv: string | undefined) {
-  if (toolsetsEnv === undefined) delete process.env.DEXE_TOOLSETS;
-  else process.env.DEXE_TOOLSETS = toolsetsEnv;
-  const config = await loadConfig();
-  const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerAll(server, config);
-  const client = new Client({ name: "test-client", version: "0.0.0" });
-  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await Promise.all([server.connect(serverT), client.connect(clientT)]);
-  const res = await client.listTools();
-  await client.close();
-  await server.close();
-  return res.tools;
-}
 
 /** Every string reachable in `v` (values and object keys), depth-first. */
 function collectStrings(v: unknown, out: string[]): void {
@@ -99,21 +81,11 @@ const ANNOTATION = /^\s*\(needs DEXE_TOOLSETS=([a-z,]+)\)/;
  * so one entry covers every tool that inherits the text.
  */
 const QUARANTINE: ReadonlyArray<{ ref: string; source: string; fix: string }> = [
-  {
-    ref: "dexe_agents_list",
-    source: "src/lib/params.ts — signerParam.describe(), inherited by every composite",
-    fix: "…= DEXE_AGENT_PK_* key (see dexe_agents_list (needs DEXE_TOOLSETS=core,vote)).",
-  },
-  {
-    ref: "dexe_ipfs_upload_dao_metadata",
-    source: "src/tools/ipfs.ts — dexe_ipfs_upload_avatar + dexe_dao_generate_avatar descriptions",
-    fix: "…`dexe_ipfs_upload_dao_metadata` or `dexe_proposal_build_modify_dao_profile` (needs DEXE_TOOLSETS=core,proposals).",
-  },
-  {
-    ref: "dexe_proposal_build_modify_dao_profile",
-    source: "src/tools/ipfs.ts — same two descriptions",
-    fix: "covered by the same trailing (needs DEXE_TOOLSETS=core,proposals) annotation",
-  },
+  // 0.34.0 (description lint): emptied. `signerKeyParam` no longer names
+  // dexe_agents_list at all, and the two avatar descriptions no longer point at
+  // the gated metadata tools — the style pass rewrote every one of them. The
+  // list may only shrink, and it has: the guard below fails on any entry that
+  // has stopped dangling, which is how these three were found.
 ];
 const QUARANTINED = new Set(QUARANTINE.map((q) => q.ref));
 
@@ -171,14 +143,14 @@ describe("annotation matcher", () => {
 });
 
 describe("default profile names no tool it does not have", () => {
-  let defaultTools: Awaited<ReturnType<typeof listTools>>;
+  let defaultTools: Awaited<ReturnType<typeof listTools>>["tools"];
   let defaultNames: Set<string>;
   let fullNames: Set<string>;
 
   beforeAll(async () => {
-    const full = await listTools("full");
+    const full = (await listTools("full")).tools;
     fullNames = new Set(full.map((t) => t.name));
-    defaultTools = await listTools(undefined);
+    defaultTools = (await listTools(undefined)).tools;
     defaultNames = new Set(defaultTools.map((t) => t.name));
   });
 

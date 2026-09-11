@@ -1,12 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { TOOLSETS } from "../../src/tools/gate.js";
-import { registerAll } from "../../src/tools/index.js";
-import { loadConfig } from "../../src/config.js";
+import { listTools } from "../helpers/listTools.js";
 import { PROPOSAL_CATALOG, type ProposalTypeEntry } from "../../src/lib/proposalCatalog.js";
 
 /**
@@ -27,20 +23,6 @@ import { PROPOSAL_CATALOG, type ProposalTypeEntry } from "../../src/lib/proposal
  * session is the thing under test.
  */
 
-async function listTools(toolsetsEnv: string | undefined) {
-  if (toolsetsEnv === undefined) delete process.env.DEXE_TOOLSETS;
-  else process.env.DEXE_TOOLSETS = toolsetsEnv;
-  const config = await loadConfig();
-  const server = new McpServer({ name: "capability-test", version: "0.0.0" }, {});
-  registerAll(server, config);
-  const client = new Client({ name: "test-client", version: "0.0.0" });
-  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await Promise.all([server.connect(serverT), client.connect(clientT)]);
-  const res = await client.listTools();
-  await client.close();
-  await server.close();
-  return res.tools;
-}
 
 /**
  * Catalog id → the `proposalType` string `dexe_proposal_create` accepts. The id
@@ -72,7 +54,7 @@ describe("default profile keeps every proposal capability", () => {
   let proposalTypes: string[];
 
   beforeAll(async () => {
-    const tools = await listTools(undefined);
+    const tools = (await listTools(undefined)).tools;
     defaultNames = tools.map((t) => t.name);
     const create = tools.find((t) => t.name === "dexe_proposal_create");
     expect(create, "dexe_proposal_create must be in the default profile").toBeDefined();

@@ -1,27 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { TOOLSETS, resolveToolsets, DEFAULT_TOOLSETS } from "../../src/tools/gate.js";
-import { registerAll } from "../../src/tools/index.js";
-import { loadConfig } from "../../src/config.js";
-
-/** Boot a real server with the given DEXE_TOOLSETS and return listed tools. */
-async function listTools(toolsetsEnv: string | undefined) {
-  if (toolsetsEnv === undefined) delete process.env.DEXE_TOOLSETS;
-  else process.env.DEXE_TOOLSETS = toolsetsEnv;
-  const config = await loadConfig();
-  const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerAll(server, config);
-  const client = new Client({ name: "test-client", version: "0.0.0" });
-  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await Promise.all([server.connect(serverT), client.connect(clientT)]);
-  const res = await client.listTools();
-  const bytes = Buffer.byteLength(JSON.stringify(res.tools), "utf8");
-  await client.close();
-  await server.close();
-  return { names: res.tools.map((t) => t.name).sort(), tools: res.tools, bytes };
-}
+import { listTools } from "../helpers/listTools.js";
 
 describe("resolveToolsets", () => {
   it("defaults to core alone when empty", () => {
@@ -185,12 +164,16 @@ describe("tool gating (real server)", () => {
     // surprise to save 300 bytes. Description trimming (WP-I) should win the
     // headroom back; do not raise again without a reason of the same kind.
     //
-    // TEMPORARY (0.34.0 integration): WP-C (warnings[] on ~40 builders) and
-    // WP-F (pagination + formatted-amount fields on the reads) each fit under
-    // 96_000 alone and land at 96,408 together. The line is 97_000 only until
-    // the description-lint package (WP-I) trims the descriptions; that package
-    // MUST restore `toBeLessThan(96_000)` and delete this paragraph.
-    expect(defaultBytes).toBeLessThan(97_000);
+    // 0.34.0, description lint: the headroom WAS won back. The default profile
+    // peaked at 96,555 B mid-integration (annotations + titles, then warnings[]
+    // on ~40 builders, then the read pagination/formatting fields) and the
+    // style pass brought it to well under the line again — chiefly by
+    // publishing `dexe_dao_create.params` opaquely (the fully-expanded ADVANCED
+    // deploy struct was 5 KB, 5% of everything a zero-config session reads,
+    // for the mode the tool's own first sentence says not to use) and by
+    // leading every description with one effect marker instead of a paragraph.
+    // The rules that keep it there are tests/tools/description-lint.test.ts.
+    expect(defaultBytes).toBeLessThan(96_000);
     // Well below the 0.30.x default it replaces — the whole point of the swap.
     expect(defaultBytes).toBeLessThan(134_263);
     // The default is now the "maximum slim" profile that used to require opting

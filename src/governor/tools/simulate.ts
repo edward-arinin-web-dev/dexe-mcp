@@ -64,10 +64,13 @@ function decodeRevert(data: string | undefined): string | null {
   return data;
 }
 
+/** OZ/Bravo ids are keccak-derived uint256s, not the 1-indexed DeXe counters. */
+const PID_GOV = "Proposal id from hashProposal, decimal or 0x-hex.";
+
 const governorIdSchema = z
   .string()
   .min(1)
-  .describe("Governor id (e.g. 'uniswap', 'compound', 'optimism') or 0x-prefixed governor contract address.");
+  .describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
 
 const uintLikeSchema = z.union([z.string(), z.number()]);
 
@@ -82,20 +85,23 @@ function registerSimulateProposal(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Dry-run Governor.execute() via eth_call",
       description:
-        "Encodes Governor.execute() for the given proposal (Bravo: proposalId; OZ: targets/values/calldatas + description or hash) and performs eth_call against the configured RPC. Returns {success, revertReason, decodedCall, currentState}. Note: this is a single-block dry-run, NOT a full fork-and-time-warp; proposals still in Queued state with unmet timelock ETA will return a revert with the timelock error. For full execution sim, run against a forked node with time advanced past the ETA.",
+        "Read-only. eth_call dry-run of Governor.execute() (Bravo: proposalId; OZ: targets/values/calldatas + description or hash), returning {success, revertReason, decodedCall, currentState}. Single-block only, not a fork-and-time-warp: a Queued proposal whose timelock ETA has not elapsed reverts with the timelock error.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z.string().optional().describe("Required on Bravo. For OZ, optional — provided for state lookup."),
-        targets: z.array(z.string()).optional().describe("OZ only."),
-        values: z.array(uintLikeSchema).optional().describe("OZ only."),
-        calldatas: z.array(z.string()).optional().describe("OZ only."),
+        proposalId: z
+          .string()
+          .optional()
+          .describe("Required on Bravo; on OZ optional, used for the state lookup. " + PID_GOV),
+        targets: z.array(z.string()).optional().describe("OZ only. Contract address per action."),
+        values: z.array(uintLikeSchema).optional().describe("OZ only. Native value per action, RAW base units (wei)."),
+        calldatas: z.array(z.string()).optional().describe("OZ only. 0x-hex calldata per action."),
         description: z.string().optional().describe("OZ only. Auto-hashed."),
         descriptionHash: z.string().optional().describe("OZ only. Use when description is unknown."),
         from: z
           .string()
           .optional()
           .describe("Caller for eth_call. Defaults to 0x0 — execute() is anyone-callable on both families."),
-        msgValue: uintLikeSchema.optional(),
+        msgValue: uintLikeSchema.optional().describe("Tx value for the eth_call, RAW base units (wei). Defaults to 0."),
       },
     },
     async (args) => {
@@ -172,12 +178,12 @@ function registerSimulateVoteImpact(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Project proposal outcome after a hypothetical vote",
       description:
-        "Reads current vote tallies + quorum, then projects what the outcome would be if `weight` units of voting power were cast with `support` (0=Against, 1=For, 2=Abstain). Pure projection — no on-chain side effects. Returns currentTallies, projectedTallies, quorumMet, willPass. Quorum counting follows the governor's COUNTING_MODE (`quorum.counting`): Bravo and CompoundGovernor count For only, vanilla OZ counts For+Abstain, Optimism counts For+Against+Abstain. `willPass` ignores any per-proposal-type approvalThreshold or voting module — see `caveats` when present.",
+        "Read-only. Reads the live tallies + quorum and projects the outcome if `weight` of voting power were cast with `support`. Returns currentTallies, projectedTallies, quorumMet, willPass. Quorum counting follows the governor's COUNTING_MODE (`quorum.counting`): Bravo and CompoundGovernor count For only, vanilla OZ counts For+Abstain, Optimism counts all three. `willPass` ignores any per-proposal-type approvalThreshold or voting module — see `caveats` when present.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z.string(),
-        support: z.number().int().min(0).max(2),
-        weight: z.string().describe("Hypothetical vote weight in wei (decimal string)."),
+        proposalId: z.string().describe(PID_GOV),
+        support: z.number().int().min(0).max(2).describe("0 = Against, 1 = For, 2 = Abstain."),
+        weight: z.string().describe("Hypothetical vote weight, RAW base units (wei), decimal string."),
       },
     },
     async ({ governor, proposalId, support, weight }) => {

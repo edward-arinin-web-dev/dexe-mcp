@@ -355,12 +355,10 @@ export function registerOperationalContextTools(
 
   server.tool(
     "dexe_context",
-    "Session orientation — call first when you need it (skip it when the user already named the DAO and chain). " +
-      "Returns the signer address + mode, configured chains, env readiness (RPC/IPFS/subgraph/signer), which " +
-      "toolsets are on/hidden and what the hidden unlock, your deposited power in the newest DAO, and the agent " +
-      "KEYRING (every persona you can sign as: signerKey, address, gas, 24h broadcasts) — how a multi-agent run " +
-      "finds its fleet. Persisted DAOs/proposals are WINDOWED to the newest few; the *Total fields carry the real " +
-      "counts and daoLimit/proposalLimit show more. Read-only; never writes.",
+    "Read-only. Session orientation — the signer address + mode, configured chains, env readiness " +
+      "(RPC/IPFS/subgraph/signer), which toolsets are on or hidden and what the hidden ones unlock, your deposited power " +
+      "in the newest DAO, and the agent KEYRING (signerKey, address, gas, 24h broadcasts per persona). Skip it when the " +
+      "user already named the DAO and chain. Persisted DAOs/proposals are WINDOWED; the *Total fields carry real counts.",
     {
       includeDepositedPower: z
         .boolean()

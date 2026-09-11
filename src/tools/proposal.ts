@@ -14,7 +14,7 @@ import {
 } from "../lib/subgraph.js";
 import { pageMeta, truncationNote } from "../lib/page.js";
 import { GOV_POWER_DECIMALS, formatUnitsWithSymbol } from "../lib/units.js";
-import { chainIdParam } from "../lib/params.js";
+import { chainIdParam, PROPOSAL_ID_DESC } from "../lib/params.js";
 import { proposalInteractionLabel } from "../lib/interactionTypes.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { untrustedResult } from "../lib/sanitize.js";
@@ -76,13 +76,11 @@ function registerProposalState(server: McpServer, ctx: ToolContext, rpc: RpcProv
     {
       title: "Live proposal state + required quorum",
       description:
-        "Reads `getProposalState`, `getProposalRequiredQuorum` and the proposal's votes on a GovPool in one " +
-        "multicall. Returns named state (Voting, Defeated, SucceededFor, ExecutedFor, …), the votes on both " +
-        "sides, and how far each side is from quorum. `requiredQuorum` is an ABSOLUTE vote weight, not a " +
-        "percentage; quorum is per-side — either For or Against clearing it reaches quorum.",
+        "Read-only. Reads `getProposalState`, `getProposalRequiredQuorum` and the proposal's votes in one multicall. " +
+        "`requiredQuorum` is an ABSOLUTE vote weight, not a percentage; quorum is per-side — either For or Against clearing it reaches quorum.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
-        proposalId: z.union([z.string(), z.number()]).describe("Proposal id (uint256)"),
+        proposalId: z.union([z.string(), z.number()]).describe(PROPOSAL_ID_DESC),
         chainId: chainIdParam,
       },
       outputSchema: {
@@ -223,14 +221,12 @@ function registerProposalList(server: McpServer, ctx: ToolContext, rpc: RpcProvi
     {
       title: "List proposals on a GovPool",
       description:
-        "Calls `GovPool.getProposals(offset, limit)` and returns a compact summary per proposal: id, " +
-        "descriptionURL, state, votesFor/Against, voteEnd, executed, and quorum progress. Quorum is per-side " +
-        "in DeXe — either For or Against clearing the target reaches it; `requiredQuorum` is an ABSOLUTE vote " +
-        "weight, not a percentage.",
+        "Read-only. Calls `GovPool.getProposals(offset, limit)` and adds quorum progress per proposal. Quorum is per-side — " +
+        "either For or Against clearing the target reaches it; `requiredQuorum` is an ABSOLUTE vote weight, not a percentage.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(20),
+        offset: z.number().int().min(0).default(0).describe("Proposals to skip; page with `nextOffset`."),
+        limit: z.number().int().min(1).max(100).default(20).describe("Max proposals per page."),
         chainId: chainIdParam,
       },
       outputSchema: {
@@ -378,16 +374,13 @@ function registerProposalVoters(server: McpServer, ctx: ToolContext): void {
     {
       title: "Voter list for a proposal (subgraph)",
       description:
-        "Paginated voter list for one proposal, from the DeXe POOLS subgraph (`proposalInteractions`). " +
-        "`chainId` selects which chain's subgraph is queried (default: the MCP's default chain) and the " +
-        "response reports `indexedChainId` = where the rows came from. A chain with no pools endpoint " +
-        "returns an error naming DEXE_SUBGRAPH_POOLS_URL_<chainId> and the on-chain alternatives — it never " +
-        "answers from another chain's index.",
+        "Read-only. Paginated voter list for one proposal from the pools subgraph (`proposalInteractions`). `chainId` picks " +
+        "the chain and the reply reports `indexedChainId`; a chain with no pools endpoint errors rather than answering from another index.",
       inputSchema: {
         govPool: z.string().describe("GovPool address (used as filter on `pool` field)"),
-        proposalId: z.union([z.string(), z.number()]),
-        first: z.number().int().min(1).max(200).default(50),
-        skip: z.number().int().min(0).default(0),
+        proposalId: z.union([z.string(), z.number()]).describe(PROPOSAL_ID_DESC),
+        first: z.number().int().min(1).max(200).default(50).describe("Max voter rows per page."),
+        skip: z.number().int().min(0).default(0).describe("Voter rows to skip; page with `nextSkip`."),
         chainId: chainIdParam,
       },
       outputSchema: {

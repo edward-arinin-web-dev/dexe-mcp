@@ -57,9 +57,9 @@ const ERC20_ABI = new Interface([
 ]);
 
 const ActionSchema = z.object({
-  executor: z.string(),
-  value: z.string().default("0"),
-  data: z.string().default("0x"),
+  executor: z.string().describe("Target contract the action calls."),
+  value: z.string().default("0").describe("Native coin sent with the call, in wei."),
+  data: z.string().default("0x").describe("ABI-encoded calldata, 0x-hex."),
 });
 
 function errorResult(message: string) {
@@ -136,7 +136,9 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
     {
       title: "Treasury-safety risk readout for a proposal (or hypothetical actions)",
       description:
-        "Assesses low-quorum treasury risk AND privileged no-value governance calls (blacklist, pause, changeVotePower, add/editSettings, changeExecutors, changeBalances). Pass `proposalId` for an on-chain proposal or `actions` for a hypothetical set. Reports quorum %, the safe floor, treasury tokens at risk, `governanceHits`, the supply share needed for quorum, and a verdict. SAFE means 'no risk of the kinds this tool classifies', never 'this proposal is safe'. Read-only.",
+        "Read-only. Assesses low-quorum treasury risk and privileged no-value governance calls (blacklist, pause, " +
+        "changeVotePower, add/editSettings, changeExecutors, changeBalances). SAFE means 'no risk of the kinds this tool " +
+        "classifies', never 'this proposal is safe'.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         proposalId: z.number().int().min(1).optional().describe("On-chain proposal id (1-indexed) to assess"),

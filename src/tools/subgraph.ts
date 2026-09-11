@@ -16,7 +16,7 @@ import {
 } from "../lib/subgraph.js";
 import { pageMeta, truncationNote } from "../lib/page.js";
 import { GOV_POWER_DECIMALS, withFormatted } from "../lib/units.js";
-import { SUBGRAPH_KINDS, subgraphEnvVar } from "../config.js";
+import { SUBGRAPH_KINDS } from "../config.js";
 import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
 import { chainIdParam } from "../lib/params.js";
@@ -67,28 +67,26 @@ function resolveEndpoint(
 }
 
 /**
- * The chain paragraph appended to each tool description, built at registration
+ * The chain sentence appended to each tool description, built at registration
  * from the endpoints this install actually has. A hardcoded "BSC mainnet only"
  * sentence goes stale the moment someone sets DEXE_SUBGRAPH_POOLS_URL_97.
  *
- * The on-chain alternatives are listed default-visible ones FIRST, and the
- * gated ones carry `(needs DEXE_TOOLSETS=…)`. Three of the tools that append
- * this note (dao_list / dao_members / delegation_map) are in the default
- * profile, so an unqualified "read it on-chain with dexe_read_multicall" told a
- * zero-config session to call a tool it does not have.
+ * Deliberately terse: six tools pay it on every `tools/list`, three of them in
+ * the default profile. The env var to set and the on-chain alternatives live in
+ * the resolver's own error message (see `resolveEndpoint`), which is what the
+ * caller actually sees when a chain has no endpoint — repeating them here cost
+ * ~300 bytes per tool for text nobody reads until it is already on screen.
  */
 function chainNote(ctx: ToolContext, kind: SubgraphKind): string {
   const indexed = subgraphChains(ctx.config, kind);
   const where = indexed.length
     ? `chains with a ${kind} endpoint here: ${indexed.join(", ")}`
-    : `NO chain has a ${kind} endpoint here`;
+    : `no ${kind} endpoint configured`;
   return (
-    ` Chain-explicit: pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); ` +
-    `the response reports \`indexedChainId\` = the chain the rows came from. A chain with no endpoint ` +
-    `returns an error naming ${subgraphEnvVar(kind)}_<chainId> plus the on-chain alternatives ` +
-    `(dexe_proposal_list / dexe_read_settings / dexe_dao_info; also dexe_read_gov_state ` +
-    `(needs DEXE_TOOLSETS=core,dev) and dexe_read_multicall (needs DEXE_TOOLSETS=core,read)) — ` +
-    `it never answers from another chain.`
+    ` Pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); the reply echoes ` +
+    `\`indexedChainId\`, never another chain's rows. No endpoint for a chain = an error; read it on-chain ` +
+    `with dexe_read_multicall (needs DEXE_TOOLSETS=core,read) or dexe_read_gov_state ` +
+    `(needs DEXE_TOOLSETS=core,dev).`
   );
 }
 
@@ -308,9 +306,8 @@ function graphQueryChainNote(ctx: ToolContext): string {
     (k) => `${k}: ${subgraphChains(ctx.config, k).join("/") || "none"}`,
   ).join(", ");
   return (
-    `Chain-explicit: pass \`chainId\` (endpoints here — ${per}; default ${ctx.config.defaultChainId}); ` +
-    "the response reports `indexedChainId`. A chain with no endpoint for the chosen subgraph errors " +
-    "(naming DEXE_SUBGRAPH_<KIND>_URL_<chainId>) instead of serving another chain's rows."
+    `\`chainId\` picks the endpoint (${per}; default ${ctx.config.defaultChainId}); ` +
+    "the reply echoes `indexedChainId`, never another chain's rows."
   );
 }
 
@@ -429,15 +426,10 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
       // ships as dexe://graph-schema — what stays is only what a caller cannot
       // recover after the fact: the traps that make a query silently wrong.
       description:
-        "Read-only GraphQL against a DeXe subgraph — 'pools' (DAOs, proposals, voters, delegations, experts, token sales), " +
-        "'interactions' (per-user tx/event feed), 'validators' (validator chamber). " +
-        "Bound every list with `first:` (max 1000), page with `skip:`; oversized responses are rejected. " +
-        "NEVER guess a name: dexe_graph_schema returns the live root fields, an entity's fields, its `<Entity>_filter` " +
-        "where-keys and `<Entity>_orderBy` values; static copy = dexe://graph-schema. " +
-        "Root fields are NOT entity names (DaoPool → `daoPools`, ProposalSettings → `proposalSettings_collection`). " +
-        "pools Proposal has NO `creationTime` — order by `votersVoted`/`quorumReachedTimestamp`/`executionTimestamp`, " +
-        "or use DaoPool.creationTime. Example: subgraph='pools', query='{ proposals(first: 20, orderBy: votersVoted, " +
-        "orderDirection: desc) { proposalId votersVoted pool { id name } } }'. " +
+        "Read-only. GraphQL against a DeXe subgraph: 'pools' (DAOs, proposals, voters, delegations, experts, sales), " +
+        "'interactions' (per-user tx feed), 'validators'. Bound every list with `first:` (max 1000), page with `skip:`; " +
+        "oversized responses are rejected. NEVER guess a name — call dexe_graph_schema; root fields are not entity names " +
+        "(DaoPool -> `daoPools`). " +
         graphQueryChainNote(ctx),
       inputSchema: {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
@@ -702,16 +694,10 @@ function registerGraphSchema(server: McpServer, ctx: ToolContext): void {
     {
       title: "Introspect a DeXe subgraph schema (entities, fields, root query names)",
       description:
-        "Live GraphQL introspection of a DeXe subgraph — the recovery path when dexe_graph_query returns " +
-        "\"Type 'X' has no field 'Y'\" or you do not know what to type. NEVER guess a field name; call this instead. " +
-        "Omit `entity` for the ROOT QUERY FIELD MAP: every entity plus the exact field name to query it by. " +
-        "Those names are not derivable from the entity — DaoPool is `daoPools`, ProposalSettings is " +
-        "`proposalSettings_collection`, DPContract is `dpcontracts`. " +
-        "Pass `entity` (e.g. 'Proposal') for that type's fields with their GraphQL types; an unknown name returns " +
-        "ranked 'did you mean' candidates rather than an error you cannot act on. " +
-        "Filter and sort vocabularies are types too: ask for '<Entity>_filter' (every `where:` key, e.g. " +
-        "`name_contains_nocase`, `timestamp_gt`) or '<Entity>_orderBy'. " +
-        "Static entity reference (may lag the deployed schema): MCP resource dexe://graph-schema. " +
+        "Read-only. Live introspection of a DeXe subgraph schema — the recovery path when dexe_graph_query answers " +
+        "\"Type 'X' has no field 'Y'\". Omit `entity` for the root query field map (each entity -> the field name to query " +
+        "it by); pass `entity` for that type's fields, '<Entity>_filter' for valid `where:` keys, '<Entity>_orderBy' for " +
+        "valid `orderBy:` values. An unknown name returns ranked candidates. " +
         graphQueryChainNote(ctx),
       inputSchema: {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to introspect"),
@@ -819,12 +805,12 @@ function registerDaoList(server: McpServer, ctx: ToolContext): void {
     {
       title: "Discover and list DAOs (subgraph)",
       description:
-        "Paginated DAO discovery via the pools subgraph. Search by name (case-insensitive), ordered by voter count descending." +
+        "Read-only. Paginated DAO discovery via the pools subgraph; name search is case-insensitive, ordered by voter count descending." +
         chainNote(ctx, "pools"),
       inputSchema: {
         query: z.string().default("").describe("Name search (case-insensitive, empty = all)"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(20),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(20).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -872,12 +858,12 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
     {
       title: "List DAO members with voting power (subgraph)",
       description:
-        "Paginated member list for a DAO — includes voting power, delegation counts, rewards, expert status." +
+        "Read-only. Paginated member list for a DAO — voting power, delegation counts, rewards, expert status." +
         chainNote(ctx, "pools"),
       inputSchema: {
         govPool: z.string().describe("GovPool address (lowercased for subgraph)"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(20),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(20).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -976,7 +962,7 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
     {
       title: "Delegation relationships — outgoing or incoming (subgraph)",
       description:
-        "Query delegation pairs from the pools subgraph. Use direction='outgoing' to see who a user delegated to, or 'incoming' to see who delegated to them." +
+        "Read-only. Delegation pairs from the pools subgraph: direction='outgoing' = who a user delegated to, 'incoming' = who delegated to them." +
         chainNote(ctx, "pools"),
       inputSchema: {
         addresses: z
@@ -986,8 +972,8 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
             "Voter WALLET addresses (plain 0x…40-hex). Composite VoterInPool ids ('govPool-voter' or 80-hex 'voter+pool' concatenations) are also accepted — the voter part is extracted automatically.",
           ),
         direction: z.enum(["outgoing", "incoming"]).default("outgoing").describe("outgoing = who I delegated to; incoming = who delegated to me"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(50).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -1047,11 +1033,11 @@ function registerValidatorList(server: McpServer, ctx: ToolContext): void {
     {
       title: "List validators in a DAO (subgraph)",
       description:
-        "Paginated validator list ordered by balance descending." + chainNote(ctx, "validators"),
+        "Read-only. Paginated validator list ordered by balance descending." + chainNote(ctx, "validators"),
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(50).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -1095,12 +1081,12 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
     {
       title: "User transaction history across DAOs (subgraph)",
       description:
-        "Paginated transaction history for a user — proposals created, votes cast, delegations, claims. Ordered by timestamp descending." +
+        "Read-only. Paginated transaction history for a user — proposals created, votes cast, delegations, claims, newest first." +
         chainNote(ctx, "interactions"),
       inputSchema: {
         user: z.string().describe("User wallet address"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(50).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -1139,12 +1125,12 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
     {
       title: "List local experts in a DAO (subgraph)",
       description:
-        "Paginated list of local experts (holders of DAO-specific expert NFTs) with their delegation info." +
+        "Read-only. Paginated list of local experts (holders of DAO-specific expert NFTs) with their delegation info." +
         chainNote(ctx, "pools"),
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(50).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -1232,8 +1218,10 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
     {
       title: "List OTC sale tiers for a DAO",
       description:
-        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with `totalSold` and status (`upcoming` / `active` / `ended` / `off`) computed against current block timestamp and the tier's on-chain isOff flag. Pure on-chain read — no subgraph involved, so it works on any chain with an RPC. `chainId` selects the chain (defaults to the MCP's default chain) and the response echoes the resolved `chainId`. " +
-        "When `tokenSaleProposal` is omitted the tool returns an error pointing at the helper-discovery follow-up; supply it explicitly until per-DAO helper discovery lands.",
+        "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with " +
+        "`totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's " +
+        "on-chain isOff flag. On-chain only — any chain with an RPC; the reply echoes the resolved `chainId`. " +
+        "`tokenSaleProposal` is required.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         tokenSaleProposal: z

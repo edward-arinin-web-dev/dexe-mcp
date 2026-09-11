@@ -636,20 +636,16 @@ export function registerDaoCreateTools(
 
   server.tool(
     "dexe_dao_create",
-    "Create (deploy) a new DeXe DAO in ONE call. SIMPLE mode (recommended): pass `symbol` + `totalSupply` " +
-      "(+ optional `treasuryPercent`/`quorumPercent`/`voteModel`/`minVotesTokens`/`earlyCompletion`/`recipients`) and the tool synthesizes a coherent, " +
-      "frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a quorum that passes on " +
-      "realistic turnout — omit treasuryPercent/quorumPercent and it picks a governable split). It " +
-      "returns a `preview` of the resolved config + a safety proof and only broadcasts on a second call with " +
-      "`confirm: true`. ADVANCED mode: pass a full `params` deploy struct. Either way the deploy runs the same " +
-      "governance coherence guards the frontend enforces — applied to ALL FIVE settings slots (default / internal / " +
-      "validators / distribution / tokenSale), since one un-passable slot bricks that whole class of proposal " +
-      "forever: unreachable quorum, quorum needing implausible turnout, min-votes above every holder, " +
-      "out-of-range settings, name collision. Plus a calldata round-trip self-check and a pre-sign eth_call SIMULATION: " +
-      "a provable revert is refused with a classified cause + fix BEFORE any gas is spent; an RPC outage only " +
-      "downgrades to a warning. On success the result includes readiness + nextSteps. Mainnet (56) needs " +
-      "`confirm: true` (real BNB); validate on testnet (97) first. `deployer` defaults to the signer. " +
-      "Unsure of the journey or params? Call dexe_guide (flow:'create_dao') first.",
+    "Broadcasts when a signer is configured. Deploys a new DeXe DAO in ONE call. SIMPLE mode (recommended): " +
+      "pass `symbol` + `totalSupply` and the tool synthesizes a coherent, frontend-equivalent config (LINEAR " +
+      "power, treasury as an implicit remainder, a quorum that passes on realistic turnout). ADVANCED mode: " +
+      "pass a full `params` struct. Returns a `preview` of the resolved config + a safety proof and broadcasts " +
+      "only with `confirm: true`. Runs the frontend's governance coherence guards over ALL FIVE settings slots " +
+      "(default / internal / validators / distribution / tokenSale) — one un-passable slot bricks that whole " +
+      "proposal class forever — plus a calldata round-trip self-check and a pre-sign eth_call: a provable revert " +
+      "is refused with a classified cause + fix BEFORE any gas is spent, while an RPC outage only downgrades to " +
+      "a warning. Mainnet (56) always needs `confirm: true` (real BNB); validate on testnet (97) first. " +
+      "`deployer` defaults to the signer. Unsure of the journey or params? Call dexe_guide (flow:'create_dao').",
     {
       chainId: z
         .number()
@@ -664,14 +660,19 @@ export function registerDaoCreateTools(
         .describe("tx.origin that sends the deploy (needed for address prediction). Defaults to the signer address."),
       daoName: z.string().min(1).describe("DAO name (also the deployGovPool pool name)"),
       daoDescription: z.string().default("").describe("DAO description (markdown; uploaded to IPFS as slate)"),
-      websiteUrl: z.string().default(""),
+      websiteUrl: z.string().default("").describe("DAO website URL shown on its profile."),
       socialLinks: z.array(z.tuple([z.string(), z.string()])).default([]).describe("[[network, url], ...]"),
       documents: z
-        .array(z.object({ name: z.string(), url: z.string() }))
+        .array(
+          z.object({
+            name: z.string().describe("Link label shown on the DAO profile."),
+            url: z.string().describe("Document URL."),
+          }),
+        )
         .default([])
         .describe('External documents shown on the DAO profile, e.g. [{ name: "Whitepaper", url: "https://..." }]'),
       avatarCID: z.string().default("").describe("IPFS CID of an already-pinned JPEG avatar (dexe_ipfs_upload_avatar)"),
-      avatarFileName: z.string().default("avatar.jpeg"),
+      avatarFileName: z.string().default("avatar.jpeg").describe("File name stored alongside avatarCID."),
       avatarPath: z.string().default("").describe(
         "Local avatar image path (JPEG/PNG/WebP/GIF ≤10 MB) — server validates + pins it. Preferred over avatarCID.",
       ),
@@ -687,8 +688,8 @@ export function registerDaoCreateTools(
         .max(100)
         .optional()
         .describe(
-          `SIMPLE mode: % of supply held by the DAO treasury (implicit remainder — cannot vote). ` +
-            `Omit to let the tool pick one that leaves a real voting margin (default ${SAFE_DEFAULT_TREASURY_PCT}).`,
+          `SIMPLE mode: treasury share, percent 0-100 (implicit remainder; it cannot vote). Omit and the tool ` +
+            `picks one that leaves a real voting margin (default ${SAFE_DEFAULT_TREASURY_PCT}).`,
         ),
       quorumPercent: z
         .number()
@@ -696,10 +697,9 @@ export function registerDaoCreateTools(
         .max(100)
         .optional()
         .describe(
-          `SIMPLE mode: quorum %. Omit to let the tool pick (default ${SAFE_DEFAULT_QUORUM_PCT}). Must be ≥50 ` +
-            `(treasury safety) and low enough that clearing it needs at most ${QUORUM_TURNOUT_CEILING * 100}% of ` +
-            `the votable supply to turn out — a quorum equal to the votable share demands 100% turnout and ` +
-            `freezes the DAO forever.`,
+          `SIMPLE mode: quorum, percent 0-100. Omit and the tool picks (default ${SAFE_DEFAULT_QUORUM_PCT}). Must ` +
+            `be >=50 and clearable by at most ${QUORUM_TURNOUT_CEILING * 100}% turnout — a quorum equal to the ` +
+            `votable share freezes the DAO forever.`,
         ),
       voteModel: z
         .enum(["LINEAR", "POLYNOMIAL"])
@@ -714,35 +714,48 @@ export function registerDaoCreateTools(
           "SIMPLE mode: min tokens to vote AND create proposals, WHOLE tokens. Default '1'. Must be ≤ the largest holder's allocation.",
         ),
       recipients: z
-        .array(z.object({ address: z.string(), percent: z.number().gt(0).max(100) }))
+        .array(
+          z.object({
+            address: z.string().describe("Wallet receiving this slice of the supply."),
+            percent: z.number().gt(0).max(100).describe("Share of TOTAL supply, percent 0-100."),
+          }),
+        )
         .default([])
         .describe(
-          "SIMPLE mode: split the votable share across wallets (default: deployer only). `percent` of TOTAL supply; " +
-            "must sum to 100 − treasuryPercent. List the deployer explicitly to give them tokens.",
+          "SIMPLE mode: split the votable share across wallets (default: deployer only). Percents are of TOTAL " +
+            "supply and must sum to 100 − treasuryPercent.",
         ),
       earlyCompletion: z
         .boolean()
         .default(true)
         .describe("SIMPLE mode: end voting as soon as the quorum is reached. Default true."),
-      params: DaoCreateDeployParams.optional().describe(
-        "ADVANCED mode: full deployGovPool params. Omit to use SIMPLE mode (symbol + totalSupply).",
-      ),
+      // Published OPAQUE on purpose. The fully-expanded GovPoolDeployParams
+      // struct serializes to ~5 KB — 5% of the whole default-profile
+      // tools/list — for the mode this tool's own first sentence tells callers
+      // not to use. Validation is unchanged: the same schema runs in the
+      // handler (see the safeParse below), so per-field errors still name the
+      // offending path. The typed surface lives on dexe_dao_build_deploy.
+      params: z
+        .record(z.unknown())
+        .optional()
+        .describe(
+          "ADVANCED mode: the full deployGovPool params struct. Prefer SIMPLE mode. Field-by-field schema: " +
+            "dexe_dao_build_deploy (needs DEXE_TOOLSETS=core,dev).",
+        ),
       confirmRisky: z
         .boolean()
         .default(false)
         .describe(
-          "Proceed despite a governance-safety refusal (quorum below the safety floor, or a quorum that needs " +
-            "an implausible turnout). Read the returned `risks` to the user FIRST — these configs cannot be " +
-            "repaired after deploy, because repairing them requires passing a proposal. Ignored when " +
-            "DEXE_TREASURY_GUARD=block.",
+          "Proceed despite a governance-safety refusal. Read the returned `risks` to the user FIRST — such a " +
+            "config cannot be repaired after deploy, because repairing it needs a proposal passed under it. " +
+            "Ignored when DEXE_TREASURY_GUARD=block.",
         ),
       confirm: z
         .boolean()
         .default(false)
         .describe(
-          "Set true to actually broadcast. Without it, SIMPLE mode and any mainnet deploy return a review-only preview. " +
-            "ONE-CALL PATH: when the user has already explicitly approved deploying (they said 'deploy it' / confirmed the " +
-            "parameters), pass confirm:true on the FIRST call — no preview round-trip needed.",
+          "True to actually broadcast; without it SIMPLE mode and any mainnet deploy return a review-only " +
+            "preview. Pass it on the FIRST call when the user has already approved the deploy.",
         ),
       dryRun: z
         .boolean()
@@ -773,7 +786,21 @@ export function registerDaoCreateTools(
       let deployParams: DaoCreateParams;
       let split: QuorumSplit = { treasuryPercent: 0, quorumPercent: 0, adjustments: [] };
       if (input.params) {
-        deployParams = input.params;
+        // `params` is published opaquely (see the schema note) — re-apply the
+        // real struct here so validation, defaults and error paths are exactly
+        // what the typed schema produced before.
+        const parsed = DaoCreateDeployParams.safeParse(input.params);
+        if (!parsed.success) {
+          return err(
+            "ADVANCED `params` is not a valid GovPoolDeployParams struct: " +
+              parsed.error.issues
+                .map((i) => `params.${i.path.join(".") || "(root)"}: ${i.message}`)
+                .join("; ") +
+              ". Field-by-field schema: dexe_dao_build_deploy (set DEXE_TOOLSETS=core,dev). " +
+              "Or use SIMPLE mode: pass symbol + totalSupply and omit params.",
+          );
+        }
+        deployParams = parsed.data;
       } else {
         if (!input.symbol || !input.totalSupply) {
           return err(

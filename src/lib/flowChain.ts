@@ -41,15 +41,14 @@ export const flowContextSchema = z
   }, flowContextObject)
   .optional()
   .describe(
-    "Guided-flow position, pre-filled by dexe_guide's step templates. When present, the success payload " +
-      "gains flowProgress + next (what to call next) and the position persists across sessions.",
+    "Guided-flow position from dexe_guide's step templates. Adds flowProgress + next to the result and persists it.",
   );
 
 export type FlowContext = { flow: string; step: string };
 
 export interface FlowChainFields {
   flowProgress?: { flow: string; title: string; step: string; stepIndex: number; of: number };
-  next?: Array<{ tool: string; when: string; why: string }>;
+  next?: Array<{ tool: string; when: string; why: string; params?: Record<string, string>; paramsNote?: string }>;
   flowDone?: boolean;
 }
 

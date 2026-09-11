@@ -23,9 +23,7 @@ const CHAIN_NAMES: Record<number, string> = {
 export function registerGetConfigTool(server: McpServer, config: DexeConfig, signer: SignerManager): void {
   server.tool(
     "dexe_get_config",
-    "Diagnostic: returns the MCP's chain set, default chain, and signer status. " +
-      "Call this once at session start when you're unsure which chain the server is configured for. " +
-      "Read-only — never writes or broadcasts.",
+    "Read-only, local. The MCP's chain set, default chain, and signer status.",
     {
       _placeholder: z.boolean().optional().describe("Unused; tool takes no input."),
     },

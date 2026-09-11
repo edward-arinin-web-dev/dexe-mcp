@@ -8,7 +8,7 @@ import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "./otc.js";
 import { DEFAULTS } from "../config.js";
-import { chainIdParam } from "../lib/params.js";
+import { backendChainIdParam, chainIdParam, govPoolParam } from "../lib/params.js";
 import { toActionableError } from "../lib/errors.js";
 import { pageMeta, truncationNote } from "../lib/page.js";
 import { GOV_POWER_DECIMALS, formatUnitsWithSymbol, withFormatted } from "../lib/units.js";
@@ -104,22 +104,29 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Arbitrary batched eth_call via Multicall3",
       description:
-        "Execute N independent view calls in a single RPC round-trip. Each call supplies its own ABI signature fragment, target, method, and args. Results are decoded per-call.",
+        "Read-only. N independent view calls in one Multicall3 round-trip; each supplies its own ABI signature fragment, target, method and args.",
       inputSchema: {
         chainId: chainIdParam,
         calls: z
           .array(
             z.object({
-              target: z.string(),
+              target: z.string().describe("Contract address to call."),
               signature: z
                 .string()
                 .describe("Full function signature, e.g. 'function balanceOf(address) view returns (uint256)'"),
               method: z.string().describe("Method name matching the signature"),
-              args: z.array(z.unknown()).default([]),
-              allowFailure: z.boolean().default(true),
+              args: z
+                .array(z.unknown())
+                .default([])
+                .describe("Positional args; pass uint256 values as decimal strings."),
+              allowFailure: z
+                .boolean()
+                .default(true)
+                .describe("false = one reverting call fails the whole batch."),
             }),
           )
-          .min(1),
+          .min(1)
+          .describe("The view calls to batch (at least one)."),
       },
       outputSchema: {
         results: z.array(
@@ -238,19 +245,16 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Native + ERC20 balances (with USD) for a DAO or arbitrary address",
       description:
-        "Treasury / wallet balances for any address; pass a GovPool address for a DAO treasury. Auto-discovers EVERY token via the DeXe backend (same source as app.dexe.io) with USD prices + a total. Reads on-chain instead on chain 97, when `tokens` are given, or when the backend fails — that RPC path has no token discovery and reports `degraded: true`.",
+        "Read-only. Treasury / wallet balances for any address; pass a GovPool address for a DAO treasury. Auto-discovers " +
+        "EVERY token via the DeXe backend with USD prices and a total. Falls back to an on-chain read (chain 97, explicit " +
+        "`tokens`, or a backend failure) — no token discovery there, and it reports `degraded: true`.",
       inputSchema: {
         holder: z.string().describe("Address whose balances we read"),
         tokens: z
           .array(z.string())
           .default([])
           .describe("Optional explicit ERC20 addresses; forces on-chain RPC read of just these"),
-        chainId: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe("Chain to query (defaults to the configured default chain)"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         holder: z.string(),
@@ -633,10 +637,10 @@ function registerTokenHolders(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Top holders of an ERC20 token (with balances)",
       description:
-        "Holders + raw balances for any ERC20 from the DeXe backend, balance desc, one page at a time (see `pageToken`). Mainnets only (1, 56).",
+        "Read-only. Holders + raw balances for any ERC20 from the DeXe backend, balance desc, one page per call (see `pageToken`). Mainnets only (1, 56).",
       inputSchema: {
         token: z.string().describe("ERC20 token contract address"),
-        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
+        chainId: backendChainIdParam,
         pageSize: z
           .number()
           .int()
@@ -720,10 +724,11 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
     {
       title: "DAO TVL + activity stats time series",
       description:
-        "Time series of DAO stats (tvl_usd, member counts, proposal counts, delegations) from the DeXe tracker — the app.dexe.io profile chart source. `period` is a human duration like '24 hours', '7 days', '1 months'. Backend-only — mainnets.",
+        "Read-only. Time series of DAO stats (tvl_usd, member counts, proposal counts, delegations) from the DeXe tracker. " +
+        "`period` is a human duration like '24 hours', '7 days', '1 months'. Backend-only — mainnets.",
       inputSchema: {
         govPool: z.string().describe("GovPool / DAO address"),
-        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
+        chainId: backendChainIdParam,
         period: z.string().default("7 days").describe("Duration window, e.g. '24 hours', '7 days', '1 months'"),
         maxPoints: z
           .number()
@@ -805,7 +810,9 @@ function registerProtocolStats(server: McpServer): void {
     {
       title: "Protocol-wide stats — TVL, proposals, DAOs across chains",
       description:
-        "The app.dexe.io landing-page numbers: total TVL across ALL DAOs (server-side aggregated over `chainIds`), total proposals created, total DAO count, voting-locked token value, 24h change percents, and a TVL time series. Optionally includes the top-N DAOs by TVL per chain (name, addresses, token symbol, TVL, treasury). Backend-only — mainnets (1, 56).",
+        "Read-only. The app.dexe.io landing numbers: TVL across ALL DAOs (aggregated over `chainIds`), proposals created, " +
+        "DAO count, voting-locked token value, 24h change percents, a TVL series, and optionally the top-N DAOs by TVL. " +
+        "Backend-only — mainnets (1, 56).",
       inputSchema: {
         chainIds: z
           .array(z.number().int().positive())
@@ -927,10 +934,10 @@ function registerNftsByWallet(server: McpServer, rpc: RpcProvider): void {
     {
       title: "NFTs held by an address",
       description:
-        "Lists NFTs owned by any address via the DeXe backend (Moralis-backed, same source as app.dexe.io). Backend-only — mainnets, not testnet 97.",
+        "Read-only. NFTs owned by any address via the DeXe backend (Moralis-backed). Backend-only — mainnets, not testnet 97.",
       inputSchema: {
         holder: z.string().describe("Address whose NFTs we read"),
-        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
+        chainId: backendChainIdParam,
         tokens: z.array(z.string()).default([]).describe("Optional NFT contract addresses to filter by"),
         pageSize: z
           .number()
@@ -1028,9 +1035,8 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Validator count + isValidator lookup",
       description:
-        "Reads `validatorsCount()` and optionally checks `isValidator(candidate)` on the DAO's GovValidators contract. " +
-        "Also returns the validators' monthly credit lines (GovPool.getCreditInfo) — an internal monthly_withdraw " +
-        "against an unfunded/insufficient line reverts.",
+        "Read-only. Reads `validatorsCount()` and optionally `isValidator(candidate)` on the DAO's GovValidators, plus the " +
+        "validators' monthly credit lines (GovPool.getCreditInfo) — an internal monthly_withdraw against an unfunded line reverts.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         candidate: z.string().optional().describe("Optional address to check validator status for"),
@@ -1209,9 +1215,10 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Default + internal proposal settings for a DAO",
       description:
-        "Reads `GovSettings.getDefaultSettings()` and `getInternalSettings()` on the DAO's settings contract.",
+        "Read-only. Reads `GovSettings.getDefaultSettings()` and `getInternalSettings()` for the DAO at `govPool` — quorum, " +
+        "duration, executionDelay, minVotesForCreating/Voting.",
       inputSchema: {
-        govPool: z.string(),
+        govPool: govPoolParam,
         chainId: chainIdParam,
       },
       outputSchema: {
@@ -1273,10 +1280,10 @@ function registerExpertStatus(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Expert + BABT status for a user in a DAO",
       description:
-        "Reads `GovPool.getExpertStatus(user)` and, if a BABT contract is configured on the DAO, `BABT.balanceOf(user) > 0`.",
+        "Read-only. Reads `GovPool.getExpertStatus(user)` and, when the DAO has a BABT contract, `BABT.balanceOf(user) > 0`.",
       inputSchema: {
-        govPool: z.string(),
-        user: z.string(),
+        govPool: govPoolParam,
+        user: z.string().describe("Wallet address to check."),
         chainId: chainIdParam,
       },
       outputSchema: {
@@ -1338,7 +1345,7 @@ function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read token sale tier details",
       description:
-        "Reads tier count via `latestTierId()` and tier details via `getTierViews(offset, limit)` from a TokenSaleProposal contract.",
+        "Read-only. Reads `latestTierId()` and `getTierViews(offset, limit)` on a TokenSaleProposal.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         offset: z.number().default(0).describe("Pagination offset"),
@@ -1397,7 +1404,7 @@ function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read user participation status in token sale tiers",
       description:
-        "Reads `getUserViews(user, tierIds)` from a TokenSaleProposal — returns per-tier purchase status, claimable amounts, and vesting info.",
+        "Read-only. Reads `getUserViews(user, tierIds)` on a TokenSaleProposal — per-tier purchase status, claimable amounts, vesting info.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         user: z.string().describe("User address to query"),
@@ -1443,7 +1450,7 @@ function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Check claimable amounts for distribution proposals",
       description:
-        "For each proposal ID, reads `isClaimed(proposalId, voter)` and `getPotentialReward(proposalId, voter)` from a DistributionProposal contract.",
+        "Read-only. Per proposal id, reads `isClaimed(proposalId, voter)` and `getPotentialReward(proposalId, voter)` on a DistributionProposal.",
       inputSchema: {
         distributionProposal: z.string().describe("DistributionProposal contract address"),
         voter: z.string().describe("Voter address to check"),
@@ -1514,7 +1521,8 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read staking tier details and user info",
       description:
-        "Reads `stakingsCount()` and `getActiveStakings()` from a StakingProposal. Pass either the StakingProposal address directly OR a `govPool` — the tool resolves the StakingProposal via GovPool.getHelperContracts().userKeeper → GovUserKeeper.stakingProposalAddress() (the same way create_staking_tier does). Optionally reads `getUserInfo(user)` for a specific user's staked amounts and pending rewards.",
+        "Read-only. Reads `stakingsCount()` and `getActiveStakings()` on a StakingProposal — pass its address, or a `govPool` " +
+        "to resolve it via GovUserKeeper.stakingProposalAddress(). With `user`, also reads `getUserInfo(user)`.",
       inputSchema: {
         stakingProposal: z
           .string()
@@ -1630,7 +1638,7 @@ function registerPrivacyPolicyStatus(server: McpServer, rpc: RpcProvider): void 
     {
       title: "Check privacy policy agreement status",
       description:
-        "Reads `UserRegistry.documentHash()` and `UserRegistry.agreed(user)`. Returns the current policy hash and whether the user has agreed.",
+        "Read-only. Reads `UserRegistry.documentHash()` and `agreed(user)` — the current policy hash and whether the user agreed.",
       inputSchema: {
         userRegistry: z.string().describe("UserRegistry contract address"),
         user: z.string().describe("User address to check"),

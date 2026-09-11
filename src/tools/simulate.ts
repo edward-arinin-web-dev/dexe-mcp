@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { SignerManager } from "../lib/signer.js";
 import { RpcProvider } from "../rpc.js";
-import { chainIdParam } from "../lib/params.js";
+import { chainIdParam, govPoolParam, PROPOSAL_ID_DESC } from "../lib/params.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
 function errorResult(message: string) {
@@ -194,12 +194,11 @@ export function registerSimulateTools(
   // =============================================
   server.tool(
     "dexe_sim_calldata",
-    "Preflight any tx via eth_call against live state with optional caller override. " +
-      "Returns success/revertReason/gasEstimate without spending gas. Decodes Error(string) " +
-      "and Panic(uint256) revert payloads when the node returns them.",
+    "Read-only. Preflights any tx via eth_call against live state: success / revertReason / " +
+      "gasEstimate, no gas spent. Decodes Error(string) and Panic(uint256) payloads.",
     {
-      to: z.string(),
-      data: z.string(),
+      to: z.string().describe("Destination contract address (TxPayload.to)."),
+      data: z.string().describe("ABI-encoded calldata, 0x-prefixed (TxPayload.data)."),
       value: z.string().optional().describe("wei, decimal string"),
       from: z
         .string()
@@ -237,13 +236,12 @@ export function registerSimulateTools(
   // =============================================
   server.tool(
     "dexe_sim_proposal",
-    "Simulate GovPool.execute(proposalId) against live state. Reads the proposal state " +
-      "first; refuses to sim unless it is `SucceededFor` (idx 4). Useful before paying gas " +
-      "to find out the underlying action would revert.",
+    "Read-only. Simulates GovPool.execute(proposalId) against live state; refuses unless the " +
+      "proposal is `SucceededFor` (idx 4). Finds a reverting action before you pay gas.",
     {
-      govPool: z.string(),
-      proposalId: z.string(),
-      from: z.string().optional(),
+      govPool: govPoolParam,
+      proposalId: z.string().describe(PROPOSAL_ID_DESC),
+      from: z.string().optional().describe("Caller address override; defaults to active signer or zero address."),
       chainId: chainIdParam,
     },
     async (input) => {
@@ -311,17 +309,16 @@ export function registerSimulateTools(
   // =============================================
   server.tool(
     "dexe_sim_buy",
-    "Simulate TokenSaleProposal.buy(tierId, paymentToken, amount, proof) against live state. " +
-      "Native path (paymentToken == 0x0) sets value = amount. ERC20 path also reads the caller's " +
-      "current allowance and reports `willNeedApprove: true` when allowance < amount, so callers " +
-      "know the broadcast will need an approve prepended.",
+    "Read-only. Simulates TokenSaleProposal.buy(tierId, paymentToken, amount, proof). Native path " +
+      "(0x0) sets value = amount; ERC20 path reads allowance and flags `willNeedApprove` when it is " +
+      "below `amount`.",
     {
-      tokenSaleProposal: z.string(),
-      tierId: z.string(),
+      tokenSaleProposal: z.string().describe("TokenSaleProposal helper contract address."),
+      tierId: z.string().describe("Tier id on that sale, decimal string."),
       tokenToBuyWith: z.string().describe("Payment token; 0x0 sentinel for native BNB"),
       amount: z.string().describe("amount in wei"),
-      proof: z.array(z.string()).default([]),
-      from: z.string().optional(),
+      proof: z.array(z.string()).default([]).describe("Merkle proof for a merkle-gated tier; [] when not gated."),
+      from: z.string().optional().describe("Caller address override; defaults to active signer or zero address."),
       chainId: chainIdParam,
     },
     async (input) => {

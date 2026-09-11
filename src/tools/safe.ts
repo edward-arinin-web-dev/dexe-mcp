@@ -224,11 +224,8 @@ export function registerSafeTools(
   // =============================================
   server.tool(
     "dexe_safe_info",
-    "Safe multisig diagnostic — reads the live on-chain Safe state (nonce, threshold, " +
-      "owners, singleton version) and resolves which Safe Transaction Service endpoint " +
-      "`dexe_safe_propose_tx` would POST to for this chain. Also reports whether the " +
-      "configured signer (DEXE_PRIVATE_KEY) is one of the Safe owners. Read-only — never " +
-      "signs, broadcasts, or POSTs.",
+    "Read-only. Live Safe state (nonce, threshold, owners, singleton version), the Safe Transaction " +
+      "Service endpoint a propose would POST to, and whether the DEXE_PRIVATE_KEY signer is a Safe owner.",
     {
       safe: z.string().describe("Safe Smart Account (multisig) address"),
       chainId: z
@@ -236,7 +233,7 @@ export function registerSafeTools(
         .int()
         .positive()
         .optional()
-        .describe("Target chain id. Defaults to the MCP's default chain."),
+        .describe("Chain to read the Safe on. Default: the MCP's default chain."),
     },
     async ({ safe, chainId }) => {
       if (!isAddress(safe)) return err(`Invalid safe address: ${safe}`);
@@ -292,15 +289,12 @@ export function registerSafeTools(
   // =============================================
   server.tool(
     "dexe_safe_propose_tx",
-    "Safe multisig propose — instead of broadcasting, queues a transaction in the Safe " +
-      "Transaction Service for the Safe owners to co-sign and execute. Takes a TxPayload " +
-      "(to/value/data) as produced by any dexe_*_build_* tool, reads the Safe's next nonce " +
-      "on-chain (unless `nonce` is given), computes the EIP-712 `safeTxHash`, and assembles the " +
-      "Safe-TX-Service create-multisig-transaction body. " +
-      "**dryRun defaults to true and is UNSIGNED** — it returns the payload, the safeTxHash and the " +
-      "POST target, and creates no signature. Set dryRun=false to sign with DEXE_PRIVATE_KEY (which " +
-      "must be a Safe owner) and POST (requires a resolvable service endpoint; api.safe.global needs " +
-      "DEXE_SAFE_API_KEY), or sign=true to get the signed body without POSTing. " +
+    "Broadcasts when a signer is configured. Queues a tx in the Safe Transaction Service for the owners " +
+      "to co-sign and execute. Takes a TxPayload, reads the Safe's next nonce on-chain (unless `nonce` " +
+      "is given), computes the EIP-712 `safeTxHash`. " +
+      "**dryRun defaults to true and is UNSIGNED** — payload, safeTxHash and POST target only, no " +
+      "signature. dryRun=false signs with DEXE_PRIVATE_KEY (which must be a Safe owner) and POSTs " +
+      "(api.safe.global needs DEXE_SAFE_API_KEY); sign=true returns the signed body without POSTing. " +
       "operation=1 (DELEGATECALL) is refused unless allowDelegateCall=true.",
     {
       safe: z.string().describe("Safe Smart Account (multisig) address"),
@@ -332,9 +326,14 @@ export function registerSafeTools(
         .string()
         .optional()
         .describe("Safe nonce. Omit to read the Safe's current nonce() on-chain."),
-      safeTxGas: z.string().default("0"),
-      baseGas: z.string().default("0"),
-      gasPrice: z.string().default("0"),
+      safeTxGas: z.string().default("0").describe("SafeTx `safeTxGas`: gas units as a decimal string."),
+      baseGas: z.string().default("0").describe("SafeTx `baseGas`: gas units as a decimal string."),
+      gasPrice: z
+        .string()
+        .default("0")
+        .describe(
+          "SafeTx `gasPrice` in wei, decimal string. Non-zero with a gasToken/refundReceiver makes the Safe pay a refund on execution.",
+        ),
       gasToken: z.string().optional().describe("Defaults to the zero address (pay gas in native)."),
       refundReceiver: z.string().optional().describe("Defaults to the zero address."),
       origin: z

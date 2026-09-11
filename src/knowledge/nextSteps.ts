@@ -22,7 +22,24 @@ export interface NextPointer {
   tool: string;
   when: string;
   why: string;
+  /**
+   * The target step's `paramsTemplate`, copied verbatim. A bare tool name is a
+   * name the caller then has to guess arguments for, on a surface where
+   * guessing arguments costs money — and the template is one field away on the
+   * same step object.
+   *
+   * Values are NOT all machine-ready: `{{name}}` is a placeholder to bind from
+   * the flow's interview answers or a prior step's output, and some entries are
+   * prose describing what to put there. `paramsNote` says so in-band.
+   */
+  params?: Record<string, string>;
+  /** How to read `params`. Present whenever `params` is. */
+  paramsNote?: string;
 }
+
+/** One text, so the four push sites below cannot describe `params` differently. */
+const PARAMS_NOTE =
+  "Argument template for that call: `{{name}}` is a placeholder to fill from the flow's answers or an earlier step's output; prose values describe what to supply.";
 
 export interface NextSteps {
   flowProgress: FlowProgress;
@@ -52,12 +69,20 @@ export function nextAfter(flowId: string, stepId: string): NextSteps | null {
           tool: "dexe_guide",
           when: n.when,
           why: `${n.why} — call dexe_guide with flow:"${n.flowRef}" for the plan`,
+          params: { flow: n.flowRef },
+          paramsNote: "Ready to call as-is.",
         });
         continue;
       }
       const target = flow.steps.find((s) => s.id === n.stepId);
       if (!target) continue;
-      next.push({ tool: target.tool, when: n.when, why: n.why });
+      next.push({
+        tool: target.tool,
+        when: n.when,
+        why: n.why,
+        params: target.paramsTemplate,
+        paramsNote: PARAMS_NOTE,
+      });
     }
   } else if (idx + 1 < flow.steps.length) {
     const following = flow.steps[idx + 1]!;
@@ -65,6 +90,8 @@ export function nextAfter(flowId: string, stepId: string): NextSteps | null {
       tool: following.tool,
       when: following.optionalWhen ? `unless: ${following.optionalWhen}` : "always",
       why: following.purpose.split(".")[0] ?? following.purpose,
+      params: following.paramsTemplate,
+      paramsNote: PARAMS_NOTE,
     });
   }
 

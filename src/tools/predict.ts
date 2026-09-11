@@ -114,22 +114,23 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
     {
       title: "Predictive proposal pass-rate forecaster",
       description:
-        "Reads the latest 10 proposals on a DAO + their final states, computes the historical " +
-        "pass-rate (over DECIDED proposals; still-voting ones are counted as `pending`, never as failures) " +
-        "and average For-vote weight, and returns a forecast. " +
-        "`quorum.requiredWeight` is an ABSOLUTE vote weight (getTotalPower x quorum / 1e27), not the 1e25 " +
-        "percentage setting; `recommendation` is \"unknown\" when total power cannot be read. " +
-        "When `draft.actionsOnFor` is supplied the projection is annotated with the caller's vote weight. " +
-        "The history cross-check needs a pools subgraph for the chain being forecast (BSC mainnet by default); " +
-        "on a chain with no endpoint the call stops with the env var to set — pass `forceRpcOnly: true` to " +
-        "forecast it from on-chain reads alone. `indexedChainId` reports which chain's index the history came " +
-        "from (null = none), so one chain's forecast is never enriched with another's history.",
+        "Read-only. Reads the latest 10 proposals on a DAO and their final states and forecasts the pass-rate over DECIDED " +
+        "proposals (still-voting ones are `pending`, never failures), with the average For-vote weight. " +
+        "`quorum.requiredWeight` is an ABSOLUTE vote weight (getTotalPower x quorum / 1e27), not the 1e25 percentage " +
+        "setting. The history cross-check needs a pools subgraph for the chain being forecast; without one the call stops " +
+        "unless `forceRpcOnly: true`, and `indexedChainId` reports whose index was used (null = none).",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         draft: z
           .object({
-            actionsOnFor: z.array(z.unknown()).default([]),
-            voteAmount: z.string().optional(),
+            actionsOnFor: z
+              .array(z.unknown())
+              .default([])
+              .describe("Draft actionsOnFor; more than 5 flags complexityRisk."),
+            voteAmount: z
+              .string()
+              .optional()
+              .describe("Vote weight to add to projectedFor, RAW 18-decimal voting power."),
           })
           .optional()
           .describe("Optional draft proposal — voteAmount is added to projectedFor"),

@@ -96,25 +96,30 @@ const RewardsInfoSchema = z.object({
 });
 
 const MainProposalSettingsSchema = z.object({
-  earlyCompletion: z.boolean(),
+  earlyCompletion: z.boolean().describe("End voting as soon as quorum is reached."),
   delegatedVotingAllowed: z.boolean().describe("Contract-inverted: true = DISABLE delegation, false = ALLOW"),
-  validatorsVote: z.boolean(),
-  duration: z.string().describe("Voting duration in seconds (e.g. \"86400\" for 1 day)"),
-  durationValidators: z.string().describe("Validator voting duration in seconds"),
+  validatorsVote: z.boolean().describe("Send a passed proposal to the validator chamber first."),
+  duration: z.string().describe("Voting duration, seconds (86400 = 1 day)"),
+  durationValidators: z.string().describe("Validator voting duration, seconds; falls back to `duration` with no validators"),
   executionDelay: z.string().default("0").describe("Delay before execution in seconds"),
-  quorum: z.string().describe("25-decimal wei percentage (50% = \"500000000000000000000000000\")"),
-  quorumValidators: z.string().describe("25-decimal wei percentage"),
-  minVotesForVoting: z.string().describe("18-decimal wei token amount"),
-  minVotesForCreating: z.string().describe("18-decimal wei token amount"),
-  rewardsInfo: RewardsInfoSchema,
-  executorDescription: z.string().default("").describe(
-    "IPFS CID of settings JSON (auto-uploaded when empty and DEXE_PINATA_JWT is set)",
-  ),
+  quorum: z.string().describe("Quorum, 25-decimal percent (50% = 5e26)"),
+  quorumValidators: z.string().describe("Validator quorum, 25-decimal percent; falls back to `quorum` with no validators"),
+  minVotesForVoting: z.string().describe("Min power to vote, 18-decimal wei"),
+  minVotesForCreating: z.string().describe("Min power to create a proposal, 18-decimal wei"),
+  rewardsInfo: RewardsInfoSchema.describe("Rewards for this settings slot."),
+  executorDescription: z.string().default("").describe("IPFS CID of the settings JSON; auto-pinned when empty"),
 });
 
 const SettingsDeployParamsSchema = z.object({
-  proposalSettings: z.array(MainProposalSettingsSchema).min(1).max(5),
-  additionalProposalExecutors: z.array(z.string()).default([]),
+  proposalSettings: z
+    .array(MainProposalSettingsSchema)
+    .min(1)
+    .max(5)
+    .describe("1 slot auto-expands to 5 (default/internal/validators/distribution/tokenSale); pass 5 to override."),
+  additionalProposalExecutors: z
+    .array(z.string())
+    .default([])
+    .describe("Extra executor addresses; distribution + token-sale are wired in for you."),
 });
 
 const ValidatorProposalSettingsSchema = z.object({
@@ -124,49 +129,49 @@ const ValidatorProposalSettingsSchema = z.object({
 });
 
 const ValidatorsDeployParamsSchema = z.object({
-  name: z.string(),
-  symbol: z.string(),
-  proposalSettings: ValidatorProposalSettingsSchema,
-  validators: z.array(z.string()).default([]),
-  balances: z.array(z.string()).default([]),
+  name: z.string().describe("Validator token name. Omit the whole object for no validators."),
+  symbol: z.string().describe("Validator token symbol."),
+  proposalSettings: ValidatorProposalSettingsSchema.describe("Voting settings for the validator chamber."),
+  validators: z.array(z.string()).default([]).describe("Validator addresses; index-parallel with `balances`."),
+  balances: z.array(z.string()).default([]).describe("Validator token per validator, 18-decimal wei."),
 });
 
 const UserKeeperDeployParamsSchema = z.object({
-  tokenAddress: z.string().default("0x0000000000000000000000000000000000000000").describe(
-    "Existing ERC20 governance token (auto-wired to predicted govToken when creating new token)",
-  ),
-  nftAddress: z.string().default("0x0000000000000000000000000000000000000000"),
-  individualPower: z.string().default("0").describe("18-decimal wei — voting power per NFT"),
+  tokenAddress: z
+    .string()
+    .default("0x0000000000000000000000000000000000000000")
+    .describe("Existing ERC20 gov token; auto-wired to the predicted one when creating a token"),
+  nftAddress: z.string().default("0x0000000000000000000000000000000000000000").describe("Gov NFT collection; zero = none"),
+  individualPower: z.string().default("0").describe("Voting power per NFT, 18-decimal wei"),
   nftsTotalSupply: z.string().default("0").describe("Total NFT collection size (plain integer)"),
 });
 
 const TokenParamsSchema = z.object({
   name: z.string().default("").describe("Gov token name (non-empty triggers token creation)"),
-  symbol: z.string().default(""),
+  symbol: z.string().default("").describe("Gov token symbol."),
   users: z.array(z.string()).default([]).describe("Initial token recipient addresses"),
-  cap: z.string().default("0").describe("18-decimal wei token cap"),
+  cap: z.string().default("0").describe("Token cap, 18-decimal wei. Creating a token needs cap > 0 and >= mintedTotal"),
   mintedTotal: z.string().default("0").describe("18-decimal wei total initial mint"),
   amounts: z.array(z.string()).default([]).describe("18-decimal wei amounts per recipient"),
 });
 
 const PolynomialCoefficientsSchema = z.object({
-  coefficient1: z.string().describe("Expert delegation coefficient (18-decimal wei)"),
-  coefficient2: z.string().describe("Expert coefficient (18-decimal wei)"),
-  coefficient3: z.string().describe("Holder coefficient (18-decimal wei)"),
+  // PolynomialPower.sol scales these by PRECISION (1e25), not 1e18.
+  coefficient1: z.string().describe("DAO-expert curve coefficient, 25-decimal (1.0 = 1e25)"),
+  coefficient2: z.string().describe("Expert curve coefficient, 25-decimal (1.0 = 1e25)"),
+  coefficient3: z.string().describe("Holder curve coefficient, 25-decimal (1.0 = 1e25)"),
 });
 
 const VotePowerDeployParamsSchema = z.object({
-  voteType: z.enum(VOTE_POWER_TYPES),
+  voteType: z.enum(VOTE_POWER_TYPES).describe("LINEAR = 1 token 1 vote; POLYNOMIAL = meritocratic curve; CUSTOM = your preset"),
   /** Raw initData override — only used for CUSTOM_VOTES. For LINEAR/POLYNOMIAL
    *  the tool auto-encodes the correct initializer calldata. */
   initData: z.string().optional().describe(
     "Raw hex initData — only for CUSTOM_VOTES. LINEAR/POLYNOMIAL are auto-encoded.",
   ),
-  presetAddress: z.string().default("0x0000000000000000000000000000000000000000"),
+  presetAddress: z.string().default("0x0000000000000000000000000000000000000000").describe("CUSTOM_VOTES only: the vote-power contract"),
   /** Required when voteType is POLYNOMIAL_VOTES. */
-  polynomialCoefficients: PolynomialCoefficientsSchema.optional().describe(
-    "Required for POLYNOMIAL_VOTES: the three curve coefficients (18-decimal wei strings)",
-  ),
+  polynomialCoefficients: PolynomialCoefficientsSchema.optional().describe("POLYNOMIAL_VOTES only: the three curve coefficients"),
 });
 
 // ---------- treasury advisories (pure, exported for tests) ----------
@@ -284,15 +289,15 @@ function payloadOutputSchema() {
  * + daoName), so it consumes `DeployParamsSchema.omit({ descriptionURL, name })`.
  */
 export const DeployParamsSchema = z.object({
-  settingsParams: SettingsDeployParamsSchema,
-  validatorsParams: ValidatorsDeployParamsSchema.optional(),
-  userKeeperParams: UserKeeperDeployParamsSchema,
-  tokenParams: TokenParamsSchema,
-  votePowerParams: VotePowerDeployParamsSchema,
-  verifier: z.string().default("0x0000000000000000000000000000000000000000"),
-  onlyBABTHolders: z.boolean().default(false),
+  settingsParams: SettingsDeployParamsSchema.describe("Proposal voting settings and extra executors."),
+  validatorsParams: ValidatorsDeployParamsSchema.optional().describe("Validator chamber; omit for none."),
+  userKeeperParams: UserKeeperDeployParamsSchema.describe("Which token / NFT holds voting power."),
+  tokenParams: TokenParamsSchema.describe("Gov token to CREATE; empty `name` reuses an existing one."),
+  votePowerParams: VotePowerDeployParamsSchema.describe("Vote-power curve; initData is encoded for you."),
+  verifier: z.string().default("0x0000000000000000000000000000000000000000").describe("KYC verifier; zero = none"),
+  onlyBABTHolders: z.boolean().default(false).describe("Restrict governance to BABT holders."),
   descriptionURL: z.string().describe("ipfs://<cid> of DAO metadata JSON"),
-  name: z.string().min(1),
+  name: z.string().min(1).describe("DAO / pool name, written into the deployGovPool calldata."),
 });
 
 export type DeployParams = z.infer<typeof DeployParamsSchema>;
@@ -920,34 +925,22 @@ function registerBuildDeploy(
     "dexe_dao_build_deploy",
     {
       title: "Build calldata to deploy a new DAO (PoolFactory.deployGovPool)",
+      // Trimmed in 0.34.0 from 2,959 chars: every decimal convention and every
+      // inversion rule below now lives on the `.describe()` of the field it
+      // governs, where the caller reads it while filling that field in.
       description:
-        "Builds the `PoolFactory.deployGovPool(GovPoolDeployParams)` tx. Mirrors the frontend wizard at app.dexe.network/create-dao.\n\n" +
-        "**Proposal settings auto-expand:** Pass 1 setting → auto-expands to 5 (default, internal, validators, distributionProposal, tokenSale). " +
-        "DPSettings (index 3) forces `delegatedVotingAllowed: false` and `earlyCompletion: false`. Pass exactly 5 to override.\n\n" +
-        "**delegatedVotingAllowed inversion:** Contract semantics are inverted — pass `true` to DISABLE delegation, `false` to ALLOW it (matches frontend behavior).\n\n" +
-        "**Vote power initData:** Automatically encoded — do NOT pass `initData` for LINEAR or POLYNOMIAL types. " +
-        "For LINEAR_VOTES: auto-encodes `__LinearPower_init()`. " +
-        "For POLYNOMIAL_VOTES: auto-encodes `__PolynomialPower_init(c1,c2,c3)` — pass `polynomialCoefficients`. " +
-        "For CUSTOM_VOTES: pass `initData` manually (or omit if the custom contract skips init).\n\n" +
-        "**Predicted addresses:** `deployer` is always required. Tool calls `predictGovAddresses` and auto-wires: " +
-        "(1) `govToken` → `userKeeperParams.tokenAddress` when creating token, " +
-        "(2) `distributionProposal` + `govTokenSale` → `additionalProposalExecutors` always.\n\n" +
-        "**Validators defaults:** When no validators needed, omit `validatorsParams` — defaults to name='Validator Token', symbol='VT', empty list. " +
-        "`durationValidators`/`quorumValidators` in proposal settings fall back to `duration`/`quorum` when no validators.\n\n" +
-        "**Decimal conventions (must match frontend):**\n" +
-        "- `quorum`, `quorumValidators`, `voteRewardsCoefficient`: 25-decimal wei. 50% = `\"500000000000000000000000000\"` (50 × 10^25).\n" +
-        "- `minVotesForVoting`, `minVotesForCreating`, `creationReward`, `executionReward`, token `cap`/`mintedTotal`/`amounts`, `individualPower`: 18-decimal wei. 100 tokens = `\"100000000000000000000\"` (100 × 10^18).\n" +
-        "- `duration`, `durationValidators`, `executionDelay`: plain seconds as string. 1 day = `\"86400\"`.\n" +
-        "- `polynomialCoefficients` (coefficient1/2/3): 25-decimal wei.\n\n" +
-        "**executorDescription auto-upload — this call WRITES to IPFS:** when `DEXE_PINATA_JWT` is set and " +
-        "`executorDescription` is empty, the tool PINS up to two proposal-settings JSONs to your Pinata account and " +
-        "sets the CIDs (matching frontend behavior). Without them the DAO's proposal settings won't display correctly. " +
-        "`previewOnly: true` computes the same CIDs locally and pins nothing.\n\n" +
-        "**Token cap constraint:** When creating a new gov token (`tokenParams.name` non-empty), `cap` MUST be > 0 and ≥ `mintedTotal` (cap == mintedTotal is a valid fixed supply; there is NO uncapped mode). The tool pre-flight-rejects violations with a clear error.\n\n" +
-        "**Pre-sign simulation:** After building, the calldata is simulated via eth_call from the deployer against live chain state. " +
-        "A provable revert → the tool REFUSES to emit the payload and returns the cause + fix (no gas can be wasted on it). " +
-        "Pass `skipSimulation: true` only to deliberately bypass (e.g. offline/flaky RPC). RPC transport failures never block — the payload is returned with a warning.\n\n" +
-        "Prefer running `dexe_compile` first for strict ABI parity.",
+        "Builds calldata; does not broadcast. `PoolFactory.deployGovPool(GovPoolDeployParams)` — the ADVANCED " +
+        "path behind the frontend wizard. Prefer dexe_dao_create, which synthesizes a coherent config from " +
+        "`symbol` + `totalSupply`. Auto-wired for you: one `proposalSettings` entry expands to 5 slots " +
+        "(default, internal, validators, distributionProposal, tokenSale — index 3 forces " +
+        "delegatedVotingAllowed:false and earlyCompletion:false; pass exactly 5 to override); the predicted " +
+        "govToken / distributionProposal / govTokenSale addresses; and the vote-power initData for " +
+        "LINEAR/POLYNOMIAL. Decimal conventions differ per field (25-decimal percentages, 18-decimal token " +
+        "amounts, plain seconds) — each parameter's own description states its unit. WRITES to IPFS: an empty " +
+        "`executorDescription` is pinned to your Pinata account; `previewOnly: true` computes the same CIDs " +
+        "and pins nothing. A pre-sign eth_call refuses a provably reverting deploy with the cause + fix; " +
+        "`skipSimulation: true` bypasses it and an RPC outage never blocks. Run dexe_compile first for strict " +
+        "ABI parity.",
       inputSchema: {
         chainId: z
           .number()
@@ -955,7 +948,7 @@ function registerBuildDeploy(
           .positive()
           .optional()
           .describe(
-            "Target chain id. Defaults to the MCP's default chain. The predicted addresses + TxPayload.chainId are computed against this chain — broadcast with the same chainId.",
+            "Target chain: 56 mainnet, 97 testnet. The predicted addresses are computed against it — broadcast on the same chain. Default: the configured chain.",
           ),
         poolFactory: z
           .string()
@@ -964,21 +957,19 @@ function registerBuildDeploy(
         deployer: z
           .string()
           .describe("tx.origin that will send the deploy tx — required for address prediction"),
-        params: DeployParamsSchema,
+        params: DeployParamsSchema.describe("The full GovPoolDeployParams struct — see each field for its unit."),
         skipSimulation: z
           .boolean()
           .optional()
           .describe(
-            "Bypass the pre-sign eth_call simulation (deliberate override for offline/flaky-RPC use). " +
-              "Default false: a provably-reverting payload is refused with cause + fix.",
+            "Bypass the pre-sign eth_call (offline / flaky RPC). Default false: a provably-reverting payload is refused with cause + fix.",
           ),
         previewOnly: z
           .boolean()
           .default(false)
           .describe(
-            "Network-write-free: compute the executorDescription CIDs locally instead of PINNING two settings JSONs " +
-              "to Pinata. The result is NOT BROADCASTABLE — the CIDs are right but nothing was uploaded, so the DAO " +
-              "would ship with unresolvable settings. Re-run without previewOnly for a sendable payload.",
+            "Compute the executorDescription CIDs locally instead of pinning them. NOT BROADCASTABLE: the CIDs " +
+              "are right but nothing was uploaded, so the DAO would ship with unresolvable settings.",
           ),
       },
       outputSchema: payloadOutputSchema(),

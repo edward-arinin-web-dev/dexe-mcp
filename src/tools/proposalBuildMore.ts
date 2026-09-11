@@ -4,7 +4,12 @@ import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
-import { buildChainIdParam } from "../lib/params.js";
+import {
+  buildChainIdParam,
+  govPoolParam,
+  DELEGATEE_DESC,
+  NFT_IDS_TREASURY_DESC,
+} from "../lib/params.js";
 import { settingsAdvisories } from "../lib/protocolAdvisories.js";
 import { assessActions, withWarnings, legacyGovernanceAdvisories } from "./buildResult.js";
 import { warningsOutputField } from "../lib/buildWarning.js";
@@ -44,25 +49,31 @@ export const GOV_POOL_TREASURY_ABI = [
 // ---------- schemas ----------
 
 const RewardsInfoSchema = z.object({
-  rewardToken: z.string(),
-  creationReward: z.string().default("0"),
-  executionReward: z.string().default("0"),
-  voteRewardsCoefficient: z.string().default("0"),
+  rewardToken: z.string().describe("Reward token address; zero address disables rewards."),
+  creationReward: z.string().default("0").describe("Paid to the creator, RAW base units (wei)."),
+  executionReward: z.string().default("0").describe("Paid to the executor, RAW base units (wei)."),
+  voteRewardsCoefficient: z
+    .string()
+    .default("0")
+    .describe("Per-vote reward factor, 25-decimal (1e25 = 1x)."),
 });
 
 export const ProposalSettingsSchema = z.object({
-  earlyCompletion: z.boolean(),
-  delegatedVotingAllowed: z.boolean(),
-  validatorsVote: z.boolean(),
-  duration: z.string(),
-  durationValidators: z.string(),
-  executionDelay: z.string().default("0"),
-  quorum: z.string(),
-  quorumValidators: z.string(),
-  minVotesForVoting: z.string(),
-  minVotesForCreating: z.string(),
-  rewardsInfo: RewardsInfoSchema,
-  executorDescription: z.string().default(""),
+  earlyCompletion: z.boolean().describe("End the vote as soon as the result is decided."),
+  delegatedVotingAllowed: z.boolean().describe("Allow delegated power to vote on this type."),
+  validatorsVote: z.boolean().describe("Send a passed proposal to the validator chamber."),
+  duration: z.string().describe("Main voting duration, seconds."),
+  durationValidators: z.string().describe("Validator voting duration, seconds."),
+  executionDelay: z.string().default("0").describe("Delay between success and execution, seconds."),
+  quorum: z.string().describe("Main quorum, 25-decimal percent (1e25 = 1%)."),
+  quorumValidators: z.string().describe("Validator quorum, 25-decimal percent (1e25 = 1%)."),
+  minVotesForVoting: z.string().describe("Minimum power to vote, RAW base units (wei)."),
+  minVotesForCreating: z.string().describe("Minimum power to create, RAW base units (wei)."),
+  rewardsInfo: RewardsInfoSchema.describe("Creation / execution / voting reward settings."),
+  executorDescription: z
+    .string()
+    .default("")
+    .describe("Executor label; also the settings-JSON IPFS ref the UI reads."),
 });
 
 export type ProposalSettingsInput = z.infer<typeof ProposalSettingsSchema>;
@@ -182,10 +193,13 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
     {
       title: "Wrapper: change voting settings (edit existing or add new)",
       description:
-        "Builds a 'Change Voting Settings' external proposal. Targets GovSettings.editSettings(ids, params) when `settingsIds` are supplied (edit existing), or GovSettings.addSettings(params) when empty (create new settings slot). Resolve GovSettings address via dexe_dao_info first.",
+        "Builds proposal actions; does not broadcast. GovSettings.editSettings(ids, params) when `settingsIds` are supplied, else GovSettings.addSettings(params) — a new settings slot.",
       inputSchema: {
         govSettings: z.string().describe("GovSettings contract address (from dexe_dao_info.helpers.settings)"),
-        settings: z.array(ProposalSettingsSchema).min(1),
+        settings: z
+          .array(ProposalSettingsSchema)
+          .min(1)
+          .describe("Full settings struct per slot; editSettings replaces the whole struct."),
         settingsIds: z
           .array(z.string())
           .default([])
@@ -194,8 +208,8 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
         // upstream #36. The chain-aware guard structurally could not run here
         // before, because the tool had nothing to key on.
         chainId: buildChainIdParam,
-        proposalName: z.string().default("Change Voting Settings"),
-        proposalDescription: z.string().default(""),
+        proposalName: z.string().default("Change Voting Settings").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -272,19 +286,23 @@ function registerManageValidators(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: change validator balances (add/remove validators via balance tweak)",
       description:
-        "Builds a 'Manage Validators' external proposal calling GovValidators.changeBalances(balances, users). Set a user's balance to 0 to remove, >0 to add or update. Resolve GovValidators address via dexe_dao_info first.",
+        "Builds proposal actions; does not broadcast. GovValidators.changeBalances(balances, users) — balance 0 removes a validator, >0 adds or updates.",
       inputSchema: {
-        govValidators: z.string(),
+        govValidators: z
+          .string()
+          .describe("GovValidators contract address (from dexe_dao_info.helpers.validators)."),
         changes: z
           .array(
             z.object({
-              user: z.string(),
-              balance: z.string().describe("Wei; 0 to remove"),
+              user: z.string().describe("Validator address."),
+              balance: z.string().describe("New validator balance, RAW base units (wei); 0 removes."),
             }),
           )
-          .min(1),
-        proposalName: z.string().default("Manage Validators"),
-        proposalDescription: z.string().default(""),
+          .min(1)
+          .describe("Validator balance changes to apply."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Manage Validators").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -336,18 +354,19 @@ function registerAddExpert(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: mint a local or global Expert NFT to a nominated user",
       description:
-        "Builds an 'Add Expert' external proposal. `scope='local'` mints on the DAO's ExpertNft (dao_info.nftContracts.expertNft). `scope='global'` mints on DeXeExpertNft (dao_info.nftContracts.dexeExpertNft). URI is passed through (default empty).",
+        "Builds proposal actions; does not broadcast. ExpertNft.mint(nominatedUser, uri); scope 'local' = the DAO's ExpertNft, 'global' = DeXeExpertNft.",
       inputSchema: {
         expertNftContract: z
           .string()
           .describe(
             "ExpertNft contract address. Local: govPool.getNftContracts().expertNft; Global: dexeExpertNft",
           ),
-        scope: z.enum(["local", "global"]),
-        nominatedUser: z.string(),
-        uri: z.string().default(""),
-        proposalName: z.string().default("Add Expert"),
-        proposalDescription: z.string().default(""),
+        scope: z.enum(["local", "global"]).describe("'local' = this DAO's ExpertNft, 'global' = DeXeExpertNft."),
+        nominatedUser: z.string().describe("Address receiving the expert NFT."),
+        uri: z.string().default("").describe("Token URI stored on the minted NFT; may be empty."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Add Expert").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -397,13 +416,16 @@ function registerRemoveExpert(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: burn an Expert NFT (revoke expert role)",
       description:
-        "Builds a 'Remove Expert' external proposal calling ExpertNft.burn(from). `scope='local'` targets the DAO's ExpertNft; 'global' targets DeXeExpertNft.",
+        "Builds proposal actions; does not broadcast. ExpertNft.burn(nominatedUser); scope 'local' = the DAO's ExpertNft, 'global' = DeXeExpertNft.",
       inputSchema: {
-        expertNftContract: z.string(),
-        scope: z.enum(["local", "global"]),
-        nominatedUser: z.string(),
-        proposalName: z.string().default("Remove Expert"),
-        proposalDescription: z.string().default(""),
+        expertNftContract: z
+          .string()
+          .describe("ExpertNft contract address. Local: expertNft; Global: dexeExpertNft."),
+        scope: z.enum(["local", "global"]).describe("'local' = this DAO's ExpertNft, 'global' = DeXeExpertNft."),
+        nominatedUser: z.string().describe("Address whose expert NFT is burned."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Remove Expert").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -457,7 +479,7 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: withdraw ERC20/ERC721 from the DAO treasury",
       description:
-        "Builds a 'Withdraw from Treasury' external proposal that emits one ERC20.transfer(receiver, amount) action per token and/or one ERC721.transferFrom(govPool, receiver, tokenId) action per NFT. Treasury sits in the GovPool address as a regular ERC20/721 holding, so each withdrawal is just an external token call. At least one of `token` (with non-zero `amount`) or (`nftAddress` + `nftIds`) must be supplied. When DEXE_RPC_URL is set and `token` is ERC20Gov, the receiver is checked against isBlacklisted; build aborts if blacklisted.",
+        "Builds proposal actions; does not broadcast. One ERC20.transfer per token and/or one ERC721.transferFrom(govPool → receiver) per NFT. When an RPC is reachable for the target chain (the built-in public RPC counts) and `token` is ERC20Gov, the receiver is checked against isBlacklisted; build aborts if blacklisted.",
       inputSchema: {
         // The blacklist probe must hit the chain the proposal will run on: on any
         // other chain the token has no code, the probe degrades to `skipped`, and a
@@ -466,13 +488,13 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
           "Chain the proposal targets (56 mainnet / 97 testnet; default: MCP default chain). Blacklist check reads it.",
         ),
         govPool: z.string().describe("DAO GovPool address — used as the `from` for NFT transferFrom"),
-        receiver: z.string(),
+        receiver: z.string().describe("Address receiving the tokens and/or NFTs."),
         token: z.string().default("").describe("ERC20 token contract for the cash withdrawal (omit for NFT-only)"),
         amount: z.string().default("0").describe("ERC20 amount in wei (omit/0 for NFT-only)"),
         nftAddress: z.string().default("").describe("ERC721 contract address (omit for token-only)"),
         nftIds: z.array(z.string()).default([]).describe("NFT token ids to transfer; one transferFrom per id"),
-        proposalName: z.string().default("Withdraw from Treasury"),
-        proposalDescription: z.string().default(""),
+        proposalName: z.string().default("Withdraw from Treasury").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -567,15 +589,16 @@ function registerDelegateToExpert(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: delegate DAO treasury stake (tokens + NFTs) to an expert",
       description:
-        "Builds a 'Delegate to Expert' external proposal calling GovPool.delegateTreasury(delegatee, amount, nftIds).",
+        "Builds proposal actions; does not broadcast. GovPool.delegateTreasury(delegatee, amount, nftIds) — the DAO TREASURY's power, not yours; the delegatee must already have expert status (GovPool.getExpertStatus).",
       inputSchema: {
-        govPool: z.string(),
-        expert: z.string(),
-        amount: z.string().describe("Token amount in wei"),
-        nftIds: z.array(z.string()).default([]),
-        value: z.string().default("0").describe("Native coin value for payable path"),
-        proposalName: z.string().default("Delegate to Expert"),
-        proposalDescription: z.string().default(""),
+        govPool: govPoolParam,
+        expert: z.string().describe(DELEGATEE_DESC),
+        amount: z.string().describe("Treasury tokens to delegate, RAW base units (wei)."),
+        nftIds: z.array(z.string()).default([]).describe(NFT_IDS_TREASURY_DESC),
+        value: z.string().default("0").describe("Native coin sent with the call, in wei."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Delegate to Expert").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -630,14 +653,15 @@ function registerRevokeFromExpert(server: McpServer, ctx: ToolContext): void {
     {
       title: "Wrapper: revoke delegation from an expert (undelegateTreasury)",
       description:
-        "Builds a 'Revoke from Expert' external proposal calling GovPool.undelegateTreasury(delegatee, amount, nftIds).",
+        "Builds proposal actions; does not broadcast. GovPool.undelegateTreasury(delegatee, amount, nftIds) — pulls back power delegated from the DAO TREASURY, not yours.",
       inputSchema: {
-        govPool: z.string(),
-        expert: z.string(),
-        amount: z.string(),
-        nftIds: z.array(z.string()).default([]),
-        proposalName: z.string().default("Revoke from Expert"),
-        proposalDescription: z.string().default(""),
+        govPool: govPoolParam,
+        expert: z.string().describe("Expert whose treasury delegation is revoked."),
+        amount: z.string().describe("Treasury tokens to pull back, RAW base units (wei)."),
+        nftIds: z.array(z.string()).default([]).describe(NFT_IDS_TREASURY_DESC),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Revoke from Expert").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: payloadOutputSchema(),
     },

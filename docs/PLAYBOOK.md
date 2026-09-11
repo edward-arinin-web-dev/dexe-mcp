@@ -269,7 +269,7 @@ Free-form read-only GraphQL against three subgraphs. subgraph='pools': DaoPool, 
 
 #### Backend REST reads (anonymous, mainnet)
 
-Fixed wrappers over the DeXe backend — no auth needed: dexe_read_treasury (every token a wallet/DAO holds with USD values; falls back to on-chain RPC on testnet or when the backend is down), dexe_read_token_holders (top ERC20 holders, balance-desc), dexe_read_dao_stats (per-DAO TVL/member/proposal time series by period), dexe_read_protocol_stats (protocol-wide TVL/DAO/proposal totals, chains 1+56, top DAOs), dexe_read_nfts (NFTs held by an address). There is no free-form backend endpoint tool by design. Backend-only tools fail or return empty on testnet 97.
+Fixed wrappers over the DeXe backend — no auth needed: dexe_read_treasury (every token a wallet/DAO holds with USD values; falls back to on-chain RPC on testnet or when the backend is down), dexe_read_token_holders (ERC20 holders, balance-desc, ONE page of at most 100 — pass the returned pageToken back for the next page; it is not the whole holder map), dexe_read_dao_stats (per-DAO TVL/member/proposal time series by period), dexe_read_protocol_stats (protocol-wide TVL/DAO/proposal totals, chains 1+56, top DAOs), dexe_read_nfts (NFTs held by an address). There is no free-form backend endpoint tool by design. Backend-only tools fail or return empty on testnet 97.
 
 #### Free-form contract reads
 

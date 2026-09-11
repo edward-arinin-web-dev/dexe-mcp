@@ -4,6 +4,7 @@ import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { buildChainIdParam } from "../lib/params.js";
 import { VALIDATOR_VOTE_IRREVOCABLE_ADVISORY } from "../lib/protocolAdvisories.js";
 
 /**
@@ -118,13 +119,20 @@ function registerChangeValidatorBalances(server: McpServer): void {
     {
       title: "Internal type 1: change validator balances",
       description:
-        "Builds the `data` bytes for GovValidators.createInternalProposal(type=1). Encodes changeBalances(balances, users). Set balance=0 to remove a validator.",
+        "Builds calldata; does not broadcast. `data` for GovValidators.createInternalProposal(type=1) — changeBalances(balances, users); balance 0 removes a validator.",
       inputSchema: {
         changes: z
-          .array(z.object({ user: z.string(), balance: z.string() }))
-          .min(1),
-        proposalName: z.string().default("Change Validator Balances"),
-        proposalDescription: z.string().default(""),
+          .array(
+            z.object({
+              user: z.string().describe("Validator address."),
+              balance: z.string().describe("New validator balance, RAW base units (wei); 0 removes."),
+            }),
+          )
+          .min(1)
+          .describe("Validator balance changes to apply."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Change Validator Balances").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: outputSchema(),
     },
@@ -167,13 +175,14 @@ function registerChangeValidatorSettings(server: McpServer): void {
     {
       title: "Internal type 0: change validator voting settings (duration, delay, quorum)",
       description:
-        "Builds the `data` bytes for GovValidators.createInternalProposal(type=0). Encodes changeSettings(duration, executionDelay, quorum). All three values are seconds/percent-as-BN.",
+        "Builds calldata; does not broadcast. `data` for GovValidators.createInternalProposal(type=0) — changeSettings(duration, executionDelay, quorum).",
       inputSchema: {
         duration: z.string().describe("Voting duration in seconds (uint64)"),
         executionDelay: z.string().describe("Delay after success before execution, seconds (uint64)"),
         quorum: z.string().describe("Quorum (uint128, DeXe uses 10^27 scale for percentages)"),
-        proposalName: z.string().default("Change Validator Settings"),
-        proposalDescription: z.string().default(""),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Change Validator Settings").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: outputSchema(),
     },
@@ -217,14 +226,21 @@ function registerMonthlyWithdraw(server: McpServer): void {
     {
       title: "Internal type 2: monthly validator withdrawal",
       description:
-        "Builds the `data` bytes for GovValidators.createInternalProposal(type=2). Encodes monthlyWithdraw(tokens, amounts, destination). `tokens` and `amounts` must be parallel arrays; tokens must not be zero address.",
+        "Builds calldata; does not broadcast. `data` for GovValidators.createInternalProposal(type=2) — monthlyWithdraw(tokens, amounts, destination).",
       inputSchema: {
         withdrawals: z
-          .array(z.object({ token: z.string(), amount: z.string() }))
-          .min(1),
-        destination: z.string(),
-        proposalName: z.string().default("Monthly Withdraw"),
-        proposalDescription: z.string().default(""),
+          .array(
+            z.object({
+              token: z.string().describe("ERC20 token contract address (not the zero address)."),
+              amount: z.string().describe("Amount to withdraw, RAW base units (wei)."),
+            }),
+          )
+          .min(1)
+          .describe("One entry per token to withdraw."),
+        destination: z.string().describe("Address receiving the withdrawn tokens."),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Monthly Withdraw").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: outputSchema(),
     },
@@ -269,10 +285,11 @@ function registerOffchainInternalProposal(server: McpServer): void {
     {
       title: "Internal type 3: off-chain proposal (validators attest off-chain result)",
       description:
-        "Builds the `data` bytes for GovValidators.createInternalProposal(type=3). Per contract rule data MUST be empty (0x). Only the descriptionURL (IPFS metadata) carries the proposal payload.",
+        "Builds calldata; does not broadcast. `data` for GovValidators.createInternalProposal(type=3): empty (0x) per contract rule; descriptionURL carries it.",
       inputSchema: {
-        proposalName: z.string().default("Off-chain Validator Proposal"),
-        proposalDescription: z.string().default(""),
+        chainId: buildChainIdParam,
+        proposalName: z.string().default("Off-chain Validator Proposal").describe("Proposal title."),
+        proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: outputSchema(),
     },

@@ -209,19 +209,16 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
     {
       title: "Upload proposal metadata JSON to IPFS (Pinata)",
       description:
-        "Pins `{ proposalName, proposalDescription, ... }` (the shape DeXe proposals expect) to IPFS via Pinata. Returns the CID for use as `descriptionURL` in `GovPool.createProposal`.",
+        "Writes to a remote service. Pins `{proposalName, proposalDescription}` to IPFS via Pinata; returns the CID for `descriptionURL` in `GovPool.createProposal`.",
       inputSchema: {
-        title: z.string().min(1),
+        title: z.string().min(1).describe("Proposal title; becomes `proposalName`."),
         description: z.string().default("").describe(
-          "Proposal description — supports full Markdown: # headings, **bold**, *italic*, " +
-          "~~strikethrough~~, [links](url), `inline code`, ```code blocks```, " +
-          "- bullet lists, 1. numbered lists. Automatically converted to the Slate " +
-          "editor node format the frontend expects. Plain text also works.",
+          "Proposal body; Markdown supported, converted to the Slate format the frontend expects.",
         ),
         extra: z
           .record(z.unknown())
           .optional()
-          .describe("Optional extra fields merged into the metadata object"),
+          .describe("Extra fields merged into the metadata object."),
       },
       outputSchema: {
         cid: z.string(),
@@ -289,18 +286,12 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
     {
       title: "Upload DAO metadata to IPFS (frontend-compatible nested format)",
       description:
-        "Uploads DAO metadata to IPFS using the exact schema the DeXe frontend expects. " +
-        "Performs a nested upload chain: (1) description content → IPFS, (2) outer metadata referencing the description CID → IPFS. " +
-        "Returns the outer CID for use as `descriptionURL` in `deployGovPool`. " +
-        "If avatarCID is provided (from a prior `dexe_ipfs_upload_file` call), it's wired into the metadata. " +
-        "Field names match the frontend exactly: `daoName`, `websiteUrl`, `socialLinks`, `documents`.",
+        "Writes to a remote service. Pins DAO metadata in the frontend's nested shape (description pin + outer " +
+        "wrapper); returns the outer CID for `descriptionURL` in `deployGovPool`.",
       inputSchema: {
         daoName: z.string().min(1).describe("DAO name (displayed in UI)"),
         description: z.string().default("").describe(
-          "DAO description — supports full Markdown: # headings, **bold**, *italic*, " +
-          "~~strikethrough~~, [links](url), `inline code`, ```code blocks```, " +
-          "- bullet lists, 1. numbered lists. Automatically converted to the Slate " +
-          "editor node format the frontend expects. Plain text also works.",
+          "DAO description; Markdown supported, converted to the Slate node format the frontend expects.",
         ),
         websiteUrl: z.string().default("").describe("DAO website URL"),
         avatarCID: z.string().optional().describe(
@@ -314,7 +305,12 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
           .optional()
           .describe('Social links as [platform, url] tuples, e.g. [["twitter", "https://x.com/dao"]]'),
         documents: z
-          .array(z.object({ name: z.string(), url: z.string() }))
+          .array(
+            z.object({
+              name: z.string().describe("Document label shown in the UI."),
+              url: z.string().describe("Link to the document (http(s) or ipfs://)."),
+            }),
+          )
           .optional()
           .describe("External documents, e.g. [{ name: \"Whitepaper\", url: \"https://...\" }]"),
       },
@@ -428,21 +424,19 @@ function registerUploadFile(server: McpServer, ctx: ToolContext): void {
     {
       title: "Upload raw bytes (avatar, attachment, etc.) to IPFS (Pinata)",
       description:
-        "Pins a file to IPFS. PREFER `filePath` — the server reads it itself; base64 only for non-file content. " +
-        "Returns the CID v1 (base32) + normalized filename. Images get `.jpeg` extension normalization (frontend " +
-        "convention) and a magic-byte raster gate (JPEG/PNG/WebP/GIF only — SVG/HTML render as broken avatars). " +
-        "`normalizeImageExt: false` skips both (for generic attachments like SVG logos).",
+        "Writes to a remote service. Pins a file to IPFS; PREFER `filePath` over base64. Returns CID v1 (base32) " +
+        "+ filename. Images are magic-byte gated to rasters and renamed `.jpeg` unless `normalizeImageExt: false`.",
       inputSchema: {
         filePath: z.string().optional().describe(
-          "Absolute path to a local file — the server reads it itself (max 25 MB). Preferred over base64.",
+          "Absolute path to a local file, max 25 MB — the server reads it. Preferred over base64.",
         ),
-        base64: z.string().optional().describe("Base64-encoded file bytes — only when the content isn't a local file."),
-        fileName: z.string().default("file"),
-        contentType: z.string().default("application/octet-stream"),
+        base64: z.string().optional().describe("Base64 file bytes — only when the content isn't a local file."),
+        fileName: z.string().default("file").describe("Filename to pin it under, with extension."),
+        contentType: z.string().default("application/octet-stream").describe("MIME type of the bytes."),
         normalizeImageExt: z
           .boolean()
           .default(true)
-          .describe("If true and contentType starts with image/, rename the file extension to .jpeg."),
+          .describe("If contentType starts with image/, rename the extension to .jpeg."),
       },
       outputSchema: {
         cid: z.string().describe("CID v1 base32 — use this as avatarCID."),
@@ -531,10 +525,10 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
     {
       title: "Fetch content by CID (dedicated gateway, optional fallback)",
       description:
-        "Fetches IPFS content via the gateway configured in DEXE_IPFS_GATEWAY (recommended: a dedicated gateway — Pinata gives one with the JWT). Public gateways are NOT a default because they're unreliable; opt in via DEXE_IPFS_GATEWAYS_FALLBACK (comma-separated) for best-effort fallback after the primary. Returns parsed JSON when content-type is JSON, plus raw bytes size.",
+        "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (dedicated; Pinata issues one with the JWT). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
       inputSchema: {
         cid: z.string().describe("CID (with or without ipfs:// prefix)"),
-        timeoutMs: z.number().int().min(500).max(30_000).default(4000),
+        timeoutMs: z.number().int().min(500).max(30_000).default(4000).describe("Per-gateway timeout in ms."),
       },
       outputSchema: {
         cid: z.string(),
@@ -589,7 +583,7 @@ function registerCidInfo(server: McpServer, gateways: string[]): void {
     {
       title: "Parse a CID, show version/codec, compute the alternate version + gateway URLs",
       description:
-        "Parses a CIDv0 or CIDv1, reports codec + multihash, converts between v0↔v1 when legal, and emits the gateway URL for each configured gateway.",
+        "Read-only, local. Parses a CIDv0/v1, reports codec + multihash, converts v0↔v1 when legal, and emits a URL per configured gateway.",
       inputSchema: {
         cid: z.string().describe("CID (with or without ipfs:// prefix)"),
       },
@@ -641,14 +635,11 @@ function registerCidForJson(server: McpServer): void {
     {
       title: "Compute a JSON value's IPFS CIDs locally — no network, nothing pinned",
       description:
-        "Computes, offline, the two CIDs for arbitrary JSON. `pinataCid` is the dag-pb CIDv0 that " +
-        "`dexe_ipfs_upload_*` (Pinata pinJSONToIPFS) returns for the SAME value — use this one anywhere a CID goes " +
-        "on-chain (e.g. `descriptionURL`), because it is what a real upload will produce. `cid` is the multiformats " +
-        "json-codec CIDv1 of the same value, kept for content-addressing/verification use. NOTHING IS PINNED: both " +
-        "are local hashes, so content referenced by them is unfetchable until you actually upload it with " +
-        "`dexe_ipfs_upload_proposal_metadata` / `_upload_dao_metadata`.",
+        "Read-only, local. Hashes a JSON value offline, pinning NOTHING — content stays unfetchable until you " +
+        "upload it. `pinataCid` is the dag-pb CIDv0 a real Pinata upload returns: use it wherever a CID goes " +
+        "on-chain. `cid` is the json-codec CIDv1.",
       inputSchema: {
-        value: z.unknown(),
+        value: z.unknown().describe("Any JSON value to hash locally."),
       },
       outputSchema: {
         cid: z.string(),
@@ -700,15 +691,14 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
     {
       title: "Upload a DAO avatar (one-shot: pins + returns avatarCID/avatarFileName/avatarUrl)",
       description:
-        "Uploads an image and returns the {avatarCID, avatarFileName, avatarUrl} triple for `dexe_ipfs_upload_dao_metadata` " +
-        "or `dexe_proposal_build_modify_dao_profile`. PREFER `filePath` — the server reads the file itself; never pass " +
-        "base64 through the conversation. Magic-byte validated (JPEG/PNG/WebP/GIF only — SVG/HTML render permanently " +
-        "broken on app.dexe.io); filename normalized to `.jpeg`; returns CID v1 base32.",
+        "Writes to a remote service. Pins an image, returning {avatarCID, avatarFileName, avatarUrl}. PREFER " +
+        "`filePath`; never pass base64 through the conversation. Magic-byte validated (JPEG/PNG/WebP/GIF only — " +
+        "SVG/HTML render broken on app.dexe.io); renamed `.jpeg`; CID v1 base32.",
       inputSchema: {
         filePath: z.string().optional().describe(
-          "Absolute path to a local image file (JPEG/PNG/WebP/GIF, max 10 MB). Preferred over base64.",
+          "Absolute path to a local image (JPEG/PNG/WebP/GIF, max 10 MB). Preferred over base64.",
         ),
-        base64: z.string().optional().describe("Base64-encoded image bytes — only when the image isn't a local file."),
+        base64: z.string().optional().describe("Base64 image bytes — only when the image isn't a local file."),
         fileName: z.string().default("avatar").describe("Base filename; extension will be normalized to .jpeg"),
         contentType: z
           .string()
@@ -767,10 +757,8 @@ function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
     {
       title: "Generate a deterministic placeholder avatar for a DAO",
       description:
-        "Renders a real JPEG avatar with the DAO's initials over a hash-coloured gradient (no external generator) and pins it to IPFS. " +
-        "Returns the same {avatarCID, avatarFileName, avatarUrl} shape as `dexe_ipfs_upload_avatar`, " +
-        "ready to feed into `dexe_ipfs_upload_dao_metadata` or `dexe_proposal_build_modify_dao_profile`. " +
-        "Same input always produces the same image (great for re-deploys).",
+        "Writes to a remote service. Renders a real JPEG of the DAO's initials over a hash-coloured gradient " +
+        "and pins it, returning {avatarCID, avatarFileName, avatarUrl}. Deterministic.",
       inputSchema: {
         daoName: z.string().min(1).describe("DAO name; first 1–2 alphanumeric chars become the avatar initials."),
         size: z.number().int().min(64).max(2048).default(512).describe("Output image size in px (square)."),
@@ -838,28 +826,38 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
     {
       title: "Fetch DAO metadata, apply partial overrides, re-upload",
       description:
-        "Reads the existing DAO metadata JSON from IPFS via the configured gateway, applies only the fields you pass in `overrides`, " +
-        "and re-pins the merged result. Returns the new outer `descriptionURL` ready for `dexe_proposal_build_modify_dao_profile`. " +
-        "Unspecified fields are preserved verbatim (so you can change just the avatar without re-typing the website or social links).",
+        "Writes to a remote service. Fetches the current DAO metadata from IPFS, applies only `overrides`, " +
+        "re-pins the merge (omitted fields kept) and returns the new outer `descriptionURL`.",
       inputSchema: {
         currentDescriptionURL: z
           .string()
           .describe("Current DAO descriptionURL — `ipfs://<cid>` or bare CID. Fetched via the configured IPFS gateway."),
         overrides: z
           .object({
-            daoName: z.string().optional(),
-            websiteUrl: z.string().optional(),
+            daoName: z.string().optional().describe("New DAO name (displayed in UI)."),
+            websiteUrl: z.string().optional().describe("New DAO website URL."),
             description: z
               .string()
               .optional()
               .describe("Markdown or plain text. If provided, replaces the description content (re-uploaded as its own pin)."),
             avatarCID: z.string().optional().describe("New avatar CID (any version). Pair with avatarFileName to set, or pass empty string to clear."),
-            avatarFileName: z.string().optional(),
-            socialLinks: z.array(z.tuple([z.string(), z.string()])).optional(),
-            documents: z.array(z.object({ name: z.string(), url: z.string() })).optional(),
+            avatarFileName: z.string().optional().describe("New avatar filename with extension, e.g. 'logo.jpeg'."),
+            socialLinks: z
+              .array(z.tuple([z.string(), z.string()]))
+              .optional()
+              .describe("Replacement [platform, url] tuples."),
+            documents: z
+              .array(
+                z.object({
+                  name: z.string().describe("Document label shown in the UI."),
+                  url: z.string().describe("Link to the document (http(s) or ipfs://)."),
+                }),
+              )
+              .optional()
+              .describe("Replacement external-document list."),
           })
           .describe("Only the fields you want to change. Anything omitted is kept from the current metadata."),
-        timeoutMs: z.number().int().min(500).max(30_000).default(6000),
+        timeoutMs: z.number().int().min(500).max(30_000).default(6000).describe("Gateway fetch timeout in ms."),
       },
       outputSchema: {
         descriptionURL: z.string().describe("New outer CID — pass to dexe_proposal_build_modify_dao_profile.newDescriptionURL."),

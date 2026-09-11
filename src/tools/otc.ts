@@ -24,7 +24,7 @@ import {
 import { simulateCalldata } from "./simulate.js";
 import { parseUintString } from "../lib/amount.js";
 import { parseAmount, formatAmount, from18 } from "../lib/units.js";
-import { chainIdParam, signerKeyParam } from "../lib/params.js";
+import { chainIdParam, signerKeyParam, NFT_IDS_OWN_DESC } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
@@ -303,18 +303,11 @@ export function registerOtcTools(
   // =============================================
   server.tool(
     "dexe_otc_dao_open_sale",
-    "OTC composite — propose to open a multi-tier token sale on a deployed OTC DAO. " +
-      "Builds the multi-tier `createTiers` envelope (deduped/summed approves, auto-merkle, " +
-      "auto-addToWhitelist for plain Whitelist tiers, auto-upload of merkle whitelists to " +
-      "IPFS so app.dexe.io buyers can regenerate proofs), then runs the full proposal_create " +
-      "flow: balance + threshold check, ERC20 approve to UserKeeper if needed, deposit, " +
-      "IPFS proposal-metadata upload, `createProposalAndVote`. " +
-      "When DEXE_PRIVATE_KEY is set, signs and broadcasts each tx; otherwise returns " +
-      "an ordered TxPayload list. Every DAO deployed with `dexe_dao_create` (v0.19+) already has " +
-      "TokenSaleProposal wired as an executor, so this works right after a deploy. Only DAOs deployed " +
-      "by other/older tooling without that executor need a `new_proposal_type` proposal " +
-      "(dexe_proposal_create, executors=[tokenSaleProposal]) or a redeploy first. " +
-      "Unsure of the full sale journey or which params to collect from the user? Call dexe_guide (flow:'otc_sale') first.",
+    "Broadcasts when a signer is configured. Proposes a multi-tier token sale on an OTC DAO: builds the " +
+      "`createTiers` envelope (deduped approves, auto-merkle, auto-addToWhitelist, merkle lists pinned to " +
+      "IPFS so buyers can regenerate proofs), then runs the proposal_create flow (approve, deposit, IPFS " +
+      "metadata, `createProposalAndVote`). DAOs from `dexe_dao_create` (v0.19+) already wire " +
+      "TokenSaleProposal as an executor; older ones need a `new_proposal_type` proposal first.",
     {
       govPool: z.string().describe("GovPool address"),
       chainId: z
@@ -324,30 +317,35 @@ export function registerOtcTools(
         .optional()
         .describe("Target chain id. Defaults to the MCP's default chain."),
       tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
-      tiers: z.array(tierSchema).min(1),
-      latestTierId: z.string().default("0"),
-      proposalName: z.string().default("Open OTC Token Sale"),
-      proposalDescription: z.string().default(""),
-      voteAmount: z.string().optional(),
-      voteNftIds: z.array(z.string()).default([]),
-      user: z.string().optional(),
+      tiers: z
+        .array(tierSchema)
+        .min(1)
+        .describe("Tier specs for `createTiers`, in order; at least one."),
+      latestTierId: z
+        .string()
+        .default("0")
+        .describe("Current `latestTierId()` on the sale; new tiers start after it."),
+      proposalName: z.string().default("Open OTC Token Sale").describe("Proposal title in the DAO UI."),
+      proposalDescription: z.string().default("").describe("Proposal body; Markdown supported."),
+      voteAmount: z
+        .string()
+        .optional()
+        .describe("Vote size: whole tokens ('12.5') or raw wei. Omit to vote with all available power."),
+      voteNftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
+      user: z.string().optional().describe("Acting address; defaults to the configured signer."),
       signerKey: signerKeyParam,
       dryRun: z
         .boolean()
         .default(false)
-        .describe(
-          "Preview: no broadcast, no IPFS pin (merkle whitelists too). CIDs are right but unpinned — do " +
-            "NOT broadcast this calldata.",
-        ),
-      buildOnly: z.boolean().default(false).describe("If true, return just the envelope (actions + metadata + merkle roots) without running the proposal_create flow. Skips IPFS upload and DAO state reads."),
+        .describe("Preview: no broadcast, no IPFS pin. CIDs are right but unpinned — do NOT broadcast."),
+      buildOnly: z
+        .boolean()
+        .default(false)
+        .describe("Return only the envelope (actions + metadata + merkle roots); skips IPFS and DAO reads."),
       acknowledgeVestingBlocked: z
         .boolean()
         .default(false)
-        .describe(
-          "Opt in to opening a tier with vestingPercentage > 0. Refused by default: on current pools the vested " +
-            "leg can never be withdrawn (upstream protocol defect F15) and those tokens are stranded. Only set " +
-            "true on a pool where vestingWithdraw is known to work.",
-        ),
+        .describe("Refused by default: opt into vestingPercentage > 0; the vested leg is stranded (F15)."),
       flowContext: flowContextSchema,
     },
     async (input) => {
@@ -512,21 +510,19 @@ export function registerOtcTools(
   // =============================================
   server.tool(
     "dexe_otc_buyer_status",
-    "OTC buyer aggregator — reads tier params + user state across N tiers and returns a " +
-      "render-ready summary (purchasable status, claimable amount, vesting withdrawable, " +
-      "lockup ETA, totalSold, on-chain merkle root). When `whitelists` is supplied per tier, " +
-      "computes the user's merkle proof against that list AND passes it into getUserViews — " +
-      "so `canParticipate` is accurate for merkle-gated tiers. Read-only.",
+    "Read-only. Tier params + user state across N tiers: purchasable status, claimable amount, vesting " +
+      "withdrawable, lockup ETA, totalSold, merkle root. `whitelists` adds the user's proof, making " +
+      "`canParticipate` accurate for gated tiers.",
     {
-      tokenSaleProposal: z.string(),
+      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       chainId: chainIdParam,
-      tierIds: z.array(z.string()).min(1),
-      user: z.string(),
+      tierIds: z.array(z.string()).min(1).describe("Tier ids to report on, decimal strings."),
+      user: z.string().describe("Buyer address to report state for."),
       whitelists: z
         .array(
           z.object({
-            tierId: z.string(),
-            users: z.array(z.string()).min(1),
+            tierId: z.string().describe("Tier the whitelist belongs to, decimal string."),
+            users: z.array(z.string()).min(1).describe("Whitelisted addresses, exactly as the merkle root was built."),
           }),
         )
         .default([])
@@ -760,46 +756,35 @@ export function registerOtcTools(
   // =============================================
   server.tool(
     "dexe_otc_buyer_buy",
-    "OTC buyer composite — preflights balance + allowance on the payment token, builds an " +
-      "ERC20 approve when needed, then builds `TokenSaleProposal.buy(tierId, paymentToken, amount, proof)`. " +
-      "Native-coin path (paymentToken == 0x000...000) skips approve and sets `value`. " +
-      "If `whitelistUsers` is supplied, computes the merkle proof against that list. " +
-      "When DEXE_PRIVATE_KEY is set, signs and broadcasts both txs; otherwise returns the ordered " +
-      "TxPayload list.",
+    "Broadcasts when a signer is configured. Preflights balance + allowance, adds an ERC20 approve when " +
+      "needed, then builds `TokenSaleProposal.buy(tierId, paymentToken, amount, proof)`. Native path " +
+      "(0x000...000) skips approve and sets `value`; `whitelistUsers` generates the proof.",
     {
-      tokenSaleProposal: z.string(),
+      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       chainId: z
         .number()
         .int()
         .positive()
         .optional()
         .describe("Target chain id. Defaults to the MCP's default chain."),
-      tierId: z.string(),
+      tierId: z.string().describe("Tier to buy from, decimal string."),
       tokenToBuyWith: z
         .string()
         .describe(
-          "Payment token; for native BNB pass 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE (protocol ETHEREUM_ADDRESS). " +
-            "The zero address is accepted as an alias, but calldata always carries ETHEREUM_ADDRESS — the contract keys exchange rates by it.",
+          "Payment token; native BNB = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE (0x0 is an alias).",
         ),
       amount: z
         .string()
-        .describe(
-          "Amount to spend. Human units with a decimal point ('100.5') are handled for you regardless of the " +
-            "payment token's decimals (recommended). A digits-only string is treated as the 18-decimal-normalized " +
-            "quantity buy() expects (back-compat) — the tool converts it to the token's native decimals for the " +
-            "balance check and approve.",
-        ),
-      proof: z.array(z.string()).default([]),
+        .describe("Amount to spend: human units ('100.5'), or digits-only = 18-decimal-normalized."),
+      proof: z.array(z.string()).default([]).describe("Merkle proof for a gated tier; [] when not gated."),
       whitelistUsers: z.array(z.string()).default([]).describe("Optional whitelist for proof gen"),
-      user: z.string().optional(),
+      user: z.string().optional().describe("Buyer address; defaults to the configured signer."),
       signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       simulateFirst: z
         .boolean()
         .default(false)
-        .describe(
-          "If true, eth_call-simulate the buy() against live state before broadcasting. Aborts with the revertReason if the sim fails.",
-        ),
+        .describe("eth_call-simulate buy() first; aborts with the revertReason if the sim fails."),
     },
     async (input) => {
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);
@@ -973,32 +958,26 @@ export function registerOtcTools(
   // =============================================
   server.tool(
     "dexe_otc_buyer_claim_all",
-    "OTC buyer composite — reads `getUserViews(user, tierIds)`, picks tier ids with " +
-      "`claimableAmount > 0` and broadcasts `claim`. Tiers whose only balance is the VESTED leg are " +
-      "reported under `vestingBlocked` and NOT broadcast: `vestingWithdraw` is refused by the pool's " +
-      "firewall in every call shape (upstream protocol defect F15), so sending it only burns gas. " +
-      "Pass `includeVesting: true` to attempt it anyway. When DEXE_PRIVATE_KEY " +
-      "is unset, returns ordered TxPayloads. Skips silently if no tiers have anything claimable.",
+    "Broadcasts when a signer is configured. Reads `getUserViews(user, tierIds)` and sends `claim` for " +
+      "tiers with `claimableAmount > 0`. Tiers whose only balance is the VESTED leg are reported under " +
+      "`vestingBlocked` and NOT sent — `vestingWithdraw` is refused by the pool's firewall (upstream " +
+      "defect F15); `includeVesting: true` tries anyway.",
     {
-      tokenSaleProposal: z.string(),
+      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       chainId: z
         .number()
         .int()
         .positive()
         .optional()
         .describe("Target chain id. Defaults to the MCP's default chain."),
-      tierIds: z.array(z.string()).min(1),
-      user: z.string().optional(),
+      tierIds: z.array(z.string()).min(1).describe("Tier ids to sweep, decimal strings."),
+      user: z.string().optional().describe("Claimer address; defaults to the configured signer."),
       signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       includeVesting: z
         .boolean()
         .default(false)
-        .describe(
-          "Attempt `vestingWithdraw` for tiers with a withdrawable vested amount. Off by default because that " +
-            "call reverts on every current pool (upstream F15) — turn it on only for a pool where it is known " +
-            "to work.",
-        ),
+        .describe("Attempt `vestingWithdraw` too; it reverts on every current pool (upstream F15)."),
     },
     async (input) => {
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);

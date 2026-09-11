@@ -52,10 +52,13 @@ function registerListContracts(server: McpServer, ctx: ToolContext): void {
     {
       title: "List compiled contracts",
       description:
-        "Enumerates all compiled DeXe-Protocol contracts. Filter by substring match on name and/or kind (contract/interface/library). Requires dexe_compile to have run at least once.",
+        "Read-only, local. Lists the compiled DeXe-Protocol contracts; filter by name substring and/or kind.",
       inputSchema: {
         filter: z.string().optional().describe("Case-insensitive substring match on contract name"),
-        kind: z.enum(["contract", "interface", "library"]).optional(),
+        kind: z
+          .enum(["contract", "interface", "library"])
+          .optional()
+          .describe("Return only artifacts of this kind."),
       },
       outputSchema: {
         count: z.number(),
@@ -121,8 +124,9 @@ function registerGetAbi(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get contract ABI",
       description:
-        "Returns the ABI JSON for a compiled contract by name. Narrow a large ABI with `kind` " +
-        "and/or `nameFilter` — GovPool's full ABI is ~21.8k chars.",
+        "Read-only, local. Contract ABI JSON from the local compile output; run dexe_compile " +
+        "(needs DEXE_TOOLSETS=core,dev) once per session first. Narrow with `kind`/`nameFilter` " +
+        "(GovPool ABI ~21.8k chars).",
       inputSchema: {
         contract: z.string().describe("Contract name, e.g. 'GovPool'"),
         kind: z
@@ -249,7 +253,7 @@ function registerGetMethods(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get contract methods (read/write)",
       description:
-        "Returns structured per-function metadata for a contract, partitioned into read (view/pure) and write (nonpayable/payable). Each entry includes name, canonical signature, 4-byte selector, stateMutability, and full structured inputs/outputs (with `internalType` preserved for tuples — e.g. 'IGovPool.ProposalView[]'). Designed for generating TypeScript interfaces or ethers wrappers without re-parsing raw ABIs. Optionally includes events and errors.",
+        "Read-only, local. Per-function metadata split into read (view/pure) and write (nonpayable/payable), with canonical signatures, 4-byte selectors and `internalType` kept for tuples.",
       inputSchema: {
         contract: z.string().describe("Contract name, e.g. 'GovPool'"),
         kind: z
@@ -512,9 +516,9 @@ function registerGetSelectors(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get contract selectors",
       description:
-        "Returns all function selectors, event topic hashes, and error selectors for a contract.",
+        "Read-only, local. Function/event/error selectors from the local compile output; run dexe_compile (needs DEXE_TOOLSETS=core,dev) once per session first.",
       inputSchema: {
-        contract: z.string(),
+        contract: z.string().describe("Contract name, e.g. 'GovPool'"),
       },
       outputSchema: {
         contract: z.string(),
@@ -565,9 +569,12 @@ function registerFindSelector(server: McpServer, ctx: ToolContext): void {
     {
       title: "Reverse selector lookup",
       description:
-        "Given a 4-byte selector (function/error, '0x…') or 32-byte event topic hash, returns all matching contracts and signatures across the compiled codebase. Supports collisions.",
+        "Read-only, local. Maps a 4-byte selector or 32-byte event topic to every matching contract and signature in the compiled codebase; collisions included.",
       inputSchema: {
-        selector: z.string().regex(/^0x[0-9a-fA-F]+$/, "Must be a 0x-prefixed hex string"),
+        selector: z
+          .string()
+          .regex(/^0x[0-9a-fA-F]+$/, "Must be a 0x-prefixed hex string")
+          .describe("4-byte function/error selector or 32-byte event topic, 0x-hex."),
       },
       outputSchema: {
         selector: z.string(),
@@ -622,9 +629,9 @@ function registerGetNatspec(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get NatSpec docs",
       description:
-        "Reads devdoc/userdoc for a contract from build-info. Optionally scope to a single member (function/event signature or name).",
+        "Read-only, local. devdoc/userdoc from build-info; optionally scoped to one member.",
       inputSchema: {
-        contract: z.string(),
+        contract: z.string().describe("Contract name, e.g. 'GovPool'"),
         member: z.string().optional().describe("Function/event name or full signature"),
       },
       outputSchema: {
@@ -688,10 +695,10 @@ function registerGetSource(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get contract source",
       description:
-        "Returns the source file path for a contract. Optionally slices around a symbol (function/event name) using a naive regex scan — AST-based extraction is a future enhancement.",
+        "Read-only, local. Source file path for a contract; optionally slices around a symbol via a naive regex scan.",
       inputSchema: {
-        contract: z.string(),
-        symbol: z.string().optional(),
+        contract: z.string().describe("Contract name, e.g. 'GovPool'"),
+        symbol: z.string().optional().describe("Function/event name to slice the source around."),
       },
       outputSchema: {
         contract: z.string(),

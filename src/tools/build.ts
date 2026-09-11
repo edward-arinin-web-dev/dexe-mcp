@@ -20,7 +20,7 @@ function registerCompile(server: McpServer, ctx: ToolContext): void {
     {
       title: "Compile DeXe-Protocol",
       description:
-        "Runs `npm run compile` in DEXE_PROTOCOL_PATH. Parses solc diagnostics and invalidates the artifact cache on success. Must be called at least once per session before introspection tools can read artifacts.",
+        "Runs locally and writes artifacts. `npm run compile` in DEXE_PROTOCOL_PATH; parses solc diagnostics, refreshes the artifact cache. Run once per session before introspection.",
       inputSchema: {
         // The current protocol's `compile` script already passes `--force`;
         // keep this input for forward-compat and ignore it for now.
@@ -141,7 +141,7 @@ function registerTest(server: McpServer, ctx: ToolContext): void {
     {
       title: "Run Hardhat tests",
       description:
-        "Runs `npx hardhat test` in DEXE_PROTOCOL_PATH. Optionally filters by mocha --grep or a specific test file. Parses pass/fail counts and captures up to 20 failure bodies.",
+        "Runs locally and writes artifacts. `npx hardhat test` in DEXE_PROTOCOL_PATH; pass/fail counts plus up to 20 failure bodies.",
       inputSchema: {
         grep: z.string().optional().describe("Mocha --grep pattern"),
         file: z.string().optional().describe("Specific test file path (relative to protocol root)"),
@@ -239,7 +239,7 @@ function registerCoverage(server: McpServer, ctx: ToolContext): void {
     {
       title: "Run solidity-coverage",
       description:
-        "Runs `npm run coverage` in DEXE_PROTOCOL_PATH and reads coverage/coverage-summary.json for per-file line/branch percentages. Slow — can take several minutes.",
+        "Runs locally and writes artifacts. `npm run coverage` in DEXE_PROTOCOL_PATH, then coverage/coverage-summary.json for per-file line/branch percentages. Slow (minutes).",
       inputSchema: {
         grep: z.string().optional().describe("Mocha --grep pattern (passed through)"),
       },
@@ -343,7 +343,7 @@ function registerLint(server: McpServer, ctx: ToolContext): void {
     {
       title: "Run protocol linters",
       description:
-        "Runs the protocol's lint scripts. With `fix: true` runs `npm run lint-fix` (chained solhint/eslint/jsonlint fixers). Without, runs `npm run lint-check` if available.",
+        "Runs locally and writes artifacts. `npm run lint-fix` with `fix: true` (solhint/eslint/jsonlint), else `npm run lint-check`.",
       inputSchema: {
         fix: z.boolean().optional().describe("Apply fixes in-place"),
       },

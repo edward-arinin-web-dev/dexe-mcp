@@ -2,7 +2,16 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../config.js";
 import type { StateStore } from "../lib/stateStore.js";
-import { flowIndex, flowDetail, topicIndex, topicDetail, matchIntent, bestMatch, FLOWS } from "../knowledge/index.js";
+import {
+  flowIndex,
+  flowDetail,
+  topicIndex,
+  topicDetail,
+  matchIntent,
+  bestMatch,
+  FLOWS,
+  TOPICS,
+} from "../knowledge/index.js";
 import { nextAfter } from "../knowledge/nextSteps.js";
 import { renderSkillRecipe } from "../knowledge/render.js";
 
@@ -41,6 +50,15 @@ export function registerKnowledgePrompts(server: McpServer): void {
   }
 }
 
+/**
+ * The complete, compile-time-known set of ids `flow` accepts, built from the
+ * same constants the handler resolves against — so adding a flow or a topic
+ * publishes it in the schema with no second edit. Published as a `z.enum`
+ * (not free text) because the set is closed: an agent that guessed at an id
+ * used to pay an index round-trip to learn the ten it could have read here.
+ */
+const GUIDE_IDS = [...FLOWS.map((f) => f.id), ...TOPICS.map((t) => t.id)] as [string, ...string[]];
+
 export function registerGuideTools(
   server: McpServer,
   config: DexeConfig,
@@ -48,22 +66,21 @@ export function registerGuideTools(
 ): void {
   server.tool(
     "dexe_guide",
-    "Call this FIRST for any multi-step or unfamiliar DeXe request — 'create a DAO', 'launch a token with " +
-      "distribution/OTC/staking', 'open a sale', 'set up staking', 'pass this proposal'. Returns the exact ordered " +
+    "Read-only, local. Call this FIRST for any multi-step or unfamiliar DeXe request — 'create a DAO', " +
+      "'launch a token with distribution/OTC/staking', 'open a sale', 'pass this proposal'. Returns the ordered " +
       "plan (which tools, in what order, with what params), the questions to ask the user with per-parameter risk " +
-      "notes, and the known protocol pitfalls for that journey. Never improvise a governance flow without it. " +
-      "Also serves reference topics for data questions — e.g. flow:\"read_dao_data\" covers the whole read surface " +
-      "(free-form subgraph queries via dexe_graph_query, backend stats/holders/NFT reads, arbitrary contract reads). " +
-      "Call with no args (or a free-text `intent`) to get the menu; call with `flow` for the full plan or topic.",
+      "notes, and the known pitfalls for that journey. Never improvise a governance flow without it. Reference " +
+      "topics answer data questions the same way (flow:\"read_dao_data\" covers the whole read surface). No args " +
+      "or a free-text `intent` returns the menu; `flow` returns the full plan.",
     {
       intent: z
         .string()
         .optional()
         .describe("The user's request in free text — matched against the flow triggers (e.g. 'create a token and sell 20% via OTC')."),
       flow: z
-        .string()
+        .enum(GUIDE_IDS)
         .optional()
-        .describe("Exact flow or topic id from the index tier (e.g. 'create_dao', 'launch_token_economy', 'read_dao_data'). Takes precedence over intent."),
+        .describe("Exact flow or topic id. Takes precedence over `intent`; omit both for the menu."),
       chainId: z
         .number()
         .int()

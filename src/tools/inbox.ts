@@ -211,11 +211,10 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
     {
       title: "Multi-DAO attention aggregator",
       description:
-        "Aggregates pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, and locked deposits. " +
-        `Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omitting \`daos\` auto-discovers the ` +
-        `user's DAOs from that chain's pools subgraph (limit 50; ${discoveryNote}); on any other chain pass \`daos[]\` — the scan ` +
-        "itself is pure on-chain and works everywhere. The response reports `indexedChainId` = the chain the discovered list came " +
-        "from (null when you supplied it); discovery never answers from another chain's index. Read-only.",
+        "Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked " +
+        `deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that ` +
+        `chain's pools subgraph (limit 50; ${discoveryNote}); elsewhere pass \`daos[]\` — the scan itself is pure ` +
+        "on-chain. The reply echoes `indexedChainId`.",
       inputSchema: {
         user: z.string().describe("User wallet address"),
         daos: z

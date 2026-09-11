@@ -17,10 +17,13 @@ function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
+/** OZ/Bravo ids are keccak-derived uint256s, not the 1-indexed DeXe counters. */
+const PID_GOV = "Proposal id from hashProposal, decimal or 0x-hex.";
+
 const governorIdSchema = z
   .string()
   .min(1)
-  .describe("Governor id (e.g. 'uniswap') or 0x-prefixed governor contract address.");
+  .describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
 
 const uintLikeSchema = z.union([z.string(), z.number()]);
 
@@ -38,11 +41,11 @@ function registerPropose(server: McpServer): void {
     {
       title: "Encode Governor.propose calldata",
       description:
-        "Returns {to, value, data, selector} for the configured Governor's propose method. OZ v4+ uses (targets, values, calldatas, description); Bravo uses (targets, values, signatures, calldatas, description). On Bravo, signatures defaults to [''...] when omitted.",
+        "Builds calldata; does not broadcast. `Governor.propose`: OZ v4+ takes (targets, values, calldatas, description), Bravo takes (targets, values, signatures, calldatas, description) and defaults signatures to empty strings.",
       inputSchema: {
         governor: governorIdSchema,
-        targets: z.array(z.string()).min(1),
-        values: z.array(uintLikeSchema).min(1).describe("ETH value per target as decimal string or number."),
+        targets: z.array(z.string()).min(1).describe("Contract address called by each action."),
+        values: z.array(uintLikeSchema).min(1).describe("Native value per target, RAW base units (wei), decimal string or number."),
         calldatas: z.array(z.string()).min(1).describe("0x-prefixed bytes per target."),
         description: z.string().describe("Human-readable proposal description; hashed for queue/execute on OZ."),
         signatures: z
@@ -69,12 +72,12 @@ function registerVoteCast(server: McpServer): void {
     {
       title: "Encode Governor.castVote / castVoteWithReason calldata",
       description:
-        "Returns {to, value, data, selector}. support: 0=Against, 1=For, 2=Abstain. When reason is provided, uses castVoteWithReason; otherwise castVote. Identical signature on OZ and Bravo.",
+        "Builds calldata; does not broadcast. `Governor.castVote`, or `castVoteWithReason` when `reason` is set. Identical signature on OZ and Bravo.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z.string().describe("Proposal id as decimal string (uint256)."),
-        support: z.number().int().min(0).max(2),
-        reason: z.string().optional(),
+        proposalId: z.string().describe(PID_GOV),
+        support: z.number().int().min(0).max(2).describe("0 = Against, 1 = For, 2 = Abstain."),
+        reason: z.string().optional().describe("Optional public reason string stored with the vote."),
       },
     },
     async ({ governor, proposalId, support, reason }) => {
@@ -95,15 +98,15 @@ function registerQueue(server: McpServer): void {
     {
       title: "Encode Governor.queue calldata",
       description:
-        "OZ v4+: pass targets/values/calldatas plus either description (we hash it) or descriptionHash. Bravo: pass proposalId only.",
+        "Builds calldata; does not broadcast. `Governor.queue`. OZ v4+: pass targets/values/calldatas plus description (hashed for you) or descriptionHash. Bravo: pass proposalId only.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z.string().optional(),
-        targets: z.array(z.string()).optional(),
-        values: z.array(uintLikeSchema).optional(),
-        calldatas: z.array(z.string()).optional(),
-        description: z.string().optional(),
-        descriptionHash: z.string().optional(),
+        proposalId: z.string().optional().describe("Bravo only. " + PID_GOV),
+        targets: z.array(z.string()).optional().describe("OZ only. Contract address per action."),
+        values: z.array(uintLikeSchema).optional().describe("OZ only. Native value per action, RAW base units (wei)."),
+        calldatas: z.array(z.string()).optional().describe("OZ only. 0x-hex calldata per action."),
+        description: z.string().optional().describe("OZ only. The proposal description; hashed for you."),
+        descriptionHash: z.string().optional().describe("OZ only. Use when the description text is unknown."),
       },
     },
     async (args) => {
@@ -124,16 +127,18 @@ function registerExecute(server: McpServer): void {
     {
       title: "Encode Governor.execute calldata",
       description:
-        "OZ v4+: pass targets/values/calldatas plus description or descriptionHash. Bravo: pass proposalId only. Optional msgValue passes through as the tx value (sum of proposal target values when calling OZ execute).",
+        "Builds calldata; does not broadcast. `Governor.execute`. OZ v4+: pass targets/values/calldatas plus description or descriptionHash. Bravo: pass proposalId only.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z.string().optional(),
-        targets: z.array(z.string()).optional(),
-        values: z.array(uintLikeSchema).optional(),
-        calldatas: z.array(z.string()).optional(),
-        description: z.string().optional(),
-        descriptionHash: z.string().optional(),
-        msgValue: uintLikeSchema.optional().describe("Tx value in wei. Defaults to 0."),
+        proposalId: z.string().optional().describe("Bravo only. " + PID_GOV),
+        targets: z.array(z.string()).optional().describe("OZ only. Contract address per action."),
+        values: z.array(uintLikeSchema).optional().describe("OZ only. Native value per action, RAW base units (wei)."),
+        calldatas: z.array(z.string()).optional().describe("OZ only. 0x-hex calldata per action."),
+        description: z.string().optional().describe("OZ only. The proposal description; hashed for you."),
+        descriptionHash: z.string().optional().describe("OZ only. Use when the description text is unknown."),
+        msgValue: uintLikeSchema
+          .optional()
+          .describe("Tx value, RAW base units (wei) — the sum of the OZ target values. Defaults to 0."),
       },
     },
     async (args) => {
@@ -154,10 +159,10 @@ function registerDelegate(server: McpServer): void {
     {
       title: "Encode IVotes.delegate calldata on the configured voting token",
       description:
-        "Returns {to, value, data, selector}. `to` is the voting token (NOT the Governor). delegatee=zero address self-revokes delegation.",
+        "Builds calldata; does not broadcast. `IVotes.delegate` — `to` is the voting token, NOT the Governor. The zero address revokes the delegation.",
       inputSchema: {
         governor: governorIdSchema,
-        delegatee: z.string(),
+        delegatee: z.string().describe("Address receiving the delegated voting power; zero revokes."),
       },
     },
     async ({ governor, delegatee }) => {

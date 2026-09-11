@@ -55,7 +55,7 @@ import { toActionableError } from "../lib/errors.js";
 import { flowChainFields, flowContextSchema, type FlowContext } from "../lib/flowChain.js";
 import { parseAmount, formatAmount, formatUnitsWithSymbol } from "../lib/units.js";
 import { unixToUtc } from "../lib/time.js";
-import { signerKeyParam } from "../lib/params.js";
+import { signerKeyParam, govPoolParam, PROPOSAL_ID_DESC, NFT_IDS_OWN_DESC } from "../lib/params.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { withActionContext, currentActionContext } from "../lib/agentLedger.js";
@@ -2617,44 +2617,47 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_create",
-    "Create ANY governance proposal in ONE call — handles the whole approve→deposit→createProposalAndVote " +
-      "sequence, uploads correct IPFS metadata (category/isMeta/changes), signs+broadcasts when a signer is " +
-      "configured (else returns ordered TxPayloads + a WalletConnect QR).\n\n" +
-      "proposalType (every DeXe catalog type is wired):\n" +
-      "• 'modify_dao_profile' — top-level fields (newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks; avatar via " +
-      "newAvatarPath — a local image path the server uploads itself — or newAvatarCID).\n" +
-      "• 'custom' — your own actionsOnFor [{executor,value,data}] (+ optional category).\n" +
-      "• On-chain external types (inputs go in `params`): 'token_transfer' {token,recipient,amount,isNative?}, " +
-      "'withdraw_treasury' {receiver,token?,amount?,nftAddress?,nftIds?}, 'change_voting_settings' {govSettings,settings[],settingsIds?}, " +
-      "'add_expert'/'remove_expert' {expertNftContract,scope,nominatedUser,uri?}, 'token_distribution', 'token_sale', " +
-      "'token_sale_whitelist' {tokenSaleProposal,requests[]}, 'token_sale_recover' {tokenSaleProposal,tierIds[]}, " +
-      "'manage_validators' {govValidators,changes[{user,balance}]}, " +
-      "'validators_allocation' {credits:[{token,amount}]} (funds the validators' monthly-withdraw credit line), " +
-      "'delegate_to_expert'/'revoke_from_expert' {expert,amount,nftIds?}, 'create_staking_tier', " +
-      "'change_math_model' {newVotePower}, 'blacklist' {erc20Gov,addAddresses?,removeAddresses?}, " +
-      "'reward_multiplier' {mode,...}, 'apply_to_dao' {token,receiver,amount,treasuryBalance?}, " +
-      "'new_proposal_type'/'enable_staking' {govSettings,settings,executors,newSettingId}, 'custom_abi' {target,signature,method,args?}.\n" +
-      "• Internal (validators-only, auto-routed to GovValidators.createInternalProposal): " +
-      "'change_validator_balances' {changes[]}, 'change_validator_settings' {duration,executionDelay,quorum}, " +
-      "'monthly_withdraw' {withdrawals[],destination}, 'offchain_internal_proposal' {}.\n" +
-      "• Off-chain backend types ('offchain_single_option' etc.) are rejected with the exact backend flow to use instead.\n" +
-      "Full per-type recipes with examples: docs/PLAYBOOK.md (dexe://playbook resource) or dexe_proposal_catalog. " +
-      "Unsure of the journey or which params to collect from the user? Call dexe_guide first.",
+    "Broadcasts when a signer is configured. Creates ANY governance proposal in ONE call: runs " +
+      "approve\u2192deposit\u2192createProposalAndVote and uploads correct IPFS metadata " +
+      "(category/isMeta/changes). Without a signer it returns ordered TxPayloads + a WalletConnect QR.\\n" +
+      "Pass `proposalType` \u2014 the enum lists every wired type \u2014 with its inputs in `params`:\\n" +
+      "\u2022 'custom': your own actionsOnFor [{executor,value,data}]. 'modify_dao_profile' reads the top-level " +
+      "newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks/newAvatarPath fields, not `params`.\\n" +
+      "\u2022 External: token_transfer {token,recipient,amount,isNative?} \u00b7 withdraw_treasury " +
+      "{receiver,token?,amount?,nftAddress?,nftIds?} \u00b7 change_voting_settings {govSettings,settings[],settingsIds?} " +
+      "\u00b7 add_expert/remove_expert {expertNftContract,scope,nominatedUser,uri?} \u00b7 token_sale_whitelist " +
+      "{tokenSaleProposal,requests[]} \u00b7 token_sale_recover {tokenSaleProposal,tierIds[]} \u00b7 manage_validators " +
+      "{govValidators,changes[]} \u00b7 validators_allocation {credits[]} \u00b7 delegate_to_expert/revoke_from_expert " +
+      "{expert,amount,nftIds?} \u00b7 change_math_model {newVotePower} \u00b7 blacklist " +
+      "{erc20Gov,addAddresses?,removeAddresses?} \u00b7 apply_to_dao {token,receiver,amount} \u00b7 " +
+      "new_proposal_type/enable_staking {govSettings,settings,executors,newSettingId} \u00b7 custom_abi " +
+      "{target,signature,method,args?} \u00b7 token_distribution \u00b7 token_sale \u00b7 create_staking_tier \u00b7 " +
+      "reward_multiplier.\\n" +
+      "\u2022 Internal (validators-only): change_validator_balances {changes[]} \u00b7 change_validator_settings " +
+      "{duration,executionDelay,quorum} \u00b7 monthly_withdraw {withdrawals[],destination} \u00b7 " +
+      "offchain_internal_proposal {}.\\n" +
+      "Off-chain backend types are rejected with the flow to use instead. Full recipes with examples: " +
+      "dexe://playbook, or dexe_proposal_catalog.",
     {
-      govPool: z.string().describe("GovPool contract address"),
+      govPool: govPoolParam,
       chainId: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
-        ),
+        .describe("Target chain (56 mainnet, 97 testnet); needs an RPC for it. Default: the MCP's default chain."),
+      // 0.34.0: `.default("custom")` removed. A published `default` told the
+      // model it could omit the one field that decides what the proposal DOES,
+      // and the silent fallback then built a zero-action `custom` proposal that
+      // GovPoolCreate._validateProposal reverts unconditionally. `.optional()`
+      // drops the misleading default from the JSON Schema WITHOUT narrowing the
+      // published `required` array, and runProposalCreate still falls back to
+      // "custom" for programmatic callers, so no working call changes.
       proposalType: z
         .enum(FLOW_PROPOSAL_TYPES as unknown as [string, ...string[]])
-        .default("custom")
+        .optional()
         .describe(
-          "One of the wired types listed in the tool description. Unknown values are rejected with the valid list.",
+          "What kind of proposal to create — required in practice. 'custom' means you supply actionsOnFor. Unsure? Call dexe_proposal_catalog.",
         ),
       params: z
         .record(z.unknown())
@@ -2662,31 +2665,33 @@ export function registerFlowTools(
         .describe("Type-specific builder inputs for the chosen proposalType (recipes: tool description / dexe://playbook)."),
       title: z.string().describe("Proposal title"),
       description: z.string().default("").describe("Proposal description (markdown supported)"),
-      newDaoName: z.string().optional(),
-      newDaoDescription: z.string().optional(),
-      newWebsiteUrl: z.string().optional(),
-      newAvatarCID: z.string().optional(),
-      newAvatarFileName: z.string().optional(),
+      newDaoName: z.string().optional().describe("modify_dao_profile: the DAO's new display name."),
+      newDaoDescription: z.string().optional().describe("modify_dao_profile: the DAO's new description (markdown)."),
+      newWebsiteUrl: z.string().optional().describe("modify_dao_profile: the DAO's new website URL."),
+      newAvatarCID: z.string().optional().describe("modify_dao_profile: IPFS CID of an already-pinned avatar."),
+      newAvatarFileName: z.string().optional().describe("modify_dao_profile: file name stored with newAvatarCID."),
       newAvatarPath: z.string().optional().describe(
-        "Local image path for the new avatar (JPEG/PNG/WebP/GIF, max 10 MB) — the server uploads + validates it. " +
-        "Preferred over reading the file yourself; replaces the separate dexe_ipfs_upload_avatar call.",
+        "Local avatar image path (JPEG/PNG/WebP/GIF, max 10 MB) — the server validates and pins it for you.",
       ),
       newAvatarBase64: z.string().optional().describe("Base64 image bytes — only when the image isn't a local file."),
-      newSocialLinks: z.array(z.tuple([z.string(), z.string()])).optional(),
+      newSocialLinks: z
+        .array(z.tuple([z.string(), z.string()]))
+        .optional()
+        .describe("modify_dao_profile: [[network, url], ...]."),
       actionsOnFor: z.array(z.object({
-        executor: z.string(),
-        value: z.string().default("0"),
-        data: z.string(),
-      })).default([]).describe("Actions for custom proposals"),
+        executor: z.string().describe("Contract the action calls."),
+        value: z.string().default("0").describe("Native coin sent with the action, RAW base units (wei)."),
+        data: z.string().describe("0x-hex calldata for the action."),
+      })).default([]).describe("Actions run when the proposal passes. Required for proposalType:'custom'."),
       category: z.string().optional().describe("Proposal category (included in IPFS metadata)."),
       proposalMetadataExtra: z.record(z.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
       voteAmount: z
         .string()
         .optional()
         .describe(
-          "Auto-vote amount: raw wei (digits-only) OR human units with a decimal point ('12.5', scaled by the gov token's decimals). Defaults to all available power.",
+          "Auto-vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: all available power.",
         ),
-      voteNftIds: z.array(z.string()).default([]),
+      voteNftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
       signerKey: signerKeyParam,
       dryRun: z
@@ -2700,16 +2705,15 @@ export function registerFlowTools(
         .boolean()
         .default(false)
         .describe(
-          "Required to proceed when the built proposal carries a DANGER governance-safety advisory " +
-            "(e.g. quorum lowered into treasury-drain territory). Without it the flow refuses BEFORE any transaction.",
+          "Required when the built proposal carries a DANGER governance-safety advisory. Without it the flow " +
+            "refuses BEFORE any transaction.",
         ),
       allowDuplicate: z
         .boolean()
         .default(false)
         .describe(
-          "By default the create is SKIPPED when a still-live proposal on this DAO already carries the same IPFS " +
-            "metadata URL — i.e. this exact call already landed (a resumed run). Set true to mint a second identical " +
-            "proposal on purpose.",
+          "The create is SKIPPED when a live proposal already carries the same IPFS metadata URL (a resumed " +
+            "run). True mints a second identical proposal on purpose.",
         ),
       flowContext: flowContextSchema,
     },
@@ -2728,46 +2732,43 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_vote_and_execute",
-    "Vote on a proposal and optionally execute it — the ONE call for 'vote on / pass / execute proposal N'. " +
-      "Checks proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → vote, " +
-      "matching the frontend's bundled deposit+vote), and when autoExecute is true executes after the vote passes. " +
-      "Signs+broadcasts when a signer is configured; otherwise returns ordered TxPayloads + a WalletConnect QR. " +
-      "Unsure of the lifecycle (validator round, locked tokens)? Call dexe_guide (flow:'vote_execute') first.",
+    "Broadcasts when a signer is configured. The ONE call for 'vote on / pass / execute proposal N': checks " +
+      "proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → " +
+      "vote, the frontend's bundled shape), and with autoExecute executes once the vote passes. Without a signer " +
+      "it returns ordered TxPayloads + a WalletConnect QR. Unsure of the lifecycle (validator round, locked " +
+      "tokens)? Call dexe_guide (flow:'vote_execute') first.",
     {
-      govPool: z.string().describe("GovPool contract address"),
+      govPool: govPoolParam,
       chainId: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
-        ),
-      proposalId: z.number().int().min(1).describe("Proposal ID (1-indexed)"),
+        .describe("Target chain (56 mainnet, 97 testnet); needs an RPC for it. Default: the MCP's default chain."),
+      proposalId: z.number().int().min(1).describe(PROPOSAL_ID_DESC),
       isVoteFor: z.boolean().default(true).describe("Vote for (true) or against (false)"),
       voteAmount: z
         .string()
         .optional()
         .describe(
-          "Vote amount: raw wei (digits-only string) OR human units with a decimal point ('12.5', scaled by the gov " +
-            "token's decimals). Defaults to ALL available power (deposited + wallet).",
+          "Vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: ALL " +
+            "available power (deposited + wallet).",
         ),
-      voteNftIds: z.array(z.string()).default([]),
+      voteNftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
       depositFirst: z
         .union([z.boolean(), z.literal("auto")])
         .default("auto")
         .describe(
-          "'auto' (default): deposit exactly the missing amount from the wallet when deposited power is short of " +
-            "voteAmount. true: deposit the full wallet balance. false: never deposit (vote with already-deposited power only).",
+          "'auto': deposit exactly what is missing when deposited power is short. true: deposit the whole " +
+            "wallet balance. false: never deposit.",
         ),
       autoExecute: z.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
       driveValidatorRound: z
         .boolean()
         .default(true)
         .describe(
-          "When autoExecute is on and the proposal enters the validator stage (WaitingForVotingTransfer/ValidatorVoting), " +
-            "auto-drive it: moveProposalToValidators, and — if the configured signer is a validator — cast its validator " +
-            "vote, then execute. Set false to stop after the member vote and handle the validator round manually.",
+          "With autoExecute, drive the validator stage too: moveProposalToValidators, cast the signer's " +
+            "validator vote if it is one, then execute. False stops after the member vote.",
         ),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),

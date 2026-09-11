@@ -23,10 +23,13 @@ function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
+/** OZ/Bravo ids are keccak-derived uint256s, not the 1-indexed DeXe counters. */
+const PID_GOV = "Proposal id from hashProposal, decimal or 0x-hex.";
+
 const governorIdSchema = z
   .string()
   .min(1)
-  .describe("Governor id (e.g. 'uniswap') or 0x-prefixed governor contract address.");
+  .describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
 
 const addressArg = (desc: string) =>
   z.string().refine((s) => isAddress(s), { message: "must be a 0x-prefixed 20-byte address" }).describe(desc);
@@ -61,7 +64,7 @@ function registerListGovernors(server: McpServer): void {
     {
       title: "List configured external Governor DAOs",
       description:
-        "Returns all DAOs registered under src/governor/configs/. Each entry is the static config (chainId, governor address, voting token, voting params, timelock). Read-only, no RPC.",
+        "Read-only, local. Every bundled external-Governor config: its chain, governor address, voting token, voting params and timelock. A static snapshot — a DAO can change its params by proposal.",
       inputSchema: {},
     },
     async () => {
@@ -81,12 +84,10 @@ function registerGetProposal(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read OpenZeppelin Governor proposal state + tallies",
       description:
-        "Returns ProposalState (string + numeric enum), proposalSnapshot block, proposalDeadline block, and proposalVotes (for/against/abstain) for the given proposalId on a configured Governor.",
+        "Read-only. ProposalState (name + enum index), snapshot block, deadline block and proposalVotes (for/against/abstain) for one proposal on a configured Governor.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: proposalIdArg(
-          "Proposal id as decimal string (Governor uses uint256, often the bytes32 keccak hash interpreted as uint256).",
-        ),
+        proposalId: proposalIdArg(PID_GOV),
       },
     },
     async ({ governor, proposalId }) => {
@@ -125,7 +126,7 @@ function registerGetVotingPower(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read IVotes voting power for an account",
       description:
-        "Calls IVotes.getPastVotes(account, blockNumber) on the configured Governor's voting token. Falls back to IVotes.getVotes(account) when blockNumber is omitted. Decimals reported alongside raw wei value.",
+        "Read-only. `IVotes.getPastVotes(account, blockNumber)` on the Governor's voting token, or `getVotes(account)` when blockNumber is omitted. Raw wei plus the token's decimals.",
       inputSchema: {
         governor: governorIdSchema,
         account: addressArg("0x-prefixed account address."),
@@ -172,7 +173,7 @@ function registerGetQuorum(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read Governor quorum threshold at a snapshot block",
       description:
-        "Returns the quorum threshold at a snapshot block. Bravo (UNI/COMP) → fixed quorumVotes(); vanilla OZ → quorum(blockNumber); OP-style governors (quorumSource=votable-supply, whose quorum() is keyed by proposalId) → votableSupply(block) * quorumNumerator/quorumDenominator. When blockNumber is omitted, uses the latest block. The `method` field reports which path was used; `configured` echoes the numerator/denominator for cross-check.",
+        "Read-only. Quorum threshold at a snapshot block (latest when omitted). Bravo (UNI/COMP) reads fixed quorumVotes(); vanilla OZ reads quorum(blockNumber); OP-style governors, whose quorum() is keyed by proposalId, use votableSupply(block) * quorumNumerator/quorumDenominator. `method` reports the path taken, `configured` echoes the numerator/denominator to cross-check.",
       inputSchema: {
         governor: governorIdSchema,
         blockNumber: z
@@ -223,7 +224,7 @@ function registerGetProposalThreshold(server: McpServer, rpc: RpcProvider): void
     {
       title: "Read Governor proposalThreshold()",
       description:
-        "Calls Governor.proposalThreshold() — minimum voting power required to submit a proposal. Returns raw uint256 and config-derived value (when present) for cross-check.",
+        "Read-only. `Governor.proposalThreshold()` — the voting power needed to submit a proposal. Returns the live uint256 plus the bundled config value, and whether they still agree.",
       inputSchema: {
         governor: governorIdSchema,
       },

@@ -47,10 +47,10 @@ function tally(results: CheckResult[]): Tally {
 export function registerDoctorTool(server: McpServer, config: DexeConfig): void {
   server.tool(
     "dexe_doctor",
-    "Diagnose env-var setup. Runs presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) and returns a pass/warn/fail report with remediation hints. " +
-      "Call FIRST when the user reports an env-related failure — it pinpoints the missing or invalid value. " +
-      "Warnings are advisories, not errors: a healthy zero-config install always has some. " +
-      "Read-only by default: never broadcasts and performs no writes. The optional probePin flag is the one exception — it writes one tiny IPFS pin to your Pinata account to prove pinning is not plan-blocked, and says so in its result. ",
+    "Read-only. Diagnoses env setup: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. " +
+      "Call FIRST on an env-related failure. " +
+      "Warnings are advisories — a healthy zero-config install always has some. " +
+      "`probePin` is the one write: one tiny IPFS pin.",
     {
       _placeholder: z
         .boolean()
@@ -60,7 +60,7 @@ export function registerDoctorTool(server: McpServer, config: DexeConfig): void 
         .boolean()
         .optional()
         .describe(
-          "Write one tiny probe pin to Pinata (and remove it again) to prove pin capability is not plan-blocked. Default false: doctor otherwise performs no writes of any kind. Only set true when an IPFS upload is failing with HTTP 403.",
+          "Probe pin to Pinata (added, then removed) — use when an IPFS upload fails with HTTP 403.",
         ),
     },
     async (args) => {
