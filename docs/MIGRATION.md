@@ -6,6 +6,31 @@ something on your side.
 
 ---
 
+## 0.33.0 → 0.33.1 — no action
+
+Tool count unchanged (**168 tools** / 19 groups). No behaviour change; this
+release is dependencies and CI only. No source file changed, no tool input or
+output changed, no emitted calldata changed.
+
+### What it contains
+Three transitive dependencies (`fast-uri`, `hono`, `qs`, all reached through
+`@modelcontextprotocol/sdk`) sat below their advisory fix lines. The
+`overrides` floors in `package.json` were raised and the lockfile re-resolved;
+the shipped tree audits clean. `@modelcontextprotocol/sdk` itself is unchanged.
+
+The rest is release-pipeline hardening — a tag push previously ran no audit,
+lockfile, or dependency-tree gate, which is how the advisories reached a
+published version. Those gates now run in `release.yml` too, and a scheduled
+daily audit catches a floor that rots between releases.
+
+### If you use the Claude Code plugin
+**Update the plugin, not just the npm package.** `dexe-plugin/server/index.mjs`
+is an esbuild bundle with its dependencies compiled in, so it carried the
+vulnerable `fast-uri` code independently of any lockfile. It was regenerated
+for this release; plugin users get the fixed bundle by updating the plugin.
+
+---
+
 ## 0.32.1 → 0.33.0 — some calls that used to broadcast now refuse first
 
 Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.

@@ -1,0 +1,39 @@
+version: 2
+
+# Dependabot config for a repo that builds and publishes with npm +
+# package-lock.json.
+#
+# Scope note: Dependabot cannot fix a transitive-only advisory that is held
+# behind an `overrides` entry in package.json — there is no direct dependency
+# for it to bump, and its security-update job errors out instead of opening a
+# PR. Raise the floor in package.json by hand, run `npm install` (NOT `npm ci`),
+# and commit the refreshed lockfile. `.github/workflows/audit.yml` is what
+# notices those; Dependabot covers the direct dependencies and the actions.
+#
+# Also note: a `packageManager: "pnpm@..."` field in package.json makes
+# Dependabot's npm jobs install pnpm and fail. tests/release/version-sync.test.ts
+# asserts it stays out.
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR per week for routine runtime bumps; majors still arrive alone so
+      # they get reviewed on their own merits.
+      prod-minor-patch:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      # Dev tooling churns fast and never reaches users — group all of it.
+      dev:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
