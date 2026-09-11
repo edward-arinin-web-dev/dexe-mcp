@@ -65,7 +65,7 @@ jobs:
         # account could repoint `v6` at arbitrary code inside a job that holds
         # publish rights. Resolve an update with:
         #   gh api repos/actions/checkout/git/ref/tags/v6 -q .object.sha
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # Full history + tag objects so `git verify-tag` can read the
           # annotated tag and its GPG signature (shallow checkout omits them).
