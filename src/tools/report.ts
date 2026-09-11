@@ -9,6 +9,7 @@ import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { gqlRequest, resolveSubgraphUrl } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
+import { quorumAttainmentPct, quorumPctFromRaw, votesShortOfQuorum } from "../lib/quorumRisk.js";
 import { renameWithRetry, tempStatePath, withWriteLock } from "../lib/stateStore.js";
 import { chainIdParam } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
@@ -1110,18 +1111,32 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
               }>;
               onchainProposals = views.map((v, i) => {
                 const idx = Number(v.proposalState);
+                const votesFor = v.proposal.core.votesFor;
+                const votesAgainst = v.proposal.core.votesAgainst;
+                const executeAfter = v.proposal.core.executeAfter ?? 0n;
+                const required = v.requiredQuorum ?? 0n;
                 return {
                   proposalId: (scanOffset + BigInt(i) + 1n).toString(),
                   state: proposalStateLabel(idx),
                   stateIndex: idx,
                   descriptionURL: v.proposal.descriptionURL,
-                  votesFor: v.proposal.core.votesFor.toString(),
-                  votesAgainst: v.proposal.core.votesAgainst.toString(),
+                  votesFor: votesFor.toString(),
+                  votesAgainst: votesAgainst.toString(),
                   voteEnd: v.proposal.core.voteEnd.toString(),
                   validatorVoteEnd: v.validatorProposal.core.voteEnd.toString(),
-                  executeAfter: v.proposal.core.executeAfter.toString(),
+                  executeAfter: executeAfter.toString(),
                   executed: v.proposal.core.executed,
-                  requiredQuorum: (v.requiredQuorum ?? 0n).toString(),
+                  requiredQuorum: required.toString(),
+                  // Votes with no target are votes an agent has to guess about.
+                  // `requiredQuorum` is an ABSOLUTE weight and quorum is
+                  // per-side (GovPoolVote.sol:367-375), so both sides get a
+                  // percentage and the shortfall tracks the LEADING side.
+                  // `executeAfter > 0` is the protocol's own quorum flag
+                  // (GovPoolVote.sol:249-261).
+                  quorumReached: executeAfter > 0n,
+                  quorumAttainmentForPct: quorumAttainmentPct(votesFor, required),
+                  quorumAttainmentAgainstPct: quorumAttainmentPct(votesAgainst, required),
+                  votesShortOfQuorum: votesShortOfQuorum(votesFor, votesAgainst, required),
                 };
               });
             }
@@ -1583,7 +1598,20 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
                 votersVoted: str(p.votersVoted),
                 votesFor: str(p.currentVotesFor),
                 votesAgainst: str(p.currentVotesAgainst),
+                // The indexer's `Proposal.quorum` is the 1e25-scaled SETTING,
+                // not a weight — it sat here unlabelled next to token-wei vote
+                // totals. `quorum` is kept for back-compat; the two fields
+                // below say what the number actually is. Compare votes against
+                // the ABSOLUTE `requiredQuorum` in the `proposals` section.
                 quorum: str(p.quorum),
+                quorumSettingRaw: str(p.quorum),
+                quorumSettingPct: (() => {
+                  // Pass the STRING: quorumPctFromRaw has its own try/catch, so
+                  // a garbage value from the indexer yields null instead of
+                  // throwing the whole turnout section away.
+                  const n = quorumPctFromRaw(str(p.quorum) ?? "0");
+                  return Number.isFinite(n) ? n : null;
+                })(),
                 quorumReached: int(p.quorumReachedTimestamp) > 0,
                 quorumReachedAtUTC: unixToUtc(str(p.quorumReachedTimestamp) ?? 0) || null,
                 executedAtUTC: unixToUtc(str(p.executionTimestamp) ?? 0) || null,

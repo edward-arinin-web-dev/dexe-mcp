@@ -68,23 +68,64 @@ Returns:
   "govPool": "0x…",
   "chain": 56,
   "quorum": {
+    "settingRaw": "50000000000000000000000000",
+    "quorumPct": 5,
+    "totalPower": "4000000000000000000000000",
+    "requiredWeight": "200000000000000000000000",
     "required": "200000000000000000000000",
     "projectedFor": "150000000000000000000000",
     "projectedPct": 75.0,
-    "hitProbability": 0.75
+    "hitProbability": 0.75,
+    "basis": "GovUserKeeper.getTotalPower() x GovSettings.getDefaultSettings().quorum / 1e27 — …"
   },
-  "historicalPassRate": { "last10": 7, "total": 10, "ratio": 0.7 },
-  "history": [...],
+  "quorumNote": null,
+  "historicalPassRate": { "last10": 7, "passed": 7, "decided": 9, "pending": 1, "total": 10, "ratio": 0.777… },
+  "historicalQuorumAttainmentPct": 132.4,
+  "history": [{ "proposalId": "9", "state": "ExecutedFor", "outcome": "passedFor",
+                "requiredQuorum": "200000000000000000000000", "quorumAttainmentPct": 141.2, … }],
   "risks": ["quorumGap", "complexityRisk"],
   "recommendation": "borderline"
 }
 ```
 
-- Reads latest 10 proposals via `getProposals(0, 10)` + final states.
-- `required` = `GovSettings.getDefaultSettings().quorum`.
+- Reads the latest 10 proposals via `getProposals(latestProposalId - 10, 10)` + final states.
+- **Quorum has two units and this payload carries both.** `settingRaw` /
+  `quorumPct` are the 1e25-scaled percentage SETTING
+  (`GovSettings.getDefaultSettings().quorum`; 5e26 = 50%).
+  `requiredWeight` — and the back-compat alias `required` — is the **absolute
+  vote weight** `GovUserKeeper.getTotalPower() × quorum ÷ 1e27`, identical to
+  what `GovPool.getProposalRequiredQuorum(id)` returns. Compare `projectedFor`
+  against the WEIGHT only; before 0.34.0 `required` held the raw setting and
+  every verdict on a real DAO was off by `totalPower / 1e27`.
 - `projectedFor` = `mean(votesFor across history) + draft.voteAmount`.
-- `hitProbability` = `clamp(projectedFor / required, 0, 1)`.
-- `recommendation` = `likelyPass` (>= 0.8) / `borderline` (>= 0.5) / `likelyFail`.
+- `hitProbability` = `clamp(projectedFor / requiredWeight, 0, 1)` — an
+  **attainment ratio**, not a statistical probability: 185% of target is
+  reported as `1.0`.
+- `recommendation` = `likelyPass` (>= 0.8) / `borderline` (>= 0.5) /
+  `likelyFail` / `"unknown"`.
+- **Nullable when total power is unknown.** If `GovUserKeeper.getTotalPower()`
+  reverts, returns 0, or `getHelperContracts()` yields no userKeeper, then
+  `required`, `requiredWeight`, `projectedPct` and `hitProbability` are `null`,
+  `recommendation` is `"unknown"`, `risks` includes `"quorumUnknown"`, and
+  `quorumNote` explains why. `getTotalPower` is the gov token's total supply
+  plus NFT power — depositing does **not** change it.
+- The quorum used is the DAO's **default** settings. Internal / validator /
+  custom-executor proposals can carry a different quorum. On-chain, quorum is
+  reached by `votesFor` **or** `votesAgainst`; this projection tracks the For
+  side only.
+- `historicalPassRate.ratio` = `passed / decided`. A proposal that is still
+  `Voting` (or `Locked` / `ValidatorVoting` / `WaitingForVotingTransfer`) counts
+  as `pending` and sits in neither side of that fraction — before 0.34.0 it was
+  counted as a failure, which could fire a false `voterApathy` on a DAO where
+  nothing had been decided yet. `last10` is retained for back-compat and is a
+  count of passes, not a window size. An Against win is not a pass.
+- Each `history` row carries its OWN `requiredQuorum` and `quorumAttainmentPct`
+  (`null` when that row's target is 0), so the numbers stay comparable across a
+  mid-history quorum change; `historicalQuorumAttainmentPct` is the mean over
+  rows that have a target.
+- `subgraphHistory` rows gain `quorumSettingRaw` / `quorumSettingPct`: the
+  indexer's `Proposal.quorum` is the SETTING, and it sits next to token-wei
+  `currentVotesFor`. The original `quorum` key is unchanged.
 
 Mainnet only by default. Pass `forceRpcOnly: true` to run on testnet from
 on-chain reads alone — useful when you have enough historical proposals on

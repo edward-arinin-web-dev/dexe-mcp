@@ -3,15 +3,22 @@ import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
-import { multicall } from "../lib/multicall.js";
+import { multicall, type Call } from "../lib/multicall.js";
 import { gqlRequest, resolveSubgraphUrl, type ResolvedSubgraph } from "../lib/subgraph.js";
-import { proposalStateLabel } from "../lib/govEnums.js";
+import { proposalOutcome, proposalStateLabel, type ProposalStateName } from "../lib/govEnums.js";
 import { chainIdParam } from "../lib/params.js";
+import {
+  quorumAttainmentPct,
+  quorumPctFromRaw,
+  requiredQuorumWeight,
+} from "../lib/quorumRisk.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 /**
  * dexe_proposal_forecast — predictive pass-rate based on historical proposals.
@@ -35,6 +42,15 @@ const GOV_POOL_ABI = new Interface([
   "function latestProposalId() view returns (uint256)",
   "function getProposals(uint256 offset, uint256 limit) view returns (tuple(tuple(tuple(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription) settings, uint64 voteEnd, uint64 executeAfter, bool executed, uint256 votesFor, uint256 votesAgainst, uint256 rawVotesFor, uint256 rawVotesAgainst, uint256 givenRewards) core, string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst) proposal, tuple(tuple(bool executed, uint56 snapshotId, uint64 voteEnd, uint64 executeAfter, uint128 quorum, uint256 votesFor, uint256 votesAgainst) core) validatorProposal, uint8 proposalState, uint256 requiredQuorum, uint256 requiredValidatorsQuorum)[])",
 ]);
+
+/**
+ * `getTotalPower()` is the denominator GovPool itself uses:
+ * `_govUserKeeper.getTotalPower().ratio(core.settings.quorum, PERCENTAGE_100)`
+ * (DeXe-Protocol contracts/gov/GovPool.sol:495). It lives on GovUserKeeper —
+ * GovPool has no such function — so the call MUST be addressed to
+ * `getHelperContracts().userKeeper`, never to the pool.
+ */
+const USER_KEEPER_ABI = new Interface(["function getTotalPower() view returns (uint256)"]);
 
 const GOV_SETTINGS_ABI = new Interface([
   "function getDefaultSettings() view returns (tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription))",
@@ -99,7 +115,10 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
       title: "Predictive proposal pass-rate forecaster",
       description:
         "Reads the latest 10 proposals on a DAO + their final states, computes the historical " +
-        "pass-rate and average For-vote weight, and returns a forecast. " +
+        "pass-rate (over DECIDED proposals; still-voting ones are counted as `pending`, never as failures) " +
+        "and average For-vote weight, and returns a forecast. " +
+        "`quorum.requiredWeight` is an ABSOLUTE vote weight (getTotalPower x quorum / 1e27), not the 1e25 " +
+        "percentage setting; `recommendation` is \"unknown\" when total power cannot be read. " +
         "When `draft.actionsOnFor` is supplied the projection is annotated with the caller's vote weight. " +
         "The history cross-check needs a pools subgraph for the chain being forecast (BSC mainnet by default); " +
         "on a chain with no endpoint the call stops with the env var to set — pass `forceRpcOnly: true` to " +
@@ -166,12 +185,23 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         { target: govPool, iface: GOV_POOL_ABI, method: "latestProposalId", args: [], allowFailure: true },
       ]);
       if (!helpersR?.success) return err("getHelperContracts reverted");
-      const helpers = helpersR.value as unknown as { settings: string };
+      const helpers = helpersR.value as unknown as { settings: string; userKeeper?: string };
+      // A malformed helpers decode must degrade to "quorum unknown", never throw:
+      // multicall builds its calldata OUTSIDE the per-call allowFailure guard
+      // (src/lib/multicall.ts:48-52), so `target: undefined` would take the whole
+      // tool down instead of nulling one field.
+      const userKeeper =
+        typeof helpers.userKeeper === "string" &&
+        isAddress(helpers.userKeeper) &&
+        helpers.userKeeper !== ZERO_ADDRESS
+          ? helpers.userKeeper
+          : null;
       const latestId = latestIdR?.success ? BigInt(latestIdR.value as bigint) : 0n;
       const windowOffset = latestId > 10n ? latestId - 10n : 0n;
 
-      // Step 2: required quorum + the LATEST (up to) 10 proposals.
-      const [settingsR, proposalsR] = await multicall(provider, [
+      // Step 2: quorum setting + total power + the LATEST (up to) 10 proposals.
+      // getTotalPower joins the SAME aggregate3 batch — no extra round-trip.
+      const step2: Call[] = [
         {
           target: helpers.settings,
           iface: GOV_SETTINGS_ABI,
@@ -180,25 +210,53 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
           allowFailure: true,
         },
         { target: govPool, iface: GOV_POOL_ABI, method: "getProposals", args: [windowOffset, 10n], allowFailure: true },
-      ]);
-      let requiredQuorum = 0n;
+      ];
+      if (userKeeper) {
+        step2.push({
+          target: userKeeper,
+          iface: USER_KEEPER_ABI,
+          method: "getTotalPower",
+          args: [],
+          allowFailure: true,
+        });
+      }
+      const [settingsR, proposalsR, totalPowerR] = await multicall(provider, step2);
+      let quorumRaw = 0n;
       if (settingsR?.success) {
         const s = settingsR.value as unknown as { quorum: bigint };
-        requiredQuorum = s.quorum;
+        quorumRaw = s.quorum;
       }
+      const totalPower = totalPowerR?.success ? (totalPowerR.value as bigint) : null;
+      // THE fix (D1-1): `settings.quorum` is a PERCENTAGE scaled by 1e27, while
+      // votesFor is an absolute token weight. Comparing them is wrong by
+      // totalPower/1e27 — orders of magnitude, in either direction.
+      const requiredWeight = requiredQuorumWeight(totalPower, quorumRaw);
 
       // Step 3: walk historical proposals.
+      //
+      // `requiredQuorum` is a per-proposal ABSOLUTE weight the view already
+      // carries (GovPoolView.sol:65) and the ABI above already declares — it
+      // used to be decoded and dropped. Keeping it makes every historical row
+      // scale-free, which matters because a DAO's quorum setting can move
+      // mid-history (BOXY went 1e25 → 5e25 between proposals 4 and 5), and a
+      // flat mean of absolute votesFor is meaningless across such a change.
+      //
+      // Named (not positional) field access on purpose: decodeProposalView in
+      // src/lib/govProposalView.ts reads v[0]/v[3], which the plain-object
+      // fixtures this tool is tested with cannot satisfy.
       let proposals: {
         proposalId: string;
-        state: string;
+        state: ProposalStateName;
         executed: boolean;
         votesFor: bigint;
         votesAgainst: bigint;
+        requiredQuorum: bigint;
       }[] = [];
       if (proposalsR?.success) {
         const views = proposalsR.value as unknown as Array<{
           proposal: { core: { executed: boolean; votesFor: bigint; votesAgainst: bigint } };
           proposalState: bigint | number;
+          requiredQuorum?: bigint;
         }>;
         proposals = views.map((v, i) => {
           const idx = Number(v.proposalState);
@@ -208,6 +266,9 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
             executed: v.proposal.core.executed,
             votesFor: v.proposal.core.votesFor,
             votesAgainst: v.proposal.core.votesAgainst,
+            // Absent on a legacy/partial decode — never let `undefined` reach
+            // the arithmetic below (mirrors src/tools/report.ts:1124).
+            requiredQuorum: v.requiredQuorum ?? 0n,
           };
         });
       }
@@ -221,7 +282,21 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
             pool: govPool.toLowerCase(),
             first: 10,
           });
-          subgraphHistory = data.proposals;
+          // The indexer's `Proposal.quorum` is the 1e25-scaled SETTING, and it
+          // arrived here sitting next to token-wei `currentVotesFor` under a
+          // name that invited exactly the division D1-1 got wrong. Label it,
+          // and add the human percentage. The original key is preserved so
+          // existing consumers keep working.
+          subgraphHistory = data.proposals.map((row) => {
+            const r = row as Record<string, unknown>;
+            const raw = r.quorum;
+            const pct = raw == null ? NaN : quorumPctFromRaw(String(raw));
+            return {
+              ...r,
+              quorumSettingRaw: raw == null ? null : String(raw),
+              quorumSettingPct: Number.isFinite(pct) ? pct : null,
+            };
+          });
         } catch (queryErr) {
           // Soft-fail: on-chain data alone is a valid forecast. But say WHY the
           // history is missing — a swallowed error made a rejected query look
@@ -234,15 +309,35 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
       }
 
       // Stats: pass-rate + average For weight.
+      //
+      // The denominator is DECIDED proposals only (D1-4). Counting a proposal
+      // that is still Voting — and the newest proposal in this window usually
+      // is, since the window ends at latestProposalId — as a failure dragged the
+      // rate down and fired a false `voterApathy` on DAOs where nothing had been
+      // decided yet. `passedFor` keeps its long-standing meaning: the For side
+      // won. An Against win is still not a pass.
       const total = proposals.length;
-      const passed = proposals.filter(
-        (p) => p.state === "ExecutedFor" || p.state === "SucceededFor",
-      ).length;
-      const passRate = total > 0 ? passed / total : 0;
+      const outcomes = proposals.map((p) => proposalOutcome(p.state));
+      const passed = outcomes.filter((o) => o === "passedFor").length;
+      const pending = outcomes.filter((o) => o === "pending").length;
+      const decided = total - pending;
+      const passRate = decided > 0 ? passed / decided : 0;
       const avgFor =
         total > 0
           ? proposals.reduce((acc, p) => acc + p.votesFor, 0n) / BigInt(total)
           : 0n;
+
+      // Scale-free history: each row against ITS OWN quorum target. Rows with a
+      // 0/absent target (GovPool returns 0 for voteEnd == 0) contribute null and
+      // are excluded from the mean — never a NaN wearing a number's clothes.
+      const perRowAttainment = proposals.map((p) =>
+        quorumAttainmentPct(p.votesFor, p.requiredQuorum > 0n ? p.requiredQuorum : null),
+      );
+      const knownAttainment = perRowAttainment.filter((n): n is number => n !== null);
+      const historicalQuorumAttainmentPct =
+        knownAttainment.length > 0
+          ? knownAttainment.reduce((a, b) => a + b, 0) / knownAttainment.length
+          : null;
 
       // Projection: average + caller's draft voteAmount.
       let projectedFor = avgFor;
@@ -254,43 +349,78 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         }
       }
 
-      const projectedPct =
-        requiredQuorum > 0n
-          ? Number((projectedFor * 10000n) / requiredQuorum) / 100
-          : 0;
-      const hitProbability = Math.min(1, Math.max(0, projectedPct / 100));
+      const projectedPct = quorumAttainmentPct(projectedFor, requiredWeight);
+      const hitProbability = projectedPct === null ? null : Math.min(1, Math.max(0, projectedPct / 100));
 
       // Risks heuristic.
       const risks: string[] = [];
-      if (passRate < 0.4 && total > 0) risks.push("voterApathy");
+      // No apathy verdict off a window where nothing has been decided.
+      if (decided > 0 && passRate < 0.4) risks.push("voterApathy");
       if ((draft?.actionsOnFor?.length ?? 0) > 5) risks.push("complexityRisk");
-      if (requiredQuorum > 0n && projectedFor < requiredQuorum) risks.push("quorumGap");
+      if (requiredWeight !== null && projectedFor < requiredWeight) risks.push("quorumGap");
+      if (requiredWeight === null) risks.push("quorumUnknown");
 
-      let recommendation: "likelyPass" | "borderline" | "likelyFail";
-      if (hitProbability >= 0.8) recommendation = "likelyPass";
+      let recommendation: "likelyPass" | "borderline" | "likelyFail" | "unknown";
+      if (hitProbability === null) recommendation = "unknown";
+      else if (hitProbability >= 0.8) recommendation = "likelyPass";
       else if (hitProbability >= 0.5) recommendation = "borderline";
       else recommendation = "likelyFail";
+
+      const quorumNote =
+        requiredWeight === null
+          ? `Quorum target unknown: GovUserKeeper.getTotalPower() at ${userKeeper ?? "(no userKeeper in getHelperContracts)"} ` +
+            `returned 0 or did not answer, so the forecast cannot say how far the votes are from quorum. ` +
+            `getTotalPower is the gov token's total supply (plus NFT power) — depositing does NOT change it. ` +
+            `Check that this DAO has a gov token or NFT with non-zero supply (dexe_dao_info shows the helper ` +
+            `contracts, dexe_read_gov_state the token), and that the RPC for chain ${resolvedChainId} is healthy ` +
+            `(dexe_doctor). historicalPassRate below is still computed from on-chain proposals ` +
+            `(${passed}/${decided} decided, ${pending} still in flight).`
+          : null;
 
       return ok({
         govPool,
         chain: resolvedChainId,
         quorum: {
-          required: requiredQuorum.toString(),
+          /** The raw 1e25-scaled percentage SETTING (5e26 = 50%). Never a weight. */
+          settingRaw: quorumRaw.toString(),
+          quorumPct: Number.isFinite(quorumPctFromRaw(quorumRaw)) ? quorumPctFromRaw(quorumRaw) : null,
+          totalPower: totalPower === null ? null : totalPower.toString(),
+          /** The ABSOLUTE vote weight quorum demands. Null when totalPower is unknown. */
+          requiredWeight: requiredWeight === null ? null : requiredWeight.toString(),
+          // Back-compat name, now carrying the value it always claimed to hold.
+          required: requiredWeight === null ? null : requiredWeight.toString(),
           projectedFor: projectedFor.toString(),
           projectedPct,
           hitProbability,
+          basis:
+            "GovUserKeeper.getTotalPower() x GovSettings.getDefaultSettings().quorum / 1e27 — the same formula as " +
+            "GovPool.getProposalRequiredQuorum. Uses the DEFAULT settings; internal/validator/custom-executor " +
+            "proposals may carry a different quorum. On-chain, quorum is reached by votesFor OR votesAgainst; " +
+            "this projection tracks the For side only. hitProbability is an attainment ratio clamped to 1 " +
+            "(185% of target ⇒ 1.0), not a statistical probability.",
         },
+        quorumNote,
         historicalPassRate: {
+          // `last10` is a count of passes, not a window size — kept for
+          // back-compat alongside the fields that actually say what they are.
           last10: passed,
+          passed,
+          decided,
+          pending,
           total,
           ratio: passRate,
         },
-        history: proposals.map((p) => ({
+        historicalQuorumAttainmentPct,
+        history: proposals.map((p, i) => ({
           proposalId: p.proposalId,
           state: p.state,
+          outcome: outcomes[i]!,
           executed: p.executed,
           votesFor: p.votesFor.toString(),
           votesAgainst: p.votesAgainst.toString(),
+          /** Absolute weight this proposal needed — per row, not the DAO default. */
+          requiredQuorum: p.requiredQuorum.toString(),
+          quorumAttainmentPct: perRowAttainment[i]!,
         })),
         subgraphHistory,
         // Provenance for the block above: the chain whose index produced it, and
