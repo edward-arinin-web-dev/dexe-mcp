@@ -1,0 +1,49 @@
+name: Scheduled dependency audit
+
+# This is the gate that catches an `overrides` floor falling below a widened
+# advisory — the 0.33.0 failure mode.
+#
+# The floors in package.json pin transitive dependencies above their advisory
+# lines, but advisories widen after the fact: a floor that was above the fix
+# line when it was written silently ends up below it, while the overrides block
+# still *looks* like the alert was handled. Nothing in a push-triggered workflow
+# notices, because the repo can sit untouched for weeks and Dependabot cannot
+# open a PR for a transitive-only package behind an override.
+#
+# So this runs daily against `main` with no code change required. A red run
+# emails the maintainer; the fix is to raise the floor in package.json, run
+# `npm install` (NOT `npm ci`), and commit the refreshed lockfile.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'  # daily 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit the shipped dependency tree
+    runs-on: ubuntu-latest
+    steps:
+      # SHA-pinned: tags are mutable. Resolve an update with
+      #   gh api repos/actions/checkout/git/ref/tags/v6 -q .object.sha
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # `npm ci` so the audit reflects exactly the tree a consumer installs from
+      # the committed lockfile, not a freshly re-resolved one.
+      - run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+
+      # Dev deps are a build-time surface, not something shipped to users — a
+      # finding here is worth seeing but must not page anyone.
+      - name: Audit dev dependencies (advisory)
+        run: npm audit --audit-level=moderate || echo "::warning::dev-dependency advisories present"

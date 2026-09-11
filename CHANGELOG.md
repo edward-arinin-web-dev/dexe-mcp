@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.33.1 — 2026-09-11
+
+**Three live advisories, again, and the pipeline that let them ship.** Tool
+count unchanged (**168 / 19 groups**). No source change.
+
+### Security
+Same shape as 0.32.1, one release later: the floors raised then were above the
+fix line when they were written, and the advisories widened underneath them.
+`qs` had no floor at all — it arrives transitively through
+`@modelcontextprotocol/sdk` and nothing was watching it.
+
+| package | old floor | installed | advisory |
+|---|---|---|---|
+| `fast-uri` | `>=4.1.2` | 4.1.2 | 4.0.0–4.1.2 — **HIGH**, 2 SSRF + 2 host-confusion CVEs |
+| `hono` | `>=4.13.0` | 4.13.0 | `<=4.13.4` — moderate, path traversal + memory exhaustion + cache-key differential |
+| `qs` | *(none)* | 6.15.2 | 2.2.5–6.15.3 — moderate, array-limit bypass + DoS |
+
+Raised to `>=4.1.3`, `>=4.13.5`, `>=6.16.0`; the tree now resolves 4.1.4,
+4.13.7, 6.16.0 and `npm audit --omit=dev` is clean. All three are transitive
+through `@modelcontextprotocol/sdk@1.29.0`, which is **not** bumped in this
+release — only the floors underneath it.
+
+A floor the locked version already satisfies never re-resolves, so raising a
+floor requires `npm install` (not `npm ci`) and a committed lockfile. The two
+new tests below pin that.
+
+**`dexe-plugin/server/index.mjs` was re-inlined.** The plugin ships an esbuild
+bundle with its dependencies compiled in, so it carried the vulnerable
+`fast-uri` 4.1.2 code regardless of the lockfile. Regenerated with
+`npm run bundle:plugin` after the re-resolve — plugin users get the fix by
+updating the plugin, not just by reinstalling the npm package.
+
+### CI — the reason this reached a tag at all
+A tag push runs `release.yml` and nothing else. `ci.yml` fires on branches and
+pull requests, so every gate that would have caught the above — the audit, the
+lockfile check, the dependency-tree check — was bypassed by the exact event
+that publishes. That is how 0.33.0 shipped.
+
+- **Release gates mirrored from CI.** `release.yml` now runs
+  `git diff --exit-code package-lock.json`, `npm ls --all`, and
+  `npm audit --omit=dev --audit-level=moderate` (retried once after 30s, since
+  the registry's audit endpoint blips), plus `npm run test:compat` after the
+  test step. `gen:knowledge:check` is deliberately absent — `prepublishOnly`
+  already runs it inside `npm publish`.
+- **`workflow_dispatch` dry run.** Every release gate can now be rehearsed
+  against any ref without publishing; the tag-only steps (GPG import, tag
+  verification, publish, publish verification) are gated on `push`.
+- **Prereleases publish under `next`.** A version containing `-` no longer
+  takes over the `latest` dist-tag.
+- **Publishing works with either auth mode.** An `NPM_TOKEN` secret (npm caps
+  write tokens at 90 days, so it expires) or OIDC trusted publishing (no
+  secret, nothing to rotate). The job picks at runtime and a new step fails
+  early if npm is below 11.5.1, where OIDC is unavailable — which is why the
+  release job moved to Node 24.
+- **A publish is not green until it is installable.** A new step polls
+  `npm view` for up to 75s after publishing.
+- **Node 24 added to the CI matrix** (20, 22, 24), so the version the release
+  job runs on is exercised on every PR rather than only at tag time.
+- **Scheduled audit.** `.github/workflows/audit.yml` runs the production audit
+  daily. Push-triggered workflows cannot catch a floor that rots while the repo
+  sits untouched; this can.
+- **Dependabot config** (`.github/dependabot.yml`) — weekly npm and
+  github-actions updates, grouped. The `packageManager: "pnpm@…"` field was
+  removed from `package.json`: it made Dependabot's npm security-update jobs
+  install pnpm and fail before they could open a PR, while the repo builds and
+  publishes with npm + `package-lock.json` throughout.
+- **`actions/checkout` and `actions/setup-node` pinned to commit SHAs** in
+  `release.yml`, `ci.yml` and `audit.yml`. `scorecard.yml` moves to
+  `github/codeql-action/upload-sarif@v4`.
+- **Two new release tests.** `tests/release/version-sync.test.ts` pins all four
+  version-carrying files (plus both fields in the lockfile) to `package.json`
+  and refuses a pnpm `packageManager`; `tests/release/override-floors.test.ts`
+  asserts every installed copy of an overridden package sits at or above its
+  floor. The second guards lock-below-floor desync only — it would have passed
+  on the 0.33.0 tree. The audit gate is what catches a floor that is itself
+  too low.
+
 ## 0.33.0 — 2026-08-07
 
 **Revert prevention and harm warnings.** The project's bar is "no contract
