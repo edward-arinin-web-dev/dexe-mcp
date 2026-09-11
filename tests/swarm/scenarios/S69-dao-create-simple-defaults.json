@@ -1,0 +1,60 @@
+{
+  "id": "S69-dao-create-simple-defaults",
+  "title": "SIMPLE mode invents a governable split (30% treasury / 51% quorum / turnout <= 80%)",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "0.33.0 SIMPLE-mode synthesis. S58 passes a fully-specified ADVANCED `params` object and never touches symbol/totalSupply, so SAFE_DEFAULT_TREASURY_PCT (30) and SAFE_DEFAULT_QUORUM_PCT (51) had never run against a chain. 30% treasury leaves 70% votable and 51/70 = 72.86% required turnout, under the 80% margin ceiling. Step 2 pins the refusal side: 60% treasury with a 51% quorum is UNREACHABLE (quorum > the votable share), and the tool must refuse with both numeric ways out rather than deploy a governance-dead brick that cannot be repaired, because repairing a quorum means passing a proposal under the quorum being repaired. Both steps are dryRun — nothing is deployed. Requires DEXE_PINATA_JWT: dexe_dao_create checks for it before any dryRun branch. `dao` is unused (the composite would deploy a fresh DAO) but kept for allowlist parity.",
+  "agents": [{ "alias": "A", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "A",
+      "tool": "dexe_dao_create",
+      "args": {
+        "chainId": 97,
+        "deployer": "{{agent:A:address}}",
+        "daoName": "Kestrel Research Guild",
+        "daoDescription": "Swarm regression — SIMPLE-mode defaults, dry run only.",
+        "symbol": "KRT",
+        "totalSupply": "1000000",
+        "dryRun": true
+      },
+      "broadcast": false,
+      "captureAs": "simple",
+      "expect": [
+        { "path": "simple.mode", "op": "eq", "value": "dryRun" },
+        { "path": "simple.governance.quorumPercent", "op": "eq", "value": 51 },
+        { "path": "simple.governance.votablePercent", "op": "eq", "value": 70 },
+        { "path": "simple.governance.requiredTurnoutPercent", "op": "lte", "value": 80 },
+        { "path": "simple.predictedGovPool", "op": "matches", "value": "^0x[0-9a-fA-F]{40}$" },
+        { "path": "simple.adjustments", "op": "present" }
+      ]
+    },
+    {
+      "step": 2,
+      "agent": "A",
+      "tool": "dexe_dao_create",
+      "args": {
+        "chainId": 97,
+        "deployer": "{{agent:A:address}}",
+        "daoName": "Tessera Arts Patronage",
+        "daoDescription": "Swarm regression — an unreachable quorum must be refused, not deployed.",
+        "symbol": "TPT",
+        "totalSupply": "1000000",
+        "treasuryPercent": 60,
+        "quorumPercent": 51,
+        "dryRun": true
+      },
+      "broadcast": false,
+      "captureAs": "unreachable",
+      "expectError": "governance-dead"
+    }
+  ],
+  "successCriteria": [
+    { "id": "defaults-governable", "check": "simple.adjustments names the 30/51 choice and the turnout it implies" },
+    { "id": "bad-pair-refused", "check": "unreachable is an error that states both numeric ways out (lower quorumPercent, or lower treasuryPercent)" }
+  ]
+}

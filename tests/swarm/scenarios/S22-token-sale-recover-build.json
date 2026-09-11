@@ -14,7 +14,7 @@
       "agent": "A",
       "tool": "dexe_proposal_build_token_sale_recover",
       "args": {
-        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tokenSaleProposal": "{{dao.tokenSale}}",
         "tierIds": ["0"],
         "proposalName": "S22 sale recover sanity"
       },

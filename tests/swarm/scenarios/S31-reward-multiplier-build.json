@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [56, 97],
   "requiresBrowser": false,
-  "notes": "Exercises all 4 modes: set_address, set_token_uri, mint, change_token. Polaris nftMultiplier = 0x7e4C209f…f5DE. Multipliers are PRECISION-scaled per v0.5.6: 1.5x => 1.5e25 = 15e24.",
+  "notes": "Exercises all 4 modes: set_address, set_token_uri, mint, change_token. The nftMultiplier comes from {{dao.nftMultiplier}} (GovPool.getNftContracts()), never a literal — a hardcoded helper survives a DAO-allowlist swap and silently targets the dead fixture. Note set_address deliberately re-sets the DAO's CURRENT multiplier: a semantic no-op on-chain, but it still exercises the encoder. Multipliers are PRECISION-scaled per v0.5.6: 1.5x => 1.5e25 = 15e24.",
   "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
@@ -16,8 +16,8 @@
       "args": {
         "mode": "set_address",
         "govPool": "{{dao}}",
-        "newMultiplierAddress": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
-        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
+        "newMultiplierAddress": "{{dao.nftMultiplier}}",
+        "nftMultiplierContract": "{{dao.nftMultiplier}}",
         "proposalName": "S31 set multiplier addr"
       },
       "broadcast": false,
@@ -29,7 +29,7 @@
       "tool": "dexe_proposal_build_reward_multiplier",
       "args": {
         "mode": "mint",
-        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
+        "nftMultiplierContract": "{{dao.nftMultiplier}}",
         "to": "0x7340b46959f4598f86aA23D5d26ec289e2736e77",
         "multiplier": "15000000000000000000000000",
         "rewardPeriod": "2592000",
@@ -45,7 +45,7 @@
       "tool": "dexe_proposal_build_reward_multiplier",
       "args": {
         "mode": "set_token_uri",
-        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
+        "nftMultiplierContract": "{{dao.nftMultiplier}}",
         "tokenId": "1",
         "uri": "ipfs://QmNewURI",
         "proposalName": "S31 set token URI"
@@ -59,7 +59,7 @@
       "tool": "dexe_proposal_build_reward_multiplier",
       "args": {
         "mode": "change_token",
-        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
+        "nftMultiplierContract": "{{dao.nftMultiplier}}",
         "tokenId": "1",
         "multiplier": "20000000000000000000000000",
         "rewardPeriod": "5184000",

@@ -14,7 +14,7 @@
       "agent": "P",
       "tool": "dexe_proposal_build_token_sale_whitelist",
       "args": {
-        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tokenSaleProposal": "{{dao.tokenSale}}",
         "requests": [
           {
             "tierId": "1",

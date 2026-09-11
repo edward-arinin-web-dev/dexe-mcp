@@ -1,0 +1,50 @@
+{
+  "id": "S63-addsettings-refusal",
+  "title": "#36 addSettings trap is refused before any tx on chain 97",
+  "priority": 2,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": [],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "0.33.0 write-path guard. proposal_create's Step 3c runs checkAddSettingsTrap on the FINAL actions — including the `custom` branch, which takes caller-supplied actionsOnFor verbatim and never touches PROPOSAL_BUILDERS, so it bypassed the registry guard entirely. The trap is selector-keyed (0x6a11e769 = GovSettings.addSettings), not executor-keyed. Returns mode 'blocked-risky' with risk DANGER and an advisory naming #36; nothing is pinned and nothing is broadcast, so this scenario is free and deterministic. The orchestrator lands it as a SKIPPED step (the refusal cascades to dependants) and the assertions below are what make it a real check.",
+  "agents": [{ "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "chainId": 97,
+        "proposalType": "custom",
+        "title": "Governance settings slot for the grants committee",
+        "description": "Swarm regression — the #36 gate must refuse this before any broadcast.",
+        "actionsOnFor": [
+          {
+            "executor": "{{dao.settings}}",
+            "data": "0x6a11e7690000000000000000000000000000000000000000000000000000000000000020",
+            "value": "0"
+          }
+        ],
+        "user": "{{agent:P:address}}",
+        "dryRun": true
+      },
+      "broadcast": false,
+      "captureAs": "blocked",
+      "expect": [
+        { "path": "blocked.mode", "op": "eq", "value": "blocked-risky" },
+        { "path": "blocked.risk", "op": "eq", "value": "DANGER" },
+        { "path": "blocked.governanceAdvisories.0", "op": "contains", "value": "#36" },
+        {
+          "path": "blocked.steps",
+          "op": "absent",
+          "note": "The DANGER gate returns before runFlow, so there is no payload list at all — not an empty one."
+        }
+      ]
+    }
+  ],
+  "successCriteria": [
+    { "id": "refused-pre-broadcast", "check": "blocked.mode == 'blocked-risky' and no payload was produced" },
+    { "id": "custom-branch-covered", "check": "the refusal came from the custom branch, which bypasses PROPOSAL_BUILDERS" }
+  ]
+}

@@ -15,14 +15,14 @@
       "tool": "dexe_otc_dao_open_sale",
       "args": {
         "govPool": "{{dao}}",
-        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tokenSaleProposal": "{{dao.tokenSale}}",
         "latestTierId": "0",
         "tiers": [
           {
             "name": "S44 Tier-A Open",
             "totalTokenProvided": "1000000000000000000000",
-            "saleStartTime": "1750000000",
-            "saleEndTime": "1760000000",
+            "saleStartTime": "{{now-3600}}",
+            "saleEndTime": "{{now+2592000}}",
             "saleTokenAddress": "{{firstAllowlistedToken}}",
             "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
             "exchangeRates": ["1000000000000000000"]
@@ -30,8 +30,8 @@
           {
             "name": "S44 Tier-B Whitelist",
             "totalTokenProvided": "250000000000000000000",
-            "saleStartTime": "1750000000",
-            "saleEndTime": "1760000000",
+            "saleStartTime": "{{now-3600}}",
+            "saleEndTime": "{{now+2592000}}",
             "saleTokenAddress": "{{firstAllowlistedToken}}",
             "purchaseTokenAddresses": ["{{firstAllowlistedToken}}"],
             "exchangeRates": ["2000000000000000000"],
