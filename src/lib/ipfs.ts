@@ -223,6 +223,109 @@ export async function cidForBytes(bytes: Uint8Array): Promise<string> {
   return CID.create(1, raw.code, hash).toString(base32);
 }
 
+// ---------- Pinata-identical local CID (dag-pb / UnixFS) ----------
+//
+// `cidForJson` above is a multiformats *json codec* CID (`bagaaiera…`). Pinata's
+// `pinJSONToIPFS` stores the JSON as a UnixFS FILE and returns a dag-pb CIDv0
+// (`Qm…`), so the two never match — which is why a dryRun preview built on
+// `cidForJson` emitted calldata the real run would never emit.
+//
+// The dag-pb CID is fully computable offline: serialize with `JSON.stringify`
+// (Pinata re-emits exactly those bytes — no whitespace, insertion key order),
+// wrap in a single-chunk UnixFS `File` node, wrap that in a link-less PBNode,
+// sha-256, base58. Verified byte-for-byte against two CIDs Pinata actually
+// returned for `dao-settings` JSONs:
+//   QmdFNFNZ2Uku589i8fm8kFsyRjXYSBzoG9tDQAffZ8ixN4 (558 B)
+//   QmZXSnHWDRtSRKvLKJLx6QEx4TNUDz9sVv3pDsiARPdLLE (559 B)
+// (locked in tests/lib/pinata-cid-parity.test.ts).
+
+/** Bytes IPFS packs into ONE UnixFS chunk; past this a file becomes a DAG. */
+const UNIXFS_CHUNK_BYTES = 262144;
+
+/** dag-pb multicodec code. */
+const DAG_PB_CODE = 0x70;
+
+function protoVarint(n: number): number[] {
+  const out: number[] = [];
+  let v = n;
+  while (v >= 0x80) {
+    out.push((v & 0x7f) | 0x80);
+    v = Math.floor(v / 128);
+  }
+  out.push(v);
+  return out;
+}
+
+/** `PBNode{ Data: UnixFS{ Type: File, Data: bytes, filesize: len } }`, no links. */
+function unixfsFileBlock(bytes: Uint8Array): Uint8Array {
+  const len = protoVarint(bytes.length);
+  // UnixFS Data message: field 1 (Type) = 2 (File), field 2 (Data), field 3 (filesize)
+  const unixfs = [0x08, 0x02, 0x12, ...len, ...bytes, 0x18, ...len];
+  // PBNode: field 1 (Data) only — a link-less node serializes to just this.
+  return Uint8Array.from([0x0a, ...protoVarint(unixfs.length), ...unixfs]);
+}
+
+/** A locally computed CID plus whether it is provably what a real pin returns. */
+export interface LocalPinCid {
+  /** dag-pb CIDv0 — the exact string `pinJSONToIPFS` returns for this value. */
+  cid: string;
+  /**
+   * True when the reproduction is provable: single UnixFS chunk and pure-ASCII
+   * bytes (the two conditions under which Pinata's re-serialization cannot
+   * differ from ours). False → still the right shape, but treat as an estimate.
+   */
+  exact: boolean;
+}
+
+/**
+ * Compute, with no network, the CID Pinata's `pinJSONToIPFS` would return for
+ * `value`. This is what makes a dryRun preview's calldata byte-identical to the
+ * real run's — the preview no longer has to fabricate a CID in a codec no
+ * gateway will ever serve.
+ */
+export async function pinataCidForJson(value: unknown): Promise<LocalPinCid> {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  const hash = await sha256.digest(unixfsFileBlock(bytes));
+  return {
+    cid: CID.create(0, DAG_PB_CODE, hash).toString(),
+    exact: bytes.length <= UNIXFS_CHUNK_BYTES && bytes.every((b) => b < 0x80),
+  };
+}
+
+/** One JSON artifact that was either pinned for real or previewed locally. */
+export interface PinOrPreview {
+  /** `ipfs://<cid>` — ready to drop into calldata. */
+  uri: string;
+  cid: string;
+  /** False under dryRun: the CID is right, the bytes are on nobody's node. */
+  pinned: boolean;
+  /** Only meaningful when `pinned` is false — see `LocalPinCid.exact`. */
+  exact: boolean;
+}
+
+/**
+ * Pin `value`, or — under dryRun — compute the identical CID locally and pin
+ * nothing. The ONE place the preview/broadcast fork lives, so a new pin site
+ * cannot forget it (0.33.0 had five hand-written copies and three were wrong).
+ */
+export async function pinJsonOrPreview(
+  value: unknown,
+  opts: { dryRun: boolean; pinata?: PinataClient; name?: string },
+): Promise<PinOrPreview> {
+  if (opts.dryRun) {
+    const local = await pinataCidForJson(value);
+    return { uri: `ipfs://${local.cid}`, cid: local.cid, pinned: false, exact: local.exact };
+  }
+  if (!opts.pinata) {
+    throw new Error(
+      "Internal: a real (non-dryRun) pin was attempted without a Pinata client. " +
+        "Set DEXE_PINATA_JWT in .env and restart, then run dexe_doctor to verify.",
+    );
+  }
+  const res = await opts.pinata.pinJson(value, opts.name ? { name: opts.name } : undefined);
+  return { uri: `ipfs://${res.cid}`, cid: res.cid, pinned: true, exact: true };
+}
+
 function codecName(code: number): string {
   switch (code) {
     case 0x55:
@@ -292,7 +395,8 @@ async function pinataFetch(
     if (controller.signal.aborted) {
       throw new Error(
         `Pinata ${what} timed out after ${timeoutMs}ms — IPFS upload timed out, no metadata was pinned. ` +
-          `Re-run the same call: the steps that already landed are skipped, so nothing is paid for twice. ` +
+          `Re-run the same call: ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote that ` +
+          `already landed are re-derived from chain state and skipped, so nothing is paid for twice. ` +
           `If it keeps timing out, check status.pinata.cloud or set a different pinning service.`,
       );
     }

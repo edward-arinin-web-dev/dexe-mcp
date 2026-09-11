@@ -8,8 +8,10 @@ import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "./otc.js";
 import { DEFAULTS } from "../config.js";
-import { chainIdParam } from "../lib/params.js";
+import { backendChainIdParam, chainIdParam, govPoolParam } from "../lib/params.js";
 import { toActionableError } from "../lib/errors.js";
+import { pageMeta, truncationNote } from "../lib/page.js";
+import { GOV_POWER_DECIMALS, formatUnitsWithSymbol, withFormatted } from "../lib/units.js";
 
 const GOV_POOL_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -102,22 +104,29 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Arbitrary batched eth_call via Multicall3",
       description:
-        "Execute N independent view calls in a single RPC round-trip. Each call supplies its own ABI signature fragment, target, method, and args. Results are decoded per-call.",
+        "Read-only. N independent view calls in one Multicall3 round-trip; each supplies its own ABI signature fragment, target, method and args.",
       inputSchema: {
         chainId: chainIdParam,
         calls: z
           .array(
             z.object({
-              target: z.string(),
+              target: z.string().describe("Contract address to call."),
               signature: z
                 .string()
                 .describe("Full function signature, e.g. 'function balanceOf(address) view returns (uint256)'"),
               method: z.string().describe("Method name matching the signature"),
-              args: z.array(z.unknown()).default([]),
-              allowFailure: z.boolean().default(true),
+              args: z
+                .array(z.unknown())
+                .default([])
+                .describe("Positional args; pass uint256 values as decimal strings."),
+              allowFailure: z
+                .boolean()
+                .default(true)
+                .describe("false = one reverting call fails the whole batch."),
             }),
           )
-          .min(1),
+          .min(1)
+          .describe("The view calls to batch (at least one)."),
       },
       outputSchema: {
         results: z.array(
@@ -193,15 +202,16 @@ async function fetchBackendBalances(
   base: string,
   chainId: number,
   holder: string,
-): Promise<BackendBalanceRow[]> {
+): Promise<{ rows: BackendBalanceRow[]; capped: boolean }> {
   const out: BackendBalanceRow[] = [];
   const seen = new Set<string>();
   let pageToken = "";
-  for (let page = 0; page < 20; page++) {
+  let page = 0;
+  for (; page < 20; page++) {
     const url = new URL(
       `${base}/integrations/api-proxy-cache/${chainId}/wallet-balances/${holder}`,
     );
-    url.searchParams.set("page_size", "100");
+    url.searchParams.set("page_size", String(BACKEND_MAX_PAGE_SIZE));
     if (pageToken) url.searchParams.set("page_token", pageToken);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
@@ -223,7 +233,10 @@ async function fetchBackendBalances(
     if (!pageToken || seen.has(pageToken)) break;
     seen.add(pageToken);
   }
-  return out;
+  // Exiting the loop with a live cursor means the 20-page / 2000-row ceiling
+  // truncated the wallet. Silently returning a short list is the same "a
+  // partial page reads as complete" defect the paged tools had.
+  return { rows: out, capped: page >= 20 && pageToken !== "" };
 }
 
 function registerTreasury(server: McpServer, rpc: RpcProvider): void {
@@ -232,19 +245,16 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Native + ERC20 balances (with USD) for a DAO or arbitrary address",
       description:
-        "Treasury / wallet balances for any address; pass a GovPool address for a DAO treasury. Auto-discovers EVERY token via the DeXe backend (same source as app.dexe.io) with USD prices + a total. Reads on-chain instead on chain 97, when `tokens` are given, or when the backend fails — that RPC path has no token discovery and reports `degraded: true`.",
+        "Read-only. Treasury / wallet balances for any address; pass a GovPool address for a DAO treasury. Auto-discovers " +
+        "EVERY token via the DeXe backend with USD prices and a total. Falls back to an on-chain read (chain 97, explicit " +
+        "`tokens`, or a backend failure) — no token discovery there, and it reports `degraded: true`.",
       inputSchema: {
         holder: z.string().describe("Address whose balances we read"),
         tokens: z
           .array(z.string())
           .default([])
           .describe("Optional explicit ERC20 addresses; forces on-chain RPC read of just these"),
-        chainId: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe("Chain to query (defaults to the configured default chain)"),
+        chainId: chainIdParam,
       },
       outputSchema: {
         holder: z.string(),
@@ -258,6 +268,12 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         // declared field is a permanent per-session token cost.
         degraded: z.boolean(),
         native: z.string(),
+        // Human rendering beside the wei. Declared `.optional()` because
+        // zod-to-json-schema emits `additionalProperties: false` and the SDK
+        // client validates structuredContent against the advertised schema —
+        // and because `balanceFormatted` is absent whenever decimals are
+        // unknown, which a required field would turn into a tool error.
+        nativeFormatted: z.string().optional(),
         totalUsd: z.number().nullable(),
         tokens: z.array(
           z.object({
@@ -266,6 +282,7 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
             name: z.string().nullable(),
             decimals: z.number().nullable(),
             balance: z.string().nullable(),
+            balanceFormatted: z.string().optional(),
             usdPrice: z.number().nullable(),
             usdValue: z.number().nullable(),
           }),
@@ -288,16 +305,24 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
 
       if (useBackend) {
         try {
-          const rows = await fetchBackendBalances(backendBase!, chainId, holder);
+          const { rows, capped } = await fetchBackendBalances(backendBase!, chainId, holder);
           const tokensOut = rows.map((b) => {
             const decimals = b.decimals != null && b.decimals !== "" ? Number(b.decimals) : null;
             const balance = b.balance ?? null;
             const usdPrice = b.usd_price != null && b.usd_price !== "" ? Number(b.usd_price) : null;
             let usdValue: number | null = null;
+            // Number("8521112653712523724538372026") loses the low digits before
+            // the division ever happens. Scale through the decimal STRING that
+            // formatUnits produces instead — the USD figure stays a number, but
+            // it is a number derived from the exact balance.
             if (balance != null && decimals != null && usdPrice != null) {
-              usdValue = (Number(balance) / 10 ** decimals) * usdPrice;
+              try {
+                usdValue = Number(formatUnitsWithSymbol(balance, decimals)) * usdPrice;
+              } catch {
+                usdValue = null;
+              }
             }
-            return {
+            const row = {
               token: (b.token_address ?? "").toLowerCase(),
               symbol: b.symbol ?? null,
               name: b.name ?? null,
@@ -306,6 +331,11 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
               usdPrice,
               usdValue,
             };
+            // A raw ERC20 balance is in the TOKEN's decimals, which the backend
+            // reports — never the 18 that governance power uses. `decimals`
+            // null means unknown, and `withFormatted` then adds nothing rather
+            // than guessing.
+            return withFormatted(row, ["balance"], decimals, row.symbol ?? undefined);
           });
           const nativeRow = tokensOut.find((t) => t.token === NATIVE_SENTINEL);
           const native = nativeRow?.balance ?? "0";
@@ -317,24 +347,35 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
             holder,
             chainId,
             source: "backend" as const,
-            degraded: false,
+            // `capped` means the 20-page discovery ceiling cut the token list
+            // off, so this is a partial view of the wallet — exactly what
+            // `degraded` already means here.
+            degraded: capped,
             native,
+            nativeFormatted: formatUnitsWithSymbol(native, 18, nativeSymbol(chainId)),
             totalUsd,
             tokens: tokensOut,
           };
           const top = [...tokensOut]
             .sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0))
             .slice(0, 15);
+          const cappedNote = capped
+            ? `\n  PARTIAL: token discovery stopped at the backend's 2000-row page ceiling, so this wallet ` +
+              `holds MORE tokens than are listed and the USD total covers only what is shown. ` +
+              `Pass \`tokens\` explicitly to read a specific holding.`
+            : "";
           const summary =
-            `Treasury for ${holder} (chain ${chainId}, source: backend)\n` +
+            `Treasury for ${holder} (chain ${chainId}, source: backend)${cappedNote}\n` +
             `  tokens: ${tokensOut.length}` +
             (totalUsd != null ? `   total: $${totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "") +
             `\n` +
             top
               .map((t) => {
+                // Exact-string conversion, then a display cap — never
+                // Number(wei)/1e18, which silently drops the low digits.
                 const amt =
                   t.balance != null && t.decimals != null
-                    ? (Number(t.balance) / 10 ** t.decimals).toLocaleString("en-US", { maximumFractionDigits: 4 })
+                    ? formatUnitsWithSymbol(t.balance, t.decimals)
                     : (t.balance ?? "?");
                 const usd = t.usdValue != null ? ` = $${t.usdValue.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "";
                 return `  ${(t.symbol != null ? renderUntrusted(t.symbol, 40) : "?").padEnd(10)} ${amt}${usd}`;
@@ -440,21 +481,27 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
           calls.push({ target: t, iface, method: "decimals", args: [], allowFailure: true });
         }
         const res = await multicall(provider, calls);
-        const tokensOut = tokens.map((t, i) => ({
-          token: t,
-          balance: res[i * 3]?.success ? (res[i * 3]!.value as bigint).toString() : null,
-          symbol: res[i * 3 + 1]?.success ? (res[i * 3 + 1]!.value as string) : null,
-          name: null as string | null,
-          decimals: res[i * 3 + 2]?.success ? Number(res[i * 3 + 2]!.value as bigint) : null,
-          usdPrice: null as number | null,
-          usdValue: null as number | null,
-        }));
+        const tokensOut = tokens.map((t, i) => {
+          const row = {
+            token: t,
+            balance: res[i * 3]?.success ? (res[i * 3]!.value as bigint).toString() : null,
+            symbol: res[i * 3 + 1]?.success ? (res[i * 3 + 1]!.value as string) : null,
+            name: null as string | null,
+            decimals: res[i * 3 + 2]?.success ? Number(res[i * 3 + 2]!.value as bigint) : null,
+            usdPrice: null as number | null,
+            usdValue: null as number | null,
+          };
+          // decimals() is allowFailure — when it reverts the balance stays raw
+          // rather than being rendered against a guessed 18.
+          return withFormatted(row, ["balance"], row.decimals, row.symbol ?? undefined);
+        });
         const structured = {
           holder,
           chainId,
           source: "rpc" as const,
           degraded: backendError != null,
           native,
+          nativeFormatted: formatUnitsWithSymbol(native, 18, nativeSymbol(chainId)),
           totalUsd: null,
           tokens: tokensOut,
         };
@@ -488,6 +535,61 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
 }
 
 /**
+ * The api-proxy-cache endpoints reject `page_size > 100` with a deterministic
+ * HTTP 400 (`{"meta":{"PageSize":"max"}}`), verified live on chain 56 for both
+ * token-holders-balances and nfts-by-wallet. The cap is also stated by the
+ * backend itself inside every continuation cursor (`"limit":100`). One constant
+ * for all three call sites so the schemas cannot drift from the wire contract
+ * again.
+ */
+const BACKEND_MAX_PAGE_SIZE = 100;
+
+/**
+ * Ticker for a chain's native coin — used only to label the formatted native
+ * balance. Unknown chains get no symbol rather than a wrong one; the native
+ * coin is 18 decimals on every EVM chain this server supports.
+ */
+function nativeSymbol(chainId: number): string | undefined {
+  if (chainId === 56 || chainId === 97) return "BNB";
+  if (chainId === 1 || chainId === 10) return "ETH";
+  return undefined;
+}
+
+/**
+ * Chains the api-proxy-cache actually indexes. Chain 10 returns HTTP 400 and
+ * chain 97 returns an EMPTY 200 — which reads as "this token has no holders"
+ * and is the worse of the two failures. Both tools document themselves as
+ * mainnet-only and neither enforced it.
+ */
+const BACKEND_INDEXED_CHAINS = new Set([1, 56]);
+
+/**
+ * The chain these backend-only tools were asked about.
+ *
+ * `resolveChainId` throws for a chain with no configured RPC — but these two
+ * tools never touch an RPC, so an unconfigured chain must not masquerade as an
+ * RPC problem. Fall back to the requested id so the backend guard below can
+ * give the answer that is actually true ("the backend does not index it").
+ */
+function backendChainOf(rpc: RpcProvider, requested: number | undefined): number {
+  try {
+    return rpc.resolveChainId(requested);
+  } catch {
+    return requested ?? 0;
+  }
+}
+
+/** The unsupported-chain refusal, shared by the two backend-only list tools. */
+function backendChainRefusal(chainId: number, tool: string): string {
+  return (
+    `chain ${chainId} is not indexed by the DeXe backend — ${tool} serves Ethereum (1) and BSC (56) only. ` +
+    `Chain 97 (BSC testnet) has no backend index at all, so an empty list here would NOT mean "none exist". ` +
+    `Re-run with chainId 1 or 56, or read on-chain instead: dexe_read_multicall (needs ` +
+    `DEXE_TOOLSETS=core,read) for balanceOf, or dexe_read_treasury with an explicit \`tokens\` list.`
+  );
+}
+
+/**
  * Generic GET against the DeXe backend (`DEXE_BACKEND_API_URL`, defaults to
  * https://api.dexe.io — the same host the app.dexe.io UI uses). Always resolves
  * a base URL (env override or baked default) so backend reads work zero-config.
@@ -501,14 +603,25 @@ async function backendGetJson<T>(path: string, timeoutMs = 8000): Promise<T> {
       signal: ctrl.signal,
       headers: { accept: "application/json" },
     });
-    if (!res.ok) throw new Error(`backend HTTP ${res.status} for ${path}`);
+    // The query string can carry a 300-700 char continuation cursor (a base64
+    // JWT). Echoing it into every transient error dumps that blob into the model
+    // context and the transcript, so errors name the endpoint, not the cursor.
+    const pathForError = path.split("?")[0];
+    if (res.status === 400) {
+      // Deliberately NOT the literal "backend HTTP 400": that substring matches
+      // the generic `backend-failed` remedy ("wait and retry", "a 401 means the
+      // Bearer token expired"), every clause of which is wrong for a
+      // deterministic rejection of the caller's own argument.
+      throw new Error(`DeXe backend rejected the request: HTTP 400 (bad request) for ${pathForError}`);
+    }
+    if (!res.ok) throw new Error(`backend HTTP ${res.status} for ${pathForError}`);
     return (await res.json()) as T;
   } catch (err) {
     // A bare AbortError surfaces as "This operation was aborted" — useless to
     // the caller. Translate to something actionable.
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error(
-        `DeXe backend request timed out after ${timeoutMs}ms (${path}) — usually transient, re-run the call. ` +
+        `DeXe backend request timed out after ${timeoutMs}ms (${path.split("?")[0]}) — usually transient, re-run the call. ` +
           `If it persists: check network access to ${base} or set DEXE_BACKEND_API_URL.`,
       );
     }
@@ -524,45 +637,79 @@ function registerTokenHolders(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Top holders of an ERC20 token (with balances)",
       description:
-        "Lists holders + raw balances for any ERC20 via the DeXe backend (same source as app.dexe.io holder lists). Sorted by balance desc. Backend-only — mainnets, not testnet 97.",
+        "Read-only. Holders + raw balances for any ERC20 from the DeXe backend, balance desc, one page per call (see `pageToken`). Mainnets only (1, 56).",
       inputSchema: {
         token: z.string().describe("ERC20 token contract address"),
-        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
-        pageSize: z.number().int().positive().max(1000).default(100).describe("Max holders to return"),
+        chainId: backendChainIdParam,
+        pageSize: z
+          .number()
+          .int()
+          .positive()
+          .max(BACKEND_MAX_PAGE_SIZE)
+          .default(BACKEND_MAX_PAGE_SIZE)
+          .describe("Rows per page (backend max 100)."),
+        pageToken: z
+          .string()
+          .max(8192)
+          .optional()
+          .describe("Prior result's `nextPageToken` for the next page."),
       },
       outputSchema: {
         token: z.string(),
         chainId: z.number(),
         count: z.number(),
         nextPageToken: z.string(),
+        // The one added field. `count` is already the returned-row count, and
+        // this tool is in the default profile, where every declared field is a
+        // permanent per-session `tools/list` cost — so no `returned` twin.
+        truncated: z.boolean().optional(),
         holders: z.array(z.object({ holder: z.string(), balance: z.string() })),
       },
     },
-    async ({ token, chainId: chainIdArg, pageSize = 100 }) => {
+    async ({ token, chainId: chainIdArg, pageSize = BACKEND_MAX_PAGE_SIZE, pageToken }) => {
       if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
-      const chainId = rpc.resolveChainId(chainIdArg);
+      const chainId = backendChainOf(rpc, chainIdArg);
+      if (!BACKEND_INDEXED_CHAINS.has(chainId)) {
+        return errorResult(backendChainRefusal(chainId, "dexe_read_token_holders"));
+      }
       try {
+        // URLSearchParams, not string concat: the cursor is base64 with `=`
+        // padding and possibly `+`, which must be percent-encoded.
+        const qs = new URLSearchParams({ page_size: String(pageSize) });
+        if (pageToken) qs.set("page_token", pageToken);
         const json = await backendGetJson<{
           next_page_token?: string;
           holders_balances?: Record<string, string>;
-        }>(`/integrations/api-proxy-cache/${chainId}/token-holders-balances/${token}?page_size=${pageSize}`);
+        }>(`/integrations/api-proxy-cache/${chainId}/token-holders-balances/${token}?${qs.toString()}`);
         const holders = Object.entries(json.holders_balances ?? {})
           .map(([holder, balance]) => ({ holder, balance }))
           .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : -1));
+        // Truncation comes from the cursor the backend hands back, never from
+        // `rows === pageSize`: a page of 1 row WITH a cursor is real (observed
+        // live on nfts-by-wallet).
+        const nextPageToken = json.next_page_token ?? "";
         const structured = {
           token,
           chainId,
           count: holders.length,
-          nextPageToken: json.next_page_token ?? "",
+          nextPageToken,
+          truncated: nextPageToken !== "",
           holders,
         };
+        const more = structured.truncated
+          ? `\n⚠ MORE HOLDERS EXIST — this is one page, not the full list. Call dexe_read_token_holders ` +
+            `again with the same token and chainId plus the \`pageToken\` from this result's ` +
+            `nextPageToken. Do NOT report this page as the complete holder list.`
+          : "";
         const text =
-          `Holders of ${token} (chain ${chainId}): ${holders.length}\n` +
+          `Holders of ${token} (chain ${chainId}): ${holders.length} on this page${more}\n` +
           holders
             .slice(0, 20)
             .map((h, i) => `  ${String(i + 1).padStart(2)}. ${h.holder}  ${h.balance}`)
             .join("\n") +
-          (holders.length > 20 ? `\n  … +${holders.length - 20} more` : "");
+          (holders.length > 20
+            ? `\n  … +${holders.length - 20} more on this page not shown above`
+            : "");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_token_holders").message);
@@ -577,10 +724,11 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
     {
       title: "DAO TVL + activity stats time series",
       description:
-        "Time series of DAO stats (tvl_usd, member counts, proposal counts, delegations) from the DeXe tracker — the app.dexe.io profile chart source. `period` is a human duration like '24 hours', '7 days', '1 months'. Backend-only — mainnets.",
+        "Read-only. Time series of DAO stats (tvl_usd, member counts, proposal counts, delegations) from the DeXe tracker. " +
+        "`period` is a human duration like '24 hours', '7 days', '1 months'. Backend-only — mainnets.",
       inputSchema: {
         govPool: z.string().describe("GovPool / DAO address"),
-        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
+        chainId: backendChainIdParam,
         period: z.string().default("7 days").describe("Duration window, e.g. '24 hours', '7 days', '1 months'"),
         maxPoints: z
           .number()
@@ -662,7 +810,9 @@ function registerProtocolStats(server: McpServer): void {
     {
       title: "Protocol-wide stats — TVL, proposals, DAOs across chains",
       description:
-        "The app.dexe.io landing-page numbers: total TVL across ALL DAOs (server-side aggregated over `chainIds`), total proposals created, total DAO count, voting-locked token value, 24h change percents, and a TVL time series. Optionally includes the top-N DAOs by TVL per chain (name, addresses, token symbol, TVL, treasury). Backend-only — mainnets (1, 56).",
+        "Read-only. The app.dexe.io landing numbers: TVL across ALL DAOs (aggregated over `chainIds`), proposals created, " +
+        "DAO count, voting-locked token value, 24h change percents, a TVL series, and optionally the top-N DAOs by TVL. " +
+        "Backend-only — mainnets (1, 56).",
       inputSchema: {
         chainIds: z
           .array(z.number().int().positive())
@@ -784,45 +934,81 @@ function registerNftsByWallet(server: McpServer, rpc: RpcProvider): void {
     {
       title: "NFTs held by an address",
       description:
-        "Lists NFTs owned by any address via the DeXe backend (Moralis-backed, same source as app.dexe.io). Backend-only — mainnets, not testnet 97.",
+        "Read-only. NFTs owned by any address via the DeXe backend (Moralis-backed). Backend-only — mainnets, not testnet 97.",
       inputSchema: {
         holder: z.string().describe("Address whose NFTs we read"),
-        chainId: z.number().int().positive().optional().describe("Chain (default: configured default)"),
+        chainId: backendChainIdParam,
         tokens: z.array(z.string()).default([]).describe("Optional NFT contract addresses to filter by"),
-        pageSize: z.number().int().positive().max(1000).default(100).describe("Max NFTs to return"),
+        pageSize: z
+          .number()
+          .int()
+          .positive()
+          .max(BACKEND_MAX_PAGE_SIZE)
+          .default(BACKEND_MAX_PAGE_SIZE)
+          .describe(
+            "Rows per page. The DeXe backend hard-caps this at 100 — a larger value is rejected with HTTP 400. Ignored on continuation pages: the token fixes the page size chosen on the first call.",
+          ),
+        pageToken: z
+          .string()
+          .max(8192)
+          .optional()
+          .describe(
+            "Continue a previous page: pass the prior result's `nextPageToken` verbatim. A token is bound to the exact holder + chainId + pageSize it was minted for — re-run without it to restart at page 1.",
+          ),
       },
       outputSchema: {
         holder: z.string(),
         chainId: z.number(),
         count: z.number(),
         nextPageToken: z.string(),
+        truncated: z.boolean().optional(),
         nfts: z.array(z.record(z.unknown())),
       },
     },
-    async ({ holder, chainId: chainIdArg, tokens = [], pageSize = 100 }) => {
+    async ({
+      holder,
+      chainId: chainIdArg,
+      tokens = [],
+      pageSize = BACKEND_MAX_PAGE_SIZE,
+      pageToken,
+    }) => {
       if (!isAddress(holder)) return errorResult(`Invalid holder: ${holder}`);
       for (const t of tokens) if (!isAddress(t)) return errorResult(`Invalid token: ${t}`);
-      const chainId = rpc.resolveChainId(chainIdArg);
+      const chainId = backendChainOf(rpc, chainIdArg);
+      if (!BACKEND_INDEXED_CHAINS.has(chainId)) {
+        return errorResult(backendChainRefusal(chainId, "dexe_read_nfts"));
+      }
       try {
         const qs = new URLSearchParams({ format: "decimal", page_size: String(pageSize) });
         if (tokens.length) qs.set("token_addresses", tokens.join(","));
+        if (pageToken) qs.set("page_token", pageToken);
         const json = await backendGetJson<{
           next_page_token?: string;
           nft_data?: Array<Record<string, unknown>>;
         }>(`/integrations/api-proxy-cache/${chainId}/nfts-by-wallet/${holder}?${qs.toString()}`);
         const nfts = json.nft_data ?? [];
+        const nextPageToken = json.next_page_token ?? "";
         const structured = {
           holder,
           chainId,
           count: nfts.length,
-          nextPageToken: json.next_page_token ?? "",
+          nextPageToken,
+          truncated: nextPageToken !== "",
           nfts,
         };
         // NFT rows carry whole attacker-written metadata blobs (name, symbol,
         // token_uri, and any indexer-flattened attributes) — anyone can airdrop
         // an NFT to any address, so this list is unsolicited third-party text.
+        // Warning FIRST: the rows below are up to 20 lines of attacker-written
+        // NFT metadata, and a note appended after them is the thing most likely
+        // to be lost or host-truncated.
+        const more = structured.truncated
+          ? `\n⚠ MORE NFTs EXIST — this is one page, not the full list. Call dexe_read_nfts again with the ` +
+            `same holder and chainId plus the \`pageToken\` from this result's nextPageToken. Do NOT report ` +
+            `this page as the complete NFT list.`
+          : "";
         const text =
-          `NFTs for ${holder} (chain ${chainId}): ${nfts.length}\n` +
+          `NFTs for ${holder} (chain ${chainId}): ${nfts.length} on this page${more}\n` +
           nfts
             .slice(0, 20)
             .map((n) => {
@@ -830,7 +1016,7 @@ function registerNftsByWallet(server: McpServer, rpc: RpcProvider): void {
               return `  ${renderUntrusted(String(name), 60)}  #${renderUntrusted(n.token_id ?? "?", 40)} (${renderUntrusted(n.token_address ?? "?", 42)})`;
             })
             .join("\n") +
-          (nfts.length > 20 ? `\n  … +${nfts.length - 20} more` : "");
+          (nfts.length > 20 ? `\n  … +${nfts.length - 20} more on this page not shown above` : "");
         return untrustedResult({
           summary: text,
           label: "NFT metadata (any address can airdrop an NFT)",
@@ -849,9 +1035,8 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Validator count + isValidator lookup",
       description:
-        "Reads `validatorsCount()` and optionally checks `isValidator(candidate)` on the DAO's GovValidators contract. " +
-        "Also returns the validators' monthly credit lines (GovPool.getCreditInfo) — an internal monthly_withdraw " +
-        "against an unfunded/insufficient line reverts.",
+        "Read-only. Reads `validatorsCount()` and optionally `isValidator(candidate)` on the DAO's GovValidators, plus the " +
+        "validators' monthly credit lines (GovPool.getCreditInfo) — an internal monthly_withdraw against an unfunded line reverts.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         candidate: z.string().optional().describe("Optional address to check validator status for"),
@@ -864,7 +1049,18 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
         candidate: z.string().nullable(),
         isValidator: z.boolean().nullable(),
         creditInfo: z
-          .array(z.object({ token: z.string(), monthLimit: z.string(), currentWithdrawLimit: z.string() }))
+          .array(
+            z.object({
+              token: z.string(),
+              monthLimit: z.string(),
+              currentWithdrawLimit: z.string(),
+              // 18-decimal-normalized: GovPoolCredit.sendFunds goes through
+              // TokenBalance.from18 on payout, so the stored limits are ALWAYS
+              // 18-dec whatever the credit token's own decimals are.
+              monthLimitFormatted: z.string().optional(),
+              currentWithdrawLimitFormatted: z.string().optional(),
+            }),
+          )
           .nullable()
           .describe("Validators' monthly credit lines (null when unreadable — older pools lack getCreditInfo)"),
       },
@@ -902,14 +1098,26 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
         }
         const res = await multicall(provider, calls);
         const count = (res[0]!.value as bigint).toString();
-        let creditInfo: Array<{ token: string; monthLimit: string; currentWithdrawLimit: string }> | null = null;
+        let creditInfo: Array<{
+          token: string;
+          monthLimit: string;
+          currentWithdrawLimit: string;
+          monthLimitFormatted?: string;
+          currentWithdrawLimitFormatted?: string;
+        }> | null = null;
         if (res[1]?.success) {
           const rows = res[1]!.value as unknown as Array<{ token: string; monthLimit: bigint; currentWithdrawLimit: bigint }>;
-          creditInfo = rows.map((r) => ({
-            token: r.token,
-            monthLimit: r.monthLimit.toString(),
-            currentWithdrawLimit: r.currentWithdrawLimit.toString(),
-          }));
+          creditInfo = rows.map((r) =>
+            withFormatted(
+              {
+                token: r.token,
+                monthLimit: r.monthLimit.toString(),
+                currentWithdrawLimit: r.currentWithdrawLimit.toString(),
+              },
+              ["monthLimit", "currentWithdrawLimit"],
+              GOV_POWER_DECIMALS,
+            ),
+          );
         }
         const isVal = candidate ? Boolean(res[2]?.value) : null;
         const structured = {
@@ -925,7 +1133,7 @@ function registerValidators(server: McpServer, rpc: RpcProvider): void {
           (candidate ? `\n  ${candidate} isValidator: ${isVal}` : "") +
           (creditInfo
             ? creditInfo.length
-              ? `\n  credit lines: ${creditInfo.map((c) => `${c.token} month=${c.monthLimit} available=${c.currentWithdrawLimit}`).join("; ")}`
+              ? `\n  credit lines: ${creditInfo.map((c) => `${c.token} month=${c.monthLimitFormatted ?? c.monthLimit} available=${c.currentWithdrawLimitFormatted ?? c.currentWithdrawLimit} (18-dec normalized; raw ${c.monthLimit}/${c.currentWithdrawLimit})`).join("; ")}`
               : `\n  credit lines: none funded (internal monthly_withdraw would revert — fund via validators_allocation)`
             : "");
         return { content: [{ type: "text" as const, text }], structuredContent: structured };
@@ -971,6 +1179,22 @@ export function labelProposalSettings(v: unknown): unknown {
     });
     o.rewardsInfo = r;
   }
+  // The two numbers "low creating power" is actually about. They are 18-decimal
+  // -normalized voting power (GovUserKeeper.to18), never the gov token's own
+  // decimals, so no token lookup is needed or wanted here.
+  for (const f of ["minVotesForVoting", "minVotesForCreating"] as const) {
+    const v = o[f];
+    if (typeof v === "bigint" || (typeof v === "string" && /^\d+$/.test(v))) {
+      try {
+        o[`${f}Formatted`] = formatUnitsWithSymbol(
+          typeof v === "bigint" ? v : BigInt(v),
+          GOV_POWER_DECIMALS,
+        );
+      } catch {
+        /* not a number - skip the derived field */
+      }
+    }
+  }
   for (const [raw, pct] of [
     ["quorum", "quorumPct"],
     ["quorumValidators", "quorumValidatorsPct"],
@@ -991,9 +1215,10 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Default + internal proposal settings for a DAO",
       description:
-        "Reads `GovSettings.getDefaultSettings()` and `getInternalSettings()` on the DAO's settings contract.",
+        "Read-only. Reads `GovSettings.getDefaultSettings()` and `getInternalSettings()` for the DAO at `govPool` — quorum, " +
+        "duration, executionDelay, minVotesForCreating/Voting.",
       inputSchema: {
-        govPool: z.string(),
+        govPool: govPoolParam,
         chainId: chainIdParam,
       },
       outputSchema: {
@@ -1055,10 +1280,10 @@ function registerExpertStatus(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Expert + BABT status for a user in a DAO",
       description:
-        "Reads `GovPool.getExpertStatus(user)` and, if a BABT contract is configured on the DAO, `BABT.balanceOf(user) > 0`.",
+        "Read-only. Reads `GovPool.getExpertStatus(user)` and, when the DAO has a BABT contract, `BABT.balanceOf(user) > 0`.",
       inputSchema: {
-        govPool: z.string(),
-        user: z.string(),
+        govPool: govPoolParam,
+        user: z.string().describe("Wallet address to check."),
         chainId: chainIdParam,
       },
       outputSchema: {
@@ -1120,7 +1345,7 @@ function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read token sale tier details",
       description:
-        "Reads tier count via `latestTierId()` and tier details via `getTierViews(offset, limit)` from a TokenSaleProposal contract.",
+        "Read-only. Reads `latestTierId()` and `getTierViews(offset, limit)` on a TokenSaleProposal.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         offset: z.number().default(0).describe("Pagination offset"),
@@ -1149,11 +1374,20 @@ function registerTokenSaleTiers(server: McpServer, rpc: RpcProvider): void {
           { target: tokenSaleProposal, iface, method: "getTierViews", args: [offset, limit], allowFailure: true },
         ]);
         const tiers = tiersR?.success ? jsonSafe(tiersR.value) : [];
-        const structured = { tokenSaleProposal, totalTiers, offset, limit, tiers };
+        // `totalTiers` is latestTierId() — the exact count this call pages over.
+        const meta = pageMeta({
+          offset,
+          limit,
+          returned: Array.isArray(tiers) ? tiers.length : 0,
+          total: totalTiers,
+        });
+        const structured = { tokenSaleProposal, totalTiers, ...meta, tiers };
         // TierMetadata.name / .description and TierInfo.uri are free text written
         // by whoever opened the sale.
         return untrustedResult({
-          summary: `TokenSale ${tokenSaleProposal}: ${totalTiers} tier(s), showing offset=${offset} limit=${limit}`,
+          summary:
+            `TokenSale ${tokenSaleProposal}: ${totalTiers} tier(s), showing offset=${offset} limit=${limit}` +
+            truncationNote(meta, "dexe_read_token_sale_tiers", "tier"),
           label: "tier metadata (sale-opener-authored)",
           structured,
         });
@@ -1170,7 +1404,7 @@ function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read user participation status in token sale tiers",
       description:
-        "Reads `getUserViews(user, tierIds)` from a TokenSaleProposal — returns per-tier purchase status, claimable amounts, and vesting info.",
+        "Read-only. Reads `getUserViews(user, tierIds)` on a TokenSaleProposal — per-tier purchase status, claimable amounts, vesting info.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         user: z.string().describe("User address to query"),
@@ -1216,7 +1450,7 @@ function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Check claimable amounts for distribution proposals",
       description:
-        "For each proposal ID, reads `isClaimed(proposalId, voter)` and `getPotentialReward(proposalId, voter)` from a DistributionProposal contract.",
+        "Read-only. Per proposal id, reads `isClaimed(proposalId, voter)` and `getPotentialReward(proposalId, voter)` on a DistributionProposal.",
       inputSchema: {
         distributionProposal: z.string().describe("DistributionProposal contract address"),
         voter: z.string().describe("Voter address to check"),
@@ -1239,14 +1473,34 @@ function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
           calls.push({ target: distributionProposal, iface, method: "getPotentialReward", args: [id, voter], allowFailure: true });
         }
         const res = await multicall(provider, calls);
-        const distributions = proposalIds.map((pid, i) => ({
-          proposalId: pid,
-          isClaimed: res[i * 2]?.success ? Boolean(res[i * 2]!.value) : null,
-          potentialReward: res[i * 2 + 1]?.success ? (res[i * 2 + 1]!.value as bigint).toString() : null,
-        }));
-        const structured = { distributionProposal, voter, distributions };
+        // DistributionProposal stores `rewardAmount` 18-decimal-normalized and
+        // applies from18Safe only at safeTransferFrom, so getPotentialReward
+        // returns an 18-dec figure — rendering it against a USDT reward token's
+        // 6 decimals would overstate it by 1e12.
+        const distributions = proposalIds.map((pid, i) =>
+          withFormatted(
+            {
+              proposalId: pid,
+              isClaimed: res[i * 2]?.success ? Boolean(res[i * 2]!.value) : null,
+              potentialReward: res[i * 2 + 1]?.success
+                ? (res[i * 2 + 1]!.value as bigint).toString()
+                : null,
+            },
+            ["potentialReward"],
+            GOV_POWER_DECIMALS,
+          ),
+        );
+        const structured = {
+          distributionProposal,
+          voter,
+          powerDecimals: GOV_POWER_DECIMALS,
+          distributions,
+        };
         const text = distributions
-          .map((d) => `  proposal ${d.proposalId}: claimed=${d.isClaimed}, reward=${d.potentialReward ?? "?"}`)
+          .map(
+            (d) =>
+              `  proposal ${d.proposalId}: claimed=${d.isClaimed}, reward=${(d as { potentialRewardFormatted?: string }).potentialRewardFormatted ?? d.potentialReward ?? "?"} (raw ${d.potentialReward ?? "?"})`,
+          )
           .join("\n");
         return {
           content: [{ type: "text" as const, text: `Distribution status for ${voter}:\n${text}` }],
@@ -1267,7 +1521,8 @@ function registerStakingInfo(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read staking tier details and user info",
       description:
-        "Reads `stakingsCount()` and `getActiveStakings()` from a StakingProposal. Pass either the StakingProposal address directly OR a `govPool` — the tool resolves the StakingProposal via GovPool.getHelperContracts().userKeeper → GovUserKeeper.stakingProposalAddress() (the same way create_staking_tier does). Optionally reads `getUserInfo(user)` for a specific user's staked amounts and pending rewards.",
+        "Read-only. Reads `stakingsCount()` and `getActiveStakings()` on a StakingProposal — pass its address, or a `govPool` " +
+        "to resolve it via GovUserKeeper.stakingProposalAddress(). With `user`, also reads `getUserInfo(user)`.",
       inputSchema: {
         stakingProposal: z
           .string()
@@ -1383,7 +1638,7 @@ function registerPrivacyPolicyStatus(server: McpServer, rpc: RpcProvider): void 
     {
       title: "Check privacy policy agreement status",
       description:
-        "Reads `UserRegistry.documentHash()` and `UserRegistry.agreed(user)`. Returns the current policy hash and whether the user has agreed.",
+        "Read-only. Reads `UserRegistry.documentHash()` and `agreed(user)` — the current policy hash and whether the user agreed.",
       inputSchema: {
         userRegistry: z.string().describe("UserRegistry contract address"),
         user: z.string().describe("User address to check"),

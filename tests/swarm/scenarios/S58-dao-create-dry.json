@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [97],
   "requiresBrowser": false,
-  "notes": "Exercises the dexe_dao_create composite end-to-end minus broadcast: IPFS DAO metadata upload + buildDeployGovPool (predicted-address wiring) + preflight guards. dryRun:true returns the deployGovPool TxPayload. Testnet-only — mainnet deployGovPool is broken upstream. `dao` is unused (composite deploys a fresh DAO) but kept for allowlist parity.",
+  "notes": "ADVANCED-mode dexe_dao_create end-to-end minus broadcast: buildDeployGovPool (predicted-address wiring) + the preflight guards. dryRun:true returns the deployGovPool TxPayload. The DAO-metadata CID is computed LOCALLY under dryRun, but the composite still requires DEXE_PINATA_JWT and still pins the settings JSON — this scenario cannot run without Pinata configured. cap == mintedTotal is the documented fixed-supply form; cap:0 reverts (\"ERC20Capped: cap is 0\") and the v0.19 preflight refuses it, which is what killed this scenario for three runs. Testnet-only — mainnet deployGovPool is broken upstream. `dao` is unused (composite deploys a fresh DAO) but kept for allowlist parity. S69 covers the SIMPLE-mode half.",
   "agents": [{ "alias": "A", "role": "Proposer", "wallet": "AGENT_PK_1" }],
   "steps": [
     {
@@ -52,7 +52,7 @@
             "name": "Aurora",
             "symbol": "AUR",
             "users": ["{{agent:A:address}}"],
-            "cap": "0",
+            "cap": "1000000000000000000000",
             "mintedTotal": "1000000000000000000000",
             "amounts": ["1000000000000000000000"]
           },
@@ -61,7 +61,17 @@
         "dryRun": true
       },
       "broadcast": false,
-      "captureAs": "created"
+      "captureAs": "created",
+      "expect": [
+        { "path": "created.mode", "op": "eq", "value": "dryRun" },
+        { "path": "created.predictedGovPool", "op": "matches", "value": "^0x[0-9a-fA-F]{40}$" },
+        {
+          "path": "created.steps.0.payload.to",
+          "op": "present",
+          "note": "PoolFactory, resolved through ContractsRegistry at runtime — asserting the invariant, not a registry snapshot that rotates."
+        },
+        { "path": "created.steps.0.payload.chainId", "op": "eq", "value": 97 }
+      ]
     }
   ],
   "successCriteria": [

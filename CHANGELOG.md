@@ -1,5 +1,266 @@
 # Changelog
 
+## 0.34.0 — 2026-09-11
+
+**What the server says about itself, checked against what it does.** The
+forecast reported a quorum in the wrong unit, so its verdict was wrong on every
+real DAO. The MCP handshake taught a default profile that had not been the
+default for three releases. A `dryRun` pinned to IPFS. 434 input parameters had
+no description at all. The docs advertised a client that cannot connect to a
+stdio server. None of that is a new feature; all of it is the server describing
+itself incorrectly to the agent driving it. Tool count unchanged
+(**168 / 19 groups**).
+
+### Fixed — `dexe_proposal_forecast` compared two different units
+`quorum.required` held the raw `quorum` **setting** (a 25-decimal percentage,
+scaled by 1e25) and was compared against an absolute vote weight. On a DAO of
+any size those differ by `totalPower / 1e27`, so "will this reach quorum" was
+answered against a number with no relation to the tally. `required` now holds
+the absolute vote weight the proposal must reach.
+
+- `required`, `requiredWeight`, `projectedPct` and `hitProbability` may now be
+  `null`, and `recommendation` may be `"unknown"` with `risks: ["quorumUnknown"]`
+  — when total power is unreadable the tool says so instead of answering from a
+  unit mismatch. **Anything that branched on `recommendation` must handle
+  `"unknown"`.**
+- `historicalPassRate.ratio` is passed / decided (pending proposals no longer
+  count as failures).
+- Add-only outputs so the arithmetic is auditable: `settingRaw`, `quorumPct`,
+  `totalPower`, `requiredWeight`, `basis` on the forecast; `requiredQuorum` and
+  `quorumAttainmentPct` per row; `quorumReached`, per-side attainment and
+  `votesShortOfQuorum` on `dexe_proposal_list` / `dexe_proposal_state`;
+  `quorumSettingRaw` / `quorumSettingPct` on `dexe_dao_report`'s turnout rows.
+
+### Fixed — a `dryRun` pinned to IPFS
+Every preview path that produced metadata uploaded it first: a preview cost a
+real Pinata pin, and a keyless install could not preview a DAO at all because
+the run died on the missing JWT before it could show anything.
+
+- **`dryRun` now pins nothing**, on `dexe_dao_create`, `dexe_proposal_create`
+  (including the `modify_dao_profile` avatar), `dexe_otc_dao_open_sale`, and
+  `dexe_dao_build_deploy` with the new `previewOnly` input.
+- The preview calldata is still **byte-identical to the real run**:
+  `pinataCidForJson` reproduces Pinata's `pinJSONToIPFS` CID offline
+  (single-chunk UnixFS dag-pb CIDv0), locked against recorded Pinata CIDs. A
+  previewed `descriptionURL` is the URL the broadcast will carry.
+- **`DEXE_PINATA_JWT` is required to broadcast, not to preview.** Without a key,
+  `dexe_dao_create` answers with the preview and the safety proof and refuses to
+  send, instead of erroring on a missing key.
+- A `dryRun` now *rejects* an invalid avatar (magic-byte check) rather than
+  deferring the failure to the upload that never happens in a preview.
+- New `ipfs: { artifacts[], allPinned, note }` envelope on the three composites,
+  `pinned` on `otc.merkleWhitelistUploads[]`, and `pinataCid` /
+  `pinataCidExact` / `pinned` on `dexe_ipfs_cid_for_json` — `pinataCid` is the
+  one that is safe to put on chain.
+
+### Fixed — the guidance corpus taught the previous release
+`dexe_guide`, the shipped skills and the MCP handshake instructions had drifted
+from the code they describe: the handshake named `core,proposals` as the default
+profile (it has been `core` since 0.31.0) and listed five skills where eight
+ship, and the corpus still taught the pre-0.33 turnout rule and the 49/51 SIMPLE
+default. All three now render from one place, pinned by a drift test.
+
+- `dexe_guide` emits `flowContext` as an **object** (it was a JSON string in a
+  string field); `flow` is now a closed enum, so a typo is refused at the schema
+  instead of returning an empty plan.
+- The blanket "re-run the same call, completed steps are skipped" promise is
+  gone from the standing instructions. `approve` / `deposit` /
+  `createProposalAndVote` / `vote` are re-derived from chain state and skipped;
+  **`execute` and the validator round are not**, and a receipt-wait timeout means
+  the transaction was already broadcast — check `dexe_tx_status` first.
+
+### Fixed — Governor fixtures pointed at dead addresses
+Three of the four shipped Tier-1 Governor configs were wrong, and two of them
+silently.
+
+- **Compound** pointed at the retired `GovernorBravo` (`0xc0Da…6529`), which is
+  no longer the Timelock admin and cannot answer any proposal id ≥ 394. Repointed
+  to `CompoundGovernor` `0x309a862bbC1A00e45506cB8A802D1ff10004c8C0` (`oz-v5`,
+  quorum counting `for`); ids ≤ 393 resolve through a `legacyGovernor` hint and
+  the read says so. Queue / execute / cancel now use the OZ 4-arg shape,
+  `dexe_gov_hash_proposal` works for Compound, and `dexe_gov_decode_calldata` no
+  longer decodes Bravo-shaped Compound calldata.
+- **Uniswap**'s timelock address had no contract deployed at it (and was not
+  EIP-55 valid) → `0x1a9C8182C09F50C8318d769245beA52c32BE35BC`. `votingDelay`
+  1 → 13140, `votingPeriod` 50400 → 40320, proposal threshold 2.5M → 1M UNI.
+- **Optimism** gained its timelock (`0x0eDd4B2cCCf41453D8B5443FBB96cc577d1d06bF`,
+  `executor: timelock`); `votingDelay` 6646 → 0, `votingPeriod` 46027 → 259200.
+
+### Fixed — reads that quietly dropped rows
+- A subgraph relation that fails to resolve used to delete the row. Members,
+  experts and voters are backfilled from the orphaned side and the result
+  carries `indexerWarning` / `voterStatsUnavailable`; `dexe_dao_report` keeps
+  identity, membership, delegation, experts and turnout under orphaned rows and
+  reports `degraded` instead of returning a thinner report that looks complete.
+  The same fault had been silently deleting the treasury guard's
+  controlling-voter signal.
+- `pageSize` on `dexe_read_token_holders` / `dexe_read_nfts` is capped at
+  **100** (the backend's real maximum; it was advertised as 1000 and anything
+  above 100 was ignored), with `pageToken` in and `truncated` out. Those two
+  answer for chains 1 and 56 only, and say so rather than returning an empty
+  list for another chain.
+- Paging is uniform across the subgraph lists, `dexe_proposal_list` and
+  `dexe_read_token_sale_tiers`: `returned` / `truncated` / `nextOffset`
+  (`skip` / `first` / `nextSkip` on `dexe_proposal_voters`).
+- Raw amounts gained `<field>Formatted` siblings rendered with the token's real
+  decimals — an ERC20 read uses the decimals it read, or renders nothing.
+
+### Fixed — CLI, doctor, compile
+- `dexe-mcp --help` / `-h` / `help` and `--version` print and exit **0** before
+  any env loading; an unknown command exits **2** instead of starting a server
+  that ignores it. `skills --help` no longer installs anything.
+- **`dexe-mcp doctor` exit codes are a contract now**: `0` when nothing failed
+  (warnings included — a zero-config install always warns), `1` only under
+  `--strict` or `DEXE_DOCTOR_STRICT=1`, `2` on a real failure or an unknown flag.
+  `summary.advisoryOnly` is the add-only field that says "warnings, no failures".
+- Doctor no longer pins to Pinata on every run: the round-trip moved behind
+  `--probe-pin` / `probePin` and unpins best-effort afterwards.
+- The IPFS gateway check uses a DNS lookup plus an HTTPS HEAD, so a DoH or VPN
+  resolver refusal is a warning rather than a red failure.
+- `dexe_compile` reports the real solc message, file and line instead of a
+  truncated blob.
+
+### Added
+- **MCP tool annotations and titles.** Every tool declares
+  `readOnlyHint` / `destructiveHint` / `idempotentHint` / `openWorldHint`, and 21
+  tools carry a human title used in host approval dialogs. Read-only tools stop
+  reading as destructive in Codex / VS Code / ChatGPT-class hosts. Annotations
+  are **hints to the host, not access control** — the env-level broadcast guards
+  are what enforce.
+- **Build-time harm warnings on the primitives.** ~40 build tools gained a
+  `warnings[]` output, derived from the emitted calldata rather than from caller
+  hints, so the raw-calldata paths cannot walk around them. `#36` (`addSettings`)
+  is a DANGER warning at `dexe_proposal_build_change_voting_settings`,
+  `_new_proposal_type`, `_external` and `_custom_abi`, and `blocked-risky`
+  (escape: `confirmRisky`) at `dexe_proposal_create`. `F15` (vesting) is a hard
+  refusal at `dexe_otc_dao_open_sale`, `dexe_proposal_build_token_sale` and
+  `_token_sale_multi`, overridable with `acknowledgeVestingBlocked: true`.
+- `dexe_proposal_create` returns the real **`proposalId`**, read back from
+  chain after the create (it used to be absent or guessed), plus
+  `proposalState`, `votingEndsAt`, `preview`, `autoVote{}`, `advisories`,
+  `power{}` in human units, `prereqsBlock` and `tally`.
+- `dexe_dao_create`'s preview says who pays, what it costs (`cost` / `costNote`
+  / `gasPaidBy`), which values were synthesized (`defaults{}`), which settings
+  slots it wrote (`settingsSlots`), and what is permanent.
+- **`docs/PROFILES.md`** — which `DEXE_TOOLSETS` profile to run and why, with
+  the measured `tools/list` size of each. A startup note now fires when more
+  than 128 tools are loaded, because some hosts cap a chat request at 128
+  enabled tools per request.
+- Zero-config archive-capable public RPC for chains 1 and 10 in the
+  `dexe_gov_*` tools (`DEXE_DISABLE_PUBLIC_RPC=1` opts out). Additive outputs
+  `quorum.counting`, `caveats[]`, `configuredMatchesChain`, `rpc`.
+- `dexe_get_abi` takes `kind` / `nameFilter` and returns `totalEntries` /
+  `filtered` with a soft size warning, so a large ABI can be narrowed instead of
+  blowing the context window.
+- New optional inputs: `chainId` on 21 `dexe_proposal_build_*` tools; `govPool`
+  on the four off-chain builders (`poolAddress` stays as a permanent alias) and
+  on `dexe_proposal_build_blacklist` / `dexe_vote_build_erc20_approve`.
+  Composites returning `next` now include `next[].params` and
+  `next[].paramsNote`.
+- New env: `DEXE_SAFE_DELEGATECALL`, `DEXE_DOCTOR_STRICT`.
+
+### Changed
+- **434 undescribed input parameters are now described** (0 remain), and a
+  10-rule description lint (`tests/tools/description-lint.test.ts`) keeps them
+  honest — 13 of its 16 assertions failed before this release, against ~744
+  violations. Tool descriptions were re-cut at the same time: the default
+  `tools/list` fell from 96,555 B to **86,742 B** even after adding a
+  description to every parameter.
+- `dexe_proposal_create`'s `proposalType` **no longer defaults to `custom`**.
+  A call that omitted it used to build an empty custom proposal; it is now
+  required.
+- `dexe_context` is **windowed**: 8 DAOs and 5 proposals by default, with
+  `knownDaosTotal` / `knownDaosTruncated` / `recentProposalsTotal` /
+  `recentProposalsTruncated` alongside. A large session's context payload went
+  from 29,048 to 8,357 characters. Pass `daoLimit: 50, proposalLimit: 50` to get
+  the old breadth; `walletLabels` is capped at 100.
+- `dexe_vote_build_vote` and `dexe_vote_build_delegate` are documented as what
+  they emit — `GovPool.multicall([vote(...)])` — because SphereX rejects the raw
+  single call on pools deployed after mid-2026. No calldata changed; the
+  description was wrong.
+- `dexe_gov_simulate_vote_impact` counts Against toward quorum on Optimism, so
+  `quorumMet` can flip there. The Optimism quorum *value* is still a
+  30%-of-votable-supply approximation, and now says so in `caveats[]`.
+- `dexe_proposal_risk_assess` can return CAUTION / DANGER on governance grounds
+  with a perfectly fine quorum, and reports `governanceHits`. A `SAFE` verdict is
+  the absence of the hazards it checks, not an instruction to vote for.
+- **Deprecated, still emitted, removal no earlier than 0.36.0:** `advisories`
+  (vote builders) and `governanceAdvisories` are superseded by `warnings[]`.
+- **Correction to the 0.33.0 notes.** That entry says "No emitted calldata
+  changed." One deploy default did change: SIMPLE-mode `dexe_dao_create`
+  synthesizes **treasury 30% / quorum 51%** where it used to synthesize 49% /
+  51%, so the same `{daoName, symbol, totalSupply}` call mints a different
+  initial split. Pass `treasuryPercent: 49` explicitly to reproduce an older
+  deploy — it comes back `mode: "blocked-risky"` first, because it needs 100%
+  turnout of every votable token, so add `confirmRisky: true` to proceed. The
+  0.33.0 entry above is left as published; `docs/MIGRATION.md` carries the
+  correction inline.
+
+### Changed — docs and packaging
+- **`docs/` is now an allowlist.** Three maintainer records shipped to every npm
+  consumer for sixteen releases; `docs/TEST_BACKLOG.md`,
+  `docs/PARITY-AUDIT-2026-07-23.md` and `docs/SECURITY_CLIENT_UA.md` moved to
+  `internal/`, which is tracked but outside `package.json` `files`.
+  `tests/docs/pack-contents.test.ts` now pins the exact contents of `docs/`, so
+  the *next* internal artifact fails the suite instead of shipping quietly.
+- **The plugin ships the whole `docs/` tree.** It copied three files out of
+  twenty-five, so eleven relative links inside `dexe://tools`,
+  `dexe://playbook` and `dexe://graph-schema` — the resources an agent actually
+  follows — pointed at documents that were not there. Links that leave `docs/`
+  are rehosted to GitHub. Zero broken relative links repo-wide.
+- **`.env.example` ships in the npm tarball.** `init`'s own error message and
+  two docs pointed at a file that was never installed.
+- **`.mcp.example.json` rewritten to the zero-config form** — the dead Graph
+  Studio subgraph URL, the legacy `DEXE_RPC_URL` / `DEXE_CHAIN_ID` pair, and the
+  pre-filled client `env` block (which silently shadows `.env`) are gone.
+- **`dexe-mcp` is stdio-only**, so ChatGPT connectors and other URL-only clients
+  are no longer listed as supported. `docs/INSTALL.md` now carries a copy-paste
+  command per client (Claude Code, Claude Desktop, Cursor, Codex CLI) and states
+  the one rule that matters: pick `npx` **or** a global install, never both — a
+  stale global shim shadows `npx dexe-mcp@<version>` and silently runs the old
+  code.
+- Node requirement stated as **20.12 or newer** everywhere (`engines` has
+  required `>=20.12.0` since `process.loadEnvFile` became the `.env` loader);
+  the docs said "20+".
+- Every `.env` remediation names the file the server actually loads —
+  `~/.dexe-mcp/.env` for a plugin/`npx` install, the repo-root `.env` for a
+  source checkout. A plugin user has no repo root.
+- `SECURITY.md` no longer describes CI's test step as a no-op, the WalletConnect
+  relay session as unshipped with no added dependency, or the broadcast-guard set
+  as four opt-in guards. The supported-version pin moved to `^0.34`, and B11 /
+  B12 / B13 joined the table.
+
+### Security
+- **B13 — Safe DELEGATECALL.** `dexe_safe_propose_tx` refuses `operation: 1`
+  unless the caller passes `allowDelegateCall: true`; `DEXE_SAFE_DELEGATECALL=block`
+  forbids it outright. A DELEGATECALL from a Safe runs arbitrary code against the
+  Safe's own storage — it is the single call that can rewrite the owner set.
+- **A Safe dry run no longer signs.** It produced a real owner signature for a
+  transaction the caller was only inspecting. Signing is now `sign: true`.
+- The untrusted-text funnel (`untrustedResult`) covers `dexe_dao_info`,
+  `dexe_decode_proposal`, `dexe_decode_calldata` and `dexe_dao_report` as well.
+  `dexe_gov_decode_calldata` remains field-level only, and `docs/SECURITY.md`
+  says so rather than implying whole-result coverage.
+
+### Tests
+- 2850 passing / 40 skipped. New structural guards rather than more unit tests:
+  a description lint over the live `tools/list`, an exhaustive annotation
+  classifier that fails on an unclassified or newly added tool, a guidance-drift
+  test pinning the corpus to the code, a `docs/` allowlist, a plugin-doc-bundle
+  parity test, and a Governor bundle-parity test that fails when a fixture
+  address changes without a re-bundle.
+- Golden-hex calldata fixtures stayed byte-identical through the whole release
+  (31/31).
+- **Swarm harness.** `expect` / `expectError` with 10 operators and load-time
+  validation (a malformed assertion used to pass as a no-op), an allowlist guard
+  that verifies a DAO against the registry, a dispatcher that accepts the 0.30–
+  0.33 write modes, `steps[].serverSign` routing, registration / dist-freshness /
+  index-parallel guards, and scenarios **S63–S69**. New optional env:
+  `SWARM_TOKENSALE_TESTNET|MAINNET`, `SWARM_DISTRIBUTION_TESTNET|MAINNET`,
+  `SWARM_SKIP_DIST_CHECK`.
+- `npm run test:governor:live` re-verifies the Tier-1 Governor fixtures against
+  chain (needs `GOVERNOR_LIVE=1` and `DEXE_RPC_URL_<chainId>`).
+
 ## 0.33.1 — 2026-09-11
 
 **Three live advisories, again, and the pipeline that let them ship.** Tool

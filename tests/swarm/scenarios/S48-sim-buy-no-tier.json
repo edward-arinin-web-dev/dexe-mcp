@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [97],
   "requiresBrowser": false,
-  "notes": "Phase v0.5 — exercises dexe_sim_buy against Glacier's empty TokenSaleProposal on BSC testnet with tierId=999 (no such tier). The sim must report success: false with a revertReason. testnet-only because the target address is the testnet Glacier helper.",
+  "notes": "Phase v0.5 — exercises dexe_sim_buy against Glacier's empty TokenSaleProposal on BSC testnet with tierId=999 (no such tier). The sim must report success: false with a revertReason. testnet-only because the tier fixture lives on the testnet DAO; the helper address now follows {{dao.tokenSale}}.",
   "agents": [{ "alias": "B", "role": "Proposer", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
@@ -14,7 +14,7 @@
       "agent": "B",
       "tool": "dexe_sim_buy",
       "args": {
-        "tokenSaleProposal": "0x9E74AD4f2aFe44073f4E07D8eafE4d92387fFcE6",
+        "tokenSaleProposal": "{{dao.tokenSale}}",
         "tierId": "999",
         "tokenToBuyWith": "0x0000000000000000000000000000000000000000",
         "amount": "100000000000000000",

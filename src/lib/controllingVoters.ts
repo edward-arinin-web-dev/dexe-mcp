@@ -24,7 +24,12 @@
  */
 import { Interface, type JsonRpcProvider } from "ethers";
 import { multicall, type Call } from "./multicall.js";
-import { gqlRequest, resolveSubgraphUrl } from "./subgraph.js";
+import {
+  gqlRequest,
+  resolveSubgraphUrl,
+  toVoterAddress,
+  withOrphanVoterFallback,
+} from "./subgraph.js";
 import type { DexeConfig } from "../config.js";
 
 /**
@@ -58,10 +63,16 @@ const VALIDATORS_QUERY = /* GraphQL */ `
 
 /** Trimmed from src/tools/subgraph.ts DAO_MEMBERS_QUERY (fields we need only). */
 const DAO_MEMBERS_QUERY = /* GraphQL */ `
-  query getVotersInPool($poolId: String!, $offset: Int!, $limit: Int!) {
+  query getVotersInPool(
+    $poolId: String!
+    $offset: Int!
+    $limit: Int!
+    $withVoter: Boolean!
+  ) {
     voterInPools(skip: $offset, first: $limit, where: { pool: $poolId }) {
+      id
       receivedDelegation
-      voter {
+      voter @include(if: $withVoter) {
         id
         totalVotes
       }
@@ -96,12 +107,23 @@ async function fetchValidators(url: string, pool: string): Promise<string[]> {
 /** Top-N holders by (totalVotes + receivedDelegation), lowercased. Fail-soft → []. */
 async function fetchTopHolders(url: string, pool: string, topN: number): Promise<string[]> {
   try {
-    const data = await gqlRequest<{
-      voterInPools: { receivedDelegation: string | null; voter: { id: string | null; totalVotes: string | null } | null }[];
-    }>(url, DAO_MEMBERS_QUERY, { poolId: pool, offset: 0, limit: 50 });
+    // An orphaned Voter record makes the gateway reject the whole response, and
+    // the catch below turns that into "this DAO has no controlling holders" —
+    // a silently MISSING concentration signal on exactly the DAOs that trip it.
+    // The second pass drops the Voter relation; `id` (the 80-hex composite)
+    // still yields the wallet, and `receivedDelegation` still yields a weight.
+    const { data } = await withOrphanVoterFallback((withVoter) =>
+      gqlRequest<{
+        voterInPools: {
+          id: string | null;
+          receivedDelegation: string | null;
+          voter: { id: string | null; totalVotes: string | null } | null;
+        }[];
+      }>(url, DAO_MEMBERS_QUERY, { poolId: pool, offset: 0, limit: 50, withVoter }),
+    );
     const weighted = (data.voterInPools ?? [])
       .map((r) => ({
-        addr: r.voter?.id?.toLowerCase(),
+        addr: (r.voter?.id ?? (r.id ? toVoterAddress(r.id) : undefined))?.toLowerCase(),
         weight: toBig(r.voter?.totalVotes) + toBig(r.receivedDelegation),
       }))
       .filter((x): x is { addr: string; weight: bigint } => !!x.addr);

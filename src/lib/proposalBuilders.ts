@@ -18,7 +18,9 @@ import { z } from "zod";
 import { Interface, isAddress, getAddress, ZeroAddress } from "ethers";
 import type { ToolContext } from "../tools/context.js";
 import { checkBlacklist, blacklistError } from "./blacklist.js";
-import { settingsAdvisories, checkAddSettingsTrap } from "./protocolAdvisories.js";
+import { settingsAdvisories } from "./protocolAdvisories.js";
+import { assessBuildPure, assertStakingWindow } from "./buildAdvisories.js";
+import { warningLine, worstBlock, type BuildWarning } from "./buildWarning.js";
 import { quorumPctFromRaw, judgeQuorum } from "./quorumRisk.js";
 import { findForbiddenSelector, dangerousSelectorError } from "./dangerousSelectors.js";
 import {
@@ -116,6 +118,12 @@ export interface BuiltProposalActions {
   summary: string;
   /** Governance-safety advisories for the proposed config (never empty when present). */
   advisories?: string[];
+  /**
+   * The same findings in the structured 0.34.0 shape. `advisories` keeps the
+   * string form for every 0.33.0 consumer; this is what the composite dedupes
+   * against and emits as `warnings`.
+   */
+  warnings?: BuildWarning[];
   /**
    * Worst risk across `advisories`. DANGER makes `dexe_proposal_create` refuse
    * to broadcast until the caller re-runs with `confirmRisky: true`.
@@ -774,28 +782,13 @@ const createStakingTierBuilder: CatalogBuilder = {
     const stakingProposal = p.stakingProposal ?? (await resolveStakingProposal(deps));
     if (!isAddress(stakingProposal)) throw new Error(`Invalid stakingProposal: ${stakingProposal}`);
     if (!isAddress(p.rewardToken)) throw new Error(`Invalid rewardToken: ${p.rewardToken}`);
-    // StakingProposal.createStaking SILENTLY rejects a past deadline: the
-    // execute succeeds (status 1), the reward bounces back to the treasury,
-    // a StakingRejected event is emitted, and NO tier exists. Proven on-chain
-    // 2026-07-23 (mainnet proposal executed with a 2024 deadline → 0 tiers).
-    // Refuse here, before any transaction — and remember the deadline must
-    // still be in the future when the proposal EXECUTES, not just now.
-    const nowSec = BigInt(Math.floor(Date.now() / 1000));
-    const startedAt = BigInt(p.startedAt);
-    const deadline = BigInt(p.deadline);
-    if (startedAt >= deadline) {
-      throw new Error(
-        `create_staking_tier: startedAt (${p.startedAt}) must be BEFORE deadline (${p.deadline}) — the contract reverts 'SP: Invalid settings'.`,
-      );
-    }
-    if (deadline <= nowSec) {
-      throw new Error(
-        `create_staking_tier: deadline ${p.deadline} (${new Date(Number(deadline) * 1000).toISOString()}) is in the PAST — ` +
-          `current unix time is ~${nowSec}. The contract would SILENTLY reject the tier at execute (transaction succeeds, ` +
-          `no tier is created, the reward returns to the treasury). Use future timestamps computed from the current time — ` +
-          `never guess the date — and leave headroom for the voting period before execution.`,
-      );
-    }
+    // StakingProposal.createStaking SILENTLY rejects a stale window: the
+    // execute succeeds (status 1), the reward bounces back to the treasury, a
+    // StakingRejected event is emitted, and NO tier exists. The check lives in
+    // src/lib/buildAdvisories.ts so the STANDALONE builder — which
+    // re-implements this encode — runs the identical guard instead of going
+    // straight to encodeFunctionData, which is what it did until 0.34.0.
+    assertStakingWindow(p.startedAt, p.deadline);
     const iface = new Interface(STAKING_PROPOSAL_ABI as unknown as string[]);
     const createData = iface.encodeFunctionData("createStaking", [
       p.rewardToken, BigInt(p.rewardAmount), BigInt(p.startedAt), BigInt(p.deadline), p.stakingMetadataUrl,
@@ -1092,7 +1085,7 @@ const newProposalTypeBuilder: CatalogBuilder = {
   },
 };
 
-// ---------- the single build-time upstream-trap chokepoint ----------
+// ---------- the single build-time harm chokepoint ----------
 
 /**
  * Memo so a builder reachable under several catalog names keeps ONE wrapper
@@ -1102,42 +1095,63 @@ const newProposalTypeBuilder: CatalogBuilder = {
 const trapGuarded = new WeakMap<CatalogBuilder, CatalogBuilder>();
 
 /**
- * Wraps a builder so upstream trap #36 is caught at BUILD time, before any
+ * Wraps a builder so EVERY build-time harm advisory is raised before any
  * metadata is pinned and before a single wei of gas is spent.
  *
- * Why here and not in each builder: the check is SELECTOR-keyed, so it has to
- * see the calldata a builder actually emitted, not the params it was handed.
+ * Why here and not in each builder: `assessBuildPure` is CALLDATA-keyed, so it
+ * has to see what a builder actually emitted, not the params it was handed.
  * Every catalog type — `change_voting_settings` with no `settingsIds`,
- * `new_proposal_type`/`enable_staking`, and a hand-rolled `custom_abi` action
- * that happens to encode `addSettings` — funnels through `CatalogBuilder.build`,
- * so wrapping the registry once covers all of them and cannot be bypassed by
- * adding another catalog entry later.
+ * `new_proposal_type`/`enable_staking`, `token_sale`, `blacklist`, and a
+ * hand-rolled `custom_abi` action that happens to encode any of their
+ * selectors — funnels through `CatalogBuilder.build`, so wrapping the registry
+ * once covers all of them and cannot be bypassed by adding another catalog
+ * entry later. 0.33.0's version of this wrapper checked exactly one trap (#36);
+ * everything else was left to whichever call site remembered.
  *
- * Severity is DANGER, which rides the risk gate `dexe_proposal_create` already
- * has: the composite refuses to broadcast and returns `mode: "blocked-risky"`
- * unless the caller re-runs with `confirmRisky: true`. Refusing by default is
- * right because the revert is deterministic and unrecoverable — the proposal
- * passes the vote and then bricks at execute, burning a whole governance cycle.
- * Keeping the override is right because
- * `ADD_SETTINGS_BLOCKED_CHAINS` is measured evidence, not a protocol invariant:
- * when the chain is allowlisted upstream, a hard refusal would strand callers
- * until the next release, whereas a DANGER gate still lets them through.
+ * Two outcomes, matching the tier model in src/lib/buildWarning.ts:
+ *
+ *  • `block: "hard"` THROWS. These are the postures
+ *    `src/lib/dangerousSelectors.ts` and the blacklist check have always
+ *    published ("hard block, no override"); routing them through the DANGER
+ *    gate would convert them into a `confirmRisky: true` bypass. The caller
+ *    (`runProposalCreate`) turns the throw into an actionable tool error.
+ *  • anything else annotates. `risk: "DANGER"` rides the gate
+ *    `dexe_proposal_create` already has, so the composite returns
+ *    `mode: "blocked-risky"` unless the caller re-runs with
+ *    `confirmRisky: true`. Keeping that override is right because
+ *    `ADD_SETTINGS_BLOCKED_CHAINS` is measured evidence, not a protocol
+ *    invariant: a hard refusal would strand callers until the next release.
+ *
+ * Calldata is returned untouched in both cases — this layer only annotates.
+ * It is synchronous and zero-RPC by construction, so `PROPOSAL_BUILDERS` stays
+ * offline-testable (tests/lib/calldata-golden.test.ts runs with no provider).
  */
-function withUpstreamTrapGuard(base: CatalogBuilder): CatalogBuilder {
+function withBuildAdvisories(base: CatalogBuilder): CatalogBuilder {
   const memo = trapGuarded.get(base);
   if (memo) return memo;
   const wrapped: CatalogBuilder = {
     schema: base.schema,
     async build(params, deps) {
       const built = await base.build(params, deps);
-      const trap = checkAddSettingsTrap({ chainId: deps.chainId, actions: built.actionsOnFor });
-      if (!trap.blocked || !trap.advisory) return built;
-      const where = trap.actionIndices.map((i) => `actionsOnFor[${i}]`).join(", ");
-      // Calldata is returned untouched — the guard only annotates the build.
+      const warnings = assessBuildPure({
+        chainId: deps.chainId,
+        // The composite always resolves a concrete chain before building.
+        chainIdExplicit: true,
+        actions: built.actionsOnFor,
+        treasuryGuard: deps.ctx?.config?.treasuryGuard ?? "warn",
+        govPool: deps.govPool,
+      });
+      if (warnings.length === 0) return built;
+      const hard = warnings.filter((w) => w.block === "hard");
+      if (hard.length > 0) {
+        throw new Error(hard.map((w) => `${w.message} ${w.remedy}`).join("\n\n"));
+      }
+      const escalates = worstBlock(warnings) === "confirmable";
       return {
         ...built,
-        advisories: [...(built.advisories ?? []), `${trap.advisory.text} Carried by ${where}.`],
-        risk: "DANGER",
+        advisories: [...(built.advisories ?? []), ...warnings.map(warningLine)],
+        warnings: [...(built.warnings ?? []), ...warnings],
+        risk: escalates ? "DANGER" : built.risk,
       };
     },
   };
@@ -1145,11 +1159,11 @@ function withUpstreamTrapGuard(base: CatalogBuilder): CatalogBuilder {
   return wrapped;
 }
 
-/** Apply the trap guard to every entry of the catalog registry, once. */
+/** Apply the harm pass to every entry of the catalog registry, once. */
 function guardCatalog(builders: Record<string, CatalogBuilder>): Record<string, CatalogBuilder> {
   const out: Record<string, CatalogBuilder> = {};
   for (const [type, builder] of Object.entries(builders)) {
-    out[type] = withUpstreamTrapGuard(builder);
+    out[type] = withBuildAdvisories(builder);
   }
   return out;
 }
@@ -1162,8 +1176,9 @@ function guardCatalog(builders: Record<string, CatalogBuilder>): Record<string, 
  * useGovPoolCreateProposalType). validators_allocation is its own builder
  * (GovPool.setCreditInfo) — NOT an alias of manage_validators.
  *
- * Every entry is passed through `withUpstreamTrapGuard`, so a new catalog type
- * inherits the #36 pre-block for free — there is nothing to remember to add.
+ * Every entry is passed through `withBuildAdvisories`, so a new catalog type
+ * inherits every build-time harm advisory for free — there is nothing to
+ * remember to add.
  */
 export const PROPOSAL_BUILDERS: Record<string, CatalogBuilder> = guardCatalog({
   token_transfer: tokenTransferBuilder,

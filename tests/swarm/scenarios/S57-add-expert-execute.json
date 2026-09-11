@@ -16,7 +16,7 @@
       "agent": "P",
       "tool": "dexe_proposal_build_add_expert",
       "args": {
-        "expertNftContract": "0x7cf4f13c0E5787EE79d6Caff768160A4cC85ad6D",
+        "expertNftContract": "{{dao.expertNft}}",
         "scope": "local",
         "nominatedUser": "{{agent:P:address}}",
         "uri": "ipfs://QmYxExpertNominationS57",

@@ -58,6 +58,8 @@ export interface KnownDao {
 export interface RecentProposal {
   govPool: string;
   chainId: number;
+  /** On-chain id, when the create leg could read it back. Optional: no state migration. */
+  proposalId?: number;
   title?: string;
   descriptionURL?: string;
   txHash?: string;
@@ -87,6 +89,12 @@ export interface PersistedState {
 
 const MAX_DAOS = 50;
 const MAX_PROPOSALS = 25;
+/**
+ * The one collection that had NO cap. Unlike recordDao/recordProposal,
+ * setWalletLabel merged into an unbounded map that dexe_context then dumped
+ * whole. Nothing in src/ calls it yet, which is exactly when to close it.
+ */
+const MAX_WALLET_LABELS = 100;
 
 function emptyState(): PersistedState {
   return { version: STATE_VERSION, knownDaos: [], recentProposals: [], walletLabels: {} };
@@ -399,12 +407,60 @@ function lockIsStale(lock: string): boolean {
 
 export class StateStore {
   private cache: PersistedState | null = null;
+  /** Stat signature (`mtimeMs:size:ino`) the cache was read at; null when it mirrors no known on-disk bytes. */
+  private cacheStamp: string | null = null;
+  /**
+   * True while `cache` holds a state that FAILED to reach the disk. The cache
+   * is then the only copy of a DAO the user just paid gas for, so `load()` must
+   * keep serving it and must never re-read over it. A flag, not an errno test:
+   * on Windows `statSync` of a path whose parent is a file reports ENOENT,
+   * indistinguishable from a deleted file.
+   */
+  private unpublished = false;
 
   constructor(private readonly path: string) {}
 
-  /** Load (and cache) the state. Never throws — degrades to empty on any error. */
+  /**
+   * Stat signature of the state file, or null when it cannot be stat'ed.
+   *
+   * The inode carries the discrimination: every publish renames a FRESH temp
+   * file over the target (see `persist`), so a peer's write always changes it.
+   * mtimeMs+size is kept only as a fallback for hosts that report ino 0 (some
+   * network/overlay mounts) — two same-length publishes back to back (e.g.
+   * `lastChainId` 97 → 56) routinely share both.
+   */
+  private diskStamp(): string | null {
+    try {
+      const s = statSync(this.path);
+      return `${s.mtimeMs}:${s.size}:${s.ino}`;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Load the state, re-reading when the file changed under us.
+   *
+   * NOT load-once: exactly one StateStore lives for the whole server process
+   * while the file is shared with every other Claude Code window, every swarm
+   * subprocess and the `npx dexe-mcp` CLI. A load-once cache froze
+   * dexe_context's DAO list at session open for the rest of the session — the
+   * file on disk was correct (0.30.4 hardened the WRITE path), this process's
+   * view of it was not.
+   *
+   * Three reasons to keep the cache, in priority order: it was never published
+   * (it is the only copy); the file cannot be stat'ed (we cannot tell, so do
+   * not overwrite a good cache with a degraded read); the stamp is unchanged
+   * (nothing happened). Never throws — `readFromDisk()` is total.
+   */
   load(): PersistedState {
-    if (this.cache) return this.cache;
+    const stamp = this.diskStamp();
+    if (this.cache && (this.unpublished || stamp === null || stamp === this.cacheStamp)) {
+      return this.cache;
+    }
+    // Stamped BEFORE the read on purpose: a write landing during the read then
+    // costs one redundant re-read later, instead of pinning a stale cache.
+    this.cacheStamp = stamp;
     this.cache = this.readFromDisk();
     return this.cache;
   }
@@ -487,6 +543,8 @@ export class StateStore {
     cas?: { expect: string | null },
   ): "published" | "stale" | "failed" {
     this.cache = state;
+    // The cache now mirrors no known on-disk bytes; re-stamped below on success.
+    this.cacheStamp = null;
     const tmp = tempStatePath(this.path);
     try {
       const dir = dirname(this.path);
@@ -499,9 +557,12 @@ export class StateStore {
         return "stale";
       }
       renameWithRetry(tmp, this.path);
+      this.unpublished = false;
+      this.cacheStamp = this.diskStamp();
       debugLog("state", `persisted ${state.knownDaos.length} dao(s) to ${this.path}`);
       return "published";
     } catch (err) {
+      this.unpublished = true;
       // Leave nothing behind: a failed rename would otherwise litter the
       // directory with one orphaned temp per attempt.
       try {
@@ -550,6 +611,9 @@ export class StateStore {
       for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
         const { raw, state } = this.snapshot();
         this.cache = state;
+        // A snapshot read, not a load(): the cache now mirrors bytes we did not
+        // stamp, so drop the stamp and let the next load() re-derive it.
+        this.cacheStamp = null;
         const next = fn(state);
         if (!next) return;
         const outcome = this.persist(next, { expect: raw });
@@ -564,6 +628,7 @@ export class StateStore {
       debugLog("state", `lost the compare-and-swap ${CAS_ATTEMPTS}x; publishing unconditionally`);
       const { state } = this.snapshot();
       this.cache = state;
+      this.cacheStamp = null;
       const next = fn(state);
       if (next) this.persist(next);
     });
@@ -601,10 +666,23 @@ export class StateStore {
   }
 
   setWalletLabel(address: string, label: string): void {
-    this.mutate((state) => ({
-      ...state,
-      walletLabels: { ...state.walletLabels, [address.toLowerCase()]: label },
-    }));
+    this.mutate((state) => {
+      const key = address.toLowerCase();
+      // Insertion-ordered: re-setting a key moves it to the END, so the trim
+      // drops the least-recently-labelled rather than an arbitrary one.
+      const { [key]: _prior, ...rest } = state.walletLabels;
+      const next = { ...rest, [key]: label };
+      const keys = Object.keys(next);
+      return {
+        ...state,
+        walletLabels:
+          keys.length <= MAX_WALLET_LABELS
+            ? next
+            : Object.fromEntries(
+                keys.slice(keys.length - MAX_WALLET_LABELS).map((k) => [k, next[k]!]),
+              ),
+      };
+    });
   }
 
   /** Most-recently recorded DAO, or null. */

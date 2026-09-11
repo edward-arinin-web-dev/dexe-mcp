@@ -41,7 +41,10 @@ overridable: set the matching var and your value wins.
 **Not defaulted — you must provide:**
 
 - `DEXE_PINATA_JWT` — IPFS *uploads* (creating DAOs/proposals pin metadata).
-  Reads don't need it. This is the only hard blocker for the create flows.
+  Reads don't need it, and neither does a preview: it is required to
+  **broadcast** a DAO/proposal creation, not to build one. A `dryRun` needs no
+  key — the CIDs are computed locally and nothing is pinned. This is the only
+  hard blocker for the create flows once you actually broadcast.
 - `DEXE_PRIVATE_KEY` — hot-key signing (opt-in; WalletConnect is the safer default).
 
 **Shared defaults are billable-shared / rate-limited.** The default Graph API
@@ -57,10 +60,11 @@ should **rotate** these keys — see [§8 Subgraph configuration](#8-subgraph-co
 > remediation hints. The canonical schema lives in
 > [`src/env/schema.ts`](../src/env/schema.ts); `dexe_doctor` reads from
 > there, so the schema is the source of truth and this document tracks it.
-> Env edits go in `.env` at the repo root (or the MCP host's `env` block —
-> see the precedence note below). After any change, **restart Claude Code**
-> (`process.loadEnvFile()` runs once at startup, and the host env block
-> SHADOWS `.env` for any key set in both).
+> Env edits go in the `.env` the server actually loads — `~/.dexe-mcp/.env`
+> for a plugin/`npx` install, the repo-root `.env` for a source checkout (see
+> the precedence list at the top of this file). Never in the MCP host's `env`
+> block, which silently shadows both. After any change, **restart Claude
+> Code** (`process.loadEnvFile()` runs once at startup).
 
 ---
 
@@ -124,9 +128,9 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_RPC_URL_<chainId>` | Generic per-chain RPC | RPC for any chain by numeric id. Registered automatically. Needed for the external Governor DAOs — Ethereum (`DEXE_RPC_URL_1`) and Optimism (`DEXE_RPC_URL_10`). Coexists with the BSC vars. Comma-separated fallback lists work here too. | `DEXE_RPC_URL_1=https://eth.llamarpc.com` |
 | `DEXE_DEFAULT_CHAIN_ID` | Multi-chain mode (default selection) | Which configured chain is used when a tool call omits `chainId`. Defaults to testnet when both are configured explicitly; the zero-config public fallback defaults to mainnet (56). | `97`, `56` |
 | `DEXE_TX_WAIT_TIMEOUT_MS` | Broadcast reliability (optional) | Max milliseconds to wait for a broadcast tx to mine before returning a check-with-`dexe_tx_status` error (the MCP request never hangs on a stuck tx). Default `180000` (3 min). | `180000`, `300000` |
-| `DEXE_DISABLE_PUBLIC_RPC` | Zero-config read fallback | Set to `1` to disable the built-in public BSC RPC fallback that activates when **no** RPC is configured. Unset (default) = fallback on (chains 56 + 97, default 56). | `1` |
+| `DEXE_DISABLE_PUBLIC_RPC` | Zero-config read fallback | Set to `1` to disable **both** built-in public RPC fallbacks: the BSC one (chains 56 + 97, default 56) that activates when **no** RPC is configured at all, and the archive-capable Ethereum (1) / Optimism (10) one the `dexe_gov_*` Governor tools use whenever *their* chain has no `DEXE_RPC_URL_<chainId>` — that second one applies even when BSC is configured. Unset (default) = both fallbacks on. | `1` |
 | `DEXE_CONTRACTS_REGISTRY` | Custom chain / non-default registry | Override the `ContractsRegistry` root address. Defaults to the per-chain known address from `src/lib/addresses.ts`. | `0x...` |
-| `DEXE_PINATA_JWT` | All `dexe_ipfs_upload_*` tools, auto-upload of `executorDescription` in `dexe_dao_build_deploy`, `dexe_proposal_create` flow | Pinata JWT for pinning JSON / files. | `eyJhbGciOi...` |
+| `DEXE_PINATA_JWT` | All `dexe_ipfs_upload_*` tools, auto-upload of `executorDescription` in `dexe_dao_build_deploy`, `dexe_proposal_create` flow | Pinata JWT for pinning JSON / files. Required to **broadcast** a DAO/proposal creation, not to preview one — a `dryRun` computes the CIDs locally and pins nothing. | `eyJhbGciOi...` |
 | `DEXE_MAX_DESCRIPTION_LEN` | proposal/DAO metadata (optional) | Max characters accepted for proposal/DAO description markdown before conversion — guards the IPFS payload size. Over-limit descriptions error with a shorten-or-upload-as-file hint. Default `20000`. | `20000`, `50000` |
 | `DEXE_IPFS_GATEWAY` | Reliability (optional) | Override the default public read gateways with a **dedicated** one (Pinata bundles one with the JWT; Filebase / QuickNode / self-hosted also fine). Reads default to public gateways since 0.17.0; set this for anything beyond light use. | `https://my-sub.mypinata.cloud` |
 | `DEXE_IPFS_GATEWAYS_FALLBACK` | `dexe_ipfs_fetch` (optional) | Extra comma-separated public gateways appended to the list, tried sequentially. | `https://dweb.link,https://ipfs.io` |
@@ -158,6 +162,8 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_WALLETCONNECT_RELAY_URL` | WalletConnect (optional) | Override the relay websocket. | `wss://relay.walletconnect.com` (default) |
 | `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS` | WalletConnect (optional) | Per-tx phone-approval timeout; over-timeout returns `{status:'timeout'}` instead of hanging the MCP request. Validated `> 0`. | `120000` (default) |
 | `DEXE_PRIVACY_POLICY_HASH` | `dexe_vote_build_privacy_policy_*` (optional) | Default privacy-policy bytes32 hash. Otherwise read live from `UserRegistry.documentHash()`. | `0x...` |
+| `DEXE_SAFE_DELEGATECALL` | `dexe_safe_propose_tx` (optional) | Set to `block` to forbid Safe `operation: 1` (DELEGATECALL) outright, overriding the per-call flag. Unset (default) = DELEGATECALL is allowed only when the caller passes `allowDelegateCall: true`; guard **B13** refuses it otherwise. | `block` |
+| `DEXE_DOCTOR_STRICT` | `npx dexe-mcp doctor` (optional) | Set to `1` to make the doctor exit `1` on warnings — same as `--strict`, for CI wrappers that cannot add a flag. | `1` |
 
 Every var is read once during `loadConfig()` at startup or directly from
 `process.env` inside the relevant tool. Changes require an MCP server restart.
@@ -189,7 +195,7 @@ touches.
 | Proposal builders — wrappers (internal validator) | `_change_validator_balances`, `_change_validator_settings`, `_monthly_withdraw`, `_offchain_internal_proposal` | `DEXE_RPC_URL` |
 | Proposal builders — off-chain | `dexe_proposal_build_offchain*`, `dexe_offchain_build_vote`, `dexe_offchain_build_cancel_vote`, `dexe_auth_request_nonce`, `dexe_auth_login_request` | `DEXE_BACKEND_API_URL` |
 | Vote / stake / execute / claim | `dexe_vote_build_*` (entire group) | (none — pure ABI encoding; chainId comes from `DEXE_CHAIN_ID`) |
-| Composite flows | `dexe_proposal_create`, `dexe_proposal_vote_and_execute` | `DEXE_RPC_URL`, `DEXE_PINATA_JWT`; **either** `user` arg **or** `DEXE_PRIVATE_KEY` |
+| Composite flows | `dexe_proposal_create`, `dexe_proposal_vote_and_execute` | `DEXE_RPC_URL`; `DEXE_PINATA_JWT` to broadcast (a `dryRun` needs none); **either** `user` arg **or** `DEXE_PRIVATE_KEY` |
 | Tx layer | `dexe_tx_send` | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
 | Tx layer (read) | `dexe_tx_status` | `DEXE_RPC_URL` |
 
@@ -205,7 +211,7 @@ var.
 
 ```json
 { "to": "0x...", "data": "0x...", "value": "0", "chainId": 56,
-  "description": "GovPool.vote(...)" }
+  "description": "GovPool.multicall([vote(...)])" }
 ```
 
 Your wallet (MetaMask, Safe, hardware, multisig, custom signer) signs and
@@ -481,13 +487,16 @@ runbook: [`tests/swarm/README.md`](../tests/swarm/README.md). Brief callout:
 | `SWARM_RPC_URL_MAINNET` | Falls back to `DEXE_RPC_URL` |
 | `SWARM_DAOS_TESTNET` / `SWARM_DAOS_MAINNET` | Per-chain DAO allowlist — preflight + fund + orchestrator reject anything else |
 | `SWARM_TOKENS_TESTNET` / `SWARM_TOKENS_MAINNET` | Per-chain governance-token allowlist for `fund-pool.ts` |
+| `SWARM_TOKENSALE_TESTNET` / `SWARM_TOKENSALE_MAINNET` | Per-chain `TokenSaleProposal` helpers, **index-parallel** with `SWARM_DAOS_<tag>`. Optional — only the OTC scenarios need them. Fill from the `predicted.govTokenSale` that `dexe_dao_create` returns. |
+| `SWARM_DISTRIBUTION_TESTNET` / `SWARM_DISTRIBUTION_MAINNET` | Same shape for `DistributionProposal` helpers (`predicted.distributionProposal`). Both are factory-PREDICTED write targets with no GovPool getter, hence allowlists rather than free-form env. |
+| `SWARM_SKIP_DIST_CHECK` | Set to `1` to downgrade the `dist/` freshness verdict from a hard stop to a warning in `preflight.ts` / `orchestrator.ts`. A genuinely **missing** build still fails. |
 | `AGENT_PK_1..8` | 8 role wallets (Proposer / Voters / Delegators / Validators / Expert) |
 | `AGENT_FUNDER_PK` | Funder wallet — only sends to `AGENT_PK_*` addresses, only transfers tokens in `SWARM_TOKENS_*` |
 | `SWARM_DAILY_BNB_BUDGET` | Cost guard. Default `0.05` BNB. Realistic 25-scenario sweep ≈ `0.008` BNB. |
 
 Hard rules (cannot be relaxed in code): allowlist enforcement,
-no-test-name DAO personas. See [`CLAUDE.md`](../CLAUDE.md) for the full
-testing-strategy contract.
+no-test-name DAO personas. The repo-root `CLAUDE.md` carries the full
+testing-strategy contract (developer-local, not shipped in the package).
 
 ---
 
@@ -562,6 +571,6 @@ supported chain (BSC mainnet 56 or BSC testnet 97 — both baked in) or set
 ## See also
 
 - [`README.md`](../README.md) — install + quickstart
-- [`TOOLS.md`](../TOOLS.md) — full per-tool catalog (if present)
+- [`TOOLS.md`](./TOOLS.md) — full per-tool catalog
 - [`tests/swarm/README.md`](../tests/swarm/README.md) — swarm setup runbook
 - [`src/config.ts`](../src/config.ts) — canonical env reader (single source of truth)

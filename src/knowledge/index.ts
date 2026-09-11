@@ -46,7 +46,12 @@ export interface FlowStepDetail {
   /** Toolset(s) that expose the tool, when it is NOT in the default profile. */
   requiresToolset?: string;
   purpose: string;
-  paramsTemplate: Record<string, string>;
+  /**
+   * Argument template for the step's tool. Values are mostly `{{placeholder}}`
+   * strings, but NOT all: `flowContext` is emitted as the OBJECT the composites'
+   * schema requires (see below), so an agent can copy the template verbatim.
+   */
+  paramsTemplate: Record<string, unknown>;
   bindsFrom?: Record<string, string>;
   optionalWhen?: string;
   gotchas: ResolvedGotcha[];
@@ -111,10 +116,10 @@ export const AGENT_PROTOCOL =
   "PROTOCOL FOR THE AGENT: (1) Ask the user each `interview` question in order; offer the defaults; when an answer " +
   "is unusual, explain its `riskIfUnusual` before accepting. (2) Echo the final parameter set back and get explicit " +
   "confirmation BEFORE any broadcast. (3) Call the step tools in the listed order with the collected params — do " +
-  "not substitute other tools, do not invent parameters, do not skip the gotchas. (4) If there is a chainNote, " +
-  "relay it to the user verbatim before starting. (5) After each successful step, tell the user what " +
-  "`reportOnSuccess` says (with placeholders filled). (6) On a step failure, follow the error's remediation hint " +
-  "and re-run the SAME composite call — completed steps are skipped.";
+  "not substitute tools, invent parameters, or skip the gotchas. (4) If there is a chainNote, relay it to the " +
+  "user verbatim before starting. (5) After each successful step, relay `reportOnSuccess` (placeholders filled). " +
+  "(6) On FAILURE read `resume`, fix, re-run the SAME call: approve/deposit/create/vote are re-derived and " +
+  "skipped; GovPool.execute and the validator round are NOT — after a timeout check dexe_tx_status first.";
 
 /** The detail tier for one flow (~1-2k tokens serialized). */
 export function flowDetail(id: string, opts?: { chainId?: number }): FlowDetail | null {
@@ -138,8 +143,12 @@ export function flowDetail(id: string, opts?: { chainId?: number }): FlowDetail 
       purpose: s.purpose,
       // Chaining composites get their guided-flow position pre-filled: pass it
       // through verbatim and the success payload returns flowProgress + next.
+      // `flowContext` is an OBJECT: src/lib/flowChain.ts declares it as
+      // z.object({flow, step}), so the JSON-STRING form this used to emit was
+      // rejected by MCP input validation before the handler ran — and an agent's
+      // likeliest recovery (drop the field) silently disables flowProgress/next.
       paramsTemplate: CHAINING_TOOLS.has(s.tool)
-        ? { ...s.paramsTemplate, flowContext: `{"flow":"${f.id}","step":"${s.id}"}` }
+        ? { ...s.paramsTemplate, flowContext: { flow: f.id, step: s.id } }
         : s.paramsTemplate,
       ...(s.bindsFrom ? { bindsFrom: s.bindsFrom } : {}),
       ...(s.optionalWhen ? { optionalWhen: s.optionalWhen } : {}),

@@ -36,28 +36,42 @@ npx dexe-mcp doctor            # verify
 ```
 
 The wizard asks four questions (network, Pinata JWT, Graph key, signer mode),
-writes `.env` at the repo root, and prints a `~/.claude.json` snippet for
-copy-paste. It validates the Pinata JWT against the live endpoint before
-writing, and warns explicitly before storing a private key in plaintext.
+writes `~/.dexe-mcp/.env` — the home config the server loads from any
+directory (a source checkout writes the repo-root `.env` instead) — and prints
+an MCP-client snippet for copy-paste. It validates the Pinata JWT against the
+live endpoint before writing, and warns explicitly before storing a private key
+in plaintext.
 
 After `init`:
 
-1. Paste the printed snippet into your `~/.claude.json` under `mcpServers`.
+1. Paste the printed snippet into your MCP client config under `mcpServers`
+   (Claude Code: `~/.claude.json` or `.mcp.json`; Claude Desktop:
+   `claude_desktop_config.json`; Cursor: its MCP settings).
 2. Restart Claude Code (quit and relaunch — `process.loadEnvFile()` runs
    once at MCP startup).
-3. Run `npx dexe-mcp doctor` again to confirm everything reaches green.
+3. Run `npx dexe-mcp doctor` again. A healthy zero-config run ends at
+   something like `10 pass / 3 warn / 0 fail` and exits `0` — warnings are
+   normal without keys.
 
 ---
 
 ## Path C — manual `.env` edit
 
-Copy `.env.example` to `.env` and fill in the values you need.
+Create the file at `~/.dexe-mcp/.env` (`%USERPROFILE%\.dexe-mcp\.env` on
+Windows) unless you are running a source checkout, which uses the repo-root
+`.env`. `npx dexe-mcp doctor` prints the exact path it loaded.
+
+Copy `.env.example` (at the root of the installed package — `npm root -g`/dexe-mcp
+— or the repo root for a source checkout) to `~/.dexe-mcp/.env` and fill in the
+values you need. `~/.dexe-mcp/.env` is cwd-independent; a repo-root `.env` is
+only found when the server's cwd is that repo.
 
 > Reads no longer require any env: with no RPC configured the server falls
 > back to public BSC endpoints (chains 56 + 97, default 56). Set your own
 > `DEXE_RPC_URL_MAINNET` for reliability, or `DEXE_DISABLE_PUBLIC_RPC=1` to
-> turn the fallback off. The canonical
-schema for every recognized env var lives at
+> turn the fallback off.
+
+The canonical schema for every recognized env var lives at
 [`src/env/schema.ts`](../src/env/schema.ts) — every key has a category,
 one-line doc, and zod validator. The doctor reads from there.
 
@@ -162,3 +176,6 @@ Status legend:
   laptop or corporate VPN does not produce all-red output.
 - `fail` — needs your attention. Each fail carries a `remediation` field
   with a paste-ready fix instruction.
+
+Exit codes: `0` when everything passes or only warns, `2` on a real failure.
+Use `--strict` (or `DEXE_DOCTOR_STRICT=1`) in CI to make warnings exit `1`.

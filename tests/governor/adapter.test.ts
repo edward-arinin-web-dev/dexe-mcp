@@ -3,7 +3,10 @@ import { resolveGovernor } from "../../src/governor/loader.js";
 import {
   GOVERNOR_BRAVO_READ_ABI,
   GOVERNOR_OZ_READ_ABI,
+  legacyIdHint,
   projectVoteImpact,
+  quorumCountingOf,
+  type QuorumCounting,
   readProposal,
   readQuorum,
   readVotingPower,
@@ -113,36 +116,103 @@ describe("readProposal — family-aware struct mapping", () => {
   });
 });
 
-describe("projectVoteImpact — quorum semantics branch by family", () => {
+describe("projectVoteImpact — quorum semantics come from COUNTING_MODE, not the ABI family", () => {
   const base: VoteTally = { against: 0n, for: 0n, abstain: 0n };
 
-  it("OZ counts for+abstain toward quorum; Bravo counts for only", () => {
-    // Cast an Abstain of weight 100 against a quorum of 100.
-    const oz = projectVoteImpact(false, base, 2, 100n, 100n);
-    const bravo = projectVoteImpact(true, base, 2, 100n, 100n);
-    expect(oz.projected.abstain).toBe(100n);
-    expect(oz.quorumMet).toBe(true); // for(0)+abstain(100) >= 100
-    expect(bravo.quorumMet).toBe(false); // for(0) < 100
+  // Table-driven: one abstain-only case and one against-only case per rule.
+  const ABSTAIN_ONLY: Array<[QuorumCounting, boolean]> = [
+    ["for", false], // for(0) < 100
+    ["for-abstain", true], // for(0)+abstain(100) >= 100
+    ["all", true], // for(0)+abstain(100)+against(0) >= 100
+  ];
+  it.each(ABSTAIN_ONLY)("%s: a 100-weight Abstain vs quorum 100 → quorumMet %s", (counting, met) => {
+    const r = projectVoteImpact(counting, base, 2, 100n, 100n);
+    expect(r.projected.abstain).toBe(100n);
+    expect(r.quorumMet).toBe(met);
+  });
+
+  const AGAINST_ONLY: Array<[QuorumCounting, boolean]> = [
+    ["for", false],
+    ["for-abstain", false],
+    ["all", true], // OP: COUNTING_MODE quorum=against,for,abstain
+  ];
+  it.each(AGAINST_ONLY)("%s: 100 Against already on the board vs quorum 100 → quorumMet %s", (counting, met) => {
+    const r = projectVoteImpact(counting, { against: 100n, for: 0n, abstain: 0n }, 2, 0n, 100n);
+    expect(r.quorumMet).toBe(met);
+    expect(r.willPass).toBe(false); // for(0) is never > against(100)
   });
 
   it("willPass requires quorum met AND for > against", () => {
     // For=150 against=100 quorum=100 → quorum met, for>against → pass.
-    const pass = projectVoteImpact(false, { against: 100n, for: 0n, abstain: 0n }, 1, 150n, 100n);
+    const pass = projectVoteImpact("for-abstain", { against: 100n, for: 0n, abstain: 0n }, 1, 150n, 100n);
     expect(pass.projected.for).toBe(150n);
     expect(pass.quorumMet).toBe(true);
     expect(pass.willPass).toBe(true);
 
     // Same tallies but for <= against → fail despite quorum.
-    const tie = projectVoteImpact(false, { against: 150n, for: 0n, abstain: 0n }, 1, 150n, 100n);
+    const tie = projectVoteImpact("for-abstain", { against: 150n, for: 0n, abstain: 0n }, 1, 150n, 100n);
     expect(tie.quorumMet).toBe(true);
     expect(tie.willPass).toBe(false);
   });
 
   it("Against vote never helps pass", () => {
-    const r = projectVoteImpact(true, base, 0, 999n, 1n);
+    const r = projectVoteImpact("for", base, 0, 999n, 1n);
     expect(r.projected.against).toBe(999n);
-    expect(r.quorumMet).toBe(false); // bravo: for(0) < 1
+    expect(r.quorumMet).toBe(false); // for-only: for(0) < 1
     expect(r.willPass).toBe(false);
+  });
+
+  it("throws on a stale boolean call site instead of silently counting for+abstain", () => {
+    // tsconfig excludes **/*.test.ts and there is no vitest typecheck, so the
+    // old `projectVoteImpact(true, …)` signature would otherwise fall through
+    // to the default branch and quietly change meaning.
+    expect(() => projectVoteImpact(true as never, base, 2, 1n, 1n)).toThrow(
+      /unknown quorum counting rule/,
+    );
+    expect(() => projectVoteImpact(false as never, base, 2, 1n, 1n)).toThrow(
+      /unknown quorum counting rule/,
+    );
+  });
+});
+
+describe("quorumCountingOf — config wins, family is only the fallback", () => {
+  it("uses the declared rule for every shipped fixture", () => {
+    expect(quorumCountingOf(uniswap)).toBe("for");
+    expect(quorumCountingOf(resolveGovernor("compound"))).toBe("for");
+    expect(quorumCountingOf(optimism)).toBe("all");
+  });
+
+  it("defaults to for for bravo-v3 and for-abstain otherwise when undeclared", () => {
+    expect(quorumCountingOf({ ...uniswap, quorumCounting: undefined })).toBe("for");
+    expect(quorumCountingOf({ ...optimism, quorumCounting: undefined })).toBe("for-abstain");
+  });
+
+  it("an explicit field always wins over the family default", () => {
+    expect(quorumCountingOf({ ...uniswap, quorumCounting: "all" })).toBe("all");
+    expect(quorumCountingOf({ ...optimism, quorumCounting: "for" })).toBe("for");
+  });
+});
+
+describe("legacyIdHint — names the retired contract a revert string cannot", () => {
+  const compound = resolveGovernor("compound");
+
+  it("fires for an id the retired Compound governor still owns", () => {
+    const hint = legacyIdHint(compound, "374");
+    expect(hint).toContain("0xc0Da02939E1441F497fd74F78cE7Decb17B66529");
+    expect(hint).toContain("393");
+    expect(hint).toContain("0x309a862bbC1A00e45506cB8A802D1ff10004c8C0");
+  });
+
+  it("is silent at the boundary id and above", () => {
+    expect(legacyIdHint(compound, "393")).toContain("0xc0Da02939E1441F497fd74F78cE7Decb17B66529");
+    expect(legacyIdHint(compound, "394")).toBe("");
+    expect(legacyIdHint(compound, "605")).toBe("");
+  });
+
+  it("is silent for fixtures with no legacy governor, and for a non-numeric id", () => {
+    expect(legacyIdHint(uniswap, "10")).toBe("");
+    expect(legacyIdHint(optimism, "10")).toBe("");
+    expect(legacyIdHint(compound, "not-a-number")).toBe("");
   });
 });
 

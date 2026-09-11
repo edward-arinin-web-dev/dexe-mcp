@@ -1,4 +1,5 @@
 import { safeErrorMessage } from "./redact.js";
+import { renderUntrusted } from "./sanitize.js";
 
 /**
  * Actionable-error layer (v0.22). Every catch-all in the composite flows, the
@@ -53,7 +54,10 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
     slug: "nonce-conflict",
     what: "A transaction with this nonce is already pending or mined.",
     remedy:
-      "A previous broadcast is still settling. Wait ~15s, check it with dexe_tx_status, then re-run — the flow re-checks completed steps and skips them.",
+      "A previous broadcast is still settling. Check it with dexe_tx_status FIRST: if it succeeded that step is done " +
+      "and a re-run continues after it; if it is still pending, wait ~15s and check again — do not re-send. " +
+      "On re-run ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain " +
+      "state and skipped; GovPool.execute and the validator round are NOT.",
   },
   {
     match: /user rejected|user denied|rejected by user/i,
@@ -84,7 +88,28 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
       "HTTP 401/403 means the DEXE_PINATA_JWT is wrong, revoked, or lacks the pinJSONToIPFS/pinFileToIPFS scopes — " +
       "mint a fresh key at https://app.pinata.cloud/developers/api-keys, put it in .env, and restart. " +
       "A 429 or a timeout is transient (check status.pinata.cloud): wait ~30s and re-run the SAME call — " +
-      "the flow ledger skips the steps that already landed, so nothing is paid for twice.",
+      "ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and " +
+      "skipped, so nothing is paid for twice. If a transaction was already broadcast (you have a hash), check " +
+      "dexe_tx_status first.",
+  },
+  {
+    // MUST precede `subgraph-failed`: the orphan fault's message also matches
+    // `Subgraph errors:`, and the generic remedy there says "re-run once
+    // (429/5xx/timeouts are usually transient)" — which is the one thing that
+    // cannot help here. This fault is DETERMINISTIC: the indexer never
+    // populated a relation, GraphQL non-null propagation annihilates the whole
+    // document, and every retry returns the identical error.
+    match: /Null value resolved for non-null field|expected prefetched result, but found nothing/i,
+    slug: "subgraph-orphan-relation",
+    what:
+      "The indexer never populated a relation this query selects, so the gateway rejected the WHOLE document — including the healthy fields in it. Deterministic: retrying returns the identical error, and an empty answer here is NOT 'the DAO has none'.",
+    remedy:
+      "Do NOT retry — it will fail identically. The DAO-level reads already drop the broken relation and answer " +
+      "anyway with `indexerWarning` / `degraded` set (dexe_read_dao_members, dexe_read_dao_experts, " +
+      "dexe_proposal_voters, dexe_dao_report), so prefer those over a hand-written dexe_graph_query. " +
+      "For a hand-written query, remove the named relation from the selection set (leave at least one " +
+      "unconditional field in its parent) and re-send. On-chain reads are unaffected: dexe_proposal_list / " +
+      "dexe_read_settings / dexe_dao_info need no indexer at all.",
   },
   {
     // Every subgraph failure funnels through the `Subgraph …` messages in
@@ -103,6 +128,24 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
       "thegraph.com/studio, set DEXE_SUBGRAPH_POOLS_URL / _VALIDATORS_URL / _INTERACTIONS_URL in .env, and restart. " +
       "Entity/field names for a hand-written query: call dexe_graph_schema (live introspection, default profile) " +
       "or read the dexe://graph-schema resource.",
+  },
+  {
+    // MUST precede `backend-failed`. A 400 is the caller's argument being
+    // refused, not the service being down, so every clause of the generic
+    // backend remedy ("wait and retry", "a 401 means the token expired") is
+    // wrong here — and the only 400-able argument these reads take is the
+    // continuation cursor. `backendGetJson` deliberately phrases this one
+    // without the literal "backend HTTP 400" so it cannot fall through.
+    match: /DeXe backend rejected the request: HTTP 400/i,
+    slug: "backend-page-token-rejected",
+    what:
+      "The DeXe backend refused the request as malformed (HTTP 400) — on a paginated read that is almost always the `pageToken`: cursors are opaque, single-use and bound to the query that produced them.",
+    remedy:
+      "Do NOT retry with the same pageToken — it will be refused identically. Re-run the call WITHOUT pageToken to " +
+      "start the listing again from page 1, then page forward using only the `nextPageToken` that THIS call " +
+      "returned. A cursor from a different token/holder/chainId/pageSize, or one edited or re-wrapped by hand, is " +
+      "not valid here. If you passed no pageToken, the rejected argument is another one: check the address is " +
+      "checksummed-or-lowercase hex and that pageSize is 1-100.",
   },
   {
     // DeXe backend (api.dexe.io) — treasury/NFT/holder reads and the off-chain
@@ -136,8 +179,10 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
     slug: "rpc-flaky",
     what: "The RPC endpoint failed or rate-limited mid-call (retries were already attempted).",
     remedy:
-      "Re-run the call — completed steps are skipped. For reliability set a private endpoint in .env " +
-      "(DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET, e.g. Alchemy/QuickNode/Ankr) and restart.",
+      "Re-run the call; ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from " +
+      "chain state and skipped. If the failure came after a broadcast (you have a tx hash), check dexe_tx_status " +
+      "first — GovPool.execute and the validator round are NOT auto-skipped. For reliability set a private endpoint " +
+      "in .env (DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET, e.g. Alchemy/QuickNode/Ankr) and restart.",
   },
   {
     match: /execution reverted|CALL_EXCEPTION|transaction failed|status.*0\b/i,
@@ -146,7 +191,9 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
     remedy:
       "Read the revert reason above if present. Common causes: proposal not in the required state " +
       "(check dexe_proposal_state), tokens locked in an active proposal (withdraw between proposals), " +
-      "or a blacklisted recipient. Fix the cause and re-run — earlier landed steps are skipped.",
+      "or a blacklisted recipient. Fix the cause and re-run — ERC20.approve / GovPool.deposit / " +
+      "createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round " +
+      "are NOT, so check dexe_proposal_state before re-running one of those.",
   },
 ] as const;
 
@@ -169,4 +216,27 @@ export function toActionableError(err: unknown, step?: string): ActionableError 
     slug: hit.slug,
     message: `${prefix}${raw}\n\n${hit.what}\nNext step: ${hit.remedy}`,
   };
+}
+
+/** Cap for a revert string: long enough for every real one, short enough that a hostile one cannot flood the context. */
+const REVERT_REASON_MAX = 500;
+
+/**
+ * A contract's `Error(string)` payload is written by whoever deployed that
+ * contract, and a DAO proposal action can name ANY target — so a revert reason
+ * is third-party content, not diagnostics. Until 0.34.0 it was interpolated raw
+ * into the B9 pre-broadcast guard's abort message, i.e. into text the model
+ * reads at the exact moment it decides whether to retry a broadcast, with its
+ * newlines, zero-width characters and bidi overrides intact.
+ *
+ * `renderUntrusted` NFKC-normalizes, escapes control characters to a visible
+ * `\xNN`, strips zero-width / bidi marks, defangs fence markers and flags
+ * non-ASCII. Server-authored strings must NOT go through here: escaping our own
+ * newlines (the public-RPC onboarding hint, for instance) degrades the very
+ * message we meant to show.
+ */
+export function sanitizeRevertReason(raw: unknown, fallback = "unknown"): string {
+  if (raw === null || raw === undefined || raw === "") return fallback;
+  const rendered = renderUntrusted(raw, REVERT_REASON_MAX);
+  return rendered.length > 0 ? rendered : fallback;
 }

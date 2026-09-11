@@ -180,7 +180,8 @@ describe("agent_team flow content", () => {
 
   it("chains composites with flowContext and resolves gotchas danger-first", () => {
     const propose = flow.steps.find((s) => s.id === "propose")!;
-    expect(propose.paramsTemplate.flowContext).toBe('{"flow":"agent_team","step":"propose"}');
+    // Object form since D15-6 — the composites' schema is z.object({flow, step}).
+    expect(propose.paramsTemplate.flowContext).toEqual({ flow: "agent_team", step: "propose" });
     const rank = { danger: 0, warn: 1, info: 2 } as const;
     const all = [...flow.gotchas, ...flow.steps.flatMap((s) => s.gotchas)];
     expect(all.length).toBeGreaterThan(0);

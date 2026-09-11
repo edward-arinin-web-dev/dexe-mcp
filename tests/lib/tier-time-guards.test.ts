@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { buildTierTuple, type TierSpec } from "../../src/tools/proposalBuildComplex.js";
 import { PROPOSAL_BUILDERS } from "../../src/lib/proposalBuilders.js";
+import { assertStakingWindow } from "../../src/lib/buildAdvisories.js";
+import { callTool, textOf } from "../tools/buildToolHarness.js";
 
 /**
  * Time-window guards (eval-run finding, 2026-07-23): a weak model guessed
@@ -88,5 +90,87 @@ describe("create_staking_tier time guards", () => {
     await expect(
       builder.build(args({ startedAt: String(NOW + 7200), deadline: String(NOW + 3600) }), deps),
     ).rejects.toThrow(/before deadline|Invalid settings/i);
+  });
+});
+
+/**
+ * 0.34.0 — the same guard, at the OTHER call site.
+ *
+ * The block above proves the CATALOG builder refuses a stale staking window.
+ * The standalone `dexe_proposal_build_create_staking_tier` re-implements the
+ * encode and went straight to `encodeFunctionData` with no time check at all,
+ * so the exact params `dexe_proposal_create` rejects built clean there — the
+ * per-symbol "is this guard wired" rule cannot see a split like that, which is
+ * why the rule is now per-(guard × surface).
+ */
+describe("assertStakingWindow — one guard, shared by both call sites", () => {
+  it("accepts a future window and refuses the two stale shapes", () => {
+    expect(() => assertStakingWindow(String(NOW + 3600), String(NOW + 86400))).not.toThrow();
+    expect(() => assertStakingWindow(String(NOW + 7200), String(NOW + 3600))).toThrow(
+      /SP: Invalid settings/,
+    );
+    expect(() => assertStakingWindow("1704067200", "1705276800")).toThrow(/SILENTLY reject/);
+  });
+
+  it("refuses a non-numeric timestamp instead of throwing a raw BigInt SyntaxError", () => {
+    expect(() => assertStakingWindow("tomorrow", String(NOW + 86400))).toThrow(
+      /unix timestamps in SECONDS/,
+    );
+  });
+});
+
+describe("the STANDALONE create_staking_tier builder runs the same guard", () => {
+  function toolArgs(startedAt: string, deadline: string) {
+    return {
+      stakingProposal: STAKING,
+      rewardToken: TOKEN,
+      rewardAmount: "10000000000000000000000",
+      startedAt,
+      deadline,
+      stakingMetadataUrl: "ipfs://QmTest",
+    };
+  }
+
+  it("refuses a past deadline — it did not, before 0.34.0", async () => {
+    const res = await callTool(
+      "dexe_proposal_build_create_staking_tier",
+      toolArgs("1704067200", "1705276800"),
+    );
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toMatch(/SILENTLY reject/);
+    expect(textOf(res)).toMatch(/no tier is created/);
+  });
+
+  it("refuses an inverted window", async () => {
+    const res = await callTool(
+      "dexe_proposal_build_create_staking_tier",
+      toolArgs(String(NOW + 7200), String(NOW + 3600)),
+    );
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toMatch(/SP: Invalid settings/);
+  });
+
+  it("a valid future window still builds, byte-identically to the catalog builder", async () => {
+    const builder2 = PROPOSAL_BUILDERS["create_staking_tier"]!;
+    const built = await builder2.build(
+      {
+        stakingProposal: STAKING,
+        rewardToken: TOKEN,
+        rewardAmount: "10000000000000000000000",
+        startedAt: String(NOW + 3600),
+        deadline: String(NOW + 30 * 86400),
+        stakingMetadataUrl: "ipfs://QmTest",
+        isNative: false,
+      },
+      { govPool: "0xa56BE71aAe8Abe3D1DE8446F4E63D9a6392d57B8", chainId: 56 } as never,
+    );
+    const res = await callTool(
+      "dexe_proposal_build_create_staking_tier",
+      toolArgs(String(NOW + 3600), String(NOW + 30 * 86400)),
+    );
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent?.actions).toEqual(
+      built.actionsOnFor.map((a) => ({ executor: a.executor, value: a.value ?? "0", data: a.data })),
+    );
   });
 });

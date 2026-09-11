@@ -107,8 +107,16 @@ describe("the trap check sits on the converged path in flow.ts", () => {
     const { resolve } = await import("node:path");
     const src = readFileSync(resolve(__dirname, "..", "..", "src", "tools", "flow.ts"), "utf8");
 
-    const callIdx = src.indexOf("checkAddSettingsTrap({ chainId, actions: actionsOnFor })");
+    // 0.34.0 widened this from the single #36 trap to the whole build-time harm
+    // pass (`assessBuildPure` + `assessBuildContext`), which subsumes it. The
+    // property being pinned is unchanged: the check runs on the ASSEMBLED
+    // actions, after the branch that handles `custom`.
+    const callIdx = src.indexOf("const pure = assessBuildPure(assessInput)");
     expect(callIdx, "flow.ts must check the assembled actions").toBeGreaterThan(0);
+    expect(
+      src.indexOf("actions: actionsOnFor.map("),
+      "the pass must be fed the assembled actionsOnFor",
+    ).toBeGreaterThan(0);
 
     // It has to come AFTER the branch that handles `custom`, or that branch is
     // still uncovered.

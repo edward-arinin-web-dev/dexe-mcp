@@ -201,10 +201,19 @@ describe("#36 addSettings trap is pre-blocked at build time", () => {
     // Drift pin. The failure this whole test file exists for was a guard with
     // zero call sites; the next-worst outcome is a guard re-added at N-1 of N
     // call sites. Both are caught here: the registry literal must be wrapped,
-    // and `checkAddSettingsTrap` must appear exactly once in the module.
+    // and the module must reach the trap through exactly one call.
+    //
+    // 0.34.0 moved the trap itself behind the convergence layer, so the single
+    // call the registry makes is now `assessBuildPure` (which calls
+    // `checkAddSettingsTrap` internally, also exactly once). Pinning both keeps
+    // the original property: one chokepoint, no per-builder copies.
     const src = readFileSync(new URL("../../src/lib/proposalBuilders.ts", import.meta.url), "utf8");
     expect(src).toMatch(/PROPOSAL_BUILDERS[^=]*=\s*guardCatalog\(\{/);
-    const calls = src.match(/checkAddSettingsTrap\(/g) ?? [];
+    const calls = src.match(/assessBuildPure\(/g) ?? [];
     expect(calls, "one call site — the registry chokepoint").toHaveLength(1);
+
+    const layer = readFileSync(new URL("../../src/lib/buildAdvisories.ts", import.meta.url), "utf8");
+    const trapCalls = layer.match(/checkAddSettingsTrap\(/g) ?? [];
+    expect(trapCalls, "one #36 call site — inside the convergence layer").toHaveLength(1);
   });
 });

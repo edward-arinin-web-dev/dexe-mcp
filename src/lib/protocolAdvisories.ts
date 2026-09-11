@@ -108,6 +108,85 @@ export function findVestingTiers(
   return out;
 }
 
+/**
+ * `TokenSaleProposal.createTiers(...)`. Recomputed from the ABI so a struct
+ * reorder is caught by a pinning test rather than silently disarming the guard
+ * — the same treatment `ADD_SETTINGS_SELECTOR` gets below.
+ */
+// The literal is duplicated from `TOKEN_SALE_PROPOSAL_ABI`
+// (src/tools/proposalBuildComplex.ts) rather than imported: src/lib may not
+// depend on src/tools, and a module-scope selector table built through an
+// import cycle evaluates EMPTY — the same blind spot with more code. A drift
+// test recomputes both selectors from the builders' own ABI.
+const CREATE_TIERS_IFACE = new Interface([
+  "function createTiers(tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint64 saleStartTime, uint64 saleEndTime, uint64 claimLockDuration, address saleTokenAddress, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 vestingPercentage, uint64 vestingDuration, uint64 cliffPeriod, uint64 unlockStep) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
+]);
+export const TOKEN_SALE_CREATE_TIERS_SELECTOR =
+  CREATE_TIERS_IFACE.getFunction("createTiers")!.selector;
+
+/**
+ * F15 at the CALLDATA level. `findVestingTiers` reads the caller's tier specs,
+ * which only the OTC tool ever had — this reads the emitted `createTiers`
+ * payload, so every surface that can open a tier (the two token-sale proposal
+ * builders, the catalog builder, a hand-rolled `custom_abi`, and
+ * `proposalType: "custom"`) is covered by construction.
+ *
+ * Compares with bigint, never `Number`: the raw vesting field is
+ * `pct × 1e25`, and `Number(5e26)/1e25` is 49.99999999999999.
+ * Returns `[]` on ANY decode failure and never throws — it runs on arbitrary
+ * caller-supplied calldata.
+ */
+export function decodeCreateTiersVesting(
+  data: string | null | undefined,
+): { index: number; name: string; vestingPercentage: string }[] {
+  if (typeof data !== "string" || !data.toLowerCase().startsWith(TOKEN_SALE_CREATE_TIERS_SELECTOR)) {
+    return [];
+  }
+  try {
+    const decoded = CREATE_TIERS_IFACE.decodeFunctionData("createTiers", data);
+    const tiers = decoded[0] as unknown as readonly unknown[];
+    const out: { index: number; name: string; vestingPercentage: string }[] = [];
+    [...tiers].forEach((t, index) => {
+      const tier = t as Record<string, unknown> & readonly unknown[];
+      const meta = (tier.metadata ?? tier[0]) as Record<string, unknown> & readonly unknown[];
+      const vs = (tier.vestingSettings ?? tier[10]) as Record<string, unknown> & readonly unknown[];
+      const rawPct = (vs?.vestingPercentage ?? vs?.[0]) as bigint | undefined;
+      if (rawPct === undefined || BigInt(rawPct) <= 0n) return;
+      const pct = BigInt(rawPct) / 10n ** 25n;
+      out.push({
+        index,
+        name: String(meta?.name ?? meta?.[0] ?? `tier[${index}]`),
+        vestingPercentage: pct.toString(),
+      });
+    });
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** `ERC20Gov.blacklist(address[] accounts, bool value)`. */
+const BLACKLIST_IFACE = new Interface([
+  "function blacklist(address[] accounts, bool value)",
+]);
+export const BLACKLIST_SELECTOR = BLACKLIST_IFACE.getFunction("blacklist")!.selector;
+
+/**
+ * Addresses an action would ADD to a token's blacklist. `value === false` is
+ * un-blacklisting, which is the CURE for the self-harm case and is never
+ * flagged. Returns `[]` on any decode failure; never throws.
+ */
+export function decodeBlacklistAdditions(data: string | null | undefined): string[] {
+  if (typeof data !== "string" || !data.toLowerCase().startsWith(BLACKLIST_SELECTOR)) return [];
+  try {
+    const decoded = BLACKLIST_IFACE.decodeFunctionData("blacklist", data);
+    if (decoded[1] !== true) return [];
+    return [...(decoded[0] as unknown as readonly unknown[])].map((a) => String(a));
+  } catch {
+    return [];
+  }
+}
+
 /** The machine-readable refusal report for a blocked vesting leg. */
 export interface VestingBlockedReport {
   readonly tierIds: string[];
@@ -115,6 +194,32 @@ export interface VestingBlockedReport {
   readonly upstream: string;
   /** The exact opt-in that overrides the refusal. */
   readonly overrideWith: string;
+}
+
+/**
+ * THE F15 refusal text, shared by every surface that can open a tier.
+ *
+ * 0.33.0 inlined this in `src/tools/otc.ts` and wired it to
+ * `dexe_otc_dao_open_sale` alone, while the CHANGELOG claimed "a tier with
+ * vestingPercentage > 0 is refused before any calldata is built" without a
+ * surface qualifier — and the three token-sale PROPOSAL surfaces built the
+ * stranding tier silently. Only the name of the override differs per surface,
+ * so that is the only parameter.
+ */
+export function vestingRefusalText(
+  risks: readonly VestingTierRisk[],
+  overrideWith: string,
+): string {
+  const listed = risks
+    .map((r) => `  • tier[${r.index}] "${r.name}" — vestingPercentage=${r.vestingPercentage}`)
+    .join("\n");
+  return (
+    `REFUSED before building any calldata — ${risks.length} tier(s) would strand their vested allocation:\n` +
+    `${listed}\n\n${VESTING_WITHDRAW_ADVISORY.text}\n\n` +
+    `Fix: set vestingSettings.vestingPercentage to "0" on the tier(s) above (buyers then get the whole ` +
+    `allocation through \`claim\`, which works). To open them anyway — only do this on a pre-SphereX pool ` +
+    `where vestingWithdraw is known to work — re-run with ${overrideWith}.`
+  );
 }
 
 export function vestingBlockedReport(
@@ -277,6 +382,47 @@ export const POST_EXECUTE_LOCK_ADVISORY: UpstreamAdvisory = {
     "⚠ WARN — deposit lock: executing a proposal does NOT release your deposited tokens; they stay locked and your " +
     `available voting power reads 0 until you withdraw. ${TOKENS_LOCKED_REMEDY}`,
 };
+
+/**
+ * Forward-looking form of the same trap, for the moment the lock is CREATED
+ * rather than observed.
+ *
+ * `POST_EXECUTE_LOCK_ADVISORY` ends in `checkTokensUnlocked`'s FAILURE
+ * remediation — a live observation ("available power = 0 while deposited > 0"),
+ * which is false for a user who is only now creating the lock. It must stay
+ * byte-identical (the execute path pins it), so the create path gets its own
+ * text under the SAME id: one advisory per trap, whichever surface raises it.
+ *
+ * What it must NOT say, and what the 0.33.0 wording got wrong: the lock does
+ * NOT stop you creating or voting on other proposals. `GovUserKeeper.lockTokens`
+ * only records `lockedInProposals[id]` and tracks a max; `GovPoolVote._canVote`
+ * checks `amount <= tokenBalance - ownedBalance`, which locking never reduces.
+ * What it blocks is `withdrawTokens` ("GovUK: can't withdraw this") and
+ * `delegateTokens` ("GovUK: overdelegation") until the proposal leaves voting —
+ * so "withdraw now" would be a guaranteed revert, not a remedy.
+ */
+export function voteLockAtCreateAdvisory(a: {
+  /** Already human-formatted, e.g. "153000.0 QWT". */
+  amount: string;
+  /** True only when this call actually broadcast — tense matters. */
+  broadcast: boolean;
+  govPool: string;
+  chainId: number;
+  proposalId?: number;
+}): UpstreamAdvisory {
+  const where = a.proposalId ? `proposal #${a.proposalId}` : "the proposal this call creates";
+  return {
+    id: POST_EXECUTE_LOCK_ADVISORY.id,
+    severity: "WARN",
+    upstream: POST_EXECUTE_LOCK_ADVISORY.upstream,
+    text:
+      `⚠ WARN — deposit lock: ${a.amount} ${a.broadcast ? "are now locked" : "will be locked"} as your FOR vote on ` +
+      `${where}. You can still create and vote on OTHER proposals with these tokens, but you cannot WITHDRAW or ` +
+      `DELEGATE them until this one leaves voting — sooner reverts "GovUK: can't withdraw this". Then: ` +
+      `dexe_vote_build_withdraw {"govPool":"${a.govPool}","chainId":${a.chainId}}.` +
+      (a.broadcast ? "" : " NOTHING has been broadcast yet."),
+  };
+}
 
 /**
  * Live form of the same guard: pass the voter's deposited and currently

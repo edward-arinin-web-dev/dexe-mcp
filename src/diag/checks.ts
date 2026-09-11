@@ -1,4 +1,9 @@
-import { resolve as dnsResolve } from "node:dns/promises";
+// getaddrinfo, NOT dns.resolve(): `dns.resolve*` speaks UDP/53 directly to
+// dns.getServers()[0], which a local stub (Windows DoH client, VPN split-DNS,
+// pi-hole/NextDNS/AdGuard) refuses for EVERY host. `dns.lookup` is the path
+// undici/fetch — i.e. every actual read — already uses.
+import { lookup as dnsLookup } from "node:dns/promises";
+import { getServers } from "node:dns";
 import { existsSync, accessSync, constants } from "node:fs";
 import { dirname } from "node:path";
 import {
@@ -46,6 +51,12 @@ export interface RunCheckOpts {
   networkBudgetMs?: number;
   /** Override the recorded `.env` resolution. Defaults to what this process loaded. */
   envSource?: EnvSourceState;
+  /**
+   * Run the Pinata pin-capability probe. It WRITES one tiny pin to the user's
+   * Pinata account (and tries to remove it again). Off by default — `dexe_doctor`
+   * promises it performs no writes, and that promise has to be true.
+   */
+  probePin?: boolean;
 }
 
 /**
@@ -54,8 +65,11 @@ export interface RunCheckOpts {
  * Network checks have a hard timeout that downgrades to `warn`, never `fail` —
  * an offline laptop or VPN flake should not make the doctor scream red.
  */
-/** Sentinel for "the deadline won" — distinct from any legitimate result. */
-const TIMED_OUT = Symbol("timed-out");
+/**
+ * Sentinel for "the deadline won" — distinct from any legitimate result.
+ * Exported so probe-interpretation can be unit-tested without a network.
+ */
+export const TIMED_OUT = Symbol("timed-out");
 
 /**
  * Resolve `p`, or `TIMED_OUT` after `ms`. The abandoned promise keeps running
@@ -104,7 +118,7 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
     Promise.all([
       ...rpcReachabilityChecks(opts.config, timeoutMs),
       pinataJwtCheck(timeoutMs),
-      pinataPinQuotaCheck(timeoutMs),
+      pinataPinQuotaCheck(timeoutMs, opts.probePin === true),
       ipfsGatewayDnsCheck(timeoutMs),
       ...subgraphChecks(opts.config, timeoutMs),
       backendCheck(timeoutMs),
@@ -474,7 +488,18 @@ async function pinataJwtCheck(timeoutMs: number): Promise<CheckResult | null> {
         "Regenerate the JWT at https://app.pinata.cloud/developers/api-keys with `pinning` scope and update DEXE_PINATA_JWT.",
     };
   }
-  return { id: "pinata.jwt", category: "ipfs", status: "pass", message: "authenticated" };
+  return {
+    id: "pinata.jwt",
+    category: "ipfs",
+    status: "pass",
+    message: "authenticated (pin capability not exercised — probing it writes a pin to your account)",
+    // A `remediation` on a PASS row is printed by both renderers but is kept out
+    // of `remediationSummary`, so it informs without flagging anything broken.
+    // It carries the F3 pointer that the (now opt-in) pin probe used to carry.
+    remediation:
+      "If an IPFS upload later fails with HTTP 403 while this row is green, the account is pin-blocked (usually the free-plan usage limit). " +
+      "Confirm with `npx dexe-mcp doctor --probe-pin` (or dexe_doctor {probePin:true}), then free up pins / upgrade at app.pinata.cloud, or rotate DEXE_PINATA_JWT.",
+  };
 }
 
 // ─── pinata pin quota ─────────────────────────────────────────────────────
@@ -483,9 +508,18 @@ async function pinataJwtCheck(timeoutMs: number): Promise<CheckResult | null> {
 // usage ("Account blocked due to plan usage limit" → HTTP 403 on every pin).
 // Probe the ACTUAL pin capability with a tiny deterministic JSON pin — the
 // same content re-pins to the same CID, so repeated doctors add no clutter.
-async function pinataPinQuotaCheck(timeoutMs: number): Promise<CheckResult | null> {
+//
+// OPT-IN since 0.34.0. This is the only check in the suite that WRITES, and
+// `dexe_doctor` tells the calling model it never writes. When it is off the
+// check emits NO row at all — a synthetic "not probed" pass would inflate
+// `summary.passed` with a verification that never happened (the exact F3
+// failure pattern), a `warn` would exit 1 for every configured user, and a new
+// status value is counted as a failure by both tallies. The F3 pointer lives on
+// the `pinata.jwt` row instead.
+async function pinataPinQuotaCheck(timeoutMs: number, enabled: boolean): Promise<CheckResult | null> {
   const jwt = process.env.DEXE_PINATA_JWT?.trim();
   if (!jwt) return null;
+  if (!enabled) return null;
   const res = await fetchJsonWithTimeout(
     "https://api.pinata.cloud/pinning/pinJSONToIPFS",
     {
@@ -517,18 +551,80 @@ async function pinataPinQuotaCheck(timeoutMs: number): Promise<CheckResult | nul
         "Every IPFS-write flow (proposal creation, DAO deploy metadata, uploads) is down until this passes.",
     };
   }
-  return { id: "pinata.pinQuota", category: "ipfs", status: "pass", message: "pin capability verified (tiny probe pin)" };
+  // Clean up after ourselves. Bounded separately and shorter than the probe so
+  // the pair still fits the network budget; a cleanup failure NEVER turns into
+  // a check failure, and `DELETE /pinning/unpin` answers plain text `OK`, so an
+  // undefined JSON body is success.
+  const cid = (res.body as { IpfsHash?: string } | undefined)?.IpfsHash;
+  let unpinned = false;
+  if (cid) {
+    const del = await fetchJsonWithTimeout(
+      `https://api.pinata.cloud/pinning/unpin/${encodeURIComponent(cid)}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${jwt}` } },
+      Math.min(timeoutMs, 1500),
+    );
+    unpinned = del.kind === "ok" && del.status < 400;
+  }
+  return {
+    id: "pinata.pinQuota",
+    category: "ipfs",
+    status: "pass",
+    message:
+      "pin capability verified — this wrote one tiny pin (dexe-mcp-doctor-probe) to your Pinata account" +
+      (unpinned
+        ? " and removed it again."
+        : "; removing it failed (a pinning-only JWT cannot unpin) — delete it at app.pinata.cloud if you care."),
+  };
 }
 
-// ─── ipfs gateway dns ──────────────────────────────────────────────────────
+// ─── ipfs gateway reachability ─────────────────────────────────────────────
 
-async function ipfsGatewayDnsCheck(timeoutMs: number): Promise<CheckResult | null> {
+/** Injectable probes, so the verdict can be tested without a network. */
+export interface GatewayProbeDeps {
+  lookup: (host: string) => Promise<unknown>;
+  httpHead: (url: string) => Promise<FetchOutcome>;
+}
+
+/**
+ * Lowercased hostname of a gateway value (scheme optional), or null.
+ *
+ * Mirrors `gatewayHostname` / `normalize` in src/tools/ipfs.ts, which
+ * deliberately accept `DEXE_IPFS_GATEWAY=<host>` with no scheme — doctor must
+ * judge the value by the rule the READ path uses, or it hard-fails a setting
+ * that works. tests/diag/ipfs-gateway-dns.test.ts pins the two against each
+ * other. Kept local so the doctor CLI does not import the whole tool surface.
+ */
+function gatewayHost(raw: string): string | null {
+  try {
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    return new URL(withScheme).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** The URL form the read path would actually fetch. */
+function gatewayProbeUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/$/, "");
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+/**
+ * Does this process reach the configured IPFS gateway?
+ *
+ * Two stages, because the question a user cares about is reachability, not
+ * whether their recursive nameserver answers a raw A query. Stage 1 is
+ * getaddrinfo (what fetch uses). Stage 2 — only when stage 1 failed — asks the
+ * gateway itself over HTTPS: anything that answers was obviously resolvable.
+ */
+export async function ipfsGatewayDnsCheck(
+  timeoutMs: number,
+  deps?: GatewayProbeDeps,
+): Promise<CheckResult | null> {
   const gw = process.env.DEXE_IPFS_GATEWAY?.trim();
   if (!gw) return null;
-  let host: string;
-  try {
-    host = new URL(gw).hostname;
-  } catch {
+  const host = gatewayHost(gw);
+  if (host === null) {
     return {
       id: "ipfs.gateway.dns",
       category: "ipfs",
@@ -537,26 +633,98 @@ async function ipfsGatewayDnsCheck(timeoutMs: number): Promise<CheckResult | nul
       remediation: "Use the form https://<subdomain>.mypinata.cloud",
     };
   }
-  try {
-    await Promise.race([
-      dnsResolve(host),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), timeoutMs)),
-    ]);
+
+  const lookup = deps?.lookup ?? ((h: string) => dnsLookup(h, { all: true }));
+  // Stage 2 uses the file's own aborting helper, never a bare fetch: this runs
+  // inside a long-lived MCP process, and withDeadline abandons rather than
+  // cancels. Messages carry `host` only — never the URL, which may hold
+  // credentials (see tests/tools/credential-url-redaction.test.ts).
+  const httpHead =
+    deps?.httpHead ?? ((u: string) => fetchJsonWithTimeout(u, { method: "HEAD" }, timeoutMs));
+
+  const first = await withDeadline(
+    lookup(host).then(() => "ok" as const).catch((e: unknown) => e),
+    timeoutMs,
+  );
+  if (first === "ok") {
+    return { id: "ipfs.gateway.dns", category: "ipfs", status: "pass", message: `resolved ${host}` };
+  }
+
+  const http = await httpHead(gatewayProbeUrl(gw)).catch(
+    (e: unknown): FetchOutcome => ({ kind: "error", error: safeErrorMessage(e) }),
+  );
+  return interpretGatewayProbe(host, first, http);
+}
+
+/** Resolver-level refusals — these say nothing about the gateway. */
+const RESOLVER_SIDE_CODES = new Set([
+  "ECONNREFUSED",
+  "EREFUSED",
+  "ESERVFAIL",
+  "ETIMEOUT",
+  "ECONNRESET",
+]);
+
+/** Pure verdict — exported for tests. */
+export function interpretGatewayProbe(
+  host: string,
+  dnsOutcome: unknown,
+  httpOutcome: FetchOutcome | typeof TIMED_OUT,
+): CheckResult {
+  const base = { id: "ipfs.gateway.dns", category: "ipfs" as const };
+  const httpTimedOut = httpOutcome === TIMED_OUT || httpOutcome.kind === "timeout";
+  const httpOk = httpOutcome !== TIMED_OUT && httpOutcome.kind === "ok" ? httpOutcome : undefined;
+  if (httpOk) {
+    // Reached it. Name the resolver quirk, never the user's hostname — and no
+    // `remediation`, which would put a green row into remediationSummary.
     return {
-      id: "ipfs.gateway.dns",
-      category: "ipfs",
+      ...base,
       status: "pass",
-      message: `resolved ${host}`,
+      message:
+        `${host} is reachable over HTTPS (HTTP ${httpOk.status}); the direct DNS query was refused by ` +
+        `the system resolver (${resolverSummary()}) — that does not affect IPFS reads.`,
     };
-  } catch (err) {
+  }
+
+  const code = (dnsOutcome as { code?: string } | undefined)?.code;
+  const resolverSide =
+    dnsOutcome === TIMED_OUT ||
+    httpTimedOut ||
+    (code !== undefined && RESOLVER_SIDE_CODES.has(code));
+  if (resolverSide) {
     return {
-      id: "ipfs.gateway.dns",
-      category: "ipfs",
-      status: "fail",
-      message: `DNS lookup for ${host} failed: ${safeErrorMessage(err)}`,
+      ...base,
+      status: "warn",
+      message:
+        `could not verify ${host}: the system DNS resolver (${resolverSummary()}) refused or timed out on ` +
+        `the query (${code ?? "timeout"}), and the gateway did not answer over HTTPS either.`,
       remediation:
-        "Check the hostname in DEXE_IPFS_GATEWAY. Pinata dedicated gateways follow https://<subdomain>.mypinata.cloud.",
+        "No action needed unless IPFS reads actually fail (try dexe_ipfs_fetch). To silence it, unset DEXE_IPFS_GATEWAY — the baked public gateways are used — or point it at a host your resolver serves.",
     };
+  }
+
+  // Definitive negative: NXDOMAIN and no HTTPS answer. That IS actionable.
+  const fallbacksActive =
+    process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK !== "1" ||
+    !!process.env.DEXE_IPFS_GATEWAYS_FALLBACK?.trim();
+  return {
+    ...base,
+    status: "fail",
+    message: `${host} does not resolve (${code ?? safeErrorMessage(dnsOutcome)}) and does not answer over HTTPS.`,
+    remediation:
+      "Fix the hostname in DEXE_IPFS_GATEWAY, then restart Claude Code (env is read once at startup). " +
+      "Pinata dedicated gateways follow https://<subdomain>.mypinata.cloud." +
+      (fallbacksActive ? " Reads keep working meanwhile via the fallback gateways." : ""),
+  };
+}
+
+/** The nameservers this process would query — naming `127.0.0.1` IS the diagnosis. */
+function resolverSummary(): string {
+  try {
+    const s = getServers();
+    return s.length ? s.slice(0, 2).join(", ") : "none reported";
+  } catch {
+    return "unknown";
   }
 }
 

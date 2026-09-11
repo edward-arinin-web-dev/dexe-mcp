@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { registerAll } from "./tools/index.js";
+import { serverInstructions } from "./instructions.js";
 import { registerDocResources } from "./resources.js";
 import { homedir } from "node:os";
 import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadReport } from "./env/loader.js";
@@ -61,6 +62,89 @@ function packageVersion(): string {
   }
 }
 
+/* ──────────────────────────── CLI argv handling ──────────────────────────── */
+
+/**
+ * Subcommands `bootstrap()` dispatches. The dispatch, the usage text and the
+ * unknown-argument message all read THIS list — never a second hand-written
+ * one, so a fourth subcommand cannot land half-documented.
+ */
+export const SUBCOMMANDS = ["doctor", "init", "skills"] as const;
+export type Subcommand = (typeof SUBCOMMANDS)[number];
+
+const HELP_ARGS = new Set(["--help", "-h", "help"]);
+const VERSION_ARGS = new Set(["--version", "-v", "-V"]);
+
+/**
+ * argv[2] values that an MCP host may append and that must still start the
+ * server. Users copy transport flags from other MCP servers' configs; those
+ * launch shapes work today, and turning them into "server disconnected, no
+ * reason" is exactly the failure 0.30.4 spent a release removing.
+ */
+const TRANSPORT_PASSTHROUGH = new Set(["--stdio", "--transport=stdio", "--mcp"]);
+
+export type CliIntent =
+  | { kind: "server" }
+  | { kind: "subcommand"; name: Subcommand }
+  | { kind: "help" }
+  | { kind: "version" }
+  | { kind: "unknown"; arg: string };
+
+/**
+ * Pure classification of `process.argv`. An empty/whitespace argv[2] counts as
+ * absent: a host config can expand a template to `""` and must still serve.
+ */
+export function classifyArgv(argv: readonly string[]): CliIntent {
+  const raw = argv[2]?.trim();
+  if (!raw || TRANSPORT_PASSTHROUGH.has(raw)) return { kind: "server" };
+  if ((SUBCOMMANDS as readonly string[]).includes(raw)) return { kind: "subcommand", name: raw as Subcommand };
+  if (HELP_ARGS.has(raw)) return { kind: "help" };
+  if (VERSION_ARGS.has(raw)) return { kind: "version" };
+  return { kind: "unknown", arg: raw };
+}
+
+/**
+ * Exported for tests — what `dexe-mcp --help` prints. Every SUBCOMMANDS entry
+ * MUST appear here; tests/cli/usage.test.ts fails the build otherwise. Never
+ * advertise a flag that does not exist: a documented no-op is the same class of
+ * bug as a missing help screen.
+ */
+export function usageText(version: string): string {
+  return [
+    `dexe-mcp ${version} — MCP server for DeXe Protocol DAO governance`,
+    "",
+    "USAGE",
+    "  dexe-mcp                        start the MCP server on stdio (what your MCP host runs)",
+    "  dexe-mcp doctor [--strict]      diagnose env + connectivity; --strict exits 1 on warnings (CI)",
+    "        [--probe-pin]             also verify Pinata pin capability (WRITES one tiny pin)",
+    "  dexe-mcp init [--skills-only]   interactive onboarding wizard (writes ~/.dexe-mcp/.env)",
+    "  dexe-mcp skills [--global]      copy the shipped Claude skills into ./.claude/skills (or ~ with --global)",
+    "  dexe-mcp --help | --version",
+    "",
+    "ENV",
+    "  .env is read once at startup, from the first of: $DEXE_ENV_FILE, ./.env, ~/.dexe-mcp/.env, <pkgdir>/.env",
+    "  Reads work with zero config. Signing and IPFS uploads need keys — run `dexe-mcp init`.",
+    "",
+    "DOCS  https://github.com/dexe-network/dexe-mcp#readme",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Exported for tests. Names the bad token, the valid set, and the remedy —
+ * including the host-config remedy, because argv[2] usually got there from a
+ * hand-edited "args" array rather than from a shell.
+ */
+export function unknownArgText(arg: string, version: string): string {
+  return (
+    `[dexe-mcp] unknown command '${arg}'. ` +
+    `dexe-mcp takes no flags when it serves on stdio. Valid subcommands: ${SUBCOMMANDS.join(", ")}.\n` +
+    `If an MCP host config passed this, delete it from that server's "args" array and restart the host.\n` +
+    `Run \`dexe-mcp --help\` for usage.\n\n` +
+    usageText(version)
+  );
+}
+
 /**
  * Load every .env candidate that exists and print the startup banner.
  * Returns the candidate list so a later failure can name the files it searched.
@@ -113,10 +197,13 @@ function loadEnvironment(): string[] {
  * Subcommands must be handled BEFORE the stdio transport opens — the MCP
  * host passes no args, so any argv[2] means a human/CI invoked directly.
  */
-async function runSubcommand(name: "doctor" | "init" | "skills"): Promise<void> {
+async function runSubcommand(name: Subcommand): Promise<void> {
   if (name === "doctor") {
     const mod = await import("./cli/doctor.js");
-    await mod.run();
+    // Forward argv[3..] the same way the skills branch does. `run()` calls
+    // process.exit() itself with the graded code — do NOT "clean that up" into
+    // a returned value, or every doctor run exits 0 and CI goes green forever.
+    await mod.run(process.argv.slice(3));
     process.exit(0);
   }
   if (name === "init") {
@@ -334,20 +421,7 @@ async function main(): Promise<void> {
   const server = new McpServer(
     { name: "dexe-mcp", version: packageVersion() },
     {
-      instructions:
-        "Tools for DeXe Protocol governance DAOs (plus a generic dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs). " +
-        "For any MULTI-STEP request (create a DAO, launch a token economy, OTC sale, staking, distribution, pass a proposal) call dexe_guide FIRST — it returns the exact plan, the questions to ask the user with risk notes, and the known pitfalls. " +
-        "Call dexe_context first WHEN you need orientation (signer, active chain, env readiness, DAOs/proposals from prior sessions) — skip it when the user already gave you the target DAO and chain. " +
-        "Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (ANY of the 33 catalog proposal types — pass proposalType + params), dexe_proposal_vote_and_execute (auto-deposits when power is short). " +
-        "Amounts accept raw wei (digits-only) or human units with a decimal point ('12.5'); durations are seconds. " +
-        "For images (DAO avatars): pass a LOCAL FILE PATH (avatarPath / newAvatarPath / filePath) and the server reads, validates, and pins it — never read image files or pass base64 through the conversation. " +
-        "The composites handle approve→deposit→create sequencing, correct IPFS metadata, and the known deploy/proposal reverts; on partial failure they return the landed-steps ledger — fix the cause and re-run the same call (completed steps are skipped). " +
-        "When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
-        "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. " +
-        "The tool surface is gated by DEXE_TOOLSETS (default 'core,proposals'); dexe_context reports which sets are off and what they unlock. " +
-        "Full intent→call recipes + error→remedy table: docs/PLAYBOOK.md (shipped in the package). " +
-        "MCP resources: dexe://playbook (recipes + error remedies), dexe://graph-schema (subgraph entity reference for dexe_graph_query), dexe://tools (full tool catalog). " +
-        "Recipe skills ship with the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc, dexe-staking, dexe-setup). Installed automatically with the Claude Code plugin (`/plugin install dexe@dexe-mcp`), or copy them standalone with `npx dexe-mcp skills`.",
+      instructions: serverInstructions(),
     },
   );
 
@@ -380,6 +454,34 @@ async function main(): Promise<void> {
 
 /** Runtime check → .env → CLI subcommands → MCP server (degraded if it throws). */
 async function bootstrap(): Promise<void> {
+  const intent = classifyArgv(process.argv);
+
+  // Help / version / a typo are answered from argv ALONE — before
+  // nodeVersionWarning and before loadEnvironment(). Two reasons: a help screen
+  // must work on a machine whose .env is broken, and writeStartupBanner() names
+  // the signer address + keyring, which has no business on a `--version`.
+  //
+  // `process.exitCode` + return, never process.exit(): stdout to a PIPE is
+  // asynchronous on Windows and exit() does not flush it, which would truncate
+  // `dexe-mcp --help | more` and make the regression test flaky. Nothing is
+  // scheduled at this point (no transport, no process guards, no env load), so
+  // the loop drains immediately and the stream flushes.
+  if (intent.kind === "version") {
+    process.stdout.write(`${packageVersion()}\n`);
+    process.exitCode = 0;
+    return;
+  }
+  if (intent.kind === "help") {
+    process.stdout.write(usageText(packageVersion()));
+    process.exitCode = 0;
+    return;
+  }
+  if (intent.kind === "unknown") {
+    process.stderr.write(unknownArgText(intent.arg, packageVersion()));
+    process.exitCode = 2;
+    return;
+  }
+
   // Before anything reads .env: on an old runtime the file is ignored outright,
   // so every later "missing var" complaint would point at the wrong cause.
   const versionWarning = nodeVersionWarning(process.versions.node);
@@ -396,10 +498,11 @@ async function bootstrap(): Promise<void> {
     );
   }
 
-  const subcommand = process.argv[2];
-  if (subcommand === "doctor" || subcommand === "init" || subcommand === "skills") {
-    // A human/CI ran this in a terminal: report and exit, never open a transport.
-    await runSubcommand(subcommand);
+  if (intent.kind === "subcommand") {
+    // A human/CI ran this in a terminal: report and exit, never open a
+    // transport. Deliberately AFTER loadEnvironment() — `doctor`/`init` need
+    // the same env the MCP startup path sees (see the note above it).
+    await runSubcommand(intent.name);
     return;
   }
 

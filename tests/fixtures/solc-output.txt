@@ -1,0 +1,24 @@
+Compiling 214 files with 0.8.20
+Solidity compilation finished successfully
+
+Warning: SPDX license identifier not provided in source file. Before publishing, consider adding a comment containing "SPDX-License-Identifier: <SPDX-License>" to each source file. Use "SPDX-License-Identifier: UNLICENSED" for non-open-source code. Please see https://spdx.org for more information.
+ --> contracts/gov/GovPool.sol:1:1:
+  |
+1 | pragma solidity ^0.8.20;
+  | ^
+
+Warning (2072): Unused local variable.
+ --> contracts/gov/GovPool.sol:412:9:
+    |
+412 |         uint256 unusedTotal = 0;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+Warning: This contract has a payable fallback function, but no receive ether function. Consider adding a receive ether function.
+
+Error: Expected ';' but got '}'
+ --> contracts/Broken.sol:12:5:
+   |
+12 |     uint256 x = 1
+   |     ^
+
+Error HH600: Compilation failed

@@ -10,6 +10,7 @@
  */
 
 import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { assertRasterAvatar, type RasterFormat } from "./imageSniff.js";
 import { toCidV1, type PinataClient } from "./ipfs.js";
 import { safeErrorMessage } from "./redact.js";
@@ -49,16 +50,32 @@ export async function readAvatarInput({ filePath, base64 }: AvatarInput): Promis
     throw new Error("Pass either `filePath` or `base64`, not both.");
   }
   if (filePath) {
+    // Resolve explicitly. A relative path resolves against `process.cwd()`,
+    // which for an MCP server is the HOST's working directory (Claude Code's
+    // plugin loader starts it wherever it likes — see src/index.ts's
+    // cwd-independence rule for .env) and is invisible to the user. On POSIX
+    // the ENOENT text then echoes only what they typed, so "Cannot read avatar
+    // file at \"avatar.png\"" is unactionable: they check the directory they
+    // meant, the file is right there, and nothing says the server looked
+    // somewhere else. Neither tool schema requires absoluteness, so a relative
+    // path is an invited input, not a user error — it keeps working when it
+    // happens to resolve; only the FAILURE gets the diagnosis.
+    const resolved = resolve(filePath);
     let buf: Buffer;
     try {
-      buf = await readFile(filePath);
+      buf = await readFile(resolved);
     } catch (e) {
+      const relativeNote = isAbsolute(filePath)
+        ? ""
+        : ` The path you passed was RELATIVE, so it resolved against this server's working directory ` +
+          `(${process.cwd()}) — the MCP host's directory, not your project's.`;
       throw new Error(
-        `Cannot read avatar file at "${filePath}": ${safeErrorMessage(e)}. ` +
-          "Pass an absolute path to an existing image file (JPEG/PNG/WebP/GIF).",
+        `Cannot read avatar file at "${resolved}": ${safeErrorMessage(e)}.${relativeNote} ` +
+          "Pass an absolute path to an existing image file (JPEG/PNG/WebP/GIF), " +
+          "or omit the avatar and generate one with dexe_dao_generate_avatar.",
       );
     }
-    if (buf.length === 0) throw new Error(`Avatar file at "${filePath}" is empty.`);
+    if (buf.length === 0) throw new Error(`Avatar file at "${resolved}" is empty.`);
     if (buf.length > MAX_AVATAR_BYTES) {
       throw new Error(
         `Avatar file is ${(buf.length / 1024 / 1024).toFixed(1)} MB — max ${MAX_AVATAR_BYTES / 1024 / 1024} MB. ` +
@@ -90,21 +107,58 @@ export interface PinnedAvatar {
   byteLength: number;
 }
 
+/** What a dryRun preview can honestly say about an avatar: everything but the CID. */
+export interface PreviewedAvatar {
+  avatarFileName: string;
+  detectedFormat: RasterFormat;
+  byteLength: number;
+}
+
+/**
+ * The local half of `pinAvatarFromInput`: read → validate (magic bytes) →
+ * normalize the filename. No network.
+ *
+ * This is what a dryRun runs. Before 0.34.0 a preview skipped the avatar step
+ * entirely, so a missing path, an oversized file or an SVG impostor (the bug
+ * #34 gate) passed the preview and failed only on the broadcast call — the one
+ * call the preview existed to de-risk.
+ *
+ * It deliberately returns NO CID. Pinata's `pinFile` wraps the image in a
+ * directory, so the real `avatarCID` is a dag-pb directory CID whose child is
+ * the filename; a locally computed raw-codec CID of the bytes would produce an
+ * `avatarUrl` that can never resolve (a raw block has no path children) and
+ * would land in `daoMeta`. Omitting it keeps the preview honest.
+ */
+export async function previewAvatarFromInput(input: AvatarInput & { fileName?: string }): Promise<PreviewedAvatar> {
+  const bytes = await readAvatarInput(input);
+  const sniffed = assertRasterAvatar(bytes);
+  return { avatarFileName: normalizeAvatarFileName(input.fileName), detectedFormat: sniffed.format, byteLength: bytes.length };
+}
+
+/** `.jpeg` is the frontend contract — the serving chain keys off that extension. */
+function normalizeAvatarFileName(fileName: string | undefined): string {
+  const raw = fileName ?? "avatar";
+  const base = raw.includes(".") ? raw.substring(0, raw.lastIndexOf(".")) : raw;
+  return `${base || "avatar"}.jpeg`;
+}
+
 /**
  * Read → validate (magic bytes) → pin → return the
  * `{avatarCID, avatarFileName, avatarUrl}` triple DAO metadata expects.
  * The filename is normalized to `.jpeg` to match the frontend contract
  * (the serving chain keys off that extension); the pinned MIME is the
  * format actually sniffed from the bytes.
+ *
+ * Shares its read+validate+normalize half with `previewAvatarFromInput`, so a
+ * dryRun preview and the real run can never disagree about whether an image is
+ * acceptable or what it will be called.
  */
 export async function pinAvatarFromInput(
   input: AvatarInput & { fileName?: string; pinata: PinataClient },
 ): Promise<PinnedAvatar> {
   const bytes = await readAvatarInput(input);
   const sniffed = assertRasterAvatar(bytes);
-  const raw = input.fileName ?? "avatar";
-  const base = raw.includes(".") ? raw.substring(0, raw.lastIndexOf(".")) : raw;
-  const normalized = `${base || "avatar"}.jpeg`;
+  const normalized = normalizeAvatarFileName(input.fileName);
   const res = await input.pinata.pinFile(bytes, {
     fileName: normalized,
     contentType: sniffed.mime,

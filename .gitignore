@@ -44,6 +44,10 @@ tests/reports/latest.md
 # Local one-off probe scripts (mainnet/offchain sanity checks). Never shipped.
 scripts/swarm/test-*.mjs
 
+# Audit / discovery reports produced by campaign runs: working notes only,
+# never committed and never shipped.
+/reports/
+
 # Local-only Claude Code workspace + project-specific overrides
 .claude/
 CLAUDE.md

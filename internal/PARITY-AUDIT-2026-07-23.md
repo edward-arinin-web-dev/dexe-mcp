@@ -52,7 +52,7 @@ F4 multicall wrap, F8 validator enum) were all re-verified as still fixed.
   for participationType `Whitelist`; MCP appends `addToWhitelist` for exactly
   that type. The frontend keys the append off `MerkleWhitelist` — a dead path
   that would revert `"TSP: tier is not whitelisted"` on-chain. Recorded as a
-  frontend anomaly (see `UPSTREAM-ISSUES.md`).
+  frontend anomaly (see [`../docs/UPSTREAM-ISSUES.md`](../docs/UPSTREAM-ISSUES.md)).
 - **reward_multiplier units**: contract PRECISION is 1e25; MCP scales to 1e25.
   The frontend scales to 1e18 — a latent frontend bug that silently mints a
   multiplier the contract clamps to zero extra reward.

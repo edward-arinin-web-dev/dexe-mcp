@@ -9,21 +9,26 @@
     "symbol": "OP",
     "decimals": 18
   },
+  "timelock": {
+    "address": "0x0eDd4B2cCCf41453D8B5443FBB96cc577d1d06bF",
+    "minDelay": 259200
+  },
   "votingParams": {
-    "votingDelay": 6646,
-    "votingPeriod": 46027,
+    "votingDelay": 0,
+    "votingPeriod": 259200,
     "proposalThreshold": "0",
     "quorumNumerator": 30,
     "quorumDenominator": 100
   },
   "executor": {
-    "type": "governor-self",
+    "type": "timelock",
     "id": null
   },
   "quorumSource": "votable-supply",
+  "quorumCounting": "all",
   "explorer": {
     "etherscanBase": "https://optimistic.etherscan.io",
     "tallyOrgSlug": "optimism"
   },
-  "notes": "Optimism's modified OZ Governor. ERC20Votes (OP token implements OZ-style getPastVotes). Custom ProposalTypesConfigurator is OUT OF SCOPE (research/06-execution-plan.md §6); its quorum(uint256) is keyed by proposalId and returns 0 for a bare block number, so quorumSource is 'votable-supply' — readQuorum computes votableSupply(block) * 30/100. Treated as vanilla oz-v4 surface otherwise."
+  "notes": "Optimism's modified OZ Governor (name() = 'Optimism', version() = '1'). Timelock-controlled via GovernorTimelockControl — timelock() = 0x0eDd4B2cCCf41453D8B5443FBB96cc577d1d06bF, getMinDelay() = 259200s (3d); queue/execute take the OZ 4-arg form, queue(uint256)/execute(uint256) do not exist on the implementation. votingDelay/votingPeriod are BLOCKS (clock() and CLOCK_MODE() both revert, so it is an OZ v4 block-number clock; the value is not measured against a live proposal). quorum(uint256) is keyed by proposalId via the ProposalTypesConfigurator 0xCE52b7cc490523B3e81C3076D5ae5Cca9a3e2D6F (default type 3000 bps) and does not answer a bare block number, hence quorumSource 'votable-supply' — readQuorum computes votableSupply(block) * 30/100. COUNTING_MODE = 'support=bravo&quorum=against,for,abstain' → quorumCounting 'all'. The configurator's approvalThreshold (5100 bps default, 7600 bps supermajority) and its voting modules are NOT modelled: dexe_gov_simulate_vote_impact's willPass uses for > against and is optimistic for supermajority and module proposal types. Verified on-chain at Optimism block 156772080."
 }

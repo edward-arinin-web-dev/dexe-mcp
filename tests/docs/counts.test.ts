@@ -16,6 +16,7 @@ const STALE_LITERALS = [
   "156-tool",
   "159 tools",
   "165 tools",
+  "165-tool",
   "167 tools",
   "all 155",
   "all-155",
@@ -30,6 +31,7 @@ const FILES = [
   "README.md",
   "docs/TOOLS.md",
   "docs/USAGE.md",
+  "docs/USE_CASES.md",
   "docs/ENVIRONMENT.md",
   "docs/MIGRATION.md",
 ];
@@ -74,4 +76,36 @@ describe("docs quote the real tool count", () => {
       });
     });
   }
+});
+
+/**
+ * ROADMAP.md is deliberately NOT in FILES. Membership there mandates quoting
+ * the live count, and the roadmap's "Current state" line had gone four releases
+ * stale precisely because it restated facts that live elsewhere. The fix was to
+ * stop restating them; this pins that shape instead of pinning a number.
+ */
+describe("ROADMAP.md does not restate current state", () => {
+  const text = readFileSync(resolve(root, "ROADMAP.md"), "utf8");
+  const claim = text.match(/^\*\*Current state:.*$/m);
+
+  it("has a Current state line", () => {
+    expect(claim, "ROADMAP.md lost its **Current state:** line").not.toBeNull();
+  });
+
+  it("the Current state line names no release version", () => {
+    expect(claim![0], "point at package.json instead of restating the version").not.toMatch(
+      /\bv?\d+\.\d+\.\d+\b/,
+    );
+  });
+
+  it("the Current state line quotes no tool count", () => {
+    expect(claim![0], "point at docs/TOOLS.md instead of restating the count").not.toMatch(
+      /\b\d{2,3}[ -]tools?\b/,
+    );
+  });
+
+  it("contains no stale count literals anywhere", () => {
+    const found = STALE_LITERALS.filter((s) => text.includes(s));
+    expect(found, `ROADMAP.md contains stale literals: ${found.join(", ")}`).toEqual([]);
+  });
 });

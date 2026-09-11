@@ -337,11 +337,9 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
     {
       title: "List the agent keyring (addresses + balances)",
       description:
-        "Shows every configured keyring signer (DEXE_AGENT_PK_* or the AGENT_PK_* alias, plus the 'funder' slot " +
-        "from AGENT_FUNDER_PK) — its signerKey ('agent1'…, 'funder'), address, native balance, and " +
-        "optionally an ERC20 balance. Use the signerKey values with dexe_tx_send / dexe_dao_create / " +
-        "dexe_proposal_create / dexe_proposal_vote_and_execute / OTC buyer composites to act from that wallet. " +
-        "Keys never leave the server; this tool returns addresses only.",
+        "Read-only. Every keyring signer (DEXE_AGENT_PK_* / AGENT_PK_*, plus 'funder' from AGENT_FUNDER_PK): " +
+        "signerKey, address, native balance, and an ERC20 balance when `token` is set. Pass a signerKey to a " +
+        "broadcast tool to act from that wallet.",
       inputSchema: {
         chainId: chainIdParam,
         token: z.string().optional().describe("Optional ERC20 address — include each agent's balance of this token"),
@@ -406,16 +404,12 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
     {
       title: "Fund agent keyring wallets from the primary signer (preview, then confirm)",
       description:
-        "Tops up keyring wallets — native coin by default, or an ERC20 via `token`. Funds FROM the primary " +
-        "DEXE_PRIVATE_KEY signer by default; pass source:'funder' to send from the AGENT_FUNDER_PK wallet instead. " +
-        "PREVIEWS FIRST: without confirm:true it returns who would be funded, how much each, the resolved " +
-        "addresses, the total, and the remaining daily budget — nothing is broadcast. " +
-        "Enforced guards: recipients can ONLY be keyring addresses; the per-agent amount is capped by " +
-        "DEXE_AGENT_FUND_MAX_WEI (default 0.1 native, rescaled into an ERC20's own decimals — a token whose " +
-        "decimals() cannot be read is refused); the rolling-24h spend budget SWARM_DAILY_BNB_BUDGET is checked " +
-        "before every transfer; and every transfer runs the standard broadcast guards (B6 destination allowlist, " +
-        "B7 value cap, B9 eth_call preflight, B10 rate limit, B11 chain coherence). Agents whose balance already " +
-        "meets `amount` are skipped. Every transfer is recorded per-agent — read it back with dexe_agents_ledger.",
+        "Broadcasts when a signer is configured. Tops up keyring wallets — native, or an ERC20 via `token` — " +
+        "from the primary DEXE_PRIVATE_KEY signer, or AGENT_FUNDER_PK with source:'funder'. PREVIEWS FIRST: " +
+        "nothing is broadcast without confirm:true. Guards: recipients can ONLY be keyring addresses; " +
+        "per-agent amount capped by DEXE_AGENT_FUND_MAX_WEI (0.1 native default, rescaled to an ERC20's " +
+        "decimals; unreadable decimals() refused); rolling-24h SWARM_DAILY_BNB_BUDGET checked before every " +
+        "transfer; broadcast guards B6–B11 run.",
       inputSchema: {
         amount: z
           .string()
@@ -757,13 +751,10 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
     {
       title: "Read the agent action ledger (per-agent history + spend)",
       description:
-        "Reconcile what the keyring fleet actually did. Returns, for a rolling window: every broadcast attributed " +
-        "to the signer that made it (agent1…, funder, primary) with tool, action, tx hash and outcome " +
-        "(broadcast / confirmed / reverted / failed); per-agent and total spend (native value + gas); and the " +
-        "remaining SWARM_DAILY_BNB_BUDGET for the chain. Read-only and local — the ledger lives beside the " +
-        "session state file (override DEXE_AGENT_LEDGER_PATH, disable with DEXE_AGENT_LEDGER=off). " +
-        "Records addresses and slot labels only; private keys are never stored. " +
-        "Use it after a dexe_agents_fund batch or an orchestrated run to answer 'who spent what'.",
+        "Read-only. What the keyring fleet did over a rolling window: each broadcast with its signer " +
+        "(agent1…, funder, primary), tool, action, tx hash and outcome; per-agent and total spend (native " +
+        "value + gas); remaining SWARM_DAILY_BNB_BUDGET. Local file (DEXE_AGENT_LEDGER_PATH to move it, " +
+        "DEXE_AGENT_LEDGER=off to disable); addresses only, never keys.",
       inputSchema: {
         signerKey: z
           .string()

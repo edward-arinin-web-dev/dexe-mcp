@@ -17,7 +17,7 @@
       "tool": "dexe_proposal_build_reward_multiplier",
       "args": {
         "govPool": "{{dao}}",
-        "nftMultiplierContract": "0x7e4C209f19bef4A71fB2Fcb8EC0C5b6F5F5Df5DE",
+        "nftMultiplierContract": "{{dao.nftMultiplier}}",
         "mode": "mint",
         "to": "{{agent:P:address}}",
         "multiplier": "15000000000000000000000000",

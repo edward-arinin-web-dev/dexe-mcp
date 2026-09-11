@@ -37,9 +37,9 @@ export function registerWalletConnectTools(
 
   server.tool(
     "dexe_wc_status",
-    "Diagnostic: returns the resolved WalletConnect config plus the live session state " +
-      "(connected?, account, chain, topic, peer wallet, last error). Read-only. WalletConnect " +
-      "activates only when DEXE_WALLETCONNECT_PROJECT_ID is set AND no DEXE_PRIVATE_KEY is present.",
+    "Read-only. WalletConnect config plus live session state (connected?, account, chain, topic, peer " +
+      "wallet, last error). Active only when DEXE_WALLETCONNECT_PROJECT_ID is set AND no " +
+      "DEXE_PRIVATE_KEY is present.",
     {
       chainId: z.number().int().positive().optional().describe("Unused; reserved."),
     },
@@ -69,12 +69,9 @@ export function registerWalletConnectTools(
 
   server.tool(
     "dexe_wc_connect",
-    "Start a WalletConnect session and render a scannable QR (ASCII + PNG) for the phone wallet " +
-      "(MetaMask / Trust / Rainbow). This is the RECOMMENDED signer — the phone signs and " +
-      "broadcasts, so no private key ever touches this machine. The session is approved on the " +
-      "phone; this tool returns as soon as the QR is ready — poll dexe_wc_status until `connected` " +
-      "is true. Works even if DEXE_PRIVATE_KEY is set (a hot key just keeps signing precedence " +
-      "until you unset it).",
+    "Writes to a remote service. Starts a WalletConnect session and renders a scannable QR (ASCII + PNG). " +
+      "RECOMMENDED signer — the phone signs and broadcasts, so no private key touches this machine. " +
+      "Poll dexe_wc_status until `connected`. A hot DEXE_PRIVATE_KEY keeps signing precedence.",
     {
       chainId: z
         .number()
@@ -137,7 +134,7 @@ export function registerWalletConnectTools(
 
   server.tool(
     "dexe_wc_disconnect",
-    "Tear down the active WalletConnect session. Safe to call when not connected (returns disconnected:false).",
+    "Writes to a remote service. Tears down the active WalletConnect session; safe when not connected.",
     {
       _placeholder: z.boolean().optional().describe("Unused; tool takes no input."),
     },

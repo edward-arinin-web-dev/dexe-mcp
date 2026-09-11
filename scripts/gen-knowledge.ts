@@ -58,17 +58,23 @@ let stale = 0;
 for (const target of TARGETS) {
   const path = resolve(root, target.file);
   const original = readFileSync(path, "utf8");
+  // Compare with normalized line endings: a Windows checkout with
+  // core.autocrlf=true reads CRLF files while the renderer emits LF, which
+  // made --check report every generated file as stale. Preserve the file's
+  // original EOL style when rewriting so a CRLF checkout stays CRLF.
+  const eol = original.includes("\r\n") ? "\r\n" : "\n";
+  const toLf = (text: string) => text.replace(/\r\n/g, "\n");
   let next = original;
   for (const [name, render] of Object.entries(target.regions)) {
     next = replaceRegion(next, target.file, name, render());
   }
-  if (next === original) continue;
+  if (toLf(next) === toLf(original)) continue;
   if (check) {
     process.stderr.write(`${target.file} generated regions are OUT OF DATE with src/knowledge/.\n`);
     stale++;
     continue;
   }
-  writeFileSync(path, next, "utf8");
+  writeFileSync(path, eol === "\r\n" ? toLf(next).replace(/\n/g, "\r\n") : toLf(next), "utf8");
   process.stdout.write(`${target.file}: generated regions rewritten.\n`);
 }
 

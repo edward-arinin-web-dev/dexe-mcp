@@ -5,18 +5,18 @@
   "governorVersion": "bravo-v3",
   "votingToken": {
     "type": "ERC20VotesComp",
-    "address": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
+    "address": "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
     "symbol": "UNI",
     "decimals": 18
   },
   "timelock": {
-    "address": "0x1a9C8182C09F50355CeA8fFF4b7E1649A535498a",
+    "address": "0x1a9C8182C09F50C8318d769245beA52c32BE35BC",
     "minDelay": 172800
   },
   "votingParams": {
-    "votingDelay": 1,
-    "votingPeriod": 50400,
-    "proposalThreshold": "2500000000000000000000000",
+    "votingDelay": 13140,
+    "votingPeriod": 40320,
+    "proposalThreshold": "1000000000000000000000000",
     "quorumNumerator": 4,
     "quorumDenominator": 100
   },
@@ -24,9 +24,10 @@
     "type": "timelock",
     "id": null
   },
+  "quorumCounting": "for",
   "explorer": {
     "etherscanBase": "https://etherscan.io",
     "tallyOrgSlug": "uniswap"
   },
-  "notes": "Uniswap GovernorBravoDelegate (proxy). Bravo signatures: propose has signatures[], queue/execute take proposalId, quorum is fixed quorumVotes(), snapshot/deadline via proposals(uint256). ProposalState enum matches OZ canonical order."
+  "notes": "Uniswap GovernorBravoDelegate (proxy). Bravo signatures: propose has signatures[], queue/execute take proposalId, quorum is fixed quorumVotes(), snapshot/deadline via proposals(uint256). ProposalState enum matches OZ canonical order. votingDelay/votingPeriod are in BLOCKS — this contract has no ERC-6372 clock(); clock() and CLOCK_MODE() both revert. quorumVotes() is a fixed value (40,000,000 UNI = 4% of the 1,000,000,000 UNI supply); quorumNumerator/Denominator here are descriptive only. Bravo has no COUNTING_MODE(); only For votes count toward quorum, hence quorumCounting 'for'. votingDelay/votingPeriod/proposalThreshold/timelock re-read from chain 1 at block 25955258 — do not copy these from research/ (the previously shipped timelock 0x1a9C8182C09F50355CeA8fFF4b7E1649A535498a has no code on mainnet)."
 }

@@ -6,6 +6,142 @@ something on your side.
 
 ---
 
+## 0.33.1 → 0.34.0 — read this if you branch on a forecast, a doctor exit code, or a dry run
+
+Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.
+Nothing was renamed and no output field was removed; the changes below are
+either a value that used to be wrong, or a default that moved.
+
+### Breaking — five things that used to answer, and now answer differently
+
+1. **`dexe_proposal_forecast`'s `quorum.required` changed meaning.** It used to
+   hold the raw `quorum` *setting* (a 25-decimal percentage, scaled by 1e25); it
+   now holds the **absolute vote weight** the proposal must reach. The old value
+   was being compared against a tally, so on a DAO of any size the verdict was
+   wrong by `totalPower / 1e27`. If you stored or compared `required`, the number
+   is not the same number. `settingRaw` and `quorumPct` carry the setting.
+2. **`recommendation` can now be `"unknown"`**, and `required`,
+   `requiredWeight`, `projectedPct` and `hitProbability` can be `null` — when
+   total power is unreadable the tool says so instead of answering from a bad
+   unit. `risks` then contains `"quorumUnknown"`. **Add an `"unknown"` branch
+   anywhere you switch on `recommendation`.**
+3. **`dexe_proposal_create` no longer defaults `proposalType` to `custom`.** A
+   call that omitted it used to build an empty custom proposal; it is now
+   required. Pass the catalog type explicitly.
+4. **`dexe_guide`'s `flow` is a closed enum.** Free text is refused at the
+   schema instead of returning an empty plan. Call `dexe_guide` with no
+   arguments to see the list.
+5. **`dexe_safe_propose_tx` no longer signs a dry run.** It used to produce a
+   real owner signature for a transaction you were only inspecting. Pass
+   `sign: true` to get the old behaviour. And `operation: 1` (DELEGATECALL) is
+   refused unless you pass `allowDelegateCall: true` — a DELEGATECALL runs
+   arbitrary code against the Safe's own storage, which is the one call that can
+   rewrite the owner set. `DEXE_SAFE_DELEGATECALL=block` forbids it outright.
+
+### Behaviour changes — defaults that moved
+
+- **A `dryRun` used to pin to IPFS; now it pins nothing.** `dexe_dao_create`,
+  `dexe_proposal_create` (including the `modify_dao_profile` avatar),
+  `dexe_otc_dao_open_sale` and `dexe_dao_build_deploy` (new `previewOnly` input)
+  produce the same *byte-identical* calldata without uploading anything — the
+  CID is computed offline the way Pinata computes it. Consequence to know: a
+  dryRun payload is complete but **references content that was never pinned**.
+  Broadcasting a saved dryRun payload as-is points the DAO at an unpinned CID.
+  The new `ipfs` envelope (`allPinned`, `artifacts[]`) tells you which it is.
+- **`DEXE_PINATA_JWT` used to be required to preview; now it is required only to
+  broadcast.** A keyless `dexe_dao_create` returns the preview and the safety
+  proof and refuses to send, instead of dying on the missing key.
+- **A `dryRun` now rejects an invalid avatar** (magic-byte check) instead of
+  deferring that failure to an upload that a preview never performs.
+- **`dexe-mcp doctor` exits 0 on warnings.** It used to exit non-zero whenever
+  anything was not green, which on a zero-config install is always. The contract
+  is now: `0` when nothing failed, `1` only under `--strict` (or
+  `DEXE_DOCTOR_STRICT=1`), `2` on a real failure or an unknown flag. **A CI job
+  that relied on a non-zero exit for warnings must add `--strict`.**
+  `summary.advisoryOnly` is the field to test in code — not
+  `summary.status === "pass"`, which a zero-config install never reaches.
+- **Doctor no longer pins to Pinata on every run.** The round-trip is opt-in via
+  `--probe-pin` / `probePin`, and there is no pin row at all when it is off.
+- **`pageSize` on `dexe_read_token_holders` / `dexe_read_nfts` maxes at 100**,
+  not 1000 — 100 was always the backend's real limit and anything above it was
+  silently ignored, so a caller asking for 1000 believed it had the whole set.
+  Page with `pageToken`; `truncated` says when there is more. Both answer for
+  chains 1 and 56 only.
+- **`dexe_context` is windowed** to 8 DAOs and 5 proposals (it returned
+  everything, which on a long-lived install was a 29 KB payload). Totals and
+  `…Truncated` flags come alongside. If you read `dexe_context`
+  programmatically, pass `daoLimit: 50, proposalLimit: 50`.
+- **Optimism quorum counting.** `dexe_gov_simulate_vote_impact` counts Against
+  toward quorum on Optimism, so `quorumMet` can flip versus 0.33.x. The Optimism
+  quorum *value* is still a 30%-of-votable-supply approximation, and now says so
+  in `caveats[]`.
+- **Compound Governor moved.** The shipped fixture pointed at the retired
+  `GovernorBravo`, which is no longer the Timelock admin and cannot answer a
+  proposal id ≥ 394. Reads now go to `CompoundGovernor`
+  `0x309a862bbC1A00e45506cB8A802D1ff10004c8C0`; ids ≤ 393 resolve through a
+  `legacyGovernor` hint and the response says so. Queue / execute / cancel use
+  the OZ 4-arg shape, and `dexe_gov_decode_calldata` no longer decodes
+  Bravo-shaped Compound calldata. Uniswap's timelock address and
+  `votingDelay` / `votingPeriod` / threshold were wrong too, and Optimism gained
+  a timelock — if you pinned any of those values locally, re-read them.
+
+### Deprecated — still emitted, removal no earlier than 0.36.0
+
+- `advisories` (on the vote builders) and `governanceAdvisories` are superseded
+  by the new **`warnings[]`** array, which every build tool now returns. Read
+  `warnings[]`; the old fields still arrive so nothing breaks today.
+- `poolAddress` on the four off-chain builders is a permanent alias for
+  **`govPool`**. New code should use `govPool`; `poolAddress` is not going away.
+
+### Also new — no action required
+
+- Every tool declares MCP annotations (`readOnlyHint`, `destructiveHint`,
+  `idempotentHint`, `openWorldHint`) and 21 carry a human title used in host
+  approval dialogs. These are **hints to the host, not access control**.
+- Build tools emit `warnings[]` derived from the emitted calldata. `#36`
+  (`addSettings`) is a DANGER warning on the affected builders and
+  `mode: "blocked-risky"` (escape: `confirmRisky: true`) on
+  `dexe_proposal_create`; `F15` (OTC vesting) is a hard refusal on
+  `dexe_otc_dao_open_sale` / `dexe_proposal_build_token_sale` /
+  `_token_sale_multi`, overridable with `acknowledgeVestingBlocked: true`.
+- `dexe_proposal_create` returns the real `proposalId` read back from chain,
+  plus `proposalState`, `votingEndsAt`, `preview`, `autoVote`, `power` and
+  `tally`. `dexe_dao_create`'s preview reports payer, cost, synthesized
+  defaults, settings slots and what is permanent.
+- `dexe_proposal_risk_assess` can now return CAUTION / DANGER on governance
+  grounds with a perfectly fine quorum, and reports `governanceHits`. A `SAFE`
+  verdict is the absence of the hazards it checks — read the hits too, and do
+  not wire "SAFE ⇒ vote FOR".
+- `chainId` is accepted on 21 more `dexe_proposal_build_*` tools; paging fields
+  (`returned` / `truncated` / `nextOffset`) are uniform across the subgraph
+  lists; amount fields gained `<field>Formatted` siblings.
+- Chains 1 and 10 have a zero-config archive-capable public RPC for the
+  `dexe_gov_*` tools (`DEXE_DISABLE_PUBLIC_RPC=1` opts out). New env:
+  `DEXE_SAFE_DELEGATECALL`, `DEXE_DOCTOR_STRICT`.
+- `.env.example` now ships in the npm tarball; `.mcp.example.json` was rewritten
+  to the zero-config form. Three maintainer documents left `docs/` for
+  `internal/` and no longer ship. `docs/PROFILES.md` is new: which
+  `DEXE_TOOLSETS` profile to run, and the measured size of each.
+
+### If you use the Claude Code plugin
+
+**Update the plugin, not just the npm package.** The bundle inlines the server
+and its dependencies, and it now also carries the whole `docs/` tree — until
+0.34.0 it shipped three of twenty-five documents, so links inside
+`dexe://tools`, `dexe://playbook` and `dexe://graph-schema` pointed at files
+that were not there.
+
+### If you install with npx
+
+Pick one launcher and keep it. A globally installed `dexe-mcp` **shadows**
+`npx dexe-mcp@<version>`: npx runs the stale global and ignores the version you
+asked for, with no warning. Check with `npx -y dexe-mcp@latest doctor` and
+compare the reported version; if it is older, `npm uninstall -g dexe-mcp` using
+the same node/npm your MCP client launches, then fully quit and reopen the
+client.
+
+---
+
 ## 0.33.0 → 0.33.1 — no action
 
 Tool count unchanged (**168 tools** / 19 groups). No behaviour change; this
@@ -33,7 +169,15 @@ for this release; plugin users get the fixed bundle by updating the plugin.
 
 ## 0.32.1 → 0.33.0 — some calls that used to broadcast now refuse first
 
-Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.
+Tool count unchanged (**168 tools** / 19 groups). No *proposal-builder* calldata
+changed.
+
+> **Corrected in 0.34.0.** This section originally said "No emitted calldata
+> changed." One deploy default did change: SIMPLE-mode `dexe_dao_create`
+> synthesizes **treasury 30% / quorum 51%** where it used to synthesize 49% /
+> 51%, so the same `{daoName, symbol, totalSupply}` call mints a different
+> initial token split. Pass `treasuryPercent: 49` explicitly to reproduce an
+> older deploy — see item 3 below for what happens when you do.
 
 ### Breaking — four situations that used to proceed now stop
 All four were deterministic failures the server could see coming:
@@ -44,9 +188,13 @@ All four were deterministic failures the server could see coming:
 2. **An `addSettings`-carrying proposal on chain 97** is refused (#36 — it passes
    the vote and then reverts at execute). Pass `settingsIds` to use `editSettings`
    instead, run on chain 56, or `confirmRisky: true`.
-3. **A 49%-treasury / 51%-quorum DAO config** is refused: it needs 100% turnout
-   of every votable token, so the DAO could never pass anything — including a
-   proposal to fix itself. SIMPLE mode now synthesizes a reachable split.
+3. **A 49%-treasury / 51%-quorum DAO config** comes back
+   `mode: "blocked-risky"` instead of deploying: it needs 100% turnout of every
+   votable token, so the DAO could never pass anything — including a proposal to
+   fix itself. Add `confirmRisky: true` to deploy it anyway. It is a *hard*
+   error only when the input is treasury-only (nothing votable at all), or under
+   `DEXE_TREASURY_GUARD=block`. SIMPLE mode now synthesizes a reachable split
+   (treasury 30% / quorum 51%).
 4. **A treasury-moving execute under `DEXE_TREASURY_GUARD=block`** refuses
    instead of warning after the fact. `warn` (the default) is unchanged in
    effect, but the advisory now arrives *before* the broadcast.
@@ -577,8 +725,12 @@ scripts; everything else is additive. New quick map:
 - **Tx wait timeout:** `DEXE_TX_WAIT_TIMEOUT_MS` (default 180000) returns a
   check-`dexe_tx_status` error instead of hanging.
 - **Composite failure ledger:** failed flows return `mode:'failed'` with
-  `{failedStep, error, landedSteps, resume}` — fix the cause, re-run the same
-  call, completed steps are skipped.
+  `{failedStep, error, landedSteps, resume}` — fix the cause and re-run the same
+  call. *(Scope corrected in 0.34.0: `approve`, `deposit`,
+  `createProposalAndVote` and `vote` are re-derived from chain state and
+  skipped; `execute` and the validator round are **not**, and a receipt-wait
+  timeout means the transaction was already broadcast — check `dexe_tx_status`
+  before any re-run.)*
 - New env vars `DEXE_MAX_DESCRIPTION_LEN`, `DEXE_PROTOCOL_REF`;
   `dexe_context` reports toolsets `{enabled, hidden, enableHint}`; the MCP
   handshake now reports the real package version (was hardcoded `0.1.5` —

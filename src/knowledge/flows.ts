@@ -54,10 +54,13 @@ export const FLOWS: readonly Flow[] = [
         ask: "What % of supply should the DAO treasury hold? (the rest goes to your deployer wallet as votable supply)",
         kind: "percent",
         required: false,
-        default: "49",
+        default: "30",
         riskIfUnusual:
-          "Treasury tokens CANNOT vote. Treasury > 49% shrinks votable supply below quorum reach — the deploy is " +
-          "refused as governance-dead. Treasury 0% means proposals have nothing to spend.",
+          "Treasury tokens CANNOT vote. Clearing a Q% quorum needs Q ÷ votable share of every votable token to " +
+          "turn out, and dexe_dao_create refuses above an 80% turnout ceiling — under LINEAR that caps the " +
+          "treasury at 37.5% of supply, and a too-high treasury alone is a HARD error. Treasury 0% means " +
+          "proposals have nothing to spend. Omit this AND quorumPercent for the synthesized 30/51 split.",
+        constraint: "0 ≤ treasury ≤ 100 − quorumPercent/0.8 (LINEAR; ≤ 37.5 at the 50% floor; lower under POLYNOMIAL).",
       },
       {
         name: "quorumPercent",
@@ -67,8 +70,19 @@ export const FLOWS: readonly Flow[] = [
         default: "51",
         riskIfUnusual:
           "Below 50% a small holder group can drain the treasury (blocked-risky without confirmRisky). Above " +
-          "100−treasuryPercent the quorum is unreachable and the DAO is dead — the tool refuses.",
-        constraint: "50 ≤ quorum ≤ 100 − treasuryPercent",
+          "0.8 × (100 − treasuryPercent) clearing quorum needs >80% turnout of the votable supply and the DAO " +
+          "freezes — the tool refuses and quotes the two numeric ways out.",
+        constraint: "50 ≤ quorum ≤ 0.8 × (100 − treasuryPercent)  (LINEAR power; lower under POLYNOMIAL)",
+      },
+      {
+        name: "voteModel",
+        ask: "Vote power model — LINEAR (1 token = 1 vote, recommended) or POLYNOMIAL (meritocratic curve)?",
+        kind: "string",
+        required: false,
+        default: "LINEAR",
+        riskIfUnusual:
+          "POLYNOMIAL caps effective vote power near 56% of supply, so no split supports the ≥50% floor and the " +
+          "tool refuses it. Pick LINEAR unless the user accepts a sub-50% quorum with confirmRisky:true.",
       },
       {
         name: "durationSeconds",
@@ -96,18 +110,21 @@ export const FLOWS: readonly Flow[] = [
       {
         id: "preview",
         tool: "dexe_dao_create",
-        purpose: "Preview the resolved config + safety proof (quorum reachability, treasury floor). No broadcast.",
+        purpose:
+          "Preview the resolved config + safety proof (turnout margin, treasury floor). No broadcast. Pass " +
+          "treasuryPercent/quorumPercent ONLY if the user named them — omit both for the governable 30/51 split.",
         paramsTemplate: {
           daoName: "{{daoName}}",
           symbol: "{{symbol}}",
           totalSupply: "{{totalSupply}}",
           treasuryPercent: "{{treasuryPercent}}",
           quorumPercent: "{{quorumPercent}}",
+          voteModel: "{{voteModel}}",
           durationSeconds: "{{durationSeconds}}",
           chainId: "{{chainId}}",
           daoDescription: "{{daoDescription}}",
         },
-        gotchaIds: ["quorum-reachable", "quorum-floor", "cap-rule", "name-taken"],
+        gotchaIds: ["quorum-turnout-margin", "quorum-reachable", "quorum-floor", "cap-rule", "name-taken"],
         reportOnSuccess:
           "Show the user the preview's resolvedConfig + safetyProof and any warnings; get an explicit go-ahead.",
         next: [{ when: "user confirms the previewed config", stepId: "deploy", why: "broadcast the same config" }],
@@ -243,7 +260,7 @@ export const FLOWS: readonly Flow[] = [
         tool: "dexe_proposal_state",
         purpose: "Read the current ProposalState first — the valid action depends on it.",
         paramsTemplate: { govPool: "{{govPool}}", proposalId: "{{proposalId}}" },
-        gotchaIds: ["state-enum"],
+        gotchaIds: ["state-enum", "quorum-two-units"],
         reportOnSuccess: "Tell the user the state in words (Voting / awaiting validators / ready to execute / …).",
         next: [{ when: "state is Voting or Succeeded*", stepId: "vote_execute", why: "drive it to executed" }],
       },
@@ -550,7 +567,9 @@ export const FLOWS: readonly Flow[] = [
         riskIfUnusual:
           "A fixed address list is served by token_transfer proposals from the treasury (one per recipient) — " +
           "NOT by proposalType token_distribution (that's a pro-rata airdrop to voters). Size treasuryPercent to " +
-          "cover the list share plus ongoing treasury needs.",
+          "cover the list share plus ongoing treasury needs — but the treasury is capped at 37.5% of supply by " +
+          "the quorum-turnout rule, so a larger list must be paid out of the deployer's votable share via " +
+          "recipients[] at deploy time.",
       },
       {
         name: "chainId",
@@ -566,10 +585,13 @@ export const FLOWS: readonly Flow[] = [
         tool: "dexe_guide",
         purpose:
           "LEG 1 — deploy the DAO. Fetch flow 'create_dao' and run its interview + steps. Set treasuryPercent so " +
-          "the treasury covers the distribution list share (e.g. list needs 20% → treasury ≥ 20% + reserve, and " +
-          "quorumPercent ≤ 100 − treasuryPercent must still hold ≥ 50).",
+          "the treasury covers the distribution list share (e.g. list needs 20% → treasury ≥ 20% + reserve), " +
+          "while quorumPercent ≤ 0.8 × (100 − treasuryPercent) must still hold with quorum ≥ 50 — " +
+          "which caps treasuryPercent at 37.5% of supply under LINEAR power. A distribution list needing more than " +
+          "that must be funded from the deployer's votable allocation (recipients[]) at deploy time, not parked in " +
+          "the treasury.",
         paramsTemplate: { flow: "create_dao" },
-        gotchaIds: ["treasury-remainder", "quorum-reachable"],
+        gotchaIds: ["treasury-remainder", "quorum-turnout-margin", "quorum-reachable"],
         bindsFrom: { govPool: "leg_dao.govPool" },
         reportOnSuccess: "DAO live at https://app.dexe.io/dao/{{govPool}} — proceed to distribution.",
         next: [{ when: "DAO deployed", stepId: "leg_distribute", why: "put tokens in the named hands" }],

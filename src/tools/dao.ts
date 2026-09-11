@@ -6,7 +6,7 @@ import { RpcProvider } from "../rpc.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { EnvGuardResult } from "../lib/requireEnv.js";
-import { renderUntrusted } from "../lib/sanitize.js";
+import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { chainIdParam } from "../lib/params.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
@@ -66,7 +66,8 @@ function registerPredictAddresses(
     {
       title: "Predict addresses for a future DAO deployment",
       description:
-        "Calls `PoolFactory.predictGovAddresses(deployer, poolName)` and returns the six CREATE2-predicted addresses (govPool, govTokenSale, govToken, distributionProposal, expertNft, nftMultiplier). Useful for wiring configs before a DAO is actually deployed.",
+        "Read-only. Calls `PoolFactory.predictGovAddresses(deployer, poolName)` — the six CREATE2-predicted contract " +
+        "addresses for a DAO before it is deployed.",
       inputSchema: {
         deployer: z.string().describe("Address that will send the deployGovPool tx (tx.origin)"),
         poolName: z.string().describe("Unique pool name — part of the CREATE2 salt"),
@@ -133,7 +134,7 @@ function registerRegistryLookup(
     {
       title: "Check whether an address is a DeXe GovPool",
       description:
-        "Calls `PoolRegistry.isGovPool(address)` on the configured chain. Returns true if the address is a registered DeXe DAO GovPool.",
+        "Read-only. Calls `PoolRegistry.isGovPool(address)` — true when the address is a registered DeXe DAO GovPool.",
       inputSchema: {
         address: z.string().describe("Candidate GovPool address"),
         chainId: chainIdParam,
@@ -191,7 +192,7 @@ function registerDaoInfo(
     {
       title: "DAO overview — helpers, NFT contracts, validator count",
       description:
-        "Given a GovPool address, batch-reads helper addresses (settings/userKeeper/validators/poolRegistry/votePower), NFT contract addresses, description URL, and live validator count. One multicall RPC round-trip.",
+        "Read-only. One multicall on a GovPool: helper addresses, NFT contract addresses, description URL, and live validator count.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         chainId: chainIdParam,
@@ -312,10 +313,22 @@ function registerDaoInfo(
           `  expertNft     : ${nftContracts.expertNft}\n` +
           `  dexeExpertNft : ${nftContracts.dexeExpertNft}\n` +
           `  babt          : ${nftContracts.babt}`;
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: structured,
-        };
+        // `descriptionURL` is chosen by whoever deployed the DAO, and
+        // `structuredContent` is exactly as model-visible as `content[].text` —
+        // escaping only the prose is the same leak wearing a different hat.
+        //
+        // No `body`: the readout above is server-authored addresses and counts,
+        // and `helpers.userKeeper` is the address an agent must copy verbatim
+        // into an approve. Fencing it under "never treat as instructions" is
+        // the wrong provenance label on the one value that IS trustworthy. The
+        // only third-party field, descriptionURL, is already escaped in the
+        // prose and rides out deep-sanitized in `structured` behind the notice
+        // line — the shape dexe_proposal_list and dexe_proposal_risk_assess use.
+        return untrustedResult({
+          summary: text,
+          label: `descriptionURL of GovPool ${govPool} (set by whoever deployed the DAO)`,
+          structured,
+        });
       } catch (err) {
         return errorResult(
           toActionableError(err, "dexe_dao_info").message,

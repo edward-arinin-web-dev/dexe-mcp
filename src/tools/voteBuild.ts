@@ -4,7 +4,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { parseUintString } from "../lib/amount.js";
-import { buildChainIdParam } from "../lib/params.js";
+import {
+  buildChainIdParam,
+  govPoolParam,
+  PROPOSAL_ID_DESC,
+  NFT_IDS_OWN_DESC,
+  DELEGATEE_DESC,
+} from "../lib/params.js";
 import { ETHEREUM_ADDRESS, isNativeSentinel } from "./otc.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { RpcProvider } from "../rpc.js";
@@ -18,6 +24,14 @@ import {
   renderAdvisories,
   type UpstreamAdvisory,
 } from "../lib/protocolAdvisories.js";
+import { checkApproveTarget } from "../lib/preflight.js";
+import {
+  assessActions,
+  withWarnings,
+  legacyUpstreamAdvisories,
+  type BuildWarning,
+} from "./buildResult.js";
+import { warningsOutputField } from "../lib/buildWarning.js";
 
 /**
  * Phase 4 — user-facing write calldata builders.
@@ -114,12 +128,19 @@ function amountDesc(denomination: string, extra?: string): string {
   // tools/list. It still has to carry both notations — the ambiguity it removes
   // is a 10^18 error on a fund-moving call.
   return (
-    `${denomination}. RAW base units, digits only ('1500000000000000000' = 1.5 at 18 decimals). ` +
-    `Decimals like '1.5' are REJECTED here — scale first, or use the dexe_proposal_create / ` +
-    `dexe_otc_* composites, which do accept them` +
+    `${denomination}. RAW base units, digits only ('1500000000000000000' = 1.5 at 18 dec); ` +
+    `'1.5' is REJECTED — scale it, or use dexe_proposal_create` +
     (extra ? `. ${extra}` : "")
   );
 }
+
+/**
+ * Effect marker (WP-I style guide). Every tool in this file returns an
+ * unsigned payload for `dexe_tx_send`; leading every description with the same
+ * literal is what `tests/tools/description-lint.test.ts` checks, and saying it
+ * once here keeps the 27 copies from drifting.
+ */
+const B = "Builds calldata; does not broadcast. ";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -132,31 +153,65 @@ function errorResult(message: string) {
  * Calldata is untouched — these tools stay pure builders.
  */
 function payloadResult(payload: TxPayload, ...advisories: (UpstreamAdvisory | null)[]) {
+  return payloadResultWith(payload, [], ...advisories);
+}
+
+/**
+ * Same funnel, plus the build-time harm pass. Every builder in this file
+ * returns through `payloadResult`, so the pass runs on all 27 of them without
+ * a per-tool edit: the payload IS the action (`to`/`value`/`data`), and it
+ * always carries its own `chainId`, so nothing has to be threaded in.
+ *
+ * `treasuryGuard: "off"` on purpose — these are the CALLER's own wallet
+ * actions (deposit, approve, claim), not DAO treasury movements, and a
+ * treasury advisory on every `dexe_vote_build_erc20_approve` is exactly the
+ * "fires when it is false" noise this file already decided against.
+ *
+ * The legacy `advisories: [{id,severity,upstream,text}]` channel — a DECLARED
+ * output field of all 27 tools — is preserved and merged, never replaced.
+ */
+function payloadResultWith(
+  payload: TxPayload,
+  extraWarnings: BuildWarning[],
+  ...advisories: (UpstreamAdvisory | null)[]
+) {
   const live = advisories.filter((a): a is UpstreamAdvisory => Boolean(a));
   const block = renderAdvisories(live);
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text:
-          `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…` +
-          (block ? `\n\n${block}` : ""),
+  const warnings = [
+    ...assessActions({
+      ctx: undefined,
+      chainId: payload.chainId,
+      actions: [{ executor: payload.to, value: payload.value, data: payload.data }],
+      treasuryGuard: "off",
+    }),
+    ...extraWarnings,
+  ];
+  return withWarnings(
+    {
+      text:
+        `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…` +
+        (block ? `\n\n${block}` : ""),
+      structured: {
+        payload: { ...payload } as Record<string, unknown>,
+        ...(live.length > 0
+          ? {
+              advisories: live.map((a) => ({
+                id: a.id,
+                severity: a.severity,
+                upstream: a.upstream,
+                text: a.text,
+              })),
+            }
+          : {}),
       },
-    ],
-    structuredContent: {
-      payload: { ...payload } as Record<string, unknown>,
-      ...(live.length > 0
-        ? {
-            advisories: live.map((a) => ({
-              id: a.id,
-              severity: a.severity,
-              upstream: a.upstream,
-              text: a.text,
-            })),
-          }
-        : {}),
     },
-  };
+    warnings,
+    {
+      legacy: legacyUpstreamAdvisories(
+        live.map((a) => ({ id: a.id, severity: a.severity, upstream: a.upstream, text: a.text })),
+      ),
+    },
+  );
 }
 
 // ---------- deposit lock (upstream mode 5) — ONE resolution point ----------
@@ -286,17 +341,14 @@ function payloadOutputSchema() {
       chainId: z.number(),
       description: z.string(),
     }),
-    advisories: z
-      .array(
-        z.object({
-          id: z.string(),
-          severity: z.string(),
-          upstream: z.string(),
-          text: z.string(),
-        }),
-      )
-      .optional()
-      .describe("Known upstream protocol defects that affect this exact call. Read before signing."),
+    // DEPRECATED as of 0.34.0 — superseded by `warnings`, which carries the same
+    // findings plus every non-upstream one, at every build surface. The emitted
+    // objects are unchanged ({id, severity, upstream, text}); only the advertised
+    // shape is collapsed, because this schema is paid on every default-profile
+    // tool on every tools/list and nobody should be writing NEW code against it.
+    // Remove no earlier than 0.36.0.
+    advisories: z.array(z.record(z.unknown())).optional().describe("Deprecated — use warnings."),
+    warnings: warningsOutputField,
   };
 }
 
@@ -306,7 +358,7 @@ export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): voi
   // Only the two deposit-lock builders use it, and only when the caller names a
   // `voter`; construction is lazy (no connection is opened here).
   const rpc = new RpcProvider(ctx.config);
-  registerErc20Approve(server, ctx);
+  registerErc20Approve(server, ctx, rpc);
   registerDeposit(server, ctx);
   registerWithdraw(server, ctx);
   registerDelegate(server, ctx);
@@ -340,29 +392,34 @@ export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): voi
 
 // ---------- ERC20 approve ----------
 
-function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
+function registerErc20Approve(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_erc20_approve",
     {
       title: "Build ERC20.approve(spender, amount) calldata",
       description:
-        "Prepares an ERC20 approval tx. Prepend this before `dexe_vote_build_deposit` when staking an ERC20 token — approve the DAO's **GovUserKeeper** (helper from dexe_dao_info), never the GovPool. For native-coin staking (BNB/ETH) no approve is needed; just pass `value` on deposit.",
+        B +
+        "`ERC20.approve(spender, amount)`. Run it before dexe_vote_build_deposit when staking an ERC20: approve the DAO's GovUserKeeper (dexe_dao_info), never the GovPool. Native-coin staking needs no approve — pass `value` on deposit instead.",
       inputSchema: {
-        token: z.string(),
+        token: z.string().describe("ERC20 token contract address to approve."),
         spender: z.string().describe("For deposits: the DAO's GovUserKeeper address (NOT the GovPool)"),
         amount: z
           .string()
           .describe(
             amountDesc(
-              "Allowance denominated in the ERC20 at `token`, in that token's own decimals",
+              "Allowance in the ERC20 at `token`, that token's own decimals",
               "Unlimited = max uint256, i.e. '115792089237316195423570985008687907853269984665640564039457584007913129639935'",
             ),
           ),
+        govPool: z
+          .string()
+          .optional()
+          .describe("DAO GovPool. When set, an approve to it (instead of its GovUserKeeper) is refused."),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ token, spender, amount, chainId }) => {
+    async ({ token, spender, amount, govPool, chainId }) => {
       if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
       if (!isAddress(spender)) return errorResult(`Invalid spender: ${spender}`);
       try {
@@ -376,12 +433,70 @@ function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
           contractLabel: "ERC20",
           description: `ERC20(${token}).approve(${spender}, ${amount})`,
         });
-        return payloadResult(payload);
+        // Trap 6, wired at last. `checkApproveTarget` has existed and been
+        // unit-tested since before 0.33.0 and was called from NOTHING, so this
+        // DEFAULT-toolset tool happily encoded an allowance to the GovPool —
+        // which GovUserKeeper.transferFrom never pulls, so the later deposit
+        // reverts far away from the cause (bug #14).
+        //
+        // Only the locally-decidable half refuses: the caller passed two
+        // arguments that contradict each other. `checkApproveTarget`'s THIRD
+        // branch (spender is neither keeper nor pool) is deliberately NOT used
+        // — this is the project's general ERC20 approve encoder and a
+        // TokenSaleProposal / DistributionProposal / StakingProposal spender is
+        // correct. Omitting `govPool` is the escape hatch for a raw encode.
+        const extra: BuildWarning[] = [];
+        if (govPool && isAddress(govPool) && spender.toLowerCase() === govPool.toLowerCase()) {
+          const keeper = await resolveUserKeeper(rpc, chainId ?? ctx.config.defaultChainId, govPool);
+          extra.push({
+            code: "approve.target",
+            severity: "WARN",
+            block: "hard",
+            message: keeper
+              ? checkApproveTarget(spender, keeper, govPool).remediation!
+              : `ERC20.approve must target this DAO's GovUserKeeper, not its GovPool (${govPool}). ` +
+                `GovUserKeeper.transferFrom pulls the deposit; approving the GovPool leaves the allowance unusable.`,
+            remedy: keeper
+              ? `Re-call with spender=${keeper}.`
+              : "Run dexe_dao_info(govPool) and re-call with spender = helpers.userKeeper.",
+          });
+        }
+        return payloadResultWith(payload, extra);
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }
     },
   );
+}
+
+/**
+ * Best-effort GovUserKeeper lookup, used ONLY to make a refusal message name
+ * the right address. The refusal itself is decided with zero RPC, so a missing
+ * endpoint never changes the verdict — it only makes the text less specific.
+ */
+async function resolveUserKeeper(
+  rpc: RpcProvider,
+  chainId: number,
+  govPool: string,
+): Promise<string | null> {
+  try {
+    const pr = rpc.tryProvider(chainId);
+    if ("error" in pr) return null;
+    const res = await multicall(pr.ok, [
+      {
+        target: govPool,
+        iface: GOV_POOL_HELPERS_IFACE,
+        method: "getHelperContracts",
+        args: [],
+        allowFailure: true,
+      },
+    ]);
+    if (!res[0]?.success) return null;
+    const keeper = (res[0]!.value as unknown as { userKeeper?: string }).userKeeper;
+    return typeof keeper === "string" && isAddress(keeper) ? keeper : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------- deposit ----------
@@ -392,21 +507,22 @@ function registerDeposit(server: McpServer, ctx: ToolContext): void {
     {
       title: "Stake tokens/NFTs into a DAO to gain voting power",
       description:
-        "Builds `GovPool.deposit(amount, nftIds)`. **payable** — for native-coin staking, pass `value` (wei). For ERC20 staking, pass `value=0` and ensure an ERC20 approve is already submitted.",
+        B +
+        "`GovPool.deposit(amount, nftIds)` — stakes into the DAO to gain voting power. Payable: native-coin DAOs pass `value`; ERC20 DAOs pass value=0 and need the GovUserKeeper approve first.",
       inputSchema: {
-        govPool: z.string(),
+        govPool: govPoolParam,
         amount: z
           .string()
           .describe(
-            amountDesc("Amount of the DAO's governance token to stake, in that token's own decimals"),
+            amountDesc("Governance token to stake, in that token's own decimals"),
           ),
-        nftIds: z.array(z.string()).default([]),
+        nftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
         value: z
           .string()
           .default("0")
           .describe(
             amountDesc(
-              "Native coin (BNB/ETH, always 18 decimals) attached to the tx — for native-staking DAOs only",
+              "Native coin (BNB/ETH, 18 decimals) sent with the tx — native-staking DAOs only",
               "Pass '0' for ERC20-staking DAOs",
             ),
           ),
@@ -447,16 +563,18 @@ function registerWithdraw(server: McpServer, ctx: ToolContext): void {
     "dexe_vote_build_withdraw",
     {
       title: "Unstake tokens/NFTs from a DAO",
-      description: "Builds `GovPool.withdraw(receiver, amount, nftIds)`.",
+      description:
+        B +
+        "`GovPool.withdraw(receiver, amount, nftIds)` — unstakes deposited governance tokens. Tokens you voted with stay locked until that proposal is executed.",
       inputSchema: {
-        govPool: z.string(),
-        receiver: z.string(),
+        govPool: govPoolParam,
+        receiver: z.string().describe("Address the unstaked tokens/NFTs are sent to."),
         amount: z
           .string()
           .describe(
-            amountDesc("Amount of the DAO's governance token to unstake, in that token's own decimals"),
+            amountDesc("Governance token to unstake, in that token's own decimals"),
           ),
-        nftIds: z.array(z.string()).default([]),
+        nftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -491,18 +609,17 @@ function registerDelegate(server: McpServer, ctx: ToolContext): void {
     {
       title: "Delegate YOUR staked voting power to a delegatee",
       description:
-        "Builds `GovPool.delegate(delegatee, amount, nftIds)`. This is the user-level delegation; for DAO treasury delegation use the `dexe_proposal_build_delegate_to_expert` wrapper instead.",
+        B +
+        "Emits `GovPool.multicall([delegate(delegatee, amount, nftIds)])` — the single-element multicall the frontend sends, because SphereX-protected pools revert a raw top-level delegate(). Delegates YOUR staked power; for DAO treasury delegation use dexe_proposal_build_delegate_to_expert (needs DEXE_TOOLSETS=core,proposals).",
       inputSchema: {
-        govPool: z.string(),
-        delegatee: z.string(),
+        govPool: govPoolParam,
+        delegatee: z.string().describe(DELEGATEE_DESC),
         amount: z
           .string()
           .describe(
-            amountDesc(
-              "Amount of your ALREADY-STAKED governance token power to delegate, in that token's own decimals",
-            ),
+            amountDesc("Your ALREADY-STAKED governance token power to delegate, that token's own decimals"),
           ),
-        nftIds: z.array(z.string()).default([]),
+        nftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -543,18 +660,18 @@ function registerUndelegate(server: McpServer, ctx: ToolContext): void {
     "dexe_vote_build_undelegate",
     {
       title: "Undelegate voting power from a delegatee",
-      description: "Builds `GovPool.undelegate(delegatee, amount, nftIds)`.",
+      description:
+        B +
+        "`GovPool.undelegate(delegatee, amount, nftIds)` — pulls back power you delegated. The delegatee's live votes are recomputed downward, and a delegate and an undelegate in the same block revert.",
       inputSchema: {
-        govPool: z.string(),
-        delegatee: z.string(),
+        govPool: govPoolParam,
+        delegatee: z.string().describe("Address you are pulling the delegated power back from."),
         amount: z
           .string()
           .describe(
-            amountDesc(
-              "Amount of previously-delegated governance token power to pull back, in that token's own decimals",
-            ),
+            amountDesc("Previously-delegated governance token power to pull back, that token's own decimals"),
           ),
-        nftIds: z.array(z.string()).default([]),
+        nftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -589,19 +706,18 @@ function registerVote(server: McpServer, ctx: ToolContext, rpc: RpcProvider): vo
     {
       title: "Vote on an external proposal",
       description:
-        "Builds `GovPool.vote(proposalId, isVoteFor, amount, nftIds)`. Arg order: (proposalId, isVoteFor, amount, nftIds). Must have staked/delegated voting power beforehand.",
+        B +
+        "Emits `GovPool.multicall([vote(proposalId, isVoteFor, amount, nftIds)])` — the single-element multicall the frontend sends, because SphereX-protected pools revert a raw top-level vote(). Needs staked or delegated power first (dexe_vote_build_deposit).",
       inputSchema: {
-        govPool: z.string(),
-        proposalId: z.string(),
-        isVoteFor: z.boolean(),
+        govPool: govPoolParam,
+        proposalId: z.string().describe(PROPOSAL_ID_DESC),
+        isVoteFor: z.boolean().describe("true = vote FOR, false = vote AGAINST."),
         amount: z
           .string()
           .describe(
-            amountDesc(
-              "Amount of your staked/delegated governance token power to cast, in that token's own decimals",
-            ),
+            amountDesc("Your staked/delegated governance token power to cast, that token's own decimals"),
           ),
-        nftIds: z.array(z.string()).default([]),
+        nftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
         voter: voterParam,
         chainId: buildChainIdParam,
       },
@@ -655,10 +771,12 @@ function registerCancelVote(server: McpServer, ctx: ToolContext): void {
     "dexe_vote_build_cancel_vote",
     {
       title: "Cancel your vote on an external proposal",
-      description: "Builds `GovPool.cancelVote(proposalId)`.",
+      description:
+        B +
+        "`GovPool.cancelVote(proposalId)` — removes your weight from the tally so you can re-vote. This can drop the proposal back below quorum.",
       inputSchema: {
-        govPool: z.string(),
-        proposalId: z.string(),
+        govPool: govPoolParam,
+        proposalId: z.string().describe(PROPOSAL_ID_DESC),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -692,20 +810,20 @@ function registerValidatorVote(server: McpServer, ctx: ToolContext): void {
     {
       title: "Validator vote on internal or external proposal",
       description:
-        "Builds `GovValidators.vote{Internal,External}Proposal(proposalId, amount, isVoteFor)`. **Arg order differs from GovPool.vote** — here amount comes before isVoteFor. Requires validator stake.",
+        B +
+        "`GovValidators.vote{Internal,External}Proposal(proposalId, amount, isVoteFor)`. Arg order differs from GovPool.vote — amount comes before isVoteFor. Requires validator stake.",
       inputSchema: {
-        govValidators: z.string(),
-        scope: z.enum(["internal", "external"]),
-        proposalId: z.string(),
+        govValidators: z.string().describe("GovValidators address (dexe_dao_info: helpers.validators)."),
+        scope: z.enum(["internal", "external"]).describe("Which chamber's proposal: 'internal' or 'external'."),
+        proposalId: z.string().describe(PROPOSAL_ID_DESC),
         amount: z
           .string()
           .describe(
             amountDesc(
-              "Amount of your validator-token balance to vote with, in the validator token's own decimals " +
-                "(this is the GovValidators token, NOT the DAO governance token)",
+              "Validator-token balance to vote with, that token's own decimals (the GovValidators token, NOT the DAO governance token)",
             ),
           ),
-        isVoteFor: z.boolean(),
+        isVoteFor: z.boolean().describe("true = vote FOR, false = vote AGAINST."),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -740,14 +858,12 @@ function registerValidatorCancelVote(server: McpServer, ctx: ToolContext): void 
     {
       title: "Validator: cancel your vote on internal/external proposal",
       description:
-        "Builds `GovValidators.cancelVote{Internal,External}Proposal(proposalId)`. " +
-        "Heads up: this call is refused by the on-chain firewall on fresh (SphereX-era) pools and " +
-        "GovValidators has no multicall to wrap it in, so there is no workaround there — an upstream " +
-        "protocol defect, reported with every payload this tool builds.",
+        B +
+        "`GovValidators.cancelVote{Internal,External}Proposal(proposalId)`. The on-chain firewall refuses this call on fresh (SphereX-era) pools and GovValidators has no multicall to wrap it in, so there is no workaround — an upstream defect, reported with every payload.",
       inputSchema: {
-        govValidators: z.string(),
-        scope: z.enum(["internal", "external"]),
-        proposalId: z.string(),
+        govValidators: z.string().describe("GovValidators address (dexe_dao_info: helpers.validators)."),
+        scope: z.enum(["internal", "external"]).describe("Which chamber's proposal: 'internal' or 'external'."),
+        proposalId: z.string().describe(PROPOSAL_ID_DESC),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -784,10 +900,12 @@ function registerMoveToValidators(server: McpServer, ctx: ToolContext): void {
     "dexe_vote_build_move_to_validators",
     {
       title: "Escalate a passing proposal to the validators tier",
-      description: "Builds `GovPool.moveProposalToValidators(proposalId)`.",
+      description:
+        B +
+        "`GovPool.moveProposalToValidators(proposalId)` — hands a passed proposal to the validator chamber. Only valid in state WaitingForVotingTransfer, and only a BABT holder may send it when the DAO sets onlyBABTHolders.",
       inputSchema: {
-        govPool: z.string(),
-        proposalId: z.string(),
+        govPool: govPoolParam,
+        proposalId: z.string().describe(PROPOSAL_ID_DESC),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -821,12 +939,15 @@ function registerExecute(server: McpServer, ctx: ToolContext, rpc: RpcProvider):
     {
       title: "Execute a passed proposal",
       description:
-        "Builds `GovPool.execute(proposalId)`; scope:'internal' + govValidators builds " +
-        "`GovValidators.executeInternalProposal(proposalId)` (anyone can send once Succeeded).",
+        B +
+        "`GovPool.execute(proposalId)`; scope:'internal' + govValidators builds `GovValidators.executeInternalProposal(proposalId)` (anyone may send once Succeeded). When an action calls GovSettings.addSettings the response carries an advisory naming the chains where the proposal passes the vote and then reverts here — read it before signing.",
       inputSchema: {
-        govPool: z.string(),
-        proposalId: z.string(),
-        scope: z.enum(["external", "internal"]).default("external"),
+        govPool: govPoolParam,
+        proposalId: z.string().describe(PROPOSAL_ID_DESC),
+        scope: z
+          .enum(["external", "internal"])
+          .default("external")
+          .describe("'external' executes on GovPool; 'internal' on GovValidators (needs govValidators)."),
         govValidators: z.string().optional().describe("Required for scope:'internal' (dexe_dao_info.helpers.validators)"),
         voter: voterParam,
         chainId: buildChainIdParam,
@@ -891,11 +1012,13 @@ function registerClaimRewards(server: McpServer, ctx: ToolContext): void {
     "dexe_vote_build_claim_rewards",
     {
       title: "Claim voter rewards for executed proposals",
-      description: "Builds `GovPool.claimRewards(proposalIds, user)`.",
+      description:
+        B +
+        "`GovPool.claimRewards(proposalIds, user)` — claims creation/voting rewards. Reverts \"Gov: proposal is not executed\" unless every id is executed, and \"Gov: rewards are off\" when that settings slot has no reward token. Pass proposalId 0 to sweep the off-chain reward balance.",
       inputSchema: {
-        govPool: z.string(),
-        proposalIds: z.array(z.string()).min(1),
-        user: z.string(),
+        govPool: govPoolParam,
+        proposalIds: z.array(z.string()).min(1).describe("Executed proposal ids to claim for; 0 sweeps off-chain rewards."),
+        user: z.string().describe("Address whose rewards are claimed (rewards are sent there)."),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -930,12 +1053,13 @@ function registerClaimMicropoolRewards(server: McpServer, ctx: ToolContext): voi
     {
       title: "Claim micropool (delegated) rewards",
       description:
-        "Builds `GovPool.claimMicropoolRewards(proposalIds, delegator, delegatee)`. Called by the delegator to collect their share of rewards earned by their delegatee's votes.",
+        B +
+        "`GovPool.claimMicropoolRewards(proposalIds, delegator, delegatee)` — the delegator collects their share of the rewards their delegatee's votes earned.",
       inputSchema: {
-        govPool: z.string(),
-        proposalIds: z.array(z.string()).min(1),
-        delegator: z.string(),
-        delegatee: z.string(),
+        govPool: govPoolParam,
+        proposalIds: z.array(z.string()).min(1).describe("Executed proposal ids the delegatee voted on."),
+        delegator: z.string().describe("Address that delegated the power (the claimant)."),
+        delegatee: z.string().describe("Address that voted with the delegated power."),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
@@ -971,7 +1095,7 @@ function registerNftMultiplierLock(server: McpServer, ctx: ToolContext): void {
     {
       title: "Lock an NFT multiplier to boost voting power",
       description:
-        "Builds calldata for `ERC721Multiplier.lock(tokenId)`. Locks a reward-multiplier NFT to apply its bonus to the caller's voting power.",
+        B + "`ERC721Multiplier.lock(tokenId)` — applies the reward-multiplier NFT's bonus to your voting power.",
       inputSchema: {
         nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info → nftMultiplier)"),
         tokenId: z.string().describe("NFT token ID to lock"),
@@ -1005,7 +1129,7 @@ function registerNftMultiplierUnlock(server: McpServer, ctx: ToolContext): void 
     {
       title: "Unlock the NFT multiplier to reclaim it",
       description:
-        "Builds calldata for `ERC721Multiplier.unlock()`. Removes the locked reward-multiplier NFT, returning it to the caller and removing the voting power bonus.",
+        B + "`ERC721Multiplier.unlock()` — returns the locked NFT and removes its voting-power bonus.",
       inputSchema: {
         nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info → nftMultiplier)"),
         chainId: buildChainIdParam,
@@ -1040,7 +1164,8 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
     {
       title: "Buy tokens from a token sale tier",
       description:
-        "Builds calldata for `TokenSaleProposal.buy(tierId, tokenToBuyWith, amount, proof)`. For native-coin purchases pass ETHEREUM_ADDRESS (0xEeee…EEeE) as `tokenToBuyWith` — `value` is auto-set to `amount` when left at 0 (the contract requires msg.value == amount). Pass Merkle `proof` if the tier is whitelisted (empty array otherwise).",
+        B +
+        "`TokenSaleProposal.buy(tierId, tokenToBuyWith, amount, proof)`. For native-coin purchases pass ETHEREUM_ADDRESS (0xEeee…EEeE) as `tokenToBuyWith`; `value` is auto-set to `amount` when left at 0 (the contract requires msg.value == amount). Whitelisted tiers need the Merkle `proof`.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         tierId: z.string().describe("Tier ID to buy from"),
@@ -1053,9 +1178,7 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
           .string()
           .describe(
             amountDesc(
-              "Payment amount in `tokenToBuyWith`, 18-DECIMAL-NORMALIZED rather than in that token's own " +
-                "decimals — buy() converts via from18Safe(token), so for a d<18 token pass rawAmount * 10^(18-d) " +
-                "(raw units there under-pay by 10^(18-d) and revert below 1e(18-d))",
+              "Payment in `tokenToBuyWith`, 18-DECIMAL-NORMALIZED, not that token's own decimals — buy() converts via from18Safe(token), so a d<18 token needs rawAmount * 10^(18-d)",
             ),
           ),
         proof: z.array(z.string()).default([]).describe("Merkle proof bytes32[] (empty if no whitelist)"),
@@ -1064,8 +1187,8 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
           .default("0")
           .describe(
             amountDesc(
-              "Native coin (BNB/ETH, always 18 decimals) attached to the tx, for native-coin purchases",
-              "Leave at '0' for a native buy and it is auto-set to `amount` (the contract requires msg.value == amount)",
+              "Native coin (BNB/ETH, 18 decimals) sent with the tx, for native-coin purchases",
+              "Leave '0' on a native buy and it is auto-set to `amount` (msg.value must equal amount)",
             ),
           ),
         chainId: buildChainIdParam,
@@ -1108,7 +1231,7 @@ function registerTokenSaleClaim(server: McpServer, ctx: ToolContext): void {
     {
       title: "Claim purchased tokens from token sale tiers",
       description:
-        "Builds calldata for `TokenSaleProposal.claim(tierIds)`. Call after the tier's claim lock duration has passed.",
+        B + "`TokenSaleProposal.claim(tierIds)`. Call after the tier's claim lock duration has passed.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         tierIds: z.array(z.string()).min(1).describe("Tier IDs to claim from"),
@@ -1142,10 +1265,8 @@ function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): 
     {
       title: "Withdraw vested tokens from token sale tiers",
       description:
-        "Builds calldata for `TokenSaleProposal.vestingWithdraw(tierIds)`. For tiers with vesting schedules — withdraws the currently unlocked portion. " +
-        "Heads up: this call is refused by the on-chain firewall in every shape on current pools — an upstream " +
-        "protocol defect that strands the vested allocation. The payload is still returned (older pools work), " +
-        "with the defect reported alongside it.",
+        B +
+        "`TokenSaleProposal.vestingWithdraw(tierIds)` — withdraws the unlocked portion of a vesting tier. The on-chain firewall refuses this call in every shape on current pools, stranding the vested allocation; the payload is still returned (older pools work) with the defect reported alongside it.",
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         tierIds: z.array(z.string()).min(1).describe("Tier IDs to withdraw vested tokens from"),
@@ -1183,7 +1304,7 @@ function registerDistributionClaim(server: McpServer, ctx: ToolContext): void {
     {
       title: "Claim share from distribution proposals",
       description:
-        "Builds calldata for `DistributionProposal.claim(voter, proposalIds)`. Claims the voter's proportional share from executed distribution proposals.",
+        B + "`DistributionProposal.claim(voter, proposalIds)` — the voter's proportional share of executed distribution proposals.",
       inputSchema: {
         distributionProposal: z.string().describe("DistributionProposal contract address"),
         voter: z.string().describe("Address of the voter claiming their share"),
@@ -1221,14 +1342,14 @@ function registerStakingStake(server: McpServer, ctx: ToolContext): void {
     {
       title: "Stake tokens in a staking tier",
       description:
-        "Builds calldata for `GovUserKeeper.stakeTokens(tierId, amount)`. Deposits tokens into the specified staking tier to earn rewards. Target is the GovUserKeeper contract (not StakingProposal).",
+        B + "`GovUserKeeper.stakeTokens(tierId, amount)` — stakes into a tier to earn rewards. Target is GovUserKeeper, not StakingProposal.",
       inputSchema: {
         userKeeper: z.string().describe("GovUserKeeper contract address"),
         tierId: z.string().describe("Staking tier ID"),
         amount: z
           .string()
           .describe(
-            amountDesc("Amount of the DAO's governance token to stake into the tier, in that token's own decimals"),
+            amountDesc("Governance token to stake into the tier, that token's own decimals"),
           ),
         chainId: buildChainIdParam,
       },
@@ -1260,7 +1381,7 @@ function registerStakingClaim(server: McpServer, ctx: ToolContext): void {
     {
       title: "Claim staking rewards from a tier",
       description:
-        "Builds calldata for `StakingProposal.claim(id)`. Claims accumulated rewards from the specified staking tier without unstaking.",
+        B + "`StakingProposal.claim(id)` — claims a tier's accumulated rewards without unstaking.",
       inputSchema: {
         stakingProposal: z.string().describe("StakingProposal contract address"),
         stakingId: z.string().describe("Staking tier ID to claim rewards from"),
@@ -1294,7 +1415,7 @@ function registerStakingClaimAll(server: McpServer, ctx: ToolContext): void {
     {
       title: "Claim all staking rewards across all tiers",
       description:
-        "Builds calldata for `StakingProposal.claimAll()`. Claims accumulated rewards from every active staking tier in one transaction.",
+        B + "`StakingProposal.claimAll()` — claims rewards from every active tier in one tx.",
       inputSchema: {
         stakingProposal: z.string().describe("StakingProposal contract address"),
         chainId: buildChainIdParam,
@@ -1327,7 +1448,7 @@ function registerStakingReclaim(server: McpServer, ctx: ToolContext): void {
     {
       title: "Unstake (reclaim) tokens from a staking tier",
       description:
-        "Builds calldata for `StakingProposal.reclaim(id)`. Withdraws staked tokens and any pending rewards from the specified tier.",
+        B + "`StakingProposal.reclaim(id)` — withdraws the staked tokens and any pending rewards from a tier.",
       inputSchema: {
         stakingProposal: z.string().describe("StakingProposal contract address"),
         stakingId: z.string().describe("Staking tier ID to unstake from"),
@@ -1363,7 +1484,7 @@ function registerPrivacyPolicySign(server: McpServer, ctx: ToolContext): void {
     {
       title: "Build EIP712 typed data for privacy policy agreement",
       description:
-        "Returns the EIP712 typed data that must be signed before calling `agreeToPrivacyPolicy`. The agent wallet signs this with `signTypedData`, then passes the signature to `dexe_vote_build_privacy_policy_agree`. One-time global action per user (not per-DAO).",
+        "Read-only, local. Returns the EIP712 typed data to sign before `agreeToPrivacyPolicy`. Sign it with the wallet's signTypedData, then pass the signature to dexe_vote_build_privacy_policy_agree. One-time per user, not per DAO.",
       inputSchema: {
         userRegistry: z.string().describe("UserRegistry contract address"),
         documentHash: z.string().describe("Privacy policy document hash (bytes32). Read from UserRegistry.documentHash() or use DEXE_PRIVACY_POLICY_HASH env var."),
@@ -1413,7 +1534,8 @@ function registerPrivacyPolicyAgree(server: McpServer, ctx: ToolContext): void {
     {
       title: "Submit privacy policy agreement signature on-chain",
       description:
-        "Builds calldata for `UserRegistry.agreeToPrivacyPolicy(signature)`. Pass the EIP712 signature obtained from signing the typed data (from `dexe_vote_build_privacy_policy_sign`). Optionally combine with profile URL update via `profileURL` param.",
+        B +
+        "`UserRegistry.agreeToPrivacyPolicy(signature)` — pass the EIP712 signature from dexe_vote_build_privacy_policy_sign. With `profileURL` it calls changeProfileAndAgreeToPrivacyPolicy instead.",
       inputSchema: {
         userRegistry: z.string().describe("UserRegistry contract address"),
         signature: z.string().describe("EIP712 signature bytes (0x-prefixed hex)"),
@@ -1453,17 +1575,16 @@ function registerMulticall(server: McpServer, ctx: ToolContext): void {
     {
       title: "Atomic multicall on GovPool (batch multiple writes in one tx)",
       description:
-        "Wraps N inner calldatas into `GovPool.multicall(calls)`. Pass the `data` fields from other build tools (e.g. deposit + delegate, execute + claim). Each inner call executes against GovPool itself — only use for GovPool methods.",
+        B +
+        "`GovPool.multicall(calls)` — wraps N inner calldatas. Pass the `data` fields of other build tools (deposit + delegate, execute + claim). Every inner call runs against GovPool itself, so only GovPool methods belong here.",
       inputSchema: {
-        govPool: z.string(),
+        govPool: govPoolParam,
         calls: z.array(z.string()).min(1).describe("Array of 0x-hex calldatas to batch (single-element allowed — the frontend wraps even lone vote/delegate calls, and SphereX-protected pools require that shape)"),
         value: z
           .string()
           .default("0")
           .describe(
-            amountDesc(
-              "Total native coin (BNB/ETH, always 18 decimals) attached to the tx, summed across the whole batch",
-            ),
+            amountDesc("Total native coin (BNB/ETH, 18 decimals) sent with the tx, summed over the batch"),
           ),
         chainId: buildChainIdParam,
       },

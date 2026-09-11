@@ -5,13 +5,18 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall } from "../lib/multicall.js";
 import {
+  backfillVoters,
   gqlRequest,
   resolveSubgraphUrl,
   subgraphChains,
+  toVoterAddress,
+  withOrphanVoterFallback,
   type ResolvedSubgraph,
   type SubgraphKind,
 } from "../lib/subgraph.js";
-import { SUBGRAPH_KINDS, subgraphEnvVar } from "../config.js";
+import { pageMeta, truncationNote } from "../lib/page.js";
+import { GOV_POWER_DECIMALS, withFormatted } from "../lib/units.js";
+import { SUBGRAPH_KINDS } from "../config.js";
 import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
 import { chainIdParam } from "../lib/params.js";
@@ -62,28 +67,26 @@ function resolveEndpoint(
 }
 
 /**
- * The chain paragraph appended to each tool description, built at registration
+ * The chain sentence appended to each tool description, built at registration
  * from the endpoints this install actually has. A hardcoded "BSC mainnet only"
  * sentence goes stale the moment someone sets DEXE_SUBGRAPH_POOLS_URL_97.
  *
- * The on-chain alternatives are listed default-visible ones FIRST, and the
- * gated ones carry `(needs DEXE_TOOLSETS=…)`. Three of the tools that append
- * this note (dao_list / dao_members / delegation_map) are in the default
- * profile, so an unqualified "read it on-chain with dexe_read_multicall" told a
- * zero-config session to call a tool it does not have.
+ * Deliberately terse: six tools pay it on every `tools/list`, three of them in
+ * the default profile. The env var to set and the on-chain alternatives live in
+ * the resolver's own error message (see `resolveEndpoint`), which is what the
+ * caller actually sees when a chain has no endpoint — repeating them here cost
+ * ~300 bytes per tool for text nobody reads until it is already on screen.
  */
 function chainNote(ctx: ToolContext, kind: SubgraphKind): string {
   const indexed = subgraphChains(ctx.config, kind);
   const where = indexed.length
     ? `chains with a ${kind} endpoint here: ${indexed.join(", ")}`
-    : `NO chain has a ${kind} endpoint here`;
+    : `no ${kind} endpoint configured`;
   return (
-    ` Chain-explicit: pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); ` +
-    `the response reports \`indexedChainId\` = the chain the rows came from. A chain with no endpoint ` +
-    `returns an error naming ${subgraphEnvVar(kind)}_<chainId> plus the on-chain alternatives ` +
-    `(dexe_proposal_list / dexe_read_settings / dexe_dao_info; also dexe_read_gov_state ` +
-    `(needs DEXE_TOOLSETS=core,dev) and dexe_read_multicall (needs DEXE_TOOLSETS=core,read)) — ` +
-    `it never answers from another chain.`
+    ` Pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); the reply echoes ` +
+    `\`indexedChainId\`, never another chain's rows. No endpoint for a chain = an error; read it on-chain ` +
+    `with dexe_read_multicall (needs DEXE_TOOLSETS=core,read) or dexe_read_gov_state ` +
+    `(needs DEXE_TOOLSETS=core,dev).`
   );
 }
 
@@ -113,7 +116,15 @@ const DAO_LIST_QUERY = /* GraphQL */ `
 `;
 
 const DAO_MEMBERS_QUERY = /* GraphQL */ `
-  query getVotersInPool($poolId: String!, $offset: Int!, $limit: Int!) {
+  query getVotersInPool(
+    $poolId: String!
+    $offset: Int!
+    $limit: Int!
+    $withVoter: Boolean!
+  ) {
+    daoPools(first: 1, where: { id: $poolId }) {
+      votersCount
+    }
     voterInPools(skip: $offset, first: $limit, where: { pool: $poolId }) {
       id
       APR
@@ -133,7 +144,7 @@ const DAO_MEMBERS_QUERY = /* GraphQL */ `
         id
         tokenId
       }
-      voter {
+      voter @include(if: $withVoter) {
         id
         totalProposalsCreated
         totalVotedProposals
@@ -242,7 +253,12 @@ const USER_ACTIVITY_QUERY = /* GraphQL */ `
 `;
 
 const EXPERTS_QUERY = /* GraphQL */ `
-  query getLocalExpertsByPool($offset: Int!, $limit: Int!, $daoAddress: Bytes!) {
+  query getLocalExpertsByPool(
+    $offset: Int!
+    $limit: Int!
+    $daoAddress: Bytes!
+    $withVoter: Boolean!
+  ) {
     voterInPools(
       skip: $offset
       first: $limit
@@ -251,7 +267,7 @@ const EXPERTS_QUERY = /* GraphQL */ `
       id
       receivedTreasuryDelegation
       receivedDelegation
-      voter {
+      voter @include(if: $withVoter) {
         id
       }
       expertNft {
@@ -290,9 +306,8 @@ function graphQueryChainNote(ctx: ToolContext): string {
     (k) => `${k}: ${subgraphChains(ctx.config, k).join("/") || "none"}`,
   ).join(", ");
   return (
-    `Chain-explicit: pass \`chainId\` (endpoints here — ${per}; default ${ctx.config.defaultChainId}); ` +
-    "the response reports `indexedChainId`. A chain with no endpoint for the chosen subgraph errors " +
-    "(naming DEXE_SUBGRAPH_<KIND>_URL_<chainId>) instead of serving another chain's rows."
+    `\`chainId\` picks the endpoint (${per}; default ${ctx.config.defaultChainId}); ` +
+    "the reply echoes `indexedChainId`, never another chain's rows."
   );
 }
 
@@ -411,15 +426,10 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
       // ships as dexe://graph-schema — what stays is only what a caller cannot
       // recover after the fact: the traps that make a query silently wrong.
       description:
-        "Read-only GraphQL against a DeXe subgraph — 'pools' (DAOs, proposals, voters, delegations, experts, token sales), " +
-        "'interactions' (per-user tx/event feed), 'validators' (validator chamber). " +
-        "Bound every list with `first:` (max 1000), page with `skip:`; oversized responses are rejected. " +
-        "NEVER guess a name: dexe_graph_schema returns the live root fields, an entity's fields, its `<Entity>_filter` " +
-        "where-keys and `<Entity>_orderBy` values; static copy = dexe://graph-schema. " +
-        "Root fields are NOT entity names (DaoPool → `daoPools`, ProposalSettings → `proposalSettings_collection`). " +
-        "pools Proposal has NO `creationTime` — order by `votersVoted`/`quorumReachedTimestamp`/`executionTimestamp`, " +
-        "or use DaoPool.creationTime. Example: subgraph='pools', query='{ proposals(first: 20, orderBy: votersVoted, " +
-        "orderDirection: desc) { proposalId votersVoted pool { id name } } }'. " +
+        "Read-only. GraphQL against a DeXe subgraph: 'pools' (DAOs, proposals, voters, delegations, experts, sales), " +
+        "'interactions' (per-user tx feed), 'validators'. Bound every list with `first:` (max 1000), page with `skip:`; " +
+        "oversized responses are rejected. NEVER guess a name — call dexe_graph_schema; root fields are not entity names " +
+        "(DaoPool -> `daoPools`). " +
         graphQueryChainNote(ctx),
       inputSchema: {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
@@ -437,9 +447,26 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
         const data = await gqlRequest<Record<string, unknown>>(sg.url, query, variables as Record<string, unknown> | undefined);
         const json = JSON.stringify(data);
         if (json.length > GRAPH_QUERY_MAX_RESPONSE_CHARS) {
+          // "Narrow the selection set" with no number behind it is a guess, and
+          // a guess costs another full 8s round trip. Row count is what the
+          // caller can act on, so the refusal does the arithmetic. The halving
+          // is deliberate headroom: row sizes are uneven, and a suggestion that
+          // lands back over the cap costs a third round trip.
+          const rootArrays = Object.entries(data).filter(([, v]) => Array.isArray(v));
+          const rows = rootArrays.reduce((n, [, v]) => n + (v as unknown[]).length, 0);
+          const suggested =
+            rows > 0
+              ? Math.max(1, Math.floor((rows * GRAPH_QUERY_MAX_RESPONSE_CHARS) / json.length / 2))
+              : null;
           return errorResult(
-            `Response too large (${json.length} chars > ${GRAPH_QUERY_MAX_RESPONSE_CHARS}). ` +
-              `Narrow the selection set or paginate with first/skip.`,
+            `Response too large: ${json.length} chars (cap ${GRAPH_QUERY_MAX_RESPONSE_CHARS})` +
+              (rows > 0 ? ` across ${rows} row(s)` : "") +
+              `. NO rows were returned — the query must be re-issued smaller; nothing was truncated for you. ` +
+              (suggested
+                ? `Re-run with first: ${suggested}${rootArrays.length > 1 ? ` on EACH of the ${rootArrays.length} list fields` : ""} and page with skip:, `
+                : `Add first:/skip: pagination, `) +
+              `or drop fields from the selection set (nested entities dominate the size). ` +
+              `Entity/field reference: dexe_graph_schema or the dexe://graph-schema resource.`,
           );
         }
         // Row shape is whatever the caller selected, so the summary reports only
@@ -667,16 +694,10 @@ function registerGraphSchema(server: McpServer, ctx: ToolContext): void {
     {
       title: "Introspect a DeXe subgraph schema (entities, fields, root query names)",
       description:
-        "Live GraphQL introspection of a DeXe subgraph — the recovery path when dexe_graph_query returns " +
-        "\"Type 'X' has no field 'Y'\" or you do not know what to type. NEVER guess a field name; call this instead. " +
-        "Omit `entity` for the ROOT QUERY FIELD MAP: every entity plus the exact field name to query it by. " +
-        "Those names are not derivable from the entity — DaoPool is `daoPools`, ProposalSettings is " +
-        "`proposalSettings_collection`, DPContract is `dpcontracts`. " +
-        "Pass `entity` (e.g. 'Proposal') for that type's fields with their GraphQL types; an unknown name returns " +
-        "ranked 'did you mean' candidates rather than an error you cannot act on. " +
-        "Filter and sort vocabularies are types too: ask for '<Entity>_filter' (every `where:` key, e.g. " +
-        "`name_contains_nocase`, `timestamp_gt`) or '<Entity>_orderBy'. " +
-        "Static entity reference (may lag the deployed schema): MCP resource dexe://graph-schema. " +
+        "Read-only. Live introspection of a DeXe subgraph schema — the recovery path when dexe_graph_query answers " +
+        "\"Type 'X' has no field 'Y'\". Omit `entity` for the root query field map (each entity -> the field name to query " +
+        "it by); pass `entity` for that type's fields, '<Entity>_filter' for valid `where:` keys, '<Entity>_orderBy' for " +
+        "valid `orderBy:` values. An unknown name returns ranked candidates. " +
         graphQueryChainNote(ctx),
       inputSchema: {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to introspect"),
@@ -784,12 +805,12 @@ function registerDaoList(server: McpServer, ctx: ToolContext): void {
     {
       title: "Discover and list DAOs (subgraph)",
       description:
-        "Paginated DAO discovery via the pools subgraph. Search by name (case-insensitive), ordered by voter count descending." +
+        "Read-only. Paginated DAO discovery via the pools subgraph; name search is case-insensitive, ordered by voter count descending." +
         chainNote(ctx, "pools"),
       inputSchema: {
         query: z.string().default("").describe("Name search (case-insensitive, empty = all)"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(20),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(20).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -802,14 +823,27 @@ function registerDaoList(server: McpServer, ctx: ToolContext): void {
           limit,
           queryString: query,
         });
-        const pools = data.daoPools;
+        const pools = data.daoPools as Array<Record<string, unknown>>;
+        const meta = pageMeta({ offset, limit, returned: pools.length });
+        // Delegated totals are 18-decimal voting power, not gov-token units.
+        const rows = pools.map((p) =>
+          withFormatted(p, ["totalCurrentTokenDelegated"], GOV_POWER_DECIMALS),
+        );
         // `name` here is chosen by whoever deployed the DAO — deploying one is
         // permissionless, so this list is the cheapest injection channel in the
         // whole server at an agent that may be holding a signer.
         return untrustedResult({
-          summary: `Found ${pools.length} DAO(s) on chain ${sg.chainId} (offset=${offset}, limit=${limit}, query="${renderUntrusted(query, 80)}")`,
+          summary:
+            `Found ${pools.length} DAO(s) on chain ${sg.chainId} (offset=${offset}, limit=${limit}, query="${renderUntrusted(query, 80)}")` +
+            truncationNote(meta, "dexe_read_dao_list", "DAO"),
           label: `DAO rows (names are attacker-chosen; chain ${sg.chainId})`,
-          structured: { query, offset, limit, indexedChainId: sg.chainId, daoPools: pools },
+          structured: {
+            query,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
+            indexedChainId: sg.chainId,
+            daoPools: rows,
+          },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_list").message);
@@ -824,12 +858,12 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
     {
       title: "List DAO members with voting power (subgraph)",
       description:
-        "Paginated member list for a DAO — includes voting power, delegation counts, rewards, expert status." +
+        "Read-only. Paginated member list for a DAO — voting power, delegation counts, rewards, expert status." +
         chainNote(ctx, "pools"),
       inputSchema: {
         govPool: z.string().describe("GovPool address (lowercased for subgraph)"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(20),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(20).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -838,16 +872,77 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
       const sg = resolveEndpoint(ctx, "pools", chainId);
       if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ voterInPools: unknown[] }>(sg.url, DAO_MEMBERS_QUERY, {
-          poolId: govPool.toLowerCase(),
+        type MembersData = {
+          daoPools?: Array<{ votersCount?: string }>;
+          voterInPools: Array<Record<string, unknown>>;
+        };
+        const { data, degraded } = await withOrphanVoterFallback((withVoter) =>
+          gqlRequest<MembersData>(sg.url, DAO_MEMBERS_QUERY, {
+            poolId: govPool.toLowerCase(),
+            offset,
+            limit,
+            withVoter,
+          }),
+        );
+        let members = data.voterInPools;
+        let indexerWarning: string | null = null;
+        if (degraded) {
+          // The rows are real; only the per-voter stats hanging off the missing
+          // Voter entity are gone. Recover each wallet from its own row id and
+          // backfill whatever the index DOES hold for it.
+          const wallets = members.map((m) => toVoterAddress(String(m.id ?? "")));
+          const { found, backfillFailed } = await backfillVoters(sg.url, wallets);
+          let orphans = 0;
+          members = members.map((m, i) => {
+            const w = wallets[i]!;
+            const v = found.get(w);
+            if (!v) orphans++;
+            return { ...m, voter: v ?? { id: w }, voterStatsUnavailable: !v };
+          });
+          indexerWarning =
+            `DEGRADED (indexer data fault, NOT transient): ${orphans} of ${members.length} row(s) on this ` +
+            `page point at a Voter record the index does not hold, which made the normal query fail ` +
+            `outright. The rows are real and complete for this page; only per-voter stats (totalVotes, ` +
+            `totalProposalsCreated, …) are missing on the rows flagged voterStatsUnavailable — their ` +
+            `wallet is derived from the row id and is correct.` +
+            (backfillFailed
+              ? ` The stats backfill query ALSO failed, so no row on this page carries per-voter stats.`
+              : "") +
+            ` Re-running returns the identical error. For authoritative power on those wallets call ` +
+            `dexe_vote_user_power (on-chain, no indexer).`;
+        }
+        // `votersCount` counts exactly the rows this query pages over — verified
+        // live on BOXY DAO: 100 rows at skip 0 + 4 at skip 100 = 104.
+        const rawTotal = Number(data.daoPools?.[0]?.votersCount ?? NaN);
+        const meta = pageMeta({
           offset,
           limit,
+          returned: members.length,
+          ...(Number.isFinite(rawTotal) ? { total: rawTotal } : {}),
         });
-        const members = data.voterInPools;
+        // Subgraph governance amounts are 18-decimal-normalized voting power
+        // (GovUserKeeper.to18), never the gov token's own decimals.
+        const rows = members.map((m) =>
+          withFormatted(
+            m,
+            ["receivedDelegation", "receivedTreasuryDelegation", "receivedNFTDelegation"],
+            GOV_POWER_DECIMALS,
+          ),
+        );
         return untrustedResult({
-          summary: `${members.length} member(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          summary:
+            (indexerWarning ? `${indexerWarning}\n` : "") +
+            `${members.length} member(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})` +
+            truncationNote(meta, "dexe_read_dao_members", "member"),
           label: `member rows (chain ${sg.chainId})`,
-          structured: { govPool, offset, limit, indexedChainId: sg.chainId, members },
+          structured: {
+            govPool,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
+            indexedChainId: sg.chainId,
+            indexerWarning,
+            members: rows,
+          },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_members").message);
@@ -856,20 +951,10 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-/**
- * The delegation queries filter on `delegator_.voter_in` / `delegatee_.voter_in`,
- * which match VOTER WALLET addresses — NOT VoterInPool composite ids. A composite
- * id reaches the store's Bytes parser and fails with "Odd number of digits".
- * Accept both shapes and extract the wallet: 'govPool-voter' → part after the
- * dash; 80-hex 'voter+pool' (the real VoterInPool id) → first 40 hex chars.
- */
-export function toVoterAddress(input: string): string {
-  let s = input.trim().toLowerCase();
-  const dash = s.lastIndexOf("-");
-  if (dash >= 0) s = s.slice(dash + 1);
-  const hex = s.startsWith("0x") ? s.slice(2) : s;
-  return `0x${hex.length > 40 ? hex.slice(0, 40) : hex}`;
-}
+// `toVoterAddress` moved to src/lib/subgraph.ts so report.ts and the orphan
+// -Voter fallback can share it without a tools→tools import. Re-exported here
+// because it is part of this module's published surface.
+export { toVoterAddress };
 
 function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
@@ -877,7 +962,7 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
     {
       title: "Delegation relationships — outgoing or incoming (subgraph)",
       description:
-        "Query delegation pairs from the pools subgraph. Use direction='outgoing' to see who a user delegated to, or 'incoming' to see who delegated to them." +
+        "Read-only. Delegation pairs from the pools subgraph: direction='outgoing' = who a user delegated to, 'incoming' = who delegated to them." +
         chainNote(ctx, "pools"),
       inputSchema: {
         addresses: z
@@ -887,8 +972,8 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
             "Voter WALLET addresses (plain 0x…40-hex). Composite VoterInPool ids ('govPool-voter' or 80-hex 'voter+pool' concatenations) are also accepted — the voter part is extracted automatically.",
           ),
         direction: z.enum(["outgoing", "incoming"]).default("outgoing").describe("outgoing = who I delegated to; incoming = who delegated to me"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(50).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -911,18 +996,28 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
           direction === "outgoing"
             ? { offset, limit, delegatorIn: lc }
             : { offset, limit, voterIn: lc };
-        const data = await gqlRequest<{ voterInPoolPairs: unknown[] }>(sg.url, query, variables);
+        const data = await gqlRequest<{ voterInPoolPairs: Array<Record<string, unknown>> }>(
+          sg.url,
+          query,
+          variables,
+        );
         const pairs = data.voterInPoolPairs;
+        const meta = pageMeta({ offset, limit, returned: pairs.length });
+        const rows = pairs.map((p) =>
+          withFormatted(p, ["delegatedAmount", "delegatedVotes"], GOV_POWER_DECIMALS),
+        );
         return untrustedResult({
-          summary: `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es) on chain ${sg.chainId}`,
+          summary:
+            `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es) on chain ${sg.chainId}` +
+            truncationNote(meta, "dexe_read_delegation_map", "delegation"),
           label: `delegation rows (chain ${sg.chainId})`,
           structured: {
             addresses,
             direction,
-            offset,
-            limit,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
             indexedChainId: sg.chainId,
-            delegations: pairs,
+            delegations: rows,
           },
         });
       } catch (err) {
@@ -938,11 +1033,11 @@ function registerValidatorList(server: McpServer, ctx: ToolContext): void {
     {
       title: "List validators in a DAO (subgraph)",
       description:
-        "Paginated validator list ordered by balance descending." + chainNote(ctx, "validators"),
+        "Read-only. Paginated validator list ordered by balance descending." + chainNote(ctx, "validators"),
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(50).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -956,11 +1051,22 @@ function registerValidatorList(server: McpServer, ctx: ToolContext): void {
           limit,
           address: govPool.toLowerCase(),
         });
-        const validators = data.validatorInPools;
+        const validators = data.validatorInPools as Array<Record<string, unknown>>;
+        const meta = pageMeta({ offset, limit, returned: validators.length });
+        // GovValidators balances are the validator token's own 18-dec units.
+        const rows = validators.map((v) => withFormatted(v, ["balance"], GOV_POWER_DECIMALS));
         return untrustedResult({
-          summary: `${validators.length} validator(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          summary:
+            `${validators.length} validator(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})` +
+            truncationNote(meta, "dexe_read_validator_list", "validator"),
           label: `validator rows (chain ${sg.chainId})`,
-          structured: { govPool, offset, limit, indexedChainId: sg.chainId, validators },
+          structured: {
+            govPool,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
+            indexedChainId: sg.chainId,
+            validators: rows,
+          },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_validator_list").message);
@@ -975,12 +1081,12 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
     {
       title: "User transaction history across DAOs (subgraph)",
       description:
-        "Paginated transaction history for a user — proposals created, votes cast, delegations, claims. Ordered by timestamp descending." +
+        "Read-only. Paginated transaction history for a user — proposals created, votes cast, delegations, claims, newest first." +
         chainNote(ctx, "interactions"),
       inputSchema: {
         user: z.string().describe("User wallet address"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(50).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -998,10 +1104,13 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
           ...tx,
           typeLabels: transactionTypeLabels(Array.isArray(tx.type) ? tx.type : [tx.type]),
         }));
+        const meta = pageMeta({ offset, limit, returned: txs.length });
         return untrustedResult({
-          summary: `${txs.length} transaction(s) for ${user} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          summary:
+            `${txs.length} transaction(s) for ${user} on chain ${sg.chainId} (offset=${offset}, limit=${limit})` +
+            truncationNote(meta, "dexe_read_user_activity", "transaction"),
           label: `transaction rows (chain ${sg.chainId})`,
-          structured: { user, offset, limit, indexedChainId: sg.chainId, transactions: txs },
+          structured: { user, ...meta, indexedChainId: sg.chainId, transactions: txs },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_user_activity").message);
@@ -1016,12 +1125,12 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
     {
       title: "List local experts in a DAO (subgraph)",
       description:
-        "Paginated list of local experts (holders of DAO-specific expert NFTs) with their delegation info." +
+        "Read-only. Paginated list of local experts (holders of DAO-specific expert NFTs) with their delegation info." +
         chainNote(ctx, "pools"),
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0).describe("Rows to skip (pagination)."),
+        limit: z.number().int().min(1).max(100).default(50).describe("Max rows per page."),
         chainId: chainIdParam,
       },
     },
@@ -1030,16 +1139,53 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
       const sg = resolveEndpoint(ctx, "pools", chainId);
       if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ voterInPools: unknown[] }>(sg.url, EXPERTS_QUERY, {
-          offset,
-          limit,
-          daoAddress: govPool.toLowerCase(),
-        });
-        const experts = data.voterInPools;
+        const { data, degraded } = await withOrphanVoterFallback((withVoter) =>
+          gqlRequest<{ voterInPools: Array<Record<string, unknown>> }>(sg.url, EXPERTS_QUERY, {
+            offset,
+            limit,
+            daoAddress: govPool.toLowerCase(),
+            withVoter,
+          }),
+        );
+        let experts = data.voterInPools;
+        let indexerWarning: string | null = null;
+        if (degraded) {
+          experts = experts.map((e) => ({
+            ...e,
+            voter: { id: toVoterAddress(String(e.id ?? "")) },
+            voterStatsUnavailable: true,
+          }));
+          indexerWarning =
+            `DEGRADED (indexer data fault, NOT transient): this pool holds expert rows whose Voter record ` +
+            `the index does not have, which made the normal query fail outright. The rows below are real; ` +
+            `each wallet is derived from its row id and is correct. Re-running returns the identical error.`;
+        }
+        // NO `total` here: `votersCount` counts voters, and EXPERTS_QUERY filters
+        // to expert-NFT holders — a strict subset. BOXY DAO is 0 experts vs 104
+        // voters, which would print "showing 0 of 104" and page to offset 0
+        // forever.
+        const meta = pageMeta({ offset, limit, returned: experts.length });
+        const rows = experts.map((e) =>
+          withFormatted(
+            e,
+            ["receivedDelegation", "receivedTreasuryDelegation"],
+            GOV_POWER_DECIMALS,
+          ),
+        );
         return untrustedResult({
-          summary: `${experts.length} expert(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          summary:
+            (indexerWarning ? `${indexerWarning}\n` : "") +
+            `${experts.length} expert(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})` +
+            truncationNote(meta, "dexe_read_dao_experts", "expert"),
           label: `expert rows (chain ${sg.chainId})`,
-          structured: { govPool, offset, limit, indexedChainId: sg.chainId, experts },
+          structured: {
+            govPool,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
+            indexedChainId: sg.chainId,
+            indexerWarning,
+            experts: rows,
+          },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_experts").message);
@@ -1072,8 +1218,10 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
     {
       title: "List OTC sale tiers for a DAO",
       description:
-        "Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal helper. Returns tier list with `totalSold` and status (`upcoming` / `active` / `ended` / `off`) computed against current block timestamp and the tier's on-chain isOff flag. Pure on-chain read — no subgraph involved, so it works on any chain with an RPC. `chainId` selects the chain (defaults to the MCP's default chain) and the response echoes the resolved `chainId`. " +
-        "When `tokenSaleProposal` is omitted the tool returns an error pointing at the helper-discovery follow-up; supply it explicitly until per-DAO helper discovery lands.",
+        "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with " +
+        "`totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's " +
+        "on-chain isOff flag. On-chain only — any chain with an RPC; the reply echoes the resolved `chainId`. " +
+        "`tokenSaleProposal` is required.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         tokenSaleProposal: z

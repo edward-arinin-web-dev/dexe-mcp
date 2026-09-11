@@ -5,16 +5,17 @@ import type { ToolContext } from "./context.js";
 import type { TxPayload } from "../lib/calldata.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { PinataClient, fetchIpfs, toCidV1, cidForJson } from "../lib/ipfs.js";
-import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
+import { fetchIpfs, toCidV1, pinJsonOrPreview } from "../lib/ipfs.js";
+import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
+import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { resolveGateways } from "./ipfs.js";
-import { SignerManager } from "../lib/signer.js";
+import { SignerManager, HOT_KEY_SAFETY, hotKeySafetyFields } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain, type DexeConfig } from "../config.js";
-import { pinataUploadHint } from "../lib/requireEnv.js";
+import { pinataForWrites } from "../lib/requireEnv.js";
 import { runBroadcastGuards } from "../lib/broadcastGuards.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import {
@@ -26,11 +27,18 @@ import {
   type TreasuryHit,
 } from "../lib/quorumRisk.js";
 import {
-  checkAddSettingsTrap,
   executeAddSettingsAdvisory,
   POST_EXECUTE_LOCK_ADVISORY,
+  voteLockAtCreateAdvisory,
   type UpstreamAdvisory,
 } from "../lib/protocolAdvisories.js";
+import { assessBuildPure, assessBuildContext } from "../lib/buildAdvisories.js";
+import {
+  dedupeWarnings,
+  warningLine,
+  worstBlock,
+  type BuildWarning,
+} from "../lib/buildWarning.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import {
@@ -45,8 +53,9 @@ import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
 import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/errors.js";
 import { flowChainFields, flowContextSchema, type FlowContext } from "../lib/flowChain.js";
-import { parseAmount, formatAmount } from "../lib/units.js";
-import { signerKeyParam } from "../lib/params.js";
+import { parseAmount, formatAmount, formatUnitsWithSymbol } from "../lib/units.js";
+import { unixToUtc } from "../lib/time.js";
+import { signerKeyParam, govPoolParam, PROPOSAL_ID_DESC, NFT_IDS_OWN_DESC } from "../lib/params.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { withActionContext, currentActionContext } from "../lib/agentLedger.js";
@@ -489,6 +498,8 @@ export interface ExistingProposal {
   proposalId: number;
   state: number;
   stateName: string;
+  /** core.voteEnd, Unix seconds (0 when the decoder could not read it). */
+  voteEnd: number;
 }
 
 /**
@@ -549,11 +560,70 @@ export async function findLiveProposalByDescriptionURL(
         proposalId: offset + i + 1,
         state: decoded.proposalState,
         stateName: proposalStateName(decoded.proposalState),
+        voteEnd: Number(decoded.voteEnd ?? 0n),
       };
     }
     return null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Backoff between post-create id lookups, in ms — the whole budget is 1.2s.
+ *
+ * Deliberately small. This is a cosmetic read on a create that ALREADY
+ * succeeded and whose receipt this process has already seen; the only thing it
+ * buys is tolerance for a load-balanced pool answering from a node one block
+ * behind. Anything longer would tax every successful create to decorate a field
+ * the caller can recover with one dexe_proposal_list call.
+ */
+const RESOLVE_CREATED_BACKOFF_MS = [400, 800];
+
+/** `GovPool.latestProposalId()`, or null when unreadable. Fail-soft. */
+export async function readLatestProposalId(
+  provider: JsonRpcProvider,
+  govPool: string,
+): Promise<number | null> {
+  try {
+    const [r] = await multicall(provider, [
+      { target: govPool, iface: GOV_POOL_ABI, method: "latestProposalId", args: [], allowFailure: true },
+    ]);
+    if (!r?.success) return null;
+    const n = Number(r.value as bigint);
+    return Number.isSafeInteger(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the id of a create that JUST landed.
+ *
+ * `floor` is `latestProposalId` as read BEFORE the broadcast (0 when unknown):
+ * the answer must be strictly greater. That is what makes this safe under
+ * `allowDuplicate:true`, where an identical earlier copy is still live and a
+ * lagging node would otherwise hand back the OLD proposal's id — which the
+ * response would then present as "the one you just created", and a vote on the
+ * wrong proposal cannot be undone in one call ("Gov: need cancel").
+ *
+ * Bounded by RESOLVE_CREATED_BACKOFF_MS (3 attempts, 1.2s of sleep). A node
+ * that lags longer degrades to "id unknown" — never to a hang, and never to an
+ * error on a create that already landed.
+ * Naming the id is a nicety; the create itself already succeeded.
+ */
+export async function resolveCreatedProposal(
+  provider: JsonRpcProvider,
+  govPool: string,
+  descriptionURL: string,
+  floor: number,
+): Promise<ExistingProposal | null> {
+  for (let attempt = 0; ; attempt++) {
+    const found = await findLiveProposalByDescriptionURL(provider, govPool, descriptionURL);
+    if (found && found.proposalId > floor) return found;
+    const backoff = RESOLVE_CREATED_BACKOFF_MS[attempt];
+    if (backoff === undefined) return null;
+    await flowSleep(backoff);
   }
 }
 
@@ -821,6 +891,22 @@ export const RESUME_RECHECKS =
   "if one of those was the failing step, check dexe_proposal_state first so the re-run does not repeat a step that landed.";
 
 /**
+ * Resume text for a flow that is ONE payload — a DAO deploy.
+ *
+ * `RESUME_RECHECKS` enumerates the proposal composites' legs
+ * (approve/deposit/create/vote). A deploy has none of them, so the shared
+ * string told a user whose deploy failed that `createProposalAndVote` and
+ * `GovPool.vote` would be skipped and that the validator round would not —
+ * four facts, all about steps that do not exist in the call they just made.
+ */
+export const DEPLOY_RESUME_RECHECKS =
+  "A DAO deploy is a SINGLE transaction — there are no earlier steps to skip. Re-running the same call is safe " +
+  "against a duplicate DAO: the pool address is derived from your wallet plus the DAO name (CREATE2), and the " +
+  "build refuses up-front with \"PoolFactory: pool name is already taken\" if a pool already has code at that " +
+  "address, so a re-run after a deploy that actually landed fails BEFORE broadcasting anything. Keep the SAME " +
+  "daoName on a re-run — changing it deploys a second, separate DAO. To inspect the existing one: dexe_dao_info.";
+
+/**
  * True when a step failed because the RECEIPT WAIT timed out rather than
  * because the transaction failed. `waitWithTimeout` normalizes ethers'
  * TimeoutError into this sentence (src/lib/txWait.ts) and ethers itself tags
@@ -849,6 +935,7 @@ export function timeoutResume(
   chainId: number,
   landed: FlowStep[],
   txHash?: string,
+  rechecks: string = RESUME_RECHECKS,
 ): string {
   const hashArg = txHash ? `"${txHash}"` : '"<the 0x… hash in the error above>"';
   return (
@@ -861,7 +948,7 @@ export function timeoutResume(
     (landed.length > 0
       ? `${landed.length} earlier step(s) already landed on-chain (see landedSteps txHashes). `
       : "") +
-    RESUME_RECHECKS
+    rechecks
   );
 }
 
@@ -888,6 +975,167 @@ export function describeBroadcaster(
   }
 }
 
+/**
+ * The four questions a human asks before letting a composite spend their money,
+ * answered in one block: what happens, who pays, how many transactions, and
+ * what cannot be undone.
+ *
+ * Nested under `preview` on purpose. `next` at the TOP level belongs to
+ * {@link FlowChainFields} and is an ARRAY of guide pointers; a second `next` of
+ * a different type there would clobber it in every dexe_guide-driven journey
+ * (later spread wins) and break the structuredContent contract for the exact
+ * caller this is meant to serve.
+ *
+ * Emitted for EVERY mode, not just previews: the one-call path (a configured
+ * hot key, no dryRun) is where most agents land, and it is the path where "what
+ * did that just do, and with whose wallet?" is asked after the gas is spent.
+ * `broadcast` says which of the two it is, so no tense is ever a lie.
+ */
+export function previewBlock(a: {
+  chainId: number;
+  /** One human sentence naming the act, the DAO and the amounts. */
+  act: string;
+  /** Resolved payer, when a key is configured. */
+  who?: { signerKey: string; address: string };
+  txCount: number;
+  /** What cannot be undone once this lands. */
+  irreversible: string;
+  /** True only when this response reports a real broadcast. */
+  broadcast: boolean;
+  /**
+   * The exact next call, named with its JSON params. Omitted by a surface that
+   * already carries a top-level `next` string of its own (dexe_dao_create), so
+   * the same sentence is never paid for twice.
+   */
+  next?: string;
+}): { preview: Record<string, unknown> } {
+  return {
+    preview: {
+      whatHappens: a.act,
+      whoPays: a.who
+        ? `${a.who.signerKey} (${a.who.address}) pays the gas on chain ${a.chainId}`
+        : "no signing key is configured — nobody pays yet; see `enableWrites` for the two ways to enable writes",
+      txCount: a.txCount,
+      irreversible: a.irreversible,
+      mainnet: a.chainId === 56 || a.chainId === 1,
+      broadcast: a.broadcast,
+      ...(a.next ? { next: a.next } : {}),
+    },
+  };
+}
+
+/**
+ * The `prereqs` diagnostic block, with human companions.
+ *
+ * The wei-valued keys are LEGACY and never renamed or removed. The `*Human`
+ * siblings exist because a 24-digit integer is not a number a person can read:
+ * `"153000000000000000000000"` and `"153000000000000000000"` differ by three
+ * characters and by a factor of a thousand. `tokenSymbol`/`tokenDecimals` are
+ * emitted too — without them the caller could not do the conversion itself.
+ *
+ * `formatUnitsWithSymbol`, not `formatAmount`: the latter appends its own
+ * `(raw …)` tail, which would print every amount's wei twice in one object.
+ */
+export function prereqsBlock(p: Prereqs): Record<string, unknown> {
+  const d = p.tokenDecimals;
+  const sym = p.tokenSymbol;
+  return {
+    walletBalance: p.walletBalance.toString(),
+    depositedPower: p.depositedPower.toString(),
+    allowance: p.currentAllowance.toString(),
+    minVotesForCreating: p.minVotesForCreating.toString(),
+    tokenAddress: p.tokenAddress,
+    tokenSymbol: sym,
+    tokenDecimals: d,
+    walletBalanceHuman: formatUnitsWithSymbol(p.walletBalance, d, sym),
+    depositedPowerHuman: formatUnitsWithSymbol(p.depositedPower, d, sym),
+    minVotesForCreatingHuman: formatUnitsWithSymbol(p.minVotesForCreating, d, sym),
+    // These were read BEFORE this call's approve/deposit landed, so in
+    // `mode: "executed"` they are already out of date by the deposit amount.
+    asOf: "read before this call's transactions",
+  };
+}
+
+/**
+ * Truthful `votedWith` for the vote composite.
+ *
+ * When the vote was ALREADY cast this call skips it, so reporting the amount it
+ * *would* have used publishes a number that was never voted — worse than the
+ * present no-number state. The honest source is the prior on-chain vote, and
+ * `readPriorVote` is fail-soft, so an unreadable prior vote reports nothing.
+ */
+export function votedWithFields(
+  voteAlreadyCast: boolean,
+  priorVote: { tokensVoted: bigint } | null,
+  voteAmt: bigint,
+  decimals: number,
+  symbol: string,
+): Record<string, unknown> {
+  if (!voteAlreadyCast) {
+    return {
+      votedWith: voteAmt.toString(),
+      votedWithHuman: formatUnitsWithSymbol(voteAmt, decimals, symbol),
+      votedWithSource: "this call",
+    };
+  }
+  if (!priorVote) return {};
+  return {
+    votedWith: priorVote.tokensVoted.toString(),
+    votedWithHuman: formatUnitsWithSymbol(priorVote.tokensVoted, decimals, symbol),
+    votedWithSource: "prior on-chain vote",
+  };
+}
+
+/**
+ * What to do next for a proposal that is NOT executable after this call's vote.
+ *
+ * This branch fires for five different states and the old skip reason
+ * ("not ready for execution") was written for one of them. Quorum is already
+ * reached in 1/2, voting is over in 3, and in 6 the remedy is the execution
+ * delay, not more votes — so "more voting power is needed" would be false in
+ * four cases out of five.
+ */
+export function postVoteNextStep(
+  state: number,
+  govPool: string,
+  proposalId: number,
+  chainId: number,
+): string {
+  const self = `{"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}`;
+  const inspect = `Track it with dexe_proposal_state ${self}.`;
+  switch (state) {
+    case 0:
+      return (
+        `Quorum is not reached yet — more holders must vote. Each one calls ` +
+        `dexe_proposal_vote_and_execute ${self} (add "signerKey":"agent2" to vote as another keyring persona). ` +
+        inspect
+      );
+    case 1:
+      return (
+        `Quorum IS reached and the proposal is waiting to be moved to the validators. Re-run ` +
+        `dexe_proposal_vote_and_execute with the same arguments plus "driveValidatorRound":true. ` + inspect
+      );
+    case 2:
+      return (
+        `Quorum IS reached and the DAO's VALIDATORS are voting now — member votes no longer matter. If this ` +
+        `signer is a validator, re-run dexe_proposal_vote_and_execute with "driveValidatorRound":true; otherwise ` +
+        `wait for them. ` + inspect
+      );
+    case 3:
+      return (
+        `It was DEFEATED — voting is over and no further vote can change it. Create a new proposal with ` +
+        `dexe_proposal_create if the change is still wanted.`
+      );
+    case 6:
+      return (
+        `It PASSED and is Locked while the execution delay runs. Re-run dexe_proposal_vote_and_execute ${self} ` +
+        `once the delay elapses (autoExecute is on by default). ` + inspect
+      );
+    default:
+      return inspect;
+  }
+}
+
 export async function sendOrCollect(
   signer: SignerManager,
   payloads: TxPayload[],
@@ -908,6 +1156,14 @@ export async function sendOrCollect(
      * read-lag between dependent txs (e.g. deposit → createProposalAndVote).
      */
     postStep?: (payloadIndex: number, payload: TxPayload) => Promise<void>;
+    /**
+     * What a re-run of THIS flow actually re-derives, enumerated. Defaults to
+     * {@link RESUME_RECHECKS}, which describes the proposal composites' legs —
+     * correct for dexe_proposal_create / dexe_proposal_vote_and_execute, and
+     * pure noise for a single-payload flow like dexe_dao_create, which has none
+     * of those steps. An idempotency claim has to enumerate, not generalize.
+     */
+    resumeRechecks?: string;
   },
 ): Promise<{
   mode: "executed" | "payloads" | "dryRun" | "failed";
@@ -917,10 +1173,19 @@ export async function sendOrCollect(
   pairing?: FlowPairing;
   /** QR content blocks (ASCII + PNG) — pass to `attachPairingQr` so the QR renders inline. */
   pairingContent?: PairingContent[];
-  /** Which persona signed — present only when this call actually broadcast. */
-  signer?: { signerKey: string; address: string };
+  /**
+   * Which persona signed, or — under `dryRun` — WOULD sign.
+   *
+   * `safety` is the discriminator, not presence: `sendOrCollect` only ever
+   * broadcasts with a LOCAL key (the no-signer leg returns `mode: "payloads"`
+   * before reaching the wallet), so a signer object carrying the NOT-SAFE note
+   * is by construction a hot-key signature. A dryRun signer carries no `safety`
+   * — it names the payer of a transaction that was not sent.
+   */
+  signer?: { signerKey: string; address: string; safety?: string };
 }> {
   const steps: FlowStep[] = [];
+  const rechecks = opts?.resumeRechecks ?? RESUME_RECHECKS;
 
   // `dryRun` and "no signer" both return calldata without broadcasting, but
   // they're tagged distinctly so the swarm orchestrator's mcpFallbackDispatcher
@@ -931,7 +1196,26 @@ export async function sendOrCollect(
     for (const p of payloads) {
       steps.push({ label: p.description, skipped: false, payload: p });
     }
-    return { mode: "dryRun", steps };
+    // Name the wallet that WOULD pay. A preview whose whole purpose is "should
+    // I let this happen?" and that cannot answer "with whose money?" is missing
+    // the first question a human asks.
+    //
+    // Every step of the resolution is optional and swallowed: a keyless session
+    // must still get its preview (contrast the broadcast path below, which
+    // throws), and naming the payer must never be the reason a preview fails.
+    // No `safety` field — nothing was signed.
+    let whoDry: { signerKey: string; address: string } | undefined;
+    try {
+      if (signer.hasSigner(opts?.signerKey)) {
+        const sgDry = signer.trySigner?.(opts?.chainId, opts?.signerKey);
+        if (sgDry && !("error" in sgDry)) {
+          whoDry = describeBroadcaster(signer, sgDry.ok, opts?.signerKey);
+        }
+      }
+    } catch {
+      /* a preview never fails over naming its payer */
+    }
+    return { mode: "dryRun", steps, ...(whoDry ? { signer: whoDry } : {}) };
   }
   if (!opts?.signerKey && !signer.hasSigner()) {
     for (const p of payloads) {
@@ -962,9 +1246,11 @@ export async function sendOrCollect(
   for (const [i, p] of payloads.entries()) {
     // Any step failing mid-sequence: STOP (dependent steps must not run on top
     // of unchanged state — R3), report which steps already landed (gas spent),
-    // and tell the caller how to resume (R7). Composites re-check completed
-    // work (allowance, deposited power, proposal state) on re-run, so "fix the
-    // cause and re-run this same call" is the correct resume for every flow.
+    // and tell the caller how to resume (R7). What a re-run actually
+    // re-derives is enumerated once, in RESUME_RECHECKS — approve / deposit /
+    // create / vote yes, execute and the validator round NO. This comment used
+    // to claim "the correct resume for every flow"; it was not, which is why
+    // the resume text now names the steps instead of generalizing.
     try {
       // Same B6/B7/B10/B11 broadcast guards as dexe_tx_send. B9 simulation is skipped:
       // these payloads are an ordered, *dependent* sequence, so simming a later
@@ -1020,22 +1306,25 @@ export async function sendOrCollect(
       return {
         mode: "failed",
         steps,
-        signer: who,
+        // Only claim a hot-key signature when something actually landed: this
+        // return is also reached when the FIRST payload is rejected by
+        // runBroadcastGuards, before anything was signed.
+        signer: landed.length > 0 ? { ...who, safety: HOT_KEY_SAFETY } : who,
         failure: {
           failedStep: p.description,
           error: actionable.message,
           landedSteps: landed,
           resume: timedOut
-            ? timeoutResume(p.description, Number(p.chainId), landed, timedOut.txHash)
+            ? timeoutResume(p.description, Number(p.chainId), landed, timedOut.txHash, rechecks)
             : landed.length > 0
               ? `${landed.length} earlier step(s) already landed on-chain (see landedSteps txHashes). ` +
-                `Fix the cause above and re-run this same call. ${RESUME_RECHECKS}`
-              : `No steps landed on-chain. Fix the cause above and re-run this same call. ${RESUME_RECHECKS}`,
+                `Fix the cause above and re-run this same call. ${rechecks}`
+              : `No steps landed on-chain. Fix the cause above and re-run this same call. ${rechecks}`,
         },
       };
     }
   }
-  return { mode: "executed", steps, signer: who };
+  return { mode: "executed", steps, signer: { ...who, safety: HOT_KEY_SAFETY } };
 }
 
 // ---------- exported runner ----------
@@ -1075,6 +1364,13 @@ export interface ProposalCreateInput {
   signerKey?: string;
   /** When true, return ordered TxPayloads even if a signer is configured. */
   dryRun?: boolean;
+  /**
+   * IPFS refs a WRAPPING composite already resolved (e.g. the OTC merkle
+   * whitelists in `dexe_otc_dao_open_sale`), so the response's `ipfs`
+   * disclosure block covers every artifact that rode into the calldata, not
+   * just the ones this function pinned. Internal — not a tool input.
+   */
+  extraIpfsArtifacts?: IpfsArtifact[];
   /**
    * Required to proceed when the built proposal carries a DANGER
    * governance-safety advisory (e.g. quorum lowered into treasury-drain
@@ -1143,13 +1439,23 @@ export async function runProposalCreate(
         return runInternalProposalCreate(input, deps, internalBuilder);
       }
 
-      if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create a proposal"));
+      // Pinata is needed only by the pins further down — a dryRun preview pins
+      // nothing, so it must not be gated on a key it will never use. Demanding
+      // it here also meant the creation-threshold check, the DANGER gate and
+      // the #36 trap gate never got to answer a keyless caller.
+      const pin = pinataForWrites(
+        ctx.config.pinataJwt,
+        input.dryRun ?? false,
+        "to create a proposal (dryRun:true previews need no Pinata key)",
+      );
+      if ("error" in pin) return err(pin.error);
+      const pinata = pin.ok;
 
       const user =
         input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
       if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
 
-      const pinata = new PinataClient(ctx.config.pinataJwt);
+      const ipfsArtifacts: IpfsArtifact[] = [...(input.extraIpfsArtifacts ?? [])];
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;
       const govPool = input.govPool;
@@ -1194,6 +1500,16 @@ export async function runProposalCreate(
       let actionsOnFor: Array<{ executor: string; value: bigint; data: string }>;
       let proposalExtra: Record<string, unknown>;
       let governanceAdvisories: string[] | undefined;
+      /**
+       * One human sentence for `preview.whatHappens`. The catalog builders
+       * already produce it (`built.summary`) and it was thrown away; the
+       * `custom` / `modify_dao_profile` branches synthesize their own.
+       */
+      let actionSummary = "";
+      /** What the catalog builder already reported, in the structured shape. */
+      let builtWarnings: BuildWarning[] | undefined;
+      /** Everything Step 3c ends up with — emitted as `warnings`. */
+      let buildWarnings: BuildWarning[] = [];
 
       if (input.proposalType === "modify_dao_profile") {
         // Read current on-chain descriptionURL up front so we can both:
@@ -1266,8 +1582,13 @@ export async function runProposalCreate(
         let descriptionRef = typeof currentMeta.description === "string" ? currentMeta.description : "";
         if (input.newDaoDescription !== undefined || (input.description && input.description.length > 0)) {
           const descSlate = markdownToSlate(input.newDaoDescription ?? input.description ?? "");
-          const descRes = await pinata.pinJson(descSlate, { name: `dao-desc:${govPool.slice(0, 10)}` });
-          descriptionRef = `ipfs://${descRes.cid}`;
+          const r = await pinJsonOrPreview(descSlate, {
+            dryRun: input.dryRun ?? false,
+            pinata,
+            name: `dao-desc:${govPool.slice(0, 10)}`,
+          });
+          descriptionRef = r.uri;
+          ipfsArtifacts.push({ field: "daoDescription", uri: r.uri, pinned: r.pinned, exact: r.exact });
         }
 
         // Merge: start from current, override only fields the caller explicitly supplied.
@@ -1286,14 +1607,33 @@ export async function runProposalCreate(
         if (input.newAvatarPath || input.newAvatarBase64) {
           // One-call avatar rotation: read + validate (magic bytes) + pin the
           // image server-side. The agent should never read image files itself.
-          const pinned = await pinAvatarFromInput({
-            filePath: input.newAvatarPath,
-            base64: input.newAvatarBase64,
-            pinata,
-          });
-          daoMeta.avatarCID = pinned.avatarCID;
-          daoMeta.avatarFileName = pinned.avatarFileName;
-          daoMeta.avatarUrl = pinned.avatarUrl;
+          //
+          // A dryRun reads and validates but does NOT publish the user's image
+          // to public IPFS — a preview that uploads a picture is not a preview.
+          // No CID is synthesized (Pinata wraps the file in a directory, so any
+          // local CID would produce a permanently dead avatarUrl).
+          try {
+            if (input.dryRun || !pinata) {
+              const preview = await previewAvatarFromInput({
+                filePath: input.newAvatarPath,
+                base64: input.newAvatarBase64,
+              });
+              daoMeta.avatarFileName = preview.avatarFileName;
+            } else {
+              const pinned = await pinAvatarFromInput({
+                filePath: input.newAvatarPath,
+                base64: input.newAvatarBase64,
+                pinata,
+              });
+              daoMeta.avatarCID = pinned.avatarCID;
+              daoMeta.avatarFileName = pinned.avatarFileName;
+              daoMeta.avatarUrl = pinned.avatarUrl;
+            }
+          } catch (e) {
+            // Validation now also fires in the preview, so it must surface as a
+            // clean tool error rather than a raw throw out of the handler.
+            return err(safeErrorMessage(e));
+          }
         } else if (input.newAvatarCID) {
           // By-reference CID — the local byte gate never saw these bytes, so
           // best-effort fetch + sniff (hard-block only on confirmed non-raster).
@@ -1308,8 +1648,18 @@ export async function runProposalCreate(
           // load-bearing.
           daoMeta.avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
         }
-        const daoMetaRes = await pinata.pinJson(daoMeta, { name: `dao-meta:${govPool.slice(0, 10)}` });
-        const newDescriptionURL = `ipfs://${daoMetaRes.cid}`;
+        const daoMetaPin = await pinJsonOrPreview(daoMeta, {
+          dryRun: input.dryRun ?? false,
+          pinata,
+          name: `dao-meta:${govPool.slice(0, 10)}`,
+        });
+        const newDescriptionURL = daoMetaPin.uri;
+        ipfsArtifacts.push({
+          field: "editDescriptionURL",
+          uri: daoMetaPin.uri,
+          pinned: daoMetaPin.pinned,
+          exact: daoMetaPin.exact,
+        });
 
         actionsOnFor = [{
           executor: govPool,
@@ -1317,6 +1667,7 @@ export async function runProposalCreate(
           data: GOV_POOL_ABI.encodeFunctionData("editDescriptionURL", [newDescriptionURL]),
         }];
 
+        actionSummary = `edits the DAO profile (descriptionURL → ${newDescriptionURL})`;
         proposalExtra = {
           category: "daoProfileModification",
           isMeta: false,
@@ -1346,6 +1697,19 @@ export async function runProposalCreate(
         if (input.category === "daoProfileModification") {
           proposalExtra.isMeta = false;
         }
+        // No builder ran, so there is no summary to reuse: describe the raw
+        // actions, naming a treasury movement when one is decodable.
+        const hits = classifyTreasuryActions(
+          actionsOnFor.map((a) => ({ executor: a.executor, value: a.value.toString(), data: a.data })),
+        );
+        const targets = [...new Set(actionsOnFor.map((a) => a.executor))];
+        actionSummary =
+          `runs ${actionsOnFor.length} custom action(s) on ${targets.join(", ")}` +
+          (hits.length > 0
+            ? ` — including ${hits
+                .map((h) => `${h.kind}${h.recipient ? ` → ${h.recipient}` : ""}${h.amount ? ` (${h.amount})` : ""}`)
+                .join("; ")}`
+            : "");
       } else {
         // wired catalog type — build actionsOnFor + metadata server-side so
         // "create proposal X" is a single call with correct calldata + category.
@@ -1387,6 +1751,8 @@ export async function runProposalCreate(
           isMeta: false,
           ...built.metadataExtra,
         };
+        actionSummary = built.summary;
+        builtWarnings = built.warnings;
         if (built.advisories?.length) {
           governanceAdvisories = built.advisories;
           // DANGER gate: refuse BEFORE any tx (no approve/deposit/create has
@@ -1397,6 +1763,7 @@ export async function runProposalCreate(
               proposalType: input.proposalType,
               risk: "DANGER",
               governanceAdvisories: built.advisories,
+              ...(built.warnings?.length ? { warnings: built.warnings } : {}),
               note:
                 "No transaction was broadcast. The built proposal degrades governance safety " +
                 "(see governanceAdvisories — e.g. a quorum low enough that a market buyer could pass " +
@@ -1407,39 +1774,68 @@ export async function runProposalCreate(
         }
       }
 
-      // Step 3c: #36 trap check on the FINAL actions, whatever produced them.
+      // Step 3c: the full build-time harm pass on the FINAL actions, whatever
+      // produced them.
       //
-      // The catalog builders are already wrapped by the registry guard, but the
-      // `custom` branch above takes caller-supplied actionsOnFor verbatim and
-      // never touches PROPOSAL_BUILDERS — so it bypassed that guard entirely.
-      // This is the third time in this codebase that a "custom"/raw-calldata
-      // path has walked around a check every other path passes through (0.32.0:
-      // the GovUserKeeper denylist). Running it HERE, once, on the assembled
-      // actions means the branch that produced them cannot matter — including
-      // any branch added later.
+      // The catalog builders are already wrapped by the registry chokepoint,
+      // but the `custom` branch above takes caller-supplied actionsOnFor
+      // verbatim and never touches PROPOSAL_BUILDERS — so it bypassed that
+      // guard entirely. This is the third time in this codebase that a
+      // "custom"/raw-calldata path has walked around a check every other path
+      // passes through (0.32.0: the GovUserKeeper denylist). Running it HERE,
+      // once, on the assembled actions means the branch that produced them
+      // cannot matter — including any branch added later.
       //
-      // Deduped by advisory id so a catalog build already carrying #36 is not
-      // annotated twice.
+      // Deduped by code + actionIndex against what the builder already
+      // reported, so a catalog build is never annotated twice.
       {
-        const trap = checkAddSettingsTrap({ chainId, actions: actionsOnFor });
-        if (trap.blocked && trap.advisory) {
-          const already = (governanceAdvisories ?? []).some((a) => a.includes(trap.advisory!.id));
-          if (!already) {
-            governanceAdvisories = [...(governanceAdvisories ?? []), trap.advisory.text];
-          }
-          if (!input.confirmRisky) {
-            return ok({
-              mode: "blocked-risky",
-              proposalType: input.proposalType,
-              risk: "DANGER",
-              governanceAdvisories,
-              note:
-                "No transaction was broadcast. On this chain the proposal would PASS the vote and " +
-                "then revert at execute, burning a full governance cycle and leaving nothing to " +
-                "undo it. Re-run with confirmRisky: true only if you know the chain has been fixed " +
-                "upstream.",
-            });
-          }
+        const priorWarnings = builtWarnings ?? [];
+        const assessInput = {
+          chainId,
+          chainIdExplicit: true,
+          actions: actionsOnFor.map((a) => ({
+            executor: a.executor,
+            value: a.value.toString(),
+            data: a.data,
+          })),
+          treasuryGuard: ctx.config.treasuryGuard,
+          govPool,
+        };
+        const pure = assessBuildPure(assessInput);
+        // Context is best-effort by contract: it never throws, never blocks,
+        // and returns [] rather than wedging the composite when the RPC is out.
+        const context = await assessBuildContext({ ...assessInput, cfg: ctx.config });
+        const fresh = dedupeWarnings([...priorWarnings, ...pure, ...context]).filter(
+          (w) => !priorWarnings.some((p) => p.code === w.code && p.actionIndex === w.actionIndex),
+        );
+        buildWarnings = dedupeWarnings([...priorWarnings, ...pure, ...context]);
+        if (fresh.length > 0) {
+          governanceAdvisories = [
+            ...(governanceAdvisories ?? []),
+            // `context.unavailable` is an infrastructure note, not a governance
+            // advisory — it must never stamp the channel documented as
+            // "never empty when present".
+            ...fresh.filter((w) => w.code !== "context.unavailable").map(warningLine),
+          ];
+          if (governanceAdvisories.length === 0) governanceAdvisories = undefined;
+        }
+        const hard = buildWarnings.filter((w) => w.block === "hard");
+        if (hard.length > 0) {
+          return err(hard.map((w) => `${w.message} ${w.remedy}`).join("\n\n"));
+        }
+        if (worstBlock(buildWarnings) === "confirmable" && !input.confirmRisky) {
+          return ok({
+            mode: "blocked-risky",
+            proposalType: input.proposalType,
+            risk: "DANGER",
+            governanceAdvisories,
+            warnings: buildWarnings,
+            note:
+              "No transaction was broadcast. The built proposal would either degrade governance " +
+              "safety or PASS the vote and then revert at execute, burning a full governance cycle " +
+              "and leaving nothing to undo it. See warnings[] for the exact cause and remedy. " +
+              "Re-run with the SAME arguments plus confirmRisky: true only if you accept it.",
+          });
         }
       }
 
@@ -1453,12 +1849,22 @@ export async function runProposalCreate(
       // indexer/diff UI and immutable once pinned — validate before upload.
       const metaCheck = checkProposalMetadata(proposalMeta);
       if (!metaCheck.ok) return err(`Proposal metadata preflight failed: ${metaCheck.remediation}`);
-      // dryRun stays side-effect-free: local placeholder CID (json codec)
-      // instead of a Pinata pin — a real run pins and gets a dag-pb CID.
-      const proposalMetaCid = input.dryRun
-        ? await cidForJson(proposalMeta)
-        : (await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` })).cid;
-      const descriptionURL = `ipfs://${proposalMetaCid}`;
+      // dryRun stays side-effect-free: the CID is computed locally and nothing
+      // is pinned. It is the SAME CID a real pin returns, so the previewed
+      // createProposalAndVote calldata matches the real run byte for byte.
+      const metaPin = await pinJsonOrPreview(proposalMeta, {
+        dryRun: input.dryRun ?? false,
+        pinata,
+        name: `proposal:${input.title.slice(0, 30)}`,
+      });
+      const proposalMetaCid = metaPin.cid;
+      const descriptionURL = metaPin.uri;
+      ipfsArtifacts.push({
+        field: "descriptionURL",
+        uri: metaPin.uri,
+        pinned: metaPin.pinned,
+        exact: metaPin.exact,
+      });
 
       // Step 4b: duplicate-create guard (finding A).
       //
@@ -1470,9 +1876,10 @@ export async function runProposalCreate(
       // silently, for real gas, leaving the DAO voting on two copies.
       //
       // The pinned metadata CID makes the same call produce the same URL, so
-      // the duplicate is detectable BEFORE the transaction. Skipped under
-      // dryRun (its placeholder CID uses a different codec than a real Pinata
-      // pin and could never match a live proposal).
+      // the duplicate is detectable BEFORE the transaction. Still skipped under
+      // dryRun — since 0.34.0 the preview CID WOULD match a live proposal, but
+      // a preview broadcasts nothing, so the extra on-chain scan buys nothing
+      // and a preview should not depend on RPC reachability.
       if (!input.dryRun && !input.allowDuplicate) {
         const prDup = rpc.tryProvider(chainId);
         if (!("error" in prDup)) {
@@ -1558,6 +1965,14 @@ export async function runProposalCreate(
                 `minimum to create. Acquire more of the gov token (${prereqs.tokenAddress}) first, then re-run.`),
         );
       }
+      // The branch actually taken at the `voteAmount` assignment above is
+      // truthiness, not `=== undefined`: voteAmount:"" takes the default too.
+      const votedAll = !input.voteAmount;
+      const voteAmountHuman = formatUnitsWithSymbol(
+        voteAmount,
+        prereqs.tokenDecimals,
+        prereqs.tokenSymbol,
+      );
       const needDeposit = voteAmount > prereqs.depositedPower ? voteAmount - prereqs.depositedPower : 0n;
 
       if (needDeposit > prereqs.walletBalance) {
@@ -1569,6 +1984,15 @@ export async function runProposalCreate(
             `Next step: lower voteAmount to at most ${formatAmount(prereqs.depositedPower + prereqs.walletBalance, d, sym)}, or acquire more tokens.`,
         );
       }
+
+      // The lock warning belongs BEFORE the act in the ledger, not after the
+      // gas is spent — same placement as the execute path's preSteps. The text
+      // itself lives in `advisories` so the ledger stays a list of steps.
+      skippedSteps.push({
+        label: "advisory:tokens-locked-after-execute",
+        skipped: true,
+        reason: "WARN — see `advisories`; read it before this broadcasts",
+      });
 
       // Approve (if needed)
       if (needDeposit > 0n && prereqs.currentAllowance < needDeposit) {
@@ -1640,10 +2064,19 @@ export async function runProposalCreate(
         govPool, GOV_POOL_ABI, "createProposalAndVote",
         [descriptionURL, actionsForTuple, [], voteAmount, input.voteNftIds.map(id => BigInt(id))],
         chainId,
-        `GovPool.createProposalAndVote("${input.title}")`,
+        `GovPool.createProposalAndVote("${input.title}", vote ${voteAmountHuman} FOR)`,
       ));
 
-      // Step 6: send or return
+      // Step 6: send or return.
+      //
+      // Read latestProposalId BEFORE broadcasting: the post-create lookup below
+      // only accepts an id strictly greater than this, which is what stops a
+      // lagging RPC node from handing back the caller's own earlier duplicate.
+      let idFloor = 0;
+      if (!input.dryRun) {
+        const prFloor = rpc.tryProvider(chainId);
+        if (!("error" in prFloor)) idFloor = (await readLatestProposalId(prFloor.ok, govPool)) ?? 0;
+      }
       const result = await sendOrCollect(signer, payloads, {
         dryRun: input.dryRun,
         chainId,
@@ -1661,7 +2094,27 @@ export async function runProposalCreate(
           descriptionURL,
           proposalMetadataCID: proposalMetaCid,
           ...(result.signer ? { signer: result.signer } : {}),
+          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         });
+      }
+
+      // The one fact the rest of the journey depends on: the id the DAO just
+      // assigned. Nothing here re-read chain state after the create, so the
+      // success payload was LESS informative than the duplicate-guard no-op —
+      // and the knowledge layer's `bindsFrom: {proposalId: "create.proposalId"}`
+      // could never resolve. Fail-soft: naming the id is a nicety, never a
+      // failure of a create that already landed.
+      let created: ExistingProposal | undefined;
+      if (result.mode === "executed") {
+        try {
+          const prPost = rpc.tryProvider(chainId);
+          if (!("error" in prPost)) {
+            created =
+              (await resolveCreatedProposal(prPost.ok, govPool, descriptionURL, idFloor)) ?? undefined;
+          }
+        } catch {
+          /* best-effort */
+        }
       }
 
       // Phase 3: record a broadcast proposal so dexe_context surfaces it next
@@ -1672,6 +2125,7 @@ export async function runProposalCreate(
           deps.state.recordProposal({
             govPool,
             chainId,
+            ...(created ? { proposalId: created.proposalId } : {}),
             title: input.title,
             descriptionURL,
             txHash,
@@ -1682,24 +2136,73 @@ export async function runProposalCreate(
         }
       }
 
+      const broadcast = result.mode === "executed";
+      const voteCall = created
+        ? `dexe_proposal_vote_and_execute {"govPool":"${govPool}","proposalId":${created.proposalId},"chainId":${chainId}}`
+        : "";
       return attachPairingQr(
         ok({
           mode: result.mode,
+          ...(created ? { proposalId: created.proposalId, proposalState: created.stateName } : {}),
+          ...(created?.voteEnd
+            ? { votingEndsAt: unixToUtc(created.voteEnd), votingEndsAtUnix: created.voteEnd }
+            : {}),
           descriptionURL,
           proposalMetadataCID: proposalMetaCid,
-          prereqs: {
-            walletBalance: prereqs.walletBalance.toString(),
-            depositedPower: prereqs.depositedPower.toString(),
-            allowance: prereqs.currentAllowance.toString(),
-            minVotesForCreating: prereqs.minVotesForCreating.toString(),
-            tokenAddress: prereqs.tokenAddress,
+          ...ipfsPreviewBlock(ipfsArtifacts),
+          ...previewBlock({
+            chainId,
+            act:
+              `Creates proposal "${input.title}" on ${govPool} — it ${actionSummary || "runs its configured actions"}; ` +
+              `votes FOR with ${voteAmountHuman}` +
+              (needDeposit > 0n
+                ? `, depositing ${formatUnitsWithSymbol(needDeposit, prereqs.tokenDecimals, prereqs.tokenSymbol)} first.`
+                : "."),
+            ...(result.signer ? { who: result.signer } : {}),
+            txCount: payloads.length,
+            irreversible:
+              "A created proposal cannot be deleted or edited, and the FOR vote cast with it cannot be changed " +
+              "without cancelling first. Gas is spent whether or not it passes.",
+            broadcast,
+            next: broadcast
+              ? created
+                ? `Pass it with ${voteCall} — it votes, drives the validator round and executes.`
+                : `The create landed but the new id could not be read back (the node is behind). Find it with ` +
+                  `dexe_proposal_list {"govPool":"${govPool}","chainId":${chainId}} — the entry whose ` +
+                  `descriptionURL is ${descriptionURL}. Do NOT guess it: a vote on the wrong proposal cannot be undone in one call.`
+              : input.dryRun
+                ? "NOTHING WAS BROADCAST (dryRun), so no proposal exists yet and there is no id. Re-run with dryRun:false to create it."
+                : "NOTHING WAS BROADCAST (no signing key). Broadcast the payloads above with dexe_tx_send, then read the id with " +
+                  `dexe_proposal_list {"govPool":"${govPool}","chainId":${chainId}}.`,
+          }),
+          autoVote: {
+            amount: voteAmountHuman,
+            amountWei: voteAmount.toString(),
+            allAvailablePower: votedAll,
+            note: votedAll
+              ? "voteAmount was omitted, so ALL your available power (wallet + deposited) was voted FOR, the " +
+                "wallet half deposited first. Pass voteAmount to vote with less — '10.0' is human units, " +
+                "digits-only is raw wei."
+              : `Voted FOR with ${voteAmountHuman}, as requested.`,
           },
+          advisories: [
+            voteLockAtCreateAdvisory({
+              amount: voteAmountHuman,
+              broadcast,
+              govPool,
+              chainId,
+              ...(created ? { proposalId: created.proposalId } : {}),
+            }),
+          ].map((a) => ({ id: a.id, severity: a.severity, upstream: a.upstream, text: a.text })),
+          prereqs: prereqsBlock(prereqs),
           steps: [...skippedSteps, ...result.steps],
           ...(result.signer ? { signer: result.signer } : {}),
+          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
           ...(governanceAdvisories ? { governanceAdvisories } : {}),
-          ...(result.mode === "executed"
-            ? flowChainFields(input.flowContext, deps.state, { chainId, govPool })
-            : {}),
+          ...(buildWarnings.length > 0 ? { warnings: buildWarnings } : {}),
+          // The guide pointers are worth returning in a preview too, but the
+          // journey position must NOT advance for a call that broadcast nothing.
+          ...flowChainFields(input.flowContext, deps.state, { chainId, govPool }, { landed: broadcast }),
           ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
           ...(result.pairing ? { pairing: result.pairing } : {}),
         }),
@@ -1722,7 +2225,14 @@ async function runInternalProposalCreate(
 ) {
   const input = { proposalType: "custom", description: "", ...inputRaw };
   const { ctx, signer, rpc } = deps;
-  if (!ctx.config.pinataJwt) return err(pinataUploadHint("to create an internal proposal"));
+  // Same lazy-Pinata rule as the external path: the only pin is dryRun-gated,
+  // so a preview must not be refused for the want of a key it never uses.
+  const pin = pinataForWrites(
+    ctx.config.pinataJwt,
+    input.dryRun ?? false,
+    "to create an internal proposal (dryRun:true previews need no Pinata key)",
+  );
+  if ("error" in pin) return err(pin.error);
 
   const parsed = builder.schema.safeParse(input.params ?? {});
   if (!parsed.success) {
@@ -1833,28 +2343,58 @@ async function runInternalProposalCreate(
     }
   }
 
-  const pinata = new PinataClient(ctx.config.pinataJwt);
   const proposalMeta = {
     proposalName: input.title,
     proposalDescription: JSON.stringify(markdownToSlate(input.description)),
     category: built.category,
     ...built.metadataExtra,
   };
-  let cid: string;
-  if (input.dryRun) {
-    // Side-effect-free preview: local placeholder CID, no pin.
-    cid = await cidForJson(proposalMeta);
-  } else {
-    try {
-      const res = await pinata.pinJson(proposalMeta, { name: `proposal:${input.title.slice(0, 30)}` });
-      cid = res.cid;
-    } catch (e) {
-      return err(toActionableError(e, "upload internal-proposal metadata").message);
-    }
+  let metaPin;
+  try {
+    // Side-effect-free preview: the CID is computed locally (identical to what
+    // a pin returns) and nothing is uploaded.
+    metaPin = await pinJsonOrPreview(proposalMeta, {
+      dryRun: input.dryRun ?? false,
+      pinata: pin.ok,
+      name: `proposal:${input.title.slice(0, 30)}`,
+    });
+  } catch (e) {
+    return err(toActionableError(e, "upload internal-proposal metadata").message);
   }
-  const descriptionURL = `ipfs://${cid}`;
+  const cid = metaPin.cid;
+  const descriptionURL = metaPin.uri;
+  const ipfsArtifacts: IpfsArtifact[] = [
+    { field: "descriptionURL", uri: metaPin.uri, pinned: metaPin.pinned, exact: metaPin.exact },
+  ];
 
   const validatorsIface = new Interface(GOV_VALIDATORS_CREATE_ABI as unknown as string[]);
+  // Read-only companion: GovValidators keeps its OWN id space
+  // (`latestInternalProposalId`, `++`-assigned per create), so the GovPool
+  // resolver above cannot be reused here and the ids must not be confused.
+  const validatorsCountIface = new Interface([
+    "function latestInternalProposalId() view returns (uint256)",
+  ]);
+  const readInternalLatest = async (): Promise<number | null> => {
+    try {
+      const pr = rpc.tryProvider(chainId);
+      if ("error" in pr) return null;
+      const [r] = await multicall(pr.ok, [
+        {
+          target: validators,
+          iface: validatorsCountIface,
+          method: "latestInternalProposalId",
+          args: [],
+          allowFailure: true,
+        },
+      ]);
+      if (!r?.success) return null;
+      const n = Number(r.value as bigint);
+      return Number.isSafeInteger(n) && n >= 0 ? n : null;
+    } catch {
+      return null;
+    }
+  };
+  const internalFloor = input.dryRun ? null : await readInternalLatest();
   const payloads: TxPayload[] = [
     makeTxPayload(
       validators,
@@ -1876,9 +2416,19 @@ async function runInternalProposalCreate(
     return flowFailureResult(result, {
       proposalKind: "internal",
       ...(result.signer ? { signer: result.signer } : {}),
+      ...hotKeySafetyFields(Boolean(result.signer?.safety)),
       descriptionURL,
       note: "Internal proposals can only be created by a CURRENT validator of this DAO — a non-validator sender reverts.",
     });
+  }
+
+  // A single landed create moves latestInternalProposalId by EXACTLY one, so
+  // `floor + 1` is attributable to this call and anything else means a
+  // concurrent validator create — in which case the id is not ours to claim.
+  let internalProposalId: number | undefined;
+  if (result.mode === "executed" && internalFloor !== null) {
+    const after = await readInternalLatest();
+    if (after === internalFloor + 1) internalProposalId = after;
   }
 
   if (result.mode === "executed" && deps.state) {
@@ -1887,6 +2437,7 @@ async function runInternalProposalCreate(
       deps.state.recordProposal({
         govPool,
         chainId,
+        ...(internalProposalId !== undefined ? { proposalId: internalProposalId } : {}),
         title: input.title,
         descriptionURL,
         txHash,
@@ -1903,18 +2454,43 @@ async function runInternalProposalCreate(
       proposalKind: "internal",
       validators,
       internalType: built.internalType,
+      ...(internalProposalId !== undefined
+        ? { proposalId: internalProposalId, proposalScope: "internal" }
+        : {}),
       descriptionURL,
       proposalMetadataCID: cid,
+      ...ipfsPreviewBlock(ipfsArtifacts),
+      ...previewBlock({
+        chainId,
+        act: `Creates an INTERNAL proposal on GovValidators ${validators} — ${built.summary}.`,
+        ...(result.signer ? { who: result.signer } : {}),
+        txCount: payloads.length,
+        irreversible:
+          "An internal proposal cannot be deleted or edited once created; its descriptionURL and encoded data are " +
+          "fixed. Gas is spent whether or not the validators pass it.",
+        broadcast: result.mode === "executed",
+        next:
+          internalProposalId !== undefined
+            ? `Validators vote with dexe_vote_build_validator_vote {"govValidators":"${validators}","proposalId":${internalProposalId}} ` +
+              `and it is executed with dexe_vote_build_execute {"scope":"internal","govValidators":"${validators}","proposalId":${internalProposalId}}.`
+            : result.mode === "executed"
+              ? `The create landed but the id could not be attributed to this call — read GovValidators.latestInternalProposalId() on ${validators}.`
+              : "NOTHING WAS BROADCAST, so no internal proposal exists yet and there is no id.",
+      }),
       summary: built.summary,
       steps: result.steps,
       ...(result.signer ? { signer: result.signer } : {}),
+      ...hotKeySafetyFields(Boolean(result.signer?.safety)),
       note:
         "Internal proposals are created and voted on by the DAO's validators only (their own validator balances — " +
         "no token deposit). The sender must be a current validator or the tx reverts.",
       ...(creditWarning ? { creditWarning } : {}),
-      ...(result.mode === "executed"
-        ? flowChainFields(input.flowContext, deps.state, { chainId, govPool })
-        : {}),
+      ...flowChainFields(
+        input.flowContext,
+        deps.state,
+        { chainId, govPool },
+        { landed: result.mode === "executed" },
+      ),
       ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
       ...(result.pairing ? { pairing: result.pairing } : {}),
     }),
@@ -2041,44 +2617,47 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_create",
-    "Create ANY governance proposal in ONE call — handles the whole approve→deposit→createProposalAndVote " +
-      "sequence, uploads correct IPFS metadata (category/isMeta/changes), signs+broadcasts when a signer is " +
-      "configured (else returns ordered TxPayloads + a WalletConnect QR).\n\n" +
-      "proposalType (every DeXe catalog type is wired):\n" +
-      "• 'modify_dao_profile' — top-level fields (newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks; avatar via " +
-      "newAvatarPath — a local image path the server uploads itself — or newAvatarCID).\n" +
-      "• 'custom' — your own actionsOnFor [{executor,value,data}] (+ optional category).\n" +
-      "• On-chain external types (inputs go in `params`): 'token_transfer' {token,recipient,amount,isNative?}, " +
-      "'withdraw_treasury' {receiver,token?,amount?,nftAddress?,nftIds?}, 'change_voting_settings' {govSettings,settings[],settingsIds?}, " +
-      "'add_expert'/'remove_expert' {expertNftContract,scope,nominatedUser,uri?}, 'token_distribution', 'token_sale', " +
-      "'token_sale_whitelist' {tokenSaleProposal,requests[]}, 'token_sale_recover' {tokenSaleProposal,tierIds[]}, " +
-      "'manage_validators' {govValidators,changes[{user,balance}]}, " +
-      "'validators_allocation' {credits:[{token,amount}]} (funds the validators' monthly-withdraw credit line), " +
-      "'delegate_to_expert'/'revoke_from_expert' {expert,amount,nftIds?}, 'create_staking_tier', " +
-      "'change_math_model' {newVotePower}, 'blacklist' {erc20Gov,addAddresses?,removeAddresses?}, " +
-      "'reward_multiplier' {mode,...}, 'apply_to_dao' {token,receiver,amount,treasuryBalance?}, " +
-      "'new_proposal_type'/'enable_staking' {govSettings,settings,executors,newSettingId}, 'custom_abi' {target,signature,method,args?}.\n" +
-      "• Internal (validators-only, auto-routed to GovValidators.createInternalProposal): " +
-      "'change_validator_balances' {changes[]}, 'change_validator_settings' {duration,executionDelay,quorum}, " +
-      "'monthly_withdraw' {withdrawals[],destination}, 'offchain_internal_proposal' {}.\n" +
-      "• Off-chain backend types ('offchain_single_option' etc.) are rejected with the exact backend flow to use instead.\n" +
-      "Full per-type recipes with examples: docs/PLAYBOOK.md (dexe://playbook resource) or dexe_proposal_catalog. " +
-      "Unsure of the journey or which params to collect from the user? Call dexe_guide first.",
+    "Broadcasts when a signer is configured. Creates ANY governance proposal in ONE call: runs " +
+      "approve\u2192deposit\u2192createProposalAndVote and uploads correct IPFS metadata " +
+      "(category/isMeta/changes). Without a signer it returns ordered TxPayloads + a WalletConnect QR.\\n" +
+      "Pass `proposalType` \u2014 the enum lists every wired type \u2014 with its inputs in `params`:\\n" +
+      "\u2022 'custom': your own actionsOnFor [{executor,value,data}]. 'modify_dao_profile' reads the top-level " +
+      "newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks/newAvatarPath fields, not `params`.\\n" +
+      "\u2022 External: token_transfer {token,recipient,amount,isNative?} \u00b7 withdraw_treasury " +
+      "{receiver,token?,amount?,nftAddress?,nftIds?} \u00b7 change_voting_settings {govSettings,settings[],settingsIds?} " +
+      "\u00b7 add_expert/remove_expert {expertNftContract,scope,nominatedUser,uri?} \u00b7 token_sale_whitelist " +
+      "{tokenSaleProposal,requests[]} \u00b7 token_sale_recover {tokenSaleProposal,tierIds[]} \u00b7 manage_validators " +
+      "{govValidators,changes[]} \u00b7 validators_allocation {credits[]} \u00b7 delegate_to_expert/revoke_from_expert " +
+      "{expert,amount,nftIds?} \u00b7 change_math_model {newVotePower} \u00b7 blacklist " +
+      "{erc20Gov,addAddresses?,removeAddresses?} \u00b7 apply_to_dao {token,receiver,amount} \u00b7 " +
+      "new_proposal_type/enable_staking {govSettings,settings,executors,newSettingId} \u00b7 custom_abi " +
+      "{target,signature,method,args?} \u00b7 token_distribution \u00b7 token_sale \u00b7 create_staking_tier \u00b7 " +
+      "reward_multiplier.\\n" +
+      "\u2022 Internal (validators-only): change_validator_balances {changes[]} \u00b7 change_validator_settings " +
+      "{duration,executionDelay,quorum} \u00b7 monthly_withdraw {withdrawals[],destination} \u00b7 " +
+      "offchain_internal_proposal {}.\\n" +
+      "Off-chain backend types are rejected with the flow to use instead. Full recipes with examples: " +
+      "dexe://playbook, or dexe_proposal_catalog.",
     {
-      govPool: z.string().describe("GovPool contract address"),
+      govPool: govPoolParam,
       chainId: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
-        ),
+        .describe("Target chain (56 mainnet, 97 testnet); needs an RPC for it. Default: the MCP's default chain."),
+      // 0.34.0: `.default("custom")` removed. A published `default` told the
+      // model it could omit the one field that decides what the proposal DOES,
+      // and the silent fallback then built a zero-action `custom` proposal that
+      // GovPoolCreate._validateProposal reverts unconditionally. `.optional()`
+      // drops the misleading default from the JSON Schema WITHOUT narrowing the
+      // published `required` array, and runProposalCreate still falls back to
+      // "custom" for programmatic callers, so no working call changes.
       proposalType: z
         .enum(FLOW_PROPOSAL_TYPES as unknown as [string, ...string[]])
-        .default("custom")
+        .optional()
         .describe(
-          "One of the wired types listed in the tool description. Unknown values are rejected with the valid list.",
+          "What kind of proposal to create — required in practice. 'custom' means you supply actionsOnFor. Unsure? Call dexe_proposal_catalog.",
         ),
       params: z
         .record(z.unknown())
@@ -2086,48 +2665,55 @@ export function registerFlowTools(
         .describe("Type-specific builder inputs for the chosen proposalType (recipes: tool description / dexe://playbook)."),
       title: z.string().describe("Proposal title"),
       description: z.string().default("").describe("Proposal description (markdown supported)"),
-      newDaoName: z.string().optional(),
-      newDaoDescription: z.string().optional(),
-      newWebsiteUrl: z.string().optional(),
-      newAvatarCID: z.string().optional(),
-      newAvatarFileName: z.string().optional(),
+      newDaoName: z.string().optional().describe("modify_dao_profile: the DAO's new display name."),
+      newDaoDescription: z.string().optional().describe("modify_dao_profile: the DAO's new description (markdown)."),
+      newWebsiteUrl: z.string().optional().describe("modify_dao_profile: the DAO's new website URL."),
+      newAvatarCID: z.string().optional().describe("modify_dao_profile: IPFS CID of an already-pinned avatar."),
+      newAvatarFileName: z.string().optional().describe("modify_dao_profile: file name stored with newAvatarCID."),
       newAvatarPath: z.string().optional().describe(
-        "Local image path for the new avatar (JPEG/PNG/WebP/GIF, max 10 MB) — the server uploads + validates it. " +
-        "Preferred over reading the file yourself; replaces the separate dexe_ipfs_upload_avatar call.",
+        "Local avatar image path (JPEG/PNG/WebP/GIF, max 10 MB) — the server validates and pins it for you.",
       ),
       newAvatarBase64: z.string().optional().describe("Base64 image bytes — only when the image isn't a local file."),
-      newSocialLinks: z.array(z.tuple([z.string(), z.string()])).optional(),
+      newSocialLinks: z
+        .array(z.tuple([z.string(), z.string()]))
+        .optional()
+        .describe("modify_dao_profile: [[network, url], ...]."),
       actionsOnFor: z.array(z.object({
-        executor: z.string(),
-        value: z.string().default("0"),
-        data: z.string(),
-      })).default([]).describe("Actions for custom proposals"),
+        executor: z.string().describe("Contract the action calls."),
+        value: z.string().default("0").describe("Native coin sent with the action, RAW base units (wei)."),
+        data: z.string().describe("0x-hex calldata for the action."),
+      })).default([]).describe("Actions run when the proposal passes. Required for proposalType:'custom'."),
       category: z.string().optional().describe("Proposal category (included in IPFS metadata)."),
       proposalMetadataExtra: z.record(z.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
       voteAmount: z
         .string()
         .optional()
         .describe(
-          "Auto-vote amount: raw wei (digits-only) OR human units with a decimal point ('12.5', scaled by the gov token's decimals). Defaults to all available power.",
+          "Auto-vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: all available power.",
         ),
-      voteNftIds: z.array(z.string()).default([]),
+      voteNftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
       signerKey: signerKeyParam,
-      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+      dryRun: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Preview: no broadcast, no IPFS pin, no Pinata key needed. The metadata CID is right but unpinned " +
+            "— do NOT broadcast this calldata.",
+        ),
       confirmRisky: z
         .boolean()
         .default(false)
         .describe(
-          "Required to proceed when the built proposal carries a DANGER governance-safety advisory " +
-            "(e.g. quorum lowered into treasury-drain territory). Without it the flow refuses BEFORE any transaction.",
+          "Required when the built proposal carries a DANGER governance-safety advisory. Without it the flow " +
+            "refuses BEFORE any transaction.",
         ),
       allowDuplicate: z
         .boolean()
         .default(false)
         .describe(
-          "By default the create is SKIPPED when a still-live proposal on this DAO already carries the same IPFS " +
-            "metadata URL — i.e. this exact call already landed (a resumed run). Set true to mint a second identical " +
-            "proposal on purpose.",
+          "The create is SKIPPED when a live proposal already carries the same IPFS metadata URL (a resumed " +
+            "run). True mints a second identical proposal on purpose.",
         ),
       flowContext: flowContextSchema,
     },
@@ -2146,46 +2732,43 @@ export function registerFlowTools(
   // =============================================
   server.tool(
     "dexe_proposal_vote_and_execute",
-    "Vote on a proposal and optionally execute it — the ONE call for 'vote on / pass / execute proposal N'. " +
-      "Checks proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → vote, " +
-      "matching the frontend's bundled deposit+vote), and when autoExecute is true executes after the vote passes. " +
-      "Signs+broadcasts when a signer is configured; otherwise returns ordered TxPayloads + a WalletConnect QR. " +
-      "Unsure of the lifecycle (validator round, locked tokens)? Call dexe_guide (flow:'vote_execute') first.",
+    "Broadcasts when a signer is configured. The ONE call for 'vote on / pass / execute proposal N': checks " +
+      "proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → " +
+      "vote, the frontend's bundled shape), and with autoExecute executes once the vote passes. Without a signer " +
+      "it returns ordered TxPayloads + a WalletConnect QR. Unsure of the lifecycle (validator round, locked " +
+      "tokens)? Call dexe_guide (flow:'vote_execute') first.",
     {
-      govPool: z.string().describe("GovPool contract address"),
+      govPool: govPoolParam,
       chainId: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "Target chain id. Defaults to the MCP's default chain. Rejects if no RPC is configured for the requested chain.",
-        ),
-      proposalId: z.number().int().min(1).describe("Proposal ID (1-indexed)"),
+        .describe("Target chain (56 mainnet, 97 testnet); needs an RPC for it. Default: the MCP's default chain."),
+      proposalId: z.number().int().min(1).describe(PROPOSAL_ID_DESC),
       isVoteFor: z.boolean().default(true).describe("Vote for (true) or against (false)"),
       voteAmount: z
         .string()
         .optional()
         .describe(
-          "Vote amount: raw wei (digits-only string) OR human units with a decimal point ('12.5', scaled by the gov " +
-            "token's decimals). Defaults to ALL available power (deposited + wallet).",
+          "Vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: ALL " +
+            "available power (deposited + wallet).",
         ),
-      voteNftIds: z.array(z.string()).default([]),
+      voteNftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
       depositFirst: z
         .union([z.boolean(), z.literal("auto")])
         .default("auto")
         .describe(
-          "'auto' (default): deposit exactly the missing amount from the wallet when deposited power is short of " +
-            "voteAmount. true: deposit the full wallet balance. false: never deposit (vote with already-deposited power only).",
+          "'auto': deposit exactly what is missing when deposited power is short. true: deposit the whole " +
+            "wallet balance. false: never deposit.",
         ),
       autoExecute: z.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
       driveValidatorRound: z
         .boolean()
         .default(true)
         .describe(
-          "When autoExecute is on and the proposal enters the validator stage (WaitingForVotingTransfer/ValidatorVoting), " +
-            "auto-drive it: moveProposalToValidators, and — if the configured signer is a validator — cast its validator " +
-            "vote, then execute. Set false to stop after the member vote and handle the validator round manually.",
+          "With autoExecute, drive the validator stage too: moveProposalToValidators, cast the signer's " +
+            "validator vote if it is one, then execute. False stops after the member vote.",
         ),
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
       user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
@@ -2257,6 +2840,7 @@ export function registerFlowTools(
               proposalStateBefore: stateName,
               ...executeAdvisoryFields(decision),
               ...(execResult.signer ? { signer: execResult.signer } : {}),
+              ...hotKeySafetyFields(Boolean(execResult.signer?.safety)),
             },
           );
         }
@@ -2265,6 +2849,7 @@ export function registerFlowTools(
           proposalId,
           proposalStateBefore: stateName,
           ...(execResult.signer ? { signer: execResult.signer } : {}),
+          ...hotKeySafetyFields(Boolean(execResult.signer?.safety)),
           ...executeAdvisoryFields(decision),
           steps: [
             voteSkipped,
@@ -2338,6 +2923,12 @@ export function registerFlowTools(
               ...execSteps,
             ],
             executed,
+            // The validator-round branch runs up to three sendOrCollect calls
+            // and discards their `signer`, so this leg used to broadcast with a
+            // hot key and say nothing. A landed txHash is the proof.
+            ...hotKeySafetyFields(
+              [...drive.steps, ...execSteps].some((s) => Boolean(s.txHash)),
+            ),
             ...(executed
               ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
               : {}),
@@ -2535,12 +3126,17 @@ export function registerFlowTools(
           proposalId,
           proposalStateBefore: stateName,
           ...(result.signer ? { signer: result.signer } : {}),
+          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         });
       }
 
       // Step 6: auto-execute (only in executed mode)
       let executed = false;
       let executeDecision: ExecuteDecision | undefined;
+      /** Post-vote state name + tally, when the proposal did not become executable. */
+      let proposalStateAfter: string | undefined;
+      let postVoteNext: string | undefined;
+      let tally: Record<string, unknown> | undefined;
       if (input.autoExecute && result.mode === "executed") {
         // Re-read state after vote
         const postRes = await multicall(provider, [
@@ -2615,8 +3211,49 @@ export function registerFlowTools(
           skippedSteps.push({
             label: "GovPool.execute",
             skipped: true,
-            reason: `Proposal in state "${postStateName}" after vote — not ready for execution`,
+            reason: `Proposal is "${postStateName}" after your vote — not executable yet.`,
           });
+          proposalStateAfter = postStateName;
+          postVoteNext = postVoteNextStep(postState, govPool, proposalId, chainId);
+          // The tally is what turns "not executable yet" into a number the
+          // agent can report. Fail-soft: no row, no tally.
+          try {
+            const rowRes = await multicall(provider, [
+              {
+                target: govPool,
+                iface: GOV_POOL_ABI,
+                method: "getProposals",
+                args: [proposalId - 1, 1],
+                allowFailure: true,
+              },
+            ]);
+            const rows = rowRes[0]?.success ? (rowRes[0].value as unknown[]) : null;
+            const row = Array.isArray(rows) && rows.length > 0 ? decodeProposalView(rows[0]) : null;
+            if (row) {
+              // GovPoolVote._quorumReached is `for >= required OR against >=
+              // required` — the two sides are NOT summed, and either alone can
+              // carry it. Reporting only `required - votesFor` would claim a
+              // huge shortfall for a proposal about to close on the against side.
+              const gap = (v: bigint) => (row.requiredQuorum > v ? row.requiredQuorum - v : 0n);
+              tally = {
+                votesFor: row.votesFor.toString(),
+                votesForHuman: formatUnitsWithSymbol(row.votesFor, d, sym),
+                votesAgainst: row.votesAgainst.toString(),
+                votesAgainstHuman: formatUnitsWithSymbol(row.votesAgainst, d, sym),
+                requiredQuorum: row.requiredQuorum.toString(),
+                requiredQuorumHuman: formatUnitsWithSymbol(row.requiredQuorum, d, sym),
+                stillNeededForHuman: formatUnitsWithSymbol(gap(row.votesFor), d, sym),
+                stillNeededAgainstHuman: formatUnitsWithSymbol(gap(row.votesAgainst), d, sym),
+                quorumNote:
+                  "Either side alone can carry quorum — GovPool checks votesFor OR votesAgainst against requiredQuorum, never their sum.",
+                ...(row.voteEnd
+                  ? { votingEndsAt: unixToUtc(row.voteEnd), votingEndsAtUnix: Number(row.voteEnd) }
+                  : {}),
+              };
+            }
+          } catch {
+            /* best-effort — a missing tally never fails a landed vote */
+          }
         }
       }
 
@@ -2627,15 +3264,55 @@ export function registerFlowTools(
         mode: nothingToBroadcast && !executed ? "already-voted" : result.mode,
         proposalId,
         proposalStateBefore: stateName,
+        ...(proposalStateAfter ? { proposalStateAfter } : {}),
         ...(executeDecision ? executeAdvisoryFields(executeDecision) : {}),
+        ...previewBlock({
+          chainId,
+          act:
+            (voteAlreadyCast
+              ? `Proposal #${proposalId} on ${govPool} already carries this wallet's vote`
+              : `Votes ${input.isVoteFor ? "FOR" : "AGAINST"} proposal #${proposalId} on ${govPool} with ` +
+                `${formatUnitsWithSymbol(voteAmt, d, sym)}` +
+                (depositAmount > 0n
+                  ? `, depositing ${formatUnitsWithSymbol(depositAmount, d, sym)} first`
+                  : "")) +
+            (input.autoExecute ? ", then executes it if it has passed." : "."),
+          ...(result.signer ? { who: result.signer } : {}),
+          txCount: payloads.length,
+          irreversible:
+            "A cast vote cannot be changed in one call (GovPool reverts a second vote \"Gov: need cancel\") and an " +
+            "executed proposal cannot be un-executed. The tokens voted stay locked against withdrawal until the " +
+            "proposal leaves voting.",
+          broadcast: result.mode === "executed",
+          next:
+            postVoteNext ??
+            (executed
+              ? `Executed. Your deposited tokens stay locked until you withdraw: dexe_vote_build_withdraw {"govPool":"${govPool}","chainId":${chainId}}.`
+              : `Track it with dexe_proposal_state {"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}.`),
+        }),
+        power: {
+          deposited: prereqs.depositedPower.toString(),
+          depositedHuman: formatUnitsWithSymbol(prereqs.depositedPower, d, sym),
+          wallet: prereqs.walletBalance.toString(),
+          walletHuman: formatUnitsWithSymbol(prereqs.walletBalance, d, sym),
+          ...votedWithFields(Boolean(voteAlreadyCast), priorVote, voteAmt, d, sym),
+          tokenSymbol: sym,
+          tokenDecimals: d,
+          asOf: "deposited/wallet read before this call's transactions",
+        },
+        ...(tally ? { tally } : {}),
         steps: [...skippedSteps, ...result.steps],
         ...(result.signer ? { signer: result.signer } : {}),
+        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         executed,
         ...(voteAlreadyCast ? { voteAlreadyCast } : {}),
         ...(voteChangeAdvisory ? { voteChangeAdvisory } : {}),
-        ...(executed
-          ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
-          : {}),
+        ...flowChainFields(
+          input.flowContext as FlowContext | undefined,
+          state,
+          { chainId, govPool },
+          { landed: executed },
+        ),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);

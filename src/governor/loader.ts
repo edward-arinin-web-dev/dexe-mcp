@@ -1,3 +1,4 @@
+import { getAddress } from "ethers";
 import uniswap from "./configs/uniswap.json" with { type: "json" };
 import compound from "./configs/compound.json" with { type: "json" };
 import optimism from "./configs/optimism.json" with { type: "json" };
@@ -35,6 +36,25 @@ export interface GovernorConfig {
    * `votableSupply(block) * quorumNumerator / quorumDenominator`. Ignored for Bravo.
    */
   quorumSource?: "governor" | "votable-supply";
+  /**
+   * Which tallies count toward quorum, taken verbatim from the governor's
+   * `COUNTING_MODE()` `quorum=` clause:
+   *   - `"for"`          — Bravo (no COUNTING_MODE) and CompoundGovernor
+   *                        (`quorum=for`).
+   *   - `"for-abstain"`  — OZ `GovernorCountingSimple` (`quorum=for,abstain`).
+   *   - `"all"`          — OP-style (`quorum=against,for,abstain`).
+   * Omitted → `quorumCountingOf()` defaults to `"for"` for `bravo-v3` and
+   * `"for-abstain"` otherwise. Read `COUNTING_MODE()` on-chain to confirm — the
+   * ABI family and the counting module are independent axes.
+   */
+  quorumCounting?: "for" | "for-abstain" | "all";
+  /**
+   * A superseded governor whose proposal ids are NOT addressable on
+   * `governorAddress`. Purely diagnostic: read paths append a hint naming this
+   * contract when a lookup for `proposalId <= maxProposalId` fails, because the
+   * new governor's revert ("unknown custom error") says nothing useful.
+   */
+  legacyGovernor?: { address: string; maxProposalId: number; label?: string };
   explorer?: { etherscanBase?: string; tallyOrgSlug?: string };
   notes?: string;
 }
@@ -43,9 +63,29 @@ const RAW_CONFIGS: unknown[] = [uniswap, compound, optimism];
 
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
 
+/**
+ * Shape check plus a real EIP-55 checksum check.
+ *
+ * The shape regex alone let `0x1a9C8182C09F50355CeA8fFF4b7E1649A535498a` ship
+ * for months: a mixed-case address with a one-character typo is indistinguishable
+ * from a correct one without verifying the checksum, and nothing is deployed at
+ * that address. `getAddress` accepts an all-lowercase string (checksum opt-out),
+ * so existing lowercase fixtures keep loading — canonical form is enforced by
+ * tests/governor/tier1-fixtures.test.ts, where it breaks a contributor rather
+ * than a user at runtime.
+ */
 function assertAddress(label: string, v: unknown): asserts v is string {
   if (typeof v !== "string" || !ADDR_RE.test(v)) {
     throw new Error(`governor config: ${label} must be a 0x-prefixed 20-byte address, got ${String(v)}`);
+  }
+  try {
+    getAddress(v);
+  } catch {
+    throw new Error(
+      `governor config: ${label} = ${v} has an invalid EIP-55 checksum — at least one character is mistyped. ` +
+        `Re-copy the address from the block explorer (explorer output is already checksummed) and re-read the ` +
+        `value from the contract before committing.`,
+    );
   }
 }
 
@@ -99,6 +139,19 @@ export function validateGovernorConfig(raw: unknown, source: string): GovernorCo
     throw new Error(`${source}: quorumSource must be governor|votable-supply`);
   }
 
+  if (o.quorumCounting !== undefined && !["for", "for-abstain", "all"].includes(o.quorumCounting)) {
+    throw new Error(
+      `${source}: quorumCounting must be for|for-abstain|all (read it from the governor's COUNTING_MODE() quorum= clause)`,
+    );
+  }
+
+  if (o.legacyGovernor !== undefined) {
+    assertAddress(`${source}.legacyGovernor.address`, o.legacyGovernor?.address);
+    if (typeof o.legacyGovernor?.maxProposalId !== "number" || o.legacyGovernor.maxProposalId < 0) {
+      throw new Error(`${source}: legacyGovernor.maxProposalId must be a non-negative number`);
+    }
+  }
+
   return {
     id: o.id,
     chainId: o.chainId,
@@ -115,6 +168,8 @@ export function validateGovernorConfig(raw: unknown, source: string): GovernorCo
     },
     executor: { type: ex.type, id: ex.id ?? null },
     quorumSource: o.quorumSource,
+    quorumCounting: o.quorumCounting,
+    legacyGovernor: o.legacyGovernor,
     explorer: o.explorer,
     notes: o.notes,
   };

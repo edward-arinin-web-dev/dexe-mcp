@@ -85,6 +85,78 @@ function bigintReplacer(_k: string, v: unknown): unknown {
   return typeof v === "bigint" ? v.toString() : v;
 }
 
+/**
+ * B13 — refuse a Safe DELEGATECALL (operation=1) unless explicitly allowed.
+ *
+ * Safe-queue path only, which is why it lives here and not in the shared
+ * `runBroadcastGuards` sink: `BroadcastTx` has no `operation` field, and the
+ * sink is used by every ordinary broadcast, for which the concept is meaningless.
+ *
+ * A delegatecall runs `to`'s code in the SAFE's own storage, where slot 0 is
+ * the singleton pointer and the owners linked list + threshold live. B12's
+ * selector scan cannot help: the target's CODE, not the leading selector,
+ * decides what gets written, and B6's destination allowlist bounds where the
+ * call goes, not what it does to the caller. Two keys: an operator env may
+ * forbid it outright, otherwise the caller opts in per call.
+ *
+ * NOTE this is NOT the only way to rewrite the owner set — a plain CALL to the
+ * Safe itself with `swapOwner`/`changeThreshold` calldata does it too (that is
+ * the normal owner-management path). DELEGATECALL is the broader privilege
+ * (arbitrary target, arbitrary slots), not a unique one.
+ */
+export function assertSafeOperationAllowed(
+  operation: number,
+  to: string,
+  allowDelegateCall: boolean | undefined,
+): void {
+  if (operation !== SAFE_OPERATION.DELEGATECALL) return;
+  const policy = (process.env.DEXE_SAFE_DELEGATECALL ?? "").trim().toLowerCase();
+  if (policy === "block") {
+    throw new BroadcastGuardError(
+      "B13",
+      "DELEGATECALL (operation=1) is disabled by DEXE_SAFE_DELEGATECALL=block. " +
+        "Unset that variable (and restart Claude Code — env is read once at startup) if this Safe " +
+        "genuinely needs MultiSend or module calls.",
+    );
+  }
+  if (allowDelegateCall !== true) {
+    throw new BroadcastGuardError(
+      "B13",
+      `Refusing to build a DELEGATECALL (operation=1). It executes the code at ${to} inside THIS ` +
+        "Safe's own storage — a wrong or hostile target can rewrite the owner list, the threshold " +
+        "and the singleton pointer, taking the Safe permanently. Almost every DAO/ERC-20 payload " +
+        "from a dexe_*_build_* tool is a plain CALL: drop `operation` (or set it to 0). If you are " +
+        "deliberately queuing a vetted MultiSend or Safe module call, verify the target yourself and " +
+        "re-run with allowDelegateCall: true — note that the destination allowlist (B6) and the " +
+        "GovUserKeeper denylist (B12) cannot inspect a delegatecall's effects.",
+    );
+  }
+}
+
+/**
+ * Advisory (never a refusal — gas refunds are legitimate) for the other pair of
+ * SafeTx fields no guard inspects: with `gasPrice > 0`, a non-zero `gasToken`
+ * plus an arbitrary `refundReceiver` makes the Safe pay out an ERC-20 amount on
+ * execution, and B7's value cap only ever sees native `value`.
+ */
+function gasRefundWarnings(tx: {
+  gasPrice: string;
+  gasToken: string;
+  refundReceiver: string;
+}): { warnings?: string[] } {
+  const zero = "0x0000000000000000000000000000000000000000";
+  const paysRefund =
+    tx.gasPrice !== "0" &&
+    (tx.gasToken.toLowerCase() !== zero || tx.refundReceiver.toLowerCase() !== zero);
+  if (!paysRefund) return {};
+  return {
+    warnings: [
+      `This SafeTx pays a gas refund in ${tx.gasToken} to ${tx.refundReceiver} on execution. ` +
+        "The value cap (DEXE_SIGNER_MAX_VALUE_WEI) only inspects native value and does not bound this.",
+    ],
+  };
+}
+
 /** Read the Safe service overrides from env (config.ts is intentionally untouched). */
 function safeEnv(): { serviceUrl?: string; apiKey?: string } {
   return {
@@ -152,11 +224,8 @@ export function registerSafeTools(
   // =============================================
   server.tool(
     "dexe_safe_info",
-    "Safe multisig diagnostic — reads the live on-chain Safe state (nonce, threshold, " +
-      "owners, singleton version) and resolves which Safe Transaction Service endpoint " +
-      "`dexe_safe_propose_tx` would POST to for this chain. Also reports whether the " +
-      "configured signer (DEXE_PRIVATE_KEY) is one of the Safe owners. Read-only — never " +
-      "signs, broadcasts, or POSTs.",
+    "Read-only. Live Safe state (nonce, threshold, owners, singleton version), the Safe Transaction " +
+      "Service endpoint a propose would POST to, and whether the DEXE_PRIVATE_KEY signer is a Safe owner.",
     {
       safe: z.string().describe("Safe Smart Account (multisig) address"),
       chainId: z
@@ -164,7 +233,7 @@ export function registerSafeTools(
         .int()
         .positive()
         .optional()
-        .describe("Target chain id. Defaults to the MCP's default chain."),
+        .describe("Chain to read the Safe on. Default: the MCP's default chain."),
     },
     async ({ safe, chainId }) => {
       if (!isAddress(safe)) return err(`Invalid safe address: ${safe}`);
@@ -220,15 +289,13 @@ export function registerSafeTools(
   // =============================================
   server.tool(
     "dexe_safe_propose_tx",
-    "Safe multisig propose — instead of broadcasting, queues a transaction in the Safe " +
-      "Transaction Service for the Safe owners to co-sign and execute. Takes a TxPayload " +
-      "(to/value/data) as produced by any dexe_*_build_* tool, reads the Safe's next nonce " +
-      "on-chain (unless `nonce` is given), computes the EIP-712 `safeTxHash`, signs it with " +
-      "DEXE_PRIVATE_KEY (which must be a Safe owner), and assembles the Safe-TX-Service " +
-      "create-multisig-transaction body. " +
-      "**dryRun defaults to true** — the tool returns the full signed payload and the POST " +
-      "target without sending. Set dryRun=false to actually POST (requires a resolvable " +
-      "service endpoint; api.safe.global needs DEXE_SAFE_API_KEY).",
+    "Broadcasts when a signer is configured. Queues a tx in the Safe Transaction Service for the owners " +
+      "to co-sign and execute. Takes a TxPayload, reads the Safe's next nonce on-chain (unless `nonce` " +
+      "is given), computes the EIP-712 `safeTxHash`. " +
+      "**dryRun defaults to true and is UNSIGNED** — payload, safeTxHash and POST target only, no " +
+      "signature. dryRun=false signs with DEXE_PRIVATE_KEY (which must be a Safe owner) and POSTs " +
+      "(api.safe.global needs DEXE_SAFE_API_KEY); sign=true returns the signed body without POSTing. " +
+      "operation=1 (DELEGATECALL) is refused unless allowDelegateCall=true.",
     {
       safe: z.string().describe("Safe Smart Account (multisig) address"),
       to: z.string().describe("Destination contract address (TxPayload.to)"),
@@ -240,7 +307,15 @@ export function registerSafeTools(
         .min(0)
         .max(1)
         .default(SAFE_OPERATION.CALL)
-        .describe("0 = CALL (default), 1 = DELEGATECALL"),
+        .describe(
+          "0 = CALL (default), 1 = DELEGATECALL. 1 requires allowDelegateCall:true — it runs the target's code in the Safe's own storage.",
+        ),
+      allowDelegateCall: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Required to build operation=1 (DELEGATECALL). Off by default: DELEGATECALL runs the target's code in the Safe's own storage and can rewrite owners/threshold. Set DEXE_SAFE_DELEGATECALL=block to forbid it even with this flag.",
+        ),
       chainId: z
         .number()
         .int()
@@ -251,9 +326,14 @@ export function registerSafeTools(
         .string()
         .optional()
         .describe("Safe nonce. Omit to read the Safe's current nonce() on-chain."),
-      safeTxGas: z.string().default("0"),
-      baseGas: z.string().default("0"),
-      gasPrice: z.string().default("0"),
+      safeTxGas: z.string().default("0").describe("SafeTx `safeTxGas`: gas units as a decimal string."),
+      baseGas: z.string().default("0").describe("SafeTx `baseGas`: gas units as a decimal string."),
+      gasPrice: z
+        .string()
+        .default("0")
+        .describe(
+          "SafeTx `gasPrice` in wei, decimal string. Non-zero with a gasToken/refundReceiver makes the Safe pay a refund on execution.",
+        ),
       gasToken: z.string().optional().describe("Defaults to the zero address (pay gas in native)."),
       refundReceiver: z.string().optional().describe("Defaults to the zero address."),
       origin: z
@@ -267,11 +347,27 @@ export function registerSafeTools(
       dryRun: z
         .boolean()
         .default(true)
-        .describe("Default true: build + sign + return payload without POSTing. Set false to POST to the service."),
+        .describe(
+          "Default true: build the payload and return it UNSIGNED with the POST target. Set false to sign + POST; set sign:true to get a signed body without POSTing.",
+        ),
+      sign: z
+        .boolean()
+        .default(false)
+        .describe(
+          "dryRun only: also produce the owner EIP-712 signature. Default false — a signature is queue-ready and irreversible until the Safe nonce is consumed, so a dry run does not create one. Use sign:true when you will POST the body yourself (e.g. no DEXE_SAFE_API_KEY).",
+        ),
     },
     async (input) => {
       if (!isAddress(input.safe)) return err(`Invalid safe address: ${input.safe}`);
       if (!isAddress(input.to)) return err(`Invalid 'to' address: ${input.to}`);
+      // Before any nonce read, any hash, any signature: a refusal must cost no
+      // RPC and must produce no artifact the caller could reuse.
+      try {
+        assertSafeOperationAllowed(input.operation, input.to, input.allowDelegateCall);
+      } catch (e) {
+        if (e instanceof BroadcastGuardError) return err(`[${e.guard}] ${e.message}`);
+        throw e;
+      }
 
       try {
         const chain = resolveChain(ctx.config, input.chainId);
@@ -309,9 +405,11 @@ export function registerSafeTools(
         // sense of protection from DEXE_SIGNER_ALLOWLIST / DEXE_SIGNER_MAX_VALUE_WEI.
         try {
           assertAllowlistAndValueCap({ to: tx.to, value: String(tx.value) }, signer.getConfig());
-          // B12 on this path too. A Safe propose does not broadcast, but it
-          // produces a SIGNED, queue-ready body — an owner signature over the
-          // payload. For the GovUserKeeper denylist that is the harm: the
+          // B12 on this path too, and UNCONDITIONALLY — never behind the
+          // signing flag. This path CAN produce a signed, queue-ready body
+          // (dryRun:false, or dryRun + sign:true), and even the unsigned
+          // preview must not advertise calldata this server calls a hard
+          // block. For the GovUserKeeper denylist that is the harm: the
           // multisig threshold still gates execution, but this server must not
           // manufacture an owner's signature on calldata it calls a hard block.
           assertNoForbiddenCalldata({
@@ -328,15 +426,31 @@ export function registerSafeTools(
 
         const safeTxHash = computeSafeTxHash(chainId, safe, tx);
 
-        // Sign with the configured owner key when present.
+        // A signature — not the POST — is the privileged, irreversible act
+        // here: it stays valid for this (chainId, safe, payload, nonce) until
+        // that nonce is consumed, and anyone holding the body can POST it. So a
+        // dry run does not produce one unless asked, matching the invariant the
+        // rest of the codebase already holds (daoCreate.ts and flow.ts:
+        // "dryRun stays side-effect-free").
+        const produceSignature = !input.dryRun || input.sign === true;
         let signature: string | undefined;
         let sender = input.sender ? getAddress(input.sender) : undefined;
+        let signHint: string | undefined;
         if (signer.hasSigner()) {
-          const sg = signer.trySigner(chainId);
-          if ("error" in sg) return err(`${sg.error}\n${sg.remediation}`);
-          const wallet = sg.ok;
-          signature = await wallet.signTypedData(safeTxDomain(chainId, safe), SAFE_TX_TYPES, tx);
-          sender = sender ?? getAddress(wallet.address);
+          if (produceSignature) {
+            const sg = signer.trySigner(chainId);
+            if ("error" in sg) return err(`${sg.error}\n${sg.remediation}`);
+            const wallet = sg.ok;
+            signature = await wallet.signTypedData(safeTxDomain(chainId, safe), SAFE_TX_TYPES, tx);
+            sender = sender ?? getAddress(wallet.address);
+          } else {
+            // Chain-agnostic: an unsigned preview must not fail on a chain with
+            // no configured RPC, and naming the proposer keeps it useful.
+            sender = sender ?? getAddress(signer.getAddress());
+          }
+        } else if (input.sign === true) {
+          signHint =
+            "sign:true was requested but no signer is configured — set DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
         }
 
         // Assemble the Safe-TX-Service create-multisig-transaction body. Field
@@ -383,6 +497,12 @@ export function registerSafeTools(
             safeTxHash,
             signedBy: signature ? sender : null,
             signaturePresent: !!signature,
+            note:
+              signHint ??
+              (signature
+                ? "SIGNED: `body.signature` is a queue-ready owner signature for this (chain, safe, nonce, payload). Treat it as sensitive — anyone holding it can POST this transaction into the Safe queue."
+                : "UNSIGNED preview. Check `safeTxHash` against what your wallet shows, then re-run with dryRun:false to sign + POST, or sign:true to get the signed body without POSTing."),
+            ...gasRefundWarnings(tx),
             endpoint,
             body,
           });
@@ -421,6 +541,7 @@ export function registerSafeTools(
           sender,
           postUrl: stripUrlUserinfo(url),
           status: res.status,
+          ...gasRefundWarnings(tx),
           response: res.text ? safeJsonParse(res.text) : null,
         });
       } catch (e) {

@@ -2,8 +2,10 @@ import { z } from "zod";
 import { Interface, isAddress, keccak256, toUtf8Bytes } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
-import { resolveGovernor } from "../loader.js";
-import { governorContract, isBravo, stateName } from "../adapter.js";
+import { resolveGovernor, type GovernorConfig } from "../loader.js";
+import { governorContract, isBravo, legacyIdHint, stateName } from "../adapter.js";
+import { governorProvider, governorReadError, rpcNote } from "../rpc.js";
+import { safeErrorMessage } from "../../lib/redact.js";
 import {
   buildCancel,
   decodeGovernorWrite,
@@ -19,27 +21,33 @@ function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
+/** OZ/Bravo ids are keccak-derived uint256s, not the 1-indexed DeXe counters. */
+const PID_GOV = "Proposal id from hashProposal, decimal or 0x-hex.";
+
 const governorIdSchema = z
   .string()
   .min(1)
-  .describe("Governor id (e.g. 'uniswap') or 0x-prefixed governor contract address.");
+  .describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
 
 const uintLikeSchema = z.union([z.string(), z.number()]);
 
 const addressArg = (desc: string) =>
   z.string().refine((s) => isAddress(s), { message: "must be a 0x-prefixed 20-byte address" }).describe(desc);
 
-const proposalIdArg = z.string().refine(
-  (s) => {
-    try {
-      BigInt(s);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  { message: "must be a uint256 (decimal or 0x-hex) string" },
-);
+const proposalIdArg = z
+  .string()
+  .refine(
+    (s) => {
+      try {
+        BigInt(s);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: "must be a uint256 (decimal or 0x-hex) string" },
+  )
+  .describe(PID_GOV);
 
 export function registerGovernorExtraTools(server: McpServer, rpc: RpcProvider): void {
   registerGetState(server, rpc);
@@ -56,17 +64,20 @@ function registerGetState(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read Governor.state() — minimal proposal-state lookup",
       description:
-        "Returns {index, name} for the proposal's current state. Shorthand for the state field of dexe_gov_get_proposal — useful when you only need the state and want a single eth_call.",
+        "Read-only. `Governor.state(proposalId)` as {index, name} — one eth_call when the state is all you need.",
       inputSchema: {
         governor: governorIdSchema,
         proposalId: proposalIdArg,
       },
     },
     async ({ governor, proposalId }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const idx = Number(await c.getFunction("state").staticCall(BigInt(proposalId)));
@@ -75,9 +86,12 @@ function registerGetState(server: McpServer, rpc: RpcProvider): void {
           governorVersion: cfg.governorVersion,
           proposalId,
           state: { index: idx, name: stateName(idx) },
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_get_state failed: ${(e as Error).message}`);
+        const detail = cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e);
+        const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+        return err(`dexe_gov_get_state failed: ${detail}${hint}`);
       }
     },
   );
@@ -89,7 +103,7 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Read whether an account has voted on a proposal",
       description:
-        "Returns true when the account has already cast a vote on this proposal. OZ reads hasVoted(proposalId, account); Bravo (Uniswap/Compound) has no hasVoted — read via getReceipt(proposalId, voter).hasVoted.",
+        "Read-only. Whether the account already voted. OZ reads hasVoted(proposalId, account); Bravo has no hasVoted, so it reads getReceipt(proposalId, voter).hasVoted.",
       inputSchema: {
         governor: governorIdSchema,
         proposalId: proposalIdArg,
@@ -97,10 +111,13 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
       },
     },
     async ({ governor, proposalId, account }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         let voted: boolean;
@@ -119,9 +136,12 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
           account,
           hasVoted: voted,
           method,
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_has_voted failed: ${(e as Error).message}`);
+        const detail = cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e);
+        const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+        return err(`dexe_gov_has_voted failed: ${detail}${hint}`);
       }
     },
   );
@@ -133,15 +153,15 @@ function registerBuildCancel(server: McpServer): void {
     {
       title: "Encode Governor.cancel calldata",
       description:
-        "OZ v4+: pass targets/values/calldatas + description or descriptionHash. Bravo: pass proposalId only. Returns {to, value, data, selector}.",
+        "Builds calldata; does not broadcast. `Governor.cancel`. OZ v4+: pass targets/values/calldatas + description or descriptionHash. Bravo: pass proposalId only.",
       inputSchema: {
         governor: governorIdSchema,
-        proposalId: z.string().optional(),
-        targets: z.array(z.string()).optional(),
-        values: z.array(uintLikeSchema).optional(),
-        calldatas: z.array(z.string()).optional(),
-        description: z.string().optional(),
-        descriptionHash: z.string().optional(),
+        proposalId: z.string().optional().describe("Bravo only. " + PID_GOV),
+        targets: z.array(z.string()).optional().describe("OZ only. Contract address per action."),
+        values: z.array(uintLikeSchema).optional().describe("OZ only. Native value per action, RAW base units (wei)."),
+        calldatas: z.array(z.string()).optional().describe("OZ only. 0x-hex calldata per action."),
+        description: z.string().optional().describe("OZ only. The proposal description; hashed for you."),
+        descriptionHash: z.string().optional().describe("OZ only. Use when the description text is unknown."),
       },
     },
     async (args) => {
@@ -162,7 +182,7 @@ function registerDecodeCalldata(server: McpServer): void {
     {
       title: "Decode any Governor write calldata back to its named args",
       description:
-        "Parses raw 0x-prefixed calldata against the configured Governor's write ABI (family-aware). Returns {method, args}. Useful for auditing a transaction in a wallet before signing, or round-tripping output of dexe_gov_build_* tools.",
+        "Read-only, local. Parses 0x-hex calldata against the configured Governor's write ABI (family-aware) into {method, args} — audit a tx before signing, or round-trip a dexe_gov_build_* payload.",
       inputSchema: {
         governor: governorIdSchema,
         data: z.string().describe("0x-prefixed calldata."),
@@ -200,9 +220,9 @@ function registerHashDescription(server: McpServer): void {
     {
       title: "Compute keccak256(toUtf8Bytes(description))",
       description:
-        "Returns the 32-byte descriptionHash that OZ Governor queue/execute/cancel use. Lets clients pre-compute the hash, store it, and skip rehashing on every call.",
+        "Read-only, local. keccak256(toUtf8Bytes(description)) — the 32-byte descriptionHash OZ queue/execute/cancel take.",
       inputSchema: {
-        description: z.string(),
+        description: z.string().describe("The proposal description text to hash."),
       },
     },
     async ({ description }) => {
@@ -221,14 +241,14 @@ function registerHashProposal(server: McpServer, rpc: RpcProvider): void {
     {
       title: "Call OZ Governor.hashProposal — preview the deterministic proposalId",
       description:
-        "OZ v4+ only. Computes the on-chain proposalId for a (targets, values, calldatas, descriptionHash) tuple before submission. Lets clients verify the propose calldata matches an expected id. Errors clearly on Bravo (hashProposal is not part of Bravo's ABI).",
+        "Read-only. OZ v4+ only: `Governor.hashProposal` gives the deterministic proposalId for a (targets, values, calldatas, descriptionHash) tuple before submission. Bravo has no hashProposal and is refused with that reason.",
       inputSchema: {
         governor: governorIdSchema,
-        targets: z.array(z.string()),
-        values: z.array(uintLikeSchema),
-        calldatas: z.array(z.string()),
-        description: z.string().optional(),
-        descriptionHash: z.string().optional(),
+        targets: z.array(z.string()).describe("Contract address per action."),
+        values: z.array(uintLikeSchema).describe("Native value per action, RAW base units (wei)."),
+        calldatas: z.array(z.string()).describe("0x-hex calldata per action."),
+        description: z.string().optional().describe("The proposal description; hashed for you."),
+        descriptionHash: z.string().optional().describe("Use when the description text is unknown."),
       },
     },
     async ({ governor, targets, values, calldatas, description, descriptionHash }) => {
@@ -239,8 +259,8 @@ function registerHashProposal(server: McpServer, rpc: RpcProvider): void {
             `dexe_gov_hash_proposal: ${cfg.id} is Bravo (${cfg.governorVersion}); Bravo does not expose hashProposal. Use Bravo's on-chain proposalCount + propose-returned id instead.`,
           );
         }
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const dh = descriptionHash
@@ -253,9 +273,10 @@ function registerHashProposal(server: McpServer, rpc: RpcProvider): void {
           proposalIdHex: "0x" + id.toString(16),
           proposalIdDecimal: id.toString(),
           descriptionHash: dh,
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_hash_proposal failed: ${(e as Error).message}`);
+        return err(`dexe_gov_hash_proposal failed: ${safeErrorMessage(e)}`);
       }
     },
   );

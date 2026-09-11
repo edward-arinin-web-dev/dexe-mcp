@@ -12,6 +12,9 @@ import { runAllChecks } from "../../src/diag/checks.js";
 
 const ENV_KEYS_TO_RESET = [
   "DEXE_PINATA_JWT",
+  // Without this the gateway check fires a real getaddrinfo (and, since 0.34.0,
+  // a real HEAD through the fetch mock) on any dev box that has it set.
+  "DEXE_IPFS_GATEWAY",
   "DEXE_SIGNER_ALLOWLIST",
   "DEXE_SIGNER_MAX_VALUE_WEI",
   "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN",
@@ -24,6 +27,10 @@ describe("runAllChecks", () => {
 
   beforeEach(() => {
     for (const k of ENV_KEYS_TO_RESET) original[k] = process.env[k];
+    // Snapshot-and-clear, not snapshot-only, for the gateway: every other key
+    // here is set by the test that needs it, but a developer's real
+    // DEXE_IPFS_GATEWAY would otherwise make this suite hit the network.
+    delete process.env.DEXE_IPFS_GATEWAY;
     realFetch = globalThis.fetch;
   });
 

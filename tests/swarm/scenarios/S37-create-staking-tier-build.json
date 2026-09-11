@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [56, 97],
   "requiresBrowser": false,
-  "notes": "StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata). stakingProposal addr is read by the tool internally.",
+  "notes": "StakingProposal.createStaking(rewardToken, rewardAmount, startedAt, deadline, metadata). stakingProposal addr is read by the tool internally. startedAt is {{now+600}} and NOT a past time: StakingProposal.sol sets _updatedAt = startedAt, so a backdated start accrues over a window with zero shares and strands that slice of the reward. A past DEADLINE does not revert either — the contract bounces the reward and emits StakingRejected, so the tx succeeds with no tier created. That silent outcome is why the tool-side window guard matters (see WP-C / the create_staking_tier guard in src/lib/proposalBuilders.ts).",
   "agents": [{ "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
@@ -17,8 +17,8 @@
         "stakingProposal": "0x0000000000000000000000000000000000000001",
         "rewardToken": "{{firstAllowlistedToken}}",
         "rewardAmount": "1000000000000000000000",
-        "startedAt": "1750000000",
-        "deadline": "1760000000",
+        "startedAt": "{{now+600}}",
+        "deadline": "{{now+2592000}}",
         "stakingMetadataUrl": "ipfs://QmStaking",
         "proposalName": "S37 staking tier"
       },

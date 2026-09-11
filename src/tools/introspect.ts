@@ -52,10 +52,13 @@ function registerListContracts(server: McpServer, ctx: ToolContext): void {
     {
       title: "List compiled contracts",
       description:
-        "Enumerates all compiled DeXe-Protocol contracts. Filter by substring match on name and/or kind (contract/interface/library). Requires dexe_compile to have run at least once.",
+        "Read-only, local. Lists the compiled DeXe-Protocol contracts; filter by name substring and/or kind.",
       inputSchema: {
         filter: z.string().optional().describe("Case-insensitive substring match on contract name"),
-        kind: z.enum(["contract", "interface", "library"]).optional(),
+        kind: z
+          .enum(["contract", "interface", "library"])
+          .optional()
+          .describe("Return only artifacts of this kind."),
       },
       outputSchema: {
         count: z.number(),
@@ -95,35 +98,90 @@ function registerListContracts(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_get_abi ----------
 
+/**
+ * Soft ceiling on an ABI response, in chars of `JSON.stringify(abi)`.
+ *
+ * `structuredContent` is what the model actually receives, so the compact
+ * `content[].text` one-liner bought nothing: GovPool's ABI alone is ~21.8k
+ * chars (~6k tokens). Only three of the 128 compiled artifacts exceed this —
+ * GovPool 21,758; TokenSaleProposal 21,541; TokenSaleProposalMock 21,697 — and
+ * IGovPool sits at 15,888, so the bar is deliberately above the ordinary
+ * interface rather than at it.
+ *
+ * NOT a refusal. `kind:"function"` does not bring GovPool under any sane cap
+ * (functions-only is still 20,169 chars), and `dexe_get_methods` is LARGER than
+ * the raw ABI (~21.8k) — so a hard refusal would name two remedies that also
+ * fail, on the flagship contract, in a tool literally called "get ABI". Instead
+ * the oversized response is served with the filters that DO work named in the
+ * text, and `dexe_get_selectors` (~2.4-5k for GovPool) pointed at as the one
+ * genuinely compact alternative.
+ */
+const ABI_SOFT_CAP_CHARS = 16_000;
+
 function registerGetAbi(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_get_abi",
     {
       title: "Get contract ABI",
-      description: "Returns the ABI JSON for a compiled contract by name.",
+      description:
+        "Read-only, local. Contract ABI JSON from the local compile output; run dexe_compile " +
+        "(needs DEXE_TOOLSETS=core,dev) once per session first. Narrow with `kind`/`nameFilter` " +
+        "(GovPool ABI ~21.8k chars).",
       inputSchema: {
         contract: z.string().describe("Contract name, e.g. 'GovPool'"),
+        kind: z
+          .enum(["function", "event", "error", "constructor", "fallback", "receive"])
+          .optional()
+          .describe("Return only ABI entries of this type."),
+        nameFilter: z
+          .string()
+          .optional()
+          .describe("Case-insensitive substring match on the entry name, e.g. 'vote'."),
       },
       outputSchema: {
         contract: z.string(),
         sourceName: z.string(),
         abi: z.array(z.unknown()),
+        /** Entries before `kind`/`nameFilter` narrowed the result. */
+        totalEntries: z.number().optional(),
+        /** True when a filter dropped entries — `abi` is a subset. */
+        filtered: z.boolean().optional(),
       },
     },
-    async ({ contract }) => {
+    async ({ contract, kind, nameFilter }) => {
       const res = await guarded(ctx, () => ctx.artifacts.getOne(contract));
       if (!res.ok) return errorResult(res.error);
       const r = res.value;
+      const all = r.abi as Array<{ type?: string; name?: string }>;
+      const needle = nameFilter?.toLowerCase();
+      const abi = all.filter(
+        (e) =>
+          (!kind || e.type === kind) &&
+          (!needle || (e.name ?? "").toLowerCase().includes(needle)),
+      );
       const structured = {
         contract: r.contractName,
         sourceName: r.sourceName,
-        abi: r.abi as unknown[],
+        abi: abi as unknown[],
+        totalEntries: all.length,
+        filtered: abi.length < all.length,
       };
+      const size = JSON.stringify(abi).length;
+      const sizeNote =
+        size > ABI_SOFT_CAP_CHARS
+          ? `\n⚠ ${size} chars of JSON — this whole payload is in your context. Narrow it with ` +
+            `kind:"function" and/or nameFilter:"<substring>", or call dexe_get_selectors instead ` +
+            `(signature → 4-byte map, a fraction of the size). dexe_get_methods is NOT smaller — it ` +
+            `carries full structured inputs/outputs.`
+          : "";
       return {
         content: [
           {
             type: "text" as const,
-            text: `ABI for ${r.contractName} (${r.sourceName}) — ${structured.abi.length} entries`,
+            text:
+              `ABI for ${r.contractName} (${r.sourceName}) — ${abi.length} entries` +
+              (structured.filtered ? ` (filtered from ${all.length})` : "") +
+              sizeNote,
           },
         ],
         structuredContent: structured,
@@ -195,7 +253,7 @@ function registerGetMethods(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get contract methods (read/write)",
       description:
-        "Returns structured per-function metadata for a contract, partitioned into read (view/pure) and write (nonpayable/payable). Each entry includes name, canonical signature, 4-byte selector, stateMutability, and full structured inputs/outputs (with `internalType` preserved for tuples — e.g. 'IGovPool.ProposalView[]'). Designed for generating TypeScript interfaces or ethers wrappers without re-parsing raw ABIs. Optionally includes events and errors.",
+        "Read-only, local. Per-function metadata split into read (view/pure) and write (nonpayable/payable), with canonical signatures, 4-byte selectors and `internalType` kept for tuples.",
       inputSchema: {
         contract: z.string().describe("Contract name, e.g. 'GovPool'"),
         kind: z
@@ -458,9 +516,9 @@ function registerGetSelectors(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get contract selectors",
       description:
-        "Returns all function selectors, event topic hashes, and error selectors for a contract.",
+        "Read-only, local. Function/event/error selectors from the local compile output; run dexe_compile (needs DEXE_TOOLSETS=core,dev) once per session first.",
       inputSchema: {
-        contract: z.string(),
+        contract: z.string().describe("Contract name, e.g. 'GovPool'"),
       },
       outputSchema: {
         contract: z.string(),
@@ -511,9 +569,12 @@ function registerFindSelector(server: McpServer, ctx: ToolContext): void {
     {
       title: "Reverse selector lookup",
       description:
-        "Given a 4-byte selector (function/error, '0x…') or 32-byte event topic hash, returns all matching contracts and signatures across the compiled codebase. Supports collisions.",
+        "Read-only, local. Maps a 4-byte selector or 32-byte event topic to every matching contract and signature in the compiled codebase; collisions included.",
       inputSchema: {
-        selector: z.string().regex(/^0x[0-9a-fA-F]+$/, "Must be a 0x-prefixed hex string"),
+        selector: z
+          .string()
+          .regex(/^0x[0-9a-fA-F]+$/, "Must be a 0x-prefixed hex string")
+          .describe("4-byte function/error selector or 32-byte event topic, 0x-hex."),
       },
       outputSchema: {
         selector: z.string(),
@@ -568,9 +629,9 @@ function registerGetNatspec(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get NatSpec docs",
       description:
-        "Reads devdoc/userdoc for a contract from build-info. Optionally scope to a single member (function/event signature or name).",
+        "Read-only, local. devdoc/userdoc from build-info; optionally scoped to one member.",
       inputSchema: {
-        contract: z.string(),
+        contract: z.string().describe("Contract name, e.g. 'GovPool'"),
         member: z.string().optional().describe("Function/event name or full signature"),
       },
       outputSchema: {
@@ -634,10 +695,10 @@ function registerGetSource(server: McpServer, ctx: ToolContext): void {
     {
       title: "Get contract source",
       description:
-        "Returns the source file path for a contract. Optionally slices around a symbol (function/event name) using a naive regex scan — AST-based extraction is a future enhancement.",
+        "Read-only, local. Source file path for a contract; optionally slices around a symbol via a naive regex scan.",
       inputSchema: {
-        contract: z.string(),
-        symbol: z.string().optional(),
+        contract: z.string().describe("Contract name, e.g. 'GovPool'"),
+        symbol: z.string().optional().describe("Function/event name to slice the source around."),
       },
       outputSchema: {
         contract: z.string(),

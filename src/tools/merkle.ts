@@ -50,7 +50,7 @@ export function registerMerkleTools(server: McpServer, _ctx: ToolContext): void 
     {
       title: "Build a merkle tree (OZ StandardMerkleTree compatible)",
       description:
-        "Builds a merkle tree compatible with OpenZeppelin StandardMerkleTree (used by DeXe's TokenSaleProposal merkle whitelists). Default leaf shape is a single address; pass `leafEncoding` + `entries` for richer leaves (e.g. address + amount). Returns root, leaf hashes, and per-input-index proofs.",
+        "Read-only, local. Builds an OpenZeppelin StandardMerkleTree (what DeXe token-sale whitelists verify). Default leaf is one address; `leafEncoding` + `entries` for richer leaves.",
       inputSchema: {
         addresses: z
           .array(z.string())
@@ -118,7 +118,7 @@ export function registerMerkleTools(server: McpServer, _ctx: ToolContext): void 
     {
       title: "Compute a merkle proof for one address (or leaf)",
       description:
-        "Builds the same tree as `dexe_merkle_build` and returns the proof for a single target. Useful for buyer-side flows where the full whitelist is known but only one proof is needed. Default shape: address-only.",
+        "Read-only, local. Same tree, but returns the proof for one target — buyer-side flows needing a single proof. Default shape: address-only.",
       inputSchema: {
         addresses: z
           .array(z.string())
@@ -128,8 +128,13 @@ export function registerMerkleTools(server: McpServer, _ctx: ToolContext): void 
         entries: z
           .array(z.array(z.union([z.string(), z.number()])))
           .min(1)
-          .optional(),
-        leafEncoding: z.array(z.string()).min(1).default(["address"]),
+          .optional()
+          .describe("Advanced: per-leaf raw values in `leafEncoding` order."),
+        leafEncoding: z
+          .array(z.string())
+          .min(1)
+          .default(["address"])
+          .describe("ABI type per leaf column. Default `['address']`."),
         target: z.string().describe("Address (when using `addresses`)."),
         targetEntry: z
           .array(z.union([z.string(), z.number()]))

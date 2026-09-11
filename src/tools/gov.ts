@@ -6,22 +6,9 @@ import { CalldataDecoder, type DecodedProposalAction, type DecodedCall } from ".
 import { GovAddressResolver } from "../lib/govAddresses.js";
 import { RpcProvider } from "../rpc.js";
 import { ArtifactsMissingError } from "../artifacts.js";
-import { renderUntrusted } from "../lib/sanitize.js";
+import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { toActionableError } from "../lib/errors.js";
-
-/**
- * Chain id param for the gov tools. Custom wording (no BSC examples) because
- * these tools also serve external Governor DAOs on chains like 1 or 10.
- */
-const govChainIdParam = z
-  .number()
-  .int()
-  .positive()
-  .optional()
-  .describe(
-    "Chain id to read from. Defaults to the MCP's default chain. " +
-      "Rejects if no RPC is configured for the requested chain.",
-  );
+import { chainIdParam } from "../lib/params.js";
 
 export function registerGovTools(server: McpServer, ctx: ToolContext): void {
   const rpc = new RpcProvider(ctx.config);
@@ -53,7 +40,7 @@ function registerDecodeCalldata(
     {
       title: "Decode ABI-encoded calldata",
       description:
-        "Decodes a raw '0x…' calldata blob against loaded contract ABIs. If `contract` is given, only that ABI is tried; otherwise every artifact whose selector matches is tried. Useful for understanding captured transactions or proposal action payloads.",
+        "Read-only, local. Decodes a '0x…' calldata blob against the loaded ABIs — only `contract`'s when given, else every matching artifact.",
       inputSchema: {
         data: z
           .string()
@@ -107,9 +94,15 @@ function registerDecodeCalldata(
             : "")
         : `No matching ABI found for selector ${data.slice(0, 10)}. Try dexe_find_selector.`;
 
+      // The spread is mandatory: `untrustedResult` returns only content +
+      // structuredContent, so building the object from it directly would drop
+      // `isError` and turn a no-match into a reported success.
       return {
-        content: [{ type: "text" as const, text }],
-        structuredContent: structured,
+        ...untrustedResult({
+          summary: text,
+          label: "decoded calldata arguments (author-controlled)",
+          structured,
+        }),
         isError: !result.primary,
       };
     },
@@ -130,11 +123,11 @@ function registerDecodeProposal(
     {
       title: "Read and decode a GovPool proposal",
       description:
-        "Fetches a proposal from an on-chain GovPool via `getProposals(offset, limit)` and decodes every action in BOTH `actionsOnFor` and `actionsOnAgainst` against loaded ABIs. Requires DEXE_RPC_URL.",
+        "Read-only. Fetches a GovPool proposal via `getProposals(offset, limit)` and decodes its for/against actions. Works with the built-in public RPC; set DEXE_RPC_URL_MAINNET / _TESTNET for reliability.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         proposalId: z.number().int().positive().describe("Proposal ID (1-indexed)"),
-        chainId: govChainIdParam,
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -227,15 +220,19 @@ function registerDecodeProposal(
         againstActions,
       };
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Proposal ${proposalId} @ ${govPool}\nState: ${PROPOSAL_STATE_NAMES[proposalState] ?? proposalState}\nDescription: ${renderUntrusted(descriptionURL)}\nActions on For: ${forActions.length}\nActions on Against: ${againstActions.length}\n${formatActions(forActions)}${formatActions(againstActions)}`,
-          },
-        ],
-        structuredContent: structured,
-      };
+      // Deliberately NO `body`: a fence caps at 4000 chars, and an attacker
+      // controlling six actions of padded args could push a
+      // "PRIVILEGED SELECTOR" line past the truncation point — strictly worse
+      // than the injection being fixed. The prose is server-authored apart from
+      // fields already escaped above, and `structured` (which carried the raw
+      // descriptionURL and decoded args) is now deep-sanitized and announced.
+      const text =
+        `Proposal ${proposalId} @ ${govPool}\nState: ${PROPOSAL_STATE_NAMES[proposalState] ?? proposalState}\nDescription: ${renderUntrusted(descriptionURL)}\nActions on For: ${forActions.length}\nActions on Against: ${againstActions.length}\n${formatActions(forActions)}${formatActions(againstActions)}`;
+      return untrustedResult({
+        summary: text,
+        label: `descriptionURL and decoded action arguments of proposal ${proposalId} on GovPool ${govPool} (author-controlled)`,
+        structured,
+      });
     },
   );
 }
@@ -264,7 +261,12 @@ function renderDecodedCall(call: DecodedCall, indent: string): string {
   let argsText = "";
   try {
     const j = JSON.stringify(call.args);
-    if (j && j !== "{}") argsText = j.length > 1000 ? j.slice(0, 1000) + "…" : j;
+    // Decoded args are attacker-authored strings (executorDescription, IPFS
+    // URIs, token names). JSON.stringify escapes control chars but does NOT
+    // strip bidi/zero-width and does NOT defang a forged `[/UNTRUSTED …]`.
+    // renderUntrusted sanitizes FIRST and caps after, so the cap is a real cap,
+    // and flags non-ASCII — the signal a reviewer of a transfer arg needs.
+    if (j && j !== "{}") argsText = renderUntrusted(j, 1000);
   } catch {
     /* args not JSON-serializable — skip */
   }
@@ -303,10 +305,10 @@ function registerReadGovState(
     {
       title: "Read aggregate GovPool state",
       description:
-        "For a given GovPool address, reads `getHelperContracts()` and `getNftContracts()` on-chain and returns the resolved helper + nft addresses. Requires DEXE_RPC_URL.",
+        "Read-only. Reads `getHelperContracts()` and `getNftContracts()` on a GovPool. Works with the built-in public RPC; set DEXE_RPC_URL_MAINNET / _TESTNET for reliability.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
-        chainId: govChainIdParam,
+        chainId: chainIdParam,
       },
       outputSchema: {
         govPool: z.string(),
@@ -364,7 +366,7 @@ function registerListGovContractTypes(server: McpServer): void {
     {
       title: "Orientation: gov subsystem contract catalog",
       description:
-        "Static catalog describing the DeXe governance subsystem contracts: what each one does and where its source lives. Cheap orientation tool for agents new to the codebase.",
+        "Read-only, local. Catalog of the DeXe governance contracts: what each does and where its source lives.",
       inputSchema: {},
       outputSchema: {
         contracts: z.array(

@@ -84,6 +84,50 @@ export function isBravo(cfg: GovernorConfig): boolean {
   return cfg.governorVersion === "bravo-v3";
 }
 
+/** Which tallies a governor counts toward quorum. Mirrors `COUNTING_MODE()`. */
+export type QuorumCounting = "for" | "for-abstain" | "all";
+
+/**
+ * Resolve the quorum-counting rule for a config.
+ *
+ * The ABI family and the `GovernorCountingX` module are INDEPENDENT axes —
+ * `isBravo` is not a proxy for "counts For only". CompoundGovernor is OZ-family
+ * with `quorum=for`; Optimism is OZ-family with `quorum=against,for,abstain`.
+ * The default only reproduces the historical guess for configs that have not
+ * declared the field yet.
+ */
+export function quorumCountingOf(cfg: GovernorConfig): QuorumCounting {
+  return cfg.quorumCounting ?? (isBravo(cfg) ? "for" : "for-abstain");
+}
+
+/**
+ * Extra remediation text for a failed proposal lookup on a governor that
+ * superseded an earlier contract.
+ *
+ * Without it a Compound id <= 393 returns a bare `execution reverted (unknown
+ * custom error)` from the new governor — the id is simply not addressable
+ * there, which no revert string says. Returns "" when the config declares no
+ * legacy governor or the id is out of its range.
+ */
+export function legacyIdHint(cfg: GovernorConfig, proposalId: string): string {
+  const legacy = cfg.legacyGovernor;
+  if (!legacy) return "";
+  let id: bigint;
+  try {
+    id = BigInt(proposalId);
+  } catch {
+    return "";
+  }
+  if (id > BigInt(legacy.maxProposalId)) return "";
+  const label = legacy.label ? ` — ${legacy.label}` : "";
+  return (
+    `\n\nHint: ${cfg.id} proposal ${proposalId} predates the current governor. ` +
+    `Ids <= ${legacy.maxProposalId} live on ${legacy.address}${label}; ` +
+    `the configured governor ${cfg.governorAddress} only answers ids > ${legacy.maxProposalId}. ` +
+    `Query the legacy contract directly, or run dexe_gov_list_governors to see the current fixture.`
+  );
+}
+
 export function governorContract(provider: JsonRpcProvider, cfg: GovernorConfig): Contract {
   const abi = isBravo(cfg) ? GOVERNOR_BRAVO_READ_ABI : GOVERNOR_OZ_READ_ABI;
   return new Contract(cfg.governorAddress, abi as unknown as string[], provider);
@@ -216,13 +260,21 @@ export interface VoteTally {
 }
 
 /**
- * Pure projection of a hypothetical vote onto current tallies. Quorum semantics
- * branch by family: OZ `GovernorCountingSimple` counts `for + abstain` toward
- * quorum, Bravo counts only `forVotes`. `willPass` requires quorum met AND
- * strictly more For than Against. No I/O — unit-testable in isolation.
+ * Pure projection of a hypothetical vote onto current tallies.
+ *
+ * Quorum semantics come from the governor's own `COUNTING_MODE()` `quorum=`
+ * clause, resolved by `quorumCountingOf(cfg)` — NOT from the ABI family:
+ *   - `"for"`         — Bravo (UNI) and CompoundGovernor (`quorum=for`).
+ *   - `"for-abstain"` — OZ `GovernorCountingSimple` (`quorum=for,abstain`).
+ *   - `"all"`         — Optimism (`quorum=against,for,abstain`).
+ *
+ * `willPass` requires quorum met AND strictly more For than Against. It models
+ * no per-proposal-type `approvalThreshold` and no voting module — callers that
+ * target such a governor must surface that caveat. No I/O — unit-testable in
+ * isolation.
  */
 export function projectVoteImpact(
-  bravo: boolean,
+  counting: QuorumCounting,
   current: VoteTally,
   support: number,
   weight: bigint,
@@ -233,7 +285,25 @@ export function projectVoteImpact(
   else if (support === 1) projected.for += weight;
   else projected.abstain += weight;
 
-  const quorumPool = bravo ? projected.for : projected.for + projected.abstain;
+  let quorumPool: bigint;
+  switch (counting) {
+    case "for":
+      quorumPool = projected.for;
+      break;
+    case "for-abstain":
+      quorumPool = projected.for + projected.abstain;
+      break;
+    case "all":
+      quorumPool = projected.for + projected.abstain + projected.against;
+      break;
+    default:
+      // Tests are not typechecked (tsconfig excludes **/*.test.ts) and the old
+      // signature took a boolean, so a stale `projectVoteImpact(true, …)` call
+      // would otherwise fall through silently instead of going red.
+      throw new Error(
+        `projectVoteImpact: unknown quorum counting rule ${String(counting)}; pass quorumCountingOf(cfg)`,
+      );
+  }
   const quorumMet = quorumPool >= quorum;
   const willPass = quorumMet && projected.for > projected.against;
   return { projected, quorumMet, willPass };

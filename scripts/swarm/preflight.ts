@@ -1,18 +1,33 @@
 /**
- * Swarm preflight — verify wallet pool is ready to run.
+ * Swarm preflight — verify the harness is ready to run.
  *
  * Checks:
- *   1. SWARM_RPC_URL reachable, chainId matches.
- *   2. AGENT_PK_1..8 + AGENT_FUNDER_PK present and well-formed.
- *   3. Each pool wallet meets its BNB + token-balance threshold.
- *   4. SWARM_DAOS / SWARM_TOKENS allowlists are non-empty.
+ *   1. dist/index.js exists and is not older than src/ (the orchestrator spawns
+ *      the BUILT server; a stale dist certifies the wrong code).
+ *   2. SWARM_RPC_URL reachable, chainId matches.
+ *   3. SWARM_DAOS / SWARM_TOKENS allowlists are non-empty, index-parallel, and
+ *      every DAO is a registered GovPool (else every composite refuses it).
+ *   4. AGENT_PK_1..8 + AGENT_FUNDER_PK present and well-formed.
+ *   5. Each pool wallet meets its BNB + token-balance threshold.
  *
- * Exits non-zero on any RED row so CI / orchestrator can abort early.
+ * Exits non-zero on any RED row so CI / orchestrator can abort early — BEFORE
+ * the orchestrator's prefund block moves any value.
  *
  * Usage:  tsx scripts/swarm/preflight.ts
  */
 
 import { Contract, JsonRpcProvider, Wallet, formatEther, formatUnits } from "ethers";
+import { resolve } from "node:path";
+import {
+  assertIndexParallel,
+  checkDaosRegistered,
+  checkTokenPairing,
+  makeGovTokenReader,
+  makeIsGovPool,
+  tokenPairingMessage,
+  unregisteredFixtureMessage,
+} from "./allowlist-guard.js";
+import { assertDistFresh, fileMtime, newestMtime } from "./dist-freshness.mjs";
 
 process.loadEnvFile?.();
 
@@ -108,6 +123,22 @@ async function main() {
     "";
   if (!rpcUrl) throw new Error(`Set SWARM_RPC_URL_${chainTag} or SWARM_RPC_URL or DEXE_RPC_URL.`);
 
+  // ---- dist/ freshness -------------------------------------------------
+  // First row on purpose: the orchestrator runs `node dist/index.js`, so a
+  // stale or missing build means the whole sweep grades the previously-built
+  // server. Fail here, before any gas is spent.
+  {
+    const verdict = assertDistFresh(fileMtime(resolve("dist/index.js")), newestMtime(resolve("src")));
+    if (!verdict.ok) {
+      if (verdict.level === "missing" || process.env.SWARM_SKIP_DIST_CHECK !== "1") {
+        fail(verdict.message);
+      }
+      console.log(`${YELLOW}~${RESET} ${verdict.message}`);
+    } else {
+      console.log(`${GREEN}✓${RESET} dist/index.js is newer than src/`);
+    }
+  }
+
   const tokens = parseList(`SWARM_TOKENS_${chainTag}`);
   const daos = parseList(`SWARM_DAOS_${chainTag}`);
   if (tokens.length === 0) {
@@ -123,6 +154,29 @@ async function main() {
     if (!isHexAddress(d)) fail(`Bad DAO addr in SWARM_DAOS_${chainTag}: ${d}`);
   }
 
+  // Predicted per-DAO helpers ({{dao.tokenSale}} / {{dao.distributionProposal}}).
+  // Optional — scenarios that need them fail loudly on an empty template — but
+  // when present they are WRITE TARGETS (proposal executors), so they get the
+  // same allowlist treatment as tokens and DAOs: shape-checked and index-parallel.
+  for (const [key, label] of [
+    [`SWARM_TOKENSALE_${chainTag}`, "token-sale"],
+    [`SWARM_DISTRIBUTION_${chainTag}`, "distribution-proposal"],
+  ] as const) {
+    const list = parseList(key);
+    if (list.length === 0) continue;
+    for (const a of list) {
+      if (!isHexAddress(a)) {
+        fail(`Bad ${label} addr in ${key}: ${a} — one address per DAO in SWARM_DAOS_${chainTag}, same order.`);
+      }
+    }
+    if (list.length !== daos.length) {
+      fail(
+        `${key} has ${list.length} entr${list.length === 1 ? "y" : "ies"} but SWARM_DAOS_${chainTag} has ` +
+          `${daos.length}. The lists are index-parallel: entry i must be DAO i's ${label} helper.`,
+      );
+    }
+  }
+
   const provider = new JsonRpcProvider(rpcUrl);
   const net = await provider.getNetwork();
   if (Number(net.chainId) !== expectedChainId) {
@@ -130,6 +184,55 @@ async function main() {
   }
   console.log(`${GREEN}✓${RESET} RPC ${rpcUrl} → chain ${net.chainId} (${chainTag})`);
   console.log(`${GREEN}✓${RESET} Allowlist: ${daos.length} DAOs, ${tokens.length} tokens`);
+
+  // ---- allowlist coherence ---------------------------------------------
+  // Runs after `provider` exists and the chain id is asserted — an RPC call
+  // cannot happen before either.
+  const parityErr = assertIndexParallel(daos, tokens, chainTag);
+  if (parityErr) fail(parityErr);
+
+  try {
+    const isGovPool = await makeIsGovPool(provider, expectedChainId);
+    const { unregistered, verified } = await checkDaosRegistered(daos, isGovPool);
+    if (verified && unregistered.length > 0) {
+      fail(unregisteredFixtureMessage(unregistered[0]!, daos.indexOf(unregistered[0]!), chainTag, expectedChainId));
+    }
+    console.log(
+      verified
+        ? `${GREEN}✓${RESET} All ${daos.length} fixture DAO(s) registered in PoolRegistry`
+        : `${YELLOW}~${RESET} Could not verify fixture registration (registry unresolvable) — continuing`,
+    );
+  } catch {
+    console.log(`${YELLOW}~${RESET} Fixture registration check skipped (RPC/registry unavailable).`);
+  }
+
+  try {
+    const pairing = await checkTokenPairing(daos, tokens, makeGovTokenReader(provider));
+    if (pairing.mismatches.length > 0) fail(tokenPairingMessage(pairing.mismatches[0]!, chainTag));
+    console.log(
+      pairing.verified
+        ? `${GREEN}✓${RESET} SWARM_TOKENS_${chainTag} is index-parallel to SWARM_DAOS_${chainTag}`
+        : `${YELLOW}~${RESET} Could not verify every DAO↔token pairing — continuing`,
+    );
+  } catch {
+    console.log(`${YELLOW}~${RESET} DAO↔token pairing check skipped (RPC unavailable).`);
+  }
+
+  // Signer guards apply to any `serverSign` step (the MCP, not this process,
+  // broadcasts those) — surface them so a B6/B7/B10 refusal is not blamed on
+  // the server.
+  const signerGuards = [
+    "DEXE_SIGNER_ALLOWLIST",
+    "DEXE_SIGNER_MAX_VALUE_WEI",
+    "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN",
+    "DEXE_AGENT_FUND_MAX_WEI",
+    "SWARM_DAILY_BNB_BUDGET",
+  ].filter((k) => (process.env[k]?.trim() ?? "") !== "");
+  if (signerGuards.length > 0) {
+    console.log(
+      `${YELLOW}~${RESET} Signer guards armed for serverSign steps: ${signerGuards.join(", ")}`,
+    );
+  }
 
   const tokenMeta = await Promise.all(
     tokens.map(async (addr, i) => {

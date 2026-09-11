@@ -8,7 +8,7 @@ import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 
 /**
- * First unit coverage for the off-chain (DeXe backend) builders. docs/TEST_BACKLOG.md
+ * First unit coverage for the off-chain (DeXe backend) builders. internal/TEST_BACKLOG.md
  * ordered exactly this — "add unit test that snapshots the body and asserts `type`
  * against registered constants" — after bug B shipped a unix timestamp as the
  * proposal `type` (400 "proposal type was not found"), and bug C shipped quorum
@@ -260,13 +260,37 @@ describe("dexe_proposal_build_offchain_single_option", () => {
     expect(JSON.stringify(slate)).toContain('"bold":true');
   });
 
-  it("rejects a malformed poolAddress instead of emitting a request", async () => {
-    const r = await callTool("dexe_proposal_build_offchain_single_option", {
-      ...PROPOSAL_ARGS,
-      poolAddress: "0xnope",
-    });
+  it("rejects a malformed pool address instead of emitting a request", async () => {
+    // 0.34.0 renamed the MCP-facing param to `govPool` (what the other 43 tools
+    // that take this address call it) and kept `poolAddress` as a permanent
+    // deprecated alias. Both still reject, and the message names the new one.
+    for (const key of ["govPool", "poolAddress"]) {
+      const r = await callTool("dexe_proposal_build_offchain_single_option", {
+        ...PROPOSAL_ARGS,
+        [key]: "0xnope",
+      });
+      expect(r.isError, key).toBe(true);
+      expect(text(r), key).toMatch(/Invalid govPool/);
+    }
+  });
+
+  it("emits the same request body whether the caller says govPool or poolAddress", async () => {
+    // The wire field stays `pool_address`; only the MCP-facing name moved.
+    const { poolAddress, ...rest } = PROPOSAL_ARGS as Record<string, unknown>;
+    const viaAlias = attrs(await callTool("dexe_proposal_build_offchain_single_option", PROPOSAL_ARGS));
+    const viaGovPool = attrs(
+      await callTool("dexe_proposal_build_offchain_single_option", { ...rest, govPool: poolAddress }),
+    );
+    expect(viaGovPool).toEqual(viaAlias);
+    expect(viaAlias.pool_address).toBe(poolAddress);
+  });
+
+  it("refuses, with the new name in the message, when neither is given", async () => {
+    const { poolAddress: _drop, ...rest } = PROPOSAL_ARGS as Record<string, unknown>;
+    const r = await callTool("dexe_proposal_build_offchain_single_option", rest);
     expect(r.isError).toBe(true);
-    expect(text(r)).toMatch(/Invalid poolAddress/);
+    expect(text(r)).toMatch(/Pass `govPool`/);
+    expect(text(r)).toMatch(/poolAddress/);
   });
 });
 

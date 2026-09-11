@@ -38,6 +38,63 @@ export function quorumPctFromRaw(raw: bigint | string): number {
   return Number((v * 10000n) / PERCENTAGE_100) / 100;
 }
 
+/**
+ * Absolute vote weight needed to clear a quorum SETTING — the exact mirror of
+ * `GovPool.getProposalRequiredQuorum`:
+ *
+ *     _govUserKeeper.getTotalPower().ratio(core.settings.quorum, PERCENTAGE_100)
+ *
+ * (DeXe-Protocol contracts/gov/GovPool.sol:495). `quorumRaw` is the 1e25-scaled
+ * percentage (5e26 = 50%); `totalPower` is `GovUserKeeper.getTotalPower()` in
+ * token wei. Solidity's `ratio` floors, so integer division matches exactly.
+ *
+ * Returns null when totalPower is unknown or 0 — a DAO with no votable power
+ * has no meaningful quorum target, and 0 must never become a divisor.
+ */
+export function requiredQuorumWeight(
+  totalPower: bigint | null | undefined,
+  quorumRaw: bigint | null | undefined,
+): bigint | null {
+  if (totalPower == null || quorumRaw == null) return null;
+  if (totalPower <= 0n || quorumRaw < 0n) return null;
+  return (totalPower * quorumRaw) / PERCENTAGE_100;
+}
+
+/**
+ * Votes as a % of an ABSOLUTE quorum TARGET (never of the raw setting — that is
+ * the D1-1 bug). Null when the target is unknown or 0: `getProposalRequiredQuorum`
+ * returns 0 for a proposal that does not exist or has not started
+ * (GovPool.sol:490-492), and 0 must never yield Infinity or NaN.
+ */
+export function quorumAttainmentPct(
+  votes: bigint,
+  requiredQuorum: bigint | null | undefined,
+): number | null {
+  if (requiredQuorum == null || requiredQuorum <= 0n) return null;
+  return Number((votes * 10000n) / requiredQuorum) / 100;
+}
+
+/**
+ * Weight the LEADING side still needs to reach quorum.
+ *
+ * Quorum in DeXe is per-SIDE, not a sum: GovPoolVote._quorumReached
+ * (contracts/libs/gov/gov-pool/GovPoolVote.sol:367-375) is true when EITHER
+ * votesFor OR votesAgainst alone clears the target. Measuring the shortfall
+ * against votesFor only would print "short by X" for a proposal already carried
+ * to quorum by the Against side.
+ *
+ * "0" when reached; null when the target is unknown or 0.
+ */
+export function votesShortOfQuorum(
+  votesFor: bigint,
+  votesAgainst: bigint,
+  requiredQuorum: bigint | null | undefined,
+): string | null {
+  if (requiredQuorum == null || requiredQuorum <= 0n) return null;
+  const lead = votesFor > votesAgainst ? votesFor : votesAgainst;
+  return lead >= requiredQuorum ? "0" : (requiredQuorum - lead).toString();
+}
+
 /** SAFE ≥ floor; CAUTION ≥ 0.8×floor; DANGER below. NaN → DANGER (unparseable). */
 export function judgeQuorum(pct: number, floorPct: number): RiskLevel {
   if (!Number.isFinite(pct)) return "DANGER";

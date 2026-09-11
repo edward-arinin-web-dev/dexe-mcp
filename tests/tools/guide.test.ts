@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
 import { matchIntent, bestMatch, flowDetail, flowIndex } from "../../src/knowledge/index.js";
+import { flowContextSchema } from "../../src/lib/flowChain.js";
 
 /** The canonical weak-model user story — MUST resolve to the end-to-end flow. */
 const CANONICAL_INTENT =
@@ -69,9 +70,25 @@ describe("flow detail tiers", () => {
   it("chaining composites get flowContext pre-filled in their paramsTemplate (Phase B)", () => {
     const d = flowDetail("otc_sale")!;
     const open = d.steps.find((s) => s.id === "open")!;
-    expect(open.paramsTemplate.flowContext).toBe('{"flow":"otc_sale","step":"open"}');
+    // An OBJECT, not a JSON string: src/lib/flowChain.ts declares flowContext as
+    // z.object({flow, step}), so the string form this used to emit was rejected
+    // by MCP input validation before the handler ran (D15-6).
+    expect(open.paramsTemplate.flowContext).toEqual({ flow: "otc_sale", step: "open" });
     const verify = d.steps.find((s) => s.id === "verify")!;
     expect(verify.paramsTemplate.flowContext).toBeUndefined(); // read tool — no chaining
+  });
+
+  it("every pre-filled flowContext validates against the composites' schema (D15-6)", () => {
+    for (const { flow } of flowIndex()) {
+      for (const step of flowDetail(flow)!.steps) {
+        const ctx = step.paramsTemplate.flowContext;
+        if (ctx === undefined) continue;
+        expect(
+          flowContextSchema.safeParse(ctx).success,
+          `${flow}.${step.id} pre-fills a flowContext the tool schema rejects: ${JSON.stringify(ctx)}`,
+        ).toBe(true);
+      }
+    }
   });
 });
 
@@ -198,9 +215,18 @@ describe("dexe_guide (real server)", () => {
     expect(out.gotchas.some((g: any) => g.id === "staking-not-on-testnet")).toBe(true);
   });
 
-  it("unknown flow id → index tier with a note", async () => {
-    const out = await callGuide({ flow: "not_a_flow" });
-    expect(out.mode).toBe("flow-index");
-    expect(out.note).toMatch(/Unknown flow/);
+  // 0.34.0: `flow` is a z.enum built from FLOWS + TOPICS, so an id that does
+  // not exist is refused at the schema boundary and the handler never runs.
+  // That is the point of the enum: the ten valid ids are in `tools/list`, and
+  // the rejection names them too — the old free-string form answered a guess
+  // with a menu one round-trip later. The handler's index fall-through is kept
+  // for programmatic callers of the knowledge layer (flowDetail("nope") → null,
+  // asserted above).
+  it("an id outside the enum is refused, and the refusal lists the valid ids", async () => {
+    const res = await client.callTool({ name: "dexe_guide", arguments: { flow: "not_a_flow" } });
+    expect(res.isError).toBe(true);
+    const text = (res.content as Array<{ type: string; text: string }>)[0]!.text;
+    expect(text).toMatch(/create_dao/);
+    expect(text).toMatch(/read_dao_data/);
   });
 });

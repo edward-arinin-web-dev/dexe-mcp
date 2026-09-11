@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SignerManager } from "../lib/signer.js";
+import { HOT_KEY_SAFETY, type SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
@@ -26,11 +26,6 @@ import {
 const REVERTED_NOTE =
   "⚠️ REVERTED — the transaction was mined but FAILED on-chain (status 0). State was NOT changed. " +
   "Inspect the tx on the explorer for the revert reason before retrying.";
-
-/** Flagged on every hot-key broadcast — a plaintext key on disk is not safe. */
-const HOT_KEY_SAFETY =
-  "⚠️ NOT SAFE — signed with a hot key (DEXE_PRIVATE_KEY) in plaintext on disk. " +
-  "Prefer WalletConnect: run dexe_wc_connect and the phone signs, so the key never touches this machine.";
 
 /**
  * Classify a transaction whose receipt is absent: a tx that exists on-chain but
@@ -60,12 +55,9 @@ export function registerTxTools(
   const wcActive = (): boolean => !signer.hasSigner() && wc.isConfigured();
   server.tool(
     "dexe_tx_send",
-    "Sign and broadcast a transaction using the configured DEXE_PRIVATE_KEY. " +
-      "Pass the TxPayload fields returned by any dexe_*_build_* tool. " +
-      "Waits for on-chain confirmation and returns the receipt. " +
-      "When the MCP has multiple chains configured, pass `chainId` explicitly to pick which one to broadcast on; otherwise the default chain is used. " +
-      "Also pass the payload's own chainId as `payloadChainId` — the send is refused when the two disagree. " +
-      "Calldata carrying a privileged GovUserKeeper accounting selector is refused outright (hard block, no override).",
+    "Broadcasts when a signer is configured. Sends the TxPayload fields from any dexe_*_build_* tool and waits for confirmation. " +
+      "Pass `chainId` when several chains are configured, plus the payload's own chainId as `payloadChainId` — a mismatch REFUSES the send. " +
+      "Calldata with a privileged GovUserKeeper accounting selector is refused (hard block, no override).",
     {
       to: z.string().describe("Destination contract address"),
       data: z.string().describe("ABI-encoded calldata (0x-prefixed hex)"),
@@ -78,18 +70,13 @@ export function registerTxTools(
         .int()
         .positive()
         .optional()
-        .describe(
-          "Target chain id. Defaults to the MCP's default chain. Tool rejects if no RPC is configured for the requested chain.",
-        ),
+        .describe("Chain to broadcast on; needs an RPC for it. Default: the MCP's default chain."),
       payloadChainId: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe(
-          "The `chainId` field of the TxPayload being broadcast — copy it verbatim from the builder output. " +
-            "If it disagrees with `chainId` the send is REFUSED (the payload was built for a different chain).",
-        ),
+        .describe("The TxPayload's own `chainId`, copied verbatim — a mismatch REFUSES the send."),
       gasLimit: z
         .string()
         .optional()
@@ -104,11 +91,7 @@ export function registerTxTools(
       signerKey: z
         .string()
         .optional()
-        .describe(
-          "Which persona signs. Omit = the primary DEXE_PRIVATE_KEY (never implicit fallback to an agent). " +
-            "'agent<n>' / 'funder' / an address = that DEXE_AGENT_PK_* keyring key; dexe_context lists the " +
-            "configured slots. Hot-key mode only.",
-        ),
+        .describe("Signer: omit = primary DEXE_PRIVATE_KEY (never an agent); 'agent<n>'/address = keyring."),
     },
     async ({ to, data, value, chainId, payloadChainId, gasLimit, waitConfirmations, signerKey }) => {
       // Denylist FIRST — before chain resolution, signer lookup, WalletConnect
@@ -469,7 +452,7 @@ export function registerTxTools(
 
   server.tool(
     "dexe_tx_status",
-    "Check the receipt/status of a previously submitted transaction hash.",
+    "Read-only. Receipt/status for a submitted tx hash (pending vs not_found). A broadcast timeout is not a failure — the tx may still confirm; re-check here.",
     {
       txHash: z.string().describe("Transaction hash to look up"),
       chainId: z
@@ -477,9 +460,7 @@ export function registerTxTools(
         .int()
         .positive()
         .optional()
-        .describe(
-          "Chain id to look up the receipt on. Defaults to the MCP's default chain.",
-        ),
+        .describe("Chain to look the receipt up on. Default: the MCP's default chain."),
     },
     async ({ txHash, chainId }) => {
       const chain = resolveChain(config, chainId);

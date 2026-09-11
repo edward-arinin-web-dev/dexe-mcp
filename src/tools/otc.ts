@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Interface, ZeroAddress, ZeroHash, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
-import { SignerManager } from "../lib/signer.js";
+import { SignerManager, hotKeySafetyFields } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
@@ -14,7 +14,8 @@ import {
   tierSchema,
   type TierSpec,
 } from "./proposalBuildComplex.js";
-import { PinataClient } from "../lib/ipfs.js";
+import { PinataClient, pinataCidForJson } from "../lib/ipfs.js";
+import type { IpfsArtifact } from "../lib/ipfsPreview.js";
 import {
   buildAddressMerkleTree,
   computeLeafHash,
@@ -23,17 +24,18 @@ import {
 import { simulateCalldata } from "./simulate.js";
 import { parseUintString } from "../lib/amount.js";
 import { parseAmount, formatAmount, from18 } from "../lib/units.js";
-import { chainIdParam, signerKeyParam } from "../lib/params.js";
+import { chainIdParam, signerKeyParam, NFT_IDS_OWN_DESC } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { safeErrorMessage } from "../lib/redact.js";
-import { toActionableError } from "../lib/errors.js";
+import { toActionableError, sanitizeRevertReason } from "../lib/errors.js";
 import { untrustedResult } from "../lib/sanitize.js";
 import {
   VESTING_WITHDRAW_ADVISORY,
   findVestingTiers,
   vestingBlockedReport,
+  vestingRefusalText,
   type VestingTierRisk,
 } from "../lib/protocolAdvisories.js";
 
@@ -164,18 +166,10 @@ function vestingTierGuard(
 ): { risks: VestingTierRisk[]; refusal: string | null } {
   const risks = findVestingTiers(tiers);
   if (risks.length === 0 || acknowledged) return { risks, refusal: null };
-  const listed = risks
-    .map((r) => `  • tier[${r.index}] "${r.name}" — vestingPercentage=${r.vestingPercentage}`)
-    .join("\n");
-  return {
-    risks,
-    refusal:
-      `REFUSED before building any calldata — ${risks.length} tier(s) would strand their vested allocation:\n` +
-      `${listed}\n\n${VESTING_WITHDRAW_ADVISORY.text}\n\n` +
-      `Fix: set vestingSettings.vestingPercentage to "0" on the tier(s) above (buyers then get the whole ` +
-      `allocation through \`claim\`, which works). To open them anyway — only do this on a pre-SphereX pool ` +
-      `where vestingWithdraw is known to work — re-run with acknowledgeVestingBlocked: true.`,
-  };
+  // The text itself now lives in src/lib/protocolAdvisories.ts so the three
+  // token-sale PROPOSAL surfaces refuse with the identical wording instead of
+  // building the stranding tier silently.
+  return { risks, refusal: vestingRefusalText(risks, "acknowledgeVestingBlocked: true") };
 }
 
 /**
@@ -227,15 +221,16 @@ export function buildExactApproval(
  * `ipfs://<cid>` into the participation spec (matches the frontend's
  * `IpfsEntity.path` format; addresses lowercased like the frontend does).
  */
-async function resolveMerkleUris(
+export async function resolveMerkleUris(
   tiers: readonly TierSpec[],
   pinataJwt: string | undefined,
+  opts: { dryRun: boolean },
 ): Promise<{
   tiers: TierSpec[];
-  uploaded: { tierName: string; uri: string }[];
+  uploaded: { tierName: string; uri: string; pinned: boolean }[];
   warnings: string[];
 }> {
-  const uploaded: { tierName: string; uri: string }[] = [];
+  const uploaded: { tierName: string; uri: string; pinned: boolean }[] = [];
   const warnings: string[] = [];
   const out: TierSpec[] = [];
   for (const tier of tiers) {
@@ -248,25 +243,41 @@ async function resolveMerkleUris(
       continue;
     }
     if (!pinataJwt) {
+      // Two different truths, and a preview must tell the right one. Without a
+      // key the REAL run emits an empty uri — so a dryRun that fabricated one
+      // would advertise calldata the real run will never produce.
       warnings.push(
-        `Tier "${tier.name}": MerkleWhitelist uri left empty (DEXE_PINATA_JWT unset) — ` +
-          `app.dexe.io buyers cannot regenerate proofs for this tier; distribute the whitelist out-of-band.`,
+        opts.dryRun
+          ? `Tier "${tier.name}": preview only — DEXE_PINATA_JWT is unset, so a real run will leave this ` +
+              `MerkleWhitelist uri EMPTY and app.dexe.io buyers will not be able to derive proofs. ` +
+              `Set DEXE_PINATA_JWT (see dexe_doctor) before the real run.`
+          : `Tier "${tier.name}": MerkleWhitelist uri left empty (DEXE_PINATA_JWT unset) — ` +
+              `app.dexe.io buyers cannot regenerate proofs for this tier; distribute the whitelist out-of-band.`,
       );
       out.push(tier);
       continue;
     }
-    const pinata = new PinataClient(pinataJwt);
+    // Under dryRun no client is constructed at all, so a spy on `pinJson`
+    // provably cannot fire.
+    const pinata = opts.dryRun ? undefined : new PinataClient(pinataJwt);
     const newParts: TierSpec["participation"] = [];
     for (const p of parts) {
       if (p.type === "MerkleWhitelist" && !p.uri && (p.users?.length ?? 0) > 0) {
         const list = p.users.map((u) => u.toLowerCase());
-        const res = await pinata.pinJson(
-          { list },
-          { name: `otc-whitelist:${tier.name.slice(0, 24)}` },
-        );
-        const uri = `ipfs://${res.cid}`;
-        uploaded.push({ tierName: tier.name, uri });
+        const cid = pinata
+          ? (await pinata.pinJson({ list }, { name: `otc-whitelist:${tier.name.slice(0, 24)}` })).cid
+          : (await pinataCidForJson({ list })).cid;
+        const uri = `ipfs://${cid}`;
+        uploaded.push({ tierName: tier.name, uri, pinned: !!pinata });
         newParts.push({ ...p, uri });
+        if (!pinata) {
+          warnings.push(
+            `Tier "${tier.name}": whitelist NOT pinned (dryRun). The uri ${uri} was computed locally — it is the ` +
+              `same CID a real run pins, so this createTiers calldata matches, but the list itself is on nobody's ` +
+              `IPFS node. Do not broadcast these payloads as-is: buyers could not derive proofs and the tier would ` +
+              `be unbuyable on app.dexe.io. Re-run without dryRun to pin it.`,
+          );
+        }
       } else {
         newParts.push(p);
       }
@@ -292,18 +303,11 @@ export function registerOtcTools(
   // =============================================
   server.tool(
     "dexe_otc_dao_open_sale",
-    "OTC composite — propose to open a multi-tier token sale on a deployed OTC DAO. " +
-      "Builds the multi-tier `createTiers` envelope (deduped/summed approves, auto-merkle, " +
-      "auto-addToWhitelist for plain Whitelist tiers, auto-upload of merkle whitelists to " +
-      "IPFS so app.dexe.io buyers can regenerate proofs), then runs the full proposal_create " +
-      "flow: balance + threshold check, ERC20 approve to UserKeeper if needed, deposit, " +
-      "IPFS proposal-metadata upload, `createProposalAndVote`. " +
-      "When DEXE_PRIVATE_KEY is set, signs and broadcasts each tx; otherwise returns " +
-      "an ordered TxPayload list. Every DAO deployed with `dexe_dao_create` (v0.19+) already has " +
-      "TokenSaleProposal wired as an executor, so this works right after a deploy. Only DAOs deployed " +
-      "by other/older tooling without that executor need a `new_proposal_type` proposal " +
-      "(dexe_proposal_create, executors=[tokenSaleProposal]) or a redeploy first. " +
-      "Unsure of the full sale journey or which params to collect from the user? Call dexe_guide (flow:'otc_sale') first.",
+    "Broadcasts when a signer is configured. Proposes a multi-tier token sale on an OTC DAO: builds the " +
+      "`createTiers` envelope (deduped approves, auto-merkle, auto-addToWhitelist, merkle lists pinned to " +
+      "IPFS so buyers can regenerate proofs), then runs the proposal_create flow (approve, deposit, IPFS " +
+      "metadata, `createProposalAndVote`). DAOs from `dexe_dao_create` (v0.19+) already wire " +
+      "TokenSaleProposal as an executor; older ones need a `new_proposal_type` proposal first.",
     {
       govPool: z.string().describe("GovPool address"),
       chainId: z
@@ -313,24 +317,35 @@ export function registerOtcTools(
         .optional()
         .describe("Target chain id. Defaults to the MCP's default chain."),
       tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
-      tiers: z.array(tierSchema).min(1),
-      latestTierId: z.string().default("0"),
-      proposalName: z.string().default("Open OTC Token Sale"),
-      proposalDescription: z.string().default(""),
-      voteAmount: z.string().optional(),
-      voteNftIds: z.array(z.string()).default([]),
-      user: z.string().optional(),
+      tiers: z
+        .array(tierSchema)
+        .min(1)
+        .describe("Tier specs for `createTiers`, in order; at least one."),
+      latestTierId: z
+        .string()
+        .default("0")
+        .describe("Current `latestTierId()` on the sale; new tiers start after it."),
+      proposalName: z.string().default("Open OTC Token Sale").describe("Proposal title in the DAO UI."),
+      proposalDescription: z.string().default("").describe("Proposal body; Markdown supported."),
+      voteAmount: z
+        .string()
+        .optional()
+        .describe("Vote size: whole tokens ('12.5') or raw wei. Omit to vote with all available power."),
+      voteNftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
+      user: z.string().optional().describe("Acting address; defaults to the configured signer."),
       signerKey: signerKeyParam,
-      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
-      buildOnly: z.boolean().default(false).describe("If true, return just the envelope (actions + metadata + merkle roots) without running the proposal_create flow. Skips IPFS upload and DAO state reads."),
+      dryRun: z
+        .boolean()
+        .default(false)
+        .describe("Preview: no broadcast, no IPFS pin. CIDs are right but unpinned — do NOT broadcast."),
+      buildOnly: z
+        .boolean()
+        .default(false)
+        .describe("Return only the envelope (actions + metadata + merkle roots); skips IPFS and DAO reads."),
       acknowledgeVestingBlocked: z
         .boolean()
         .default(false)
-        .describe(
-          "Opt in to opening a tier with vestingPercentage > 0. Refused by default: on current pools the vested " +
-            "leg can never be withdrawn (upstream protocol defect F15) and those tokens are stranded. Only set " +
-            "true on a pool where vestingWithdraw is known to work.",
-        ),
+        .describe("Refused by default: opt into vestingPercentage > 0; the vested leg is stranded (F15)."),
       flowContext: flowContextSchema,
     },
     async (input) => {
@@ -345,14 +360,22 @@ export function registerOtcTools(
         // IPFS or app.dexe.io buyers cannot derive proofs. buildOnly skips
         // uploads by design — the caller owns IPFS there.
         let tiers: readonly TierSpec[] = input.tiers;
-        let whitelistUploads: { tierName: string; uri: string }[] = [];
+        let whitelistUploads: { tierName: string; uri: string; pinned: boolean }[] = [];
         let whitelistWarnings: string[] = [];
         if (!input.buildOnly) {
-          const resolved = await resolveMerkleUris(input.tiers, ctx.config.pinataJwt);
+          const resolved = await resolveMerkleUris(input.tiers, ctx.config.pinataJwt, { dryRun: input.dryRun });
           tiers = resolved.tiers;
           whitelistUploads = resolved.uploaded;
           whitelistWarnings = resolved.warnings;
         }
+        // Whatever the whitelist resolution did rides into the createTiers
+        // calldata, so it belongs in the same `ipfs` disclosure block as the
+        // proposal metadata rather than in a second, separate claim.
+        const merkleArtifacts: IpfsArtifact[] = whitelistUploads.map((u) => ({
+          field: `merkleWhitelist[${u.tierName}]`,
+          uri: u.uri,
+          pinned: u.pinned,
+        }));
 
         const built = buildTokenSaleMultiActions({
           tokenSaleProposal: input.tokenSaleProposal,
@@ -410,6 +433,7 @@ export function registerOtcTools(
           voteNftIds: input.voteNftIds,
           user: input.user,
           dryRun: input.dryRun,
+          extraIpfsArtifacts: merkleArtifacts,
           // Opening a sale is a write composite like any other, so it must be
           // signable as a named persona. It was the one broadcast composite
           // 0.32.0 missed — and docs/AGENTS.md had already listed it as
@@ -486,21 +510,19 @@ export function registerOtcTools(
   // =============================================
   server.tool(
     "dexe_otc_buyer_status",
-    "OTC buyer aggregator — reads tier params + user state across N tiers and returns a " +
-      "render-ready summary (purchasable status, claimable amount, vesting withdrawable, " +
-      "lockup ETA, totalSold, on-chain merkle root). When `whitelists` is supplied per tier, " +
-      "computes the user's merkle proof against that list AND passes it into getUserViews — " +
-      "so `canParticipate` is accurate for merkle-gated tiers. Read-only.",
+    "Read-only. Tier params + user state across N tiers: purchasable status, claimable amount, vesting " +
+      "withdrawable, lockup ETA, totalSold, merkle root. `whitelists` adds the user's proof, making " +
+      "`canParticipate` accurate for gated tiers.",
     {
-      tokenSaleProposal: z.string(),
+      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       chainId: chainIdParam,
-      tierIds: z.array(z.string()).min(1),
-      user: z.string(),
+      tierIds: z.array(z.string()).min(1).describe("Tier ids to report on, decimal strings."),
+      user: z.string().describe("Buyer address to report state for."),
       whitelists: z
         .array(
           z.object({
-            tierId: z.string(),
-            users: z.array(z.string()).min(1),
+            tierId: z.string().describe("Tier the whitelist belongs to, decimal string."),
+            users: z.array(z.string()).min(1).describe("Whitelisted addresses, exactly as the merkle root was built."),
           }),
         )
         .default([])
@@ -734,46 +756,35 @@ export function registerOtcTools(
   // =============================================
   server.tool(
     "dexe_otc_buyer_buy",
-    "OTC buyer composite — preflights balance + allowance on the payment token, builds an " +
-      "ERC20 approve when needed, then builds `TokenSaleProposal.buy(tierId, paymentToken, amount, proof)`. " +
-      "Native-coin path (paymentToken == 0x000...000) skips approve and sets `value`. " +
-      "If `whitelistUsers` is supplied, computes the merkle proof against that list. " +
-      "When DEXE_PRIVATE_KEY is set, signs and broadcasts both txs; otherwise returns the ordered " +
-      "TxPayload list.",
+    "Broadcasts when a signer is configured. Preflights balance + allowance, adds an ERC20 approve when " +
+      "needed, then builds `TokenSaleProposal.buy(tierId, paymentToken, amount, proof)`. Native path " +
+      "(0x000...000) skips approve and sets `value`; `whitelistUsers` generates the proof.",
     {
-      tokenSaleProposal: z.string(),
+      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       chainId: z
         .number()
         .int()
         .positive()
         .optional()
         .describe("Target chain id. Defaults to the MCP's default chain."),
-      tierId: z.string(),
+      tierId: z.string().describe("Tier to buy from, decimal string."),
       tokenToBuyWith: z
         .string()
         .describe(
-          "Payment token; for native BNB pass 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE (protocol ETHEREUM_ADDRESS). " +
-            "The zero address is accepted as an alias, but calldata always carries ETHEREUM_ADDRESS — the contract keys exchange rates by it.",
+          "Payment token; native BNB = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE (0x0 is an alias).",
         ),
       amount: z
         .string()
-        .describe(
-          "Amount to spend. Human units with a decimal point ('100.5') are handled for you regardless of the " +
-            "payment token's decimals (recommended). A digits-only string is treated as the 18-decimal-normalized " +
-            "quantity buy() expects (back-compat) — the tool converts it to the token's native decimals for the " +
-            "balance check and approve.",
-        ),
-      proof: z.array(z.string()).default([]),
+        .describe("Amount to spend: human units ('100.5'), or digits-only = 18-decimal-normalized."),
+      proof: z.array(z.string()).default([]).describe("Merkle proof for a gated tier; [] when not gated."),
       whitelistUsers: z.array(z.string()).default([]).describe("Optional whitelist for proof gen"),
-      user: z.string().optional(),
+      user: z.string().optional().describe("Buyer address; defaults to the configured signer."),
       signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       simulateFirst: z
         .boolean()
         .default(false)
-        .describe(
-          "If true, eth_call-simulate the buy() against live state before broadcasting. Aborts with the revertReason if the sim fails.",
-        ),
+        .describe("eth_call-simulate buy() first; aborts with the revertReason if the sim fails."),
     },
     async (input) => {
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);
@@ -914,7 +925,7 @@ export function registerOtcTools(
         simulation = sim;
         if (!sim.success) {
           return err(
-            `Simulation failed before broadcast: ${sim.revertReason ?? "unknown revert"}`,
+            `Simulation failed before broadcast: ${sanitizeRevertReason(sim.revertReason, "unknown revert")}`,
           );
         }
       }
@@ -934,6 +945,8 @@ export function registerOtcTools(
         preflight: native ? null : { balance: balance.toString(), allowance: allowance.toString() },
         ...(simulation ? { simulation } : {}),
         steps: [...skipped, ...result.steps],
+        ...(result.signer ? { signer: result.signer } : {}),
+        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);
@@ -945,32 +958,26 @@ export function registerOtcTools(
   // =============================================
   server.tool(
     "dexe_otc_buyer_claim_all",
-    "OTC buyer composite — reads `getUserViews(user, tierIds)`, picks tier ids with " +
-      "`claimableAmount > 0` and broadcasts `claim`. Tiers whose only balance is the VESTED leg are " +
-      "reported under `vestingBlocked` and NOT broadcast: `vestingWithdraw` is refused by the pool's " +
-      "firewall in every call shape (upstream protocol defect F15), so sending it only burns gas. " +
-      "Pass `includeVesting: true` to attempt it anyway. When DEXE_PRIVATE_KEY " +
-      "is unset, returns ordered TxPayloads. Skips silently if no tiers have anything claimable.",
+    "Broadcasts when a signer is configured. Reads `getUserViews(user, tierIds)` and sends `claim` for " +
+      "tiers with `claimableAmount > 0`. Tiers whose only balance is the VESTED leg are reported under " +
+      "`vestingBlocked` and NOT sent — `vestingWithdraw` is refused by the pool's firewall (upstream " +
+      "defect F15); `includeVesting: true` tries anyway.",
     {
-      tokenSaleProposal: z.string(),
+      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       chainId: z
         .number()
         .int()
         .positive()
         .optional()
         .describe("Target chain id. Defaults to the MCP's default chain."),
-      tierIds: z.array(z.string()).min(1),
-      user: z.string().optional(),
+      tierIds: z.array(z.string()).min(1).describe("Tier ids to sweep, decimal strings."),
+      user: z.string().optional().describe("Claimer address; defaults to the configured signer."),
       signerKey: signerKeyParam,
       dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
       includeVesting: z
         .boolean()
         .default(false)
-        .describe(
-          "Attempt `vestingWithdraw` for tiers with a withdrawable vested amount. Off by default because that " +
-            "call reverts on every current pool (upstream F15) — turn it on only for a pool where it is known " +
-            "to work.",
-        ),
+        .describe("Attempt `vestingWithdraw` too; it reverts on every current pool (upstream F15)."),
     },
     async (input) => {
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);
@@ -1111,6 +1118,8 @@ export function registerOtcTools(
         ...(vestingBlocked ? { vestingBlocked } : {}),
         summary,
         steps: [...skipped, ...result.steps],
+        ...(result.signer ? { signer: result.signer } : {}),
+        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);

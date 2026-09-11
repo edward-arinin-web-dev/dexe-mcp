@@ -30,6 +30,20 @@ const TESTNET_DEFAULT_RPC = "https://data-seed-prebsc-1-s1.bnbchain.org:8545";
 const MAINNET_DEFAULT_RPC = "https://bsc-dataseed.bnbchain.org";
 
 export async function run(): Promise<void> {
+  // BEFORE the TTY check on purpose: on a real terminal `dexe-mcp init --help`
+  // otherwise drops the user straight into the interactive wizard with no way
+  // out but Ctrl-C, and off a TTY it exits 2 with an unrelated message.
+  // Reads process.argv directly, matching this file's existing convention
+  // (the `--skills-only` read below).
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    output.write(
+      "dexe-mcp init [--skills-only]\n\n" +
+        "  interactive wizard; writes ~/.dexe-mcp/.env and can install the skills\n" +
+        "  --skills-only   skip the env interview, just install the skills\n\n" +
+        "Needs a TTY. For a non-interactive setup, copy .env.example by hand.\n",
+    );
+    return;
+  }
   if (!input.isTTY) {
     process.stderr.write(
       "[dexe-mcp init] stdin is not a TTY. Pipe-driven init is not supported (too risky for secrets). " +

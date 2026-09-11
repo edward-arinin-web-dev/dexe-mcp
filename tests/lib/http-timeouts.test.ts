@@ -262,7 +262,9 @@ describe("PinataClient — deadline", () => {
     // the message has to resolve "did it pin?" and "is re-running safe?".
     expect(err.message).toMatch(/no metadata was pinned/);
     expect(err.message).toMatch(/Re-run the same call/);
-    expect(err.message).toMatch(/already landed are skipped/);
+    // 0.34.0: the blanket "steps that already landed are skipped" is replaced
+    // by the enumeration — execute and the validator round are NOT skipped.
+    expect(err.message).toMatch(/already landed are re-derived from chain state and skipped/);
   });
 
   it("pinFile aborts at its deadline", async () => {

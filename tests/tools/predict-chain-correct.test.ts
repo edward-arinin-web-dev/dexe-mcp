@@ -30,6 +30,7 @@ const mc = vi.mocked(multicall);
 
 const GOV = "0xbb1918019af8c6a26ff34ce8fb8305976e1f626d";
 const SETTINGS = "0x1111111111111111111111111111111111111111";
+const USER_KEEPER = "0x2222222222222222222222222222222222222222";
 
 const MAINNET_POOLS = "https://gw.example/56/pools";
 const TESTNET_POOLS = "https://gw.example/97/pools";
@@ -90,18 +91,23 @@ beforeEach(() => {
     calls.map((c) => {
       switch (c.method) {
         case "getHelperContracts":
-          return { success: true, value: { settings: SETTINGS } as never, raw: "0x" };
+          return { success: true, value: { settings: SETTINGS, userKeeper: USER_KEEPER } as never, raw: "0x" };
         case "latestProposalId":
           return { success: true, value: 1n as never, raw: "0x" };
         case "getDefaultSettings":
-          return { success: true, value: { quorum: 100n } as never, raw: "0x" };
+          // Real magnitude (5% as 1e25-scaled), not a toy 100n: at toy scale the
+          // setting-vs-weight unit bug this fixture used to carry is invisible.
+          return { success: true, value: { quorum: 50_000_000_000_000_000_000_000_000n } as never, raw: "0x" };
+        case "getTotalPower":
+          return { success: true, value: 22_098_102_605_179_570_000_000_000n as never, raw: "0x" };
         case "getProposals":
           return {
             success: true,
             value: [
               {
-                proposal: { core: { executed: true, votesFor: 500n, votesAgainst: 0n } },
+                proposal: { core: { executed: true, votesFor: 2_051_925_536_089_401_709_423_372n, votesAgainst: 0n } },
                 proposalState: 7, // ExecutedFor
+                requiredQuorum: 1_104_905_130_258_978_500_000_000n,
               },
             ] as never,
             raw: "0x",
@@ -136,7 +142,11 @@ describe("dexe_proposal_forecast resolves the pools subgraph per chain", () => {
     const p = payload(res);
     expect(p.indexedChainId).toBe(56);
     expect(fetchMock.mock.calls[0]![0]).toBe(MAINNET_POOLS);
-    expect(p.subgraphHistory).toEqual([MAINNET_PROPOSAL_ROW]);
+    // Rows are relabelled (D1-3): the indexer's `quorum` is the 1e25 SETTING,
+    // so it now travels with a name that says so. Absent here → null, not 0.
+    expect(p.subgraphHistory).toEqual([
+      { ...MAINNET_PROPOSAL_ROW, quorumSettingRaw: null, quorumSettingPct: null },
+    ]);
   });
 
   it("chain 97 uses the chain-97 endpoint once one is configured", async () => {

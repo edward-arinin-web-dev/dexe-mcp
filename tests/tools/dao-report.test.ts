@@ -330,7 +330,10 @@ function poolsBaseResponse() {
       votersVoted: String(p.votersVoted),
       currentVotesFor: String(p.id * 100),
       currentVotesAgainst: String(p.id * 10),
-      quorum: "1000",
+      // The indexer's `Proposal.quorum` is the 1e25-scaled SETTING — this is
+      // the real chain-56 value (5%), not a toy number at which the
+      // setting-vs-weight unit confusion is invisible.
+      quorum: "50000000000000000000000000",
       quorumReachedTimestamp: p.votersVoted > 0 ? String(NOW - 5_000) : "0",
       executionTimestamp: p.id === 1 ? String(NOW - 4_000) : "0",
       isFor: true,
@@ -545,6 +548,17 @@ describe("dexe_dao_report — full report over a mocked stack", () => {
     expect((turnout.perProposal as unknown[]).length).toBe(4);
   });
 
+  it("labels the turnout rows' quorum as the SETTING it is, next to token-wei votes", async () => {
+    const res = await callReport(config({ statePath: statePath() }), { govPool: DAO });
+    const rows = sect(res, "turnout").data!.perProposal as Array<Record<string, unknown>>;
+    // `votesFor` here is a token-wei total and `quorum` is a 1e25-scaled
+    // percentage. Dividing one by the other is the D1-1 bug; the labelled
+    // siblings say which is which. `quorum` itself stays for back-compat.
+    expect(rows[0]!.quorumSettingRaw).toBe("50000000000000000000000000");
+    expect(rows[0]!.quorumSettingPct).toBe(5);
+    expect(rows[0]!.quorum).toBe("50000000000000000000000000");
+  });
+
   it("answers who-delegated-to-whom without being handed an address list", async () => {
     const res = await callReport(config({ statePath: statePath() }), { govPool: DAO });
     const pairs = sect(res, "delegation").data!.pairs as Array<Record<string, unknown>>;
@@ -589,6 +603,19 @@ describe("dexe_dao_report — full report over a mocked stack", () => {
     const p = sect(res, "proposals").data!;
     expect(p.latestProposalId).toBe("4");
     expect(p.outcomes).toMatchObject({ executedFor: 1, defeated: 0, inFlight: 3 });
+  });
+
+  it("gives every on-chain proposal row a quorum target, not just vote totals", async () => {
+    const res = await callReport(config({ statePath: statePath() }), { govPool: DAO });
+    const rows = sect(res, "proposals").data!.proposals as Array<Record<string, unknown>>;
+    const first = rows[0]!;
+    // Fixture: votesFor 100, votesAgainst 10, requiredQuorum 1000, executeAfter > 0.
+    expect(first.requiredQuorum).toBe("1000");
+    expect(first.quorumAttainmentForPct).toBe(10);
+    expect(first.quorumAttainmentAgainstPct).toBe(1);
+    expect(first.votesShortOfQuorum).toBe("900");
+    // `executeAfter > 0` is the protocol's own quorum flag.
+    expect(first.quorumReached).toBe(true);
   });
 
   it("narrows the work when `sections` is given", async () => {

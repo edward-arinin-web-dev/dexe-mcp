@@ -124,3 +124,125 @@ describe("KNOWN_FAILURES table", () => {
     }
   });
 });
+
+describe("a DETERMINISTIC indexer fault is not a transient one", () => {
+  /**
+   * Forwarded from WP-F. The orphan-relation fault reaches this table as
+   * `Subgraph errors: Null value resolved for non-null field \`voter\``, which
+   * `subgraph-failed` claimed — and that remedy opens with "Re-run once
+   * (429/5xx/timeouts are usually transient)". Retrying is the one thing that
+   * cannot help: the indexer never populated the relation, GraphQL non-null
+   * propagation annihilates the whole document, and every attempt returns the
+   * identical error.
+   */
+
+  it.each([
+    "Subgraph errors: Null value resolved for non-null field `voter`",
+    "Subgraph errors: Null value resolved for non-null field `voter` (×31 occurrences)",
+    "Subgraph errors: bad indexers: internal error resolving VoterInPool.delegatee: expected prefetched result, but found nothing",
+  ])("classifies %s as subgraph-orphan-relation", (raw) => {
+    expect(slugOf(raw)).toBe("subgraph-orphan-relation");
+  });
+
+  it("precedes subgraph-failed — otherwise the generic remedy claims it first", () => {
+    const at = (slug: string) => KNOWN_FAILURES.findIndex((k) => k.slug === slug);
+    expect(at("subgraph-orphan-relation")).toBeGreaterThanOrEqual(0);
+    expect(at("subgraph-orphan-relation")).toBeLessThan(at("subgraph-failed"));
+  });
+
+  it("tells the caller NOT to retry, and names the tools that answer anyway", () => {
+    const hit = KNOWN_FAILURES.find((k) => k.slug === "subgraph-orphan-relation")!;
+    expect(hit.remedy).toMatch(/Do NOT retry/i);
+    expect(hit.remedy).toContain("dexe_read_dao_members");
+    expect(hit.remedy).toContain("dexe_proposal_list");
+    // And the thing a wrong read of this fault costs: an empty answer read as
+    // "the DAO has none".
+    expect(hit.what).toMatch(/NOT 'the DAO has none'|NOT "the DAO has none"/);
+  });
+
+  it("an ordinary subgraph failure is still transient", () => {
+    expect(slugOf("Subgraph HTTP 503 from https://gateway.thegraph.com/*** — gateway failing.")).toBe(
+      "subgraph-failed",
+    );
+  });
+});
+
+describe("a rejected page cursor is the caller's argument, not an outage", () => {
+  /**
+   * Forwarded from WP-F. `backendGetJson` deliberately phrases the 400 without
+   * the literal "backend HTTP 400" so it cannot fall through to
+   * `backend-failed`, whose every clause ("wait and retry", "a 401 means the
+   * Bearer token expired") is wrong for a deterministic refusal of an argument
+   * the caller supplied.
+   */
+
+  it("classifies the 400 as backend-page-token-rejected", () => {
+    expect(
+      slugOf(
+        "DeXe backend rejected the request: HTTP 400 (bad request) for /integrations/api-proxy-cache/56/token-holders-balances/0xabc",
+      ),
+    ).toBe("backend-page-token-rejected");
+  });
+
+  it("precedes backend-failed", () => {
+    const at = (slug: string) => KNOWN_FAILURES.findIndex((k) => k.slug === slug);
+    expect(at("backend-page-token-rejected")).toBeGreaterThanOrEqual(0);
+    expect(at("backend-page-token-rejected")).toBeLessThan(at("backend-failed"));
+  });
+
+  it("says how to recover the listing instead of telling the caller to wait", () => {
+    const hit = KNOWN_FAILURES.find((k) => k.slug === "backend-page-token-rejected")!;
+    expect(hit.remedy).toMatch(/Do NOT retry with the same pageToken/i);
+    expect(hit.remedy).toContain("nextPageToken");
+    expect(hit.remedy).not.toMatch(/wait and retry/i);
+  });
+
+  it("a 5xx is still the generic backend failure", () => {
+    expect(slugOf("backend HTTP 503 for /integrations/api-proxy-cache/56/nfts-by-wallet/0xabc")).toBe(
+      "backend-failed",
+    );
+  });
+});
+
+describe("no remedy promises a blanket resume skip", () => {
+  /**
+   * D15-7. 0.33.0 made approve/deposit/create/vote genuinely idempotent and
+   * left execute and the validator round as they were — but four remedies here
+   * still told the agent that "completed steps are skipped", which is the
+   * sentence that turns a timed-out execute into a double execute.
+   */
+  const BLANKET = [
+    /completed steps are skipped/i,
+    /earlier landed steps are skipped/i,
+    /re-checks completed steps and skips them/i,
+    /the flow ledger skips the steps that already landed/i,
+  ];
+
+  for (const k of KNOWN_FAILURES) {
+    it(`${k.slug}`, () => {
+      for (const re of BLANKET) {
+        expect(re.test(k.remedy), `${k.slug} promises an unqualified skip (${re})`).toBe(false);
+      }
+    });
+  }
+
+  it.each(["nonce-conflict", "pinata-failed", "rpc-flaky", "onchain-revert"])(
+    "%s enumerates the legs and routes a broadcast to dexe_tx_status or dexe_proposal_state",
+    (slug) => {
+      const hit = KNOWN_FAILURES.find((k) => k.slug === slug)!;
+      expect(hit.remedy).toMatch(/createProposalAndVote/);
+      expect(hit.remedy).toMatch(/dexe_tx_status|dexe_proposal_state/);
+    },
+  );
+
+  it.each(["nonce-conflict", "rpc-flaky", "onchain-revert"])(
+    "%s also names what is NOT auto-skipped",
+    (slug) => {
+      // pinata-failed is excluded on purpose: it fires before any transaction
+      // exists, so naming the execute leg there would be noise, not guidance.
+      const hit = KNOWN_FAILURES.find((k) => k.slug === slug)!;
+      expect(hit.remedy).toMatch(/GovPool\.execute/);
+      expect(hit.remedy).toMatch(/\bNOT\b|are not/);
+    },
+  );
+});

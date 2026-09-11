@@ -9,11 +9,24 @@ import { installSkills, findRepoRoot } from "./init.js";
  * lightweight path for someone who only wants the tool-sequence recipes.
  *
  * The Claude Code plugin installs these automatically; this is the standalone
- * equivalent for other MCP clients (Cursor, ChatGPT) or a manual top-up.
+ * equivalent for other MCP clients (Cursor, Claude Desktop) or a manual top-up.
  *
  * Target: ./.claude/skills (project, default) or ~/.claude/skills (--global).
  */
 export async function run(argv: string[]): Promise<void> {
+  // BEFORE findRepoRoot()/installSkills(): without this branch
+  // `dexe-mcp skills --help` silently COPIES files into whatever cwd the user
+  // happens to be in. A help request that writes to disk is worse than one
+  // that hangs.
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(
+      "dexe-mcp skills [--global]\n\n" +
+        "  copies the DeXe recipe skills into ./.claude/skills (default)\n" +
+        "  --global, -g   install into ~/.claude/skills instead (every project)\n\n" +
+        "Restart Claude Code afterwards so it picks them up.\n",
+    );
+    return;
+  }
   const global = argv.includes("--global") || argv.includes("-g");
   const repoRoot = findRepoRoot();
   const skillsSrc = resolve(repoRoot, "dexe-plugin", "skills");

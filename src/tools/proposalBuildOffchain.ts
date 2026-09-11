@@ -7,6 +7,10 @@ import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { DEFAULTS } from "../config.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { govPoolParam, PROPOSAL_ID_DESC_OFFCHAIN } from "../lib/params.js";
+
+/** Effect marker (WP-I style guide): these tools return a request, never send it. */
+const H = "Builds an HTTP request; does not send it. ";
 
 /**
  * Phase 3d — off-chain proposals via the DeXe backend API.
@@ -180,9 +184,10 @@ function registerAuthNonce(server: McpServer): void {
     {
       title: "Auth step 1/2: request a nonce to sign",
       description:
-        "Returns the HTTP request for POST /integrations/nonce-auth-svc/nonce. The response will contain `{ message: string }` — feed that to the wallet to sign, then call dexe_auth_login_request.",
+        H +
+        "POST /integrations/nonce-auth-svc/nonce. The response carries `{ message }` — sign that with the wallet, then call dexe_auth_login_request. Or skip both: dexe_auth_login does the whole dance when a signer is configured.",
       inputSchema: {
-        address: z.string().describe("User wallet address"),
+        address: z.string().describe("Wallet address the nonce is issued for."),
       },
       outputSchema: requestOutputSchema(),
     },
@@ -208,10 +213,11 @@ function registerAuthLogin(server: McpServer): void {
     {
       title: "Auth step 2/2: exchange signed nonce for access_token",
       description:
-        "Returns the HTTP request for POST /integrations/nonce-auth-svc/login. Response: `{ access_token: { id }, refresh_token: { id } }`. Store access_token.id and use it as Bearer in all subsequent calls.",
+        H +
+        "POST /integrations/nonce-auth-svc/login. The response carries `{ access_token: { id }, refresh_token: { id } }`; send access_token.id as the Bearer token on every later off-chain call.",
       inputSchema: {
-        address: z.string(),
-        signedMessage: z.string().describe("The nonce message signed by the user's wallet (0x-hex)"),
+        address: z.string().describe("Wallet address that signed the nonce."),
+        signedMessage: z.string().describe("The nonce message signed by that wallet (0x-hex)."),
       },
       outputSchema: requestOutputSchema(),
     },
@@ -255,7 +261,7 @@ function registerAuthLoginComposite(
     {
       title: "Off-chain auth — one call: fetch nonce, sign, log in, return Bearer token",
       description:
-        "Composite for DeXe off-chain backend auth. When a signer is available (DEXE_PRIVATE_KEY or a connected WalletConnect session) it GETs the nonce, signs it with the configured signer, POSTs the login, and returns the Bearer access token — no manual nonce→sign→login dance, and no need to handle the private key in agent code. Use the returned accessToken as `Authorization: Bearer <accessToken>` on off-chain proposal/vote requests (build them with dexe_proposal_build_offchain_*). If no signer is configured, returns instructions to use dexe_auth_request_nonce + dexe_auth_login_request instead.",
+        "Writes to a remote service. Off-chain backend auth in one call: with a signer available (DEXE_PRIVATE_KEY or a connected WalletConnect session) it fetches the nonce, signs it INSIDE the server, posts the login and returns the Bearer access token — so agent code never touches the private key. Pass the returned accessToken as `Authorization: Bearer <accessToken>` on off-chain proposal/vote requests. With no signer it returns the manual dexe_auth_request_nonce + dexe_auth_login_request path instead.",
       inputSchema: {
         address: z
           .string()
@@ -441,26 +447,51 @@ function pctToFraction(p: number): number {
 // mainnet DAO's proposal under testnet — accepted by the API, invisible in the
 // DAO's UI. Make the caller say which chain they mean.
 const commonInputSchema = {
-  poolAddress: z.string(),
+  // The other 43 tools that take this address call it `govPool`; these four
+  // were named after the backend's `pool_address` wire field. Both are
+  // accepted forever — `poolAddress` is never removed, only demoted — and the
+  // emitted body still carries `pool_address`, so no request shape moves.
+  govPool: govPoolParam.optional(),
+  poolAddress: z.string().optional().describe("Deprecated alias for `govPool`."),
   chainId: z
     .number()
     .int()
     .positive()
     .describe("Chain the pool is on (56 mainnet / 97 testnet). Sent as attributes.chain_id."),
-  title: z.string().min(1),
+  title: z.string().min(1).describe("Proposal title shown in the DAO's off-chain feed."),
   description: z.string().default("").describe(
-    "Proposal description — supports Markdown: # headings, **bold**, *italic*, " +
-    "~~strikethrough~~, [links](url), `code`, - lists. Auto-converted to Slate " +
-    "editor format and JSON-stringified for the backend API.",
+    "Proposal description — Markdown (# headings, **bold**, [links](url), - lists), " +
+    "auto-converted to Slate format for the backend.",
   ),
-  voteOptions: z.array(z.string()).min(2),
-  votingDurationSeconds: z.string(),
-  useDelegated: z.boolean().default(true),
-  minimalVotePower: z.string().default("0"),
-  minimalCreateProposalPower: z.string().default("0"),
-  minimalCommentReadPower: z.string().default("0"),
-  minimalCommentCreatePower: z.string().default("0"),
+  voteOptions: z.array(z.string()).min(2).describe("The choices voters pick from, as plain strings."),
+  votingDurationSeconds: z.string().describe("How long voting stays open, in seconds."),
+  useDelegated: z.boolean().default(true).describe("Count delegated power toward a voter's weight."),
+  minimalVotePower: z.string().default("0").describe("Minimum power to vote, RAW base units (wei)."),
+  minimalCreateProposalPower: z
+    .string()
+    .default("0")
+    .describe("Minimum power to create a proposal, RAW base units (wei)."),
+  minimalCommentReadPower: z.string().default("0").describe("Minimum power to read comments, RAW base units (wei)."),
+  minimalCommentCreatePower: z
+    .string()
+    .default("0")
+    .describe("Minimum power to post a comment, RAW base units (wei)."),
 };
+
+/**
+ * `govPool` (preferred) or the legacy `poolAddress`, normalized once so the
+ * body builders below still receive a REQUIRED `poolAddress` — emitting
+ * `pool_address: undefined` would be dropped by JSON.stringify and 400 at the
+ * backend.
+ */
+function resolvePool(input: { govPool?: string; poolAddress?: string }): string | { error: string } {
+  const addr = input.govPool ?? input.poolAddress;
+  if (!addr) {
+    return { error: "Pass `govPool` — the DAO's GovPool address. (`poolAddress` is still accepted as a deprecated alias.)" };
+  }
+  if (!isAddress(addr)) return { error: `Invalid govPool: ${addr}` };
+  return addr;
+}
 
 // ---------- single_option_voting ----------
 
@@ -470,20 +501,32 @@ function registerSingleOption(server: McpServer): void {
     {
       title: "Off-chain: single-option voting proposal (pick one of N)",
       description:
-        "Builds POST /integrations/voting/proposals with voting_type='one_of'. Voter picks exactly one of `voteOptions`. Requires auth (Bearer access_token).",
+        H +
+        "POST /integrations/voting/proposals with voting_type='one_of' — the voter picks exactly one of `voteOptions`. Needs a backend access_token: call dexe_auth_login first.",
       inputSchema: {
         ...commonInputSchema,
-        generalClosingPercent: z.number().min(0).max(100).default(50),
-        anticipatoryClosingPercent: z.number().min(0).max(100).default(0),
-        againstPercent: z.number().min(0).max(100).default(0),
+        generalClosingPercent: z
+          .number()
+          .min(0)
+          .max(100)
+          .default(50)
+          .describe("Quorum to close normally, percent 0-100."),
+        anticipatoryClosingPercent: z
+          .number()
+          .min(0)
+          .max(100)
+          .default(0)
+          .describe("Quorum that closes voting early, percent 0-100; 0 disables."),
+        againstPercent: z.number().min(0).max(100).default(0).describe("Against share that defeats it, percent 0-100."),
       },
       outputSchema: requestOutputSchema(),
     },
     async (input) => {
-      if (!isAddress(input.poolAddress)) return errorResult(`Invalid poolAddress: ${input.poolAddress}`);
+      const poolAddress = resolvePool(input);
+      if (typeof poolAddress !== "string") return errorResult(poolAddress.error);
       const base = requireBase();
       if (typeof base !== "string") return errorResult(base.error);
-      const body = buildProposalBody(input, "one_of", {
+      const body = buildProposalBody({ ...input, poolAddress }, "one_of", {
         one_of_quorum: {
           general_closing_percent: pctToFraction(input.generalClosingPercent),
           anticipatory_closing_percent: pctToFraction(input.anticipatoryClosingPercent),
@@ -492,7 +535,7 @@ function registerSingleOption(server: McpServer): void {
       }, DEFAULT_TYPE_SINGLE_OPTION);
       return requestResult("POST", `${base}${PROPOSAL_ENDPOINT}`, body, {
         authRequired: true,
-        note: `Off-chain 'one_of' proposal for ${input.poolAddress} — ${input.voteOptions.length} options.`,
+        note: `Off-chain 'one_of' proposal for ${poolAddress} — ${input.voteOptions.length} options.`,
       });
     },
   );
@@ -506,19 +549,26 @@ function registerMultiOption(server: McpServer): void {
     {
       title: "Off-chain: multi-option voting proposal (pick M of N)",
       description:
-        "POST /integrations/voting/proposals with voting_type='multiple_of'. Voter picks any subset of `voteOptions`.",
+        H +
+        "POST /integrations/voting/proposals with voting_type='multiple_of' — the voter picks any subset of `voteOptions`. Needs a backend access_token: call dexe_auth_login first.",
       inputSchema: {
         ...commonInputSchema,
-        boundaryPercent: z.number().min(0).max(100).default(50),
-        againstPercent: z.number().min(0).max(100).default(0),
+        boundaryPercent: z
+          .number()
+          .min(0)
+          .max(100)
+          .default(50)
+          .describe("Share an option needs to count as chosen, percent 0-100."),
+        againstPercent: z.number().min(0).max(100).default(0).describe("Against share that defeats it, percent 0-100."),
       },
       outputSchema: requestOutputSchema(),
     },
     async (input) => {
-      if (!isAddress(input.poolAddress)) return errorResult(`Invalid poolAddress: ${input.poolAddress}`);
+      const poolAddress = resolvePool(input);
+      if (typeof poolAddress !== "string") return errorResult(poolAddress.error);
       const base = requireBase();
       if (typeof base !== "string") return errorResult(base.error);
-      const body = buildProposalBody(input, "multiple_of", {
+      const body = buildProposalBody({ ...input, poolAddress }, "multiple_of", {
         multiple_of_quorum: {
           boundary_percent: pctToFraction(input.boundaryPercent),
           against_percent: pctToFraction(input.againstPercent),
@@ -526,7 +576,7 @@ function registerMultiOption(server: McpServer): void {
       }, DEFAULT_TYPE_MULTI_OPTION);
       return requestResult("POST", `${base}${PROPOSAL_ENDPOINT}`, body, {
         authRequired: true,
-        note: `Off-chain 'multiple_of' proposal for ${input.poolAddress} — ${input.voteOptions.length} options.`,
+        note: `Off-chain 'multiple_of' proposal for ${poolAddress} — ${input.voteOptions.length} options.`,
       });
     },
   );
@@ -540,19 +590,21 @@ function registerForAgainst(server: McpServer): void {
     {
       title: "Off-chain: binary for/against voting proposal (NOT supported by DeXe backend)",
       description:
-        "DISABLED (F22): the DeXe product does NOT support creating for_against off-chain proposals. " +
-        "The web app exposes only two off-chain voting types — single-option (one_of) and multi-option " +
-        "(multiple_of); there is no for_against creation path and the backend auto-provisions no " +
-        "for_against type, so any create request 400s. Use dexe_proposal_build_offchain_single_option " +
-        "with two options ['For','Against'] instead. This tool is kept only to return that guidance.",
+        H +
+        "DISABLED (F22): the DeXe backend has no for_against creation path and 400s every such request — the web app offers only one_of and multiple_of. Use dexe_proposal_build_offchain_single_option with options ['For','Against']. Kept only to return that guidance.",
       inputSchema: {
         ...commonInputSchema,
         voteOptions: z
           .array(z.string())
           .default(["For", "Against"])
           .describe("Ignored — for_against is not creatable on the DeXe backend."),
-        forPercent: z.number().min(0).max(100).default(50),
-        againstPercent: z.number().min(0).max(100).default(50),
+        forPercent: z.number().min(0).max(100).default(50).describe("Ignored. For share needed to pass, percent 0-100."),
+        againstPercent: z
+          .number()
+          .min(0)
+          .max(100)
+          .default(50)
+          .describe("Ignored. Against share that defeats it, percent 0-100."),
       },
       outputSchema: requestOutputSchema(),
     },
@@ -570,38 +622,52 @@ function registerSettingsProposal(server: McpServer): void {
     {
       title: "Off-chain: change voting settings or save a new template",
       description:
-        "POST /integrations/voting/proposals with attributes.type='edit_proposal_type' (change DAO-wide off-chain settings) or 'create_proposal_type' (save a reusable voting template). Body shape mirrors the voting-type-specific tools.",
+        H +
+        "POST /integrations/voting/proposals with attributes.type='edit_proposal_type' (change the DAO-wide off-chain settings) or 'create_proposal_type' (save a reusable template). Needs a backend access_token: call dexe_auth_login first.",
       inputSchema: {
-        mode: z.enum(["edit_proposal_type", "create_proposal_type"]),
-        poolAddress: z.string(),
+        mode: z
+          .enum(["edit_proposal_type", "create_proposal_type"])
+          .describe("edit_proposal_type changes the DAO settings; create_proposal_type saves a template."),
+        govPool: govPoolParam.optional(),
+        poolAddress: z.string().optional().describe("Deprecated alias for `govPool`."),
         // Required, never defaulted — see the note on `commonInputSchema`.
         chainId: z
           .number()
           .int()
           .positive()
           .describe("Chain the pool is on (56 mainnet / 97 testnet). Sent as attributes.chain_id."),
-        title: z.string().min(1),
+        title: z.string().min(1).describe("Proposal title shown in the DAO's off-chain feed."),
         description: z.string().default("").describe(
-          "Proposal description — supports Markdown. Auto-converted to Slate format.",
+          "Proposal description — Markdown, auto-converted to Slate format.",
         ),
         votingType: z.enum(["one_of", "multiple_of"]).default("one_of").describe(
           "Only one_of and multiple_of are supported off-chain — for_against is not creatable on the DeXe backend (F22).",
         ),
-        voteOptions: z.array(z.string()).default([]),
-        votingDurationSeconds: z.string(),
+        voteOptions: z.array(z.string()).default([]).describe("Default choices for the template, as plain strings."),
+        votingDurationSeconds: z.string().describe("How long voting stays open, in seconds."),
         quorum: z
           .record(z.unknown())
-          .describe("Quorum object matching the chosen votingType"),
-        useDelegated: z.boolean().default(true),
-        minimalVotePower: z.string().default("0"),
-        minimalCreateProposalPower: z.string().default("0"),
-        minimalCommentReadPower: z.string().default("0"),
-        minimalCommentCreatePower: z.string().default("0"),
+          .describe("Quorum object matching the chosen votingType (percent fields are 0-100)."),
+        useDelegated: z.boolean().default(true).describe("Count delegated power toward a voter's weight."),
+        minimalVotePower: z.string().default("0").describe("Minimum power to vote, RAW base units (wei)."),
+        minimalCreateProposalPower: z
+          .string()
+          .default("0")
+          .describe("Minimum power to create a proposal, RAW base units (wei)."),
+        minimalCommentReadPower: z
+          .string()
+          .default("0")
+          .describe("Minimum power to read comments, RAW base units (wei)."),
+        minimalCommentCreatePower: z
+          .string()
+          .default("0")
+          .describe("Minimum power to post a comment, RAW base units (wei)."),
       },
       outputSchema: requestOutputSchema(),
     },
     async (input) => {
-      if (!isAddress(input.poolAddress)) return errorResult(`Invalid poolAddress: ${input.poolAddress}`);
+      const poolAddress = resolvePool(input);
+      if (typeof poolAddress !== "string") return errorResult(poolAddress.error);
       if ((input.votingType as string) === "for_against") return errorResult(FOR_AGAINST_UNSUPPORTED);
       const base = requireBase();
       if (typeof base !== "string") return errorResult(base.error);
@@ -613,7 +679,7 @@ function registerSettingsProposal(server: McpServer): void {
             title: input.title,
             chain_id: input.chainId,
             description: JSON.stringify(markdownToSlate(input.description)),
-            pool_address: input.poolAddress,
+            pool_address: poolAddress,
             vote_options: input.voteOptions,
             custom_parameters: {
               title: input.title,
@@ -627,14 +693,14 @@ function registerSettingsProposal(server: McpServer): void {
               minimal_create_proposal_power: input.minimalCreateProposalPower,
               minimal_comment_read_power: input.minimalCommentReadPower,
               minimal_comment_create_power: input.minimalCommentCreatePower,
-              pool_address: input.poolAddress,
+              pool_address: poolAddress,
             },
           },
         },
       };
       return requestResult("POST", `${base}${PROPOSAL_ENDPOINT}`, body, {
         authRequired: true,
-        note: `Off-chain ${input.mode} for ${input.poolAddress}.`,
+        note: `Off-chain ${input.mode} for ${poolAddress}.`,
       });
     },
   );
@@ -648,11 +714,12 @@ function registerCastVote(server: McpServer): void {
     {
       title: "Off-chain: cast a vote on an existing off-chain proposal",
       description:
-        "POST /integrations/voting/vote. `options` is an array of selected option strings (length 1 for one_of/for_against, ≥1 for multiple_of).",
+        H +
+        "POST /integrations/voting/vote. `options` holds the selected option strings — one for one_of, one or more for multiple_of. Needs a backend access_token: call dexe_auth_login first.",
       inputSchema: {
-        proposalId: z.number().int().positive(),
-        voterAddress: z.string(),
-        options: z.array(z.string()).min(1),
+        proposalId: z.number().int().positive().describe(PROPOSAL_ID_DESC_OFFCHAIN),
+        voterAddress: z.string().describe("Address casting the vote."),
+        options: z.array(z.string()).min(1).describe("Selected option strings, exactly as the proposal lists them."),
       },
       outputSchema: requestOutputSchema(),
     },
@@ -686,10 +753,11 @@ function registerCancelVote(server: McpServer): void {
     {
       title: "Off-chain: cancel a previously cast vote",
       description:
-        "DELETE /integrations/voting/vote/{proposalId}/{voterAddress}. No body.",
+        H +
+        "DELETE /integrations/voting/vote/{proposalId}/{voterAddress}, no body. Needs a backend access_token: call dexe_auth_login first.",
       inputSchema: {
-        proposalId: z.number().int().positive(),
-        voterAddress: z.string(),
+        proposalId: z.number().int().positive().describe(PROPOSAL_ID_DESC_OFFCHAIN),
+        voterAddress: z.string().describe("Address whose vote is being withdrawn."),
       },
       outputSchema: requestOutputSchema(),
     },

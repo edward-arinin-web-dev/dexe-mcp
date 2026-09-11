@@ -27,6 +27,20 @@ describe("knowledge corpus integrity", () => {
     expect(GOTCHA_BY_ID.size).toBe(GOTCHAS.length);
   });
 
+  it("the two quorum UNITS are taught once, in the corpus (D1-3)", () => {
+    const g = GOTCHA_BY_ID.get("quorum-two-units");
+    expect(g, "no gotcha explains the 1e25 setting vs the absolute required weight").toBeDefined();
+    // The 1e25-scaled SETTING, the absolute TARGET, and the per-side rule.
+    expect(g!.text).toContain("1e25");
+    expect(g!.text).toContain("getProposalRequiredQuorum");
+    expect(g!.text).toMatch(/either/i);
+    // Reachable from the two surfaces that return both numbers.
+    expect(TOPIC_BY_ID.get("read_dao_data")!.gotchaIds).toContain("quorum-two-units");
+    expect(TOPIC_BY_ID.get("report_dao_activity")!.gotchaIds).toContain("quorum-two-units");
+    const stateStep = FLOW_BY_ID.get("vote_execute")!.steps.find((s) => s.tool === "dexe_proposal_state")!;
+    expect(stateStep.gotchaIds).toContain("quorum-two-units");
+  });
+
   it("flow ids are unique", () => {
     expect(FLOW_BY_ID.size).toBe(FLOWS.length);
   });

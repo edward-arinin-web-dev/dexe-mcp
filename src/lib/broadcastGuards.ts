@@ -3,6 +3,7 @@ import type { DexeConfig } from "../config.js";
 import { RpcProvider } from "../rpc.js";
 import { simulateCalldata } from "../tools/simulate.js";
 import { scanForbiddenCalldata, forbiddenBroadcastError } from "./dangerousSelectors.js";
+import { sanitizeRevertReason } from "./errors.js";
 
 /**
  * Signer broadcast guards. A single `runBroadcastGuards` chains opt-in checks
@@ -194,9 +195,12 @@ export async function runBroadcastGuards(
     // means the call never ran — fail open rather than wedge a valid broadcast
     // and mislabel an infra hiccup as a revert.
     if (!sim.success && !sim.networkError) {
+      // The revert string belongs to whatever contract was called — a proposal
+      // action can name any target — so it is untrusted content reaching the
+      // model at the retry-decision point. Sanitize before interpolating.
       throw new BroadcastGuardError(
         "B9",
-        `Pre-broadcast simulation (eth_call) reverted: ${sim.revertReason ?? "unknown"}. ` +
+        `Pre-broadcast simulation (eth_call) reverted: ${sanitizeRevertReason(sim.revertReason)}. ` +
           `Aborting before spending gas.`,
       );
     }

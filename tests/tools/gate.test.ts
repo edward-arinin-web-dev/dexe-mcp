@@ -1,27 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { TOOLSETS, resolveToolsets, DEFAULT_TOOLSETS } from "../../src/tools/gate.js";
-import { registerAll } from "../../src/tools/index.js";
-import { loadConfig } from "../../src/config.js";
-
-/** Boot a real server with the given DEXE_TOOLSETS and return listed tools. */
-async function listTools(toolsetsEnv: string | undefined) {
-  if (toolsetsEnv === undefined) delete process.env.DEXE_TOOLSETS;
-  else process.env.DEXE_TOOLSETS = toolsetsEnv;
-  const config = await loadConfig();
-  const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerAll(server, config);
-  const client = new Client({ name: "test-client", version: "0.0.0" });
-  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await Promise.all([server.connect(serverT), client.connect(clientT)]);
-  const res = await client.listTools();
-  const bytes = Buffer.byteLength(JSON.stringify(res.tools), "utf8");
-  await client.close();
-  await server.close();
-  return { names: res.tools.map((t) => t.name).sort(), tools: res.tools, bytes };
-}
+import { listTools } from "../helpers/listTools.js";
 
 describe("resolveToolsets", () => {
   it("defaults to core alone when empty", () => {
@@ -157,6 +136,11 @@ describe("tool gating (real server)", () => {
     //   0.30.3  raised 130_000 → 138_000       — recorded as DEBT: paying for
     //           the `chainId` param across ~30 builders the default carried
     //   0.31.0  measured 134_263 → ~87_000 B  — the debt is PAID, not rolled
+    //   0.34.0  92_807 B → 95_317 B (44 tools) — MCP annotations plus the 21
+    //           missing titles cost ~2.5 KB, which the 2.2 KB of headroom could
+    //           not absorb. The line moved once, 95_000 → 96_000 (see below);
+    //           no tool left the default profile. The description lint later
+    //           brought the default to ~86.7 KB.
     //
     // Keeping `proposals` in the default would have forced a THIRD raise: the
     // old core,proposals profile measures ~154 KB on this tree, past the 138_000
@@ -172,7 +156,24 @@ describe("tool gating (real server)", () => {
     //
     // This is a budget, not debt. Anything that pushes past it should demote
     // something, not raise the line.
-    expect(defaultBytes).toBeLessThan(95_000);
+    //
+    // 0.34.0 raised the line once, 95_000 → 96_000, for MCP tool annotations
+    // (readOnlyHint etc.) and the 21 missing titles: ~2.5 KB the spec asks
+    // for, not description bloat. The alternative — demoting
+    // dexe_ipfs_upload_file out of the default — was rejected as a user-facing
+    // surprise to save 300 bytes. Description trimming (WP-I) should win the
+    // headroom back; do not raise again without a reason of the same kind.
+    //
+    // 0.34.0, description lint: the headroom WAS won back. The default profile
+    // peaked at 96,555 B mid-integration (annotations + titles, then warnings[]
+    // on ~40 builders, then the read pagination/formatting fields) and the
+    // style pass brought it to well under the line again — chiefly by
+    // publishing `dexe_dao_create.params` opaquely (the fully-expanded ADVANCED
+    // deploy struct was 5 KB, 5% of everything a zero-config session reads,
+    // for the mode the tool's own first sentence says not to use) and by
+    // leading every description with one effect marker instead of a paragraph.
+    // The rules that keep it there are tests/tools/description-lint.test.ts.
+    expect(defaultBytes).toBeLessThan(96_000);
     // Well below the 0.30.x default it replaces — the whole point of the swap.
     expect(defaultBytes).toBeLessThan(134_263);
     // The default is now the "maximum slim" profile that used to require opting

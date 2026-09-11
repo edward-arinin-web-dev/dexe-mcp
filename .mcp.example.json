@@ -1,18 +1,16 @@
 {
-  "_comment": "Mac/Linux: use `dexe-mcp` directly. Windows: use the absolute-path form (node.exe + dist/index.js). See README.md. Env vars are all optional — tools that need them fail with a clear message.",
+  "_comment": "Minimal config — read tools need NO env at all. macOS/Linux: command 'dexe-mcp'. Windows: if the shim is not on PATH, use { \"command\": \"node\", \"args\": [\"<npm root -g>/dexe-mcp/dist/index.js\"] } — `npx dexe-mcp init` prints that exact snippet for you. The _-prefixed keys below are documentation; delete them if your MCP client rejects unknown top-level keys.",
+  "_env_note": "Put DEXE_* values in ~/.dexe-mcp/.env (written by `npx dexe-mcp init`), NOT in the env block — a key set in the client config SHADOWS the .env file silently. Run `npx dexe-mcp doctor` to see which file was loaded and what is shadowed.",
+  "_signing_note": "No private key is needed to BUILD transactions. To let the server broadcast, connect a wallet with dexe_wc_connect (WalletConnect) — a plaintext DEXE_PRIVATE_KEY is the last resort, see docs/SETUP.md.",
+  "_optional_env": {
+    "DEXE_RPC_URL_MAINNET": "https://bsc-dataseed.bnbchain.org",
+    "DEXE_RPC_URL_TESTNET": "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+    "DEXE_DEFAULT_CHAIN_ID": "97",
+    "DEXE_PINATA_JWT": "<your Pinata JWT — only needed to CREATE DAOs/proposals>"
+  },
   "mcpServers": {
     "dexe": {
-      "command": "dexe-mcp",
-      "env": {
-        "DEXE_PROTOCOL_PATH": "/absolute/path/to/DeXe-Protocol",
-        "DEXE_RPC_URL": "https://bsc-dataseed.bnbchain.org",
-        "DEXE_CHAIN_ID": "56",
-        "DEXE_PINATA_JWT": "<your Pinata JWT>",
-        "DEXE_IPFS_GATEWAY": "https://<your-subdomain>.mypinata.cloud",
-        "DEXE_IPFS_GATEWAYS_FALLBACK": "https://dweb.link,https://ipfs.io",
-        "DEXE_SUBGRAPH_INTERACTIONS_URL": "https://api.studio.thegraph.com/query/.../dao-interactions/...",
-        "DEXE_BACKEND_API_URL": "https://api.dexe.io"
-      }
+      "command": "dexe-mcp"
     }
   }
 }

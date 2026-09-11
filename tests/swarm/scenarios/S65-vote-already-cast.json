@@ -1,0 +1,87 @@
+{
+  "id": "S65-vote-already-cast",
+  "title": "A re-run after a landed vote skips the vote (and its deposit) and warns on a changed vote",
+  "priority": 1,
+  "dao": "{{firstAllowlistedDao}}",
+  "dependsOn": ["S64-create-dedupe"],
+  "requiresChain": [97],
+  "requiresBrowser": false,
+  "notes": "0.33.0 vote-leg idempotency. dexe_proposal_create auto-votes with the creator's power, so the proposal is already voted by P the moment it exists. Step 2 re-votes in the SAME direction and must return voteAlreadyCast with the deposit step skipped (the deposit exists only to fund a vote that will not be sent); step 3 asks for the OPPOSITE direction and must additionally carry voteChangeAdvisory with the '⚠ HARM WARNING' cancel-then-revote text. Neither step 2 nor step 3 may broadcast. The guards are RETURNED FIELDS, not throws — a regression would show up as a successful second vote, which is exactly why these are `present`/`contains` assertions and not expectError. Requires the proposal to still be in Voting when steps 2-3 run: the fixture DAO needs durationSeconds >= 3600 and P must hold less than quorum (voteAmount '1.0') so earlyCompletion does not close it.",
+  "agents": [{ "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }],
+  "prefund": [
+    { "wallet": "P", "token": "{{firstAllowlistedToken}}", "minBalance": "5000000000000000000000" }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "agent": "P",
+      "tool": "dexe_proposal_create",
+      "args": {
+        "govPool": "{{dao}}",
+        "chainId": 97,
+        "proposalType": "modify_dao_profile",
+        "title": "Adopt the revised contributor charter",
+        "description": "Swarm regression — created and auto-voted by the proposer.",
+        "newDaoDescription": "Revised contributor charter — vote-idempotency fixture.",
+        "user": "{{agent:P:address}}",
+        "voteAmount": "1.0"
+      },
+      "broadcast": false,
+      "captureAs": "created",
+      "expect": [
+        { "path": "created.mode", "op": "in", "value": ["payloads", "executed", "already-created"] },
+        { "path": "created.proposalIdNum", "op": "present" }
+      ]
+    },
+    {
+      "step": 2,
+      "agent": "P",
+      "tool": "dexe_proposal_vote_and_execute",
+      "args": {
+        "govPool": "{{dao}}",
+        "chainId": 97,
+        "proposalId": "{{created.proposalIdNum}}",
+        "isVoteFor": true,
+        "voteAmount": "1.0",
+        "autoExecute": false,
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": false,
+      "captureAs": "revote",
+      "expect": [
+        { "path": "revote.voteAlreadyCast", "op": "contains", "value": "has already voted on proposal" },
+        { "path": "revote.voteAlreadyCast", "op": "contains", "value": "Gov: need cancel" },
+        {
+          "path": "revote.voteChangeAdvisory",
+          "op": "absent",
+          "note": "Same direction, same amount ⇒ nothing differs, so no harm warning is owed."
+        }
+      ]
+    },
+    {
+      "step": 3,
+      "agent": "P",
+      "tool": "dexe_proposal_vote_and_execute",
+      "args": {
+        "govPool": "{{dao}}",
+        "chainId": 97,
+        "proposalId": "{{created.proposalIdNum}}",
+        "isVoteFor": false,
+        "voteAmount": "1.0",
+        "autoExecute": false,
+        "user": "{{agent:P:address}}"
+      },
+      "broadcast": false,
+      "captureAs": "flipvote",
+      "expect": [
+        { "path": "flipvote.voteAlreadyCast", "op": "contains", "value": "has already voted on proposal" },
+        { "path": "flipvote.voteChangeAdvisory", "op": "contains", "value": "HARM WARNING" },
+        { "path": "flipvote.voteChangeAdvisory", "op": "contains", "value": "dexe_vote_build_cancel_vote" }
+      ]
+    }
+  ],
+  "successCriteria": [
+    { "id": "no-second-vote", "check": "GovPool.getUserVotes(proposalId, P, 0).tokensVoted is unchanged after steps 2-3" },
+    { "id": "harm-warning-on-flip", "check": "flipvote.voteChangeAdvisory names cancel-then-revote and the quorum risk" }
+  ]
+}
