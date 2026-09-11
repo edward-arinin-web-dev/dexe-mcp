@@ -53,7 +53,7 @@
       "required": ["votingDelay", "votingPeriod", "quorumNumerator"],
       "additionalProperties": false,
       "properties": {
-        "votingDelay": { "type": "integer", "minimum": 0, "description": "Blocks (oz-v4) or seconds (oz-v5)." },
+        "votingDelay": { "type": "integer", "minimum": 0, "description": "Blocks or seconds, per the governor's CLOCK_MODE(); every shipped fixture is blocknumber." },
         "votingPeriod": { "type": "integer", "minimum": 1 },
         "proposalThreshold": { "type": "string", "pattern": "^[0-9]+$", "description": "uint256 as decimal string." },
         "quorumNumerator": { "type": "number", "minimum": 0 },
@@ -67,6 +67,27 @@
       "properties": {
         "type": { "type": "string", "enum": ["timelock", "governor-self"] },
         "id": { "type": ["string", "null"] }
+      }
+    },
+    "quorumSource": {
+      "type": "string",
+      "enum": ["governor", "votable-supply"],
+      "description": "How readQuorum derives quorum for OZ-family governors. Omitted = quorum(blockNumber)."
+    },
+    "quorumCounting": {
+      "type": "string",
+      "enum": ["for", "for-abstain", "all"],
+      "description": "Which tallies count toward quorum; mirrors the governor's COUNTING_MODE() quorum= clause."
+    },
+    "legacyGovernor": {
+      "type": "object",
+      "required": ["address", "maxProposalId"],
+      "additionalProperties": false,
+      "description": "A superseded governor contract that still owns proposal ids <= maxProposalId. Diagnostic only.",
+      "properties": {
+        "address": { "type": "string", "pattern": "^0x[a-fA-F0-9]{40}$" },
+        "maxProposalId": { "type": "integer", "minimum": 0 },
+        "label": { "type": "string" }
       }
     },
     "explorer": {

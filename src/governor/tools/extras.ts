@@ -2,8 +2,10 @@ import { z } from "zod";
 import { Interface, isAddress, keccak256, toUtf8Bytes } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RpcProvider } from "../../rpc.js";
-import { resolveGovernor } from "../loader.js";
-import { governorContract, isBravo, stateName } from "../adapter.js";
+import { resolveGovernor, type GovernorConfig } from "../loader.js";
+import { governorContract, isBravo, legacyIdHint, stateName } from "../adapter.js";
+import { governorProvider, governorReadError, rpcNote } from "../rpc.js";
+import { safeErrorMessage } from "../../lib/redact.js";
 import {
   buildCancel,
   decodeGovernorWrite,
@@ -63,10 +65,13 @@ function registerGetState(server: McpServer, rpc: RpcProvider): void {
       },
     },
     async ({ governor, proposalId }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const idx = Number(await c.getFunction("state").staticCall(BigInt(proposalId)));
@@ -75,9 +80,12 @@ function registerGetState(server: McpServer, rpc: RpcProvider): void {
           governorVersion: cfg.governorVersion,
           proposalId,
           state: { index: idx, name: stateName(idx) },
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_get_state failed: ${(e as Error).message}`);
+        const detail = cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e);
+        const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+        return err(`dexe_gov_get_state failed: ${detail}${hint}`);
       }
     },
   );
@@ -97,10 +105,13 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
       },
     },
     async ({ governor, proposalId, account }) => {
+      let cfg: GovernorConfig | undefined;
+      let usedFallback = false;
       try {
-        const cfg = resolveGovernor(governor);
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        cfg = resolveGovernor(governor);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
+        usedFallback = pr.fallback;
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         let voted: boolean;
@@ -119,9 +130,12 @@ function registerHasVoted(server: McpServer, rpc: RpcProvider): void {
           account,
           hasVoted: voted,
           method,
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_has_voted failed: ${(e as Error).message}`);
+        const detail = cfg ? governorReadError(e, cfg, usedFallback) : safeErrorMessage(e);
+        const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+        return err(`dexe_gov_has_voted failed: ${detail}${hint}`);
       }
     },
   );
@@ -239,8 +253,8 @@ function registerHashProposal(server: McpServer, rpc: RpcProvider): void {
             `dexe_gov_hash_proposal: ${cfg.id} is Bravo (${cfg.governorVersion}); Bravo does not expose hashProposal. Use Bravo's on-chain proposalCount + propose-returned id instead.`,
           );
         }
-        const pr = rpc.tryProvider(cfg.chainId);
-        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const pr = governorProvider(rpc, cfg);
+        if ("error" in pr) return err(pr.error);
         const provider = pr.ok;
         const c = governorContract(provider, cfg);
         const dh = descriptionHash
@@ -253,9 +267,10 @@ function registerHashProposal(server: McpServer, rpc: RpcProvider): void {
           proposalIdHex: "0x" + id.toString(16),
           proposalIdDecimal: id.toString(),
           descriptionHash: dh,
+          ...rpcNote(pr),
         });
       } catch (e) {
-        return err(`dexe_gov_hash_proposal failed: ${(e as Error).message}`);
+        return err(`dexe_gov_hash_proposal failed: ${safeErrorMessage(e)}`);
       }
     },
   );

@@ -17,8 +17,30 @@ const TIER1_GOVERNORS: { id: string; sample: number }[] = [
 ];
 
 const TALLY_API_KEY = process.env.TALLY_API_KEY?.trim();
-const MAINNET_RPC = process.env.DEXE_RPC_URL_MAINNET?.trim();
-const OPTIMISM_RPC = process.env.DEXE_RPC_URL_OPTIMISM?.trim();
+
+/**
+ * Per-chain RPC, the canonical `DEXE_RPC_URL_<chainId>` spelling (src/config.ts
+ * registers any of them). Resolved generically so a fourth fixture on a new
+ * chain fails loudly instead of silently reusing another chain's endpoint.
+ *
+ * The old `DEXE_RPC_URL_MAINNET` / `DEXE_RPC_URL_OPTIMISM` are kept only as a
+ * deprecated fallback for contributors who already exported them: in this
+ * project `DEXE_RPC_URL_MAINNET` means **BSC chain 56** (src/env/schema.ts), so
+ * following the old recipe pointed an Ethereum governor read at a BSC node, and
+ * `DEXE_RPC_URL_OPTIMISM` was never a variable src/config.ts recognized.
+ */
+const LEGACY_RPC_ENV: Record<number, string> = {
+  1: "DEXE_RPC_URL_MAINNET",
+  10: "DEXE_RPC_URL_OPTIMISM",
+};
+function rpcForChain(chainId: number): string | undefined {
+  const legacyName = LEGACY_RPC_ENV[chainId];
+  return (
+    process.env[`DEXE_RPC_URL_${chainId}`]?.trim() ||
+    (legacyName ? process.env[legacyName]?.trim() : undefined) ||
+    undefined
+  );
+}
 
 describe("tally — state enum mapper (unit, no network)", () => {
   it("maps OZ canonical strings to numeric indices", () => {
@@ -54,8 +76,11 @@ describe("tally — state enum mapper (unit, no network)", () => {
   });
 
   it("tallyGovernorId formats as eip155:chain:address (lowercased)", () => {
-    expect(tallyGovernorId(1, "0xc0Da02939E1441F497fd74F78cE7Decb17B66529"))
-      .toBe("eip155:1:0xc0da02939e1441f497fd74f78ce7decb17b66529");
+    // Compound's post-migration governor — pure string formatting, but keeping
+    // the retired 0xc0Da…6529 here was the last place in tests/ that implied it
+    // was current.
+    expect(tallyGovernorId(1, "0x309a862bbC1A00e45506cB8A802D1ff10004c8C0"))
+      .toBe("eip155:1:0x309a862bbc1a00e45506cb8a802d1ff10004c8c0");
   });
 });
 
@@ -67,8 +92,8 @@ describe("tally — state enum mapper (unit, no network)", () => {
  * locally with:
  *
  *   $env:TALLY_API_KEY="..."
- *   $env:DEXE_RPC_URL_MAINNET="..."
- *   $env:DEXE_RPC_URL_OPTIMISM="..."
+ *   $env:DEXE_RPC_URL_1="https://eth.drpc.org"
+ *   $env:DEXE_RPC_URL_10="https://optimism.drpc.org"
  *   npx vitest run tests/governor/parity.test.ts
  */
 const liveMode = Boolean(TALLY_API_KEY);
@@ -76,9 +101,9 @@ describe.skipIf(!liveMode)("tally parity — live (30 sampled proposals)", () =>
   for (const { id, sample } of TIER1_GOVERNORS) {
     it(`${id}: ${sample} most-recent proposals match Tally`, async () => {
       const cfg = loadGovernorConfigs().get(id)!;
-      const rpcUrl = cfg.chainId === 1 ? MAINNET_RPC : OPTIMISM_RPC;
+      const rpcUrl = rpcForChain(cfg.chainId);
       if (!rpcUrl) {
-        throw new Error(`missing RPC env var for chainId=${cfg.chainId}; skipping ${id}`);
+        throw new Error(`set DEXE_RPC_URL_${cfg.chainId} to run the ${id} parity sweep`);
       }
       const provider = new JsonRpcProvider(rpcUrl);
       const govC = governorContract(provider, cfg);

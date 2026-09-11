@@ -38,6 +38,46 @@ describe("validateGovernorConfig — required-field rejection", () => {
   it("rejects bad executor.type", () => rejects({ ...VALID, executor: { type: "snapshot" } }));
   it("rejects timelock present but minDelay missing", () =>
     rejects({ ...VALID, timelock: { address: VALID.governorAddress } }));
+  it("rejects bad quorumSource", () => rejects({ ...VALID, quorumSource: "snapshot" }));
+  it("rejects bad quorumCounting", () => rejects({ ...VALID, quorumCounting: "majority" }));
+  it("rejects legacyGovernor without maxProposalId", () =>
+    rejects({ ...VALID, legacyGovernor: { address: VALID.governorAddress } }));
+});
+
+describe("validateGovernorConfig — EIP-55 checksum", () => {
+  /**
+   * The exact string that shipped in src/governor/configs/uniswap.json for
+   * months: a mixed-case address with a one-character typo. Nothing is deployed
+   * at it, and the old shape-only regex could not tell it from a real address.
+   */
+  const MISTYPED = "0x1a9C8182C09F50355CeA8fFF4b7E1649A535498a";
+
+  it("rejects a mistyped mixed-case address that fails EIP-55", () =>
+    expect(() =>
+      validateGovernorConfig({ ...VALID, timelock: { address: MISTYPED, minDelay: 172800 } }, "test"),
+    ).toThrow(/invalid EIP-55 checksum/));
+
+  it("rejects it in governorAddress and votingToken.address too", () => {
+    expect(() => validateGovernorConfig({ ...VALID, governorAddress: MISTYPED }, "test")).toThrow(
+      /invalid EIP-55 checksum/,
+    );
+    expect(() =>
+      validateGovernorConfig({ ...VALID, votingToken: { ...VALID.votingToken, address: MISTYPED } }, "test"),
+    ).toThrow(/invalid EIP-55 checksum/);
+  });
+
+  it("still accepts an all-lowercase address (checksum opt-out is not an error)", () =>
+    expect(() =>
+      validateGovernorConfig(
+        { ...VALID, timelock: { address: MISTYPED.toLowerCase(), minDelay: 172800 } },
+        "test",
+      ),
+    ).not.toThrow());
+
+  it("never advertises lowercasing as the way around the check", () =>
+    expect(() =>
+      validateGovernorConfig({ ...VALID, governorAddress: MISTYPED }, "test"),
+    ).toThrow(/^(?!.*lowercase)[\s\S]*$/));
 });
 
 describe("validateGovernorConfig — accept + normalization", () => {
