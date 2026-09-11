@@ -104,7 +104,7 @@ export const TOPICS: readonly Topic[] = [
       "dexe_sim_calldata",
       "dexe_proposal_voters",
     ],
-    gotchaIds: ["subgraph-backend-mainnet-only", "graph-bound-first", "multicall-signature-form"],
+    gotchaIds: ["quorum-two-units", "subgraph-backend-mainnet-only", "graph-bound-first", "multicall-signature-form"],
   },
   {
     id: "report_dao_activity",
@@ -217,7 +217,7 @@ export const TOPICS: readonly Topic[] = [
       "dexe_graph_query",
       "dexe_graph_schema",
     ],
-    gotchaIds: ["subgraph-backend-mainnet-only", "graph-bound-first"],
+    gotchaIds: ["quorum-two-units", "subgraph-backend-mainnet-only", "graph-bound-first"],
   },
 ] as const;
 

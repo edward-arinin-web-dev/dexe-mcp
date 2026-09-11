@@ -13,12 +13,15 @@ see [SETUP.md](SETUP.md)). Amounts accept raw wei or human units ("12.5").
 ## A. Basics — your first DAO
 
 ### 1. Create a DAO with its own token
-> "Create a DAO called Riverstone Collective with a 10M RVS token, 20% to my wallet, rest to treasury."
+> "Create a DAO called Riverstone Collective with a 10M RVS token — 70% to my wallet as votable supply, 30% held by the DAO treasury."
 
 One `dexe_dao_create` call: deploys GovPool + token + all helpers, uploads profile
 (avatar via `avatarPath`, description, socials) to IPFS, previews the resolved config
-with a governance-safety proof (quorum reachable ≤ votable, floor ≥50%) before
-broadcasting. ✅ 20+ DAOs deployed this way (BSC 56 + 97, 2026-07); latest campaign
+with a governance-safety proof (the quorum passes on ≤80% turnout of the votable
+share, floor ≥50%) before broadcasting. At those defaults the DAO treasury can hold
+at most ~37.5% of supply — ask for more and the tool refuses with the two numbers
+that would work, because a DAO needing ~100% turnout can never pass anything,
+including the proposal that would fix it. ✅ 20+ DAOs deployed this way (BSC 56 + 97, 2026-07); latest campaign
 2026-07-22.
 
 ### 2. First proposal → vote → execute

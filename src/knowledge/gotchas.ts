@@ -16,10 +16,31 @@ export const GOTCHAS: readonly Gotcha[] = [
     id: "quorum-reachable",
     severity: "danger",
     text:
-      "Quorum must be REACHABLE: quorum% × totalSupply must be ≤ the token amount actually distributed to voters. " +
-      "Treasury/undistributed tokens cannot vote, so an unreachable quorum deadlocks the DAO forever — no proposal " +
-      "will ever pass. dexe_dao_create verifies this and refuses incoherent configs before any transaction.",
+      "Quorum must be REACHABLE **with margin**: treasury/undistributed tokens cannot vote, so a quorum that only " +
+      "just fits the votable supply is frozen in practice — one holder asleep and nothing passes again, " +
+      "including the fix. dexe_dao_create enforces the margin on all five settings slots — see " +
+      "quorum-turnout-margin.",
     applies: { flows: ["create_dao"], tools: ["dexe_dao_create"] },
+  },
+  {
+    // src/lib/quorumRisk.ts QUORUM_TURNOUT_CEILING (0.33.0); enforced in
+    // src/lib/deployGuard.ts (check "deploy.quorum-margin") and src/tools/daoCreate.ts.
+    // The literal ceiling below is pinned to that constant by
+    // tests/knowledge/guidance-guard-drift.test.ts.
+    id: "quorum-turnout-margin",
+    severity: "danger",
+    text:
+      "The tool's own defaults, treasury 30% / quorum 51%, need 72.86% turnout. The ceiling is 80% turnout OF THE " +
+      "VOTABLE POWER: under LINEAR the 50% quorum floor caps the treasury at 37.5% of supply; under POLYNOMIAL " +
+      "vote power follows a curve, not the token share, and no split holds a ≥50% quorum. Over it " +
+      "dexe_dao_create returns mode:\"blocked-risky\" with maxQuorumPercentForThisDistribution / " +
+      "minVotablePercentForThisQuorum — use either, or omit both fields. " +
+      "confirmRisky:true overrides (DEXE_TREASURY_GUARD=block refuses outright); a DAO cannot repair its own " +
+      "quorum. DEPLOY-TIME only — change_voting_settings is NOT margin-checked.",
+    applies: {
+      flows: ["create_dao", "launch_token_economy"],
+      tools: ["dexe_dao_create", "dexe_dao_build_deploy"],
+    },
   },
   {
     // reference_dao_creation_rules.md, PLAYBOOK quorum-safety gate
@@ -31,6 +52,36 @@ export const GOTCHAS: readonly Gotcha[] = [
       "below it return mode:\"blocked-risky\" and need an explicit confirmRisky:true re-run. Warn the user before " +
       "they choose a low quorum.",
     applies: { flows: ["create_dao"], proposalTypes: ["change_voting_settings", "new_proposal_type"] },
+  },
+  {
+    // D1 audit 2026-09-11 (D1-3): dexe_proposal_forecast divided token-wei votes
+    // by the raw 1e25-scaled SETTING. Protocol truth: GovPoolVote._quorumReached
+    // (per-side) and GovPool.getProposalRequiredQuorum (absolute weight, 0 when
+    // the proposal does not exist / has not started).
+    id: "quorum-two-units",
+    severity: "warn",
+    text:
+      "DeXe expresses quorum in TWO units and mixing them is the classic error. (1) The SETTING — " +
+      "GovSettings.getDefaultSettings().quorum, the pools subgraph's Proposal.quorum, and the raw " +
+      "`quorum`/`quorumSettingRaw` on dexe_read_settings and dexe_dao_report — is a PERCENTAGE scaled by 1e25 " +
+      "(5e26 = 50%); read it as `quorumPct`/`quorumSettingPct`. (2) The TARGET — GovPool." +
+      "getProposalRequiredQuorum(id), the `requiredQuorum` field on getProposals rows, dexe_proposal_state and " +
+      "dexe_proposal_list — is an ABSOLUTE vote weight in token wei, equal to GovUserKeeper.getTotalPower() × " +
+      "setting / 1e27. Compare votes ONLY against the TARGET; against the SETTING you are off by " +
+      "totalPower/1e27 — orders of magnitude, in either direction. Quorum is also per-SIDE: " +
+      "GovPoolVote._quorumReached is true when EITHER votesFor OR votesAgainst clears the target, never their " +
+      "sum. getProposalRequiredQuorum returns 0 for a proposal that does not exist or has not started — treat " +
+      "0 as unknown, never as \"already reached\".",
+    applies: {
+      tools: [
+        "dexe_proposal_state",
+        "dexe_proposal_list",
+        "dexe_proposal_forecast",
+        "dexe_dao_report",
+        "dexe_read_settings",
+        "dexe_graph_query",
+      ],
+    },
   },
   {
     // bug_deploy_cap_equals_minted.md (CORRECTED rule)
@@ -131,7 +182,9 @@ export const GOTCHAS: readonly Gotcha[] = [
     text:
       "Creating a proposal requires approve(UserKeeper) → deposit(GovPool) → createProposal, in that order. " +
       "dexe_proposal_create runs the whole sequence; on partial failure it returns the landed-steps ledger — fix " +
-      "the cause and re-run the SAME call, completed steps are detected on-chain and skipped.",
+      "the cause and re-run the SAME call. approve, deposit, createProposalAndVote and the vote are re-derived " +
+      "from chain state and skipped; GovPool.execute and the validator round are NOT, and a receipt-wait TIMEOUT " +
+      "means the transaction was already broadcast — check dexe_tx_status before re-running.",
     applies: { flows: ["create_proposal"], tools: ["dexe_proposal_create"] },
   },
   {

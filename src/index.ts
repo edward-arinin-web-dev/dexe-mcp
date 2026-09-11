@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { registerAll } from "./tools/index.js";
+import { serverInstructions } from "./instructions.js";
 import { registerDocResources } from "./resources.js";
 import { homedir } from "node:os";
 import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadReport } from "./env/loader.js";
@@ -334,20 +335,7 @@ async function main(): Promise<void> {
   const server = new McpServer(
     { name: "dexe-mcp", version: packageVersion() },
     {
-      instructions:
-        "Tools for DeXe Protocol governance DAOs (plus a generic dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs). " +
-        "For any MULTI-STEP request (create a DAO, launch a token economy, OTC sale, staking, distribution, pass a proposal) call dexe_guide FIRST — it returns the exact plan, the questions to ask the user with risk notes, and the known pitfalls. " +
-        "Call dexe_context first WHEN you need orientation (signer, active chain, env readiness, DAOs/proposals from prior sessions) — skip it when the user already gave you the target DAO and chain. " +
-        "Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (ANY of the 33 catalog proposal types — pass proposalType + params), dexe_proposal_vote_and_execute (auto-deposits when power is short). " +
-        "Amounts accept raw wei (digits-only) or human units with a decimal point ('12.5'); durations are seconds. " +
-        "For images (DAO avatars): pass a LOCAL FILE PATH (avatarPath / newAvatarPath / filePath) and the server reads, validates, and pins it — never read image files or pass base64 through the conversation. " +
-        "The composites handle approve→deposit→create sequencing, correct IPFS metadata, and the known deploy/proposal reverts; on partial failure they return the landed-steps ledger — fix the cause and re-run the same call (completed steps are skipped). " +
-        "When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
-        "Before any dexe_get_* / dexe_list_contracts / dexe_find_selector, run dexe_compile once per session. " +
-        "The tool surface is gated by DEXE_TOOLSETS (default 'core,proposals'); dexe_context reports which sets are off and what they unlock. " +
-        "Full intent→call recipes + error→remedy table: docs/PLAYBOOK.md (shipped in the package). " +
-        "MCP resources: dexe://playbook (recipes + error remedies), dexe://graph-schema (subgraph entity reference for dexe_graph_query), dexe://tools (full tool catalog). " +
-        "Recipe skills ship with the package (dexe-create-dao, dexe-create-proposal, dexe-vote-execute, dexe-otc, dexe-staking, dexe-setup). Installed automatically with the Claude Code plugin (`/plugin install dexe@dexe-mcp`), or copy them standalone with `npx dexe-mcp skills`.",
+      instructions: serverInstructions(),
     },
   );
 

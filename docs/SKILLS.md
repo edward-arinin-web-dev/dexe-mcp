@@ -20,17 +20,20 @@ automatically with the plugin, or on demand via the CLI.
 | `dexe-vote-execute` | `dexe_proposal_vote_and_execute`: deposit-first, canonical ProposalState ordering, "withdraw between proposals" lock trap. |
 | `dexe-otc` | The five `dexe_otc_*` composites; PRECISION-1e25 rate, native-BNB sentinel, claim-timing gotchas. Full reference: [`OTC.md`](./OTC.md). |
 | `dexe-staking` | Staking setup end-to-end: `create_staking_tier`, StakingProposal auto-resolve + the one-off permissionless `deployStakingProposal()`, the silent past-deadline rejection, mainnet-only rule. |
+| `dexe-report` | One-call `dexe_dao_report` + the subgraph/backend reads behind it: what to ask for, `since: "last"` incremental runs, scheduling a digest. Works with no configuration. Full reference: [`REPORTING.md`](./REPORTING.md). |
+| `dexe-agent-team` | Running a multi-persona fleet: `dexe_agents_list` / `_fund` / `_ledger`, `signerKey` routing, funding caps. **Needs `DEXE_TOOLSETS=core,agents` and plaintext hot keys — burner wallets, chain 97 first.** Full reference: [`AGENTS.md`](./AGENTS.md). |
 | `dexe-setup` | Env onboarding via `dexe_doctor` (edits `.env`, never `.claude.json`). |
 
-Since v0.26.0 each recipe skill carries a **generated "Canonical recipe" section**
-rendered from the machine-readable corpus in `src/knowledge/` (`npm run
-gen:knowledge`; drift-checked in CI) — the same source that powers the
+Since v0.26.0 the five **recipe** skills (`dexe-create-dao`, `dexe-create-proposal`,
+`dexe-vote-execute`, `dexe-otc`, `dexe-staking`) each carry a **generated
+"Canonical recipe" section** rendered from the machine-readable corpus in
+`src/knowledge/` (`npm run gen:knowledge`; drift-checked in CI) — the same source that powers the
 `dexe_guide` tool and `docs/PLAYBOOK.md`, so the three can never disagree.
 
 ## Installing
 
 **With the Claude Code plugin (automatic).** `/plugin install dexe@dexe-mcp`
-discovers and loads all six skills — no copy step, no env questions. Plugin
+discovers and loads all eight skills — no copy step, no env questions. Plugin
 skills are namespaced, e.g. `dexe:dexe-create-dao`.
 
 **Standalone CLI** — copy the skills with no setup interview (for other MCP

@@ -11,15 +11,70 @@ import { maskUrl } from "../lib/redact.js";
 import { resolveToolsets, TOOLSETS } from "./gate.js";
 import { getAgentLedger, DAY_MS, type SpendRow } from "../lib/agentLedger.js";
 
-/** One-line "what you're missing" summary per gateable set (U5 discoverability). */
-const TOOLSET_UNLOCKS: Record<string, string> = {
-  core: "context/doctor/dao_create/tx_send/wc + OTC composites",
-  proposals: "dexe_proposal_create + every dexe_proposal_build_* + vote_and_execute",
-  read: "subgraph reads (dao members, delegation map, validator list), proposal_forecast, risk_assess, user_inbox",
-  vote: "delegate/undelegate to experts, claim_rewards, staking, NFT multiplier, cancel_vote, validator_vote",
-  agents: "multi-agent keyring: dexe_agents_list (personas + addresses), dexe_agents_fund (guarded funding), dexe_agents_ledger (who did what, spend per persona)",
-  governor: "dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs (Uniswap, Compound, Optimism…)",
-  dev: "dexe_compile + contract introspection (get_abi/get_methods/find_selector), dao_build_deploy, simulate/decode, merkle, safe",
+export interface ToolsetUnlock {
+  /**
+   * What this set ADDS. Every `dexe_*` name here must be a member of
+   * `TOOLSETS[set]` — asserted by tests/tools/context-unlocks-truthfulness.test.ts,
+   * because a name in the wrong row sends the user to edit DEXE_TOOLSETS and
+   * restart for a tool the session already has.
+   */
+  unlocks: string;
+  /** Cross-reference prose; MAY name tools from other sets. Not asserted. */
+  note?: string;
+}
+
+/**
+ * One-line "what you're missing" summary per gateable set (U5 discoverability).
+ *
+ * Wording source of truth: the Toolsets table in docs/PLAYBOOK.md — keep the
+ * two in the same commit.
+ */
+export const TOOLSET_UNLOCKS: Record<string, ToolsetUnlock> = {
+  core: {
+    unlocks:
+      "the default surface: dexe_context / dexe_doctor / dexe_guide, the composites (dexe_dao_create, " +
+      "dexe_proposal_create — all 33 catalog types — dexe_proposal_vote_and_execute), the OTC composites, " +
+      "dexe_tx_send/dexe_tx_status + WalletConnect, IPFS uploads, and the key-free reporting reads " +
+      "(dexe_dao_report, dexe_graph_query, dexe_graph_schema, dexe_read_dao_list, dexe_read_dao_stats, " +
+      "dexe_read_dao_members, dexe_read_token_holders, dexe_read_delegation_map, dexe_read_treasury, " +
+      "dexe_read_settings, dexe_proposal_list, dexe_proposal_state, dexe_dao_info)",
+  },
+  proposals: {
+    unlocks:
+      "the ~30 single-purpose dexe_proposal_build_* calldata builders, the off-chain (backend API) proposal " +
+      "types, and dexe_auth_login — the pre-0.31.0 default, restored verbatim",
+    note:
+      "NOT needed to create a proposal: dexe_proposal_create is already in the default profile and covers " +
+      "every on-chain catalog type.",
+  },
+  read: {
+    unlocks:
+      "the long-tail reads the default profile leaves out: dexe_read_multicall, dexe_read_nfts, " +
+      "dexe_read_validators, dexe_read_protocol_stats, dexe_read_expert_status, dexe_read_staking_info, " +
+      "the token-sale/distribution reads, dexe_read_user_activity, dexe_read_dao_experts, " +
+      "dexe_read_validator_list, dexe_proposal_voters, dexe_user_inbox, dexe_proposal_forecast, " +
+      "dexe_proposal_risk_assess, dexe_ipfs_cid_info",
+    note:
+      "The zero-config reporting reads (dao list/stats/members, token_holders, delegation_map, graph_query) " +
+      "are ALREADY in the default profile — enable `read` only for the names above.",
+  },
+  vote: {
+    unlocks:
+      "delegate/undelegate to experts, claim_rewards, staking, NFT multiplier, cancel_vote, validator_vote",
+  },
+  agents: {
+    unlocks:
+      "multi-agent keyring: dexe_agents_list (personas + addresses), dexe_agents_fund (guarded funding), " +
+      "dexe_agents_ledger (who did what, spend per persona)",
+  },
+  governor: {
+    unlocks: "dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs (Uniswap, Compound, Optimism…)",
+  },
+  dev: {
+    unlocks:
+      "dexe_compile + contract introspection (dexe_get_abi / dexe_get_methods / dexe_find_selector), " +
+      "dexe_dao_build_deploy, simulate/decode, merkle, safe",
+  },
 };
 
 /**
@@ -27,24 +82,41 @@ const TOOLSET_UNLOCKS: Record<string, string> = {
  * model can tell the user exactly which DEXE_TOOLSETS value fixes a missing
  * capability instead of dead-ending on an invisible tool.
  */
-function describeToolsets(requested: readonly string[]): {
+export function describeToolsets(requested: readonly string[]): {
   enabled: string[];
-  hidden: { set: string; unlocks: string }[];
+  hidden: { set: string; newToolCount: number; unlocks: string; note?: string }[];
   enableHint?: string;
 } {
   const resolved = resolveToolsets(requested);
   const enabled = resolved.full ? Object.keys(TOOLSETS) : resolved.requested;
+  const have: ReadonlySet<string> | null = resolved.full ? null : resolved.names;
   const hidden = Object.keys(TOOLSETS)
     .filter((s) => !enabled.includes(s))
-    .map((s) => ({ set: s, unlocks: TOOLSET_UNLOCKS[s] ?? "" }));
+    .map((s) => {
+      // How many tools this set would ADD. A set whose every tool is already
+      // registered is not "hidden" in any useful sense — listing it is how an
+      // agent ends up telling the user to restart for a tool they already have.
+      const newToolCount = [...TOOLSETS[s]!].filter((n) => !have || !have.has(n)).length;
+      const u = TOOLSET_UNLOCKS[s];
+      return {
+        set: s,
+        newToolCount,
+        unlocks: u?.unlocks ?? "",
+        ...(u?.note ? { note: u.note } : {}),
+      };
+    })
+    .filter((r) => r.newToolCount > 0);
   return {
     enabled,
     hidden,
     ...(hidden.length
       ? {
           enableHint:
-            `Hidden sets need DEXE_TOOLSETS in .env (e.g. DEXE_TOOLSETS=${[...enabled, hidden[0]!.set].join(",")} ` +
-            `or DEXE_TOOLSETS=full) + a Claude Code restart.`,
+            "Check the `enabled` list first — the default profile already includes dexe_proposal_create (all 33 " +
+            "proposal types) and the reporting reads, so a missing capability is usually a wrong tool name, not a " +
+            "gated set. If a tool you actually need is absent: set " +
+            `DEXE_TOOLSETS=${enabled.join(",")},<set> (or =full) in .env — NEVER in .claude.json — ` +
+            "and restart Claude Code.",
         }
       : {}),
   };

@@ -186,8 +186,8 @@ export const ENV_SPEC = {
     schema: z.string().optional(),
     category: "core",
     required: false,
-    example: "core,proposals",
-    doc: "Comma list of tool profiles to load: core, proposals, read, vote, governor, dev, or full. Default 'core,proposals' (slim). 'full' or an unknown name loads all tools. Reduces tools/list tokens per session.",
+    example: "core",
+    doc: "Comma list of tool profiles to load: core, proposals, read, vote, agents, governor, dev, or full. Default 'core' since v0.31.0 — the composites plus the zero-config reporting reads. 'core,proposals' restores the pre-0.31 builder surface; 'core,agents' adds the keyring fleet (v0.32.0); 'full' loads every tool. An unknown name is DROPPED (the recognized sets still apply) rather than escalating to full. Reduces tools/list tokens per session.",
   },
   DEXE_STATE_PATH: {
     schema: z.string().optional(),

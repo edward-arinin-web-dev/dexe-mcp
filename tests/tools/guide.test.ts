@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
 import { matchIntent, bestMatch, flowDetail, flowIndex } from "../../src/knowledge/index.js";
+import { flowContextSchema } from "../../src/lib/flowChain.js";
 
 /** The canonical weak-model user story — MUST resolve to the end-to-end flow. */
 const CANONICAL_INTENT =
@@ -69,9 +70,25 @@ describe("flow detail tiers", () => {
   it("chaining composites get flowContext pre-filled in their paramsTemplate (Phase B)", () => {
     const d = flowDetail("otc_sale")!;
     const open = d.steps.find((s) => s.id === "open")!;
-    expect(open.paramsTemplate.flowContext).toBe('{"flow":"otc_sale","step":"open"}');
+    // An OBJECT, not a JSON string: src/lib/flowChain.ts declares flowContext as
+    // z.object({flow, step}), so the string form this used to emit was rejected
+    // by MCP input validation before the handler ran (D15-6).
+    expect(open.paramsTemplate.flowContext).toEqual({ flow: "otc_sale", step: "open" });
     const verify = d.steps.find((s) => s.id === "verify")!;
     expect(verify.paramsTemplate.flowContext).toBeUndefined(); // read tool — no chaining
+  });
+
+  it("every pre-filled flowContext validates against the composites' schema (D15-6)", () => {
+    for (const { flow } of flowIndex()) {
+      for (const step of flowDetail(flow)!.steps) {
+        const ctx = step.paramsTemplate.flowContext;
+        if (ctx === undefined) continue;
+        expect(
+          flowContextSchema.safeParse(ctx).success,
+          `${flow}.${step.id} pre-fills a flowContext the tool schema rejects: ${JSON.stringify(ctx)}`,
+        ).toBe(true);
+      }
+    }
   });
 });
 

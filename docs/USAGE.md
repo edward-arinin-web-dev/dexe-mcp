@@ -61,7 +61,7 @@ mid-session failure (`dexe_doctor` flags the same problems).
 | `DEXE_PINATA_JWT` | **The only hard blocker for the create flows** — DAO/proposal metadata pins to IPFS. A missing key now errors with a numbered 3-step guide (get key → `.env` → restart). |
 | `DEXE_PRIVATE_KEY` | Opt-in hot key (**NOT SAFE** — plaintext on disk). WalletConnect is the recommended signer — see [§6](#6-walletconnect-signing). |
 | `DEXE_TX_WAIT_TIMEOUT_MS` | Per-broadcast mining-wait budget (default `180000` = 3 min). On timeout you get a check-`dexe_tx_status` error, never a hang. |
-| `DEXE_TOOLSETS` | Tool gating. Default `core,proposals` = 72 tools — see [§11](#11-toolsets). |
+| `DEXE_TOOLSETS` | Tool gating. Default `core` = 44 of 168 tools — see [§11](#11-toolsets). |
 
 Full reference — including `DEXE_MAX_DESCRIPTION_LEN`, `DEXE_PROTOCOL_REF`,
 subgraph/IPFS/signer-guard vars — in [`ENVIRONMENT.md`](./ENVIRONMENT.md).
@@ -99,7 +99,7 @@ frontend-equivalent config.
     "symbol": "GLC",
     "totalSupply": "1000000",
     "daoDescription": "Research funding co-op.",
-    "treasuryPercent": 49,
+    "treasuryPercent": 30,
     "quorumPercent": 51,
     "durationSeconds": 86400
   }
@@ -107,8 +107,9 @@ frontend-equivalent config.
 ```
 
 Returns `mode: "preview"` with the **resolved config** (who holds what) and a
-**safety proof** (votable %, quorum reachable?, floor ≥ 50%?). Show it to the
-user.
+**safety proof** (votable %, required turnout ≤ 80%?, floor ≥ 50%?). Show it to
+the user. Omit `treasuryPercent`/`quorumPercent` entirely and the tool
+synthesizes a governable **30 / 51** split (72.86% required turnout).
 
 **Step 2 — confirm:** re-call with the same args plus `confirm: true` →
 broadcasts and returns `predictedGovPool`.
@@ -125,8 +126,15 @@ after a deploy, no extra settings proposal needed.
 **Guards** (mirror the frontend's blocking validation, enforced in both SIMPLE
 and ADVANCED mode):
 
-- Quorum must be **reachable**: `quorum% × supply ≤ votable tokens` — treasury
-  tokens can't vote. Hard block.
+- Quorum must pass on **realistic turnout**: `quorum% ≤ 0.8 × (100 − treasury%)`
+  under the default LINEAR vote model — treasury tokens can't vote, and a quorum
+  equal to the votable share demands 100% turnout, which freezes the DAO
+  forever (repairing quorum needs a proposal to pass under it). At the 50% floor
+  that caps the treasury at **37.5%** of supply. Over the ceiling you get
+  `mode: "blocked-risky"` with `maxQuorumPercentForThisDistribution` and
+  `minVotablePercentForThisQuorum`; `confirmRisky: true` overrides.
+- Quorum must still be **reachable** at all: `quorum% × supply ≤ votable tokens`.
+  Hard block.
 - `minVotesForVoting/Creating` ≤ the largest single recipient. Hard block.
 - Token cap rule: `cap ≥ mintedTotal > 0` (no uncapped mode; `cap == minted`
   is a valid fixed supply).
@@ -347,8 +355,12 @@ What happens when things go wrong — and what your integration should check.
   - `landedSteps` — the txs that **did** land (gas already spent);
   - `resume` — how to continue.
 
-  Fix the cause and **re-run the same call** — completed steps (approve,
-  deposit) are detected on-chain and skipped, so you never double-pay them.
+  Fix the cause and **re-run the same call** — `approve`, `deposit`,
+  `createProposalAndVote` and the vote are re-derived from chain state and
+  skipped, so you never double-pay them. **`GovPool.execute` and the validator
+  round are NOT auto-skipped**, and a receipt-wait *timeout* means the
+  transaction was already broadcast: check `dexe_tx_status` before re-running
+  one of those, never re-send blindly.
 
 ---
 
@@ -505,15 +517,16 @@ Decode/introspection (`dev` toolset): `dexe_decode_calldata`,
 
 ## 11. Toolsets
 
-The registered surface is gated by `DEXE_TOOLSETS` (default `core,proposals` =
-**73 tools** of the 160):
+The registered surface is gated by `DEXE_TOOLSETS` (default `core` =
+**44 tools** of the 168):
 
 | Set | Unlocks |
 |-----|---------|
-| `core` (default) | context, doctor, dao_create, dao_info, treasury/settings reads, tx_send/status, WalletConnect, OTC composites, IPFS uploads |
-| `proposals` (default) | proposal_create (all types), every proposal_build_*, vote_and_execute, proposal state/list, vote-power reads |
-| `read` | subgraph reads (members, delegation map, validators), forecast, risk assess, inbox |
+| `core` (default) | context, guide, doctor, the composites (`dexe_dao_create`, `dexe_proposal_create` — all 33 types — `dexe_proposal_vote_and_execute`), the OTC composites, tx_send/status, WalletConnect, IPFS uploads, and the zero-config reporting reads (`dexe_dao_report`, `dexe_graph_query`/`_schema`, DAO list/stats/members, token holders, delegation map, treasury/settings, proposal state/list) |
+| `proposals` | every single-purpose `dexe_proposal_build_*` builder, the off-chain (backend) proposal types, `dexe_auth_login`. The pre-0.31 default, restored verbatim — **not needed** to create a proposal |
+| `read` | the long-tail reads: multicall, NFTs, validators, protocol stats, expert status, staking/token-sale/distribution reads, user activity, `dexe_proposal_voters`, inbox, forecast, risk assess, IPFS cid tools |
 | `vote` | delegate/undelegate, claims, staking, NFT multiplier, validator votes, multicall |
+| `agents` | multi-agent keyring: `dexe_agents_list`, `dexe_agents_fund`, `dexe_agents_ledger` |
 | `governor` | `dexe_gov_*` for external OZ/Compound Governor DAOs |
 | `dev` | compile + ABI introspection, raw deploy, simulate/decode, merkle, Safe |
 
