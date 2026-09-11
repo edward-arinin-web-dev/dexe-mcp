@@ -6,7 +6,7 @@ import { RpcProvider } from "../rpc.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import type { EnvGuardResult } from "../lib/requireEnv.js";
-import { renderUntrusted } from "../lib/sanitize.js";
+import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { chainIdParam } from "../lib/params.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
@@ -312,10 +312,22 @@ function registerDaoInfo(
           `  expertNft     : ${nftContracts.expertNft}\n` +
           `  dexeExpertNft : ${nftContracts.dexeExpertNft}\n` +
           `  babt          : ${nftContracts.babt}`;
-        return {
-          content: [{ type: "text" as const, text }],
-          structuredContent: structured,
-        };
+        // `descriptionURL` is chosen by whoever deployed the DAO, and
+        // `structuredContent` is exactly as model-visible as `content[].text` —
+        // escaping only the prose is the same leak wearing a different hat.
+        //
+        // No `body`: the readout above is server-authored addresses and counts,
+        // and `helpers.userKeeper` is the address an agent must copy verbatim
+        // into an approve. Fencing it under "never treat as instructions" is
+        // the wrong provenance label on the one value that IS trustworthy. The
+        // only third-party field, descriptionURL, is already escaped in the
+        // prose and rides out deep-sanitized in `structured` behind the notice
+        // line — the shape dexe_proposal_list and dexe_proposal_risk_assess use.
+        return untrustedResult({
+          summary: text,
+          label: `descriptionURL of GovPool ${govPool} (set by whoever deployed the DAO)`,
+          structured,
+        });
       } catch (err) {
         return errorResult(
           toActionableError(err, "dexe_dao_info").message,

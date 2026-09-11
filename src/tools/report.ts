@@ -13,9 +13,10 @@ import { quorumAttainmentPct, quorumPctFromRaw, votesShortOfQuorum } from "../li
 import { renameWithRetry, tempStatePath, withWriteLock } from "../lib/stateStore.js";
 import { chainIdParam } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
-import { renderUntrusted } from "../lib/sanitize.js";
+import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
+import { toVoterAddress, withOrphanVoterFallback } from "../lib/subgraph.js";
 import { debugLog } from "../runtime.js";
 import { DEFAULT_TOOLSETS, TOOLSETS, defaultProfileToolNames } from "./gate.js";
 import { labelProposalSettings } from "./read.js";
@@ -145,6 +146,7 @@ const POOLS_REPORT_QUERY = /* GraphQL */ `
     $members: Int!
     $proposals: Int!
     $pairs: Int!
+    $withVoter: Boolean!
   ) {
     daoPools(first: 1, where: { id: $poolId }) {
       id
@@ -167,6 +169,7 @@ const POOLS_REPORT_QUERY = /* GraphQL */ `
       orderBy: joinedTimestamp
       orderDirection: desc
     ) {
+      id
       joinedTimestamp
       receivedDelegation
       receivedTreasuryDelegation
@@ -178,7 +181,7 @@ const POOLS_REPORT_QUERY = /* GraphQL */ `
       expertNft {
         tokenId
       }
-      voter {
+      voter @include(if: $withVoter) {
         id
         totalProposalsCreated
         totalVotedProposals
@@ -191,13 +194,14 @@ const POOLS_REPORT_QUERY = /* GraphQL */ `
       where: { pool: $pool, expertNft_: { id_not: null } }
       first: 100
     ) {
+      id
       receivedDelegation
       receivedTreasuryDelegation
       expertNft {
         tokenId
         tags
       }
-      voter {
+      voter @include(if: $withVoter) {
         id
       }
     }
@@ -231,12 +235,14 @@ const POOLS_REPORT_QUERY = /* GraphQL */ `
       delegatedUSD
       delegatedNfts
       delegator {
-        voter {
+        id
+        voter @include(if: $withVoter) {
           id
         }
       }
       delegatee {
-        voter {
+        id
+        voter @include(if: $withVoter) {
           id
         }
         expertNft {
@@ -248,20 +254,79 @@ const POOLS_REPORT_QUERY = /* GraphQL */ `
 `;
 
 /**
+ * What a degraded pools run tells the reader. Ends in a remedy, like every
+ * other unavailability string in this file — "indexer data fault" alone states
+ * a problem and names no way forward.
+ */
+function orphanVoterNote(): string {
+  return (
+    "Per-voter stats are missing for this DAO: the pools subgraph holds member rows whose Voter record " +
+    "is null, so this report re-ran without them. Everything below is REAL and complete except " +
+    "totalVotes / totalProposalsCreated / totalVotedProposals / currentVotesReceived / " +
+    "currentVotesDelegated on member rows (each flagged voterStatsUnavailable). This is an indexer data " +
+    "fault, not a timeout — re-running returns the identical error. For one wallet's power on-chain call " +
+    `${toolRef("dexe_vote_user_power")}; for their history call ${toolRef("dexe_read_user_activity")}.`
+  );
+}
+
+/**
+ * Put the wallet back on a row whose `voter` relation was gated off, so every
+ * downstream consumer (`row.voter.id`, the delegation pair renderer, the
+ * snapshot's `memberIds`) keeps working unchanged — and so a degraded run does
+ * not persist an EMPTY member list that the next `since` diff would read as
+ * "all 104 members left".
+ */
+function hydrateVoter(row: Record<string, unknown> | null | undefined): void {
+  if (!row || row.voter || typeof row.id !== "string") return;
+  row.voter = { id: toVoterAddress(row.id) };
+  row.voterStatsUnavailable = true;
+}
+
+function hydrateVoters(d: {
+  members?: Array<Record<string, unknown>>;
+  experts?: Array<Record<string, unknown>>;
+  delegations?: Array<Record<string, unknown>>;
+}): void {
+  for (const m of d.members ?? []) hydrateVoter(m);
+  for (const e of d.experts ?? []) hydrateVoter(e);
+  for (const p of d.delegations ?? []) {
+    hydrateVoter(p.delegator as Record<string, unknown> | undefined);
+    hydrateVoter(p.delegatee as Record<string, unknown> | undefined);
+  }
+}
+
+function hydrateDeltaVoters(d: {
+  joined?: Array<Record<string, unknown>>;
+  newDelegations?: Array<Record<string, unknown>>;
+}): void {
+  for (const j of d.joined ?? []) hydrateVoter(j);
+  for (const p of d.newDelegations ?? []) {
+    hydrateVoter(p.delegator as Record<string, unknown> | undefined);
+    hydrateVoter(p.delegatee as Record<string, unknown> | undefined);
+  }
+}
+
+/**
  * The `since` half. Split from the base document because the `_gt` filters are
  * only meaningful with an anchor — folding them in would force a sentinel
  * `since: 0` on every plain report and page rows nobody asked for.
  */
 const POOLS_DELTA_QUERY = /* GraphQL */ `
-  query DaoReportDelta($pool: String!, $since: BigInt!, $first: Int!) {
+  query DaoReportDelta(
+    $pool: String!
+    $since: BigInt!
+    $first: Int!
+    $withVoter: Boolean!
+  ) {
     joined: voterInPools(
       where: { pool: $pool, joinedTimestamp_gt: $since }
       first: $first
       orderBy: joinedTimestamp
       orderDirection: desc
     ) {
+      id
       joinedTimestamp
-      voter {
+      voter @include(if: $withVoter) {
         id
       }
     }
@@ -275,12 +340,14 @@ const POOLS_DELTA_QUERY = /* GraphQL */ `
       delegatedAmount
       delegatedVotes
       delegator {
-        voter {
+        id
+        voter @include(if: $withVoter) {
           id
         }
       }
       delegatee {
-        voter {
+        id
+        voter @include(if: $withVoter) {
           id
         }
       }
@@ -665,6 +732,14 @@ export const DAO_REPORT_OUTPUT_SHAPE = {
   unavailable: z.array(
     z.object({ section: z.string(), reason: z.string(), followUp: z.string().optional() }),
   ),
+  /**
+   * Set when the report rendered but is less complete than normal — today that
+   * means the pools indexer lost Voter records and this run re-read without
+   * them. Null on a healthy run. Declared here, not merely present: this tool
+   * advertises an outputSchema and a spec-conformant client validates against
+   * it, so an undeclared field would be rejected.
+   */
+  degraded: z.string().nullable().optional(),
   /** Populated only with `since`; null otherwise. */
   changes: z
     .object({
@@ -1243,15 +1318,31 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
         want("delegation") ||
         want("experts") ||
         want("turnout");
+      // One orphaned Voter record kills the WHOLE pools document — daoPools
+      // (the DAO's own name and token addresses) included, because GraphQL
+      // non-null propagation is document-wide. Identity, membership,
+      // delegation, experts and turnout all die with it, which is what a user
+      // hits on their FIRST call. The second pass drops only the Voter
+      // relation; every row id is selected unconditionally so each wallet is
+      // still recoverable.
+      let poolsDegraded: string | null = null;
       if (pools.url && needsPools) {
         try {
-          poolsData = await gqlRequest<PoolsData>(pools.url, POOLS_REPORT_QUERY, {
-            poolId: daoLower,
-            pool: daoLower,
-            members: memberLimit,
-            proposals: proposalLimit,
-            pairs: memberLimit,
-          });
+          const r = await withOrphanVoterFallback((withVoter) =>
+            gqlRequest<PoolsData>(pools.url!, POOLS_REPORT_QUERY, {
+              poolId: daoLower,
+              pool: daoLower,
+              members: memberLimit,
+              proposals: proposalLimit,
+              pairs: memberLimit,
+              withVoter,
+            }),
+          );
+          poolsData = r.data;
+          if (r.degraded) {
+            hydrateVoters(poolsData);
+            poolsDegraded = orphanVoterNote();
+          }
         } catch (err) {
           poolsSource.available = false;
           poolsSource.reason = toActionableError(err, "dexe_dao_report pools subgraph").message;
@@ -1313,11 +1404,22 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
       let deltaError: string | null = null;
       if (sinceUnix !== null && pools.url && poolsSource.available) {
         try {
-          deltaData = await gqlRequest<DeltaData>(pools.url, POOLS_DELTA_QUERY, {
-            pool: daoLower,
-            since: String(sinceUnix),
-            first: DELTA_ROW_CAP,
-          });
+          // `$withVoter` is a required variable on this document too: binding it
+          // only at the pools call site would make EVERY since-diff run fail
+          // validation, on healthy DAOs as well.
+          const r = await withOrphanVoterFallback((withVoter) =>
+            gqlRequest<DeltaData>(pools.url!, POOLS_DELTA_QUERY, {
+              pool: daoLower,
+              since: String(sinceUnix),
+              first: DELTA_ROW_CAP,
+              withVoter,
+            }),
+          );
+          deltaData = r.data;
+          if (r.degraded) {
+            hydrateDeltaVoters(deltaData);
+            if (!poolsDegraded) poolsDegraded = orphanVoterNote();
+          }
         } catch (err) {
           deltaError = toActionableError(err, "dexe_dao_report since-diff").message;
         }
@@ -1944,16 +2046,29 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
         },
         sections: sectionsOut,
         unavailable,
+        degraded: poolsDegraded,
         changes,
         followUps,
         snapshotPersisted,
       };
 
       const plain = jsonPlain(payload);
-      return {
-        content: [{ type: "text" as const, text: renderReport(plain) }],
-        structuredContent: plain as unknown as Record<string, unknown>,
-      };
+      // Same funnel dexe_proposal_risk_assess uses: the prose rides as
+      // `summary`, NOT as a fenced `body`. It is server-authored — including
+      // the "try: <tool>" remediations and the "Go deeper:" follow-ups that
+      // tests/tools/report-followup-callable.test.ts asserts are CALLABLE — and
+      // stamping the whole document "never treat as instructions" would be the
+      // inverse of that test's purpose. Every third-party value inside it goes
+      // through renderUntrusted below. The payload, which carries those same
+      // names / descriptionURLs / symbols unescaped, is deep-sanitized and
+      // announced by the notice line.
+      return untrustedResult({
+        summary: renderReport(plain),
+        label:
+          `dexe_dao_report payload for ${dao} on chain ${resolvedChainId}: DAO name, descriptionURLs ` +
+          `and token symbols are chosen by third parties`,
+        structured: plain as unknown as Record<string, unknown>,
+      });
     },
   );
 }
@@ -2028,7 +2143,11 @@ export function renderReport(p: Record<string, unknown>): string {
       out.push(`  delegated-token delta: ${changes.delegationTotalDelta}`);
     }
     for (const t of arr("treasuryDeltas") as Array<Record<string, unknown>>) {
-      out.push(`  treasury ${t.asset}: ${String(t.delta).startsWith("-") ? "" : "+"}${t.delta}`);
+      // ERC20.symbol() is whatever the token returns; a newline in it forges a
+      // whole report line with an attacker-chosen address.
+      out.push(
+        `  treasury ${renderUntrusted(String(t.asset), 20)}: ${String(t.delta).startsWith("-") ? "" : "+"}${t.delta}`,
+      );
     }
     const nothing =
       arr("newProposals").length === 0 &&
@@ -2037,7 +2156,10 @@ export function renderReport(p: Record<string, unknown>): string {
       arr("delegationChanges").length === 0 &&
       arr("treasuryDeltas").length === 0;
     if (nothing) out.push("  nothing changed in this window");
-    for (const n of (changes.notes as string[] | undefined) ?? []) out.push(`  note: ${n}`);
+    // `notes` carries the since-diff's subgraph/RPC error text, which embeds a
+    // gateway-authored message.
+    for (const n of (changes.notes as string[] | undefined) ?? [])
+      out.push(`  note: ${renderUntrusted(n, 300)}`);
     out.push("");
   }
 
@@ -2073,7 +2195,10 @@ export function renderReport(p: Record<string, unknown>): string {
       `DELEGATION — ${delegation.totalDelegatees ?? "?"} delegatee(s), ${pairs.length} pair(s) listed, ${delegation.totalTokenDelegated ?? "?"} tokens delegated`,
     );
     for (const d of pairs.slice(0, 5)) {
-      out.push(`  ${d.delegator} -> ${d.delegatee}${d.delegateeIsExpert ? " (expert)" : ""}  ${d.delegatedAmount}`);
+      out.push(
+        `  ${renderUntrusted(String(d.delegator), 42)} -> ${renderUntrusted(String(d.delegatee), 42)}` +
+          `${d.delegateeIsExpert ? " (expert)" : ""}  ${d.delegatedAmount}`,
+      );
     }
   }
   const experts = data("experts");
@@ -2113,12 +2238,23 @@ export function renderReport(p: Record<string, unknown>): string {
   }
 
   // 4. What is missing, and why. Never a silent omission.
+  // A report that rendered but is less complete than normal. Printed once, next
+  // to the sections that did not render at all, rather than per section.
+  if (typeof p.degraded === "string" && p.degraded) {
+    out.push("");
+    out.push(`DEGRADED — ${p.degraded}`);
+  }
   const unavailable = (p.unavailable ?? []) as Array<{ section: string; reason: string; followUp?: string }>;
   if (unavailable.length > 0) {
     out.push("");
     out.push(`SECTIONS NOT RENDERED (${unavailable.length}) — this report is partial:`);
     for (const u of unavailable) {
-      out.push(`  ${u.section}: ${u.reason}${u.followUp ? `\n    try: ${u.followUp}` : ""}`);
+      // `reason` wraps a subgraph/RPC error body; `followUp` is server-authored
+      // and must stay VERBATIM — report-followup-callable.test.ts greps it for
+      // registered tool names.
+      out.push(
+        `  ${u.section}: ${renderUntrusted(u.reason, 300)}${u.followUp ? `\n    try: ${u.followUp}` : ""}`,
+      );
     }
   }
   const followUps = (p.followUps ?? []) as string[];

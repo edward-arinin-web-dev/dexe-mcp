@@ -95,35 +95,89 @@ function registerListContracts(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_get_abi ----------
 
+/**
+ * Soft ceiling on an ABI response, in chars of `JSON.stringify(abi)`.
+ *
+ * `structuredContent` is what the model actually receives, so the compact
+ * `content[].text` one-liner bought nothing: GovPool's ABI alone is ~21.8k
+ * chars (~6k tokens). Only three of the 128 compiled artifacts exceed this —
+ * GovPool 21,758; TokenSaleProposal 21,541; TokenSaleProposalMock 21,697 — and
+ * IGovPool sits at 15,888, so the bar is deliberately above the ordinary
+ * interface rather than at it.
+ *
+ * NOT a refusal. `kind:"function"` does not bring GovPool under any sane cap
+ * (functions-only is still 20,169 chars), and `dexe_get_methods` is LARGER than
+ * the raw ABI (~21.8k) — so a hard refusal would name two remedies that also
+ * fail, on the flagship contract, in a tool literally called "get ABI". Instead
+ * the oversized response is served with the filters that DO work named in the
+ * text, and `dexe_get_selectors` (~2.4-5k for GovPool) pointed at as the one
+ * genuinely compact alternative.
+ */
+const ABI_SOFT_CAP_CHARS = 16_000;
+
 function registerGetAbi(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_get_abi",
     {
       title: "Get contract ABI",
-      description: "Returns the ABI JSON for a compiled contract by name.",
+      description:
+        "Returns the ABI JSON for a compiled contract by name. Narrow a large ABI with `kind` " +
+        "and/or `nameFilter` — GovPool's full ABI is ~21.8k chars.",
       inputSchema: {
         contract: z.string().describe("Contract name, e.g. 'GovPool'"),
+        kind: z
+          .enum(["function", "event", "error", "constructor", "fallback", "receive"])
+          .optional()
+          .describe("Return only ABI entries of this type."),
+        nameFilter: z
+          .string()
+          .optional()
+          .describe("Case-insensitive substring match on the entry name, e.g. 'vote'."),
       },
       outputSchema: {
         contract: z.string(),
         sourceName: z.string(),
         abi: z.array(z.unknown()),
+        /** Entries before `kind`/`nameFilter` narrowed the result. */
+        totalEntries: z.number().optional(),
+        /** True when a filter dropped entries — `abi` is a subset. */
+        filtered: z.boolean().optional(),
       },
     },
-    async ({ contract }) => {
+    async ({ contract, kind, nameFilter }) => {
       const res = await guarded(ctx, () => ctx.artifacts.getOne(contract));
       if (!res.ok) return errorResult(res.error);
       const r = res.value;
+      const all = r.abi as Array<{ type?: string; name?: string }>;
+      const needle = nameFilter?.toLowerCase();
+      const abi = all.filter(
+        (e) =>
+          (!kind || e.type === kind) &&
+          (!needle || (e.name ?? "").toLowerCase().includes(needle)),
+      );
       const structured = {
         contract: r.contractName,
         sourceName: r.sourceName,
-        abi: r.abi as unknown[],
+        abi: abi as unknown[],
+        totalEntries: all.length,
+        filtered: abi.length < all.length,
       };
+      const size = JSON.stringify(abi).length;
+      const sizeNote =
+        size > ABI_SOFT_CAP_CHARS
+          ? `\n⚠ ${size} chars of JSON — this whole payload is in your context. Narrow it with ` +
+            `kind:"function" and/or nameFilter:"<substring>", or call dexe_get_selectors instead ` +
+            `(signature → 4-byte map, a fraction of the size). dexe_get_methods is NOT smaller — it ` +
+            `carries full structured inputs/outputs.`
+          : "";
       return {
         content: [
           {
             type: "text" as const,
-            text: `ABI for ${r.contractName} (${r.sourceName}) — ${structured.abi.length} entries`,
+            text:
+              `ABI for ${r.contractName} (${r.sourceName}) — ${abi.length} entries` +
+              (structured.filtered ? ` (filtered from ${all.length})` : "") +
+              sizeNote,
           },
         ],
         structuredContent: structured,

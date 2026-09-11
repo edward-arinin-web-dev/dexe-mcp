@@ -5,12 +5,17 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall } from "../lib/multicall.js";
 import {
+  backfillVoters,
   gqlRequest,
   resolveSubgraphUrl,
   subgraphChains,
+  toVoterAddress,
+  withOrphanVoterFallback,
   type ResolvedSubgraph,
   type SubgraphKind,
 } from "../lib/subgraph.js";
+import { pageMeta, truncationNote } from "../lib/page.js";
+import { GOV_POWER_DECIMALS, withFormatted } from "../lib/units.js";
 import { SUBGRAPH_KINDS, subgraphEnvVar } from "../config.js";
 import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
@@ -113,7 +118,15 @@ const DAO_LIST_QUERY = /* GraphQL */ `
 `;
 
 const DAO_MEMBERS_QUERY = /* GraphQL */ `
-  query getVotersInPool($poolId: String!, $offset: Int!, $limit: Int!) {
+  query getVotersInPool(
+    $poolId: String!
+    $offset: Int!
+    $limit: Int!
+    $withVoter: Boolean!
+  ) {
+    daoPools(first: 1, where: { id: $poolId }) {
+      votersCount
+    }
     voterInPools(skip: $offset, first: $limit, where: { pool: $poolId }) {
       id
       APR
@@ -133,7 +146,7 @@ const DAO_MEMBERS_QUERY = /* GraphQL */ `
         id
         tokenId
       }
-      voter {
+      voter @include(if: $withVoter) {
         id
         totalProposalsCreated
         totalVotedProposals
@@ -242,7 +255,12 @@ const USER_ACTIVITY_QUERY = /* GraphQL */ `
 `;
 
 const EXPERTS_QUERY = /* GraphQL */ `
-  query getLocalExpertsByPool($offset: Int!, $limit: Int!, $daoAddress: Bytes!) {
+  query getLocalExpertsByPool(
+    $offset: Int!
+    $limit: Int!
+    $daoAddress: Bytes!
+    $withVoter: Boolean!
+  ) {
     voterInPools(
       skip: $offset
       first: $limit
@@ -251,7 +269,7 @@ const EXPERTS_QUERY = /* GraphQL */ `
       id
       receivedTreasuryDelegation
       receivedDelegation
-      voter {
+      voter @include(if: $withVoter) {
         id
       }
       expertNft {
@@ -437,9 +455,26 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
         const data = await gqlRequest<Record<string, unknown>>(sg.url, query, variables as Record<string, unknown> | undefined);
         const json = JSON.stringify(data);
         if (json.length > GRAPH_QUERY_MAX_RESPONSE_CHARS) {
+          // "Narrow the selection set" with no number behind it is a guess, and
+          // a guess costs another full 8s round trip. Row count is what the
+          // caller can act on, so the refusal does the arithmetic. The halving
+          // is deliberate headroom: row sizes are uneven, and a suggestion that
+          // lands back over the cap costs a third round trip.
+          const rootArrays = Object.entries(data).filter(([, v]) => Array.isArray(v));
+          const rows = rootArrays.reduce((n, [, v]) => n + (v as unknown[]).length, 0);
+          const suggested =
+            rows > 0
+              ? Math.max(1, Math.floor((rows * GRAPH_QUERY_MAX_RESPONSE_CHARS) / json.length / 2))
+              : null;
           return errorResult(
-            `Response too large (${json.length} chars > ${GRAPH_QUERY_MAX_RESPONSE_CHARS}). ` +
-              `Narrow the selection set or paginate with first/skip.`,
+            `Response too large: ${json.length} chars (cap ${GRAPH_QUERY_MAX_RESPONSE_CHARS})` +
+              (rows > 0 ? ` across ${rows} row(s)` : "") +
+              `. NO rows were returned — the query must be re-issued smaller; nothing was truncated for you. ` +
+              (suggested
+                ? `Re-run with first: ${suggested}${rootArrays.length > 1 ? ` on EACH of the ${rootArrays.length} list fields` : ""} and page with skip:, `
+                : `Add first:/skip: pagination, `) +
+              `or drop fields from the selection set (nested entities dominate the size). ` +
+              `Entity/field reference: dexe_graph_schema or the dexe://graph-schema resource.`,
           );
         }
         // Row shape is whatever the caller selected, so the summary reports only
@@ -802,14 +837,27 @@ function registerDaoList(server: McpServer, ctx: ToolContext): void {
           limit,
           queryString: query,
         });
-        const pools = data.daoPools;
+        const pools = data.daoPools as Array<Record<string, unknown>>;
+        const meta = pageMeta({ offset, limit, returned: pools.length });
+        // Delegated totals are 18-decimal voting power, not gov-token units.
+        const rows = pools.map((p) =>
+          withFormatted(p, ["totalCurrentTokenDelegated"], GOV_POWER_DECIMALS),
+        );
         // `name` here is chosen by whoever deployed the DAO — deploying one is
         // permissionless, so this list is the cheapest injection channel in the
         // whole server at an agent that may be holding a signer.
         return untrustedResult({
-          summary: `Found ${pools.length} DAO(s) on chain ${sg.chainId} (offset=${offset}, limit=${limit}, query="${renderUntrusted(query, 80)}")`,
+          summary:
+            `Found ${pools.length} DAO(s) on chain ${sg.chainId} (offset=${offset}, limit=${limit}, query="${renderUntrusted(query, 80)}")` +
+            truncationNote(meta, "dexe_read_dao_list", "DAO"),
           label: `DAO rows (names are attacker-chosen; chain ${sg.chainId})`,
-          structured: { query, offset, limit, indexedChainId: sg.chainId, daoPools: pools },
+          structured: {
+            query,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
+            indexedChainId: sg.chainId,
+            daoPools: rows,
+          },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_list").message);
@@ -838,16 +886,77 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
       const sg = resolveEndpoint(ctx, "pools", chainId);
       if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ voterInPools: unknown[] }>(sg.url, DAO_MEMBERS_QUERY, {
-          poolId: govPool.toLowerCase(),
+        type MembersData = {
+          daoPools?: Array<{ votersCount?: string }>;
+          voterInPools: Array<Record<string, unknown>>;
+        };
+        const { data, degraded } = await withOrphanVoterFallback((withVoter) =>
+          gqlRequest<MembersData>(sg.url, DAO_MEMBERS_QUERY, {
+            poolId: govPool.toLowerCase(),
+            offset,
+            limit,
+            withVoter,
+          }),
+        );
+        let members = data.voterInPools;
+        let indexerWarning: string | null = null;
+        if (degraded) {
+          // The rows are real; only the per-voter stats hanging off the missing
+          // Voter entity are gone. Recover each wallet from its own row id and
+          // backfill whatever the index DOES hold for it.
+          const wallets = members.map((m) => toVoterAddress(String(m.id ?? "")));
+          const { found, backfillFailed } = await backfillVoters(sg.url, wallets);
+          let orphans = 0;
+          members = members.map((m, i) => {
+            const w = wallets[i]!;
+            const v = found.get(w);
+            if (!v) orphans++;
+            return { ...m, voter: v ?? { id: w }, voterStatsUnavailable: !v };
+          });
+          indexerWarning =
+            `DEGRADED (indexer data fault, NOT transient): ${orphans} of ${members.length} row(s) on this ` +
+            `page point at a Voter record the index does not hold, which made the normal query fail ` +
+            `outright. The rows are real and complete for this page; only per-voter stats (totalVotes, ` +
+            `totalProposalsCreated, …) are missing on the rows flagged voterStatsUnavailable — their ` +
+            `wallet is derived from the row id and is correct.` +
+            (backfillFailed
+              ? ` The stats backfill query ALSO failed, so no row on this page carries per-voter stats.`
+              : "") +
+            ` Re-running returns the identical error. For authoritative power on those wallets call ` +
+            `dexe_vote_user_power (on-chain, no indexer).`;
+        }
+        // `votersCount` counts exactly the rows this query pages over — verified
+        // live on BOXY DAO: 100 rows at skip 0 + 4 at skip 100 = 104.
+        const rawTotal = Number(data.daoPools?.[0]?.votersCount ?? NaN);
+        const meta = pageMeta({
           offset,
           limit,
+          returned: members.length,
+          ...(Number.isFinite(rawTotal) ? { total: rawTotal } : {}),
         });
-        const members = data.voterInPools;
+        // Subgraph governance amounts are 18-decimal-normalized voting power
+        // (GovUserKeeper.to18), never the gov token's own decimals.
+        const rows = members.map((m) =>
+          withFormatted(
+            m,
+            ["receivedDelegation", "receivedTreasuryDelegation", "receivedNFTDelegation"],
+            GOV_POWER_DECIMALS,
+          ),
+        );
         return untrustedResult({
-          summary: `${members.length} member(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          summary:
+            (indexerWarning ? `${indexerWarning}\n` : "") +
+            `${members.length} member(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})` +
+            truncationNote(meta, "dexe_read_dao_members", "member"),
           label: `member rows (chain ${sg.chainId})`,
-          structured: { govPool, offset, limit, indexedChainId: sg.chainId, members },
+          structured: {
+            govPool,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
+            indexedChainId: sg.chainId,
+            indexerWarning,
+            members: rows,
+          },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_members").message);
@@ -856,20 +965,10 @@ function registerDaoMembers(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-/**
- * The delegation queries filter on `delegator_.voter_in` / `delegatee_.voter_in`,
- * which match VOTER WALLET addresses — NOT VoterInPool composite ids. A composite
- * id reaches the store's Bytes parser and fails with "Odd number of digits".
- * Accept both shapes and extract the wallet: 'govPool-voter' → part after the
- * dash; 80-hex 'voter+pool' (the real VoterInPool id) → first 40 hex chars.
- */
-export function toVoterAddress(input: string): string {
-  let s = input.trim().toLowerCase();
-  const dash = s.lastIndexOf("-");
-  if (dash >= 0) s = s.slice(dash + 1);
-  const hex = s.startsWith("0x") ? s.slice(2) : s;
-  return `0x${hex.length > 40 ? hex.slice(0, 40) : hex}`;
-}
+// `toVoterAddress` moved to src/lib/subgraph.ts so report.ts and the orphan
+// -Voter fallback can share it without a tools→tools import. Re-exported here
+// because it is part of this module's published surface.
+export { toVoterAddress };
 
 function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
@@ -911,18 +1010,28 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
           direction === "outgoing"
             ? { offset, limit, delegatorIn: lc }
             : { offset, limit, voterIn: lc };
-        const data = await gqlRequest<{ voterInPoolPairs: unknown[] }>(sg.url, query, variables);
+        const data = await gqlRequest<{ voterInPoolPairs: Array<Record<string, unknown>> }>(
+          sg.url,
+          query,
+          variables,
+        );
         const pairs = data.voterInPoolPairs;
+        const meta = pageMeta({ offset, limit, returned: pairs.length });
+        const rows = pairs.map((p) =>
+          withFormatted(p, ["delegatedAmount", "delegatedVotes"], GOV_POWER_DECIMALS),
+        );
         return untrustedResult({
-          summary: `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es) on chain ${sg.chainId}`,
+          summary:
+            `${pairs.length} ${direction} delegation(s) for ${addresses.length} address(es) on chain ${sg.chainId}` +
+            truncationNote(meta, "dexe_read_delegation_map", "delegation"),
           label: `delegation rows (chain ${sg.chainId})`,
           structured: {
             addresses,
             direction,
-            offset,
-            limit,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
             indexedChainId: sg.chainId,
-            delegations: pairs,
+            delegations: rows,
           },
         });
       } catch (err) {
@@ -956,11 +1065,22 @@ function registerValidatorList(server: McpServer, ctx: ToolContext): void {
           limit,
           address: govPool.toLowerCase(),
         });
-        const validators = data.validatorInPools;
+        const validators = data.validatorInPools as Array<Record<string, unknown>>;
+        const meta = pageMeta({ offset, limit, returned: validators.length });
+        // GovValidators balances are the validator token's own 18-dec units.
+        const rows = validators.map((v) => withFormatted(v, ["balance"], GOV_POWER_DECIMALS));
         return untrustedResult({
-          summary: `${validators.length} validator(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          summary:
+            `${validators.length} validator(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})` +
+            truncationNote(meta, "dexe_read_validator_list", "validator"),
           label: `validator rows (chain ${sg.chainId})`,
-          structured: { govPool, offset, limit, indexedChainId: sg.chainId, validators },
+          structured: {
+            govPool,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
+            indexedChainId: sg.chainId,
+            validators: rows,
+          },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_validator_list").message);
@@ -998,10 +1118,13 @@ function registerUserActivity(server: McpServer, ctx: ToolContext): void {
           ...tx,
           typeLabels: transactionTypeLabels(Array.isArray(tx.type) ? tx.type : [tx.type]),
         }));
+        const meta = pageMeta({ offset, limit, returned: txs.length });
         return untrustedResult({
-          summary: `${txs.length} transaction(s) for ${user} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          summary:
+            `${txs.length} transaction(s) for ${user} on chain ${sg.chainId} (offset=${offset}, limit=${limit})` +
+            truncationNote(meta, "dexe_read_user_activity", "transaction"),
           label: `transaction rows (chain ${sg.chainId})`,
-          structured: { user, offset, limit, indexedChainId: sg.chainId, transactions: txs },
+          structured: { user, ...meta, indexedChainId: sg.chainId, transactions: txs },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_user_activity").message);
@@ -1030,16 +1153,53 @@ function registerDaoExperts(server: McpServer, ctx: ToolContext): void {
       const sg = resolveEndpoint(ctx, "pools", chainId);
       if (typeof sg === "string") return errorResult(sg);
       try {
-        const data = await gqlRequest<{ voterInPools: unknown[] }>(sg.url, EXPERTS_QUERY, {
-          offset,
-          limit,
-          daoAddress: govPool.toLowerCase(),
-        });
-        const experts = data.voterInPools;
+        const { data, degraded } = await withOrphanVoterFallback((withVoter) =>
+          gqlRequest<{ voterInPools: Array<Record<string, unknown>> }>(sg.url, EXPERTS_QUERY, {
+            offset,
+            limit,
+            daoAddress: govPool.toLowerCase(),
+            withVoter,
+          }),
+        );
+        let experts = data.voterInPools;
+        let indexerWarning: string | null = null;
+        if (degraded) {
+          experts = experts.map((e) => ({
+            ...e,
+            voter: { id: toVoterAddress(String(e.id ?? "")) },
+            voterStatsUnavailable: true,
+          }));
+          indexerWarning =
+            `DEGRADED (indexer data fault, NOT transient): this pool holds expert rows whose Voter record ` +
+            `the index does not have, which made the normal query fail outright. The rows below are real; ` +
+            `each wallet is derived from its row id and is correct. Re-running returns the identical error.`;
+        }
+        // NO `total` here: `votersCount` counts voters, and EXPERTS_QUERY filters
+        // to expert-NFT holders — a strict subset. BOXY DAO is 0 experts vs 104
+        // voters, which would print "showing 0 of 104" and page to offset 0
+        // forever.
+        const meta = pageMeta({ offset, limit, returned: experts.length });
+        const rows = experts.map((e) =>
+          withFormatted(
+            e,
+            ["receivedDelegation", "receivedTreasuryDelegation"],
+            GOV_POWER_DECIMALS,
+          ),
+        );
         return untrustedResult({
-          summary: `${experts.length} expert(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})`,
+          summary:
+            (indexerWarning ? `${indexerWarning}\n` : "") +
+            `${experts.length} expert(s) in ${govPool} on chain ${sg.chainId} (offset=${offset}, limit=${limit})` +
+            truncationNote(meta, "dexe_read_dao_experts", "expert"),
           label: `expert rows (chain ${sg.chainId})`,
-          structured: { govPool, offset, limit, indexedChainId: sg.chainId, experts },
+          structured: {
+            govPool,
+            ...meta,
+            powerDecimals: GOV_POWER_DECIMALS,
+            indexedChainId: sg.chainId,
+            indexerWarning,
+            experts: rows,
+          },
         });
       } catch (err) {
         return errorResult(toActionableError(err, "dexe_read_dao_experts").message);

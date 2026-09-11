@@ -6,7 +6,7 @@ import { CalldataDecoder, type DecodedProposalAction, type DecodedCall } from ".
 import { GovAddressResolver } from "../lib/govAddresses.js";
 import { RpcProvider } from "../rpc.js";
 import { ArtifactsMissingError } from "../artifacts.js";
-import { renderUntrusted } from "../lib/sanitize.js";
+import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { toActionableError } from "../lib/errors.js";
 
 /**
@@ -107,9 +107,15 @@ function registerDecodeCalldata(
             : "")
         : `No matching ABI found for selector ${data.slice(0, 10)}. Try dexe_find_selector.`;
 
+      // The spread is mandatory: `untrustedResult` returns only content +
+      // structuredContent, so building the object from it directly would drop
+      // `isError` and turn a no-match into a reported success.
       return {
-        content: [{ type: "text" as const, text }],
-        structuredContent: structured,
+        ...untrustedResult({
+          summary: text,
+          label: "decoded calldata arguments (author-controlled)",
+          structured,
+        }),
         isError: !result.primary,
       };
     },
@@ -227,15 +233,19 @@ function registerDecodeProposal(
         againstActions,
       };
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Proposal ${proposalId} @ ${govPool}\nState: ${PROPOSAL_STATE_NAMES[proposalState] ?? proposalState}\nDescription: ${renderUntrusted(descriptionURL)}\nActions on For: ${forActions.length}\nActions on Against: ${againstActions.length}\n${formatActions(forActions)}${formatActions(againstActions)}`,
-          },
-        ],
-        structuredContent: structured,
-      };
+      // Deliberately NO `body`: a fence caps at 4000 chars, and an attacker
+      // controlling six actions of padded args could push a
+      // "PRIVILEGED SELECTOR" line past the truncation point — strictly worse
+      // than the injection being fixed. The prose is server-authored apart from
+      // fields already escaped above, and `structured` (which carried the raw
+      // descriptionURL and decoded args) is now deep-sanitized and announced.
+      const text =
+        `Proposal ${proposalId} @ ${govPool}\nState: ${PROPOSAL_STATE_NAMES[proposalState] ?? proposalState}\nDescription: ${renderUntrusted(descriptionURL)}\nActions on For: ${forActions.length}\nActions on Against: ${againstActions.length}\n${formatActions(forActions)}${formatActions(againstActions)}`;
+      return untrustedResult({
+        summary: text,
+        label: `descriptionURL and decoded action arguments of proposal ${proposalId} on GovPool ${govPool} (author-controlled)`,
+        structured,
+      });
     },
   );
 }
@@ -264,7 +274,12 @@ function renderDecodedCall(call: DecodedCall, indent: string): string {
   let argsText = "";
   try {
     const j = JSON.stringify(call.args);
-    if (j && j !== "{}") argsText = j.length > 1000 ? j.slice(0, 1000) + "…" : j;
+    // Decoded args are attacker-authored strings (executorDescription, IPFS
+    // URIs, token names). JSON.stringify escapes control chars but does NOT
+    // strip bidi/zero-width and does NOT defang a forged `[/UNTRUSTED …]`.
+    // renderUntrusted sanitizes FIRST and caps after, so the cap is a real cap,
+    // and flags non-ASCII — the signal a reviewer of a transfer arg needs.
+    if (j && j !== "{}") argsText = renderUntrusted(j, 1000);
   } catch {
     /* args not JSON-serializable — skip */
   }
