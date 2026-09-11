@@ -123,8 +123,13 @@ async function warmDexeIpfsCache(cidV0: string): Promise<{ ok: boolean; status?:
   }
 }
 
-/** Lowercased hostname of a gateway URL (scheme optional), or null if unparseable. */
-function gatewayHostname(u: string): string | null {
+/**
+ * Lowercased hostname of a gateway URL (scheme optional), or null if
+ * unparseable. Exported so `src/diag/checks.ts` judges DEXE_IPFS_GATEWAY by
+ * exactly the rule the read path uses — a scheme-less host reads fine, so
+ * doctor must not call it invalid.
+ */
+export function gatewayHostname(u: string): string | null {
   try {
     const withScheme = /^https?:\/\//i.test(u) ? u : `https://${u}`;
     return new URL(withScheme).hostname.toLowerCase();

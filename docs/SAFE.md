@@ -7,11 +7,18 @@ can co-sign and execute through the normal multisig flow.
 
 That's what `dexe_safe_propose_tx` does: it takes the same `TxPayload`
 (`to` / `value` / `data`) that every `dexe_*_build_*` tool emits, turns it into a
-signed Safe transaction, and posts it to the queue.
+Safe transaction, and — when you tell it to — signs it and posts it to the queue.
 
 > **Status:** build + dry-run paths are verified. Live POST validation is
 > deferred until a test Safe is wired up — until then run with the default
 > `dryRun: true` and inspect the emitted payload.
+
+> **A dry run is UNSIGNED (since 0.34.0).** The POST is unauthenticated
+> plumbing anyone can do; the owner **signature** is the privileged,
+> irreversible act — it stays valid for that `(chainId, safe, payload, nonce)`
+> until the nonce is consumed, and anyone holding the body can queue it. So
+> `dryRun: true` returns the payload and the `safeTxHash` and creates no
+> signature. Pass `sign: true` when you intend to POST the body yourself.
 
 ---
 
@@ -20,7 +27,7 @@ signed Safe transaction, and posts it to the queue.
 | Tool | Writes? | Purpose |
 |------|---------|---------|
 | `dexe_safe_info` | no | Read the live Safe (`nonce`, `threshold`, `owners`, version), check whether your signer is an owner, and see which service endpoint this chain resolves to. |
-| `dexe_safe_propose_tx` | POST (opt-in) | Build → sign (`safeTxHash`) → assemble the create-multisig-transaction body. **Dry-run by default**; `dryRun: false` POSTs to the service. |
+| `dexe_safe_propose_tx` | POST (opt-in) | Build → `safeTxHash` → assemble the create-multisig-transaction body. **Dry-run and UNSIGNED by default**; `dryRun: false` signs + POSTs; `sign: true` signs without POSTing. `operation: 1` is refused unless `allowDelegateCall: true`. |
 
 Both mirror the `registerOtcTools(server, ctx, signer, wc)` wiring and accept an
 optional `chainId` (defaults to the MCP's default chain).
@@ -35,6 +42,7 @@ DEXE_RPC_URL_MAINNET=https://bsc-dataseed.bnbchain.org   # to read the Safe nonc
 # Optional / situational:
 DEXE_SAFE_TX_SERVICE_URL=https://api.safe.global/tx-service/bnb/api/v2
 DEXE_SAFE_API_KEY=...                  # Bearer token for api.safe.global (live POST)
+DEXE_SAFE_DELEGATECALL=block           # forbid operation=1 outright, overriding allowDelegateCall
 ```
 
 - With **no override**, `chainId` resolves to
@@ -54,7 +62,7 @@ DEXE_SAFE_API_KEY=...                  # Bearer token for api.safe.global (live 
 2. Hand that payload to `dexe_safe_propose_tx`:
 
 ```jsonc
-// dexe_safe_propose_tx (dry-run — the default)
+// dexe_safe_propose_tx (dry-run, unsigned — the default)
 {
   "safe": "0xcd2E72aEBe2A203b84f46DEEC948E6465dB51c75",
   "to":   "0xTokenContract...",
@@ -75,8 +83,9 @@ Response (truncated):
   "nonce": "7",
   "nonceSource": "onchain",
   "safeTxHash": "0x5d2c40...886a",
-  "signedBy": "0xYourOwnerEOA",
-  "signaturePresent": true,
+  "signedBy": null,
+  "signaturePresent": false,
+  "note": "UNSIGNED preview. Check `safeTxHash` against what your wallet shows, then re-run with dryRun:false to sign + POST, or sign:true to get the signed body without POSTing.",
   "endpoint": {
     "base": "https://api.safe.global/tx-service/bnb/api/v2",
     "hosted": true,
@@ -93,15 +102,21 @@ Response (truncated):
     "nonce": "7",
     "contractTransactionHash": "0x5d2c40...886a",
     "sender": "0xYourOwnerEOA",
-    "signature": "0x...",
+    "signature": null,
     "origin": null
   }
 }
 ```
 
-3. Inspect it. When you're ready (and have `DEXE_SAFE_API_KEY` for
-   `api.safe.global`), re-run with `"dryRun": false` to POST. The other owners
-   then see the pending transaction in the Safe UI and add their confirmations.
+3. Inspect it — check `safeTxHash` against what your wallet shows for the same
+   payload. When you're ready (and have `DEXE_SAFE_API_KEY` for
+   `api.safe.global`), re-run with `"dryRun": false` to sign + POST. The other
+   owners then see the pending transaction in the Safe UI and add their
+   confirmations.
+
+   If you POST from your own tooling instead, re-run with `"sign": true`: you
+   get the same body with a real `signature`. Treat that body as a credential —
+   it is queue-ready for anyone who holds it.
 
 ---
 
@@ -127,9 +142,25 @@ isn't a Safe owner, the service returns `422`.
 - **Nonce collisions.** Omitting `nonce` reads the Safe's *current* nonce. If
   you're queuing several txs at once, pass explicit increasing `nonce` values —
   otherwise they all share the same nonce and only one can execute.
-- **`operation: 1` (DELEGATECALL)** runs the target's code in the Safe's
-  context. Only use it for trusted libraries (e.g. MultiSend). Default is `0`
-  (CALL).
+- **`operation: 1` (DELEGATECALL) is refused unless `allowDelegateCall: true`.**
+  It executes the target's code inside the Safe's **own storage**, where slot 0
+  is the singleton pointer and the owners list + threshold live — a wrong or
+  hostile target takes the Safe permanently. Neither the destination allowlist
+  (B6) nor the GovUserKeeper denylist (B12) can inspect a delegatecall's
+  effects, which is why it needs its own key. Use it only for a vetted
+  MultiSend or module call, and verify the target yourself. Operators can
+  forbid it outright with `DEXE_SAFE_DELEGATECALL=block`, which overrides the
+  per-call flag. Default is `0` (CALL).
+  This is not the *only* way to rewrite the owner set — a plain CALL to the Safe
+  itself carrying `swapOwner`/`changeThreshold` calldata does it too (that is the
+  normal owner-management path). DELEGATECALL is the broader privilege, not a
+  unique one, so read every payload you queue.
+- **A dry run is unsigned by design.** `sign: true` produces a real owner
+  signature; treat the returned body as a credential, not as a preview.
+- **Gas refunds are not bounded by the value cap.** With `gasPrice > 0` and a
+  non-zero `gasToken` / `refundReceiver`, the Safe pays an ERC-20 amount out on
+  execution. `DEXE_SIGNER_MAX_VALUE_WEI` (B7) only inspects native `value`, so
+  the tool surfaces a `warnings[]` entry instead.
 - **Safe < 1.3.0** used a chain-less domain; `dexe_safe_*` targets modern
   (1.3.0 / 1.4.1) singletons.
 - **`api.safe.global` requires an API key.** Without `DEXE_SAFE_API_KEY` a live

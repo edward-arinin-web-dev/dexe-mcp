@@ -14,6 +14,12 @@ interface Tally {
   warnings: number;
   failures: number;
   status: CheckStatus;
+  /**
+   * Nothing failed, but warnings exist — the normal zero-config state (no
+   * .env, public RPC fallback, shared Graph/WC/backend defaults). ADD-ONLY:
+   * `status` keeps its legacy mapping because docs and skill branches read it.
+   */
+  advisoryOnly: boolean;
 }
 
 function tally(results: CheckResult[]): Tally {
@@ -26,7 +32,7 @@ function tally(results: CheckResult[]): Tally {
     else failures++;
   }
   const status: CheckStatus = failures > 0 ? "fail" : warnings > 0 ? "warn" : "pass";
-  return { passed, warnings, failures, status };
+  return { passed, warnings, failures, status, advisoryOnly: failures === 0 && warnings > 0 };
 }
 
 /**
@@ -34,22 +40,31 @@ function tally(results: CheckResult[]): Tally {
  * Walks ENV_SPEC, runs network reachability for everything configured, and
  * returns a structured report with paste-ready remediation hints.
  *
- * Read-only. Never broadcasts. Safe to call at session start.
+ * Read-only by default. Never broadcasts. Safe to call at session start. The
+ * one exception is the opt-in `probePin` input, which writes a tiny IPFS pin
+ * and says so in its own result row.
  */
 export function registerDoctorTool(server: McpServer, config: DexeConfig): void {
   server.tool(
     "dexe_doctor",
     "Diagnose env-var setup. Runs presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) and returns a pass/warn/fail report with remediation hints. " +
       "Call FIRST when the user reports an env-related failure — it pinpoints the missing or invalid value. " +
-      "Read-only: never broadcasts, never writes. ",
+      "Warnings are advisories, not errors: a healthy zero-config install always has some. " +
+      "Read-only by default: never broadcasts and performs no writes. The optional probePin flag is the one exception — it writes one tiny IPFS pin to your Pinata account to prove pinning is not plan-blocked, and says so in its result. ",
     {
       _placeholder: z
         .boolean()
         .optional()
         .describe("Unused; tool takes no input."),
+      probePin: z
+        .boolean()
+        .optional()
+        .describe(
+          "Write one tiny probe pin to Pinata (and remove it again) to prove pin capability is not plan-blocked. Default false: doctor otherwise performs no writes of any kind. Only set true when an IPFS upload is failing with HTTP 403.",
+        ),
     },
-    async () => {
-      const checks = await runAllChecks({ config });
+    async (args) => {
+      const checks = await runAllChecks({ config, probePin: args?.probePin === true });
       const summary = tally(checks);
       const remediationSummary = checks
         .filter(c => c.status !== "pass" && c.remediation)
@@ -122,7 +137,9 @@ function renderText(r: {
 }): string {
   const lines: string[] = [];
   lines.push(
-    `dexe-mcp doctor — ${r.summary.status.toUpperCase()}: ${r.summary.passed} pass / ${r.summary.warnings} warn / ${r.summary.failures} fail`,
+    r.summary.advisoryOnly
+      ? `dexe-mcp doctor — OK, no failures: ${r.summary.passed} pass / ${r.summary.warnings} advisory warning(s) / 0 fail. Advisories are optional upgrades, not errors.`
+      : `dexe-mcp doctor — ${r.summary.status.toUpperCase()}: ${r.summary.passed} pass / ${r.summary.warnings} warn / ${r.summary.failures} fail`,
   );
   lines.push(
     `server started ${r.startupTime} (uptime ${r.uptimeSec}s). ` +

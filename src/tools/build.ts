@@ -84,24 +84,50 @@ function summarizeCompile(
   return `${header}\nFull log: ${s.logFile}\n\n--- tail ---\n${r.stdoutTail || "(empty)"}`;
 }
 
-const SOLC_DIAG = /^(Error|Warning)(?:\s*\(([^)]+)\))?:\s*(.*?)(?:\n\s*-->\s*([^\s:]+):(\d+):\d+)?/gm;
+/**
+ * `Error:` / `Warning:` / `Warning (2072):` header line.
+ *
+ * Greedy to end-of-line on purpose. The previous single-regex form put a LAZY
+ * `(.*?)` in front of an OPTIONAL locator group, and a regex engine satisfies
+ * that pair with the minimal expansion: message = "", locator skipped. Every
+ * diagnostic came back as a severity-only stub. `(.*)` (not `(.+)`) keeps a
+ * bare `Error:` line counted, so errorCount does not silently drop.
+ */
+const SOLC_DIAG_HEADER = /^(Error|Warning)(?:[ \t]*\(([^)]+)\))?:[ \t]*(.*)$/gm;
 
-export function parseSolcDiagnostics(text: string): Array<{
+/** The `--> path/File.sol:LINE:COL` locator solc prints under the header. */
+const SOLC_LOCATOR = /^[ \t]*-->[ \t]*(\S+?):(\d+):(\d+)/m;
+
+/**
+ * Where this diagnostic's block ends: a blank line, or the next header.
+ * `\r` is matched explicitly — child stdout is CRLF on Windows (the primary dev
+ * platform), and a `\n[ \t]*\n` separator never matches there, which would make
+ * a locator-less diagnostic borrow the NEXT diagnostic's file and line. A
+ * confidently wrong file:line is worse than none.
+ */
+const SOLC_BLOCK_END = /\r?\n[ \t]*\r?\n|\r?\n(?=(?:Error|Warning)(?:[ \t]*\([^)]+\))?:)/;
+
+export function parseSolcDiagnostics(raw: string): Array<{
   severity: "error" | "warning";
   code?: string;
   message: string;
   file?: string;
   line?: number;
 }> {
+  // Colorized hardhat output otherwise fails to anchor at all and yields zero
+  // diagnostics — parseMocha already strips, this did not.
+  const text = stripAnsi(raw);
   const out: ReturnType<typeof parseSolcDiagnostics> = [];
-  for (const m of text.matchAll(SOLC_DIAG)) {
-    const severity = m[1] === "Error" ? "error" : "warning";
+  for (const m of text.matchAll(SOLC_DIAG_HEADER)) {
+    const rest = text.slice((m.index ?? 0) + m[0].length);
+    const block = rest.split(SOLC_BLOCK_END, 1)[0] ?? "";
+    const loc = SOLC_LOCATOR.exec(block);
     out.push({
-      severity,
+      severity: m[1] === "Error" ? "error" : "warning",
       code: m[2],
       message: (m[3] ?? "").trim(),
-      file: m[4],
-      line: m[5] ? Number(m[5]) : undefined,
+      file: loc?.[1],
+      line: loc ? Number(loc[2]) : undefined,
     });
   }
   return out;
