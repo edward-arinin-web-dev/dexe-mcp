@@ -6,6 +6,18 @@ import { safeErrorMessage } from "./redact.js";
 import { attachBroadcastRecorder, registerLedgerSecrets } from "./agentLedger.js";
 
 /**
+ * Thrown by {@link SignerManager} when no signing key is configured for the
+ * requested slot. A marker class so callers branch on the CAUSE rather than on
+ * a substring of the message — the message is remediation prose and will change.
+ */
+export class NoSignerKeyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NoSignerKeyError";
+  }
+}
+
+/**
  * Signer registry. The primary key (`DEXE_PRIVATE_KEY`) is the default; the
  * opt-in agent keyring (`DEXE_AGENT_PK_1..16` → signerKey "agent1"…"agent16")
  * backs multi-persona/swarm flows. Keys are chain-agnostic; only the provider
@@ -172,7 +184,14 @@ export class SignerManager {
     } catch (err) {
       return {
         error: safeErrorMessage(err),
-        remediation: hintFor(["DEXE_PRIVATE_KEY"]),
+        // The no-key message already carries the full hintFor() remedy, so
+        // repeating it here printed the same three sentences twice wherever a
+        // caller joins `error` + `remediation` (sendOrCollect does). Every
+        // OTHER cause (unknown signerKey, provider construction) still needs it.
+        remediation:
+          err instanceof NoSignerKeyError
+            ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it."
+            : hintFor(["DEXE_PRIVATE_KEY"]),
       };
     }
   }
@@ -216,10 +235,30 @@ export class SignerManager {
     return run;
   }
 
+  /**
+   * The one message a zero-config user sees when they ask for anything that
+   * needs a key — a broadcast, an EIP-191 auth signature, a Safe typed-data
+   * signature, or just "who am I".
+   *
+   * It must name `.env` and NOTHING else. The MCP host's own `env` block (in
+   * Claude Code, `.claude.json`) SHADOWS `.env` silently, because
+   * `process.loadEnvFile()` never overrides a key that is already set — the
+   * invariant src/index.ts is built around and the startup banner exists to
+   * explain. The old text said "configure it in MCP server env", i.e. it walked
+   * the user straight into that trap, and contradicted the `hintFor` remedy
+   * `trySigner` prints two lines below it.
+   *
+   * It also must not enumerate `process.env`: the shape of the environment is
+   * not the user's next step (~20 names on a real machine, including every
+   * DEXE_AGENT_PK_* slot), and `dexe_doctor` reports it properly.
+   */
   private failNoKey(): never {
-    const dexeEnvKeys = Object.keys(process.env).filter(k => k.startsWith("DEXE_")).join(", ");
-    throw new Error(
-      `DEXE_PRIVATE_KEY not set. Available DEXE_* env vars: [${dexeEnvKeys}]. Configure it in MCP server env to enable transaction signing.`,
+    throw new NoSignerKeyError(
+      "No signing key is configured, so this call cannot sign. Reads work without one.\n" +
+        hintFor(["DEXE_PRIVATE_KEY"]) +
+        "\nPrefer WalletConnect (keys stay on your phone): set DEXE_WALLETCONNECT_PROJECT_ID in .env, then run " +
+        "dexe_wc_connect. Run dexe_doctor to see which values this server loaded and from where, or /dexe-setup " +
+        "for a guided walkthrough.",
     );
   }
 

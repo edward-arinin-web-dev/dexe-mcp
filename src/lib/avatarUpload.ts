@@ -10,6 +10,7 @@
  */
 
 import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { assertRasterAvatar, type RasterFormat } from "./imageSniff.js";
 import { toCidV1, type PinataClient } from "./ipfs.js";
 import { safeErrorMessage } from "./redact.js";
@@ -49,16 +50,32 @@ export async function readAvatarInput({ filePath, base64 }: AvatarInput): Promis
     throw new Error("Pass either `filePath` or `base64`, not both.");
   }
   if (filePath) {
+    // Resolve explicitly. A relative path resolves against `process.cwd()`,
+    // which for an MCP server is the HOST's working directory (Claude Code's
+    // plugin loader starts it wherever it likes — see src/index.ts's
+    // cwd-independence rule for .env) and is invisible to the user. On POSIX
+    // the ENOENT text then echoes only what they typed, so "Cannot read avatar
+    // file at \"avatar.png\"" is unactionable: they check the directory they
+    // meant, the file is right there, and nothing says the server looked
+    // somewhere else. Neither tool schema requires absoluteness, so a relative
+    // path is an invited input, not a user error — it keeps working when it
+    // happens to resolve; only the FAILURE gets the diagnosis.
+    const resolved = resolve(filePath);
     let buf: Buffer;
     try {
-      buf = await readFile(filePath);
+      buf = await readFile(resolved);
     } catch (e) {
+      const relativeNote = isAbsolute(filePath)
+        ? ""
+        : ` The path you passed was RELATIVE, so it resolved against this server's working directory ` +
+          `(${process.cwd()}) — the MCP host's directory, not your project's.`;
       throw new Error(
-        `Cannot read avatar file at "${filePath}": ${safeErrorMessage(e)}. ` +
-          "Pass an absolute path to an existing image file (JPEG/PNG/WebP/GIF).",
+        `Cannot read avatar file at "${resolved}": ${safeErrorMessage(e)}.${relativeNote} ` +
+          "Pass an absolute path to an existing image file (JPEG/PNG/WebP/GIF), " +
+          "or omit the avatar and generate one with dexe_dao_generate_avatar.",
       );
     }
-    if (buf.length === 0) throw new Error(`Avatar file at "${filePath}" is empty.`);
+    if (buf.length === 0) throw new Error(`Avatar file at "${resolved}" is empty.`);
     if (buf.length > MAX_AVATAR_BYTES) {
       throw new Error(
         `Avatar file is ${(buf.length / 1024 / 1024).toFixed(1)} MB — max ${MAX_AVATAR_BYTES / 1024 / 1024} MB. ` +

@@ -395,7 +395,8 @@ async function pinataFetch(
     if (controller.signal.aborted) {
       throw new Error(
         `Pinata ${what} timed out after ${timeoutMs}ms — IPFS upload timed out, no metadata was pinned. ` +
-          `Re-run the same call: the steps that already landed are skipped, so nothing is paid for twice. ` +
+          `Re-run the same call: ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote that ` +
+          `already landed are re-derived from chain state and skipped, so nothing is paid for twice. ` +
           `If it keeps timing out, check status.pinata.cloud or set a different pinning service.`,
       );
     }

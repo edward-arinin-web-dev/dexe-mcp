@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { TxPayload } from "../../src/lib/calldata.js";
-import { sendOrCollect } from "../../src/tools/flow.js";
+import {
+  sendOrCollect,
+  DEPLOY_RESUME_RECHECKS,
+  RESUME_RECHECKS,
+} from "../../src/tools/flow.js";
 
 /**
  * R2/R3/R7 — composite broadcast failure paths, no network. A fake signer
@@ -141,5 +145,64 @@ describe("sendOrCollect postStep hook (bug #35 unbundle race)", () => {
     });
     expect(res.mode).toBe("failed");
     expect(calls).toEqual([]);
+  });
+});
+
+describe("the resume text describes THIS flow, not the proposal composites", () => {
+  /**
+   * D12-5. `RESUME_RECHECKS` enumerates approve / deposit / createProposalAndVote
+   * / vote and warns that execute and the validator round are not auto-skipped.
+   * `sendOrCollect` appended it to EVERY composite failure, so a user whose DAO
+   * deploy failed was told four things about steps that do not exist in the call
+   * they made — and nothing about the one that does.
+   */
+
+  it("a single-payload flow can override it, and the override wins everywhere", async () => {
+    const { signer } = fakeSigner({ results: [{ throwMsg: "insufficient funds for gas" }] });
+    const res = await sendOrCollect(signer, [payload(1)], {
+      chainId: 97,
+      resumeRechecks: DEPLOY_RESUME_RECHECKS,
+    });
+    expect(res.mode).toBe("failed");
+    const resume = res.failure!.resume;
+    expect(resume).not.toMatch(/createProposalAndVote|ERC20\.approve|GovPool\.vote|validator round/);
+    expect(resume).toContain("SINGLE transaction");
+  });
+
+  it("the deploy text answers the only question a failed deploy raises", async () => {
+    // "Is it safe to re-run?" — yes, and the reason is the CREATE2 name guard,
+    // not a step ledger. Keep the SAME daoName or you deploy a second DAO.
+    expect(DEPLOY_RESUME_RECHECKS).toContain("PoolFactory: pool name is already taken");
+    expect(DEPLOY_RESUME_RECHECKS).toContain("dexe_dao_info");
+    expect(DEPLOY_RESUME_RECHECKS).toMatch(/SAME daoName/);
+  });
+
+  it("a TIMEOUT keeps the do-not-re-run rule AND the flow's own rechecks", async () => {
+    const { signer } = fakeSigner({
+      results: [
+        {
+          throwMsg:
+            "Transaction 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa was broadcast but not mined within 180s",
+        },
+      ],
+    });
+    const res = await sendOrCollect(signer, [payload(1)], {
+      chainId: 97,
+      resumeRechecks: DEPLOY_RESUME_RECHECKS,
+    });
+    const resume = res.failure!.resume;
+    expect(resume).toContain("DO NOT re-run this call yet");
+    expect(resume).toContain("dexe_tx_status");
+    expect(resume).toContain("SINGLE transaction");
+    expect(resume).not.toContain("createProposalAndVote");
+  });
+
+  it("a flow that does NOT override still gets the proposal-leg enumeration", async () => {
+    const { signer } = fakeSigner({ results: [{ throwMsg: "insufficient funds for gas" }] });
+    const res = await sendOrCollect(signer, [payload(1)], { chainId: 97 });
+    expect(res.failure!.resume).toContain("createProposalAndVote");
+    expect(res.failure!.resume).toBe(
+      `No steps landed on-chain. Fix the cause above and re-run this same call. ${RESUME_RECHECKS}`,
+    );
   });
 });

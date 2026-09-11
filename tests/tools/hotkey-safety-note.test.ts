@@ -73,10 +73,15 @@ describe("sendOrCollect attaches the note to every hot-key broadcast", () => {
     expect(res.signer?.safety).toBe(HOT_KEY_SAFETY);
   });
 
-  it("dryRun signs nothing, so it carries no signer at all", async () => {
+  // 0.34.0 changed this deliberately: a dryRun now NAMES the wallet that would
+  // pay, because a preview that cannot answer "with whose money?" is missing
+  // the first question a human asks. `safety` — not presence — is what marks a
+  // real hot-key signature, and that is what this asserts.
+  it("dryRun names the payer but never claims a signature", async () => {
     const res = await sendOrCollect(fakeSigner(), [PAYLOAD], { dryRun: true, chainId: 97 });
     expect(res.mode).toBe("dryRun");
-    expect(res.signer).toBeUndefined();
+    expect(res.signer?.address).toBeTruthy();
+    expect(res.signer?.safety).toBeUndefined();
   });
 
   it("a failure BEFORE anything landed does not claim a hot-key signature", async () => {

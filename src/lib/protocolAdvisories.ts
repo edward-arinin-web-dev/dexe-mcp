@@ -384,6 +384,47 @@ export const POST_EXECUTE_LOCK_ADVISORY: UpstreamAdvisory = {
 };
 
 /**
+ * Forward-looking form of the same trap, for the moment the lock is CREATED
+ * rather than observed.
+ *
+ * `POST_EXECUTE_LOCK_ADVISORY` ends in `checkTokensUnlocked`'s FAILURE
+ * remediation — a live observation ("available power = 0 while deposited > 0"),
+ * which is false for a user who is only now creating the lock. It must stay
+ * byte-identical (the execute path pins it), so the create path gets its own
+ * text under the SAME id: one advisory per trap, whichever surface raises it.
+ *
+ * What it must NOT say, and what the 0.33.0 wording got wrong: the lock does
+ * NOT stop you creating or voting on other proposals. `GovUserKeeper.lockTokens`
+ * only records `lockedInProposals[id]` and tracks a max; `GovPoolVote._canVote`
+ * checks `amount <= tokenBalance - ownedBalance`, which locking never reduces.
+ * What it blocks is `withdrawTokens` ("GovUK: can't withdraw this") and
+ * `delegateTokens` ("GovUK: overdelegation") until the proposal leaves voting —
+ * so "withdraw now" would be a guaranteed revert, not a remedy.
+ */
+export function voteLockAtCreateAdvisory(a: {
+  /** Already human-formatted, e.g. "153000.0 QWT". */
+  amount: string;
+  /** True only when this call actually broadcast — tense matters. */
+  broadcast: boolean;
+  govPool: string;
+  chainId: number;
+  proposalId?: number;
+}): UpstreamAdvisory {
+  const where = a.proposalId ? `proposal #${a.proposalId}` : "the proposal this call creates";
+  return {
+    id: POST_EXECUTE_LOCK_ADVISORY.id,
+    severity: "WARN",
+    upstream: POST_EXECUTE_LOCK_ADVISORY.upstream,
+    text:
+      `⚠ WARN — deposit lock: ${a.amount} ${a.broadcast ? "are now locked" : "will be locked"} as your FOR vote on ` +
+      `${where}. You can still create and vote on OTHER proposals with these tokens, but you cannot WITHDRAW or ` +
+      `DELEGATE them until this one leaves voting — sooner reverts "GovUK: can't withdraw this". Then: ` +
+      `dexe_vote_build_withdraw {"govPool":"${a.govPool}","chainId":${a.chainId}}.` +
+      (a.broadcast ? "" : " NOTHING has been broadcast yet."),
+  };
+}
+
+/**
  * Live form of the same guard: pass the voter's deposited and currently
  * available power and get the DANGER advisory back when the lock is present.
  * Null when there is nothing to warn about.

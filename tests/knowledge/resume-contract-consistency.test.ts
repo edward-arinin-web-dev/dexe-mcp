@@ -3,6 +3,29 @@ import { AGENT_PROTOCOL, GOTCHA_BY_ID } from "../../src/knowledge/index.js";
 import { serverInstructions } from "../../src/instructions.js";
 import { RESUME_SUMMARY } from "../../src/lib/resumeContract.js";
 import { RESUME_RECHECKS } from "../../src/tools/flow.js";
+import { KNOWN_FAILURES } from "../../src/lib/errors.js";
+import { PinataClient } from "../../src/lib/ipfs.js";
+
+/** The abort message, captured from the real deadline path rather than restated. */
+const PINATA_TIMEOUT_MESSAGE = await (async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = ((_u: unknown, init?: { signal?: AbortSignal }) =>
+    new Promise((_res, rej) => {
+      init?.signal?.addEventListener("abort", () => {
+        const e = new Error("aborted");
+        e.name = "AbortError";
+        rej(e);
+      });
+    })) as typeof globalThis.fetch;
+  try {
+    await new PinataClient("jwt-x", { pinJsonMs: 5 }).pinJson({ a: 1 });
+    return "";
+  } catch (e) {
+    return (e as Error).message;
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+})();
 
 /**
  * D15-7 — the AMBIENT resume promise contradicted the shipped behaviour.
@@ -31,6 +54,17 @@ const SURFACES: Array<[string, string]> = [
   ["dexe_guide's AGENT_PROTOCOL", AGENT_PROTOCOL],
   ["RESUME_SUMMARY", RESUME_SUMMARY],
   ["the deposit-sequence gotcha", GOTCHA_BY_ID.get("deposit-sequence")!.text],
+];
+
+/**
+ * The same promise reaches the agent from two more places that are NOT
+ * standing instructions — the error→remedy table (rendered into
+ * docs/PLAYBOOK.md by gen:knowledge) and the Pinata deadline message. Both are
+ * read at the exact moment the agent decides whether to re-run.
+ */
+const REMEDY_SURFACES: Array<[string, string]> = [
+  ...KNOWN_FAILURES.map((k) => [`the ${k.slug} remedy`, k.remedy] as [string, string]),
+  ["the Pinata deadline message", PINATA_TIMEOUT_MESSAGE],
 ];
 
 describe("no standing instruction promises a blanket resume skip", () => {
@@ -71,5 +105,23 @@ describe("the one-line summary and the enumerated contract agree", () => {
     for (const leg of ["ERC20.approve", "GovPool.deposit", "createProposalAndVote", "GovPool.vote"]) {
       expect(RESUME_SUMMARY, `RESUME_SUMMARY omits ${leg}`).toContain(leg);
     }
+  });
+});
+
+describe("no error remedy promises a blanket resume skip either", () => {
+  for (const [label, text] of REMEDY_SURFACES) {
+    it(label, () => {
+      for (const re of BLANKET) {
+        expect(
+          re.test(text),
+          `${label} promises an unqualified skip (${re}) — enumerate the legs instead`,
+        ).toBe(false);
+      }
+    });
+  }
+
+  it("the Pinata deadline message was actually captured", () => {
+    // Guards the harness itself: an empty string would pass every ban above.
+    expect(PINATA_TIMEOUT_MESSAGE).toContain("no metadata was pinned");
   });
 });

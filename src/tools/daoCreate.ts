@@ -10,7 +10,14 @@ import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
 import { pinataForWrites } from "../lib/requireEnv.js";
-import { attachPairingQr, sendOrCollect, flowFailureResult } from "./flow.js";
+import {
+  attachPairingQr,
+  sendOrCollect,
+  flowFailureResult,
+  previewBlock,
+  DEPLOY_RESUME_RECHECKS,
+} from "./flow.js";
+import { humanDuration } from "../lib/time.js";
 import { buildDeployGovPool, DeployParamsSchema, type DeployParams } from "./daoDeploy.js";
 import type { StateStore } from "../lib/stateStore.js";
 import {
@@ -498,6 +505,126 @@ export function computeSafetyProof(p: DaoCreateParams): {
   };
 }
 
+/**
+ * The sentence a DAO deploy needs and never had.
+ *
+ * The existing "a DAO cannot fix its own quorum, since fixing it requires
+ * passing a proposal under that quorum" lived ONLY on the blocked-risky branch
+ * — i.e. only for configs the tool already disliked. The coherent-config
+ * preview, which is what most users see, and the one-call confirm:true path,
+ * which is where most agents land, said nothing about permanence at all.
+ */
+const DEPLOY_PERMANENCE =
+  "PERMANENT: quorum, voting duration, execution delay, min-votes and the token supply cannot be changed after " +
+  "deploy except by passing a proposal under these same rules — and the treasury share can never vote. Read this " +
+  "config to the user before confirming.";
+
+/**
+ * What the tool CHOSE for the caller, read off the resolved params rather than
+ * off the inputs — in ADVANCED mode the inputs are not where these live, and in
+ * SIMPLE mode several of them (the min-votes clamp, the validator duration
+ * fallback, the fixed cap) are synthesized and were invisible in every response.
+ */
+function deployDefaults(params: DaoCreateParams, synthesized: boolean): Record<string, unknown> {
+  const p = params.settingsParams.proposalSettings[0]!;
+  const t = params.tokenParams;
+  const zero = (v: string) => BigInt(v || "0") === 0n;
+  return {
+    minVotesToVoteOrCreate: `${formatUnits(p.minVotesForVoting || "0", 18)} ${t.symbol || "tokens"}`,
+    earlyCompletion: p.earlyCompletion
+      ? "voting ends as soon as quorum is reached"
+      : "voting always runs the full duration",
+    // Contract-inverted: delegatedVotingAllowed:true DISABLES delegation.
+    delegationAllowed: !p.delegatedVotingAllowed,
+    validatorsVote: p.validatorsVote,
+    votingDuration: humanDuration(Number(p.duration)),
+    validatorDuration: humanDuration(Number(p.durationValidators)),
+    executionDelay:
+      Number(p.executionDelay) === 0
+        ? "none — executable as soon as it passes"
+        : humanDuration(Number(p.executionDelay)),
+    supply:
+      BigInt(t.cap || "0") === BigInt(t.mintedTotal || "0")
+        ? "fixed — cap equals the minted total, no further minting is possible"
+        : `capped at ${formatUnits(t.cap || "0", 18)} ${t.symbol}; ${formatUnits(t.mintedTotal || "0", 18)} minted now`,
+    rewards:
+      zero(p.rewardsInfo.creationReward) &&
+      zero(p.rewardsInfo.executionReward) &&
+      zero(p.rewardsInfo.voteRewardsCoefficient)
+        ? "none — no creation/execution/vote rewards are configured"
+        : "configured — see rewardsInfo",
+    source: synthesized ? "chosen by the tool (SIMPLE mode)" : "supplied by the caller (ADVANCED params)",
+  };
+}
+
+/**
+ * `settingsSlotsChecked: 1` read as "1 of the 5 slots was checked" — the
+ * opposite of what the tool description promises. One slot SUPPLIED is expanded
+ * by deployGovPool into all five, and all five are what the guard judges.
+ */
+function settingsSlotsBlock(supplied: number): Record<string, unknown> {
+  return {
+    supplied,
+    expandedOnChain: 5,
+    note:
+      supplied === 5
+        ? "all 5 supplied slots were checked (default / internal / validators / distribution / tokenSale)."
+        : `${supplied} slot supplied; deployGovPool expands it into all 5 (default / internal / validators / ` +
+          `distribution / tokenSale) — all 5 were checked.`,
+  };
+}
+
+/** Hard ceiling on the optional cost probe, so a preview can never hang on RPC. */
+const COST_PROBE_TIMEOUT_MS = 1500;
+
+/**
+ * Typical `deployGovPool` gas. Used only to turn a live gas price into an
+ * order-of-magnitude cost; the deploy itself is unaffected by it being off.
+ */
+const TYPICAL_DEPLOY_GAS = 5_500_000n;
+
+/**
+ * Best-effort "what will this cost, and can that wallet afford it?".
+ *
+ * Wrapped in a race with a short timer and swallows everything: a preview must
+ * never fail — or stall — because an RPC endpoint is unreachable. The project
+ * rule is that no build blocks on RPC availability; this degrades to a note.
+ */
+async function probeDeployCost(
+  rpc: RpcProvider,
+  chainId: number,
+  payer: string,
+): Promise<Record<string, string> | undefined> {
+  const work = (async () => {
+    const pr = rpc.tryProvider(chainId);
+    if ("error" in pr) return undefined;
+    const [bal, fee] = await Promise.all([pr.ok.getBalance(payer), pr.ok.getFeeData()]);
+    const gasPrice = fee.gasPrice ?? fee.maxFeePerGas ?? 0n;
+    if (gasPrice === 0n) return undefined;
+    const cost = TYPICAL_DEPLOY_GAS * gasPrice;
+    return {
+      payer,
+      balance: `${formatUnits(bal, 18)} native`,
+      gasPrice: `${formatUnits(gasPrice, 9)} gwei`,
+      estimatedCost: `~${formatUnits(cost, 18)} native (${TYPICAL_DEPLOY_GAS} gas x ${formatUnits(gasPrice, 9)} gwei, typical deployGovPool)`,
+      ...(bal < cost
+        ? {
+            warning:
+              "the paying wallet does not hold enough native token for this deploy — top it up before confirming",
+          }
+        : {}),
+    };
+  })();
+  try {
+    return await Promise.race([
+      work,
+      new Promise<undefined>((r) => setTimeout(() => r(undefined), COST_PROBE_TIMEOUT_MS)),
+    ]);
+  } catch {
+    return undefined;
+  }
+}
+
 export function registerDaoCreateTools(
   server: McpServer,
   ctx: ToolContext,
@@ -806,6 +933,14 @@ export function registerDaoCreateTools(
       const needsConfirm = willBroadcast && !input.confirm && (synthesized || isMainnet);
       if (needsConfirm) {
         const t = deployParams.tokenParams;
+        let signerId: { signerKey: string; address: string } | undefined;
+        try {
+          if (signer.hasSigner(input.signerKey)) signerId = signer.describeSigner?.(input.signerKey);
+        } catch {
+          /* naming the payer must never fail a preview */
+        }
+        const payer = signerId?.address ?? deployer;
+        const cost = await probeDeployCost(rpc, chainId, payer);
         const supplyTokens = formatUnits(t.mintedTotal || "0", 18);
         const treasuryWei = BigInt(t.mintedTotal || "0") - t.amounts.reduce((a, b) => a + BigInt(b || "0"), 0n);
         const warnings: string[] =
@@ -826,6 +961,12 @@ export function registerDaoCreateTools(
                 address: u,
                 tokens: formatUnits(t.amounts[i] ?? "0", 18),
                 percent: proof.supply !== "0" ? Number((BigInt(t.amounts[i] ?? "0") * 10000n) / BigInt(proof.supply)) / 100 : 0,
+                role:
+                  u.toLowerCase() === payer.toLowerCase()
+                    ? "this signer (pays the gas)"
+                    : u.toLowerCase() === deployer.toLowerCase()
+                      ? "deployer"
+                      : "recipient",
               })),
               treasury: {
                 tokens: formatUnits(treasuryWei.toString(), 18),
@@ -847,12 +988,35 @@ export function registerDaoCreateTools(
             turnoutMarginOk: proof.marginOk,
             maxQuorumPercentWithMargin: proof.maxQuorumPct,
             settingsSlotsChecked: slotVerdict.slots.length,
+            settingsSlots: settingsSlotsBlock(slotVerdict.slots.length),
           },
+          deployer,
+          ...(signerId ? { signer: signerId } : {}),
+          gasPaidBy: payer,
+          ...(cost ? { cost } : {
+            costNote:
+              "gas price unavailable (RPC unreachable or slow) — cost not estimated; the deploy itself is unaffected",
+          }),
+          ...previewBlock({
+            chainId,
+            act:
+              `Deploys the DAO "${input.daoName}" on chain ${chainId}: a new GovPool with its own ERC20 ` +
+              `(${t.symbol}, ${supplyTokens} minted), UserKeeper, Settings and Validators contracts, ` +
+              `quorum ${proof.quorumPct}% of the ${proof.votablePct}% votable supply.`,
+            ...(signerId ? { who: signerId } : {}),
+            txCount: 1,
+            irreversible: DEPLOY_PERMANENCE,
+            broadcast: false,
+          }),
+          defaults: deployDefaults(deployParams, synthesized),
+          permanence: DEPLOY_PERMANENCE,
           ...(split.adjustments.length ? { adjustments: split.adjustments } : {}),
           ...(warnings.length ? { warnings } : {}),
           next:
-            `Config looks coherent. Re-call dexe_dao_create with the SAME arguments plus confirm:true to broadcast` +
+            `${DEPLOY_PERMANENCE} Config looks coherent. Re-call dexe_dao_create with the SAME arguments plus ` +
+            `confirm:true to broadcast` +
             (isMainnet ? " on MAINNET (spends real BNB). To validate first, set chainId:97 (testnet)." : "."),
+          ...flowChainFields(input.flowContext, state, { chainId }, { landed: false }),
         });
       }
 
@@ -995,6 +1159,10 @@ export function registerDaoCreateTools(
           // Attribution: a fleet that deploys DAOs under different personas must
           // be answerable for which persona deployed which pool.
           tool: "dexe_dao_create",
+          // A deploy has no approve/deposit/create/vote legs, so the shared
+          // proposal-flow resume text was four facts about steps that do not
+          // exist in this call.
+          resumeRechecks: DEPLOY_RESUME_RECHECKS,
         });
       } catch (e) {
         // The deploy broadcast is a write: no gas / nonce clash / RPC stall all
@@ -1091,17 +1259,33 @@ export function registerDaoCreateTools(
           votablePercent: proof.votablePct,
           requiredTurnoutPercent: proof.requiredTurnoutPct,
           settingsSlotsChecked: slotVerdict.slots.length,
+          settingsSlots: settingsSlotsBlock(slotVerdict.slots.length),
         },
+        // The one-call path (confirm:true, no preview round-trip) is where most
+        // agents land, and it never saw any of this.
+        ...previewBlock({
+          chainId,
+          act:
+            `Deploys the DAO "${input.daoName}" on chain ${chainId}: a new GovPool with its own ERC20 ` +
+            `(${deployParams.tokenParams.symbol}), UserKeeper, Settings and Validators contracts, ` +
+            `quorum ${proof.quorumPct}% of the ${proof.votablePct}% votable supply.`,
+          ...(result.signer ? { who: result.signer } : {}),
+          txCount: 1,
+          irreversible: DEPLOY_PERMANENCE,
+          broadcast: result.mode === "executed",
+        }),
+        defaults: deployDefaults(deployParams, synthesized),
+        permanence: DEPLOY_PERMANENCE,
         steps: result.steps,
         ...(result.signer ? { signer: result.signer } : {}),
         ...(readiness ? { readiness } : {}),
         ...(nextSteps ? { nextSteps } : {}),
-        ...(result.mode === "executed"
-          ? flowChainFields(input.flowContext, state, {
-              chainId,
-              ...(res.predictedGovPool ? { govPool: res.predictedGovPool } : {}),
-            })
-          : {}),
+        ...flowChainFields(
+          input.flowContext,
+          state,
+          { chainId, ...(res.predictedGovPool ? { govPool: res.predictedGovPool } : {}) },
+          { landed: result.mode === "executed" },
+        ),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);

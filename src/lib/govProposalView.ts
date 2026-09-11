@@ -23,6 +23,11 @@ export interface DecodedProposalView {
   requiredQuorum: bigint;
   proposalState: number;
   descriptionURL: string;
+  /**
+   * core.voteEnd — Unix seconds. Already in GET_PROPOSALS_FRAGMENT, simply not
+   * decoded until 0.34.0. APPENDED, never reordered: consumers read by name.
+   */
+  voteEnd: bigint;
 }
 
 /**
@@ -50,6 +55,7 @@ export function decodeProposalView(view: unknown): DecodedProposalView | null {
       requiredQuorum: v[3] as bigint,
       proposalState: Number(v[2]),
       descriptionURL: proposal[1] as string,
+      voteEnd: core[1] as bigint,
     };
   } catch {
     return null;

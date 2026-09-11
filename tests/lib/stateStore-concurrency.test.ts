@@ -211,3 +211,106 @@ describe("two concurrent OS processes writing one state.json", () => {
     expect(readdirSync(dirname(p)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
   }, 120_000);
 });
+
+describe("a live store sees a peer process's writes", () => {
+  /**
+   * D12-1. 0.30.4 hardened the WRITE path — private temp, atomic rename,
+   * cross-process lock, compare-and-swap — so a peer's write can no longer be
+   * clobbered. The READ path was left a load-once cache, and exactly one
+   * StateStore lives for the whole server process. So the file on disk became
+   * correct while this window's view of it froze at session open: every DAO
+   * another Claude Code window, a swarm subprocess or the CLI recorded was
+   * invisible to dexe_context for the rest of the session.
+   */
+
+  it("getState() after a peer's recordDao returns the peer's DAO", () => {
+    const p = tmpPath();
+    const A = new StateStore(p);
+    const B = new StateStore(p);
+    // B reads at session open — the call that used to pin its cache forever.
+    expect(B.getState().knownDaos).toEqual([]);
+    A.recordDao(dao({ name: "FromA", govPool: "0xaaaa000000000000000000000000000000000001" }));
+    expect(B.getState().knownDaos.map((d) => d.name)).toContain("FromA");
+  });
+
+  it("lastDao() reflects a peer's newer DAO", () => {
+    const p = tmpPath();
+    const A = new StateStore(p);
+    const B = new StateStore(p);
+    B.getState();
+    A.recordDao(dao({ name: "FromA", govPool: "0xaaaa000000000000000000000000000000000001" }));
+    expect(B.lastDao()?.name).toBe("FromA");
+  });
+
+  it("sees a peer's SAME-LENGTH write", () => {
+    // `lastChainId` 97 <-> 56 is the same byte count either way, so an
+    // mtimeMs+size stamp alone routinely misses it on NTFS. The inode is what
+    // discriminates: every publish renames a fresh temp over the target.
+    const p = tmpPath();
+    const A = new StateStore(p);
+    const B = new StateStore(p);
+    B.getState();
+    for (let i = 0; i < 5; i++) {
+      const want = i % 2 ? 56 : 97;
+      A.setLastChainId(want);
+      expect(B.getState().lastChainId, `iteration ${i}`).toBe(want);
+    }
+  });
+
+  it("sees its OWN write immediately", () => {
+    const p = tmpPath();
+    const store = new StateStore(p);
+    store.getState();
+    store.recordDao(dao({ name: "Mine", govPool: "0xcccc000000000000000000000000000000000003" }));
+    expect(store.getState().knownDaos[0]!.name).toBe("Mine");
+  });
+
+  it("survives the file being deleted mid-session", () => {
+    const p = tmpPath();
+    const store = new StateStore(p);
+    store.recordDao(dao());
+    rmSync(p, { force: true });
+    expect(() => store.getState()).not.toThrow();
+  });
+
+  it("keeps serving a record it could NOT persist", () => {
+    // The cache is then the only copy of a DAO the user just paid gas for, so
+    // a stat failure must never be read as "re-read from disk".
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const dir = mkdtempSync(join(tmpdir(), "dexe-state-unpub-"));
+    tmpDirs.push(dir);
+    const blocker = join(dir, "blocked");
+    writeFileSync(blocker, "i am a file, not a directory", "utf8");
+    const store = new StateStore(join(blocker, "state.json"));
+    store.recordDao(dao());
+    expect(store.getState().knownDaos).toHaveLength(1);
+    expect(store.getState().knownDaos).toHaveLength(1);
+  });
+});
+
+describe("walletLabels is capped like every other collection", () => {
+  it("keeps the 100 most recently set labels", () => {
+    const p = tmpPath();
+    const store = new StateStore(p);
+    for (let i = 0; i < 120; i++) {
+      store.setWalletLabel(`0x${String(i).padStart(40, "0")}`, `label-${i}`);
+    }
+    const labels = store.getState().walletLabels;
+    expect(Object.keys(labels)).toHaveLength(100);
+    expect(labels[`0x${String(0).padStart(40, "0")}`]).toBeUndefined();
+    expect(labels[`0x${String(119).padStart(40, "0")}`]).toBe("label-119");
+  });
+
+  it("re-labelling an address moves it to the newest end, never duplicates it", () => {
+    const p = tmpPath();
+    const store = new StateStore(p);
+    const addr = `0x${"a".repeat(40)}`;
+    store.setWalletLabel(addr, "first");
+    for (let i = 0; i < 99; i++) store.setWalletLabel(`0x${String(i).padStart(40, "0")}`, `l${i}`);
+    store.setWalletLabel(addr, "renamed");
+    for (let i = 100; i < 140; i++) store.setWalletLabel(`0x${String(i).padStart(40, "0")}`, `l${i}`);
+    const labels = store.getState().walletLabels;
+    expect(Object.keys(labels)).toHaveLength(100);
+    expect(labels[addr]).toBe("renamed");
+  });
+});

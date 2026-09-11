@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   MAX_AVATAR_BYTES,
   buildAvatarUrl,
@@ -142,5 +142,60 @@ describe("previewAvatarFromInput", () => {
     expect(preview.avatarFileName).toBe(real.avatarFileName);
     expect(preview.detectedFormat).toBe(real.detectedFormat);
     expect(pinata).toBeDefined();
+  });
+});
+
+describe("a relative avatar path says WHERE the server looked, and why", () => {
+  /**
+   * D12-12. Neither tool schema requires an absolute path ("Local avatar image
+   * path", "Local image path for the new avatar"), so a relative one is an
+   * invited input. It resolves against `process.cwd()`, which for an MCP server
+   * is the HOST's directory — Claude Code's plugin loader starts it wherever it
+   * likes, which is the same surprise that once broke .env loading. On POSIX
+   * the error then echoed only what the user typed, so they checked the
+   * directory they meant, found the file there, and had nothing to go on.
+   */
+
+  it("reports the RESOLVED absolute path, not the bare input", async () => {
+    const err = await readAvatarInput({ filePath: "definitely-not-here.png" }).catch(
+      (e: unknown) => e as Error,
+    );
+    expect(err.message).toContain(resolve("definitely-not-here.png"));
+  });
+
+  it("explains that a relative path resolved against the host's cwd", async () => {
+    // The primary assertion: this is the half that is missing on EVERY
+    // platform (Node already puts the absolute path in ENOENT on win32).
+    const err = await readAvatarInput({ filePath: "definitely-not-here.png" }).catch(
+      (e: unknown) => e as Error,
+    );
+    expect(err.message).toMatch(/RELATIVE/);
+    expect(err.message).toContain(process.cwd());
+  });
+
+  it("adds no such note for an absolute path", async () => {
+    const err = await readAvatarInput({ filePath: join(dir, "nope.png") }).catch(
+      (e: unknown) => e as Error,
+    );
+    expect(err.message).not.toMatch(/RELATIVE/);
+  });
+
+  it("points at the no-file escape hatch", async () => {
+    const err = await readAvatarInput({ filePath: join(dir, "nope.png") }).catch(
+      (e: unknown) => e as Error,
+    );
+    expect(err.message).toContain("dexe_dao_generate_avatar");
+  });
+
+  it("an empty file is reported at its resolved path too", async () => {
+    const emptyPath = join(dir, "empty.jpeg");
+    await writeFile(emptyPath, Buffer.alloc(0));
+    const err = await readAvatarInput({ filePath: emptyPath }).catch((e: unknown) => e as Error);
+    expect(err.message).toContain(resolve(emptyPath));
+  });
+
+  it("a path that DOES resolve still works — resolve() is the identity on an absolute one", async () => {
+    const bytes = await readAvatarInput({ filePath: jpegPath });
+    expect(Buffer.from(bytes).equals(JPEG_BYTES)).toBe(true);
   });
 });

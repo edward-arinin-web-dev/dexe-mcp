@@ -311,6 +311,40 @@ export async function keyringReport(
   };
 }
 
+/**
+ * Response window for the persisted lists.
+ *
+ * The STORE keeps 50 DAOs / 25 proposals — that is DISK RETENTION. This is the
+ * ORIENTATION budget: a model calling dexe_context wants "which DAO am I
+ * working on", not a full deploy history. The whole history measured ~18.6k
+ * chars (~4.6k tokens) on a machine with 31 recorded DAOs, and it is paid at
+ * the start of most sessions because the tool's own description says to call it
+ * first.
+ *
+ * Both lists are already most-recent-first in the store, so a head slice is the
+ * right window; the totals and the hint make the truncation impossible to
+ * mistake for "that is everything".
+ */
+const DEFAULT_DAO_WINDOW = 8;
+const DEFAULT_PROPOSAL_WINDOW = 5;
+const MAX_WINDOW = 50;
+
+/** Truncation sentence for the hint, naming only the list(s) actually trimmed. */
+function windowNote(
+  daos: number,
+  daoLimit: number,
+  proposals: number,
+  proposalLimit: number,
+): string {
+  const trimmed: string[] = [];
+  if (daos > daoLimit) trimmed.push(`the ${daoLimit} most recent DAO(s) of ${daos}`);
+  if (proposals > proposalLimit) {
+    trimmed.push(`the ${proposalLimit} most recent proposal(s) of ${proposals}`);
+  }
+  if (trimmed.length === 0) return "";
+  return ` Showing ${trimmed.join(" and ")} — call dexe_context {"daoLimit":50,"proposalLimit":50} to see the rest.`;
+}
+
 export function registerOperationalContextTools(
   server: McpServer,
   config: DexeConfig,
@@ -321,28 +355,42 @@ export function registerOperationalContextTools(
 
   server.tool(
     "dexe_context",
-    "Operational context for the current session — call this first when you need orientation (skip it when the " +
-      "user already gave you the target DAO and chain). Returns the signer address + mode, the active/configured " +
-      "chains, env-readiness (RPC/IPFS/subgraph/signer), which toolsets are enabled/hidden and what the hidden ones " +
-      "unlock, and the persisted state: DAOs you deployed and proposals you broadcast in prior sessions (via " +
-      "dexe_dao_create / dexe_proposal_create), plus your deposited voting power in the most recent DAO. " +
-      "Also returns the agent KEYRING — every persona you can sign as (signerKey + address + whether it holds " +
-      "gas + what it broadcast in the last 24h) — which is how a multi-agent run discovers the fleet it commands. " +
-      "Read-only; never writes.",
+    "Session orientation — call first when you need it (skip it when the user already named the DAO and chain). " +
+      "Returns the signer address + mode, configured chains, env readiness (RPC/IPFS/subgraph/signer), which " +
+      "toolsets are on/hidden and what the hidden unlock, your deposited power in the newest DAO, and the agent " +
+      "KEYRING (every persona you can sign as: signerKey, address, gas, 24h broadcasts) — how a multi-agent run " +
+      "finds its fleet. Persisted DAOs/proposals are WINDOWED to the newest few; the *Total fields carry the real " +
+      "counts and daoLimit/proposalLimit show more. Read-only; never writes.",
     {
       includeDepositedPower: z
         .boolean()
         .default(true)
-        .describe("Read deposited voting power for the most recent DAO (one extra RPC call). Set false to skip."),
+        .describe("Read deposited power for the newest DAO (one extra RPC call)."),
       includeAgentBalances: z
         .boolean()
         .default(true)
-        .describe(
-          "Probe each keyring persona's native balance (one parallel eth_getBalance per configured signer on the " +
-            "default chain). Set false to list the keyring without any RPC.",
-        ),
+        .describe("Probe each persona's native balance (one eth_getBalance per signer, default chain)."),
+      daoLimit: z
+        .number()
+        .int()
+        .min(0)
+        .max(MAX_WINDOW)
+        .default(DEFAULT_DAO_WINDOW)
+        .describe("Recorded DAOs to return, newest first."),
+      proposalLimit: z
+        .number()
+        .int()
+        .min(0)
+        .max(MAX_WINDOW)
+        .default(DEFAULT_PROPOSAL_WINDOW)
+        .describe("Recorded proposals to return, newest first."),
     },
-    async ({ includeDepositedPower = true, includeAgentBalances = true }) => {
+    async ({
+      includeDepositedPower = true,
+      includeAgentBalances = true,
+      daoLimit = DEFAULT_DAO_WINDOW,
+      proposalLimit = DEFAULT_PROPOSAL_WINDOW,
+    }) => {
       const st = state.getState();
 
       const chains = [...config.chains.values()]
@@ -419,9 +467,15 @@ export function registerOperationalContextTools(
           ].filter(Boolean),
           toolsets: describeToolsets(config.toolsets),
         },
-        knownDaos: st.knownDaos,
-        recentProposals: st.recentProposals,
-        walletLabels: st.walletLabels,
+        knownDaos: st.knownDaos.slice(0, daoLimit),
+        knownDaosTotal: st.knownDaos.length,
+        ...(st.knownDaos.length > daoLimit ? { knownDaosTruncated: true } : {}),
+        recentProposals: st.recentProposals.slice(0, proposalLimit),
+        recentProposalsTotal: st.recentProposals.length,
+        ...(st.recentProposals.length > proposalLimit ? { recentProposalsTruncated: true } : {}),
+        // Belt and braces: the store caps this at 100 now, but a state.json
+        // written by an older build has no cap at all.
+        walletLabels: Object.fromEntries(Object.entries(st.walletLabels).slice(0, MAX_WINDOW)),
         ...(st.activeFlow ? { activeFlow: st.activeFlow } : {}),
         lastDaoPower,
         hint:
@@ -430,7 +484,11 @@ export function registerOperationalContextTools(
             : "") +
           (st.knownDaos.length === 0
             ? "No DAOs recorded yet. Deploy one with dexe_dao_create (testnet chain 97) or pass a govPool explicitly."
-            : `Most recent DAO: ${st.knownDaos[0]!.name} (${st.knownDaos[0]!.govPool}) on chain ${st.knownDaos[0]!.chainId}.`),
+            : `Most recent DAO: ${st.knownDaos[0]!.name} (${st.knownDaos[0]!.govPool}) on chain ${st.knownDaos[0]!.chainId}.`) +
+          // Name only the list(s) actually trimmed: recordProposal does not
+          // require a recorded DAO, so "the 8 most recent DAO(s) of 0" is a
+          // reachable state and would read as nonsense next to "No DAOs yet".
+          windowNote(st.knownDaos.length, daoLimit, st.recentProposals.length, proposalLimit),
       };
 
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
