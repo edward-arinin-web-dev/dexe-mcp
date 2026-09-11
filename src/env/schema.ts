@@ -79,6 +79,17 @@ const intStr = (what: string, example: string) => {
   return z.string().regex(/^\d+$/, msg).optional().describe(msg);
 };
 
+/**
+ * A closed set of literal values. Same contract as the other factories: state
+ * the shape, show a concrete value, and repeat both as the description — zod's
+ * stock "Invalid enum value" is exactly the text this file exists to keep off
+ * the surface.
+ */
+const enumStr = <T extends readonly [string, ...string[]]>(values: T) => {
+  const msg = `must be one of ${values.map((v) => `\`${v}\``).join(" | ")}, e.g. ${values[0]}`;
+  return z.enum(values, { errorMap: () => ({ message: msg }) }).optional().describe(msg);
+};
+
 /** One absolute URL. `scheme` names the shape we document, not what zod accepts. */
 /**
  * `scheme` is not just label text — it is enforced. Previously the message
@@ -484,6 +495,13 @@ export const ENV_SPEC = {
     doc: "Bearer token for Safe Transaction Service.",
     secret: true,
   },
+  DEXE_SAFE_DELEGATECALL: {
+    schema: enumStr(["block"]),
+    category: "safe",
+    required: false,
+    example: "block",
+    doc: "Set to `block` to forbid Safe DELEGATECALL (operation=1) outright, overriding the per-call allowDelegateCall flag.",
+  },
 
   // ─── backend ─────────────────────────────────────────────────────────────
   DEXE_BACKEND_API_URL: {
@@ -516,6 +534,13 @@ export const ENV_SPEC = {
     required: false,
     example: "",
     doc: "Git ref (branch/tag/commit) checked out for the auto-managed DeXe-Protocol clone. Default: the pinned release the MCP ships with.",
+  },
+  DEXE_DOCTOR_STRICT: {
+    schema: enumStr(["1", "0"]),
+    category: "dev",
+    required: false,
+    example: "1",
+    doc: "Set to 1 to make `npx dexe-mcp doctor` exit 1 on warnings (same as --strict), for CI wrappers that cannot add a flag.",
   },
 } as const satisfies Record<string, EnvEntry>;
 
