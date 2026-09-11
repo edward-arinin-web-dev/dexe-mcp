@@ -16,9 +16,19 @@ const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as {
   main: string;
 };
 
-/** npm `files` semantics: a bare entry that is a directory includes everything under it. */
+/**
+ * npm `files` semantics: a bare entry that is a directory includes everything
+ * under it, and — like .gitignore — an entry with no slash matches at ANY
+ * depth. That last rule is why `SECURITY.md` is spelled `/SECURITY.md`: once
+ * the plugin bundle started carrying the whole docs tree, the unanchored form
+ * also swept in `dexe-plugin/docs/SECURITY.md`. A leading `/` anchors at the
+ * package root and is stripped here before matching.
+ */
 function shipped(path: string): boolean {
-  return pkg.files.some((entry) => path === entry || path.startsWith(entry.replace(/\/$/, "") + "/"));
+  return pkg.files.some((raw) => {
+    const entry = raw.replace(/^\//, "").replace(/\/$/, "");
+    return path === entry || path.startsWith(entry + "/");
+  });
 }
 
 const CRITICAL = [
@@ -31,7 +41,47 @@ const CRITICAL = [
   "SECURITY.md",
   "LICENSE",
   ".mcp.example.json",
+  ".env.example",
   "dist/index.js",
+];
+
+/**
+ * `files` ships `docs` as a bare directory entry, so EVERY file under docs/
+ * reaches every npm consumer. Three maintainer records (a test backlog, a
+ * frontend parity audit, and a 0.5.8-era client dossier) sat there unnoticed
+ * for sixteen releases; they now live in `internal/`, which is not on the
+ * allowlist.
+ *
+ * This is an allowlist, not a denylist of the three: the next internal
+ * artifact dropped into docs/ has to be justified here or moved, instead of
+ * shipping quietly.
+ */
+const PUBLIC_DOCS = [
+  "AGENTS.md",
+  "DAO_CREATE_PARITY.md",
+  "DOCTOR.md",
+  "ENVIRONMENT.md",
+  "GOVERNOR.md",
+  "GOVERNOR_LAUNCH.md",
+  "GRAPH.md",
+  "INBOX.md",
+  "INSTALL.md",
+  "MIGRATION.md",
+  "OTC.md",
+  "PLAYBOOK.md",
+  "PROFILE.md",
+  "PROFILES.md",
+  "REPORTING.md",
+  "SAFE.md",
+  "SECURITY.md",
+  "SETUP.md",
+  "SIMULATOR.md",
+  "SKILLS.md",
+  "TOOLS.md",
+  "UPSTREAM-ISSUES.md",
+  "USAGE.md",
+  "USE_CASES.md",
+  "WALLETCONNECT.md",
 ];
 
 describe("published-package contents", () => {
@@ -48,6 +98,40 @@ describe("published-package contents", () => {
       const rel = `dexe-plugin/skills/${s.name}/SKILL.md`;
       expect(existsSync(resolve(ROOT, rel)), `${rel} missing`).toBe(true);
       expect(shipped(rel), `${rel} not covered by package.json "files"`).toBe(true);
+    }
+  });
+
+  it("docs/ contains only files intended for every consumer", () => {
+    const actual = readdirSync(resolve(ROOT, "docs"))
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+    expect(
+      actual,
+      'A file in docs/ ships in the npm tarball to every user. If that is intended, add it to PUBLIC_DOCS; if it is a maintainer record, move it to internal/ (not covered by package.json "files").',
+    ).toEqual([...PUBLIC_DOCS].sort());
+  });
+
+  it("internal/ is a maintainer area and never ships", () => {
+    expect(existsSync(resolve(ROOT, "internal")), "internal/ missing").toBe(true);
+    for (const f of readdirSync(resolve(ROOT, "internal"))) {
+      expect(shipped(`internal/${f}`), `internal/${f} would ship`).toBe(false);
+    }
+  });
+
+  it("every doc path quoted in runtime text is published", () => {
+    for (const p of [
+      "docs/UPSTREAM-ISSUES.md",
+      "docs/PLAYBOOK.md",
+      "docs/ENVIRONMENT.md",
+      "docs/GRAPH.md",
+      "docs/REPORTING.md",
+      "docs/SETUP.md",
+      "docs/PROFILES.md",
+    ]) {
+      expect(shipped(p), `${p} is quoted to users but not covered by package.json "files"`).toBe(
+        true,
+      );
+      expect(existsSync(resolve(ROOT, p)), `${p} is quoted to users but missing on disk`).toBe(true);
     }
   });
 

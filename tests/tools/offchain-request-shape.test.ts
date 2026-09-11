@@ -8,7 +8,7 @@ import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 
 /**
- * First unit coverage for the off-chain (DeXe backend) builders. docs/TEST_BACKLOG.md
+ * First unit coverage for the off-chain (DeXe backend) builders. internal/TEST_BACKLOG.md
  * ordered exactly this — "add unit test that snapshots the body and asserts `type`
  * against registered constants" — after bug B shipped a unix timestamp as the
  * proposal `type` (400 "proposal type was not found"), and bug C shipped quorum

@@ -1,6 +1,6 @@
 {
   "name": "dexe-mcp",
-  "version": "0.33.1",
+  "version": "0.34.0",
   "description": "MCP server for the DeXe Protocol — full DAO operations coverage: deploy DAOs, build every proposal type, IPFS metadata, stake/vote/delegate/execute/claim calldata. Plus dev tooling (build/test/introspect/decode).",
   "type": "module",
   "license": "MIT",
@@ -43,9 +43,10 @@
     "README.md",
     "CHANGELOG.md",
     "FUTURE.md",
-    "SECURITY.md",
+    "/SECURITY.md",
     "LICENSE",
-    ".mcp.example.json"
+    ".mcp.example.json",
+    ".env.example"
   ],
   "scripts": {
     "build": "tsc",
@@ -57,6 +58,7 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:compat": "node tests/compat/diff-otc.mjs",
+    "test:governor:live": "vitest run tests/governor/fixtures-live.test.ts",
     "typecheck": "tsc --noEmit",
     "gen:knowledge": "tsx scripts/gen-knowledge.ts",
     "gen:knowledge:check": "tsx scripts/gen-knowledge.ts --check",

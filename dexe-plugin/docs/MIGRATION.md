@@ -1044,7 +1044,7 @@ run `npx dexe-mcp doctor`. Done.
   `.env` path it loaded, any parse warnings (UTF-8 BOM, missing trailing
   newline, spaces around `=`), unknown `DEXE_*` keys, and any
   `.claude.json` `env` block that is shadowing your `.env`.
-- **Formal env schema.** [`src/env/schema.ts`](../src/env/schema.ts) is
+- **Formal env schema.** [`src/env/schema.ts`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/src/env/schema.ts) is
   now the canonical registry for every recognized `DEXE_*` var
   (category, doc, zod validator, secret flag). The doctor reads from
   there.
@@ -1170,5 +1170,5 @@ matcher to look for the structured remediation text.
 
 ## Earlier releases
 
-See [`CHANGELOG.md`](../CHANGELOG.md) for the full per-release notes.
+See [`CHANGELOG.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/CHANGELOG.md) for the full per-release notes.
 This document only highlights changes that need user action.

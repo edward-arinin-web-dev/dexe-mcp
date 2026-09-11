@@ -1,7 +1,7 @@
 # dexe-mcp Roadmap
 
-Living backlog. Rewritten 2026-07-23 (the previous version was frozen at the
-v0.3.0 era; per-release history now lives entirely in `CHANGELOG.md` and
+Living backlog. Rewritten 2026-07-23 (the previous version was frozen several
+release cycles ago; per-release history now lives entirely in `CHANGELOG.md` and
 `docs/MIGRATION.md` — this file only tracks what is NOT done yet).
 
 ## Vision
@@ -13,13 +13,13 @@ subgraph + backend reads — plus a generic `dexe_gov_*` surface for external
 OpenZeppelin/Compound Governors. Works zero-config for reads; signs via
 WalletConnect, hot key, or the multi-agent keyring.
 
-**Current state: v0.29.0 — 165 tools / 19 groups.** All 33 catalog proposal
-types wired; composite flows (`dexe_dao_create`, `dexe_proposal_create`,
-`dexe_proposal_vote_and_execute`) are the primary interface; full-surface
-frontend-parity audit green as of 2026-07-23 (`docs/PARITY-AUDIT-2026-07-23.md`).
-0.29.0 shipped SIMPLE-mode `recipients[]`, the real `validators_allocation`
-(`setCreditInfo`) builder, keyring env-naming aliases, golden-hex calldata
-fixtures for all 31 builder keys, and root-caused F14 (unfunded credit line).
+**Current state: see `package.json` for the version and `docs/TOOLS.md` for the
+tool surface.** All 33 catalog proposal types are wired; the composite flows
+(`dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`)
+are the primary interface; the full-surface frontend-parity audit was green on
+2026-07-23 (`internal/PARITY-AUDIT-2026-07-23.md`). Per-release detail lives in
+`CHANGELOG.md` and `docs/MIGRATION.md` — this file only tracks what is NOT done
+yet.
 
 ## Reference projects
 
@@ -36,7 +36,7 @@ fixtures for all 31 builder keys, and root-caused F14 (unfunded credit line).
       (`castVoteBySig` / `castVoteWithReasonAndBySig`) — the single biggest
       external-Governor gap; Bravo and OZ both support it natively and it
       unblocks Uniswap / Compound / Optimism / Gitcoin / Arbitrum delegate
-      workflows. Reuses the existing ERC-712 signing path. (0.30.0 candidate.)
+      workflows. Reuses the existing ERC-712 signing path.
 - [ ] Per-chain subgraph URL map (pools/validators/interactions are env-bound to
       ONE chain; endpoints exist for BSC/ETH/Sepolia/Amoy — see
       `reference_subgraph_urls_per_chain` memory).
@@ -53,8 +53,12 @@ fixtures for all 31 builder keys, and root-caused F14 (unfunded credit line).
 - [ ] Refresh the testnet swarm fixture DAO — the allowlisted Polaris govPool
       `0x081f4b5C…` no longer reads as a registered GovPool on chain 97 (a
       2026-07-23 broadcast sweep passed 41/59; the 18 failures were all this
-      dead-fixture + hardcoded past timestamps, not tool defects). Deploy a
-      fresh 97 DAO, refresh `SWARM_DAOS_TESTNET`, and fix the S44/S58 fixtures.
+      dead-fixture + hardcoded past timestamps, not tool defects). **0.34.0
+      shipped the guard**: `tests/swarm/allowlist-guard.ts` verifies every
+      allowlisted DAO against the registry and fails the run instead of grading
+      a dead address. The redeploy itself is a maintainer ops step — runbook in
+      `tests/swarm/README.md` § "Refresh the fixture DAO" (deploy a fresh 97
+      DAO, refresh `SWARM_DAOS_TESTNET`, fill the four `SWARM_*_TESTNET` lists).
 - [ ] Swarm Stage B on mainnet (subgraph + backend scenarios) — needs the
       scenarios re-authored under current IDs (the S22–S25/S12/S14 numbers in
       the docs no longer map to those intents) plus
@@ -94,10 +98,11 @@ These live only in session memory today; tracked here so they survive rotation.
       deprecated` is empty; the C-2/Q-1 advisory recipes remain reachable in git
       history (`git show 6afdc36:docs/ESCALATION-DEXE.md`) and in merged public
       PR #36. Needs `npm deprecate` (OTP) + a history-rewrite/force-push decision.
-- [ ] **18 open Dependabot alerts on GitHub** — the lockfile fix landed
-      (`npm audit` = 0) but the alerts were never dismissed (Dependabot security
-      updates are disabled). Dismiss them or enable auto-updates before the
-      announcement raises the repo's profile.
+- [ ] **Open Dependabot alerts on GitHub** — 0.32.1 raised the stale `overrides`
+      floors and made `npm audit --omit=dev` a required CI gate; 0.33.1 raised
+      them again and added a daily scheduled audit. The alerts themselves were
+      never dismissed (Dependabot security updates are disabled). Dismiss them
+      or enable auto-updates before the announcement raises the repo's profile.
 - [ ] **F15 responsible disclosure** — `docs/UPSTREAM-ISSUES.md` documents an
       unfixed P1 funds-loss (vestingWithdraw) with repro in a PUBLIC repo. Send
       the private report to the DeXe security team before any announcement drives
@@ -106,6 +111,22 @@ These live only in session memory today; tracked here so they survive rotation.
       `src/config.ts` and ships to npm as a shared default; rotate/proxy it.
 - [ ] **main branch protection** is non-enforcing (0 required reviews, no
       required status checks, admins bypass) — require CI/CodeQL before merge.
+      Re-check against 0.33.1's release-gate changes before the next tag.
+- [ ] **npm publish auth** — decide between the 90-day `NPM_TOKEN` secret and
+      OIDC trusted publishing. `release.yml` supports both and picks at runtime;
+      nothing rotates the token today.
+- [ ] **Disclosure wording in `docs/UPSTREAM-ISSUES.md`** — the doc still tells
+      the reader to treat the content as embargoed while shipping publicly on
+      GitHub and npm. Either de-embargo it (and say so in `SECURITY.md`) or split
+      the user-facing mitigations out and move the write-up off the shipped path.
+- [ ] **`dexe_proposal_create` confirm gate (D15-2)** — the preview now reports
+      the payer and the block it was taken at, but there is still no
+      preview→confirm handshake on the create path itself. Scoped out of 0.34.0
+      deliberately; decide whether it should exist before adding it.
+- [ ] **Read-result token budget (D6-8)** — truncation is *reported* but rows are
+      not sliced to a `maxTokens`. Needs a maintainer call on what the cap is.
+- [ ] **`checkProposalHasActions` wiring (D11-4 part A)** — the guard exists and
+      is grandfathered past the no-dead-guards test; wire it or drop it.
 
 ## Testing strategy (unchanged)
 

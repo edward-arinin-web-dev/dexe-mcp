@@ -4,7 +4,7 @@ Reference for integrators configuring `dexe-mcp` in `.mcp.json`,
 `claude_desktop_config.json`, or a custom MCP client.
 
 The server self-loads `.env` via `process.loadEnvFile()`
-([`src/index.ts`](../src/index.ts)), searching **cwd-independent** locations so
+([`src/index.ts`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/src/index.ts)), searching **cwd-independent** locations so
 it works even when an MCP host launches it from an arbitrary directory (as the
 Claude Code plugin does). It loads each of these that exists, in order — the
 first file wins per key, and vars already in the process environment (e.g. the
@@ -58,7 +58,7 @@ should **rotate** these keys — see [§8 Subgraph configuration](#8-subgraph-co
 > failure, **call `dexe_doctor` first** — it walks every recognized var,
 > checks RPC / Pinata / subgraph reachability, and returns paste-ready
 > remediation hints. The canonical schema lives in
-> [`src/env/schema.ts`](../src/env/schema.ts); `dexe_doctor` reads from
+> [`src/env/schema.ts`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/src/env/schema.ts); `dexe_doctor` reads from
 > there, so the schema is the source of truth and this document tracks it.
 > Env edits go in the `.env` the server actually loads — `~/.dexe-mcp/.env`
 > for a plugin/`npx` install, the repo-root `.env` for a source checkout (see
@@ -380,7 +380,7 @@ DEXE_IPFS_GATEWAYS_FALLBACK=https://dweb.link,https://ipfs.io
 ```
 
 The fetcher tries the primary first, then each fallback sequentially (not in
-parallel — see [`src/lib/ipfs.ts`](../src/lib/ipfs.ts)).
+parallel — see [`src/lib/ipfs.ts`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/src/lib/ipfs.ts)).
 
 ---
 
@@ -418,7 +418,7 @@ DEXE_SUBGRAPH_INTERACTIONS_URL=https://gateway.thegraph.com/api/<key>/subgraphs/
 ```
 
 Get current subgraph IDs from the DeXe team or
-[`.env.example`](../.env.example) / project memory.
+[`.env.example`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/.env.example) / project memory.
 
 ### One endpoint indexes one chain (0.30.2)
 
@@ -478,7 +478,7 @@ defaults** (they are seeded per-chain, not overwritten) — override them with
 ## 9. Swarm test harness envs
 
 The swarm harness (`tests/swarm/`) uses a separate env block. Full setup
-runbook: [`tests/swarm/README.md`](../tests/swarm/README.md). Brief callout:
+runbook: [`tests/swarm/README.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/tests/swarm/README.md). Brief callout:
 
 | Variable | Purpose |
 |----------|---------|
@@ -570,7 +570,7 @@ supported chain (BSC mainnet 56 or BSC testnet 97 — both baked in) or set
 
 ## See also
 
-- [`README.md`](../README.md) — install + quickstart
+- [`README.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/README.md) — install + quickstart
 - [`TOOLS.md`](./TOOLS.md) — full per-tool catalog
-- [`tests/swarm/README.md`](../tests/swarm/README.md) — swarm setup runbook
-- [`src/config.ts`](../src/config.ts) — canonical env reader (single source of truth)
+- [`tests/swarm/README.md`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/tests/swarm/README.md) — swarm setup runbook
+- [`src/config.ts`](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/src/config.ts) — canonical env reader (single source of truth)
