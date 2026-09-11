@@ -1,4 +1,5 @@
 import { safeErrorMessage } from "./redact.js";
+import { renderUntrusted } from "./sanitize.js";
 
 /**
  * Actionable-error layer (v0.22). Every catch-all in the composite flows, the
@@ -169,4 +170,27 @@ export function toActionableError(err: unknown, step?: string): ActionableError 
     slug: hit.slug,
     message: `${prefix}${raw}\n\n${hit.what}\nNext step: ${hit.remedy}`,
   };
+}
+
+/** Cap for a revert string: long enough for every real one, short enough that a hostile one cannot flood the context. */
+const REVERT_REASON_MAX = 500;
+
+/**
+ * A contract's `Error(string)` payload is written by whoever deployed that
+ * contract, and a DAO proposal action can name ANY target — so a revert reason
+ * is third-party content, not diagnostics. Until 0.34.0 it was interpolated raw
+ * into the B9 pre-broadcast guard's abort message, i.e. into text the model
+ * reads at the exact moment it decides whether to retry a broadcast, with its
+ * newlines, zero-width characters and bidi overrides intact.
+ *
+ * `renderUntrusted` NFKC-normalizes, escapes control characters to a visible
+ * `\xNN`, strips zero-width / bidi marks, defangs fence markers and flags
+ * non-ASCII. Server-authored strings must NOT go through here: escaping our own
+ * newlines (the public-RPC onboarding hint, for instance) degrades the very
+ * message we meant to show.
+ */
+export function sanitizeRevertReason(raw: unknown, fallback = "unknown"): string {
+  if (raw === null || raw === undefined || raw === "") return fallback;
+  const rendered = renderUntrusted(raw, REVERT_REASON_MAX);
+  return rendered.length > 0 ? rendered : fallback;
 }

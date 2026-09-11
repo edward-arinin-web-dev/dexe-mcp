@@ -145,7 +145,10 @@ describe("composite signing — the named persona is the account that signs", ()
     expect(h.broadcasts).toHaveLength(1);
     expect(senderOf(0)).toBe(ADDR(PK_A2));
     expect(senderOf(0)).not.toBe(ADDR(PK_PRIMARY));
-    expect(res.signer).toEqual({ signerKey: "agent2", address: ADDR(PK_A2) });
+    // 0.34.0 adds `safety` to every hot-key signer object (D16-4): the composite
+    // write path used to broadcast with a plaintext key and say nothing.
+    expect(res.signer).toMatchObject({ signerKey: "agent2", address: ADDR(PK_A2) });
+    expect(res.signer!.safety).toContain("NOT SAFE");
   });
 
   it("omitting signerKey keeps the primary key as the default signer", async () => {
@@ -153,7 +156,8 @@ describe("composite signing — the named persona is the account that signs", ()
     const res = await sendOrCollect(signer, [payload()], { chainId: h.chainId });
 
     expect(senderOf(0)).toBe(ADDR(PK_PRIMARY));
-    expect(res.signer).toEqual({ signerKey: "primary", address: ADDR(PK_PRIMARY) });
+    expect(res.signer).toMatchObject({ signerKey: "primary", address: ADDR(PK_PRIMARY) });
+    expect(res.signer!.safety).toContain("NOT SAFE");
   });
 
   it("selects a persona by address as well as by slot name", async () => {

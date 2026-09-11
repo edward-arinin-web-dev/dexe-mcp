@@ -232,3 +232,31 @@ export class SignerManager {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Hot-key posture — one string, every broadcast surface
+// ---------------------------------------------------------------------------
+
+/**
+ * Flagged on every hot-key broadcast — a plaintext key on disk is not safe.
+ *
+ * Until 0.34.0 this lived privately in `src/tools/txSend.ts` and was emitted by
+ * `dexe_tx_send` alone, so a user who only ever calls `dexe_dao_create` /
+ * `dexe_proposal_create` / `dexe_proposal_vote_and_execute` / the OTC
+ * composites — i.e. the documented PRIMARY write path — never saw it. The
+ * warning belongs where the key is resolved, not at one of the tools that
+ * happens to use it.
+ */
+export const HOT_KEY_SAFETY =
+  "⚠️ NOT SAFE — signed with a hot key (DEXE_PRIVATE_KEY) in plaintext on disk. " +
+  "Prefer WalletConnect: run dexe_wc_connect and the phone signs, so the key never touches this machine.";
+
+/**
+ * Spread into a tool response ONLY when this call actually broadcast with a
+ * local key. `false` yields `{}` — a dryRun or a payloads-only return signed
+ * nothing, and a warning that fires when it is false is what makes warnings
+ * unreadable.
+ */
+export function hotKeySafetyFields(broadcast: boolean): { safety?: string } {
+  return broadcast ? { safety: HOT_KEY_SAFETY } : {};
+}

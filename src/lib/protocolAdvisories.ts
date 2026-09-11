@@ -108,6 +108,85 @@ export function findVestingTiers(
   return out;
 }
 
+/**
+ * `TokenSaleProposal.createTiers(...)`. Recomputed from the ABI so a struct
+ * reorder is caught by a pinning test rather than silently disarming the guard
+ * — the same treatment `ADD_SETTINGS_SELECTOR` gets below.
+ */
+// The literal is duplicated from `TOKEN_SALE_PROPOSAL_ABI`
+// (src/tools/proposalBuildComplex.ts) rather than imported: src/lib may not
+// depend on src/tools, and a module-scope selector table built through an
+// import cycle evaluates EMPTY — the same blind spot with more code. A drift
+// test recomputes both selectors from the builders' own ABI.
+const CREATE_TIERS_IFACE = new Interface([
+  "function createTiers(tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint64 saleStartTime, uint64 saleEndTime, uint64 claimLockDuration, address saleTokenAddress, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 vestingPercentage, uint64 vestingDuration, uint64 cliffPeriod, uint64 unlockStep) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails)[] tiers)",
+]);
+export const TOKEN_SALE_CREATE_TIERS_SELECTOR =
+  CREATE_TIERS_IFACE.getFunction("createTiers")!.selector;
+
+/**
+ * F15 at the CALLDATA level. `findVestingTiers` reads the caller's tier specs,
+ * which only the OTC tool ever had — this reads the emitted `createTiers`
+ * payload, so every surface that can open a tier (the two token-sale proposal
+ * builders, the catalog builder, a hand-rolled `custom_abi`, and
+ * `proposalType: "custom"`) is covered by construction.
+ *
+ * Compares with bigint, never `Number`: the raw vesting field is
+ * `pct × 1e25`, and `Number(5e26)/1e25` is 49.99999999999999.
+ * Returns `[]` on ANY decode failure and never throws — it runs on arbitrary
+ * caller-supplied calldata.
+ */
+export function decodeCreateTiersVesting(
+  data: string | null | undefined,
+): { index: number; name: string; vestingPercentage: string }[] {
+  if (typeof data !== "string" || !data.toLowerCase().startsWith(TOKEN_SALE_CREATE_TIERS_SELECTOR)) {
+    return [];
+  }
+  try {
+    const decoded = CREATE_TIERS_IFACE.decodeFunctionData("createTiers", data);
+    const tiers = decoded[0] as unknown as readonly unknown[];
+    const out: { index: number; name: string; vestingPercentage: string }[] = [];
+    [...tiers].forEach((t, index) => {
+      const tier = t as Record<string, unknown> & readonly unknown[];
+      const meta = (tier.metadata ?? tier[0]) as Record<string, unknown> & readonly unknown[];
+      const vs = (tier.vestingSettings ?? tier[10]) as Record<string, unknown> & readonly unknown[];
+      const rawPct = (vs?.vestingPercentage ?? vs?.[0]) as bigint | undefined;
+      if (rawPct === undefined || BigInt(rawPct) <= 0n) return;
+      const pct = BigInt(rawPct) / 10n ** 25n;
+      out.push({
+        index,
+        name: String(meta?.name ?? meta?.[0] ?? `tier[${index}]`),
+        vestingPercentage: pct.toString(),
+      });
+    });
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** `ERC20Gov.blacklist(address[] accounts, bool value)`. */
+const BLACKLIST_IFACE = new Interface([
+  "function blacklist(address[] accounts, bool value)",
+]);
+export const BLACKLIST_SELECTOR = BLACKLIST_IFACE.getFunction("blacklist")!.selector;
+
+/**
+ * Addresses an action would ADD to a token's blacklist. `value === false` is
+ * un-blacklisting, which is the CURE for the self-harm case and is never
+ * flagged. Returns `[]` on any decode failure; never throws.
+ */
+export function decodeBlacklistAdditions(data: string | null | undefined): string[] {
+  if (typeof data !== "string" || !data.toLowerCase().startsWith(BLACKLIST_SELECTOR)) return [];
+  try {
+    const decoded = BLACKLIST_IFACE.decodeFunctionData("blacklist", data);
+    if (decoded[1] !== true) return [];
+    return [...(decoded[0] as unknown as readonly unknown[])].map((a) => String(a));
+  } catch {
+    return [];
+  }
+}
+
 /** The machine-readable refusal report for a blocked vesting leg. */
 export interface VestingBlockedReport {
   readonly tierIds: string[];
@@ -115,6 +194,32 @@ export interface VestingBlockedReport {
   readonly upstream: string;
   /** The exact opt-in that overrides the refusal. */
   readonly overrideWith: string;
+}
+
+/**
+ * THE F15 refusal text, shared by every surface that can open a tier.
+ *
+ * 0.33.0 inlined this in `src/tools/otc.ts` and wired it to
+ * `dexe_otc_dao_open_sale` alone, while the CHANGELOG claimed "a tier with
+ * vestingPercentage > 0 is refused before any calldata is built" without a
+ * surface qualifier — and the three token-sale PROPOSAL surfaces built the
+ * stranding tier silently. Only the name of the override differs per surface,
+ * so that is the only parameter.
+ */
+export function vestingRefusalText(
+  risks: readonly VestingTierRisk[],
+  overrideWith: string,
+): string {
+  const listed = risks
+    .map((r) => `  • tier[${r.index}] "${r.name}" — vestingPercentage=${r.vestingPercentage}`)
+    .join("\n");
+  return (
+    `REFUSED before building any calldata — ${risks.length} tier(s) would strand their vested allocation:\n` +
+    `${listed}\n\n${VESTING_WITHDRAW_ADVISORY.text}\n\n` +
+    `Fix: set vestingSettings.vestingPercentage to "0" on the tier(s) above (buyers then get the whole ` +
+    `allocation through \`claim\`, which works). To open them anyway — only do this on a pre-SphereX pool ` +
+    `where vestingWithdraw is known to work — re-run with ${overrideWith}.`
+  );
 }
 
 export function vestingBlockedReport(

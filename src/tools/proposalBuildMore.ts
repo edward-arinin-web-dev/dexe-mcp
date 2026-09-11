@@ -6,6 +6,8 @@ import type { ToolContext } from "./context.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { buildChainIdParam } from "../lib/params.js";
 import { settingsAdvisories } from "../lib/protocolAdvisories.js";
+import { assessActions, withWarnings, legacyGovernanceAdvisories } from "./buildResult.js";
+import { warningsOutputField } from "../lib/buildWarning.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
@@ -95,30 +97,49 @@ function errorResult(message: string) {
 
 type Action = { executor: string; value: string; data: string };
 
-function wrapperResult(params: {
-  metadata: unknown;
-  actions: Action[];
-  title: string;
-  detail: string;
-  /** Governance-safety advisories — mirrored into structuredContent so clients that only render the structured payload still see them. */
-  advisories?: string[];
-}) {
-  const { metadata, actions, title, detail, advisories } = params;
-  return {
-    content: [
+/**
+ * The per-module result chokepoint, bound to the tool context so the build-time
+ * harm pass runs on EVERY wrapper in this file rather than on whichever one a
+ * reviewer happened to be looking at. It is a factory rather than a module-level
+ * helper because the assessment needs `ctx.config` (default chain + treasury
+ * posture) and a module-level copy would be shared across servers in-process.
+ *
+ * `governanceAdvisories` (the 0.33.0 channel) is preserved alongside the new
+ * `warnings` array — merged, never replaced.
+ */
+function makeWrapperResult(ctx: ToolContext) {
+  return function wrapperResult(params: {
+    metadata: unknown;
+    actions: Action[];
+    title: string;
+    detail: string;
+    /** Governance-safety advisories — mirrored into structuredContent so clients that only render the structured payload still see them. */
+    advisories?: string[];
+    /** Exactly what the caller passed; `undefined` means "not supplied". */
+    chainId?: number;
+    govPool?: string;
+  }) {
+    const { metadata, actions, title, detail, advisories, chainId, govPool } = params;
+    const warnings = assessActions({ ctx, chainId, actions, govPool }).filter(
+      // `withdraw_treasury` already prints the treasury advisory into `detail`;
+      // saying it twice is how a warning stops being read.
+      (w) => !(w.code === "treasury.risk" && detail.includes(w.message)),
+    );
+    return withWarnings(
       {
-        type: "text" as const,
         text:
           `${title}\n${detail}\n\nNext:\n` +
           `1) dexe_ipfs_upload_proposal_metadata with the metadata object → get CID\n` +
           `2) dexe_proposal_build_external with descriptionURL=<CID>, actionsOnFor=actions (${actions.length} action${actions.length === 1 ? "" : "s"})`,
+        structured: {
+          metadata,
+          actions,
+          ...(advisories?.length ? { governanceAdvisories: advisories } : {}),
+        },
       },
-    ],
-    structuredContent: {
-      metadata,
-      actions,
-      ...(advisories?.length ? { governanceAdvisories: advisories } : {}),
-    },
+      warnings,
+      { legacy: legacyGovernanceAdvisories(advisories ?? []) },
+    );
   };
 }
 
@@ -133,6 +154,7 @@ function payloadOutputSchema() {
       }),
     ),
     governanceAdvisories: z.array(z.string()).optional(),
+    warnings: warningsOutputField,
   };
 }
 
@@ -143,17 +165,18 @@ export function registerProposalBuildMoreTools(
   _ctx: ToolContext,
 ): void {
   registerChangeVotingSettings(server, _ctx);
-  registerManageValidators(server);
-  registerAddExpert(server);
-  registerRemoveExpert(server);
+  registerManageValidators(server, _ctx);
+  registerAddExpert(server, _ctx);
+  registerRemoveExpert(server, _ctx);
   registerWithdrawTreasury(server, _ctx);
-  registerDelegateToExpert(server);
-  registerRevokeFromExpert(server);
+  registerDelegateToExpert(server, _ctx);
+  registerRevokeFromExpert(server, _ctx);
 }
 
 // ---------- 1. change_voting_settings ----------
 
 function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_change_voting_settings",
     {
@@ -167,6 +190,10 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
           .array(z.string())
           .default([])
           .describe("Settings ids to edit (parallel to `settings`). Empty => addSettings"),
+        // Without settingsIds this emits addSettings, which is chain-gated by
+        // upstream #36. The chain-aware guard structurally could not run here
+        // before, because the tool had nothing to key on.
+        chainId: buildChainIdParam,
         proposalName: z.string().default("Change Voting Settings"),
         proposalDescription: z.string().default(""),
       },
@@ -176,6 +203,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
       govSettings,
       settings,
       settingsIds = [],
+      chainId,
       proposalName = "Change Voting Settings",
       proposalDescription = "",
     }) => {
@@ -219,6 +247,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
         return wrapperResult({
           metadata,
           actions: [action],
+          chainId,
           title: `Change Voting Settings (${method}, ${settings.length} entries)`,
           detail:
             `Target: GovSettings(${govSettings}).${method}\nCalldata: ${data.slice(0, 66)}…` +
@@ -236,7 +265,8 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
 
 // ---------- 2. manage_validators ----------
 
-function registerManageValidators(server: McpServer): void {
+function registerManageValidators(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_manage_validators",
     {
@@ -299,7 +329,8 @@ function registerManageValidators(server: McpServer): void {
 
 // ---------- 3. add_expert (local or global) ----------
 
-function registerAddExpert(server: McpServer): void {
+function registerAddExpert(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_add_expert",
     {
@@ -359,7 +390,8 @@ function registerAddExpert(server: McpServer): void {
 
 // ---------- 4. remove_expert (local or global) ----------
 
-function registerRemoveExpert(server: McpServer): void {
+function registerRemoveExpert(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_remove_expert",
     {
@@ -419,6 +451,7 @@ const ERC721_TRANSFER_ABI = [
 ] as const;
 
 function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_withdraw_treasury",
     {
@@ -511,6 +544,8 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
         return wrapperResult({
           metadata,
           actions,
+          chainId,
+          govPool,
           title: `Withdraw Treasury → ${receiver}: ${summary}`,
           detail:
             `${actions.length} external action${actions.length === 1 ? "" : "s"} (token.transfer / nft.transferFrom from GovPool).${blacklistNote}` +
@@ -525,7 +560,8 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 6. delegate_to_expert ----------
 
-function registerDelegateToExpert(server: McpServer): void {
+function registerDelegateToExpert(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_delegate_to_expert",
     {
@@ -587,7 +623,8 @@ function registerDelegateToExpert(server: McpServer): void {
 
 // ---------- 7. revoke_from_expert ----------
 
-function registerRevokeFromExpert(server: McpServer): void {
+function registerRevokeFromExpert(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_revoke_from_expert",
     {

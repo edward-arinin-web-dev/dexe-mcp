@@ -13,6 +13,11 @@ import {
   worstRisk,
   type RiskLevel,
 } from "../lib/quorumRisk.js";
+import {
+  classifyGovernanceActions,
+  governanceVerdict,
+  type GovernanceHit,
+} from "../lib/buildAdvisories.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import { safeErrorMessage } from "../lib/redact.js";
@@ -61,10 +66,59 @@ function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
-function recommend(verdict: RiskLevel, floorPct: number, treasuryTouching: boolean): string {
+/**
+ * Exported for unit test: the no-treasury branch used to assert safety
+ * ("Standard governance review applies") for ANY proposal the six-selector
+ * treasury table did not recognise — including `blacklist([govPool], true)`,
+ * which permanently freezes the treasury. Absence of a recognised selector is
+ * absence of INFORMATION, not absence of risk, and `verdict: "SAFE"` is what an
+ * agent branches on.
+ */
+export function recommend(
+  verdict: RiskLevel,
+  floorPct: number,
+  treasuryTouching: boolean,
+  governanceHits: readonly GovernanceHit[] = [],
+): string {
+  const govLine = governanceRecommendation(governanceHits);
   if (!treasuryTouching) {
-    return "No treasury-moving action detected (no ERC20 approve/transfer/transferFrom or native value). Standard governance review applies.";
+    const base =
+      "No treasury-moving action detected (no ERC20 approve/transfer/transferFrom or native value). " +
+      "This tool classifies a fixed selector set — an unrecognised call is UNASSESSED, not proven safe. " +
+      "Review the actions themselves (dexe_decode_proposal) before voting or executing.";
+    return govLine ? `${govLine}\n\n${base}` : base;
   }
+  const treasury = recommendTreasury(verdict, floorPct);
+  return govLine ? `${govLine}\n\n${treasury}` : treasury;
+}
+
+function governanceRecommendation(hits: readonly GovernanceHit[]): string | null {
+  if (hits.length === 0) return null;
+  const owned = hits.filter((h) => h.protocolTargets.length > 0);
+  const unknown = hits.filter((h) => h.kind === "unknownPrivileged");
+  const parts: string[] = [];
+  if (owned.length > 0) {
+    parts.push(
+      `DANGER: this proposal calls ${[...new Set(owned.map((h) => h.kind))].join(", ")} targeting the DAO's own ` +
+        `contract(s) ${[...new Set(owned.flatMap((h) => h.protocolTargets))].join(", ")}. It moves no treasury ` +
+        `value, so the quorum model below does not apply — a passing vote can permanently disable governance or ` +
+        `freeze the treasury. Verify the target address before voting FOR.`,
+    );
+  } else {
+    parts.push(
+      `CAUTION: this proposal changes DAO governance (${[...new Set(hits.map((h) => h.kind))].join(", ")}). ` +
+        `It moves no treasury value — review the change itself; the quorum model below does not cover it.`,
+    );
+  }
+  if (unknown.length > 0) {
+    parts.push(
+      `It also calls a DAO contract with a selector this tool does not recognise: UNASSESSED, not proven safe.`,
+    );
+  }
+  return parts.join(" ");
+}
+
+function recommendTreasury(verdict: RiskLevel, floorPct: number): string {
   if (verdict === "DANGER") {
     return `HIGH RISK: this is a treasury-moving proposal under a low quorum. Confirm quorum ≥${floorPct}% AND participation by key stakeholders (validators / majority holders) before executing. Responsibility rests with the voter/creator/executor.`;
   }
@@ -82,7 +136,7 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
     {
       title: "Treasury-safety risk readout for a proposal (or hypothetical actions)",
       description:
-        "Assesses low-quorum governance-safety risk for a treasury-moving DAO proposal. Pass `proposalId` to assess an on-chain proposal's actionsOnFor + its own quorum, or `actions` to assess a hypothetical action set against the DAO's default settings. Reports quorum %, the safe floor (DEXE_MIN_SAFE_QUORUM_PCT), the treasury tokens an action would move, the indicative share of supply required to meet quorum, and a verdict (SAFE/CAUTION/DANGER) with a recommendation. Read-only; never broadcasts. Stakeholder participation is reported only when a subgraph is available (else null).",
+        "Assesses low-quorum treasury risk AND privileged no-value governance calls (blacklist, pause, changeVotePower, add/editSettings, changeExecutors, changeBalances). Pass `proposalId` for an on-chain proposal or `actions` for a hypothetical set. Reports quorum %, the safe floor, treasury tokens at risk, `governanceHits`, the supply share needed for quorum, and a verdict. SAFE means 'no risk of the kinds this tool classifies', never 'this proposal is safe'. Read-only.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         proposalId: z.number().int().min(1).optional().describe("On-chain proposal id (1-indexed) to assess"),
@@ -111,6 +165,15 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
         ),
         treasuryAtRisk: z.array(
           z.object({ token: z.string(), symbol: z.string().nullable(), balance: z.string().nullable() }),
+        ),
+        governanceHits: z.array(
+          z.object({
+            index: z.number(),
+            executor: z.string(),
+            selector: z.string().nullable(),
+            kind: z.string(),
+            protocolTargets: z.array(z.string()),
+          }),
         ),
         totalSupply: z.string().nullable(),
         requiredWeight: z.string().nullable(),
@@ -146,7 +209,17 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
         }
         const resA = await multicall(provider, callsA);
         if (!resA[0]?.success) return errorResult("getHelperContracts reverted — is this a GovPool?");
-        const helpers = resA[0]!.value as unknown as { settings: string; userKeeper: string };
+        // The five-field return was being narrowed to two, so the DAO's own
+        // validators / poolRegistry / votePower were invisible to every check
+        // downstream. GOV_POOL_ABI declares all five and multicall returns the
+        // full Result for a multi-output call, so this costs no extra RPC.
+        const helpers = resA[0]!.value as unknown as {
+          settings: string;
+          userKeeper: string;
+          validators: string;
+          poolRegistry: string;
+          votePower: string;
+        };
 
         let assessedActions: { executor: string; value: string; data: string }[];
         let quorumRaw: bigint;
@@ -241,9 +314,34 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
               })
             : null;
 
-        const verdict: RiskLevel = treasuryTouching
-          ? worstRisk(quorumVerdict, qConc.verdict)
-          : "SAFE";
+        // Privileged governance calls that move NO treasury value — blacklist,
+        // pause, changeVotePower, addSettings/editSettings, changeExecutors,
+        // changeBalances — are invisible to the six-selector treasury table, so
+        // `blacklist([govPool], true)` scored SAFE with "Standard governance
+        // review applies" while permanently freezing the treasury. Selector
+        // match comes FIRST and is independent of the executor, so a failed
+        // `tokenAddress()` read can never silently downgrade a finding.
+        const protocolAddresses = [
+          govPool,
+          helpers.settings,
+          helpers.userKeeper,
+          helpers.validators,
+          helpers.poolRegistry,
+          helpers.votePower,
+          govToken,
+        ].filter(
+          (a): a is string =>
+            typeof a === "string" &&
+            isAddress(a) &&
+            a !== "0x0000000000000000000000000000000000000000",
+        );
+        const governanceHits = classifyGovernanceActions(assessedActions, { protocolAddresses });
+        const govV = governanceVerdict(governanceHits);
+
+        const verdict: RiskLevel = worstRisk(
+          treasuryTouching ? worstRisk(quorumVerdict, qConc.verdict) : "SAFE",
+          govV,
+        );
 
         const structured = {
           govPool,
@@ -265,7 +363,14 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
           requiredWeight: requiredWeight !== null ? requiredWeight.toString() : null,
           quorumSupplyPct: qConc.pctOfSupplyForQuorum,
           controllingHoldersVotedFor,
-          recommendation: recommend(verdict, floorPct, treasuryTouching),
+          governanceHits: governanceHits.map((h) => ({
+            index: h.index,
+            executor: h.executor,
+            selector: h.selector,
+            kind: h.kind,
+            protocolTargets: h.protocolTargets,
+          })),
+          recommendation: recommend(verdict, floorPct, treasuryTouching, governanceHits),
         };
 
         const lines = [
@@ -284,6 +389,16 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
               // identical field.
               `  treasury at risk: ${treasuryAtRisk
                 .map((t) => `${t.symbol != null ? renderUntrusted(t.symbol, 40) : "?"}=${t.balance ?? "?"}`)
+                .join(", ")}`
+            : "",
+          governanceHits.length > 0
+            ? // Deliberately NOT the phrase "treasury at risk": a prompt-injection
+              // test counts lines carrying it and asserts there is exactly one.
+              `  governance calls: ${governanceHits
+                .map(
+                  (h) =>
+                    `${h.kind}[${h.index}]${h.protocolTargets.length > 0 ? ` → DAO-owned ${h.protocolTargets.join(", ")}` : ""}`,
+                )
                 .join(", ")}`
             : "",
           `  controlling-holders voted For: ${controllingHoldersVotedFor === null ? "unknown (no subgraph)" : controllingHoldersVotedFor}`,

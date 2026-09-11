@@ -18,6 +18,14 @@ import {
   renderAdvisories,
   type UpstreamAdvisory,
 } from "../lib/protocolAdvisories.js";
+import { checkApproveTarget } from "../lib/preflight.js";
+import {
+  assessActions,
+  withWarnings,
+  legacyUpstreamAdvisories,
+  type BuildWarning,
+} from "./buildResult.js";
+import { warningsOutputField } from "../lib/buildWarning.js";
 
 /**
  * Phase 4 — user-facing write calldata builders.
@@ -132,31 +140,65 @@ function errorResult(message: string) {
  * Calldata is untouched — these tools stay pure builders.
  */
 function payloadResult(payload: TxPayload, ...advisories: (UpstreamAdvisory | null)[]) {
+  return payloadResultWith(payload, [], ...advisories);
+}
+
+/**
+ * Same funnel, plus the build-time harm pass. Every builder in this file
+ * returns through `payloadResult`, so the pass runs on all 27 of them without
+ * a per-tool edit: the payload IS the action (`to`/`value`/`data`), and it
+ * always carries its own `chainId`, so nothing has to be threaded in.
+ *
+ * `treasuryGuard: "off"` on purpose — these are the CALLER's own wallet
+ * actions (deposit, approve, claim), not DAO treasury movements, and a
+ * treasury advisory on every `dexe_vote_build_erc20_approve` is exactly the
+ * "fires when it is false" noise this file already decided against.
+ *
+ * The legacy `advisories: [{id,severity,upstream,text}]` channel — a DECLARED
+ * output field of all 27 tools — is preserved and merged, never replaced.
+ */
+function payloadResultWith(
+  payload: TxPayload,
+  extraWarnings: BuildWarning[],
+  ...advisories: (UpstreamAdvisory | null)[]
+) {
   const live = advisories.filter((a): a is UpstreamAdvisory => Boolean(a));
   const block = renderAdvisories(live);
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text:
-          `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…` +
-          (block ? `\n\n${block}` : ""),
+  const warnings = [
+    ...assessActions({
+      ctx: undefined,
+      chainId: payload.chainId,
+      actions: [{ executor: payload.to, value: payload.value, data: payload.data }],
+      treasuryGuard: "off",
+    }),
+    ...extraWarnings,
+  ];
+  return withWarnings(
+    {
+      text:
+        `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…` +
+        (block ? `\n\n${block}` : ""),
+      structured: {
+        payload: { ...payload } as Record<string, unknown>,
+        ...(live.length > 0
+          ? {
+              advisories: live.map((a) => ({
+                id: a.id,
+                severity: a.severity,
+                upstream: a.upstream,
+                text: a.text,
+              })),
+            }
+          : {}),
       },
-    ],
-    structuredContent: {
-      payload: { ...payload } as Record<string, unknown>,
-      ...(live.length > 0
-        ? {
-            advisories: live.map((a) => ({
-              id: a.id,
-              severity: a.severity,
-              upstream: a.upstream,
-              text: a.text,
-            })),
-          }
-        : {}),
     },
-  };
+    warnings,
+    {
+      legacy: legacyUpstreamAdvisories(
+        live.map((a) => ({ id: a.id, severity: a.severity, upstream: a.upstream, text: a.text })),
+      ),
+    },
+  );
 }
 
 // ---------- deposit lock (upstream mode 5) — ONE resolution point ----------
@@ -286,17 +328,14 @@ function payloadOutputSchema() {
       chainId: z.number(),
       description: z.string(),
     }),
-    advisories: z
-      .array(
-        z.object({
-          id: z.string(),
-          severity: z.string(),
-          upstream: z.string(),
-          text: z.string(),
-        }),
-      )
-      .optional()
-      .describe("Known upstream protocol defects that affect this exact call. Read before signing."),
+    // DEPRECATED as of 0.34.0 — superseded by `warnings`, which carries the same
+    // findings plus every non-upstream one, at every build surface. The emitted
+    // objects are unchanged ({id, severity, upstream, text}); only the advertised
+    // shape is collapsed, because this schema is paid on every default-profile
+    // tool on every tools/list and nobody should be writing NEW code against it.
+    // Remove no earlier than 0.36.0.
+    advisories: z.array(z.record(z.unknown())).optional().describe("Deprecated — use warnings."),
+    warnings: warningsOutputField,
   };
 }
 
@@ -306,7 +345,7 @@ export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): voi
   // Only the two deposit-lock builders use it, and only when the caller names a
   // `voter`; construction is lazy (no connection is opened here).
   const rpc = new RpcProvider(ctx.config);
-  registerErc20Approve(server, ctx);
+  registerErc20Approve(server, ctx, rpc);
   registerDeposit(server, ctx);
   registerWithdraw(server, ctx);
   registerDelegate(server, ctx);
@@ -340,7 +379,7 @@ export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): voi
 
 // ---------- ERC20 approve ----------
 
-function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
+function registerErc20Approve(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_erc20_approve",
     {
@@ -358,11 +397,15 @@ function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
               "Unlimited = max uint256, i.e. '115792089237316195423570985008687907853269984665640564039457584007913129639935'",
             ),
           ),
+        govPool: z
+          .string()
+          .optional()
+          .describe("DAO GovPool. When set, an approve to it (instead of its GovUserKeeper) is refused."),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),
     },
-    async ({ token, spender, amount, chainId }) => {
+    async ({ token, spender, amount, govPool, chainId }) => {
       if (!isAddress(token)) return errorResult(`Invalid token: ${token}`);
       if (!isAddress(spender)) return errorResult(`Invalid spender: ${spender}`);
       try {
@@ -376,12 +419,70 @@ function registerErc20Approve(server: McpServer, ctx: ToolContext): void {
           contractLabel: "ERC20",
           description: `ERC20(${token}).approve(${spender}, ${amount})`,
         });
-        return payloadResult(payload);
+        // Trap 6, wired at last. `checkApproveTarget` has existed and been
+        // unit-tested since before 0.33.0 and was called from NOTHING, so this
+        // DEFAULT-toolset tool happily encoded an allowance to the GovPool —
+        // which GovUserKeeper.transferFrom never pulls, so the later deposit
+        // reverts far away from the cause (bug #14).
+        //
+        // Only the locally-decidable half refuses: the caller passed two
+        // arguments that contradict each other. `checkApproveTarget`'s THIRD
+        // branch (spender is neither keeper nor pool) is deliberately NOT used
+        // — this is the project's general ERC20 approve encoder and a
+        // TokenSaleProposal / DistributionProposal / StakingProposal spender is
+        // correct. Omitting `govPool` is the escape hatch for a raw encode.
+        const extra: BuildWarning[] = [];
+        if (govPool && isAddress(govPool) && spender.toLowerCase() === govPool.toLowerCase()) {
+          const keeper = await resolveUserKeeper(rpc, chainId ?? ctx.config.defaultChainId, govPool);
+          extra.push({
+            code: "approve.target",
+            severity: "WARN",
+            block: "hard",
+            message: keeper
+              ? checkApproveTarget(spender, keeper, govPool).remediation!
+              : `ERC20.approve must target this DAO's GovUserKeeper, not its GovPool (${govPool}). ` +
+                `GovUserKeeper.transferFrom pulls the deposit; approving the GovPool leaves the allowance unusable.`,
+            remedy: keeper
+              ? `Re-call with spender=${keeper}.`
+              : "Run dexe_dao_info(govPool) and re-call with spender = helpers.userKeeper.",
+          });
+        }
+        return payloadResultWith(payload, extra);
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }
     },
   );
+}
+
+/**
+ * Best-effort GovUserKeeper lookup, used ONLY to make a refusal message name
+ * the right address. The refusal itself is decided with zero RPC, so a missing
+ * endpoint never changes the verdict — it only makes the text less specific.
+ */
+async function resolveUserKeeper(
+  rpc: RpcProvider,
+  chainId: number,
+  govPool: string,
+): Promise<string | null> {
+  try {
+    const pr = rpc.tryProvider(chainId);
+    if ("error" in pr) return null;
+    const res = await multicall(pr.ok, [
+      {
+        target: govPool,
+        iface: GOV_POOL_HELPERS_IFACE,
+        method: "getHelperContracts",
+        args: [],
+        allowFailure: true,
+      },
+    ]);
+    if (!res[0]?.success) return null;
+    const keeper = (res[0]!.value as unknown as { userKeeper?: string }).userKeeper;
+    return typeof keeper === "string" && isAddress(keeper) ? keeper : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------- deposit ----------

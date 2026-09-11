@@ -17,7 +17,14 @@ import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { buildChainIdParam } from "../lib/params.js";
 import { parseUintString } from "../lib/amount.js";
-import { CHANGE_VOTE_POWER_ADVISORY } from "../lib/protocolAdvisories.js";
+import { assessActions, withWarnings, legacyGovernanceAdvisories } from "./buildResult.js";
+import { assertStakingWindow } from "../lib/buildAdvisories.js";
+import { warningsOutputField } from "../lib/buildWarning.js";
+import {
+  CHANGE_VOTE_POWER_ADVISORY,
+  findVestingTiers,
+  vestingRefusalText,
+} from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
 import { RpcProvider } from "../rpc.js";
 import type { DexeConfig } from "../config.js";
@@ -451,39 +458,67 @@ function payloadOutputSchema() {
     actions: z.array(
       z.object({ executor: z.string(), value: z.string(), data: z.string() }),
     ),
+    // `wrapperResult` has always emitted this conditionally; it was never
+    // declared, so schema-derived clients could not see it. Additive.
+    governanceAdvisories: z.array(z.string()).optional(),
+    warnings: warningsOutputField,
   };
 }
 
-function wrapperResult(params: {
-  metadata: unknown;
-  actions: Action[];
-  title: string;
-  detail: string;
-  /** Non-blocking governance-safety notes, mirrored into text + structuredContent. */
-  advisories?: string[];
-}) {
-  const advisoryBlock =
-    params.advisories && params.advisories.length
-      ? `\n\nWARNINGS:\n${params.advisories.map((a) => `- ${a}`).join("\n")}`
-      : "";
-  return {
-    content: [
+/**
+ * The per-module result chokepoint, bound to the tool context so the build-time
+ * harm pass runs on all twelve wrappers in this file instead of on whichever
+ * one a reviewer happened to be looking at. `dexe_proposal_build_token_sale`,
+ * `_token_sale_multi`, `_blacklist`, `_new_proposal_type` and
+ * `_create_staking_tier` all reach it, which is what makes the F15, #36,
+ * GovSettings-bounds, zero-executor and blacklist-self-harm claims true at
+ * every surface rather than at one.
+ *
+ * A factory rather than a module-level helper: the assessment needs
+ * `ctx.config`, and a module-level copy would be shared across servers
+ * in-process (the chain-threading tests register the module twice with
+ * different default chains).
+ */
+function makeWrapperResult(ctx: ToolContext) {
+  return function wrapperResult(params: {
+    metadata: unknown;
+    actions: Action[];
+    title: string;
+    detail: string;
+    /** Non-blocking governance-safety notes, mirrored into text + structuredContent. */
+    advisories?: string[];
+    /** Exactly what the caller passed; `undefined` means "not supplied". */
+    chainId?: number;
+    govPool?: string;
+  }) {
+    const advisoryBlock =
+      params.advisories && params.advisories.length
+        ? `\n\nWARNINGS:\n${params.advisories.map((a) => `- ${a}`).join("\n")}`
+        : "";
+    const warnings = assessActions({
+      ctx,
+      chainId: params.chainId,
+      actions: params.actions,
+      govPool: params.govPool,
+    }).filter((w) => !(w.code === "treasury.risk" && params.detail.includes(w.message)));
+    return withWarnings(
       {
-        type: "text" as const,
         text:
           `${params.title}\n${params.detail}\n\nNext:\n` +
           `1) dexe_ipfs_upload_proposal_metadata with the metadata object → get CID\n` +
           `2) dexe_proposal_build_external with descriptionURL=<CID>, actionsOnFor=actions (${params.actions.length} action${params.actions.length === 1 ? "" : "s"})` +
           advisoryBlock,
+        structured: {
+          metadata: params.metadata,
+          actions: params.actions,
+          ...(params.advisories && params.advisories.length
+            ? { governanceAdvisories: params.advisories }
+            : {}),
+        },
       },
-    ],
-    structuredContent: {
-      metadata: params.metadata,
-      actions: params.actions,
-      ...(params.advisories && params.advisories.length
-        ? { governanceAdvisories: params.advisories }
-        : {}),
-    },
+      warnings,
+      { legacy: legacyGovernanceAdvisories(params.advisories ?? []) },
+    );
   };
 }
 
@@ -493,23 +528,24 @@ export function registerProposalBuildComplexTools(
   server: McpServer,
   _ctx: ToolContext,
 ): void {
-  registerTokenDistribution(server);
-  registerTokenSale(server);
-  registerTokenSaleMulti(server);
-  registerTokenSaleWhitelist(server);
-  registerTokenSaleRecover(server);
-  registerCreateStakingTier(server);
-  registerChangeMathModel(server);
-  registerModifyDaoProfile(server);
-  registerBlacklistManagement(server);
+  registerTokenDistribution(server, _ctx);
+  registerTokenSale(server, _ctx);
+  registerTokenSaleMulti(server, _ctx);
+  registerTokenSaleWhitelist(server, _ctx);
+  registerTokenSaleRecover(server, _ctx);
+  registerCreateStakingTier(server, _ctx);
+  registerChangeMathModel(server, _ctx);
+  registerModifyDaoProfile(server, _ctx);
+  registerBlacklistManagement(server, _ctx);
   registerRewardMultiplier(server, _ctx);
   registerApplyToDao(server, _ctx);
-  registerNewProposalType(server);
+  registerNewProposalType(server, _ctx);
 }
 
 // ---------- 1. token_distribution ----------
 
-function registerTokenDistribution(server: McpServer): void {
+function registerTokenDistribution(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_token_distribution",
     {
@@ -992,7 +1028,8 @@ export function buildTokenSaleMultiActions(input: {
   };
 }
 
-function registerTokenSaleMulti(server: McpServer): void {
+function registerTokenSaleMulti(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_token_sale_multi",
     {
@@ -1010,11 +1047,25 @@ function registerTokenSaleMulti(server: McpServer): void {
           ),
         proposalName: z.string().default("Token Sale"),
         proposalDescription: z.string().default(""),
+        acknowledgeVestingBlocked: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Opt in to a tier with vestingPercentage > 0. Refused by default (upstream F15: the vested leg can never be withdrawn on current pools).",
+          ),
       },
       outputSchema: payloadOutputSchema(),
     },
     async (input) => {
       try {
+        // F15 first: the damage is done at createTiers, not at withdraw time,
+        // so the refusal lands BEFORE anything is encoded. 0.33.0 wired this to
+        // dexe_otc_dao_open_sale only, while the CHANGELOG claimed it for every
+        // surface.
+        const vestingRisks = findVestingTiers(input.tiers);
+        if (vestingRisks.length > 0 && !input.acknowledgeVestingBlocked) {
+          return errorResult(vestingRefusalText(vestingRisks, "acknowledgeVestingBlocked: true"));
+        }
         const built = buildTokenSaleMultiActions(input);
         return wrapperResult({
           metadata: built.metadata,
@@ -1033,7 +1084,8 @@ function registerTokenSaleMulti(server: McpServer): void {
   );
 }
 
-function registerTokenSale(server: McpServer): void {
+function registerTokenSale(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   // Back-compat shim around the multi-tier builder. Same single-tier API as
   // before, plus an optional `participation` field. Delegates encoding to
   // `buildTierTuple` so calldata stays canonical.
@@ -1049,6 +1101,12 @@ function registerTokenSale(server: McpServer): void {
         latestTierId: z.string().default("0"),
         proposalName: z.string().default("Token Sale"),
         proposalDescription: z.string().default(""),
+        acknowledgeVestingBlocked: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Opt in to a tier with vestingPercentage > 0. Refused by default (upstream F15: the vested leg can never be withdrawn on current pools).",
+          ),
       },
       outputSchema: payloadOutputSchema(),
     },
@@ -1058,9 +1116,15 @@ function registerTokenSale(server: McpServer): void {
       latestTierId = "0",
       proposalName = "Token Sale",
       proposalDescription = "",
+      acknowledgeVestingBlocked = false,
     }) => {
       if (!isAddress(tokenSaleProposal)) {
         return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      }
+      // Same F15 pre-block as _multi and dexe_otc_dao_open_sale — identical text.
+      const vestingRisks = findVestingTiers([tier]);
+      if (vestingRisks.length > 0 && !acknowledgeVestingBlocked) {
+        return errorResult(vestingRefusalText(vestingRisks, "acknowledgeVestingBlocked: true"));
       }
       try {
         const iface = new Interface(TOKEN_SALE_PROPOSAL_ABI as unknown as string[]);
@@ -1106,7 +1170,8 @@ function registerTokenSale(server: McpServer): void {
   );
 }
 
-function registerTokenSaleWhitelist(server: McpServer): void {
+function registerTokenSaleWhitelist(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_token_sale_whitelist",
     {
@@ -1178,7 +1243,8 @@ function registerTokenSaleWhitelist(server: McpServer): void {
 
 // ---------- 3. token_sale_recover ----------
 
-function registerTokenSaleRecover(server: McpServer): void {
+function registerTokenSaleRecover(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_token_sale_recover",
     {
@@ -1229,7 +1295,8 @@ function registerTokenSaleRecover(server: McpServer): void {
 
 // ---------- 4. create_staking_tier ----------
 
-function registerCreateStakingTier(server: McpServer): void {
+function registerCreateStakingTier(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_create_staking_tier",
     {
@@ -1265,6 +1332,13 @@ function registerCreateStakingTier(server: McpServer): void {
       if (!isAddress(stakingProposal)) return errorResult(`Invalid stakingProposal: ${stakingProposal}`);
       if (!isAddress(rewardToken)) return errorResult(`Invalid rewardToken: ${rewardToken}`);
       try {
+        // The catalog builder has refused a stale window since 0.29; this
+        // handler re-implements the encode and went straight to
+        // encodeFunctionData with no time check at all — so the same params the
+        // composite rejects built clean here. StakingProposal.createStaking does
+        // NOT revert on a past deadline: it bounces the reward and emits
+        // StakingRejected, so the tx succeeds and no tier exists.
+        assertStakingWindow(startedAt, deadline);
         const iface = new Interface(STAKING_PROPOSAL_ABI as unknown as string[]);
         const createData = iface.encodeFunctionData("createStaking", [
           rewardToken,
@@ -1313,7 +1387,8 @@ function registerCreateStakingTier(server: McpServer): void {
 
 // ---------- 5. change_math_model ----------
 
-function registerChangeMathModel(server: McpServer): void {
+function registerChangeMathModel(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_change_math_model",
     {
@@ -1365,7 +1440,8 @@ function registerChangeMathModel(server: McpServer): void {
 
 // ---------- 6. modify_dao_profile ----------
 
-function registerModifyDaoProfile(server: McpServer): void {
+function registerModifyDaoProfile(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_modify_dao_profile",
     {
@@ -1421,7 +1497,8 @@ function registerModifyDaoProfile(server: McpServer): void {
 
 // ---------- 7. blacklist_management ----------
 
-function registerBlacklistManagement(server: McpServer): void {
+function registerBlacklistManagement(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_blacklist",
     {
@@ -1432,6 +1509,15 @@ function registerBlacklistManagement(server: McpServer): void {
         erc20Gov: z.string().describe("DAO ERC20Gov token contract"),
         addAddresses: z.array(z.string()).default([]),
         removeAddresses: z.array(z.string()).default([]),
+        // Both optional, both non-breaking: with them the builder can tell you
+        // that a target is the DAO's own GovPool or one of its helper contracts,
+        // which freezes the treasury or (for the GovUserKeeper) every deposit
+        // and withdrawal the DAO will ever take.
+        chainId: buildChainIdParam,
+        govPool: z
+          .string()
+          .optional()
+          .describe("DAO GovPool. Enables the self-harm check that flags blacklisting the DAO's own contracts."),
         proposalName: z.string().default("Blacklist Management"),
         proposalDescription: z.string().default(""),
       },
@@ -1441,6 +1527,8 @@ function registerBlacklistManagement(server: McpServer): void {
       erc20Gov,
       addAddresses = [],
       removeAddresses = [],
+      chainId,
+      govPool,
       proposalName = "Blacklist Management",
       proposalDescription = "",
     }) => {
@@ -1481,6 +1569,8 @@ function registerBlacklistManagement(server: McpServer): void {
         return wrapperResult({
           metadata,
           actions,
+          chainId,
+          govPool,
           title: `Blacklist: +${addAddresses.length} / -${removeAddresses.length}`,
           detail: `Target: ERC20Gov(${erc20Gov}).blacklist (${actions.length} action${actions.length === 1 ? "" : "s"})`,
         });
@@ -1494,6 +1584,7 @@ function registerBlacklistManagement(server: McpServer): void {
 // ---------- 8. reward_multiplier ----------
 
 function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_reward_multiplier",
     {
@@ -1697,6 +1788,7 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
 // ---------- 9. apply_to_dao ----------
 
 function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_apply_to_dao",
     {
@@ -1797,7 +1889,8 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 10. new_proposal_type (also: enable_staking) ----------
 
-function registerNewProposalType(server: McpServer): void {
+function registerNewProposalType(server: McpServer, ctx: ToolContext): void {
+  const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_new_proposal_type",
     {
@@ -1831,6 +1924,9 @@ function registerNewProposalType(server: McpServer): void {
           .describe(
             "Id the new setting will receive on GovSettings (= current getSettingsLength()). The agent reads this before building.",
           ),
+        // This ALWAYS emits addSettings, which upstream #36 blocks at execute on
+        // some chains. Without a chain to key on the guard could not run here.
+        chainId: buildChainIdParam,
         proposalName: z.string().default("New Proposal Type"),
         proposalDescription: z.string().default(""),
       },
@@ -1841,6 +1937,7 @@ function registerNewProposalType(server: McpServer): void {
       settings,
       executors,
       newSettingId,
+      chainId,
       proposalName = "New Proposal Type",
       proposalDescription = "",
     }) => {
@@ -1891,6 +1988,7 @@ function registerNewProposalType(server: McpServer): void {
         return wrapperResult({
           metadata,
           actions,
+          chainId,
           title: `New Proposal Type (settingsId=${newSettingId}, ${executors.length} executors)`,
           detail: `Target: GovSettings(${govSettings}).addSettings + changeExecutors (2 actions)`,
         });

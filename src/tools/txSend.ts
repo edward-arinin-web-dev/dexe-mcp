@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { SignerManager } from "../lib/signer.js";
+import { HOT_KEY_SAFETY, type SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
@@ -26,11 +26,6 @@ import {
 const REVERTED_NOTE =
   "⚠️ REVERTED — the transaction was mined but FAILED on-chain (status 0). State was NOT changed. " +
   "Inspect the tx on the explorer for the revert reason before retrying.";
-
-/** Flagged on every hot-key broadcast — a plaintext key on disk is not safe. */
-const HOT_KEY_SAFETY =
-  "⚠️ NOT SAFE — signed with a hot key (DEXE_PRIVATE_KEY) in plaintext on disk. " +
-  "Prefer WalletConnect: run dexe_wc_connect and the phone signs, so the key never touches this machine.";
 
 /**
  * Classify a transaction whose receipt is absent: a tx that exists on-chain but

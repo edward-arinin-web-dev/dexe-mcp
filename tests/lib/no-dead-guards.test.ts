@@ -85,13 +85,6 @@ const KNOWN_UNWIRED: ReadonlyArray<{ symbol: string; file: string; reason: strin
       "but no builder calls it — an action-less proposal still reaches createProposal.",
   },
   {
-    symbol: "checkApproveTarget",
-    file: "src/lib/preflight.ts",
-    reason:
-      "pre-0.33.0 debt: preflight.ts line 6 maps trap 6 (approve GovPool instead of UserKeeper) to " +
-      "this function; the approve builders never call it.",
-  },
-  {
     symbol: "checkAvatarIsJpeg",
     file: "src/lib/preflight.ts",
     reason:

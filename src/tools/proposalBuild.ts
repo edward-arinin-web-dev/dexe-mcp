@@ -8,6 +8,8 @@ import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
 import { CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
+import { assessActions, withWarnings, type BuildWarning } from "./buildResult.js";
+import { warningsOutputField } from "../lib/buildWarning.js";
 import { buildChainIdParam } from "../lib/params.js";
 import { DEFAULTS } from "../config.js";
 import {
@@ -172,12 +174,30 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
           const forbidden = findForbiddenSelector(a.data);
           if (forbidden) return errorResult(dangerousSelectorError(forbidden, a.executor));
         }
+        // The full build-time harm pass on the assembled actions. This is the
+        // LAST point at which the selectors are visible: once wrapped into
+        // `createProposal` calldata the nested actions are opaque to every
+        // selector-keyed check, which is why it runs here and not after
+        // `buildPayload`. Every named wrapper tool routes its actions through
+        // this primitive, so a guard added here reaches all of them.
+        const assessed = assessActions({
+          ctx,
+          chainId,
+          govPool,
+          actions: [...on, ...against].map((a) => ({
+            executor: a.executor,
+            value: a.value.toString(),
+            data: a.data,
+          })),
+        });
         // Layer 4 (treasury-safety advisory): flag any value-moving /
         // allowance-granting action so a reviewer checks quorum before voting.
         const treasuryAdvisory = buildTimeTreasuryAdvisory(
           [...on, ...against].map((a) => ({ executor: a.executor, value: a.value.toString(), data: a.data })),
           ctx.config.treasuryGuard,
         );
+        // `treasury.risk` is already the text above — do not print it twice.
+        const warnings = assessed.filter((w) => !(treasuryAdvisory && w.code === "treasury.risk"));
         let payload: TxPayload;
         if (andVote) {
           payload = buildPayload({
@@ -206,7 +226,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
             description: `GovPool.createProposal (${on.length} for / ${against.length} against)`,
           });
         }
-        return payloadResult(payload, treasuryAdvisory);
+        return payloadResult(payload, treasuryAdvisory, warnings);
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }
@@ -285,6 +305,7 @@ function registerBuildCustomAbi(server: McpServer, ctx: ToolContext): void {
           data: z.string(),
         }),
         preview: z.string(),
+        warnings: warningsOutputField,
       },
     },
     async ({ target, signature, method, args = [], value = "0" }) => {
@@ -307,17 +328,24 @@ function registerBuildCustomAbi(server: McpServer, ctx: ToolContext): void {
         const action = { executor: target, value, data };
         const preview = `ProposalAction → ${target}.${method}(${args.length} args), value=${value}, calldata=${data.slice(0, 18)}…`;
         const treasuryAdvisory = buildTimeTreasuryAdvisory([action], ctx.config.treasuryGuard);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text:
-                `${preview}\n\n${CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY}` +
-                (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
-            },
-          ],
-          structuredContent: { action, preview },
-        };
+        // custom_abi is the raw-calldata path every other guard has historically
+        // walked past. Assessing the encoded action means the #36 trap, the
+        // GovSettings bounds, the F15 vesting leg and a self-harming blacklist
+        // are caught here too, not only in the typed builders.
+        const warnings = assessActions({
+          ctx,
+          chainId: undefined,
+          actions: [action],
+        }).filter((w) => !(treasuryAdvisory && w.code === "treasury.risk"));
+        return withWarnings(
+          {
+            text:
+              `${preview}\n\n${CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY}` +
+              (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
+            structured: { action, preview },
+          },
+          warnings,
+        );
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }
@@ -406,6 +434,7 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
           }),
         ),
         nextStep: z.string(),
+        warnings: warningsOutputField,
       },
     },
     async ({
@@ -457,17 +486,18 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
           `1) dexe_ipfs_upload_proposal_metadata with { title: "${proposalName}", description, extra: changes } → get CID\n` +
           `2) dexe_proposal_build_external with govPool="${govPool}", descriptionURL=<CID>, actionsOnFor=actions`;
         const treasuryAdvisory = buildTimeTreasuryAdvisory(actions, ctx.config.treasuryGuard);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text:
-                `Built token-transfer proposal scaffolding.\n\nAction: ${actionLabel}\n\nNext:\n${nextStep}` +
-                (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
-            },
-          ],
-          structuredContent: { metadata, actions, nextStep },
-        };
+        const warnings = assessActions({ ctx, chainId, govPool, actions }).filter(
+          (w) => !(treasuryAdvisory && w.code === "treasury.risk"),
+        );
+        return withWarnings(
+          {
+            text:
+              `Built token-transfer proposal scaffolding.\n\nAction: ${actionLabel}\n\nNext:\n${nextStep}` +
+              (treasuryAdvisory ? `\n\n${treasuryAdvisory}` : ""),
+            structured: { metadata, actions, nextStep },
+          },
+          warnings,
+        );
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }
@@ -484,19 +514,25 @@ function payloadSchema() {
     value: z.string(),
     chainId: z.number(),
     description: z.string(),
+    warnings: warningsOutputField,
   };
 }
 
-function payloadResult(payload: TxPayload, advisory?: string | null) {
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text:
-          `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…` +
-          (advisory ? `\n\n${advisory}` : ""),
-      },
-    ],
-    structuredContent: { ...payload } as Record<string, unknown>,
-  };
+/**
+ * Every payload-returning tool in this file goes through here, so the build-time
+ * harm pass cannot be forgotten at one of them. Before 0.34.0 the treasury
+ * advisory reached `content[].text` only and `structuredContent` carried
+ * `{...payload}` alone — a client reading the structured payload saw an
+ * advisory-free build for calldata the server had already flagged.
+ */
+function payloadResult(payload: TxPayload, advisory?: string | null, warnings: BuildWarning[] = []) {
+  return withWarnings(
+    {
+      text:
+        `${payload.description}\n  to   : ${payload.to}\n  value: ${payload.value}\n  data : ${payload.data.slice(0, 66)}…` +
+        (advisory ? `\n\n${advisory}` : ""),
+      structured: { ...payload } as Record<string, unknown>,
+    },
+    warnings,
+  );
 }

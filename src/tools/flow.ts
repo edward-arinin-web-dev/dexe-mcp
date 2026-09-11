@@ -9,7 +9,7 @@ import { PinataClient, fetchIpfs, toCidV1, cidForJson } from "../lib/ipfs.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { resolveGateways } from "./ipfs.js";
-import { SignerManager } from "../lib/signer.js";
+import { SignerManager, HOT_KEY_SAFETY, hotKeySafetyFields } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
@@ -26,11 +26,17 @@ import {
   type TreasuryHit,
 } from "../lib/quorumRisk.js";
 import {
-  checkAddSettingsTrap,
   executeAddSettingsAdvisory,
   POST_EXECUTE_LOCK_ADVISORY,
   type UpstreamAdvisory,
 } from "../lib/protocolAdvisories.js";
+import { assessBuildPure, assessBuildContext } from "../lib/buildAdvisories.js";
+import {
+  dedupeWarnings,
+  warningLine,
+  worstBlock,
+  type BuildWarning,
+} from "../lib/buildWarning.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import {
@@ -917,8 +923,14 @@ export async function sendOrCollect(
   pairing?: FlowPairing;
   /** QR content blocks (ASCII + PNG) — pass to `attachPairingQr` so the QR renders inline. */
   pairingContent?: PairingContent[];
-  /** Which persona signed — present only when this call actually broadcast. */
-  signer?: { signerKey: string; address: string };
+  /**
+   * Which persona signed — present only when this call actually broadcast.
+   * `sendOrCollect` only ever broadcasts with a LOCAL key (the no-signer leg
+   * returns `mode: "payloads"` before reaching the wallet), so every signer
+   * object it hands back is by construction a hot-key signature and carries the
+   * NOT-SAFE note.
+   */
+  signer?: { signerKey: string; address: string; safety?: string };
 }> {
   const steps: FlowStep[] = [];
 
@@ -1020,7 +1032,10 @@ export async function sendOrCollect(
       return {
         mode: "failed",
         steps,
-        signer: who,
+        // Only claim a hot-key signature when something actually landed: this
+        // return is also reached when the FIRST payload is rejected by
+        // runBroadcastGuards, before anything was signed.
+        signer: landed.length > 0 ? { ...who, safety: HOT_KEY_SAFETY } : who,
         failure: {
           failedStep: p.description,
           error: actionable.message,
@@ -1035,7 +1050,7 @@ export async function sendOrCollect(
       };
     }
   }
-  return { mode: "executed", steps, signer: who };
+  return { mode: "executed", steps, signer: { ...who, safety: HOT_KEY_SAFETY } };
 }
 
 // ---------- exported runner ----------
@@ -1194,6 +1209,10 @@ export async function runProposalCreate(
       let actionsOnFor: Array<{ executor: string; value: bigint; data: string }>;
       let proposalExtra: Record<string, unknown>;
       let governanceAdvisories: string[] | undefined;
+      /** What the catalog builder already reported, in the structured shape. */
+      let builtWarnings: BuildWarning[] | undefined;
+      /** Everything Step 3c ends up with — emitted as `warnings`. */
+      let buildWarnings: BuildWarning[] = [];
 
       if (input.proposalType === "modify_dao_profile") {
         // Read current on-chain descriptionURL up front so we can both:
@@ -1387,6 +1406,7 @@ export async function runProposalCreate(
           isMeta: false,
           ...built.metadataExtra,
         };
+        builtWarnings = built.warnings;
         if (built.advisories?.length) {
           governanceAdvisories = built.advisories;
           // DANGER gate: refuse BEFORE any tx (no approve/deposit/create has
@@ -1397,6 +1417,7 @@ export async function runProposalCreate(
               proposalType: input.proposalType,
               risk: "DANGER",
               governanceAdvisories: built.advisories,
+              ...(built.warnings?.length ? { warnings: built.warnings } : {}),
               note:
                 "No transaction was broadcast. The built proposal degrades governance safety " +
                 "(see governanceAdvisories — e.g. a quorum low enough that a market buyer could pass " +
@@ -1407,39 +1428,68 @@ export async function runProposalCreate(
         }
       }
 
-      // Step 3c: #36 trap check on the FINAL actions, whatever produced them.
+      // Step 3c: the full build-time harm pass on the FINAL actions, whatever
+      // produced them.
       //
-      // The catalog builders are already wrapped by the registry guard, but the
-      // `custom` branch above takes caller-supplied actionsOnFor verbatim and
-      // never touches PROPOSAL_BUILDERS — so it bypassed that guard entirely.
-      // This is the third time in this codebase that a "custom"/raw-calldata
-      // path has walked around a check every other path passes through (0.32.0:
-      // the GovUserKeeper denylist). Running it HERE, once, on the assembled
-      // actions means the branch that produced them cannot matter — including
-      // any branch added later.
+      // The catalog builders are already wrapped by the registry chokepoint,
+      // but the `custom` branch above takes caller-supplied actionsOnFor
+      // verbatim and never touches PROPOSAL_BUILDERS — so it bypassed that
+      // guard entirely. This is the third time in this codebase that a
+      // "custom"/raw-calldata path has walked around a check every other path
+      // passes through (0.32.0: the GovUserKeeper denylist). Running it HERE,
+      // once, on the assembled actions means the branch that produced them
+      // cannot matter — including any branch added later.
       //
-      // Deduped by advisory id so a catalog build already carrying #36 is not
-      // annotated twice.
+      // Deduped by code + actionIndex against what the builder already
+      // reported, so a catalog build is never annotated twice.
       {
-        const trap = checkAddSettingsTrap({ chainId, actions: actionsOnFor });
-        if (trap.blocked && trap.advisory) {
-          const already = (governanceAdvisories ?? []).some((a) => a.includes(trap.advisory!.id));
-          if (!already) {
-            governanceAdvisories = [...(governanceAdvisories ?? []), trap.advisory.text];
-          }
-          if (!input.confirmRisky) {
-            return ok({
-              mode: "blocked-risky",
-              proposalType: input.proposalType,
-              risk: "DANGER",
-              governanceAdvisories,
-              note:
-                "No transaction was broadcast. On this chain the proposal would PASS the vote and " +
-                "then revert at execute, burning a full governance cycle and leaving nothing to " +
-                "undo it. Re-run with confirmRisky: true only if you know the chain has been fixed " +
-                "upstream.",
-            });
-          }
+        const priorWarnings = builtWarnings ?? [];
+        const assessInput = {
+          chainId,
+          chainIdExplicit: true,
+          actions: actionsOnFor.map((a) => ({
+            executor: a.executor,
+            value: a.value.toString(),
+            data: a.data,
+          })),
+          treasuryGuard: ctx.config.treasuryGuard,
+          govPool,
+        };
+        const pure = assessBuildPure(assessInput);
+        // Context is best-effort by contract: it never throws, never blocks,
+        // and returns [] rather than wedging the composite when the RPC is out.
+        const context = await assessBuildContext({ ...assessInput, cfg: ctx.config });
+        const fresh = dedupeWarnings([...priorWarnings, ...pure, ...context]).filter(
+          (w) => !priorWarnings.some((p) => p.code === w.code && p.actionIndex === w.actionIndex),
+        );
+        buildWarnings = dedupeWarnings([...priorWarnings, ...pure, ...context]);
+        if (fresh.length > 0) {
+          governanceAdvisories = [
+            ...(governanceAdvisories ?? []),
+            // `context.unavailable` is an infrastructure note, not a governance
+            // advisory — it must never stamp the channel documented as
+            // "never empty when present".
+            ...fresh.filter((w) => w.code !== "context.unavailable").map(warningLine),
+          ];
+          if (governanceAdvisories.length === 0) governanceAdvisories = undefined;
+        }
+        const hard = buildWarnings.filter((w) => w.block === "hard");
+        if (hard.length > 0) {
+          return err(hard.map((w) => `${w.message} ${w.remedy}`).join("\n\n"));
+        }
+        if (worstBlock(buildWarnings) === "confirmable" && !input.confirmRisky) {
+          return ok({
+            mode: "blocked-risky",
+            proposalType: input.proposalType,
+            risk: "DANGER",
+            governanceAdvisories,
+            warnings: buildWarnings,
+            note:
+              "No transaction was broadcast. The built proposal would either degrade governance " +
+              "safety or PASS the vote and then revert at execute, burning a full governance cycle " +
+              "and leaving nothing to undo it. See warnings[] for the exact cause and remedy. " +
+              "Re-run with the SAME arguments plus confirmRisky: true only if you accept it.",
+          });
         }
       }
 
@@ -1661,6 +1711,7 @@ export async function runProposalCreate(
           descriptionURL,
           proposalMetadataCID: proposalMetaCid,
           ...(result.signer ? { signer: result.signer } : {}),
+          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         });
       }
 
@@ -1696,7 +1747,9 @@ export async function runProposalCreate(
           },
           steps: [...skippedSteps, ...result.steps],
           ...(result.signer ? { signer: result.signer } : {}),
+          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
           ...(governanceAdvisories ? { governanceAdvisories } : {}),
+          ...(buildWarnings.length > 0 ? { warnings: buildWarnings } : {}),
           ...(result.mode === "executed"
             ? flowChainFields(input.flowContext, deps.state, { chainId, govPool })
             : {}),
@@ -1876,6 +1929,7 @@ async function runInternalProposalCreate(
     return flowFailureResult(result, {
       proposalKind: "internal",
       ...(result.signer ? { signer: result.signer } : {}),
+      ...hotKeySafetyFields(Boolean(result.signer?.safety)),
       descriptionURL,
       note: "Internal proposals can only be created by a CURRENT validator of this DAO — a non-validator sender reverts.",
     });
@@ -1908,6 +1962,7 @@ async function runInternalProposalCreate(
       summary: built.summary,
       steps: result.steps,
       ...(result.signer ? { signer: result.signer } : {}),
+      ...hotKeySafetyFields(Boolean(result.signer?.safety)),
       note:
         "Internal proposals are created and voted on by the DAO's validators only (their own validator balances — " +
         "no token deposit). The sender must be a current validator or the tx reverts.",
@@ -2257,6 +2312,7 @@ export function registerFlowTools(
               proposalStateBefore: stateName,
               ...executeAdvisoryFields(decision),
               ...(execResult.signer ? { signer: execResult.signer } : {}),
+              ...hotKeySafetyFields(Boolean(execResult.signer?.safety)),
             },
           );
         }
@@ -2265,6 +2321,7 @@ export function registerFlowTools(
           proposalId,
           proposalStateBefore: stateName,
           ...(execResult.signer ? { signer: execResult.signer } : {}),
+          ...hotKeySafetyFields(Boolean(execResult.signer?.safety)),
           ...executeAdvisoryFields(decision),
           steps: [
             voteSkipped,
@@ -2338,6 +2395,12 @@ export function registerFlowTools(
               ...execSteps,
             ],
             executed,
+            // The validator-round branch runs up to three sendOrCollect calls
+            // and discards their `signer`, so this leg used to broadcast with a
+            // hot key and say nothing. A landed txHash is the proof.
+            ...hotKeySafetyFields(
+              [...drive.steps, ...execSteps].some((s) => Boolean(s.txHash)),
+            ),
             ...(executed
               ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
               : {}),
@@ -2535,6 +2598,7 @@ export function registerFlowTools(
           proposalId,
           proposalStateBefore: stateName,
           ...(result.signer ? { signer: result.signer } : {}),
+          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         });
       }
 
@@ -2630,6 +2694,7 @@ export function registerFlowTools(
         ...(executeDecision ? executeAdvisoryFields(executeDecision) : {}),
         steps: [...skippedSteps, ...result.steps],
         ...(result.signer ? { signer: result.signer } : {}),
+        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         executed,
         ...(voteAlreadyCast ? { voteAlreadyCast } : {}),
         ...(voteChangeAdvisory ? { voteChangeAdvisory } : {}),

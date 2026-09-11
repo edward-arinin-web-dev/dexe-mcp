@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Interface, ZeroAddress, ZeroHash, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
-import { SignerManager } from "../lib/signer.js";
+import { SignerManager, hotKeySafetyFields } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
@@ -28,12 +28,13 @@ import { unixToUtc } from "../lib/time.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { safeErrorMessage } from "../lib/redact.js";
-import { toActionableError } from "../lib/errors.js";
+import { toActionableError, sanitizeRevertReason } from "../lib/errors.js";
 import { untrustedResult } from "../lib/sanitize.js";
 import {
   VESTING_WITHDRAW_ADVISORY,
   findVestingTiers,
   vestingBlockedReport,
+  vestingRefusalText,
   type VestingTierRisk,
 } from "../lib/protocolAdvisories.js";
 
@@ -164,18 +165,10 @@ function vestingTierGuard(
 ): { risks: VestingTierRisk[]; refusal: string | null } {
   const risks = findVestingTiers(tiers);
   if (risks.length === 0 || acknowledged) return { risks, refusal: null };
-  const listed = risks
-    .map((r) => `  • tier[${r.index}] "${r.name}" — vestingPercentage=${r.vestingPercentage}`)
-    .join("\n");
-  return {
-    risks,
-    refusal:
-      `REFUSED before building any calldata — ${risks.length} tier(s) would strand their vested allocation:\n` +
-      `${listed}\n\n${VESTING_WITHDRAW_ADVISORY.text}\n\n` +
-      `Fix: set vestingSettings.vestingPercentage to "0" on the tier(s) above (buyers then get the whole ` +
-      `allocation through \`claim\`, which works). To open them anyway — only do this on a pre-SphereX pool ` +
-      `where vestingWithdraw is known to work — re-run with acknowledgeVestingBlocked: true.`,
-  };
+  // The text itself now lives in src/lib/protocolAdvisories.ts so the three
+  // token-sale PROPOSAL surfaces refuse with the identical wording instead of
+  // building the stranding tier silently.
+  return { risks, refusal: vestingRefusalText(risks, "acknowledgeVestingBlocked: true") };
 }
 
 /**
@@ -914,7 +907,7 @@ export function registerOtcTools(
         simulation = sim;
         if (!sim.success) {
           return err(
-            `Simulation failed before broadcast: ${sim.revertReason ?? "unknown revert"}`,
+            `Simulation failed before broadcast: ${sanitizeRevertReason(sim.revertReason, "unknown revert")}`,
           );
         }
       }
@@ -934,6 +927,8 @@ export function registerOtcTools(
         preflight: native ? null : { balance: balance.toString(), allowance: allowance.toString() },
         ...(simulation ? { simulation } : {}),
         steps: [...skipped, ...result.steps],
+        ...(result.signer ? { signer: result.signer } : {}),
+        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);
@@ -1111,6 +1106,8 @@ export function registerOtcTools(
         ...(vestingBlocked ? { vestingBlocked } : {}),
         summary,
         steps: [...skipped, ...result.steps],
+        ...(result.signer ? { signer: result.signer } : {}),
+        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);
