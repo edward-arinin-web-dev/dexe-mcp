@@ -136,11 +136,11 @@ describe("tool gating (real server)", () => {
     //   0.30.3  raised 130_000 → 138_000       — recorded as DEBT: paying for
     //           the `chainId` param across ~30 builders the default carried
     //   0.31.0  measured 134_263 → ~87_000 B  — the debt is PAID, not rolled
-    //   0.34.0  92_807 B (44 tools) → 93_511 B (43) — MCP annotations plus the
-    //           21 missing titles cost ~2.5 KB, which the 2.2 KB of headroom
-    //           could not absorb. Paid for, not borrowed: `dexe_ipfs_upload_file`
-    //           (the generic "pin any bytes" escape hatch, ~1.8 KB, needed by
-    //           nothing in core) moved to `proposals`. The line did not move.
+    //   0.34.0  92_807 B → 95_317 B (44 tools) — MCP annotations plus the 21
+    //           missing titles cost ~2.5 KB, which the 2.2 KB of headroom could
+    //           not absorb. The line moved once, 95_000 → 96_000 (see below);
+    //           no tool left the default profile. The description lint later
+    //           brought the default to ~86.7 KB.
     //
     // Keeping `proposals` in the default would have forced a THIRD raise: the
     // old core,proposals profile measures ~154 KB on this tree, past the 138_000
