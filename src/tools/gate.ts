@@ -69,12 +69,8 @@ const CORE = [
   "dexe_vote_build_execute",
   "dexe_vote_build_erc20_approve",
   "dexe_vote_user_power",
-  // IPFS upload essentials + avatar. `dexe_ipfs_upload_file` — the generic
-  // "pin any bytes" escape hatch — was demoted to `proposals` in 0.34.0 to pay
-  // for the tools/list bytes that MCP annotations and the missing titles cost
-  // (tests/tools/gate.test.ts is a budget, not debt: something has to give).
-  // Nothing in the default profile needs it: dexe_dao_create takes avatarPath
-  // and pins server-side, and the two purposeful pins below stay.
+  // IPFS upload essentials + avatar
+  "dexe_ipfs_upload_file",
   "dexe_ipfs_upload_avatar",
   "dexe_ipfs_upload_proposal_metadata",
   "dexe_dao_generate_avatar",

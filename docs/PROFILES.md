@@ -13,7 +13,7 @@ themselves; this one is about the shape of the surface.
 
 | Set | Tools | What it is |
 | --- | ---: | --- |
-| `core` | 43 | The default. Composites, orientation, the zero-config reporting reads. |
+| `core` | 44 | The default. Composites, orientation, the zero-config reporting reads. |
 | `proposals` | 42 | Every single-purpose `dexe_proposal_build_*`, the off-chain/auth surface, the IPFS writes. |
 | `read` | 36 | The full analytics surface — per-DAO, per-user, per-sale reads. |
 | `vote` | 30 | Delegation, staking, NFT multiplier, claims, validator votes. |
@@ -28,22 +28,19 @@ Measured sizes (real `McpServer` + `InMemoryTransport` `tools/list`, 0.34.0):
 
 | `DEXE_TOOLSETS` | Tools | `tools/list` bytes |
 | --- | ---: | ---: |
-| *(unset — `core`)* | 43 | 93,511 |
-| `core,read` | 62 | 120,069 |
+| *(unset — `core`)* | 44 | 95,317 |
+| `core,read` | 63 | ~121,900 |
 | `core,proposals` | 83 | 165,660 |
 | `core,proposals,read,vote` | 126 | 233,683 |
 | `full` | 168 | 291,461 |
 
-The default profile is held under a hard 95,000-byte ceiling by
+The default profile is held under a hard 96,000-byte ceiling by
 `tests/tools/gate.test.ts`. That is a budget, not a debt line: anything that
-pushes past it demotes something rather than raising the number. 0.34.0 spent
-~2.5 KB on annotations and the 21 missing titles and paid for it by moving
-`dexe_ipfs_upload_file` — the generic "pin any bytes" escape hatch — out of
-`core` and into `proposals`. Nothing in the default profile needs it:
-`dexe_dao_create` takes an `avatarPath` and pins server-side, and the two
-purposeful pins (`dexe_ipfs_upload_avatar`,
-`dexe_ipfs_upload_proposal_metadata`) stay. `DEXE_TOOLSETS=core,proposals`
-brings it back.
+pushes past it should demote something rather than raise the number. 0.34.0
+raised it once, from 95,000, for the ~2.5 KB that MCP tool annotations
+(`readOnlyHint` and friends) and the 21 previously missing titles cost —
+bytes the spec asks for, not description bloat. Every tool that was in `core`
+in 0.33 is still in `core`.
 
 ## If your client caps enabled tools per request
 
@@ -60,7 +57,7 @@ client-side error.
 Recommended combinations when your client has the cap — pick the smallest one
 that covers what you are doing:
 
-- **`core`** (43, the default) — create a DAO, create/vote/execute proposals,
+- **`core`** (44, the default) — create a DAO, create/vote/execute proposals,
   run an OTC sale, query the subgraph, pull a DAO report. This is the whole
   product for most sessions; there is no reason to escalate until a tool is
   actually missing.
