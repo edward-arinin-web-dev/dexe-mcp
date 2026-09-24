@@ -79,7 +79,6 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerProposalBuildInternalTools(server, ctx);
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
-  registerSubgraphTools(server, ctx);
   registerReportTools(server, ctx);
   registerMerkleTools(server, ctx);
   registerPredictTools(server, ctx);
@@ -89,8 +88,10 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   const wc = new WalletConnectManager(config);
   // Phase 3 — persistent operational state (known DAOs / recent proposals).
   const state = new StateStore(config.statePath);
-  // The inbox falls back to the DAOs recorded here on chains with no subgraph.
+  // The inbox falls back to the DAOs recorded here on chains with no subgraph;
+  // the OTC list defaults `tokenSaleProposal` from the same record.
   registerInboxTools(server, ctx, state);
+  registerSubgraphTools(server, ctx, state);
   registerTxTools(server, config, signer, wc);
   registerAgentTools(server, config, signer);
   registerGetConfigTool(server, config, signer);

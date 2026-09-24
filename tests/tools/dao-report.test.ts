@@ -703,11 +703,17 @@ describe("dexe_dao_report — degrades by section, never silently", () => {
     }>;
     const named = unavailable.map((u) => u.section).sort();
     expect(named).toEqual(["activity", "delegation", "experts", "membership", "turnout"]);
+    // 0.34.1: the full resolver message (chains indexed, env var to set) is
+    // emitted ONCE per index in `sources`; each section points at it instead
+    // of repeating ~500 chars fourteen times.
     for (const u of unavailable) {
       expect(u.reason).toContain("chain 97");
-      expect(u.reason).toContain("DEXE_SUBGRAPH_");
+      expect(u.reason).toContain("see sources.subgraphs.");
       expect(u.followUp, `${u.section} has no follow-up`).toBeTruthy();
     }
+    const sources = res.structuredContent!.sources as { subgraphs: Record<string, { reason?: string }> };
+    expect(sources.subgraphs.pools!.reason).toContain("DEXE_SUBGRAPH_");
+    expect(sources.subgraphs.pools!.reason).toContain("chain 97");
     // And the human body says so rather than looking complete.
     expect(text(res)).toContain("SECTIONS NOT RENDERED");
     expect(text(res)).toContain("this report is partial");

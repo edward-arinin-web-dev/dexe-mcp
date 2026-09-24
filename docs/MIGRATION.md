@@ -26,8 +26,17 @@ Nothing was renamed and no input was removed; two answers changed shape.
 3. **`dexe_user_inbox.daoSource` gains a third value, `"state"`** (DAOs recorded
    by this install, used on a chain with no subgraph and no `daos[]`).
 4. Add-only inputs: `dexe_tx_send.payload`, `dexe_read_treasury.govPool`,
-   `dexe_dao_registry_lookup.govPool`; `change_voting_settings.params.govSettings`
-   and `new_proposal_type.params.govSettings` became optional.
+   `dexe_dao_registry_lookup.govPool`; `change_voting_settings.params.govSettings`,
+   `new_proposal_type.params.govSettings`, `dexe_otc_dao_open_sale.tokenSaleProposal`
+   and `dexe_otc_list_sales_for_dao.tokenSaleProposal` became optional (the OTC
+   two default from the DAO record `dexe_dao_create` now writes: `KnownDao`
+   gained `tokenSaleProposal` / `distributionProposal`).
+5. **`dexe_dao_report` section reasons on an unindexed chain are pointers.**
+   `sections.<s>.reason`, `unavailable[].reason`, `identity.subgraphUnavailable`
+   and `validators.rosterUnavailable` read `<name> subgraph not configured for
+   chain N — see sources.subgraphs.<name>.reason`; the full text (with the
+   `DEXE_SUBGRAPH_*_URL_<chainId>` remediation) lives only in `sources`. If you
+   grepped a section reason for the env var, read `sources` instead.
 
 ---
 

@@ -64,6 +64,26 @@ treasury guard and none is an `addSettings` call, the warning is dropped; it
 still fires blind when the actions could not be read (guard off, read failed).
 `dexe_vote_build_execute` (no chain read) is unchanged.
 
+### Changed — OTC tools remember the DAO's TokenSaleProposal
+The TokenSaleProposal address is not readable back from a GovPool; it only
+ever appeared in `dexe_dao_create`'s `predicted.govTokenSale`. A DAO deployed
+in one session could not open or list a sale in the next without the receipt.
+`dexe_dao_create` now records `tokenSaleProposal` and `distributionProposal`
+on the DAO it saves to `state.json` (they show in `dexe_context`), and
+`dexe_otc_dao_open_sale` / `dexe_otc_list_sales_for_dao` default
+`tokenSaleProposal` from that record. A DAO this install did not deploy still
+needs the address, and the error says where it comes from.
+
+### Changed — `dexe_dao_report` explains an unindexed chain once
+On a chain with no subgraph the report repeated the same ~500-character
+"no pools subgraph is configured" message in every affected section, in
+`unavailable[]`, and in the identity and validators blocks — fourteen copies,
+~7 KB per report. The full message (which chains are indexed, which env var
+adds one) is now emitted once per index, in `sources.subgraphs.<name>.reason`;
+the sections say `<name> subgraph not configured for chain N — see
+sources.subgraphs.<name>.reason`. A configured index whose query failed keeps
+its own message inline, since that one is dynamic.
+
 ### Changed — parameter names an agent will guess
 - `dexe_read_treasury` takes `govPool` as an alias for `holder` — the name
   `dexe_dao_report`'s own follow-up hint uses.

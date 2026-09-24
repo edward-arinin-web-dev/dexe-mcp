@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Interface, isAddress } from "ethers";
+import { findKnownDao, type StateStore } from "../lib/stateStore.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
@@ -283,14 +284,14 @@ const EXPERTS_QUERY = /* GraphQL */ `
 
 // ---------- register ----------
 
-export function registerSubgraphTools(server: McpServer, ctx: ToolContext): void {
+export function registerSubgraphTools(server: McpServer, ctx: ToolContext, state?: StateStore): void {
   registerDaoList(server, ctx);
   registerDaoMembers(server, ctx);
   registerDelegationMap(server, ctx);
   registerValidatorList(server, ctx);
   registerUserActivity(server, ctx);
   registerDaoExperts(server, ctx);
-  registerOtcListSalesForDao(server, ctx);
+  registerOtcListSalesForDao(server, ctx, state);
   registerGraphQuery(server, ctx);
   registerGraphSchema(server, ctx);
 }
@@ -1210,7 +1211,7 @@ const GOV_POOL_HELPERS_DISCOVERY_ABI = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
 ]);
 
-function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
+function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext, state?: StateStore): void {
   const rpc = new RpcProvider(ctx.config);
 
   server.registerTool(
@@ -1221,17 +1222,28 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext): void {
         "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with " +
         "`totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's " +
         "on-chain isOff flag. On-chain only — any chain with an RPC; the reply echoes the resolved `chainId`. " +
-        "`tokenSaleProposal` is required.",
+        "`tokenSaleProposal` defaults to the one recorded when this install deployed the DAO; otherwise it is required.",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         tokenSaleProposal: z
           .string()
-          .describe("TokenSaleProposal helper address. Look up via dexe_dao_predict_addresses or DAO deploy receipt."),
+          .optional()
+          .describe(
+            "TokenSaleProposal helper address. Omit for a DAO this install deployed; otherwise dexe_dao_predict_addresses or the deploy receipt.",
+          ),
         chainId: chainIdParam,
       },
     },
-    async ({ govPool, tokenSaleProposal, chainId }) => {
+    async ({ govPool, tokenSaleProposal: tspIn, chainId }) => {
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
+      const tokenSaleProposal = tspIn ?? findKnownDao(state, rpc.resolveChainId(chainId), govPool)?.tokenSaleProposal;
+      if (!tokenSaleProposal) {
+        return errorResult(
+          `tokenSaleProposal is required: ${govPool} on chain ${rpc.resolveChainId(chainId)} was not deployed by this ` +
+            `install, so its TokenSaleProposal address is not on record. Pass it explicitly — from the deploy receipt ` +
+            `(dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`,
+        );
+      }
       if (!isAddress(tokenSaleProposal))
         return errorResult(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
 

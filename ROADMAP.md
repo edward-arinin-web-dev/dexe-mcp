@@ -50,15 +50,16 @@ yet.
       Haiku-class model on BSC testnet and publish the pass rate + the
       landed-steps-ledger resume story (subscription-billed / in-session only —
       never API credits).
-- [ ] Refresh the testnet swarm fixture DAO — the allowlisted Polaris govPool
-      `0x081f4b5C…` no longer reads as a registered GovPool on chain 97 (a
-      2026-07-23 broadcast sweep passed 41/59; the 18 failures were all this
-      dead-fixture + hardcoded past timestamps, not tool defects). **0.34.0
-      shipped the guard**: `tests/swarm/allowlist-guard.ts` verifies every
-      allowlisted DAO against the registry and fails the run instead of grading
-      a dead address. The redeploy itself is a maintainer ops step — runbook in
-      `tests/swarm/README.md` § "Refresh the fixture DAO" (deploy a fresh 97
-      DAO, refresh `SWARM_DAOS_TESTNET`, fill the four `SWARM_*_TESTNET` lists).
+- [x] Refresh the testnet swarm fixture DAO — **done 2026-09-24**: both old
+      fixtures (Polaris `0x081f4b5C…`, Sentinel `0xF5F07490…`) had dropped out of
+      the chain-97 PoolRegistry. Redeployed per the runbook: member DAO
+      **Kestrel Research Guild** `0xb0Ca396b0441630A6506a1A2bA14dAbF0BD32145`
+      (KRT `0x589065B4…4cbb`, 50k per agent, funder 250k) and validator DAO
+      **Cobalt Maritime Cooperative** `0x417bb8eE8BF4D224b3C61b1c0D37FcAA07c4e189`
+      (CMC `0x720661f8…1D09`, 5 % main / 51 % validator quorum, validators =
+      AGENT_PK_6/7 with 1k CVT). The four `SWARM_*_TESTNET` lists point at them;
+      `tests/swarm/allowlist-guard.ts` (0.34.0) fails the run if either drops
+      out again.
 - [ ] Swarm Stage B on mainnet (subgraph + backend scenarios) — needs the
       scenarios re-authored under current IDs (the S22–S25/S12/S14 numbers in
       the docs no longer map to those intents) plus

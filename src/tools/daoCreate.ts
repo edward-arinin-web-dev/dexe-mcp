@@ -1222,6 +1222,10 @@ export function registerDaoCreateTools(
             govPool: res.predictedGovPool,
             chainId,
             token: res.predicted.govToken,
+            // Not readable back from the pool — recorded so the OTC tools can
+            // default `tokenSaleProposal` for this DAO in a later session.
+            tokenSaleProposal: res.predicted.govTokenSale,
+            distributionProposal: res.predicted.distributionProposal,
             txHash,
             deployedAt: new Date().toISOString(),
           });
