@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.34.1 — unreleased
+
+**What a first live session after 0.34.0 hit.** A fresh DAO on BSC testnet
+(chain 97), one treasury transfer, one vote, one execute, one withdraw — the
+plain path every user takes first. Eight things got in the way; none was a
+calldata defect, all of them were the server contradicting itself or refusing
+an input it had just told the agent to send. Tool count unchanged
+(**168 / 19 groups**). No emitted calldata changed.
+
+### Fixed — `dexe_proposal_risk_assess` called an ordinary treasury transfer DANGER
+On a `token_transfer` of the DAO's own gov token — built by
+`dexe_proposal_create` itself — the readout said `verdict: DANGER`, classified
+`ERC20.transfer` (`0xa9059cbb`) as `unknownPrivileged` "targeting the DAO's own
+contract", asserted the proposal "moves no treasury value" beside
+`treasuryTouching: true`, called it "treasury-moving under a low quorum" beside
+`quorumVerdict: SAFE`, and glued the sentences with a literal `\x0a\x0a`.
+
+- Value-moving selectors (`transfer` / `approve` / `transferFrom` /
+  `increaseAllowance` / `safeTransferFrom`) on a DAO-owned contract are the
+  treasury classifier's and are no longer re-scored as governance hits. A
+  genuinely unknown selector on the gov token (e.g. `mint`) is still
+  `unknownPrivileged`.
+- The governance sentence says which leg it is about; the treasury sentence
+  follows the treasury leg's own verdict, not the merged one. **Anything that
+  branched on `verdict` for gov-token transfers now sees the treasury verdict
+  (usually `SAFE`) instead of `DANGER`.**
+- `recommendation` is one paragraph — no newline for the structured-content
+  sanitizer to escape.
+
+### Fixed — the paste-able "withdraw" call did not validate
+Every create and every execute printed
+`dexe_vote_build_withdraw {"govPool":…,"chainId":…}` as the way to unlock the
+deposit. That tool requires `receiver` and `amount`. The hint now carries both
+(signer address, raw wei of the locked vote), and a test parses it against the
+tool's own shape.
+
+### Fixed — `dexe_tx_send` refused the object every builder returns
+`dexe_*_build_*` tools answer `{ payload: { to, data, value, chainId } }`;
+`dexe_tx_send` demanded flat `to` / `data` and rejected the object with
+"to: Required". It now accepts `payload` verbatim; the flat fields still work
+and win when both are present, and the payload's `chainId` feeds the same
+mismatch refusal as `payloadChainId`. The denylist still runs first.
+
+### Changed — `dexe_proposal_forecast` answers on an unindexed chain
+A chain with no pools subgraph used to return `{ error: "subgraph required" }`
+and ask for `forceRpcOnly: true` — on every call, for a number the tool
+computes on-chain anyway. It now forecasts on-chain only, with
+`subgraphHistory: null`, `indexedChainId: null` and the resolver's remediation
+in `subgraphNote`. The 0.30.2 rule stands: never another chain's index.
+`forceRpcOnly` remains for skipping the cross-check on an indexed chain.
+
+### Changed — `dexe_user_inbox` falls back to this install's DAOs
+On a chain with no pools subgraph and no `daos[]`, the inbox now scans the
+DAOs recorded in `state.json` for that chain (`daoSource: "state"`,
+`discoveryUnavailable` says how many) instead of erroring with the addresses
+`dexe_context` would have shown. With nothing recorded, the error is unchanged.
+
+### Changed — the `#36` execute warning is action-aware
+`dexe_proposal_vote_and_execute` on chain 97 warned about the `addSettings`
+execute trap on *every* execute. When the proposal's actions were read for the
+treasury guard and none is an `addSettings` call, the warning is dropped; it
+still fires blind when the actions could not be read (guard off, read failed).
+`dexe_vote_build_execute` (no chain read) is unchanged.
+
+### Changed — parameter names an agent will guess
+- `dexe_read_treasury` takes `govPool` as an alias for `holder` — the name
+  `dexe_dao_report`'s own follow-up hint uses.
+- `dexe_dao_registry_lookup` takes `govPool` as an alias for `address`.
+- `change_voting_settings` / `new_proposal_type` no longer require
+  `params.govSettings`; omitted, it is read from `GovPool.getHelperContracts()`.
+  An explicit value still wins and is validated.
+- The MCP handshake no longer claims every amount accepts human units: the
+  composites and proposal builders do; `dexe_vote_build_*` take raw base units
+  (as their parameter descriptions already said).
+
 ## 0.34.0 — 2026-09-11
 
 **What the server says about itself, checked against what it does.** The

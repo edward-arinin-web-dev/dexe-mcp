@@ -158,13 +158,21 @@ describe("dexe_proposal_forecast resolves the pools subgraph per chain", () => {
     expect(fetchMock.mock.calls[0]![0]).toBe(TESTNET_POOLS);
   });
 
-  it("a chain with no endpoint stops with the env var to set, and reads nothing", async () => {
+  it("a chain with no endpoint is forecast on-chain only, names the env var to set, and reads nothing", async () => {
+    // 0.34.1: the unindexed chain used to answer `{error: "subgraph required"}`
+    // and ask for `forceRpcOnly` — on every call, for a number the tool computes
+    // on-chain anyway. The chain-correctness rule is "never another chain's
+    // index", which an on-chain-only answer satisfies.
     const res = await forecast(config({ 56: { pools: MAINNET_POOLS } }), { chainId: 97 });
+    expect(res.isError).toBeFalsy();
     const p = payload(res);
-    expect(p.error).toBe("subgraph required");
-    expect(String(p.hint)).toContain("chain 97");
-    expect(String(p.hint)).toContain("DEXE_SUBGRAPH_POOLS_URL_97");
-    expect(String(p.hint)).toContain("forceRpcOnly");
+    expect(p.error).toBeUndefined();
+    expect(p.chain).toBe(97);
+    expect((p.historicalPassRate as { total: number }).total).toBe(1);
+    expect(p.subgraphHistory).toBeNull();
+    expect(p.indexedChainId).toBeNull();
+    expect(String(p.subgraphNote)).toContain("chain 97");
+    expect(String(p.subgraphNote)).toContain("DEXE_SUBGRAPH_POOLS_URL_97");
     // The point: no mainnet history can have reached a chain-97 caller.
     expect(fetchMock).not.toHaveBeenCalled();
     expect(text(res)).not.toContain("0xmainnetproposal");
@@ -194,11 +202,14 @@ describe("DEXE_SUBGRAPH_CHAIN_ID=97 no longer falsifies the chain-56 path", () =
   // `chainId === 56` gate would have passed and then queried it.
   const testnetOnly = () => config({ 97: { pools: TESTNET_POOLS } });
 
-  it("a chain-56 forecast refuses instead of querying the chain-97 indexer", async () => {
+  it("a chain-56 forecast answers on-chain only instead of querying the chain-97 indexer", async () => {
     const res = await forecast(testnetOnly(), { chainId: 56 });
+    expect(res.isError).toBeFalsy();
     const p = payload(res);
-    expect(p.error).toBe("subgraph required");
-    expect(String(p.hint)).toContain("chain 56");
+    expect(p.error).toBeUndefined();
+    expect(p.indexedChainId).toBeNull();
+    expect(p.subgraphHistory).toBeNull();
+    expect(String(p.subgraphNote)).toContain("chain 56");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -220,9 +231,25 @@ describe("DEXE_SUBGRAPH_CHAIN_ID=97 no longer falsifies the chain-56 path", () =
 describe("omitting chainId follows the default chain", () => {
   it("a testnet-default install with only mainnet endpoints does not fall back to mainnet", async () => {
     const res = await forecast(config({ 56: { pools: MAINNET_POOLS } }, 97), {});
+    expect(res.isError).toBeFalsy();
     const p = payload(res);
-    expect(p.error).toBe("subgraph required");
     expect(p.chain).toBe(97);
+    expect(p.indexedChainId).toBeNull();
+    expect(p.subgraphHistory).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(text(res)).not.toContain("0xmainnetproposal");
+  });
+});
+
+describe("forceRpcOnly on an INDEXED chain (0.34.1)", () => {
+  it("skips the cross-check by request and says so, without touching the index", async () => {
+    const res = await forecast(config({ 97: { pools: TESTNET_POOLS } }), { chainId: 97, forceRpcOnly: true });
+    expect(res.isError).toBeFalsy();
+    const p = payload(res);
+    expect(p.indexedChainId).toBeNull();
+    expect(p.subgraphHistory).toBeNull();
+    expect(String(p.subgraphNote)).toContain("forceRpcOnly");
+    expect(String(p.subgraphNote)).toContain("chain-97");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

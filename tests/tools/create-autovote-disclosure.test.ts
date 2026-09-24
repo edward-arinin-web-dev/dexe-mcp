@@ -357,19 +357,23 @@ describe("the response stays backward compatible and affordable", () => {
     }
   });
 
-  it("the 0.34.0 disclosure blocks cost under 1600 chars together", async () => {
+  it("the 0.34.0 disclosure blocks cost under 1700 chars together", async () => {
     // A budget, so "one short sentence or one formatted number" stays the rule
     // for these fields in a later release. Measured on the blocks themselves
     // rather than the whole envelope: warnings/governanceAdvisories are
     // fixture-driven (this DAO's executor is codeless) and would let real
     // growth hide behind their noise.
+    //
+    // 1600 → 1700 in 0.34.1: the deposit-lock advisory's withdraw call now
+    // carries `receiver` (an address) and `amount` (raw wei) — ~90 chars that
+    // turn a call the tool's schema rejected into one that runs as pasted.
     const { body } = await run();
     const added = JSON.stringify({
       preview: body.preview,
       autoVote: body.autoVote,
       advisories: body.advisories,
     });
-    expect(added.length).toBeLessThan(1600);
+    expect(added.length).toBeLessThan(1700);
   });
 
   it("an executed create response stays under 4200 chars end to end", async () => {

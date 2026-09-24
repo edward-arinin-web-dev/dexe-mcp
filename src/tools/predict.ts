@@ -117,8 +117,9 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         "Read-only. Reads the latest 10 proposals on a DAO and their final states and forecasts the pass-rate over DECIDED " +
         "proposals (still-voting ones are `pending`, never failures), with the average For-vote weight. " +
         "`quorum.requiredWeight` is an ABSOLUTE vote weight (getTotalPower x quorum / 1e27), not the 1e25 percentage " +
-        "setting. The history cross-check needs a pools subgraph for the chain being forecast; without one the call stops " +
-        "unless `forceRpcOnly: true`, and `indexedChainId` reports whose index was used (null = none).",
+        "setting. The history cross-check needs a pools subgraph for the chain being forecast; a chain with none is " +
+        "forecast on-chain only (`subgraphHistory: null`, `subgraphNote` says why) — never from another chain's index. " +
+        "`indexedChainId` reports whose index was used (null = none).",
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         draft: z
@@ -138,7 +139,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
           .boolean()
           .default(false)
           .describe(
-            "Forecast a chain with no pools subgraph purely from on-chain getProposals (no history cross-check)",
+            "Skip the subgraph history cross-check even when this chain has one; a chain with none is on-chain only anyway.",
           ),
         chainId: chainIdParam,
       },
@@ -164,14 +165,20 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
         // chains that do have an index and the env var to set).
         noSubgraphReason = safeErrorMessage(e);
       }
-      if (!subgraph && !forceRpcOnly) {
-        return ok({
-          error: "subgraph required",
-          chain: resolvedChainId,
-          hint:
-            `${noSubgraphReason} Or pass forceRpcOnly: true to forecast chain ${resolvedChainId} from ` +
-            `on-chain getProposals alone — the pass-rate is computed on-chain; only the history cross-check is lost.`,
-        });
+      // A chain with no pools subgraph is forecast from on-chain getProposals
+      // alone. The chain-correctness rule (0.30.2) is "never another chain's
+      // index"; it was never "no answer at all" — but that is what a testnet
+      // user got: `{error: "subgraph required"}` plus a flag to pass, on every
+      // call, for a number the tool computes on-chain anyway. `subgraphNote`
+      // below still carries the resolver's remediation (which chains ARE
+      // indexed, which env var adds one), so nothing the error said is lost.
+      // `forceRpcOnly` keeps one job: skip the cross-check on a chain that HAS
+      // an index.
+      if (forceRpcOnly && subgraph) {
+        noSubgraphReason =
+          `forceRpcOnly: the history cross-check against the chain-${subgraph.chainId} pools index was skipped ` +
+          `by request; this forecast is on-chain only.`;
+        subgraph = null;
       }
 
       const pr = rpc.tryProvider(chainId);

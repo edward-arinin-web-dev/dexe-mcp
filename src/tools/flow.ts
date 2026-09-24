@@ -28,8 +28,10 @@ import {
 } from "../lib/quorumRisk.js";
 import {
   executeAddSettingsAdvisory,
+  findAddSettingsActions,
   POST_EXECUTE_LOCK_ADVISORY,
   voteLockAtCreateAdvisory,
+  withdrawCallHint,
   type UpstreamAdvisory,
 } from "../lib/protocolAdvisories.js";
 import { assessBuildPure, assessBuildContext } from "../lib/buildAdvisories.js";
@@ -195,6 +197,8 @@ interface ExecuteRisk {
   /** Whether a controlling member (founder/validator/top holder) voted For. null = unknown (no subgraph / testnet). */
   controllingHoldersVotedFor: boolean | null;
   reasons: string[];
+  /** True when one of the proposal's actions is `GovSettings.addSettings` (the #36 execute trap). */
+  hasAddSettings: boolean;
 }
 
 /**
@@ -253,7 +257,14 @@ async function assessExecuteRisk(
     );
   }
 
-  return { treasuryHits, quorumPct, belowFloor, controllingHoldersVotedFor, reasons };
+  return {
+    treasuryHits,
+    quorumPct,
+    belowFloor,
+    controllingHoldersVotedFor,
+    reasons,
+    hasAddSettings: findAddSettingsActions(decoded.actionsOnFor).length > 0,
+  };
 }
 
 /**
@@ -322,6 +333,9 @@ async function executeProposal(args: {
   let treasuryRisk: string | null = null;
   let blocked = false;
   let refusal: string | null = null;
+  // null = the actions were not read (guard off, or the read failed), so the
+  // chain-scoped #36 warning below has to stay blind and fire regardless.
+  let addSettingsPresent: boolean | null = null;
   if (mode !== "off") {
     const risk = await assessExecuteRisk(provider, govPool, proposalId, cfg);
     if ("error" in risk) {
@@ -329,6 +343,7 @@ async function executeProposal(args: {
       // "no advisory" is never mistaken for "no risk".
       treasuryRisk = `⚠ treasury-risk pre-check skipped: ${risk.error}`;
     } else {
+      addSettingsPresent = risk.hasAddSettings;
       const gate = treasuryGate({
         mode,
         stage: "execute",
@@ -343,11 +358,16 @@ async function executeProposal(args: {
   }
 
   // ---- upstream defects that fire AT execute -------------------------------
-  // #36 is chain-scoped (null off the affected chains); the deposit lock always
-  // applies, because execute is what creates the lock that breaks the NEXT vote.
-  const advisories = [executeAddSettingsAdvisory(chainId), POST_EXECUTE_LOCK_ADVISORY].filter(
-    (a): a is UpstreamAdvisory => Boolean(a),
-  );
+  // #36 is chain-scoped (null off the affected chains) AND action-scoped: when
+  // the proposal's actions were read above and none is an addSettings call, the
+  // warning is noise on every testnet execute and is dropped. It stays blind
+  // (fires on the chain alone) only when the actions could not be read. The
+  // deposit lock always applies, because execute is what creates the lock that
+  // breaks the NEXT vote.
+  const advisories = [
+    addSettingsPresent === false ? null : executeAddSettingsAdvisory(chainId),
+    POST_EXECUTE_LOCK_ADVISORY,
+  ].filter((a): a is UpstreamAdvisory => Boolean(a));
 
   // Ledger markers, not copies: the full text lives once, in the response's
   // `treasuryRisk` / `advisories` fields. These exist to put the advisory ahead
@@ -2192,6 +2212,8 @@ export async function runProposalCreate(
               govPool,
               chainId,
               ...(created ? { proposalId: created.proposalId } : {}),
+              ...(result.signer?.address ? { receiver: result.signer.address } : {}),
+              amountWei: voteAmount.toString(),
             }),
           ].map((a) => ({ id: a.id, severity: a.severity, upstream: a.upstream, text: a.text })),
           prereqs: prereqsBlock(prereqs),
@@ -2624,13 +2646,13 @@ export function registerFlowTools(
       "\u2022 'custom': your own actionsOnFor [{executor,value,data}]. 'modify_dao_profile' reads the top-level " +
       "newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks/newAvatarPath fields, not `params`.\\n" +
       "\u2022 External: token_transfer {token,recipient,amount,isNative?} \u00b7 withdraw_treasury " +
-      "{receiver,token?,amount?,nftAddress?,nftIds?} \u00b7 change_voting_settings {govSettings,settings[],settingsIds?} " +
+      "{receiver,token?,amount?,nftAddress?,nftIds?} \u00b7 change_voting_settings {govSettings?,settings[],settingsIds?} " +
       "\u00b7 add_expert/remove_expert {expertNftContract,scope,nominatedUser,uri?} \u00b7 token_sale_whitelist " +
       "{tokenSaleProposal,requests[]} \u00b7 token_sale_recover {tokenSaleProposal,tierIds[]} \u00b7 manage_validators " +
       "{govValidators,changes[]} \u00b7 validators_allocation {credits[]} \u00b7 delegate_to_expert/revoke_from_expert " +
       "{expert,amount,nftIds?} \u00b7 change_math_model {newVotePower} \u00b7 blacklist " +
       "{erc20Gov,addAddresses?,removeAddresses?} \u00b7 apply_to_dao {token,receiver,amount} \u00b7 " +
-      "new_proposal_type/enable_staking {govSettings,settings,executors,newSettingId} \u00b7 custom_abi " +
+      "new_proposal_type/enable_staking {govSettings?,settings,executors,newSettingId} \u00b7 custom_abi " +
       "{target,signature,method,args?} \u00b7 token_distribution \u00b7 token_sale \u00b7 create_staking_tier \u00b7 " +
       "reward_multiplier.\\n" +
       "\u2022 Internal (validators-only): change_validator_balances {changes[]} \u00b7 change_validator_settings " +
@@ -3287,7 +3309,12 @@ export function registerFlowTools(
           next:
             postVoteNext ??
             (executed
-              ? `Executed. Your deposited tokens stay locked until you withdraw: dexe_vote_build_withdraw {"govPool":"${govPool}","chainId":${chainId}}.`
+              ? `Executed. Your deposited tokens stay locked until you withdraw: ${withdrawCallHint({
+                  govPool,
+                  chainId,
+                  receiver: result.signer?.address,
+                  amountWei: prereqs.depositedPower > 0n ? prereqs.depositedPower.toString() : undefined,
+                })}.`
               : `Track it with dexe_proposal_state {"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}.`),
         }),
         power: {

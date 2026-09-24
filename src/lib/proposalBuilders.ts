@@ -265,15 +265,53 @@ const withdrawTreasuryBuilder: CatalogBuilder = {
   },
 };
 
+/**
+ * The DAO's GovSettings address, from the composite's own `govPool`. Every
+ * settings-shaped builder used to REQUIRE the caller to pass it — one more
+ * round trip through dexe_dao_info for an address the pool itself reports.
+ * An explicit value still wins (and is validated); it is only read when absent.
+ */
+async function resolveGovSettings(
+  explicit: string | undefined,
+  deps: { ctx: ToolContext; govPool: string; chainId: number },
+): Promise<string> {
+  if (explicit !== undefined && explicit !== "") {
+    if (!isAddress(explicit)) throw new Error(`Invalid govSettings: ${explicit}`);
+    return explicit;
+  }
+  const pr = new RpcProvider(deps.ctx.config).tryProvider(deps.chainId);
+  if ("error" in pr) {
+    throw new Error(`govSettings was omitted and cannot be read from ${deps.govPool}: ${pr.error} Pass govSettings explicitly.`);
+  }
+  const [res] = await multicall(pr.ok, [
+    { target: deps.govPool, iface: GOV_POOL_HELPERS_ABI, method: "getHelperContracts", args: [], allowFailure: true },
+  ]);
+  const settings = res?.success ? ((res.value as unknown[])[0] as string) : null;
+  if (!settings || !isAddress(settings) || settings === ZeroAddress) {
+    throw new Error(
+      `govSettings was omitted and GovPool.getHelperContracts() on ${deps.govPool} (chain ${deps.chainId}) did not ` +
+        `return one — is this a GovPool? Pass govSettings explicitly (dexe_dao_info.helpers.settings).`,
+    );
+  }
+  return settings;
+}
+
+const GOV_POOL_HELPERS_ABI = new Interface([
+  "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+]);
+
 const changeVotingSettingsBuilder: CatalogBuilder = {
   schema: z.object({
-    govSettings: z.string().describe("GovSettings address (dexe_dao_info.helpers.settings)"),
+    govSettings: z
+      .string()
+      .optional()
+      .describe("GovSettings address. Omit to read it from the DAO (GovPool.getHelperContracts)."),
     settings: z.array(ProposalSettingsSchema).min(1),
     settingsIds: z.array(numericIntString).default([]).describe("Ids to edit (parallel to settings). Empty => addSettings"),
   }),
   async build(raw, deps) {
-    const p = raw as { govSettings: string; settings: z.infer<typeof ProposalSettingsSchema>[]; settingsIds: string[] };
-    if (!isAddress(p.govSettings)) throw new Error(`Invalid govSettings: ${p.govSettings}`);
+    const p0 = raw as { govSettings?: string; settings: z.infer<typeof ProposalSettingsSchema>[]; settingsIds: string[] };
+    const p = { ...p0, govSettings: await resolveGovSettings(p0.govSettings, deps) };
     if (p.settingsIds.length > 0 && p.settingsIds.length !== p.settings.length) {
       throw new Error("settingsIds length must match settings length when editing");
     }
@@ -1052,17 +1090,20 @@ function scopedExpertAlias(base: CatalogBuilder, scope: "local" | "global"): Cat
 
 const newProposalTypeBuilder: CatalogBuilder = {
   schema: z.object({
-    govSettings: z.string().describe("GovSettings address (dexe_dao_info.helpers.settings)"),
+    govSettings: z
+      .string()
+      .optional()
+      .describe("GovSettings address. Omit to read it from the DAO (GovPool.getHelperContracts)."),
     settings: ProposalSettingsSchema,
     executors: z.array(z.string()).min(1),
     newSettingId: numericIntString.describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings)"),
   }),
   async build(raw, deps) {
-    const p = raw as {
-      govSettings: string; settings: z.infer<typeof ProposalSettingsSchema>;
+    const p0 = raw as {
+      govSettings?: string; settings: z.infer<typeof ProposalSettingsSchema>;
       executors: string[]; newSettingId: string;
     };
-    if (!isAddress(p.govSettings)) throw new Error(`Invalid govSettings: ${p.govSettings}`);
+    const p = { ...p0, govSettings: await resolveGovSettings(p0.govSettings, deps) };
     for (const e of p.executors) {
       if (!isAddress(e)) throw new Error(`Invalid executor: ${e}`);
     }

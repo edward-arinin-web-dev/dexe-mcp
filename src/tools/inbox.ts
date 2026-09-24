@@ -10,6 +10,7 @@ import { chainIdParam } from "../lib/params.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
 import { GOV_POWER_DECIMALS, formatUnitsWithSymbol } from "../lib/units.js";
+import type { StateStore } from "../lib/stateStore.js";
 
 /**
  * dexe_user_inbox — multi-DAO attention aggregator.
@@ -196,7 +197,7 @@ interface PendingItem {
 
 // ---------- register ----------
 
-export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
+export function registerInboxTools(server: McpServer, ctx: ToolContext, state?: StateStore): void {
   const rpc = new RpcProvider(ctx.config);
   // Built from the endpoints this install actually has — a hardcoded
   // "mainnet discovers, testnet doesn't" sentence goes stale the moment
@@ -213,14 +214,15 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
       description:
         "Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked " +
         `deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that ` +
-        `chain's pools subgraph (limit 50; ${discoveryNote}); elsewhere pass \`daos[]\` — the scan itself is pure ` +
-        "on-chain. The reply echoes `indexedChainId`.",
+        `chain's pools subgraph (limit 50; ${discoveryNote}); on a chain with none the DAOs this install created or ` +
+        "used on that chain (dexe_context's list) are scanned instead, else pass `daos[]` — the scan itself is pure " +
+        "on-chain. The reply echoes `indexedChainId` and `daoSource`.",
       inputSchema: {
         user: z.string().describe("User wallet address"),
         daos: z
           .array(z.string())
           .optional()
-          .describe("Optional explicit DAO list. Required on chains with no pools subgraph."),
+          .describe("Optional explicit DAO list. On chains with no pools subgraph, omitting it scans this install's known DAOs."),
         proposalScanLimit: z
           .number()
           .int()
@@ -245,10 +247,24 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
 
       // ----- DAO list resolution -----
       let resolvedDaos: string[] = [];
-      let daoSource: "caller" | "subgraph";
+      let daoSource: "caller" | "subgraph" | "state";
       /** Chain the discovered list was indexed from; null when the caller passed it. */
       let indexedChainId: number | null = null;
       let discoveryUnavailable: string | undefined;
+
+      // DAOs this install already knows on the scan chain (deployed or used in a
+      // prior session). On an unindexed chain that is the only discovery
+      // source there is, and it is a better answer than an error that asks the
+      // agent to type the addresses dexe_context would have shown it.
+      const knownOnChain = (): string[] => {
+        try {
+          return (state?.getState().knownDaos ?? [])
+            .filter((d) => d.chainId === scanChainId && isAddress(d.govPool))
+            .map((d) => getAddress(d.govPool));
+        } catch {
+          return [];
+        }
+      };
 
       if (daos && daos.length > 0) {
         for (const d of daos) {
@@ -265,30 +281,45 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext): void {
             `${resolvedDaos.length} DAO(s) you passed were checked, and DAOs outside that list were not.`;
         }
       } else {
-        let sg: { url: string; chainId: number };
+        let sg: { url: string; chainId: number } | null = null;
+        let noSubgraph: string | null = null;
         try {
           sg = resolveSubgraphUrl(ctx.config, "pools", scanChainId);
         } catch (e) {
           // The resolver's message is already the user-facing remediation; the
           // one thing it can't know is that this tool has a subgraph-free path.
-          return err(
-            `${safeErrorMessage(e)}\n\n` +
-              `dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself — ` +
-              `pass \`daos: ["0x…"]\`. Only auto-discovery needs the subgraph.`,
-          );
+          noSubgraph = safeErrorMessage(e);
         }
-        daoSource = "subgraph";
-        indexedChainId = sg.chainId;
-        try {
-          const data = await gqlRequest<{ voterInPools: { pool: { id: string } }[] }>(sg.url, USER_DAOS_QUERY, {
-            user: userAddr.toLowerCase(),
-            first: 50,
-          });
-          resolvedDaos = data.voterInPools.map((v) => getAddress(v.pool.id));
-        } catch (e) {
-          return err(
-            toActionableError(e, `dexe_user_inbox DAO discovery on chain ${sg.chainId}`).message,
-          );
+        if (!sg) {
+          const known = knownOnChain();
+          if (known.length === 0) {
+            return err(
+              `${noSubgraph}\n\n` +
+                `dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself — ` +
+                `pass \`daos: ["0x…"]\`. Only auto-discovery needs the subgraph (no DAO on chain ${scanChainId} ` +
+                `is recorded in this install's state either).`,
+            );
+          }
+          resolvedDaos = known;
+          daoSource = "state";
+          discoveryUnavailable =
+            `Chain ${scanChainId} has no DeXe pools subgraph, so DAO auto-discovery is off: the ${known.length} DAO(s) ` +
+            `this install recorded on chain ${scanChainId} were scanned, and DAOs outside that list were not. ` +
+            `Pass \`daos[]\` to scan others.`;
+        } else {
+          daoSource = "subgraph";
+          indexedChainId = sg.chainId;
+          try {
+            const data = await gqlRequest<{ voterInPools: { pool: { id: string } }[] }>(sg.url, USER_DAOS_QUERY, {
+              user: userAddr.toLowerCase(),
+              first: 50,
+            });
+            resolvedDaos = data.voterInPools.map((v) => getAddress(v.pool.id));
+          } catch (e) {
+            return err(
+              toActionableError(e, `dexe_user_inbox DAO discovery on chain ${sg.chainId}`).message,
+            );
+          }
         }
       }
 

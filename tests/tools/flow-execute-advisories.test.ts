@@ -51,7 +51,11 @@ import { multicall } from "../../src/lib/multicall.js";
 import { loadConfig } from "../../src/config.js";
 import { registerFlowTools } from "../../src/tools/flow.js";
 import { registerVoteBuildTools } from "../../src/tools/voteBuild.js";
-import { POST_EXECUTE_LOCK_ADVISORY, executeAddSettingsAdvisory } from "../../src/lib/protocolAdvisories.js";
+import {
+  POST_EXECUTE_LOCK_ADVISORY,
+  ADD_SETTINGS_SELECTOR,
+  executeAddSettingsAdvisory,
+} from "../../src/lib/protocolAdvisories.js";
 
 const mc = vi.mocked(multicall);
 
@@ -90,6 +94,12 @@ const BENIGN_ACTION: [string, bigint, string] = [
   0n,
   new Interface(["function setLatestVotePower(uint256)"]).encodeFunctionData("setLatestVotePower", [1n]),
 ];
+/**
+ * A `GovSettings.addSettings` action — the ONE shape #36 is about. 0.34.1 made
+ * the composite's #36 warning action-aware: once the proposal's actions were
+ * read for the treasury guard, the warning fires only when one of them is this.
+ */
+const ADD_SETTINGS_ACTION: [string, bigint, string] = [SETTINGS, 0n, ADD_SETTINGS_SELECTOR + "00".repeat(64)];
 
 const PCT = 10n ** 25n; // 1% of the 1e27 quorum scale
 
@@ -351,6 +361,31 @@ describe("treasury guard on the composite execute path (MEDIUM-1)", () => {
 // ═════════════════════════ the composite carries what the build-only tool does
 
 describe("execute-time advisories on the gas-spending path (HIGH-2)", () => {
+  // The proposal under test carries the addSettings call #36 warns about, next
+  // to the treasury transfer the guard tests need.
+  beforeEach(() => {
+    chain.actionsOnFor = [ADD_SETTINGS_ACTION, TREASURY_ACTION];
+  });
+
+  it("chain 97 DROPS #36 when the actions were read and none is addSettings (0.34.1)", async () => {
+    chain.actionsOnFor = [TREASURY_ACTION];
+    const { body } = await voteAndExecute();
+    const ids = (body.advisories as Array<{ id: string }>).map((a) => a.id);
+    expect(ids).toEqual(["tokens-locked-after-execute"]);
+  });
+
+  it("chain 97 keeps #36 BLIND when the actions could not be read (guard off / read failed)", async () => {
+    chain.actionsOnFor = [TREASURY_ACTION];
+    process.env.DEXE_TREASURY_GUARD = "off";
+    const off = await voteAndExecute();
+    expect((off.body.advisories as Array<{ id: string }>).map((a) => a.id)).toContain("#36");
+
+    delete process.env.DEXE_TREASURY_GUARD;
+    chain.proposalsRevert = true;
+    const failed = await voteAndExecute();
+    expect((failed.body.advisories as Array<{ id: string }>).map((a) => a.id)).toContain("#36");
+  });
+
   it("chain 97 carries #36 and the deposit lock", async () => {
     const { body } = await voteAndExecute();
     const ids = (body.advisories as Array<{ id: string }>).map((a) => a.id);
@@ -432,6 +467,10 @@ describe("execute-time advisories on the gas-spending path (HIGH-2)", () => {
 // ═════════════════════════════ all three execute entrypoints use ONE funnel
 
 describe("every execute entrypoint goes through the same funnel", () => {
+  beforeEach(() => {
+    chain.actionsOnFor = [ADD_SETTINGS_ACTION, TREASURY_ACTION];
+  });
+
   it("post-vote execute (state Voting → SucceededFor) is guarded", async () => {
     chain.proposalStates = [0, 4]; // Voting on entry, SucceededFor after the vote
     const { sent, body } = await voteAndExecute({ depositFirst: false });

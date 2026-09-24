@@ -59,12 +59,24 @@ export function registerTxTools(
       "Pass `chainId` when several chains are configured, plus the payload's own chainId as `payloadChainId` — a mismatch REFUSES the send. " +
       "Calldata with a privileged GovUserKeeper accounting selector is refused (hard block, no override).",
     {
-      to: z.string().describe("Destination contract address"),
-      data: z.string().describe("ABI-encoded calldata (0x-prefixed hex)"),
+      to: z.string().optional().describe("Destination contract address (or pass the builder's `payload` object)"),
+      data: z.string().optional().describe("ABI-encoded calldata (0x-prefixed hex)"),
       value: z
         .string()
         .default("0")
         .describe("Wei value as decimal string"),
+      payload: z
+        .object({
+          to: z.string().describe("Destination contract address (the payload's `to`)"),
+          data: z.string().describe("ABI-encoded calldata, 0x-hex (the payload's `data`)"),
+          value: z.string().optional().describe("Wei value as decimal string (the payload's `value`, default 0)"),
+          chainId: z.number().int().positive().optional().describe("The payload's own chainId; used as payloadChainId"),
+        })
+        .passthrough()
+        .optional()
+        .describe(
+          "A dexe_*_build_* `payload` object verbatim ({to,data,value,chainId}). Fills to/data/value and payloadChainId when the flat fields are omitted.",
+        ),
       chainId: z
         .number()
         .int()
@@ -93,7 +105,26 @@ export function registerTxTools(
         .optional()
         .describe("Signer: omit = primary DEXE_PRIVATE_KEY (never an agent); 'agent<n>'/address = keyring."),
     },
-    async ({ to, data, value, chainId, payloadChainId, gasLimit, waitConfirmations, signerKey }) => {
+    async ({ to: toFlat, data: dataFlat, value: valueFlat, payload, chainId, payloadChainId: payloadChainIdFlat, gasLimit, waitConfirmations, signerKey }) => {
+      // Every dexe_*_build_* tool answers `{ payload: { to, data, value, chainId } }`,
+      // and the natural next call is to hand that object straight back. Accept
+      // it: the flat fields win when both are given, and the payload's own
+      // chainId feeds the same mismatch refusal as an explicit `payloadChainId`.
+      const to = toFlat ?? payload?.to;
+      const data = dataFlat ?? payload?.data;
+      const value = valueFlat !== "0" || payload?.value === undefined ? valueFlat : payload.value;
+      const payloadChainId = payloadChainIdFlat ?? payload?.chainId;
+      if (!to || !data) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "dexe_tx_send needs `to` + `data` — pass them flat, or pass a builder's `payload` object as `payload`.",
+            },
+          ],
+          isError: true,
+        };
+      }
       // Denylist FIRST — before chain resolution, signer lookup, WalletConnect
       // pairing, or any RPC. A refusal that only fires once the rest of the call
       // is well-formed is not a hard block; these bytes must never reach a node

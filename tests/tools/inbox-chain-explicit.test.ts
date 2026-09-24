@@ -6,6 +6,10 @@ import { registerInboxTools } from "../../src/tools/inbox.js";
 import { multicall } from "../../src/lib/multicall.js";
 import type { ToolContext } from "../../src/tools/context.js";
 import type { DexeConfig, SubgraphEndpoints } from "../../src/config.js";
+import { StateStore } from "../../src/lib/stateStore.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * 0.30.2 finding H1 — `dexe_user_inbox` discovered DAOs on one chain and
@@ -94,9 +98,13 @@ interface ToolResult {
   structuredContent?: Record<string, unknown>;
 }
 
-async function callInbox(cfg: DexeConfig, args: Record<string, unknown>): Promise<ToolResult> {
+async function callInbox(
+  cfg: DexeConfig,
+  args: Record<string, unknown>,
+  state?: StateStore,
+): Promise<ToolResult> {
   const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerInboxTools(server, { config: cfg } as unknown as ToolContext);
+  registerInboxTools(server, { config: cfg } as unknown as ToolContext, state);
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
@@ -303,5 +311,62 @@ describe("dexe_user_inbox description states the chain contract", () => {
     );
     await client.close();
     await server.close();
+  });
+});
+
+// ═══════════════════ 0.34.1 — an unindexed chain falls back to this install's DAOs
+
+describe("dexe_user_inbox on a chain with no pools subgraph scans the DAOs this install recorded", () => {
+  function stateWith(daos: Array<{ govPool: string; chainId: number }>): StateStore {
+    const store = new StateStore(join(mkdtempSync(join(tmpdir(), "dexe-inbox-")), "state.json"));
+    for (const d of daos) store.recordDao({ name: "Recorded DAO", govPool: d.govPool, chainId: d.chainId, deployedAt: "2026-09-24T00:00:00.000Z" });
+    return store;
+  }
+
+  it("chainId 97 with only a mainnet subgraph scans the recorded chain-97 DAOs instead of refusing", async () => {
+    const state = stateWith([
+      { govPool: TESTNET_DAO, chainId: 97 },
+      { govPool: MAINNET_DAO, chainId: 56 }, // recorded on ANOTHER chain — must not be scanned
+    ]);
+    const res = await callInbox(config({ subgraphs: { 56: MAINNET_URLS } }), { user: USER, chainId: 97 }, state);
+
+    expect(res.isError).toBeFalsy();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(res.structuredContent?.daoSource).toBe("state");
+    expect(res.structuredContent?.indexedChainId).toBeNull();
+    expect(res.structuredContent?.chainId).toBe(97);
+    expect((res.structuredContent?.summary as { totalDaos: number }).totalDaos).toBe(1);
+    expect(String(res.structuredContent?.discoveryUnavailable)).toContain("1 DAO(s)");
+    // The scan ran on the recorded testnet DAO and on nothing else.
+    const targets = multicallMock.mock.calls.flatMap(([, calls]) =>
+      (calls as Array<{ target: string }>).map((c) => c.target.toLowerCase()),
+    );
+    expect(targets.some((t) => t === TESTNET_DAO.toLowerCase())).toBe(true);
+    expect(targets.some((t) => t === MAINNET_DAO.toLowerCase())).toBe(false);
+  });
+
+  it("with nothing recorded on that chain the refusal is unchanged and says so", async () => {
+    const state = stateWith([{ govPool: MAINNET_DAO, chainId: 56 }]);
+    const res = await callInbox(config({ subgraphs: { 56: MAINNET_URLS } }), { user: USER, chainId: 97 }, state);
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("daos:");
+    expect(text(res)).toContain("recorded in this install's state");
+    expect(multicallMock).not.toHaveBeenCalled();
+  });
+
+  it("an explicit daos[] still wins over the recorded list", async () => {
+    const state = stateWith([{ govPool: TESTNET_DAO, chainId: 97 }]);
+    const OTHER = "0xdad0000000000000000000000000000000000001";
+    const res = await callInbox(
+      config({ subgraphs: { 56: MAINNET_URLS } }),
+      { user: USER, chainId: 97, daos: [OTHER] },
+      state,
+    );
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent?.daoSource).toBe("caller");
+    const targets = multicallMock.mock.calls.flatMap(([, calls]) =>
+      (calls as Array<{ target: string }>).map((c) => c.target.toLowerCase()),
+    );
+    expect(targets.some((t) => t === TESTNET_DAO.toLowerCase())).toBe(false);
   });
 });

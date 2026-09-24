@@ -6,6 +6,31 @@ something on your side.
 
 ---
 
+## 0.34.0 → 0.34.1 — read this if you branch on a forecast error, a risk verdict, or an inbox source
+
+Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.
+Nothing was renamed and no input was removed; two answers changed shape.
+
+1. **`dexe_proposal_forecast` no longer returns `{ error: "subgraph required" }`**
+   for a chain with no pools subgraph. It answers on-chain only:
+   `subgraphHistory: null`, `indexedChainId: null`, and the remediation that
+   used to be in `hint` is now in `subgraphNote`. A caller that treated that
+   error as "cannot forecast" now gets a forecast. `forceRpcOnly` still exists
+   (skip the cross-check on an indexed chain).
+2. **`dexe_proposal_risk_assess` verdict on gov-token transfers.** An
+   `ERC20.transfer` / `approve` / `transferFrom` of the DAO's own gov token was
+   scored `unknownPrivileged` → `DANGER`. It is now a treasury hit only, so the
+   verdict follows the quorum model (`SAFE` on a healthy DAO). If you gated
+   execution on `verdict !== "DANGER"`, those proposals now pass the gate — as
+   the treasury readout beside them always said they should.
+3. **`dexe_user_inbox.daoSource` gains a third value, `"state"`** (DAOs recorded
+   by this install, used on a chain with no subgraph and no `daos[]`).
+4. Add-only inputs: `dexe_tx_send.payload`, `dexe_read_treasury.govPool`,
+   `dexe_dao_registry_lookup.govPool`; `change_voting_settings.params.govSettings`
+   and `new_proposal_type.params.govSettings` became optional.
+
+---
+
 ## 0.33.1 → 0.34.0 — read this if you branch on a forecast, a doctor exit code, or a dry run
 
 Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.

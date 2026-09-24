@@ -79,35 +79,50 @@ export function recommend(
   floorPct: number,
   treasuryTouching: boolean,
   governanceHits: readonly GovernanceHit[] = [],
+  /**
+   * The verdict of the TREASURY leg alone (quorum + concentration). Defaults to
+   * `verdict` for callers that have no separate figure. The merged verdict used
+   * to be fed to the treasury sentence, so a governance DANGER printed
+   * "treasury-moving under a low quorum" beside `quorumVerdict: SAFE`.
+   */
+  treasuryVerdict: RiskLevel = verdict,
 ): string {
-  const govLine = governanceRecommendation(governanceHits);
+  const govLine = governanceRecommendation(governanceHits, treasuryTouching);
+  // Sentences are joined with a space, not a blank line: `structuredContent`
+  // is deep-sanitized on the way out and a newline there renders as a literal
+  // `\x0a`, which is what the agent — and the user — saw.
   if (!treasuryTouching) {
     const base =
       "No treasury-moving action detected (no ERC20 approve/transfer/transferFrom or native value). " +
       "This tool classifies a fixed selector set — an unrecognised call is UNASSESSED, not proven safe. " +
       "Review the actions themselves (dexe_decode_proposal) before voting or executing.";
-    return govLine ? `${govLine}\n\n${base}` : base;
+    return govLine ? `${govLine} ${base}` : base;
   }
-  const treasury = recommendTreasury(verdict, floorPct);
-  return govLine ? `${govLine}\n\n${treasury}` : treasury;
+  const treasury = recommendTreasury(treasuryVerdict, floorPct);
+  return govLine ? `${govLine} ${treasury}` : treasury;
 }
 
-function governanceRecommendation(hits: readonly GovernanceHit[]): string | null {
+function governanceRecommendation(hits: readonly GovernanceHit[], treasuryTouching = false): string | null {
   if (hits.length === 0) return null;
   const owned = hits.filter((h) => h.protocolTargets.length > 0);
   const unknown = hits.filter((h) => h.kind === "unknownPrivileged");
   const parts: string[] = [];
+  // The governance leg is scored independently of the treasury leg; say which
+  // one this sentence is about instead of asserting "moves no treasury value"
+  // beside a treasury hit in the same readout.
+  const scope = treasuryTouching
+    ? "This is separate from the treasury movement assessed below — the quorum model covers that movement, not this call."
+    : "It moves no treasury value, so the quorum model below does not apply.";
   if (owned.length > 0) {
     parts.push(
       `DANGER: this proposal calls ${[...new Set(owned.map((h) => h.kind))].join(", ")} targeting the DAO's own ` +
-        `contract(s) ${[...new Set(owned.flatMap((h) => h.protocolTargets))].join(", ")}. It moves no treasury ` +
-        `value, so the quorum model below does not apply — a passing vote can permanently disable governance or ` +
-        `freeze the treasury. Verify the target address before voting FOR.`,
+        `contract(s) ${[...new Set(owned.flatMap((h) => h.protocolTargets))].join(", ")}. ${scope} A passing vote ` +
+        `can permanently disable governance or freeze the treasury. Verify the target address before voting FOR.`,
     );
   } else {
     parts.push(
       `CAUTION: this proposal changes DAO governance (${[...new Set(hits.map((h) => h.kind))].join(", ")}). ` +
-        `It moves no treasury value — review the change itself; the quorum model below does not cover it.`,
+        `${scope} Review the change itself.`,
     );
   }
   if (unknown.length > 0) {
@@ -340,10 +355,8 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
         const governanceHits = classifyGovernanceActions(assessedActions, { protocolAddresses });
         const govV = governanceVerdict(governanceHits);
 
-        const verdict: RiskLevel = worstRisk(
-          treasuryTouching ? worstRisk(quorumVerdict, qConc.verdict) : "SAFE",
-          govV,
-        );
+        const treasuryVerdict: RiskLevel = treasuryTouching ? worstRisk(quorumVerdict, qConc.verdict) : "SAFE";
+        const verdict: RiskLevel = worstRisk(treasuryVerdict, govV);
 
         const structured = {
           govPool,
@@ -372,7 +385,7 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
             kind: h.kind,
             protocolTargets: h.protocolTargets,
           })),
-          recommendation: recommend(verdict, floorPct, treasuryTouching, governanceHits),
+          recommendation: recommend(verdict, floorPct, treasuryTouching, governanceHits, treasuryVerdict),
         };
 
         const lines = [

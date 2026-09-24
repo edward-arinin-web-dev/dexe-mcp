@@ -136,7 +136,8 @@ function registerRegistryLookup(
       description:
         "Read-only. Calls `PoolRegistry.isGovPool(address)` — true when the address is a registered DeXe DAO GovPool.",
       inputSchema: {
-        address: z.string().describe("Candidate GovPool address"),
+        address: z.string().optional().describe("Candidate GovPool address"),
+        govPool: z.string().optional().describe("Alias for `address` — the name every other DAO tool uses"),
         chainId: chainIdParam,
       },
       outputSchema: {
@@ -146,7 +147,9 @@ function registerRegistryLookup(
         chainId: z.number(),
       },
     },
-    async ({ address, chainId }) => {
+    async ({ address: addressIn, govPool, chainId }) => {
+      const address = addressIn ?? govPool;
+      if (!address) return errorResult("Pass `address` (or its alias `govPool`) — the candidate GovPool address.");
       if (!isAddress(address)) return errorResult(`Invalid address: ${address}`);
       try {
         const ab = requireBook(chainId);
