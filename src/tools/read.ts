@@ -249,7 +249,8 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         "EVERY token via the DeXe backend with USD prices and a total. Falls back to an on-chain read (chain 97, explicit " +
         "`tokens`, or a backend failure) — no token discovery there, and it reports `degraded: true`.",
       inputSchema: {
-        holder: z.string().describe("Address whose balances we read"),
+        holder: z.string().optional().describe("Address whose balances we read (a GovPool for a DAO treasury)"),
+        govPool: z.string().optional().describe("Alias for `holder` — every other DAO read names the DAO this way"),
         tokens: z
           .array(z.string())
           .default([])
@@ -289,7 +290,12 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         ),
       },
     },
-    async ({ holder, tokens = [], chainId: chainIdArg }) => {
+    async ({ holder: holderIn, govPool, tokens = [], chainId: chainIdArg }) => {
+      // `govPool` is what dexe_dao_report's follow-up hints and every other DAO
+      // read call the DAO; an agent following the hint used to be rejected here
+      // with "holder: Required".
+      const holder = holderIn ?? govPool;
+      if (!holder) return errorResult("Pass `holder` (or its alias `govPool`) — the address whose balances to read.");
       if (!isAddress(holder)) return errorResult(`Invalid holder: ${holder}`);
       const chainId = rpc.resolveChainId(chainIdArg);
       const backendBase = (process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl).replace(

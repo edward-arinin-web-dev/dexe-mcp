@@ -409,6 +409,10 @@ export function voteLockAtCreateAdvisory(a: {
   govPool: string;
   chainId: number;
   proposalId?: number;
+  /** Signer address — becomes the `receiver` of the paste-able withdraw call. */
+  receiver?: string;
+  /** Locked amount in RAW wei — becomes the `amount` of the paste-able withdraw call. */
+  amountWei?: string;
 }): UpstreamAdvisory {
   const where = a.proposalId ? `proposal #${a.proposalId}` : "the proposal this call creates";
   return {
@@ -419,9 +423,28 @@ export function voteLockAtCreateAdvisory(a: {
       `⚠ WARN — deposit lock: ${a.amount} ${a.broadcast ? "are now locked" : "will be locked"} as your FOR vote on ` +
       `${where}. You can still create and vote on OTHER proposals with these tokens, but you cannot WITHDRAW or ` +
       `DELEGATE them until this one leaves voting — sooner reverts "GovUK: can't withdraw this". Then: ` +
-      `dexe_vote_build_withdraw {"govPool":"${a.govPool}","chainId":${a.chainId}}.` +
+      `${withdrawCallHint({ govPool: a.govPool, chainId: a.chainId, receiver: a.receiver, amountWei: a.amountWei })}.` +
       (a.broadcast ? "" : " NOTHING has been broadcast yet."),
   };
+}
+
+/**
+ * A `dexe_vote_build_withdraw` call the agent can paste as-is. The tool
+ * REQUIRES `receiver` and `amount` (raw wei); the 0.33/0.34 advisories printed
+ * only `{govPool, chainId}`, which the schema rejects — every create and every
+ * execute handed the user a call that could not run.
+ */
+export function withdrawCallHint(a: {
+  govPool: string;
+  chainId: number;
+  receiver?: string;
+  amountWei?: string;
+}): string {
+  const fields = [`"govPool":"${a.govPool}"`];
+  fields.push(`"receiver":"${a.receiver ?? "<your address>"}"`);
+  fields.push(`"amount":"${a.amountWei ?? "<deposited wei>"}"`);
+  fields.push(`"chainId":${a.chainId}`);
+  return `dexe_vote_build_withdraw {${fields.join(",")}}` + (a.amountWei ? "" : " (amount = raw wei, digits only)");
 }
 
 /**

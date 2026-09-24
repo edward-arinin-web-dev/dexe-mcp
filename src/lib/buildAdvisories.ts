@@ -44,6 +44,7 @@ import {
 } from "./protocolAdvisories.js";
 import {
   classifyTreasuryActions,
+  treasurySelectors,
   TREASURY_RISK_ADVISORY,
   type TreasuryGuardMode,
   type TreasuryHit,
@@ -976,6 +977,9 @@ const GOVERNANCE_SELECTORS: ReadonlyMap<string, { kind: GovernanceHitKind; iface
     return m;
   })();
 
+/** Value-moving selectors the treasury table owns; never re-scored here. */
+const TREASURY_SELECTOR_SET: ReadonlySet<string> = new Set(treasurySelectors().map((s) => s.toLowerCase()));
+
 /** Selectors this classifier recognises (for docs/tests). */
 export function governanceSelectors(): string[] {
   return [...GOVERNANCE_SELECTORS.keys()];
@@ -1004,6 +1008,15 @@ export function classifyGovernanceActions(
 
     let kind: GovernanceHitKind;
     let targets: string[] = [];
+    if (!entry && TREASURY_SELECTOR_SET.has(selector)) {
+      // ERC20.transfer / approve / transferFrom on the DAO's OWN gov token is
+      // the ordinary treasury-move that `classifyTreasuryActions` already
+      // scores under the quorum model. Falling through to `unknownPrivileged`
+      // here turned every token_transfer of the gov token — the most common
+      // proposal there is — into a DANGER "calls the DAO's own contract" that
+      // contradicted the treasury readout beside it.
+      return;
+    }
     if (entry) {
       kind = entry.kind;
       try {
