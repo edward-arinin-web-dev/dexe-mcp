@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.34.1 — unreleased
+## 0.34.1 — 2026-10-01
 
 **What a first live session after 0.34.0 hit.** A fresh DAO on BSC testnet
 (chain 97), one treasury transfer, one vote, one execute, one withdraw — the
@@ -8,6 +8,11 @@ plain path every user takes first. Eight things got in the way; none was a
 calldata defect, all of them were the server contradicting itself or refusing
 an input it had just told the agent to send. Tool count unchanged
 (**168 / 19 groups**). No emitted calldata changed.
+
+**First npm release since 0.33.0.** 0.33.1 and 0.34.0 were merged but never
+tagged — the publish token had expired — and can no longer pass the release
+audit gate at their own commits. Everything in their sections below ships in
+this version; upgrading from 0.33.0, read all three `docs/MIGRATION.md` steps.
 
 ### Fixed — `dexe_proposal_risk_assess` called an ordinary treasury transfer DANGER
 On a `token_transfer` of the DAO's own gov token — built by
@@ -112,8 +117,9 @@ the vote ends.
   97. Non-zero: the reply carries advisory `F23` saying the payload reverts as
   built, with the `unlock(delegatee)` call ready to paste into `dexe_tx_send`.
   Zero: nothing is added. Unreadable: the trap is stated without claiming to
-  observe it. Other chains are not read and get no advisory — mainnet has not
-  been measured.
+  observe it. Other chains are not read and get no advisory: mainnet (56) was
+  measured the same day and is clean — a mid-vote undelegate landed there —
+  so, like #36, this is the older testnet deployment.
 - The calldata is unchanged (the raw shape the frontend sends).
 - `docs/UPSTREAM-ISSUES.md` has the full shape table; PLAYBOOK row
   `undelegate-after-vote`.
