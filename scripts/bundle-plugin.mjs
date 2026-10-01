@@ -70,4 +70,14 @@ for (const doc of readdirSync(resolve(root, "docs")).filter((f) => f.endsWith(".
   );
 }
 
+// server.json is the MCP Registry manifest. It carries the version twice (the
+// server and the npm package it points at) and the registry rejects a manifest
+// whose version is not the published one, so it is stamped here with the other
+// generated version files rather than left as a fifth thing to bump by hand.
+const serverJsonPath = resolve(root, "server.json");
+const serverJson = JSON.parse(readFileSync(serverJsonPath, "utf8"));
+serverJson.version = pkg.version;
+for (const p of serverJson.packages ?? []) p.version = pkg.version;
+writeFileSync(serverJsonPath, JSON.stringify(serverJson, null, 2) + "\n");
+
 console.log(`bundled dexe-plugin/server/index.mjs (v${pkg.version})`);
