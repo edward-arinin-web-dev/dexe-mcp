@@ -27,6 +27,12 @@ The full design lives at `C:\Users\edwar\.claude\plans\rosy-wishing-lobster.md`.
 - `.claude/skills/swarm-test/SKILL.md` — `/swarm-test` slash-command.
 - `package.json` scripts: `swarm:preflight`, `swarm:fund`, `swarm:run`, `swarm:smoke`.
 
+> The orchestrator spawns **two** MCP children, both with `DEXE_TOOLSETS=full`:
+> a keyless one (`DEXE_PRIVATE_KEY=""`) that answers `mode: "payloads"` for the
+> orchestrator to sign per agent, and — only when a scenario has a `serverSign`
+> step — a keyed one (`DEXE_PRIVATE_KEY`, else `AGENT_FUNDER_PK`) in keyring mode,
+> because a keyless server is in WalletConnect mode and refuses `signerKey`.
+>
 > The orchestrator spawns its MCP server with `DEXE_TOOLSETS=full` — scenario
 > steps touch read/vote/dev tools that the slim default surface hides (without
 > this, those steps 404 as "unknown tool").

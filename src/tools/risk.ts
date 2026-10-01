@@ -156,7 +156,10 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
         "classifies', never 'this proposal is safe'.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
-        proposalId: z.number().int().min(1).optional().describe("On-chain proposal id (1-indexed) to assess"),
+        proposalId: z
+          .union([z.string(), z.number()])
+          .optional()
+          .describe("On-chain proposal id (1-indexed) to assess; a digits-only string is accepted too"),
         actions: z
           .array(ActionSchema)
           .optional()
@@ -199,7 +202,11 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
         recommendation: z.string(),
       },
     },
-    async ({ govPool, proposalId, actions, chainId }) => {
+    async ({ govPool, proposalId: proposalIdIn, actions, chainId }) => {
+      const proposalId = proposalIdIn === undefined ? undefined : Number(proposalIdIn);
+      if (proposalId !== undefined && (!Number.isInteger(proposalId) || proposalId < 1)) {
+        return errorResult(`Invalid proposalId: ${String(proposalIdIn)} — a positive integer (1-indexed), as a number or digits-only string.`);
+      }
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (proposalId === undefined && (!actions || actions.length === 0)) {
         return errorResult("Provide either `proposalId` (on-chain) or a non-empty `actions` array (hypothetical).");

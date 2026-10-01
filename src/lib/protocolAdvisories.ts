@@ -361,6 +361,69 @@ export const VALIDATOR_VOTE_IRREVOCABLE_ADVISORY = upstream(
     "same direction is the only move they keep.",
 );
 
+// ---------- F23 — undelegate is blocked while the delegatee has votes on record
+
+/**
+ * Chains where `GovPool.undelegate` is MEASURED to revert once the delegatee
+ * has a vote on record. Same rule as `ADD_SETTINGS_BLOCKED_CHAINS`: the list
+ * only grows from evidence (Kestrel `0xb0Ca…2145`, chain 97, 2026-10-01).
+ * Mainnet 56 has not been measured either way.
+ */
+export const UNDELEGATE_AFTER_VOTE_CHAINS: readonly number[] = [97];
+
+export function isUndelegateAfterVoteChain(chainId: number): boolean {
+  return UNDELEGATE_AFTER_VOTE_CHAINS.includes(chainId);
+}
+
+const GOV_POOL_UNLOCK_IFACE = new Interface(["function unlock(address user)"]);
+
+/** `GovPool.unlock(user)` — callable by any address; drops the user's finished proposals. */
+export function unlockCalldata(user: string): string {
+  return GOV_POOL_UNLOCK_IFACE.encodeFunctionData("unlock", [user]);
+}
+
+/**
+ * F23: `undelegate` runs `_unlock(delegatee)` and then re-votes the delegatee's
+ * micropool. With nothing on the delegatee's `votedInProposals` list both are
+ * no-ops and the call passes; with one entry the call trace changes and the
+ * pool's SphereX firewall rejects it — raw, `multicall([undelegate])` and
+ * `multicall([unlock, undelegate])` alike. `unlock(delegatee)` sent ON ITS OWN
+ * is allowed once the proposals have left Voting and empties the list, after
+ * which the plain undelegate passes. While a proposal is still in Voting the
+ * standalone unlock is rejected too, so nothing works until the vote ends.
+ *
+ * `votedProposals` is `GovPool.getUserActiveProposalsCount(delegatee)`:
+ *   0n     → the call passes; no advisory (one that fires when it is false is noise)
+ *   > 0n   → it WILL revert as built; say so, with the paste-able unlock
+ *   null   → could not be read; state the trap without claiming to observe it
+ */
+export function undelegateAfterVoteAdvisory(a: {
+  chainId: number;
+  govPool: string;
+  delegatee: string;
+  votedProposals: bigint | null;
+}): UpstreamAdvisory | null {
+  if (!isUndelegateAfterVoteChain(a.chainId)) return null;
+  if (a.votedProposals === 0n) return null;
+  const unlockCall = `dexe_tx_send {"to":"${a.govPool}","data":"${unlockCalldata(a.delegatee)}","chainId":${a.chainId}}`;
+  const observed =
+    a.votedProposals === null
+      ? `whenever the delegatee still has a vote on record (GovPool.getUserActiveProposalsCount(${a.delegatee}) > 0 — ` +
+        "it could not be read here, so check before sending)"
+      : `while the delegatee still has votes on record — ${a.delegatee} has ${a.votedProposals}, so this payload ` +
+        "reverts as built";
+  return upstream(
+    "F23",
+    "WARN",
+    `on chain ${a.chainId} GovPool.undelegate reverts "SphereX error: disallowed tx pattern" ${observed}. ` +
+      "Raw, multicall([undelegate]) and multicall([unlock, undelegate]) all revert. Once every proposal the " +
+      `delegatee voted on has left Voting, clear its list in a SEPARATE transaction first — ${unlockCall} ` +
+      "(GovPool.unlock(delegatee); any address may send it) — then send this undelegate. While one of those " +
+      "proposals is still in Voting that unlock reverts the same way, and the delegation cannot be pulled back " +
+      "until the vote ends.",
+  );
+}
+
 // ---------- Mode 5 — deposited tokens stay locked after a vote/execute -------
 
 /**

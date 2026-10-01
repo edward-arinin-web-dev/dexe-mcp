@@ -71,6 +71,7 @@
       "broadcast": false,
       "captureAs": "badSlot",
       "comment": "Raw signerKey arg, NOT serverSign — the point is that an unknown slot is refused by name.",
+      "serverSign": true,
       "expectError": "Unknown signerKey"
     }
   ],

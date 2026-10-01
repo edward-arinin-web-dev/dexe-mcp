@@ -4,9 +4,9 @@
   "priority": 1,
   "dao": "{{firstAllowlistedDao}}",
   "dependsOn": [],
-  "requiresChain": [56, 97],
+  "requiresChain": [56],
   "requiresBrowser": false,
-  "notes": "Read-only sweep of the participation surface: governance settings, treasury balance, distribution status, staking info. Validates the read tools return well-formed structured data on Glacier and exercises the generic MCP fallback dispatcher across multiple tools.",
+  "notes": "Chain 56 only: dexe_read_user_activity needs the interactions subgraph, which chain 97 does not have (0.30.2 refuses to answer 97 from the mainnet index). Read-only sweep of the participation surface: governance settings, treasury balance, distribution status, staking info. Validates the read tools return well-formed structured data on Glacier and exercises the generic MCP fallback dispatcher across multiple tools.",
   "agents": [
     { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" },
     { "alias": "B", "role": "Voter2/Delegator", "wallet": "AGENT_PK_3" }

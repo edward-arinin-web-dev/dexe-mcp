@@ -4,9 +4,9 @@
   "priority": 1,
   "dao": "{{firstAllowlistedDao}}",
   "dependsOn": [],
-  "requiresChain": [56, 97],
+  "requiresChain": [56],
   "requiresBrowser": false,
-  "notes": "Read-only verification of the expert subsystem. Confirms no agent is currently an expert and the DAO's expert list is empty. Does not exercise apply_to_dao because that path needs a passing proposal which requires more voting power than the agent pool holds.",
+  "notes": "Chain 56 only: the subgraph-backed reads in this scenario (experts / members / validator list / voters) have no chain-97 index and 0.30.2 refuses to answer 97 from the mainnet one. Read-only verification of the expert subsystem. Confirms no agent is currently an expert and the DAO's expert list is empty. Does not exercise apply_to_dao because that path needs a passing proposal which requires more voting power than the agent pool holds.",
   "agents": [
     { "alias": "A", "role": "Expert/Applicant", "wallet": "AGENT_PK_8" },
     { "alias": "B", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" },

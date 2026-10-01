@@ -92,3 +92,20 @@ describe("scenario corpus", () => {
     }
   });
 });
+
+describe("an explicit args.signerKey wins over the derived slot (0.34.1)", () => {
+  it("keeps the scenario's signerKey — an unknown slot must reach the server to be refused there", () => {
+    expect(
+      routeStep({ step: 4, tool: "dexe_tx_send", serverSign: true, args: { signerKey: "agent99" } }, "AGENT_PK_1", {
+        inlineDispatchers: [],
+      }),
+    ).toEqual({ mode: "server", signerKey: "agent99" });
+  });
+
+  it("derives the slot from the wallet when args carry none", () => {
+    expect(routeStep({ step: 2, tool: "dexe_tx_send", serverSign: true, args: {} }, "AGENT_PK_1", { inlineDispatchers: [] })).toEqual({
+      mode: "server",
+      signerKey: "agent1",
+    });
+  });
+});

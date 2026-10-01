@@ -284,7 +284,7 @@ These tools also return **`warnings[]`** (see section 7); the older `advisories`
 | `dexe_vote_build_deposit` | `GovPool.deposit(amount, nftIds)`. Payable — pass `value` for native-coin staking. | (none) |
 | `dexe_vote_build_withdraw` | `GovPool.withdraw(receiver, amount, nftIds)`. | (none) |
 | `dexe_vote_build_delegate` | Emits **`GovPool.multicall([delegate(delegatee, amount, nftIds)])`** — the single-element multicall the frontend sends, because SphereX-protected pools (deployed from mid-2026) revert a raw top-level `delegate()`. Delegates YOUR staked power, not the treasury's. | (none) |
-| `dexe_vote_build_undelegate` | `GovPool.undelegate(delegatee, amount, nftIds)`. | (none) |
+| `dexe_vote_build_undelegate` | `GovPool.undelegate(delegatee, amount, nftIds)`. On chain 97 it reads `getUserActiveProposalsCount(delegatee)`: once the delegatee has a vote on record the call reverts (upstream F23), and the reply carries the `unlock(delegatee)` call to send first. | (none; an RPC for chain 97 makes the F23 check live) |
 | `dexe_vote_build_vote` | Emits **`GovPool.multicall([vote(proposalId, isVoteFor, amount, nftIds)])`** — the single-element multicall the frontend sends, because SphereX-protected pools (deployed from mid-2026) revert a raw top-level `vote()`. Requires staked/delegated power first. | (none) |
 | `dexe_vote_build_cancel_vote` | `GovPool.cancelVote(proposalId)`. | (none) |
 | `dexe_vote_build_validator_vote` | `GovValidators.vote{Internal,External}Proposal`. Note: amount BEFORE isVoteFor (differs from GovPool.vote). | (none) |

@@ -20,8 +20,10 @@ import {
   VALIDATOR_CANCEL_VOTE_ADVISORY,
   VESTING_WITHDRAW_ADVISORY,
   executeAddSettingsAdvisory,
+  isUndelegateAfterVoteChain,
   lockedPowerAdvisory,
   renderAdvisories,
+  undelegateAfterVoteAdvisory,
   type UpstreamAdvisory,
 } from "../lib/protocolAdvisories.js";
 import { checkApproveTarget } from "../lib/preflight.js";
@@ -355,14 +357,15 @@ function payloadOutputSchema() {
 // ---------- register ----------
 
 export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): void {
-  // Only the two deposit-lock builders use it, and only when the caller names a
-  // `voter`; construction is lazy (no connection is opened here).
+  // Only the advisory reads use it — the deposit-lock builders when the caller
+  // names a `voter`, and undelegate on a chain where F23 is measured;
+  // construction is lazy (no connection is opened here).
   const rpc = new RpcProvider(ctx.config);
   registerErc20Approve(server, ctx, rpc);
   registerDeposit(server, ctx);
   registerWithdraw(server, ctx);
   registerDelegate(server, ctx);
-  registerUndelegate(server, ctx);
+  registerUndelegate(server, ctx, rpc);
   registerVote(server, ctx, rpc);
   registerCancelVote(server, ctx);
   registerValidatorVote(server, ctx);
@@ -655,14 +658,49 @@ function registerDelegate(server: McpServer, ctx: ToolContext): void {
 
 // ---------- undelegate ----------
 
-function registerUndelegate(server: McpServer, ctx: ToolContext): void {
+const GOV_POOL_VOTED_IFACE = new Interface([
+  "function getUserActiveProposalsCount(address user) view returns (uint256)",
+]);
+
+/**
+ * How many proposals the delegatee still has on its voted list — the one fact
+ * that decides whether an undelegate passes the firewall (F23). `null` when it
+ * cannot be read; never throws, so an advisory read cannot fail a build.
+ */
+async function delegateeVotesOnRecord(
+  rpc: RpcProvider,
+  args: { govPool: string; delegatee: string; chainId: number },
+): Promise<bigint | null> {
+  const pr = rpc.tryProvider(args.chainId);
+  if ("error" in pr) return null;
+  try {
+    const [res] = await multicall(pr.ok, [
+      {
+        target: args.govPool,
+        iface: GOV_POOL_VOTED_IFACE,
+        method: "getUserActiveProposalsCount",
+        args: [args.delegatee],
+        allowFailure: true,
+      },
+    ]);
+    if (!res?.success) return null;
+    // A single-output call comes back bare from some decode paths and as a
+    // one-element Result from others.
+    const v = res.value as unknown;
+    return BigInt((Array.isArray(v) ? v[0] : v) as bigint);
+  } catch {
+    return null;
+  }
+}
+
+function registerUndelegate(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_undelegate",
     {
       title: "Undelegate voting power from a delegatee",
       description:
         B +
-        "`GovPool.undelegate(delegatee, amount, nftIds)` — pulls back power you delegated. The delegatee's live votes are recomputed downward, and a delegate and an undelegate in the same block revert.",
+        "`GovPool.undelegate(delegatee, amount, nftIds)` — pulls back power you delegated. The delegatee's live votes are recomputed downward, and a delegate and an undelegate in the same block revert. On chain 97 it reverts while the delegatee has votes on record; the reply then carries the unlock call to send first.",
       inputSchema: {
         govPool: govPoolParam,
         delegatee: z.string().describe("Address you are pulling the delegated power back from."),
@@ -690,7 +728,16 @@ function registerUndelegate(server: McpServer, ctx: ToolContext): void {
           contractLabel: "GovPool",
           description: `GovPool.undelegate ← ${delegatee} (${amount} wei, ${nftIds.length} NFTs)`,
         });
-        return payloadResult(payload);
+        // F23 — read only where the trap is measured; elsewhere no RPC is touched.
+        const advisory = isUndelegateAfterVoteChain(payload.chainId)
+          ? undelegateAfterVoteAdvisory({
+              chainId: payload.chainId,
+              govPool,
+              delegatee,
+              votedProposals: await delegateeVotesOnRecord(rpc, { govPool, delegatee, chainId: payload.chainId }),
+            })
+          : null;
+        return payloadResult(payload, advisory);
       } catch (err) {
         return errorResult(safeErrorMessage(err));
       }

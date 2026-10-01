@@ -326,6 +326,52 @@ describe("F12 — validator cancel is warned in-band", () => {
   });
 });
 
+// ---------------------------------------------------------------- F23 -------
+
+describe("F23 — undelegate says when the delegatee's votes will make it revert", () => {
+  const UNLOCK_SELECTOR = "0x2f6c493c";
+  const args = { govPool: GOV, delegatee: USER, amount: "1000", nftIds: [] };
+
+  it("chain 97 with votes on record: warns with the paste-able unlock and leaves the calldata alone", async () => {
+    multicallMock.mockResolvedValue([{ success: true, value: 2n }]);
+    const build = (await voteBuildTools()).get("dexe_vote_build_undelegate")!;
+    const res = await build({ ...args, chainId: 97 });
+    const out = text(res);
+    expect(out).toContain("F23");
+    expect(out).toMatch(/has 2, so this payload reverts as built/);
+    expect(out).toContain(`dexe_tx_send {"to":"${GOV}","data":"${UNLOCK_SELECTOR}`);
+    expect(out).toContain(USER.slice(2).toLowerCase());
+    expect((res.structuredContent!.advisories as { id: string }[])[0]!.id).toBe("F23");
+    // still the raw shape the frontend sends — the advisory never rewrites it
+    expect((res.structuredContent!.payload as { data: string }).data.startsWith("0x7810436a")).toBe(true);
+  });
+
+  it("chain 97 with nothing on record: says nothing", async () => {
+    multicallMock.mockResolvedValue([{ success: true, value: 0n }]);
+    const build = (await voteBuildTools()).get("dexe_vote_build_undelegate")!;
+    const res = await build({ ...args, chainId: 97 });
+    expect(text(res)).not.toContain("F23");
+    expect(res.structuredContent!.advisories).toBeUndefined();
+  });
+
+  it("chain 97 when the count cannot be read: states the trap without claiming to observe it", async () => {
+    multicallMock.mockRejectedValue(new Error("rpc down"));
+    const build = (await voteBuildTools()).get("dexe_vote_build_undelegate")!;
+    const res = await build({ ...args, chainId: 97 });
+    expect(res.isError).toBeFalsy();
+    expect(text(res)).toContain("F23");
+    expect(text(res)).toMatch(/could not be read here/);
+    expect(text(res)).not.toMatch(/reverts as built/);
+  });
+
+  it("an unmeasured chain: no read, no advisory", async () => {
+    const build = (await voteBuildTools()).get("dexe_vote_build_undelegate")!;
+    const res = await build({ ...args, chainId: 56 });
+    expect(multicallMock).not.toHaveBeenCalled();
+    expect(text(res)).not.toContain("F23");
+  });
+});
+
 // -------------------------------------------------- deposit lock (mode 5) ---
 
 describe("deposit lock — surfaced before the call, not after the revert", () => {

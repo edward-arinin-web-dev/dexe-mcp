@@ -359,8 +359,20 @@ export const GOTCHAS: readonly Gotcha[] = [
       "Raw top-level vote()/delegate() calls REVERT on fresh (SphereX-era) pools — the frontend always wraps them " +
       "as GovPool.multicall([call]) even for a single call, and the dexe-mcp builders emit that shape since " +
       "v0.24.1. If you hand-craft calldata, wrap it. Raw deposit/withdraw/cancelVote/undelegate/" +
-      "createProposal(AndVote) remain allowed.",
+      "createProposal(AndVote) remain allowed (undelegate with one exception — see undelegate-after-vote).",
     applies: { flows: ["vote_execute"], tools: ["dexe_vote_build_vote", "dexe_vote_build_delegate"] },
+  },
+  {
+    // docs/UPSTREAM-ISSUES.md F23 — measured on Kestrel 0xb0Ca…2145 (chain 97), 2026-10-01
+    id: "undelegate-after-vote",
+    severity: "warn",
+    text:
+      "On chain 97, GovPool.undelegate REVERTS 'SphereX error: disallowed tx pattern' once the delegatee has a vote " +
+      "on record (getUserActiveProposalsCount(delegatee) > 0) — in every shape, wrapped or bundled. After the " +
+      "proposals it voted on have left Voting: send GovPool.unlock(delegatee) as its OWN transaction (anyone may), " +
+      "then undelegate. While one is still in Voting the unlock reverts too, so the delegation is stuck until the " +
+      "vote ends. dexe_vote_build_undelegate reads the count and hands you the unlock call. Mainnet 56 is unmeasured.",
+    applies: { flows: ["vote_execute"], tools: ["dexe_vote_build_undelegate", "dexe_vote_build_delegate"] },
   },
   {
     // swarm S01 (MEMORY-ONLY promotion)

@@ -6,7 +6,7 @@
   "dependsOn": [],
   "requiresChain": [56, 97],
   "requiresBrowser": false,
-  "notes": "Best-effort cleanup: undelegates outgoing delegations, claims pending rewards, withdraws deposited balance. Skipped when --skip-reset is passed.",
+  "notes": "Best-effort cleanup: unlocks each delegatee (F23), undelegates outgoing delegations, withdraws deposited balance. A delegation whose delegatee voted on a proposal still in Voting cannot be pulled back and is skipped. Skipped when --skip-reset is passed.",
   "agents": [
     { "alias": "A", "role": "Delegator", "wallet": "AGENT_PK_2" },
     { "alias": "B", "role": "Delegator", "wallet": "AGENT_PK_3" },
@@ -34,7 +34,20 @@
     {
       "step": 3,
       "agent": "A",
-      "tool": "dexe_vote_build_undelegate",
+      "tool": "dexe_vote_build_unlock_delegatee",
+      "args": {
+        "govPool": "{{dao}}",
+        "delegatee": "{{outA.0.delegatee}}"
+      },
+      "broadcast": true,
+      "skipIf": "outA.length == 0",
+      "captureAs": "unlockA",
+      "comment": "F23: an undelegate reverts while the delegatee has votes on record; a standalone unlock(delegatee) clears the finished ones. Self-skips when the list is empty."
+    },
+    {
+      "step": 4,
+      "agent": "A",
+      "tool": "dexe_vote_build_undelegate_unlocked",
       "args": {
         "govPool": "{{dao}}",
         "delegatee": "{{outA.0.delegatee}}",
@@ -43,10 +56,11 @@
       },
       "broadcast": true,
       "skipIf": "outA.length == 0",
-      "captureAs": "undelA"
+      "captureAs": "undelA",
+      "comment": "Raw undelegate, sent only once the delegatee's voted list is empty; a delegation held by a live vote is skipped (F23) and picked up by the next reset."
     },
     {
-      "step": 4,
+      "step": 5,
       "agent": "A",
       "tool": "dexe_vote_build_withdraw_all",
       "args": {
@@ -55,7 +69,7 @@
       },
       "broadcast": true,
       "captureAs": "wdA",
-      "comment": "Reads getWithdrawableAssets live so it picks up tokens that flowed back from undelegate in step 3. Self-skips when withdrawable=0."
+      "comment": "Reads getWithdrawableAssets live so it picks up tokens that flowed back from undelegate in step 4. Self-skips when withdrawable=0."
     }
   ],
   "successCriteria": [
@@ -63,7 +77,7 @@
   ],
   "loop": {
     "over": ["A", "B", "C", "D"],
-    "appliesToSteps": [1, 2, 3, 4],
-    "comment": "Orchestrator repeats steps 1–4 once per agent alias before evaluating successCriteria."
+    "appliesToSteps": [1, 2, 3, 4, 5],
+    "comment": "Orchestrator repeats steps 1–5 once per agent alias before evaluating successCriteria."
   }
 }
