@@ -174,7 +174,10 @@ const LONG_OK: Record<string, number> = {
   dexe_agents_fund: 800,
   dexe_safe_propose_tx: 750,
 };
-const HARD_LENGTH_CEILING = 2200;
+// Claude Code keeps 2,048 characters of a tool description and drops the rest
+// (docs: "truncates each tool description and each server's instructions at
+// 2,048 characters"), so nothing may be allowlisted past it.
+const HARD_LENGTH_CEILING = 2048;
 
 // ──────────────────────────────────────────────────────────────────────────
 // R4 — units

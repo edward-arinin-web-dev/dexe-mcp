@@ -5,7 +5,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
-import { classifiedToolNames, titledToolNames } from "../../src/tools/annotations.js";
+import { serverInstructions } from "../../src/instructions.js";
+import { alwaysLoadedToolNames, classifiedToolNames, titledToolNames } from "../../src/tools/annotations.js";
 
 /**
  * ── MCP annotations and titles, asserted on the WIRE ───────────────────────
@@ -236,5 +237,38 @@ describe("tool titles (wire shape)", () => {
       expect(t.title, name).toBeTruthy();
       expect(t.title!.length, name).toBeGreaterThan(5);
     }
+  });
+});
+
+describe("always-loaded tools (wire shape)", () => {
+  /**
+   * Claude Code defers every MCP tool behind tool search unless the tool's
+   * `_meta` carries `"anthropic/alwaysLoad": true`. The handshake sends every
+   * session to dexe_guide / dexe_context first, so those two must not cost a
+   * search round-trip — and nothing else may be loaded upfront by accident,
+   * because each always-loaded schema is paid on every turn.
+   */
+  const flagged = (tools: Tool[]) =>
+    tools.filter((t) => t._meta?.["anthropic/alwaysLoad"] !== undefined).map((t) => t.name).sort();
+
+  it("exactly the two entry-point tools carry anthropic/alwaysLoad, as the boolean true", async () => {
+    const full = await listTools("full");
+    expect(flagged(full)).toEqual([...alwaysLoadedToolNames()].sort());
+    expect(flagged(full)).toEqual(["dexe_context", "dexe_guide"]);
+    for (const t of full.filter((x) => alwaysLoadedToolNames().has(x.name))) {
+      expect(t._meta?.["anthropic/alwaysLoad"], t.name).toBe(true);
+    }
+  });
+
+  it("the flag survives the toolset gate on the default profile", async () => {
+    // Both are registered through the positional `tool()` overload, which has
+    // no `_meta` slot — the wrapper assigns it after registration.
+    const def = await listTools(undefined);
+    expect(flagged(def)).toEqual(["dexe_context", "dexe_guide"]);
+  });
+
+  it("every always-loaded name is a tool the handshake tells the agent to call first", () => {
+    const text = serverInstructions();
+    for (const name of alwaysLoadedToolNames()) expect(text, name).toContain(name);
   });
 });

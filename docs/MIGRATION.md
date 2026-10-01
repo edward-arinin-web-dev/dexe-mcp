@@ -6,6 +6,20 @@ something on your side.
 
 ---
 
+## 0.34.1 → 0.35.0 — no action (unreleased)
+
+Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.
+
+1. **The MCP handshake `instructions` are shorter** (2,022 characters, was
+   3,129) so they fit the 2,048 characters Claude Code keeps. Nothing was
+   removed from the server; the parts that were being cut off now arrive. If you
+   snapshot the handshake text, re-baseline it.
+2. **`dexe_guide` and `dexe_context` carry `_meta["anthropic/alwaysLoad"]: true`**
+   in `tools/list`. Claude Code keeps them loaded instead of deferring them
+   behind tool search; other clients ignore the key.
+
+---
+
 ## 0.34.0 → 0.34.1 — read this if you branch on a forecast error, a risk verdict, or an inbox source
 
 Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.
