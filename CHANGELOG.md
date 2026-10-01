@@ -153,6 +153,16 @@ failures was the server's:
   left by one scenario no longer survives the reset (F23). S06 now pins F23
   itself: the mid-vote undelegate is expected to revert, on chain 97 only.
 
+### Security — two dependency floors raised
+The daily audit went red on 2026-10-01 with two moderate advisories in the
+shipped tree. Override floors raised and the lockfile re-resolved; the plugin
+bundle (which inlines both) is rebuilt.
+
+| Package | Floor | Was | Advisories |
+| --- | --- | --- | --- |
+| `fast-uri` | `>=4.2.1` | `>=4.1.3` | GHSA-hrr3-gc8f-f4qj, GHSA-jvvf-x445-j334 |
+| `ip-address` | `>=10.7.2` | `>=10.4.0` | GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc, GHSA-j6r3-76f7-8jcv, GHSA-h3mg-xc3c-68pw |
+
 ### Changed — parameter names an agent will guess
 - `dexe_read_treasury` takes `govPool` as an alias for `holder` — the name
   `dexe_dao_report`'s own follow-up hint uses.
