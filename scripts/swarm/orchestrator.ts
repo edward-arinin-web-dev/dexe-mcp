@@ -252,7 +252,23 @@ const GOV_POOL_ABI = [
   "function deposit(uint256 amount, uint256[] nftIds) payable",
   "function delegate(address delegatee, uint256 amount, uint256[] nftIds)",
   "function vote(uint256 proposalId, bool isVoteFor, uint256 voteAmount, uint256[] voteNftIds)",
+  "function multicall(bytes[] data) returns (bytes[] results)",
+  "function unlock(address user)",
+  "function getUserActiveProposalsCount(address user) view returns (uint256)",
 ] as const;
+
+/**
+ * F4 (docs/UPSTREAM-ISSUES.md): SphereX-era pools revert a raw top-level
+ * `delegate()` / `vote()` with "disallowed tx pattern"; the frontend — and
+ * `dexe_vote_build_delegate` / `dexe_vote_build_vote` — send the single-element
+ * `multicall([call])` instead. The inline dispatchers below hand-encode these
+ * two so `signerKey` never has to reach the MCP, and until 2026-09-24 they
+ * encoded the RAW shape: every delegate/vote step failed on a fresh fixture
+ * while the tool under test was emitting the right bytes. Same wrapper here.
+ */
+function wrapInMulticall(iface: Interface, inner: string): string {
+  return iface.encodeFunctionData("multicall", [[inner]]);
+}
 
 const ERC20_ABI = [
   "function approve(address spender, uint256 amount)",
@@ -276,6 +292,8 @@ interface DispatchCtx {
   agentWallet: Wallet;
   spec: ScenarioSpec;
   chainTag: string;
+  /** True for a `serverSign` step: route the MCP call to the keyed child. */
+  serverSign?: boolean;
 }
 
 type Dispatcher = (args: Record<string, unknown>, ctx: DispatchCtx) => Promise<unknown>;
@@ -330,6 +348,56 @@ const DISPATCHERS: Record<string, Dispatcher> = {
       (args.nftIds as string[]) ?? [],
     ]);
     return { payload: { to: String(args.govPool), data, value: "0" } };
+  },
+
+  /** F23 (docs/UPSTREAM-ISSUES.md): an undelegate reverts while the delegatee
+   * has a vote on record, and a standalone `unlock(delegatee)` is what clears
+   * the finished ones. S00 sends it before each undelegate so one scenario's
+   * leftover delegation does not survive the reset. Self-skips when the list is
+   * already empty, and when the unlock would revert — a proposal the delegatee
+   * voted on is still in Voting, and nothing can move until it ends. */
+  async dexe_vote_build_unlock_delegatee(args, { provider, agentWallet }) {
+    const govPool = String(args.govPool);
+    const delegatee = String(args.delegatee);
+    const gp = new Contract(govPool, GOV_POOL_ABI as unknown as string[], provider);
+    const onRecord: bigint = await gp.getUserActiveProposalsCount(delegatee);
+    if (onRecord === 0n) {
+      return { skipped: true, reason: `delegatee ${delegatee} has no votes on record` };
+    }
+    const iface = new Interface(GOV_POOL_ABI as unknown as string[]);
+    const data = iface.encodeFunctionData("unlock", [delegatee]);
+    try {
+      await provider.call({ to: govPool, data, from: agentWallet.address });
+    } catch {
+      return {
+        skipped: true,
+        reason: `F23: delegatee ${delegatee} voted on a proposal still in Voting — unlock reverts until it ends`,
+      };
+    }
+    return { payload: { to: govPool, data, value: "0" }, votesOnRecord: String(onRecord) };
+  },
+
+  /** S00's undelegate: the raw call, but only once the delegatee's list is
+   * empty (F23). A delegation held by a live vote is reported as skipped — the
+   * reset is best-effort and the next one, after the vote, picks it up. */
+  async dexe_vote_build_undelegate_unlocked(args, { provider }) {
+    const govPool = String(args.govPool);
+    const delegatee = String(args.delegatee);
+    const gp = new Contract(govPool, GOV_POOL_ABI as unknown as string[], provider);
+    const onRecord: bigint = await gp.getUserActiveProposalsCount(delegatee);
+    if (onRecord > 0n) {
+      return {
+        skipped: true,
+        reason: `F23: delegatee ${delegatee} still has ${onRecord} vote(s) on record — undelegate would revert`,
+      };
+    }
+    const iface = new Interface(GOV_POOL_ABI as unknown as string[]);
+    const data = iface.encodeFunctionData("undelegate", [
+      delegatee,
+      String(args.amount),
+      (args.nftIds as string[]) ?? [],
+    ]);
+    return { payload: { to: govPool, data, value: "0" } };
   },
 
   async dexe_vote_build_withdraw(args) {
@@ -393,23 +461,23 @@ const DISPATCHERS: Record<string, Dispatcher> = {
 
   async dexe_vote_build_delegate(args) {
     const iface = new Interface(GOV_POOL_ABI as unknown as string[]);
-    const data = iface.encodeFunctionData("delegate", [
+    const inner = iface.encodeFunctionData("delegate", [
       String(args.delegatee),
       String(args.amount),
       (args.nftIds as string[]) ?? [],
     ]);
-    return { payload: { to: String(args.govPool), data, value: "0" } };
+    return { payload: { to: String(args.govPool), data: wrapInMulticall(iface, inner), value: "0" } };
   },
 
   async dexe_vote_build_vote(args) {
     const iface = new Interface(GOV_POOL_ABI as unknown as string[]);
-    const data = iface.encodeFunctionData("vote", [
+    const inner = iface.encodeFunctionData("vote", [
       String(args.proposalId),
       Boolean(args.isVoteFor),
       String(args.amount),
       (args.nftIds as string[]) ?? [],
     ]);
-    return { payload: { to: String(args.govPool), data, value: "0" } };
+    return { payload: { to: String(args.govPool), data: wrapInMulticall(iface, inner), value: "0" } };
   },
 
   // Phase 1.5: route the IPFS-touching composite tools through dexe-mcp via
@@ -653,43 +721,82 @@ function mutexFor(envKey: string): Mutex {
 // TxPayload lists instead of broadcasting. Orchestrator signs each payload
 // with the per-step agent wallet.
 
-let mcpClientPromise: Promise<McpClient> | null = null;
+const mcpClientPromises: { payloads: Promise<McpClient> | null; signing: Promise<McpClient> | null } = {
+  payloads: null,
+  signing: null,
+};
 
-async function getMcpClient(): Promise<McpClient> {
-  if (!mcpClientPromise) {
-    mcpClientPromise = (async () => {
+/**
+ * Two children, on purpose.
+ *
+ * `payloads` — DEXE_PRIVATE_KEY="" — is what every ordinary step talks to: the
+ * composites answer `mode: "payloads"` and the orchestrator signs each payload
+ * with the step's own agent wallet.
+ *
+ * `signing` keeps a primary key, so the server is in KEYRING mode and honours
+ * `signerKey`. A `serverSign` step needs exactly that: in the keyless child
+ * the server is in WalletConnect mode and refuses `signerKey` outright
+ * ("not available in WalletConnect mode"), which is how every serverSign
+ * scenario (S66, S67) failed on the 2026-09-24 sweep without the server's send
+ * path ever being exercised. The primary is whichever hot key the runner has
+ * (DEXE_PRIVATE_KEY, else the funder); the persona still comes from signerKey.
+ */
+async function getMcpClient(kind: "payloads" | "signing" = "payloads"): Promise<McpClient> {
+  if (!mcpClientPromises[kind]) {
+    mcpClientPromises[kind] = (async () => {
+      const primary =
+        kind === "signing"
+          ? process.env.DEXE_PRIVATE_KEY?.trim() || process.env.AGENT_FUNDER_PK?.trim() || ""
+          : "";
+      if (kind === "signing" && !primary) {
+        throw new Error(
+          "serverSign needs a primary hot key for the MCP child (DEXE_PRIVATE_KEY or AGENT_FUNDER_PK in .env) — " +
+            "without one the server is in WalletConnect mode and refuses signerKey.",
+        );
+      }
       const transport = new StdioClientTransport({
         command: "node",
         args: [resolve("dist/index.js")],
         // DEXE_TOOLSETS=full: scenario steps hit read/vote/dev tools that the
         // slim default surface hides — without this ~34 steps 404 as "unknown
         // tool" (P3 harness bug, 2026-07-07 run).
-        env: { ...process.env, DEXE_PRIVATE_KEY: "", DEXE_TOOLSETS: "full" } as Record<string, string>,
+        env: { ...process.env, DEXE_PRIVATE_KEY: primary, DEXE_TOOLSETS: "full" } as Record<string, string>,
         cwd: process.cwd(),
       });
-      const c = new McpClient({ name: "swarm-orchestrator", version: "0.1.0" });
+      const c = new McpClient({ name: `swarm-orchestrator-${kind}`, version: "0.1.0" });
       await c.connect(transport);
       return c;
     })();
   }
-  return mcpClientPromise;
+  return mcpClientPromises[kind]!;
 }
 
-async function mcpCall(name: string, args: Record<string, unknown>): Promise<unknown> {
-  const c = await getMcpClient();
+async function mcpCall(
+  name: string,
+  args: Record<string, unknown>,
+  opts: { serverSign?: boolean } = {},
+): Promise<unknown> {
+  const c = await getMcpClient(opts.serverSign ? "signing" : "payloads");
   const res = await c.callTool({ name, arguments: args });
   if (res.isError) throw new Error(`MCP ${name}: ${JSON.stringify(res.content)}`);
   if (res.structuredContent) return res.structuredContent;
-  // Many tools return JSON-encoded text in content[0].text rather than structured.
-  const text = (res.content as Array<{ type: string; text?: string }> | undefined)?.[0]?.text;
-  if (text) {
+  // Many tools return JSON-encoded text in a content item rather than
+  // structured. NOT necessarily the first one: the keyless server this harness
+  // spawns attaches a WalletConnect pairing QR as an EXTRA text item on every
+  // write (0.18+), and it comes first. Taking content[0] parsed the QR, and
+  // every execute scenario (S52–S57, S64) scored "returned no mode — server
+  // older than 0.30?" against a server that had answered correctly. Pick the
+  // item that parses as JSON; fall back to the first text.
+  const items = (res.content as Array<{ type: string; text?: string }> | undefined) ?? [];
+  for (const it of items) {
+    if (it.type !== "text" || !it.text) continue;
     try {
-      return JSON.parse(text);
+      return JSON.parse(it.text);
     } catch {
-      return text;
+      /* not the JSON item */
     }
   }
-  return null;
+  return items.find((it) => it.type === "text" && it.text)?.text ?? null;
 }
 
 async function broadcastTxPayloads(
@@ -721,8 +828,8 @@ const LATEST_PROPOSAL_ID_ABI = ["function latestProposalId() view returns (uint2
  *   - anything else                          → returned as captured result
  */
 function mcpFallbackDispatcher(toolName: string): Dispatcher {
-  return async (args, { agentWallet, provider }) => {
-    const result = (await mcpCall(toolName, args)) as
+  return async (args, { agentWallet, provider, serverSign }) => {
+    const result = (await mcpCall(toolName, args, { serverSign: Boolean(serverSign) })) as
       | { payload?: { to: string; data: string; value?: string; chainId?: number } }
       | { mode?: string; steps?: Array<{ skipped: boolean; payload?: { to: string; data: string; value: string; chainId: number } }> }
       | Record<string, unknown>
@@ -998,7 +1105,7 @@ async function runScenario(
     const pk = process.env[walletInfo.envKey]?.trim() ?? "";
     const agentWallet = new Wallet(pk, provider);
 
-    const ctx: DispatchCtx = { provider, agentWallet, spec, chainTag };
+    const ctx: DispatchCtx = { provider, agentWallet, spec, chainTag, serverSign: route.mode === "server" };
     try {
       const result = await mutexFor(walletInfo.envKey).runExclusive(async () => {
         const r = await dispatcher(expandedArgs, ctx);
@@ -1249,9 +1356,10 @@ async function main() {
 
   writeReport(runId, results, byId, args);
 
-  if (mcpClientPromise) {
+  for (const pending of Object.values(mcpClientPromises)) {
+    if (!pending) continue;
     try {
-      const c = await mcpClientPromise;
+      const c = await pending;
       await c.close();
     } catch {
       /* swallow */

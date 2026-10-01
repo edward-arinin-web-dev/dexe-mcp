@@ -10,6 +10,7 @@ import {
   pinataCidForJson,
   PinataClient,
   toCidV1,
+  DEFAULT_IPFS_HOP_TIMEOUT_MS,
 } from "../lib/ipfs.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { pinataUploadHint } from "../lib/requireEnv.js";
@@ -528,7 +529,7 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
         "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (dedicated; Pinata issues one with the JWT). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
       inputSchema: {
         cid: z.string().describe("CID (with or without ipfs:// prefix)"),
-        timeoutMs: z.number().int().min(500).max(30_000).default(4000).describe("Per-gateway timeout in ms."),
+        timeoutMs: z.number().int().min(500).max(30_000).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000)."),
       },
       outputSchema: {
         cid: z.string(),
@@ -539,7 +540,7 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
         json: z.unknown().nullable(),
       },
     },
-    async ({ cid, timeoutMs = 4000 }) => {
+    async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
       if (defaultGateways.length === 0) return errorResult(NO_GATEWAY_HINT);
       try {
         const res = await fetchIpfs(cid, {
@@ -857,7 +858,7 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
               .describe("Replacement external-document list."),
           })
           .describe("Only the fields you want to change. Anything omitted is kept from the current metadata."),
-        timeoutMs: z.number().int().min(500).max(30_000).default(6000).describe("Gateway fetch timeout in ms."),
+        timeoutMs: z.number().int().min(500).max(30_000).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000)."),
       },
       outputSchema: {
         descriptionURL: z.string().describe("New outer CID — pass to dexe_proposal_build_modify_dao_profile.newDescriptionURL."),
@@ -868,7 +869,7 @@ function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways
         pinnedAt: z.string(),
       },
     },
-    async ({ currentDescriptionURL, overrides, timeoutMs = 6000 }) => {
+    async ({ currentDescriptionURL, overrides, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
       if (gateways.length === 0) return errorResult(NO_GATEWAY_HINT);
       const client = requirePinata(ctx);
       if ("error" in client) return errorResult(client.error);

@@ -64,6 +64,105 @@ treasury guard and none is an `addSettings` call, the warning is dropped; it
 still fires blind when the actions could not be read (guard off, read failed).
 `dexe_vote_build_execute` (no chain read) is unchanged.
 
+### Changed — OTC tools remember the DAO's TokenSaleProposal
+The TokenSaleProposal address is not readable back from a GovPool; it only
+ever appeared in `dexe_dao_create`'s `predicted.govTokenSale`. A DAO deployed
+in one session could not open or list a sale in the next without the receipt.
+`dexe_dao_create` now records `tokenSaleProposal` and `distributionProposal`
+on the DAO it saves to `state.json` (they show in `dexe_context`), and
+`dexe_otc_dao_open_sale` / `dexe_otc_list_sales_for_dao` default
+`tokenSaleProposal` from that record. A DAO this install did not deploy still
+needs the address, and the error says where it comes from.
+
+### Changed — `dexe_dao_report` explains an unindexed chain once
+On a chain with no subgraph the report repeated the same ~500-character
+"no pools subgraph is configured" message in every affected section, in
+`unavailable[]`, and in the identity and validators blocks — fourteen copies,
+~7 KB per report. The full message (which chains are indexed, which env var
+adds one) is now emitted once per index, in `sources.subgraphs.<name>.reason`;
+the sections say `<name> subgraph not configured for chain N — see
+sources.subgraphs.<name>.reason`. A configured index whose query failed keeps
+its own message inline, since that one is dynamic.
+
+### Fixed — every IPFS read timed out against the Pinata gateway
+The per-gateway timeout was 4 s. `gateway.pinata.cloud` — what most installs
+point `DEXE_IPFS_GATEWAY` at, and what the docs recommend — returns a 300-byte
+DAO profile in 5–6 s under normal load, so `dexe_ipfs_fetch` failed on every
+CID, old and new, and `modify_dao_profile` (which refuses to broadcast without
+the current profile to merge into) failed with it. The public gateways answer
+429 to the same requests, which is why they are not a default. The default
+per-hop budget is now **10 s** (`DEFAULT_IPFS_HOP_TIMEOUT_MS`); the fetch is
+still one gateway at a time and still has no public fallback unless you
+configure one. Two call sites carried their own 6 s and so stayed under the
+gateway's answer time after the default moved — the profile merge inside
+`dexe_proposal_create` (`modify_dao_profile`) and
+`dexe_ipfs_update_dao_metadata`. Both now take the shared default.
+
+### Added — `dexe_vote_build_undelegate` says when the call will revert (upstream F23)
+On chain 97 an undelegate reverts `"SphereX error: disallowed tx pattern"` once
+the delegatee has a vote on record — raw, `multicall([undelegate])` and
+`multicall([unlock, undelegate])` alike — and the error names nothing the
+caller can act on. Measured on a fresh pool on 2026-10-01: a delegatee that
+never voted undelegates fine; one with a finished proposal on its list does
+not until someone sends `GovPool.unlock(delegatee)` as its own transaction;
+one with a proposal still in Voting cannot be undelegated from at all until
+the vote ends.
+
+- The builder reads `GovPool.getUserActiveProposalsCount(delegatee)` on chain
+  97. Non-zero: the reply carries advisory `F23` saying the payload reverts as
+  built, with the `unlock(delegatee)` call ready to paste into `dexe_tx_send`.
+  Zero: nothing is added. Unreadable: the trap is stated without claiming to
+  observe it. Other chains are not read and get no advisory — mainnet has not
+  been measured.
+- The calldata is unchanged (the raw shape the frontend sends).
+- `docs/UPSTREAM-ISSUES.md` has the full shape table; PLAYBOOK row
+  `undelegate-after-vote`.
+
+### Changed — `proposalId` as a digits-only string on the composites
+`dexe_proposal_create`'s own reply, `dexe_proposal_state` and every
+`dexe_vote_build_*` render the id as a string; `dexe_proposal_vote_and_execute`
+and `dexe_proposal_risk_assess` demanded a number and refused `"proposalId":"1"`
+with "Expected number, received string". Both now accept a number or a
+digits-only string (anything else is refused with the same message either way).
+
+### Fixed — the swarm harness graded its own defects as server defects
+The first Stage A sweep on the fresh fixtures scored 46/69, and none of the 23
+failures was the server's:
+- The inline `dexe_vote_build_delegate` / `dexe_vote_build_vote` dispatchers
+  hand-encoded the raw call, which SphereX-era pools reject ("disallowed tx
+  pattern", F4); the tools under test emit `multicall([call])`. The harness now
+  wraps the same way.
+- The keyless child attaches a WalletConnect pairing QR as the FIRST content
+  item on every write; the harness parsed `content[0]` and reported "returned
+  no mode — server older than 0.30?" on every execute scenario. It now picks
+  the JSON item.
+- `serverSign` steps went to the keyless child, where the server is in
+  WalletConnect mode and refuses `signerKey`. The orchestrator now keeps a
+  second, keyed child (`DEXE_PRIVATE_KEY`, else `AGENT_FUNDER_PK`) for those
+  steps, and an explicit `args.signerKey` is kept rather than overwritten by
+  the derived slot (S67's unknown-slot refusal needs it).
+- S04 / S05 / S10 / S14 / S15 call subgraph-only reads and are gated to
+  chain 56; S66 step 4 proves the denylist at build time (the shared broadcast
+  guard is covered by `tests/lib/denylist-every-gate.test.ts`); S68 asked for
+  100 wei where it meant 100 BNB; S69 expected a message the 0.34.0 rewrite
+  renamed.
+- A run ended with `ReferenceError: mcpClientPromise is not defined` after the
+  report was written (exit code 2 on a green sweep): the shutdown still closed
+  the single child the two-child split had replaced.
+- S00-reset sends `unlock(delegatee)` before each undelegate, so a delegation
+  left by one scenario no longer survives the reset (F23). S06 now pins F23
+  itself: the mid-vote undelegate is expected to revert, on chain 97 only.
+
+### Security — two dependency floors raised
+The daily audit went red on 2026-10-01 with two moderate advisories in the
+shipped tree. Override floors raised and the lockfile re-resolved; the plugin
+bundle (which inlines both) is rebuilt.
+
+| Package | Floor | Was | Advisories |
+| --- | --- | --- | --- |
+| `fast-uri` | `>=4.2.1` | `>=4.1.3` | GHSA-hrr3-gc8f-f4qj, GHSA-jvvf-x445-j334 |
+| `ip-address` | `>=10.7.2` | `>=10.4.0` | GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc, GHSA-j6r3-76f7-8jcv, GHSA-h3mg-xc3c-68pw |
+
 ### Changed — parameter names an agent will guess
 - `dexe_read_treasury` takes `govPool` as an alias for `holder` — the name
   `dexe_dao_report`'s own follow-up hint uses.

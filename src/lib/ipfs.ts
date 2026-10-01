@@ -24,7 +24,7 @@ export const DEFAULT_PUBLIC_READ_GATEWAYS: readonly string[] = [
 
 export interface IpfsFetchConfig {
   gateways: readonly string[];
-  /** Per-hop timeout in ms. Default 4000. */
+  /** Per-hop timeout in ms. Default 10000 (a dedicated Pinata gateway answers a small JSON in 5–6 s; 4 s timed out on every read, 2026-09-24). */
   perRequestTimeoutMs?: number;
 }
 
@@ -45,13 +45,23 @@ export interface IpfsFetchResult {
   verified: boolean;
 }
 
+/**
+ * Default per-gateway timeout. 4 s until 0.34.1: the public Pinata gateway
+ * (`gateway.pinata.cloud`, what most installs point DEXE_IPFS_GATEWAY at)
+ * returns a 300-byte DAO profile in 5–6 s under normal load, so every read —
+ * and every `modify_dao_profile`, which refuses to broadcast without the
+ * current profile — failed with "timed out after 4000ms". Still one hop at a
+ * time, still no public-gateway default; only the budget per hop moved.
+ */
+export const DEFAULT_IPFS_HOP_TIMEOUT_MS = 10_000;
+
 export async function fetchIpfs(
   cid: string,
   cfg: IpfsFetchConfig,
 ): Promise<IpfsFetchResult> {
   const parsed = CID.parse(stripIpfsPrefix(cid));
   const cidStr = parsed.toString();
-  const timeout = cfg.perRequestTimeoutMs ?? 4000;
+  const timeout = cfg.perRequestTimeoutMs ?? DEFAULT_IPFS_HOP_TIMEOUT_MS;
   const errors: string[] = [];
   let attempts = 0;
 

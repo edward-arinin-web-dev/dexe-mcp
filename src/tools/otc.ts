@@ -26,7 +26,7 @@ import { parseUintString } from "../lib/amount.js";
 import { parseAmount, formatAmount, from18 } from "../lib/units.js";
 import { chainIdParam, signerKeyParam, NFT_IDS_OWN_DESC } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
-import type { StateStore } from "../lib/stateStore.js";
+import { findKnownDao, type StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError, sanitizeRevertReason } from "../lib/errors.js";
@@ -316,7 +316,12 @@ export function registerOtcTools(
         .positive()
         .optional()
         .describe("Target chain id. Defaults to the MCP's default chain."),
-      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
+      tokenSaleProposal: z
+        .string()
+        .optional()
+        .describe(
+          "TokenSaleProposal helper address. Omit for a DAO this install deployed (recorded at deploy); otherwise dexe_dao_predict_addresses or the deploy receipt.",
+        ),
       tiers: z
         .array(tierSchema)
         .min(1)
@@ -348,8 +353,23 @@ export function registerOtcTools(
         .describe("Refused by default: opt into vestingPercentage > 0; the vested leg is stranded (F15)."),
       flowContext: flowContextSchema,
     },
-    async (input) => {
+    async (inputRaw) => {
       try {
+        // The TokenSaleProposal is not readable back from the GovPool. For a
+        // DAO this install deployed it was recorded in state; anyone else has
+        // to bring it (dexe_dao_predict_addresses needs deployer + name).
+        const tspChainId = rpc.resolveChainId(inputRaw.chainId);
+        const tokenSaleProposal =
+          inputRaw.tokenSaleProposal ?? findKnownDao(state, tspChainId, inputRaw.govPool)?.tokenSaleProposal;
+        if (!tokenSaleProposal) {
+          return err(
+            `tokenSaleProposal is required: ${inputRaw.govPool} on chain ${tspChainId} was not deployed by this ` +
+              `install, so its TokenSaleProposal address is not on record. Pass it explicitly — from the deploy ` +
+              `receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`,
+          );
+        }
+        if (!isAddress(tokenSaleProposal)) return err(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+        const input = { ...inputRaw, tokenSaleProposal };
         // F15 first: a stranded-vesting tier must be refused before any
         // encoding, IPFS pin or DAO read — the damage is done at createTiers,
         // not at withdraw time.

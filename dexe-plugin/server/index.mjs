@@ -7687,6 +7687,20 @@ var require_utils = __commonJS({
       }
       return output3;
     }
+    function recomposeZonedIPv6Host(component) {
+      const zone = component.ipv6Zone;
+      if (zone === void 0) return void 0;
+      const host = component.host;
+      const separator = host.indexOf("%");
+      if (separator === -1) return void 0;
+      const address = host.slice(0, separator);
+      const escaped = address + "%25" + zone;
+      const derived = normalizeIPv6("[" + escaped + "]");
+      if (derived.isIPV6 === true && derived.host === host) {
+        return "[" + escaped + "]";
+      }
+      return void 0;
+    }
     function recomposeAuthority(component) {
       const uriTokens = [];
       if (component.userinfo !== void 0) {
@@ -7696,15 +7710,20 @@ var require_utils = __commonJS({
       if (component.host !== void 0) {
         let host = component.host;
         if (!isIPv4(host)) {
-          let ipV6res = normalizeIPv6(host);
-          if (ipV6res.isIPV6 !== true && ipV6res.isIPVFuture !== true) {
-            host = normalizePercentEncoding(host, true);
-            ipV6res = normalizeIPv6(host);
-          }
-          if (ipV6res.isIPV6 === true || ipV6res.isIPVFuture === true) {
-            host = `[${ipV6res.escapedHost}]`;
+          const zonedHost = recomposeZonedIPv6Host(component);
+          if (zonedHost !== void 0) {
+            host = zonedHost;
           } else {
-            host = reescapeHostDelimiters(host, false);
+            let ipV6res = normalizeIPv6(host);
+            if (ipV6res.isIPV6 !== true && ipV6res.isIPVFuture !== true) {
+              host = normalizePercentEncoding(host, true);
+              ipV6res = normalizeIPv6(host);
+            }
+            if (ipV6res.isIPV6 === true || ipV6res.isIPVFuture === true) {
+              host = `[${ipV6res.escapedHost}]`;
+            } else {
+              host = reescapeHostDelimiters(host, false);
+            }
           }
         }
         uriTokens.push(host);
@@ -7944,6 +7963,7 @@ var require_schemes = __commonJS({
     var HEX_PAIR = /^[\da-f]{2}$/iu;
     var MAILTO_DOMAIN_LITERAL = /^\[[\x21-\x5A\x5E-\x7E]*\]$/u;
     var MAILTO_DOMAIN_ERROR = "URI mailto has an invalid recipient domain.";
+    var MAILTO_AUTHORITY_ERROR = "URI mailto must not have an authority component.";
     var HAS_SURROGATE = /[\uD800-\uDFFF]/u;
     function decodeHex(str2) {
       if (typeof str2 !== "string" || str2.indexOf("%") === -1) {
@@ -8055,28 +8075,35 @@ var require_schemes = __commonJS({
             mailtoComponent.error = mailtoComponent.error || "URI mailto has malformed header fields.";
             continue;
           }
-          const name2 = eqIdx === -1 ? token : token.slice(0, eqIdx);
+          const name2 = decodeHex(eqIdx === -1 ? token : token.slice(0, eqIdx));
+          const normalizedName = name2.toLowerCase();
           const value = eqIdx === -1 ? "" : token.slice(eqIdx + 1);
-          if (name2 === "to") {
+          if (normalizedName === "to") {
             const addrs = value.split(",");
             for (let j5 = 0; j5 < addrs.length; j5++) to2.push(addrs[j5]);
             continue;
           }
-          if (name2 === "subject") {
+          if (normalizedName === "subject") {
             mailtoComponent.subject = decodeHex(value);
             continue;
           }
-          if (name2 === "body") {
+          if (normalizedName === "body") {
             mailtoComponent.body = decodeHex(value);
             continue;
           }
           if (headers === null) headers = /** @type {Record<string,string>} */
           /* @__PURE__ */ Object.create(null);
-          headers[decodeHex(name2)] = decodeHex(value);
+          headers[name2] = decodeHex(value);
         }
         if (headers !== null) mailtoComponent.headers = headers;
       }
       mailtoComponent.query = void 0;
+      if (to2.length > 0 && (mailtoComponent.userinfo !== void 0 || mailtoComponent.host !== void 0 || mailtoComponent.port !== void 0)) {
+        mailtoComponent.userinfo = void 0;
+        mailtoComponent.host = void 0;
+        mailtoComponent.port = void 0;
+        mailtoComponent.error = mailtoComponent.error || MAILTO_AUTHORITY_ERROR;
+      }
       for (let i3 = 0; i3 < to2.length; i3++) {
         const rawAddr = to2[i3];
         const atIdx = rawAddr.lastIndexOf("@");
@@ -8092,10 +8119,32 @@ var require_schemes = __commonJS({
       if (to2.length) mailtoComponent.to = to2;
       return mailtoComponent;
     }
+    function mailtoEncodeHeaderName(name2) {
+      return encodeWithAllow(name2.replace(/%/gu, "%25"), HFNAME);
+    }
     function mailtoSerialize(component, options) {
       const mailtoComponent = component;
       const to2 = Array.isArray(mailtoComponent.to) ? mailtoComponent.to.slice() : [];
+      const sourceHeaders = mailtoComponent.headers && typeof mailtoComponent.headers === "object" ? Object.assign(/* @__PURE__ */ Object.create(null), mailtoComponent.headers) : /* @__PURE__ */ Object.create(null);
+      const headers = /* @__PURE__ */ Object.create(null);
+      for (const name2 in sourceHeaders) {
+        const normalizedName = name2.toLowerCase();
+        if (normalizedName === "to") {
+          const addrs = String(sourceHeaders[name2]).split(",");
+          for (let i3 = 0; i3 < addrs.length; i3++) to2.push(addrs[i3]);
+        } else if (normalizedName === "subject" || normalizedName === "body") {
+          headers[normalizedName] = sourceHeaders[name2];
+        } else {
+          headers[name2] = sourceHeaders[name2];
+        }
+      }
+      if (mailtoComponent.subject !== void 0) headers.subject = mailtoComponent.subject;
+      if (mailtoComponent.body !== void 0) headers.body = mailtoComponent.body;
+      mailtoComponent.headers = headers;
       if (to2.length) {
+        mailtoComponent.userinfo = void 0;
+        mailtoComponent.host = void 0;
+        mailtoComponent.port = void 0;
         for (let i3 = 0; i3 < to2.length; i3++) {
           const addr = String(to2[i3]);
           const atIdx = addr.lastIndexOf("@");
@@ -8111,15 +8160,11 @@ var require_schemes = __commonJS({
       } else {
         mailtoComponent.path = void 0;
       }
-      const headers = mailtoComponent.headers && typeof mailtoComponent.headers === "object" ? Object.assign(/* @__PURE__ */ Object.create(null), mailtoComponent.headers) : /* @__PURE__ */ Object.create(null);
-      if (mailtoComponent.subject) headers.subject = mailtoComponent.subject;
-      if (mailtoComponent.body) headers.body = mailtoComponent.body;
-      mailtoComponent.headers = headers;
       let query = "";
       let count2 = 0;
       for (const name2 in headers) {
         if (count2++ !== 0) query += "&";
-        query += encodeWithAllow(name2, HFNAME) + "=" + encodeWithAllow(String(headers[name2]), HFNAME);
+        query += mailtoEncodeHeaderName(name2) + "=" + encodeWithAllow(String(headers[name2]), HFNAME);
       }
       if (count2 !== 0) {
         mailtoComponent.query = query;
@@ -8234,6 +8279,12 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize3(resolved, schemelessOptions);
     }
+    function copyHost(target, source) {
+      target.host = source.host;
+      if (source.ipv6Zone !== void 0) {
+        target.ipv6Zone = source.ipv6Zone;
+      }
+    }
     function resolveComponent(base3, relative, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
@@ -8244,14 +8295,14 @@ var require_fast_uri = __commonJS({
       if (!options.tolerant && relative.scheme) {
         target.scheme = relative.scheme;
         target.userinfo = relative.userinfo;
-        target.host = relative.host;
+        copyHost(target, relative);
         target.port = relative.port;
         target.path = removeDotSegments(relative.path || "");
         target.query = relative.query;
       } else {
         if (relative.userinfo !== void 0 || relative.host !== void 0 || relative.port !== void 0) {
           target.userinfo = relative.userinfo;
-          target.host = relative.host;
+          copyHost(target, relative);
           target.port = relative.port;
           target.path = removeDotSegments(relative.path || "");
           target.query = relative.query;
@@ -8279,7 +8330,7 @@ var require_fast_uri = __commonJS({
             target.query = relative.query;
           }
           target.userinfo = base3.userinfo;
-          target.host = base3.host;
+          copyHost(target, base3);
           target.port = base3.port;
         }
         target.scheme = base3.scheme;
@@ -8295,6 +8346,7 @@ var require_fast_uri = __commonJS({
     function serialize3(cmpts, opts) {
       const component = {
         host: cmpts.host,
+        ipv6Zone: cmpts.ipv6Zone,
         scheme: cmpts.scheme,
         userinfo: cmpts.userinfo,
         port: cmpts.port,
@@ -8489,6 +8541,9 @@ var require_fast_uri = __commonJS({
             isIP = ipv6result.isIPV6 || ipv6result.isIPVFuture === true;
             malformedIPLiteral = hasIPLiteralBracket && (!bracketedIPLiteral || ipv6result.error === true);
             parsed.host = isIP ? ipv6result.host : ipv6result.host.toLowerCase();
+            if (isIP && ipv6result.isIPV6 === true && parsed.host.indexOf("%") !== -1) {
+              parsed.ipv6Zone = parsed.host.slice(parsed.host.indexOf("%") + 1);
+            }
             if (malformedIPLiteral) {
               parsed.error = parsed.error || "URI host is malformed.";
               malformedAuthorityOrPort = true;
@@ -8513,13 +8568,14 @@ var require_fast_uri = __commonJS({
         if (!malformedIPLiteral) {
           malformedHost = canonicalizeHost(parsed, options, schemeHandler, isIP);
         }
-        if (!schemeHandler || schemeHandler && !schemeHandler.skipNormalize) {
-          if (uri.indexOf("%") !== -1) {
-            if (parsed.host !== void 0 && !malformedIPLiteral) {
-              const host = isIP ? parsed.host : normalizePercentEncoding(parsed.host, true);
-              parsed.host = reescapeHostDelimiters(host, isIP);
-            }
+        if (uri.indexOf("%") !== -1 && parsed.host !== void 0 && !malformedIPLiteral) {
+          let host = isIP ? parsed.host : normalizePercentEncoding(parsed.host, true);
+          if (!isIP) {
+            host = normalizePercentEncoding(host.toLowerCase());
           }
+          parsed.host = reescapeHostDelimiters(host, isIP);
+        }
+        if (!schemeHandler || schemeHandler && !schemeHandler.skipNormalize) {
           if (parsed.path) {
             parsed.path = normalizePathEncoding(parsed.path);
           }
@@ -11967,6 +12023,14 @@ import { closeSync, existsSync as existsSync3, mkdirSync as mkdirSync2, openSync
 import { dirname as dirname2, join as join3 } from "node:path";
 import { homedir as homedir3, tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
+function findKnownDao(state, chainId, govPool) {
+  try {
+    const want = govPool.toLowerCase();
+    return state?.getState().knownDaos.find((d3) => d3.chainId === chainId && d3.govPool.toLowerCase() === want) ?? null;
+  } catch {
+    return null;
+  }
+}
 function emptyState() {
   return { version: STATE_VERSION, knownDaos: [], recentProposals: [], walletLabels: {} };
 }
@@ -41103,6 +41167,9 @@ function checkQuorumMargin(args) {
     minVotablePct,
     remediation: `Quorum ${quorumPct}% needs ${requiredTurnoutPct}% of the votable supply (${votablePct}% of total) to turn out \u2014 above the ${ceilingPct}% ceiling, so ordinary abstention makes every proposal fail and the DAO cannot fix itself (fixing quorum requires passing a proposal). Fix: raise the votable share to \u2265${minVotablePct}% of supply (shrink the treasury / distribute more), or lower quorum to \u2264${maxQuorumPct}% \u2014 note a quorum below 50% is itself a treasury-safety risk, so prefer raising the votable share.`
   };
+}
+function treasurySelectors() {
+  return [...TREASURY_SELECTORS.keys()];
 }
 function classifyTreasuryActions(actions) {
   const hits = [];
@@ -99473,7 +99540,8 @@ function registerRegistryLookup(server, ctx, requireBook) {
     title: "Check whether an address is a DeXe GovPool",
     description: "Read-only. Calls `PoolRegistry.isGovPool(address)` \u2014 true when the address is a registered DeXe DAO GovPool.",
     inputSchema: {
-      address: external_exports.string().describe("Candidate GovPool address"),
+      address: external_exports.string().optional().describe("Candidate GovPool address"),
+      govPool: external_exports.string().optional().describe("Alias for `address` \u2014 the name every other DAO tool uses"),
       chainId: chainIdParam
     },
     outputSchema: {
@@ -99482,7 +99550,10 @@ function registerRegistryLookup(server, ctx, requireBook) {
       poolRegistry: external_exports.string(),
       chainId: external_exports.number()
     }
-  }, async ({ address, chainId }) => {
+  }, async ({ address: addressIn, govPool, chainId }) => {
+    const address = addressIn ?? govPool;
+    if (!address)
+      return errorResult3("Pass `address` (or its alias `govPool`) \u2014 the candidate GovPool address.");
     if (!isAddress(address))
       return errorResult3(`Invalid address: ${address}`);
     try {
@@ -101342,10 +101413,11 @@ var DEFAULT_PUBLIC_READ_GATEWAYS = [
   "https://dweb.link",
   "https://cloudflare-ipfs.com"
 ];
+var DEFAULT_IPFS_HOP_TIMEOUT_MS = 1e4;
 async function fetchIpfs(cid, cfg) {
   const parsed = CID.parse(stripIpfsPrefix(cid));
   const cidStr = parsed.toString();
-  const timeout = cfg.perRequestTimeoutMs ?? 4e3;
+  const timeout = cfg.perRequestTimeoutMs ?? DEFAULT_IPFS_HOP_TIMEOUT_MS;
   const errors = [];
   let attempts = 0;
   const pinataGatewayToken = process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
@@ -114858,7 +114930,7 @@ function registerFetch(server, defaultGateways) {
     description: "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (dedicated; Pinata issues one with the JWT). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
     inputSchema: {
       cid: external_exports.string().describe("CID (with or without ipfs:// prefix)"),
-      timeoutMs: external_exports.number().int().min(500).max(3e4).default(4e3).describe("Per-gateway timeout in ms.")
+      timeoutMs: external_exports.number().int().min(500).max(3e4).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000).")
     },
     outputSchema: {
       cid: external_exports.string(),
@@ -114868,7 +114940,7 @@ function registerFetch(server, defaultGateways) {
       attempts: external_exports.number(),
       json: external_exports.unknown().nullable()
     }
-  }, async ({ cid, timeoutMs = 4e3 }) => {
+  }, async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
     if (defaultGateways.length === 0)
       return errorResult6(NO_GATEWAY_HINT);
     try {
@@ -115084,7 +115156,7 @@ function registerUpdateDaoMetadata(server, ctx, gateways) {
           url: external_exports.string().describe("Link to the document (http(s) or ipfs://).")
         })).optional().describe("Replacement external-document list.")
       }).describe("Only the fields you want to change. Anything omitted is kept from the current metadata."),
-      timeoutMs: external_exports.number().int().min(500).max(3e4).default(6e3).describe("Gateway fetch timeout in ms.")
+      timeoutMs: external_exports.number().int().min(500).max(3e4).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000).")
     },
     outputSchema: {
       descriptionURL: external_exports.string().describe("New outer CID \u2014 pass to dexe_proposal_build_modify_dao_profile.newDescriptionURL."),
@@ -115094,7 +115166,7 @@ function registerUpdateDaoMetadata(server, ctx, gateways) {
       size: external_exports.number(),
       pinnedAt: external_exports.string()
     }
-  }, async ({ currentDescriptionURL, overrides: overrides2, timeoutMs = 6e3 }) => {
+  }, async ({ currentDescriptionURL, overrides: overrides2, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
     if (gateways.length === 0)
       return errorResult6(NO_GATEWAY_HINT);
     const client = requirePinata(ctx);
@@ -116016,6 +116088,23 @@ function executeAddSettingsAdvisory(chainId) {
 }
 var VALIDATOR_CANCEL_VOTE_ADVISORY = upstream("F12", "WARN", 'GovValidators.cancelVote{Internal,External}Proposal reverts "SphereX error: disallowed tx pattern" on fresh (SphereX-era) pools and GovValidators has no multicall entrypoint, so there is NO client-side workaround \u2014 this call will simply burn gas there. It still works on pre-SphereX pools. What does work everywhere: voteInternalProposal / voteExternalProposal, including a top-up re-vote in the same direction.');
 var VALIDATOR_VOTE_IRREVOCABLE_ADVISORY = upstream("F12", "WARN", "once this reaches the validator chamber, a validator who has voted CANNOT take it back \u2014 cancelVoteInternalProposal / cancelVoteExternalProposal are blocked on fresh (SphereX-era) pools with no workaround (GovValidators has no multicall). Brief your validators before they vote; a top-up re-vote in the same direction is the only move they keep.");
+var UNDELEGATE_AFTER_VOTE_CHAINS = [97];
+function isUndelegateAfterVoteChain(chainId) {
+  return UNDELEGATE_AFTER_VOTE_CHAINS.includes(chainId);
+}
+var GOV_POOL_UNLOCK_IFACE = new Interface(["function unlock(address user)"]);
+function unlockCalldata(user) {
+  return GOV_POOL_UNLOCK_IFACE.encodeFunctionData("unlock", [user]);
+}
+function undelegateAfterVoteAdvisory(a3) {
+  if (!isUndelegateAfterVoteChain(a3.chainId))
+    return null;
+  if (a3.votedProposals === 0n)
+    return null;
+  const unlockCall = `dexe_tx_send {"to":"${a3.govPool}","data":"${unlockCalldata(a3.delegatee)}","chainId":${a3.chainId}}`;
+  const observed = a3.votedProposals === null ? `whenever the delegatee still has a vote on record (GovPool.getUserActiveProposalsCount(${a3.delegatee}) > 0 \u2014 it could not be read here, so check before sending)` : `while the delegatee still has votes on record \u2014 ${a3.delegatee} has ${a3.votedProposals}, so this payload reverts as built`;
+  return upstream("F23", "WARN", `on chain ${a3.chainId} GovPool.undelegate reverts "SphereX error: disallowed tx pattern" ${observed}. Raw, multicall([undelegate]) and multicall([unlock, undelegate]) all revert. Once every proposal the delegatee voted on has left Voting, clear its list in a SEPARATE transaction first \u2014 ${unlockCall} (GovPool.unlock(delegatee); any address may send it) \u2014 then send this undelegate. While one of those proposals is still in Voting that unlock reverts the same way, and the delegation cannot be pulled back until the vote ends.`);
+}
 var TOKENS_LOCKED_REMEDY = checkTokensUnlocked(1n, 0n).remediation;
 var POST_EXECUTE_LOCK_ADVISORY = {
   id: "tokens-locked-after-execute",
@@ -116029,8 +116118,15 @@ function voteLockAtCreateAdvisory(a3) {
     id: POST_EXECUTE_LOCK_ADVISORY.id,
     severity: "WARN",
     upstream: POST_EXECUTE_LOCK_ADVISORY.upstream,
-    text: `\u26A0 WARN \u2014 deposit lock: ${a3.amount} ${a3.broadcast ? "are now locked" : "will be locked"} as your FOR vote on ${where}. You can still create and vote on OTHER proposals with these tokens, but you cannot WITHDRAW or DELEGATE them until this one leaves voting \u2014 sooner reverts "GovUK: can't withdraw this". Then: dexe_vote_build_withdraw {"govPool":"${a3.govPool}","chainId":${a3.chainId}}.` + (a3.broadcast ? "" : " NOTHING has been broadcast yet.")
+    text: `\u26A0 WARN \u2014 deposit lock: ${a3.amount} ${a3.broadcast ? "are now locked" : "will be locked"} as your FOR vote on ${where}. You can still create and vote on OTHER proposals with these tokens, but you cannot WITHDRAW or DELEGATE them until this one leaves voting \u2014 sooner reverts "GovUK: can't withdraw this". Then: ${withdrawCallHint({ govPool: a3.govPool, chainId: a3.chainId, receiver: a3.receiver, amountWei: a3.amountWei })}.` + (a3.broadcast ? "" : " NOTHING has been broadcast yet.")
   };
+}
+function withdrawCallHint(a3) {
+  const fields = [`"govPool":"${a3.govPool}"`];
+  fields.push(`"receiver":"${a3.receiver ?? "<your address>"}"`);
+  fields.push(`"amount":"${a3.amountWei ?? "<deposited wei>"}"`);
+  fields.push(`"chainId":${a3.chainId}`);
+  return `dexe_vote_build_withdraw {${fields.join(",")}}` + (a3.amountWei ? "" : " (amount = raw wei, digits only)");
 }
 function lockedPowerAdvisory(depositedPower, availablePower) {
   const r2 = checkTokensUnlocked(depositedPower, availablePower);
@@ -116699,6 +116795,7 @@ var GOVERNANCE_SELECTORS = (() => {
   });
   return m3;
 })();
+var TREASURY_SELECTOR_SET = new Set(treasurySelectors().map((s2) => s2.toLowerCase()));
 function classifyGovernanceActions(actions, ctx) {
   const protocol = new Set(ctx.protocolAddresses.filter((a3) => typeof a3 === "string" && a3.length > 0).map((a3) => a3.toLowerCase()));
   const out = [];
@@ -116711,6 +116808,9 @@ function classifyGovernanceActions(actions, ctx) {
     const entry = GOVERNANCE_SELECTORS.get(selector);
     let kind;
     let targets = [];
+    if (!entry && TREASURY_SELECTOR_SET.has(selector)) {
+      return;
+    }
     if (entry) {
       kind = entry.kind;
       try {
@@ -119256,16 +119356,37 @@ var withdrawTreasuryBuilder = {
     };
   }
 };
+async function resolveGovSettings(explicit, deps) {
+  if (explicit !== void 0 && explicit !== "") {
+    if (!isAddress(explicit))
+      throw new Error(`Invalid govSettings: ${explicit}`);
+    return explicit;
+  }
+  const pr = new RpcProvider(deps.ctx.config).tryProvider(deps.chainId);
+  if ("error" in pr) {
+    throw new Error(`govSettings was omitted and cannot be read from ${deps.govPool}: ${pr.error} Pass govSettings explicitly.`);
+  }
+  const [res] = await multicall(pr.ok, [
+    { target: deps.govPool, iface: GOV_POOL_HELPERS_ABI2, method: "getHelperContracts", args: [], allowFailure: true }
+  ]);
+  const settings = res?.success ? res.value[0] : null;
+  if (!settings || !isAddress(settings) || settings === ZeroAddress) {
+    throw new Error(`govSettings was omitted and GovPool.getHelperContracts() on ${deps.govPool} (chain ${deps.chainId}) did not return one \u2014 is this a GovPool? Pass govSettings explicitly (dexe_dao_info.helpers.settings).`);
+  }
+  return settings;
+}
+var GOV_POOL_HELPERS_ABI2 = new Interface([
+  "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)"
+]);
 var changeVotingSettingsBuilder = {
   schema: external_exports.object({
-    govSettings: external_exports.string().describe("GovSettings address (dexe_dao_info.helpers.settings)"),
+    govSettings: external_exports.string().optional().describe("GovSettings address. Omit to read it from the DAO (GovPool.getHelperContracts)."),
     settings: external_exports.array(ProposalSettingsSchema).min(1),
     settingsIds: external_exports.array(numericIntString).default([]).describe("Ids to edit (parallel to settings). Empty => addSettings")
   }),
   async build(raw, deps) {
-    const p4 = raw;
-    if (!isAddress(p4.govSettings))
-      throw new Error(`Invalid govSettings: ${p4.govSettings}`);
+    const p0 = raw;
+    const p4 = { ...p0, govSettings: await resolveGovSettings(p0.govSettings, deps) };
     if (p4.settingsIds.length > 0 && p4.settingsIds.length !== p4.settings.length) {
       throw new Error("settingsIds length must match settings length when editing");
     }
@@ -119954,15 +120075,14 @@ function scopedExpertAlias(base3, scope) {
 }
 var newProposalTypeBuilder = {
   schema: external_exports.object({
-    govSettings: external_exports.string().describe("GovSettings address (dexe_dao_info.helpers.settings)"),
+    govSettings: external_exports.string().optional().describe("GovSettings address. Omit to read it from the DAO (GovPool.getHelperContracts)."),
     settings: ProposalSettingsSchema,
     executors: external_exports.array(external_exports.string()).min(1),
     newSettingId: numericIntString.describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings)")
   }),
   async build(raw, deps) {
-    const p4 = raw;
-    if (!isAddress(p4.govSettings))
-      throw new Error(`Invalid govSettings: ${p4.govSettings}`);
+    const p0 = raw;
+    const p4 = { ...p0, govSettings: await resolveGovSettings(p0.govSettings, deps) };
     for (const e2 of p4.executors) {
       if (!isAddress(e2))
         throw new Error(`Invalid executor: ${e2}`);
@@ -122071,7 +122191,14 @@ async function assessExecuteRisk(provider, govPool, proposalId, cfg) {
   if (treasuryHits.length > 0 && controllingHoldersVotedFor === false) {
     reasons.push("no controlling member (validator / top token-holder) voted For \u2014 possible low-participation capture");
   }
-  return { treasuryHits, quorumPct, belowFloor, controllingHoldersVotedFor, reasons };
+  return {
+    treasuryHits,
+    quorumPct,
+    belowFloor,
+    controllingHoldersVotedFor,
+    reasons,
+    hasAddSettings: findAddSettingsActions(decoded.actionsOnFor).length > 0
+  };
 }
 async function executeProposal(args) {
   const { provider, cfg, chainId, govPool, proposalId } = args;
@@ -122080,11 +122207,13 @@ async function executeProposal(args) {
   let treasuryRisk = null;
   let blocked = false;
   let refusal = null;
+  let addSettingsPresent = null;
   if (mode !== "off") {
     const risk = await assessExecuteRisk(provider, govPool, proposalId, cfg);
     if ("error" in risk) {
       treasuryRisk = `\u26A0 treasury-risk pre-check skipped: ${risk.error}`;
     } else {
+      addSettingsPresent = risk.hasAddSettings;
       const gate = treasuryGate({
         mode,
         stage: "execute",
@@ -122097,7 +122226,10 @@ async function executeProposal(args) {
       refusal = gate.refusal;
     }
   }
-  const advisories = [executeAddSettingsAdvisory(chainId), POST_EXECUTE_LOCK_ADVISORY].filter((a3) => Boolean(a3));
+  const advisories = [
+    addSettingsPresent === false ? null : executeAddSettingsAdvisory(chainId),
+    POST_EXECUTE_LOCK_ADVISORY
+  ].filter((a3) => Boolean(a3));
   const preSteps = [];
   if (treasuryRisk) {
     preSteps.push({ label: "treasury-risk", skipped: true, reason: "see `treasuryRisk` \u2014 read it before this executes" });
@@ -122632,7 +122764,7 @@ ${pr.remediation}`);
         "https://dweb.link"
       ].filter(Boolean)));
       try {
-        const fetched = await fetchIpfs(currentDescriptionURL, { gateways, perRequestTimeoutMs: 6e3 });
+        const fetched = await fetchIpfs(currentDescriptionURL, { gateways });
         if (fetched.json && typeof fetched.json === "object") {
           currentMeta = fetched.json;
         } else {
@@ -123038,7 +123170,9 @@ ${pr.remediation}`);
         broadcast,
         govPool,
         chainId,
-        ...created ? { proposalId: created.proposalId } : {}
+        ...created ? { proposalId: created.proposalId } : {},
+        ...result.signer?.address ? { receiver: result.signer.address } : {},
+        amountWei: voteAmount.toString()
       })
     ].map((a3) => ({ id: a3.id, severity: a3.severity, upstream: a3.upstream, text: a3.text })),
     prereqs: prereqsBlock(prereqs),
@@ -123307,7 +123441,7 @@ function registerFlowTools(server, ctx, signer, wc, state) {
   const rpc = new RpcProvider(ctx.config);
   server.tool(
     "dexe_proposal_create",
-    "Broadcasts when a signer is configured. Creates ANY governance proposal in ONE call: runs approve\u2192deposit\u2192createProposalAndVote and uploads correct IPFS metadata (category/isMeta/changes). Without a signer it returns ordered TxPayloads + a WalletConnect QR.\\nPass `proposalType` \u2014 the enum lists every wired type \u2014 with its inputs in `params`:\\n\u2022 'custom': your own actionsOnFor [{executor,value,data}]. 'modify_dao_profile' reads the top-level newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks/newAvatarPath fields, not `params`.\\n\u2022 External: token_transfer {token,recipient,amount,isNative?} \xB7 withdraw_treasury {receiver,token?,amount?,nftAddress?,nftIds?} \xB7 change_voting_settings {govSettings,settings[],settingsIds?} \xB7 add_expert/remove_expert {expertNftContract,scope,nominatedUser,uri?} \xB7 token_sale_whitelist {tokenSaleProposal,requests[]} \xB7 token_sale_recover {tokenSaleProposal,tierIds[]} \xB7 manage_validators {govValidators,changes[]} \xB7 validators_allocation {credits[]} \xB7 delegate_to_expert/revoke_from_expert {expert,amount,nftIds?} \xB7 change_math_model {newVotePower} \xB7 blacklist {erc20Gov,addAddresses?,removeAddresses?} \xB7 apply_to_dao {token,receiver,amount} \xB7 new_proposal_type/enable_staking {govSettings,settings,executors,newSettingId} \xB7 custom_abi {target,signature,method,args?} \xB7 token_distribution \xB7 token_sale \xB7 create_staking_tier \xB7 reward_multiplier.\\n\u2022 Internal (validators-only): change_validator_balances {changes[]} \xB7 change_validator_settings {duration,executionDelay,quorum} \xB7 monthly_withdraw {withdrawals[],destination} \xB7 offchain_internal_proposal {}.\\nOff-chain backend types are rejected with the flow to use instead. Full recipes with examples: dexe://playbook, or dexe_proposal_catalog.",
+    "Broadcasts when a signer is configured. Creates ANY governance proposal in ONE call: runs approve\u2192deposit\u2192createProposalAndVote and uploads correct IPFS metadata (category/isMeta/changes). Without a signer it returns ordered TxPayloads + a WalletConnect QR.\\nPass `proposalType` \u2014 the enum lists every wired type \u2014 with its inputs in `params`:\\n\u2022 'custom': your own actionsOnFor [{executor,value,data}]. 'modify_dao_profile' reads the top-level newDaoName/newDaoDescription/newWebsiteUrl/newSocialLinks/newAvatarPath fields, not `params`.\\n\u2022 External: token_transfer {token,recipient,amount,isNative?} \xB7 withdraw_treasury {receiver,token?,amount?,nftAddress?,nftIds?} \xB7 change_voting_settings {govSettings?,settings[],settingsIds?} \xB7 add_expert/remove_expert {expertNftContract,scope,nominatedUser,uri?} \xB7 token_sale_whitelist {tokenSaleProposal,requests[]} \xB7 token_sale_recover {tokenSaleProposal,tierIds[]} \xB7 manage_validators {govValidators,changes[]} \xB7 validators_allocation {credits[]} \xB7 delegate_to_expert/revoke_from_expert {expert,amount,nftIds?} \xB7 change_math_model {newVotePower} \xB7 blacklist {erc20Gov,addAddresses?,removeAddresses?} \xB7 apply_to_dao {token,receiver,amount} \xB7 new_proposal_type/enable_staking {govSettings?,settings,executors,newSettingId} \xB7 custom_abi {target,signature,method,args?} \xB7 token_distribution \xB7 token_sale \xB7 create_staking_tier \xB7 reward_multiplier.\\n\u2022 Internal (validators-only): change_validator_balances {changes[]} \xB7 change_validator_settings {duration,executionDelay,quorum} \xB7 monthly_withdraw {withdrawals[],destination} \xB7 offchain_internal_proposal {}.\\nOff-chain backend types are rejected with the flow to use instead. Full recipes with examples: dexe://playbook, or dexe_proposal_catalog.",
     {
       govPool: govPoolParam,
       chainId: external_exports.number().int().positive().optional().describe("Target chain (56 mainnet, 97 testnet); needs an RPC for it. Default: the MCP's default chain."),
@@ -123358,7 +123492,11 @@ function registerFlowTools(server, ctx, signer, wc, state) {
     {
       govPool: govPoolParam,
       chainId: external_exports.number().int().positive().optional().describe("Target chain (56 mainnet, 97 testnet); needs an RPC for it. Default: the MCP's default chain."),
-      proposalId: external_exports.number().int().min(1).describe(PROPOSAL_ID_DESC),
+      // Number OR digits-only string: dexe_proposal_create's own reply and
+      // every dexe_proposal_state / dexe_vote_build_* call render the id as a
+      // string, and an agent pasting `"proposalId":"1"` from one of those was
+      // refused here with "Expected number, received string".
+      proposalId: external_exports.union([external_exports.string(), external_exports.number()]).describe(PROPOSAL_ID_DESC),
       isVoteFor: external_exports.boolean().default(true).describe("Vote for (true) or against (false)"),
       voteAmount: external_exports.string().optional().describe("Vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: ALL available power (deposited + wallet)."),
       voteNftIds: external_exports.array(external_exports.string()).default([]).describe(NFT_IDS_OWN_DESC),
@@ -123384,7 +123522,10 @@ function registerFlowTools(server, ctx, signer, wc, state) {
 ${pr.remediation}`);
       const provider = pr.ok;
       const govPool = input2.govPool;
-      const proposalId = input2.proposalId;
+      const proposalId = Number(input2.proposalId);
+      if (!Number.isInteger(proposalId) || proposalId < 1) {
+        return err2(`Invalid proposalId: ${String(input2.proposalId)} \u2014 a positive integer (1-indexed), as a number or digits-only string.`);
+      }
       const stateCalls = [
         { target: govPool, iface: GOV_POOL_ABI4, method: "getProposalState", args: [proposalId] }
       ];
@@ -123721,7 +123862,12 @@ ${pr.remediation}`);
           txCount: payloads.length,
           irreversible: 'A cast vote cannot be changed in one call (GovPool reverts a second vote "Gov: need cancel") and an executed proposal cannot be un-executed. The tokens voted stay locked against withdrawal until the proposal leaves voting.',
           broadcast: result.mode === "executed",
-          next: postVoteNext ?? (executed ? `Executed. Your deposited tokens stay locked until you withdraw: dexe_vote_build_withdraw {"govPool":"${govPool}","chainId":${chainId}}.` : `Track it with dexe_proposal_state {"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}.`)
+          next: postVoteNext ?? (executed ? `Executed. Your deposited tokens stay locked until you withdraw: ${withdrawCallHint({
+            govPool,
+            chainId,
+            receiver: result.signer?.address,
+            amountWei: prereqs.depositedPower > 0n ? prereqs.depositedPower.toString() : void 0
+          })}.` : `Track it with dexe_proposal_state {"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}.`)
         }),
         power: {
           deposited: prereqs.depositedPower.toString(),
@@ -123750,6 +123896,7 @@ ${pr.remediation}`);
 
 // dist/tools/otc.js
 init_config();
+init_stateStore();
 init_redact();
 init_sanitize();
 function errorResult12(message) {
@@ -123862,7 +124009,7 @@ function registerOtcTools(server, ctx, signer, wc, state) {
   server.tool("dexe_otc_dao_open_sale", "Broadcasts when a signer is configured. Proposes a multi-tier token sale on an OTC DAO: builds the `createTiers` envelope (deduped approves, auto-merkle, auto-addToWhitelist, merkle lists pinned to IPFS so buyers can regenerate proofs), then runs the proposal_create flow (approve, deposit, IPFS metadata, `createProposalAndVote`). DAOs from `dexe_dao_create` (v0.19+) already wire TokenSaleProposal as an executor; older ones need a `new_proposal_type` proposal first.", {
     govPool: external_exports.string().describe("GovPool address"),
     chainId: external_exports.number().int().positive().optional().describe("Target chain id. Defaults to the MCP's default chain."),
-    tokenSaleProposal: external_exports.string().describe("TokenSaleProposal helper address"),
+    tokenSaleProposal: external_exports.string().optional().describe("TokenSaleProposal helper address. Omit for a DAO this install deployed (recorded at deploy); otherwise dexe_dao_predict_addresses or the deploy receipt."),
     tiers: external_exports.array(tierSchema).min(1).describe("Tier specs for `createTiers`, in order; at least one."),
     latestTierId: external_exports.string().default("0").describe("Current `latestTierId()` on the sale; new tiers start after it."),
     proposalName: external_exports.string().default("Open OTC Token Sale").describe("Proposal title in the DAO UI."),
@@ -123875,8 +124022,16 @@ function registerOtcTools(server, ctx, signer, wc, state) {
     buildOnly: external_exports.boolean().default(false).describe("Return only the envelope (actions + metadata + merkle roots); skips IPFS and DAO reads."),
     acknowledgeVestingBlocked: external_exports.boolean().default(false).describe("Refused by default: opt into vestingPercentage > 0; the vested leg is stranded (F15)."),
     flowContext: flowContextSchema
-  }, async (input2) => {
+  }, async (inputRaw) => {
     try {
+      const tspChainId = rpc.resolveChainId(inputRaw.chainId);
+      const tokenSaleProposal = inputRaw.tokenSaleProposal ?? findKnownDao(state, tspChainId, inputRaw.govPool)?.tokenSaleProposal;
+      if (!tokenSaleProposal) {
+        return err3(`tokenSaleProposal is required: ${inputRaw.govPool} on chain ${tspChainId} was not deployed by this install, so its TokenSaleProposal address is not on record. Pass it explicitly \u2014 from the deploy receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`);
+      }
+      if (!isAddress(tokenSaleProposal))
+        return err3(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      const input2 = { ...inputRaw, tokenSaleProposal };
       const vesting = vestingTierGuard(input2.tiers, input2.acknowledgeVestingBlocked);
       if (vesting.refusal)
         return err3(vesting.refusal);
@@ -124579,7 +124734,8 @@ function registerTreasury(server, rpc) {
     title: "Native + ERC20 balances (with USD) for a DAO or arbitrary address",
     description: "Read-only. Treasury / wallet balances for any address; pass a GovPool address for a DAO treasury. Auto-discovers EVERY token via the DeXe backend with USD prices and a total. Falls back to an on-chain read (chain 97, explicit `tokens`, or a backend failure) \u2014 no token discovery there, and it reports `degraded: true`.",
     inputSchema: {
-      holder: external_exports.string().describe("Address whose balances we read"),
+      holder: external_exports.string().optional().describe("Address whose balances we read (a GovPool for a DAO treasury)"),
+      govPool: external_exports.string().optional().describe("Alias for `holder` \u2014 every other DAO read names the DAO this way"),
       tokens: external_exports.array(external_exports.string()).default([]).describe("Optional explicit ERC20 addresses; forces on-chain RPC read of just these"),
       chainId: chainIdParam
     },
@@ -124613,7 +124769,10 @@ function registerTreasury(server, rpc) {
         usdValue: external_exports.number().nullable()
       }))
     }
-  }, async ({ holder, tokens = [], chainId: chainIdArg }) => {
+  }, async ({ holder: holderIn, govPool, tokens = [], chainId: chainIdArg }) => {
+    const holder = holderIn ?? govPool;
+    if (!holder)
+      return errorResult13("Pass `holder` (or its alias `govPool`) \u2014 the address whose balances to read.");
     if (!isAddress(holder))
       return errorResult13(`Invalid holder: ${holder}`);
     const chainId = rpc.resolveChainId(chainIdArg);
@@ -126294,7 +126453,7 @@ function registerVoteBuildTools(server, ctx) {
   registerDeposit(server, ctx);
   registerWithdraw(server, ctx);
   registerDelegate(server, ctx);
-  registerUndelegate(server, ctx);
+  registerUndelegate(server, ctx, rpc);
   registerVote(server, ctx, rpc);
   registerCancelVote2(server, ctx);
   registerValidatorVote(server, ctx);
@@ -126494,10 +126653,35 @@ function registerDelegate(server, ctx) {
     }
   });
 }
-function registerUndelegate(server, ctx) {
+var GOV_POOL_VOTED_IFACE = new Interface([
+  "function getUserActiveProposalsCount(address user) view returns (uint256)"
+]);
+async function delegateeVotesOnRecord(rpc, args) {
+  const pr = rpc.tryProvider(args.chainId);
+  if ("error" in pr)
+    return null;
+  try {
+    const [res] = await multicall(pr.ok, [
+      {
+        target: args.govPool,
+        iface: GOV_POOL_VOTED_IFACE,
+        method: "getUserActiveProposalsCount",
+        args: [args.delegatee],
+        allowFailure: true
+      }
+    ]);
+    if (!res?.success)
+      return null;
+    const v7 = res.value;
+    return BigInt(Array.isArray(v7) ? v7[0] : v7);
+  } catch {
+    return null;
+  }
+}
+function registerUndelegate(server, ctx, rpc) {
   server.registerTool("dexe_vote_build_undelegate", {
     title: "Undelegate voting power from a delegatee",
-    description: B2 + "`GovPool.undelegate(delegatee, amount, nftIds)` \u2014 pulls back power you delegated. The delegatee's live votes are recomputed downward, and a delegate and an undelegate in the same block revert.",
+    description: B2 + "`GovPool.undelegate(delegatee, amount, nftIds)` \u2014 pulls back power you delegated. The delegatee's live votes are recomputed downward, and a delegate and an undelegate in the same block revert. On chain 97 it reverts while the delegatee has votes on record; the reply then carries the unlock call to send first.",
     inputSchema: {
       govPool: govPoolParam,
       delegatee: external_exports.string().describe("Address you are pulling the delegated power back from."),
@@ -126522,7 +126706,13 @@ function registerUndelegate(server, ctx) {
         contractLabel: "GovPool",
         description: `GovPool.undelegate \u2190 ${delegatee} (${amount} wei, ${nftIds.length} NFTs)`
       });
-      return payloadResult2(payload);
+      const advisory = isUndelegateAfterVoteChain(payload.chainId) ? undelegateAfterVoteAdvisory({
+        chainId: payload.chainId,
+        govPool,
+        delegatee,
+        votedProposals: await delegateeVotesOnRecord(rpc, { govPool, delegatee, chainId: payload.chainId })
+      }) : null;
+      return payloadResult2(payload, advisory);
     } catch (err13) {
       return errorResult15(safeErrorMessage(err13));
     }
@@ -128255,6 +128445,7 @@ ${verdict.summary}`;
 // dist/tools/subgraph.js
 init_zod();
 init_lib2();
+init_stateStore();
 init_subgraph();
 init_config();
 init_redact();
@@ -128477,14 +128668,14 @@ var EXPERTS_QUERY = (
   }
 `
 );
-function registerSubgraphTools(server, ctx) {
+function registerSubgraphTools(server, ctx, state) {
   registerDaoList(server, ctx);
   registerDaoMembers(server, ctx);
   registerDelegationMap(server, ctx);
   registerValidatorList(server, ctx);
   registerUserActivity(server, ctx);
   registerDaoExperts(server, ctx);
-  registerOtcListSalesForDao(server, ctx);
+  registerOtcListSalesForDao(server, ctx, state);
   registerGraphQuery(server, ctx);
   registerGraphSchema(server, ctx);
 }
@@ -129112,19 +129303,23 @@ var GOV_POOL_HELPERS_DISCOVERY_ABI = new Interface([
   // the placeholder ABI for forward-compat.
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)"
 ]);
-function registerOtcListSalesForDao(server, ctx) {
+function registerOtcListSalesForDao(server, ctx, state) {
   const rpc = new RpcProvider(ctx.config);
   server.registerTool("dexe_otc_list_sales_for_dao", {
     title: "List OTC sale tiers for a DAO",
-    description: "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with `totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's on-chain isOff flag. On-chain only \u2014 any chain with an RPC; the reply echoes the resolved `chainId`. `tokenSaleProposal` is required.",
+    description: "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with `totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's on-chain isOff flag. On-chain only \u2014 any chain with an RPC; the reply echoes the resolved `chainId`. `tokenSaleProposal` defaults to the one recorded when this install deployed the DAO; otherwise it is required.",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool address"),
-      tokenSaleProposal: external_exports.string().describe("TokenSaleProposal helper address. Look up via dexe_dao_predict_addresses or DAO deploy receipt."),
+      tokenSaleProposal: external_exports.string().optional().describe("TokenSaleProposal helper address. Omit for a DAO this install deployed; otherwise dexe_dao_predict_addresses or the deploy receipt."),
       chainId: chainIdParam
     }
-  }, async ({ govPool, tokenSaleProposal, chainId }) => {
+  }, async ({ govPool, tokenSaleProposal: tspIn, chainId }) => {
     if (!isAddress(govPool))
       return errorResult17(`Invalid govPool: ${govPool}`);
+    const tokenSaleProposal = tspIn ?? findKnownDao(state, rpc.resolveChainId(chainId), govPool)?.tokenSaleProposal;
+    if (!tokenSaleProposal) {
+      return errorResult17(`tokenSaleProposal is required: ${govPool} on chain ${rpc.resolveChainId(chainId)} was not deployed by this install, so its TokenSaleProposal address is not on record. Pass it explicitly \u2014 from the deploy receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`);
+    }
     if (!isAddress(tokenSaleProposal))
       return errorResult17(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     try {
@@ -129665,16 +129860,16 @@ function ok6(data4) {
     structuredContent: JSON.parse(text5)
   };
 }
-function registerInboxTools(server, ctx) {
+function registerInboxTools(server, ctx, state) {
   const rpc = new RpcProvider(ctx.config);
   const discoveryChains = subgraphChains(ctx.config, "pools");
   const discoveryNote = discoveryChains.length ? `chains that can auto-discover here: ${discoveryChains.join(", ")}` : "NO chain can auto-discover here (no pools subgraph configured)";
   server.registerTool("dexe_user_inbox", {
     title: "Multi-DAO attention aggregator",
-    description: `Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that chain's pools subgraph (limit 50; ${discoveryNote}); elsewhere pass \`daos[]\` \u2014 the scan itself is pure on-chain. The reply echoes \`indexedChainId\`.`,
+    description: `Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that chain's pools subgraph (limit 50; ${discoveryNote}); on a chain with none the DAOs this install created or used on that chain (dexe_context's list) are scanned instead, else pass \`daos[]\` \u2014 the scan itself is pure on-chain. The reply echoes \`indexedChainId\` and \`daoSource\`.`,
     inputSchema: {
       user: external_exports.string().describe("User wallet address"),
-      daos: external_exports.array(external_exports.string()).optional().describe("Optional explicit DAO list. Required on chains with no pools subgraph."),
+      daos: external_exports.array(external_exports.string()).optional().describe("Optional explicit DAO list. On chains with no pools subgraph, omitting it scans this install's known DAOs."),
       proposalScanLimit: external_exports.number().int().min(1).max(100).default(20).describe("Per-DAO recent-proposal scan window for unvoted/rewards detection"),
       chainId: chainIdParam
     }
@@ -129692,6 +129887,13 @@ ${pr.remediation}`);
     let daoSource;
     let indexedChainId = null;
     let discoveryUnavailable;
+    const knownOnChain = () => {
+      try {
+        return (state?.getState().knownDaos ?? []).filter((d3) => d3.chainId === scanChainId && isAddress(d3.govPool)).map((d3) => getAddress(d3.govPool));
+      } catch {
+        return [];
+      }
+    };
     if (daos && daos.length > 0) {
       for (const d3 of daos) {
         if (!isAddress(d3))
@@ -129703,24 +129905,35 @@ ${pr.remediation}`);
         discoveryUnavailable = `Chain ${scanChainId} has no DeXe pools subgraph, so DAO auto-discovery is off: only the ${resolvedDaos.length} DAO(s) you passed were checked, and DAOs outside that list were not.`;
       }
     } else {
-      let sg;
+      let sg = null;
+      let noSubgraph = null;
       try {
         sg = resolveSubgraphUrl(ctx.config, "pools", scanChainId);
       } catch (e2) {
-        return err4(`${safeErrorMessage(e2)}
-
-dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself \u2014 pass \`daos: ["0x\u2026"]\`. Only auto-discovery needs the subgraph.`);
+        noSubgraph = safeErrorMessage(e2);
       }
-      daoSource = "subgraph";
-      indexedChainId = sg.chainId;
-      try {
-        const data4 = await gqlRequest(sg.url, USER_DAOS_QUERY, {
-          user: userAddr.toLowerCase(),
-          first: 50
-        });
-        resolvedDaos = data4.voterInPools.map((v7) => getAddress(v7.pool.id));
-      } catch (e2) {
-        return err4(toActionableError(e2, `dexe_user_inbox DAO discovery on chain ${sg.chainId}`).message);
+      if (!sg) {
+        const known = knownOnChain();
+        if (known.length === 0) {
+          return err4(`${noSubgraph}
+
+dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself \u2014 pass \`daos: ["0x\u2026"]\`. Only auto-discovery needs the subgraph (no DAO on chain ${scanChainId} is recorded in this install's state either).`);
+        }
+        resolvedDaos = known;
+        daoSource = "state";
+        discoveryUnavailable = `Chain ${scanChainId} has no DeXe pools subgraph, so DAO auto-discovery is off: the ${known.length} DAO(s) this install recorded on chain ${scanChainId} were scanned, and DAOs outside that list were not. Pass \`daos[]\` to scan others.`;
+      } else {
+        daoSource = "subgraph";
+        indexedChainId = sg.chainId;
+        try {
+          const data4 = await gqlRequest(sg.url, USER_DAOS_QUERY, {
+            user: userAddr.toLowerCase(),
+            first: 50
+          });
+          resolvedDaos = data4.voterInPools.map((v7) => getAddress(v7.pool.id));
+        } catch (e2) {
+          return err4(toActionableError(e2, `dexe_user_inbox DAO discovery on chain ${sg.chainId}`).message);
+        }
       }
     }
     const pendingItems = [];
@@ -130769,6 +130982,10 @@ Pass an ISO timestamp or Unix seconds instead.`);
     const sectionsOut = {};
     const onchainDown = onchainError ?? (provider ? null : `No RPC for chain ${resolvedChainId}. ${rpcSource.reason ?? ""}`);
     const poolsDown = poolsSource.available ? null : poolsSource.reason ?? `No pools subgraph for chain ${resolvedChainId}.`;
+    const indexRef = (name2, configured, full) => full === null ? null : configured ? full : `${name2} subgraph not configured for chain ${resolvedChainId} \u2014 see sources.subgraphs.${name2}.reason.`;
+    const poolsRef = indexRef("pools", Boolean(pools.url), poolsDown);
+    const validatorsRef = indexRef("validators", Boolean(validatorsSg.url), validatorsSource.available ? null : validatorsSource.reason ?? "no validators subgraph");
+    const interactionsRef = indexRef("interactions", Boolean(interactions.url), interactionsSource.available ? null : interactionsSource.reason ?? `Activity needs the interactions subgraph on chain ${resolvedChainId}.`);
     const record2 = (name2, s2) => {
       if (!want(name2))
         return;
@@ -130783,7 +131000,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
     };
     if (want("identity")) {
       if (!helpers && !daoPool) {
-        record2("identity", missing(`Neither the RPC nor the pools subgraph could describe ${dao}. ${onchainDown ?? ""} ${poolsDown ?? ""}`.trim(), `${toolRef("dexe_dao_registry_lookup", "is this address a DeXe DAO on this chain?")} / ` + toolRef("dexe_dao_info", "helpers + validator count, one RPC round-trip")));
+        record2("identity", missing(`Neither the RPC nor the pools subgraph could describe ${dao}. ${onchainDown ?? ""} ${poolsRef ?? ""}`.trim(), `${toolRef("dexe_dao_registry_lookup", "is this address a DeXe DAO on this chain?")} / ` + toolRef("dexe_dao_info", "helpers + validator count, one RPC round-trip")));
       } else {
         record2("identity", have(helpers && daoPool ? "mixed" : helpers ? "onchain" : "subgraph", {
           govPool: dao,
@@ -130799,7 +131016,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
           creationTimeUTC: daoPool ? unixToUtc(str(daoPool.creationTime) ?? 0) : null,
           creationBlock: daoPool ? str(daoPool.creationBlock) : null,
           ...helpers ? {} : { onchainUnavailable: onchainDown },
-          ...daoPool ? {} : { subgraphUnavailable: poolsDown ?? "DAO not indexed" }
+          ...daoPool ? {} : { subgraphUnavailable: poolsRef ?? "DAO not indexed" }
         }));
       }
     }
@@ -130829,7 +131046,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
           reason: "Token-holder balances come from the DeXe backend (mainnets only) and are not part of this report.",
           followUp: toolRef("dexe_read_token_holders")
         }
-      }) : missing(poolsDown ?? "Members need the pools subgraph.", `${toolRef("dexe_read_dao_members", "same index, paginated")} / ${toolRef("dexe_graph_query", "subgraph: 'pools', voterInPools")} / ` + toolRef("dexe_read_multicall", "on-chain balances, no indexer")));
+      }) : missing(poolsRef ?? "Members need the pools subgraph.", `${toolRef("dexe_read_dao_members", "same index, paginated")} / ${toolRef("dexe_graph_query", "subgraph: 'pools', voterInPools")} / ` + toolRef("dexe_read_multicall", "on-chain balances, no indexer")));
     }
     if (want("delegation")) {
       record2("delegation", poolsData ? have("subgraph", {
@@ -130853,7 +131070,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
           since: str(p4.creationTimestamp),
           sinceUTC: unixToUtc(str(p4.creationTimestamp) ?? 0)
         }))
-      }) : missing(poolsDown ?? "Delegation pairs need the pools subgraph.", `${toolRef("dexe_read_delegation_map", "needs the addresses up front")} / ` + toolRef("dexe_graph_query", "subgraph: 'pools', voterInPoolPairs \u2014 no address list needed")));
+      }) : missing(poolsRef ?? "Delegation pairs need the pools subgraph.", `${toolRef("dexe_read_delegation_map", "needs the addresses up front")} / ` + toolRef("dexe_graph_query", "subgraph: 'pools', voterInPoolPairs \u2014 no address list needed")));
     }
     if (want("experts")) {
       record2("experts", poolsData ? have("subgraph", {
@@ -130865,7 +131082,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
           receivedDelegation: str(e2.receivedDelegation),
           receivedTreasuryDelegation: str(e2.receivedTreasuryDelegation)
         }))
-      }) : missing(poolsDown ?? "Experts need the pools subgraph.", `${toolRef("dexe_graph_query", "subgraph: 'pools', voterInPools where expertNft_: {id_not: null}")} / ${toolRef("dexe_read_dao_experts", "the roster, one call")} / ` + toolRef("dexe_read_expert_status", "one address, on-chain \u2014 works with no indexer")));
+      }) : missing(poolsRef ?? "Experts need the pools subgraph.", `${toolRef("dexe_graph_query", "subgraph: 'pools', voterInPools where expertNft_: {id_not: null}")} / ${toolRef("dexe_read_dao_experts", "the roster, one call")} / ` + toolRef("dexe_read_expert_status", "one address, on-chain \u2014 works with no indexer")));
     }
     if (want("validators")) {
       const anyValidators = validatorsCount !== null || validatorRows !== null;
@@ -130877,8 +131094,8 @@ Pass an ISO timestamp or Unix seconds instead.`);
           address: str(v7.validatorAddress),
           balance: str(v7.balance)
         })) ?? null,
-        ...validatorRows ? {} : { rosterUnavailable: validatorsSource.reason ?? "no validators subgraph" }
-      }) : missing(onchainDown ?? validatorsSource.reason ?? "Validator data unavailable.", `${toolRef("dexe_dao_info", "on-chain validator count + the validators contract")} / ${toolRef("dexe_read_validators", "chamber state on-chain")} / ` + toolRef("dexe_read_validator_list", "the roster, from the validators subgraph")));
+        ...validatorRows ? {} : { rosterUnavailable: validatorsRef ?? "no validators subgraph" }
+      }) : missing(onchainDown ?? validatorsRef ?? "Validator data unavailable.", `${toolRef("dexe_dao_info", "on-chain validator count + the validators contract")} / ${toolRef("dexe_read_validators", "chamber state on-chain")} / ` + toolRef("dexe_read_validator_list", "the roster, from the validators subgraph")));
     }
     const byState = {};
     for (const p4 of onchainProposals)
@@ -130933,7 +131150,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
           }))
         }));
       } else {
-        record2("turnout", missing(`${poolsDown ?? "Turnout needs the pools subgraph."} Per-proposal vote TOTALS are still in the \`proposals\` section (on-chain votesFor/votesAgainst); only the per-proposal VOTER COUNTS need the indexer.`, `${toolRef("dexe_graph_query", "subgraph: 'pools', proposals { proposalId votersVoted } \u2014 every proposal in one query")} / ` + toolRef("dexe_proposal_voters", "one call per proposal")));
+        record2("turnout", missing(`${poolsRef ?? "Turnout needs the pools subgraph."} Per-proposal vote TOTALS are still in the \`proposals\` section (on-chain votesFor/votesAgainst); only the per-proposal VOTER COUNTS need the indexer.`, `${toolRef("dexe_graph_query", "subgraph: 'pools', proposals { proposalId votersVoted } \u2014 every proposal in one query")} / ` + toolRef("dexe_proposal_voters", "one call per proposal")));
       }
     }
     if (want("activity")) {
@@ -130979,7 +131196,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
           events: feed.slice(0, DELTA_ROW_CAP)
         }));
       } else {
-        record2("activity", missing(interactionsSource.reason ?? `Activity needs the interactions subgraph on chain ${resolvedChainId}.`, `${toolRef("dexe_graph_query", "subgraph: 'interactions', same feed, hand-written")} / ` + toolRef("dexe_read_user_activity", "per user")));
+        record2("activity", missing(interactionsRef ?? `Activity needs the interactions subgraph on chain ${resolvedChainId}.`, `${toolRef("dexe_graph_query", "subgraph: 'interactions', same feed, hand-written")} / ` + toolRef("dexe_read_user_activity", "per user")));
       }
     }
     if (want("deadlines")) {
@@ -131317,15 +131534,36 @@ function txStatusFromLookup(hasReceipt, hasTx) {
 function registerTxTools(server, config2, signer, wc) {
   const wcActive = () => !signer.hasSigner() && wc.isConfigured();
   server.tool("dexe_tx_send", "Broadcasts when a signer is configured. Sends the TxPayload fields from any dexe_*_build_* tool and waits for confirmation. Pass `chainId` when several chains are configured, plus the payload's own chainId as `payloadChainId` \u2014 a mismatch REFUSES the send. Calldata with a privileged GovUserKeeper accounting selector is refused (hard block, no override).", {
-    to: external_exports.string().describe("Destination contract address"),
-    data: external_exports.string().describe("ABI-encoded calldata (0x-prefixed hex)"),
+    to: external_exports.string().optional().describe("Destination contract address (or pass the builder's `payload` object)"),
+    data: external_exports.string().optional().describe("ABI-encoded calldata (0x-prefixed hex)"),
     value: external_exports.string().default("0").describe("Wei value as decimal string"),
+    payload: external_exports.object({
+      to: external_exports.string().describe("Destination contract address (the payload's `to`)"),
+      data: external_exports.string().describe("ABI-encoded calldata, 0x-hex (the payload's `data`)"),
+      value: external_exports.string().optional().describe("Wei value as decimal string (the payload's `value`, default 0)"),
+      chainId: external_exports.number().int().positive().optional().describe("The payload's own chainId; used as payloadChainId")
+    }).passthrough().optional().describe("A dexe_*_build_* `payload` object verbatim ({to,data,value,chainId}). Fills to/data/value and payloadChainId when the flat fields are omitted."),
     chainId: external_exports.number().int().positive().optional().describe("Chain to broadcast on; needs an RPC for it. Default: the MCP's default chain."),
     payloadChainId: external_exports.number().int().positive().optional().describe("The TxPayload's own `chainId`, copied verbatim \u2014 a mismatch REFUSES the send."),
     gasLimit: external_exports.string().optional().describe("Optional gas limit override (decimal string)"),
     waitConfirmations: external_exports.number().int().min(0).max(12).default(1).describe("Confirmations to wait (0 = fire-and-forget)"),
     signerKey: external_exports.string().optional().describe("Signer: omit = primary DEXE_PRIVATE_KEY (never an agent); 'agent<n>'/address = keyring.")
-  }, async ({ to: to2, data: data4, value, chainId, payloadChainId, gasLimit, waitConfirmations, signerKey }) => {
+  }, async ({ to: toFlat, data: dataFlat, value: valueFlat, payload, chainId, payloadChainId: payloadChainIdFlat, gasLimit, waitConfirmations, signerKey }) => {
+    const to2 = toFlat ?? payload?.to;
+    const data4 = dataFlat ?? payload?.data;
+    const value = valueFlat !== "0" || payload?.value === void 0 ? valueFlat : payload.value;
+    const payloadChainId = payloadChainIdFlat ?? payload?.chainId;
+    if (!to2 || !data4) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "dexe_tx_send needs `to` + `data` \u2014 pass them flat, or pass a builder's `payload` object as `payload`."
+          }
+        ],
+        isError: true
+      };
+    }
     const forbidden = scanForbiddenCalldata(data4);
     if (forbidden) {
       return {
@@ -133023,6 +133261,10 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
           govPool: res.predictedGovPool,
           chainId,
           token: res.predicted.govToken,
+          // Not readable back from the pool — recorded so the OTC tools can
+          // default `tokenSaleProposal` for this DAO in a later session.
+          tokenSaleProposal: res.predicted.govTokenSale,
+          distributionProposal: res.predicted.distributionProposal,
           txHash,
           deployedAt: (/* @__PURE__ */ new Date()).toISOString()
         });
@@ -133700,8 +133942,15 @@ var GOTCHAS = [
     // bug_spherex_vote_delegate_multicall.md
     id: "spherex-vote-multicall",
     severity: "warn",
-    text: "Raw top-level vote()/delegate() calls REVERT on fresh (SphereX-era) pools \u2014 the frontend always wraps them as GovPool.multicall([call]) even for a single call, and the dexe-mcp builders emit that shape since v0.24.1. If you hand-craft calldata, wrap it. Raw deposit/withdraw/cancelVote/undelegate/createProposal(AndVote) remain allowed.",
+    text: "Raw top-level vote()/delegate() calls REVERT on fresh (SphereX-era) pools \u2014 the frontend always wraps them as GovPool.multicall([call]) even for a single call, and the dexe-mcp builders emit that shape since v0.24.1. If you hand-craft calldata, wrap it. Raw deposit/withdraw/cancelVote/undelegate/createProposal(AndVote) remain allowed (undelegate with one exception \u2014 see undelegate-after-vote).",
     applies: { flows: ["vote_execute"], tools: ["dexe_vote_build_vote", "dexe_vote_build_delegate"] }
+  },
+  {
+    // docs/UPSTREAM-ISSUES.md F23 — measured on Kestrel 0xb0Ca…2145 (chain 97), 2026-10-01
+    id: "undelegate-after-vote",
+    severity: "warn",
+    text: "On chain 97, GovPool.undelegate REVERTS 'SphereX error: disallowed tx pattern' once the delegatee has a vote on record (getUserActiveProposalsCount(delegatee) > 0) \u2014 in every shape, wrapped or bundled. After the proposals it voted on have left Voting: send GovPool.unlock(delegatee) as its OWN transaction (anyone may), then undelegate. While one is still in Voting the unlock reverts too, so the delegation is stuck until the vote ends. dexe_vote_build_undelegate reads the count and hands you the unlock call. Mainnet 56 is unmeasured.",
+    applies: { flows: ["vote_execute"], tools: ["dexe_vote_build_undelegate", "dexe_vote_build_delegate"] }
   },
   {
     // swarm S01 (MEMORY-ONLY promotion)
@@ -134727,14 +134976,14 @@ function registerPredictTools(server, ctx) {
   const rpc = new RpcProvider(ctx.config);
   server.registerTool("dexe_proposal_forecast", {
     title: "Predictive proposal pass-rate forecaster",
-    description: "Read-only. Reads the latest 10 proposals on a DAO and their final states and forecasts the pass-rate over DECIDED proposals (still-voting ones are `pending`, never failures), with the average For-vote weight. `quorum.requiredWeight` is an ABSOLUTE vote weight (getTotalPower x quorum / 1e27), not the 1e25 percentage setting. The history cross-check needs a pools subgraph for the chain being forecast; without one the call stops unless `forceRpcOnly: true`, and `indexedChainId` reports whose index was used (null = none).",
+    description: "Read-only. Reads the latest 10 proposals on a DAO and their final states and forecasts the pass-rate over DECIDED proposals (still-voting ones are `pending`, never failures), with the average For-vote weight. `quorum.requiredWeight` is an ABSOLUTE vote weight (getTotalPower x quorum / 1e27), not the 1e25 percentage setting. The history cross-check needs a pools subgraph for the chain being forecast; a chain with none is forecast on-chain only (`subgraphHistory: null`, `subgraphNote` says why) \u2014 never from another chain's index. `indexedChainId` reports whose index was used (null = none).",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool address"),
       draft: external_exports.object({
         actionsOnFor: external_exports.array(external_exports.unknown()).default([]).describe("Draft actionsOnFor; more than 5 flags complexityRisk."),
         voteAmount: external_exports.string().optional().describe("Vote weight to add to projectedFor, RAW 18-decimal voting power.")
       }).optional().describe("Optional draft proposal \u2014 voteAmount is added to projectedFor"),
-      forceRpcOnly: external_exports.boolean().default(false).describe("Forecast a chain with no pools subgraph purely from on-chain getProposals (no history cross-check)"),
+      forceRpcOnly: external_exports.boolean().default(false).describe("Skip the subgraph history cross-check even when this chain has one; a chain with none is on-chain only anyway."),
       chainId: chainIdParam
     }
   }, async ({ govPool, draft, forceRpcOnly = false, chainId }) => {
@@ -134748,12 +134997,9 @@ function registerPredictTools(server, ctx) {
     } catch (e2) {
       noSubgraphReason = safeErrorMessage(e2);
     }
-    if (!subgraph && !forceRpcOnly) {
-      return ok10({
-        error: "subgraph required",
-        chain: resolvedChainId,
-        hint: `${noSubgraphReason} Or pass forceRpcOnly: true to forecast chain ${resolvedChainId} from on-chain getProposals alone \u2014 the pass-rate is computed on-chain; only the history cross-check is lost.`
-      });
+    if (forceRpcOnly && subgraph) {
+      noSubgraphReason = `forceRpcOnly: the history cross-check against the chain-${subgraph.chainId} pools index was skipped by request; this forecast is on-chain only.`;
+      subgraph = null;
     }
     const pr = rpc.tryProvider(chainId);
     if ("error" in pr)
@@ -134960,29 +135206,26 @@ var ActionSchema2 = external_exports.object({
 function errorResult21(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-function recommend(verdict, floorPct, treasuryTouching, governanceHits = []) {
-  const govLine = governanceRecommendation(governanceHits);
+function recommend(verdict, floorPct, treasuryTouching, governanceHits = [], treasuryVerdict = verdict) {
+  const govLine = governanceRecommendation(governanceHits, treasuryTouching);
   if (!treasuryTouching) {
     const base3 = "No treasury-moving action detected (no ERC20 approve/transfer/transferFrom or native value). This tool classifies a fixed selector set \u2014 an unrecognised call is UNASSESSED, not proven safe. Review the actions themselves (dexe_decode_proposal) before voting or executing.";
-    return govLine ? `${govLine}
-
-${base3}` : base3;
+    return govLine ? `${govLine} ${base3}` : base3;
   }
-  const treasury = recommendTreasury(verdict, floorPct);
-  return govLine ? `${govLine}
-
-${treasury}` : treasury;
+  const treasury = recommendTreasury(treasuryVerdict, floorPct);
+  return govLine ? `${govLine} ${treasury}` : treasury;
 }
-function governanceRecommendation(hits) {
+function governanceRecommendation(hits, treasuryTouching = false) {
   if (hits.length === 0)
     return null;
   const owned = hits.filter((h3) => h3.protocolTargets.length > 0);
   const unknown2 = hits.filter((h3) => h3.kind === "unknownPrivileged");
   const parts = [];
+  const scope = treasuryTouching ? "This is separate from the treasury movement assessed below \u2014 the quorum model covers that movement, not this call." : "It moves no treasury value, so the quorum model below does not apply.";
   if (owned.length > 0) {
-    parts.push(`DANGER: this proposal calls ${[...new Set(owned.map((h3) => h3.kind))].join(", ")} targeting the DAO's own contract(s) ${[...new Set(owned.flatMap((h3) => h3.protocolTargets))].join(", ")}. It moves no treasury value, so the quorum model below does not apply \u2014 a passing vote can permanently disable governance or freeze the treasury. Verify the target address before voting FOR.`);
+    parts.push(`DANGER: this proposal calls ${[...new Set(owned.map((h3) => h3.kind))].join(", ")} targeting the DAO's own contract(s) ${[...new Set(owned.flatMap((h3) => h3.protocolTargets))].join(", ")}. ${scope} A passing vote can permanently disable governance or freeze the treasury. Verify the target address before voting FOR.`);
   } else {
-    parts.push(`CAUTION: this proposal changes DAO governance (${[...new Set(hits.map((h3) => h3.kind))].join(", ")}). It moves no treasury value \u2014 review the change itself; the quorum model below does not cover it.`);
+    parts.push(`CAUTION: this proposal changes DAO governance (${[...new Set(hits.map((h3) => h3.kind))].join(", ")}). ${scope} Review the change itself.`);
   }
   if (unknown2.length > 0) {
     parts.push(`It also calls a DAO contract with a selector this tool does not recognise: UNASSESSED, not proven safe.`);
@@ -135005,7 +135248,7 @@ function registerRiskTools(server, ctx) {
     description: "Read-only. Assesses low-quorum treasury risk and privileged no-value governance calls (blacklist, pause, changeVotePower, add/editSettings, changeExecutors, changeBalances). SAFE means 'no risk of the kinds this tool classifies', never 'this proposal is safe'.",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool contract address"),
-      proposalId: external_exports.number().int().min(1).optional().describe("On-chain proposal id (1-indexed) to assess"),
+      proposalId: external_exports.union([external_exports.string(), external_exports.number()]).optional().describe("On-chain proposal id (1-indexed) to assess; a digits-only string is accepted too"),
       actions: external_exports.array(ActionSchema2).optional().describe("Hypothetical actionsOnFor to assess instead of an on-chain proposal"),
       chainId: external_exports.number().int().positive().optional().describe("Target chain id; defaults to the MCP default chain")
     },
@@ -135038,7 +135281,11 @@ function registerRiskTools(server, ctx) {
       controllingHoldersVotedFor: external_exports.boolean().nullable(),
       recommendation: external_exports.string()
     }
-  }, async ({ govPool, proposalId, actions, chainId }) => {
+  }, async ({ govPool, proposalId: proposalIdIn, actions, chainId }) => {
+    const proposalId = proposalIdIn === void 0 ? void 0 : Number(proposalIdIn);
+    if (proposalId !== void 0 && (!Number.isInteger(proposalId) || proposalId < 1)) {
+      return errorResult21(`Invalid proposalId: ${String(proposalIdIn)} \u2014 a positive integer (1-indexed), as a number or digits-only string.`);
+    }
     if (!isAddress(govPool))
       return errorResult21(`Invalid govPool: ${govPool}`);
     if (proposalId === void 0 && (!actions || actions.length === 0)) {
@@ -135153,7 +135400,8 @@ ${pr.remediation}`);
       ].filter((a3) => typeof a3 === "string" && isAddress(a3) && a3 !== "0x0000000000000000000000000000000000000000");
       const governanceHits = classifyGovernanceActions(assessedActions, { protocolAddresses });
       const govV = governanceVerdict(governanceHits);
-      const verdict = worstRisk(treasuryTouching ? worstRisk(quorumVerdict, qConc.verdict) : "SAFE", govV);
+      const treasuryVerdict = treasuryTouching ? worstRisk(quorumVerdict, qConc.verdict) : "SAFE";
+      const verdict = worstRisk(treasuryVerdict, govV);
       const structured = {
         govPool,
         proposalId: proposalId ?? null,
@@ -135181,7 +135429,7 @@ ${pr.remediation}`);
           kind: h3.kind,
           protocolTargets: h3.protocolTargets
         })),
-        recommendation: recommend(verdict, floorPct, treasuryTouching, governanceHits)
+        recommendation: recommend(verdict, floorPct, treasuryTouching, governanceHits, treasuryVerdict)
       };
       const lines = [
         `Risk assessment for ${govPool}${proposalId !== void 0 ? ` proposal #${proposalId}` : " (hypothetical actions)"}`,
@@ -137204,15 +137452,15 @@ function registerAll(server, config2) {
   registerProposalBuildInternalTools(server, ctx);
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
-  registerSubgraphTools(server, ctx);
   registerReportTools(server, ctx);
   registerMerkleTools(server, ctx);
-  registerInboxTools(server, ctx);
   registerPredictTools(server, ctx);
   registerRiskTools(server, ctx);
   const signer = new SignerManager(config2);
   const wc = new WalletConnectManager(config2);
   const state = new StateStore(config2.statePath);
+  registerInboxTools(server, ctx, state);
+  registerSubgraphTools(server, ctx, state);
   registerTxTools(server, config2, signer, wc);
   registerAgentTools(server, config2, signer);
   registerGetConfigTool(server, config2, signer);
@@ -137246,7 +137494,7 @@ var SHIPPED_SKILLS = [
 ];
 function serverInstructions() {
   const defaultCount = defaultProfileToolNames().size;
-  return "Tools for DeXe Protocol governance DAOs, plus dexe_gov_* (needs DEXE_TOOLSETS=core,governor) \u2014 a generic surface for external OpenZeppelin/Compound Governor DAOs. For any MULTI-STEP request (create a DAO, launch a token economy, OTC sale, staking, distribution, pass a proposal) call dexe_guide FIRST \u2014 it returns the exact plan, the questions to ask the user with risk notes, and the known pitfalls. Call dexe_context first WHEN you need orientation (signer, active chain, env readiness, DAOs/proposals from prior sessions) \u2014 skip it when the user already gave you the target DAO and chain. Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (ANY of the 33 catalog proposal types \u2014 pass proposalType + params), dexe_proposal_vote_and_execute (auto-deposits when power is short). Amounts accept raw wei (digits-only) or human units with a decimal point ('12.5'); durations are seconds. For images (DAO avatars): pass a LOCAL FILE PATH (avatarPath / newAvatarPath / filePath) and the server reads, validates, and pins it \u2014 never read image files or pass base64 through the conversation. The composites handle approve\u2192deposit\u2192create sequencing, correct IPFS metadata, and the known deploy/proposal reverts; on partial failure they return the landed-steps ledger \u2014 fix the cause and re-run the same call. " + RESUME_SUMMARY + ` When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). Contract introspection \u2014 dexe_compile, dexe_get_abi, dexe_get_source, dexe_list_contracts, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): run the compile step once per session before the reads. The tool surface is gated by DEXE_TOOLSETS (default '${DEFAULT_TOOLSETS.join(",")}' \u2014 ${defaultCount} tools: the composites plus the zero-config reporting reads). The ~30 single-purpose dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) builders are NOT in it, and you do not need them: dexe_proposal_create covers every on-chain catalog type. dexe_context reports which sets are off and what they unlock \u2014 check it BEFORE telling a user to edit DEXE_TOOLSETS. Full intent\u2192call recipes + error\u2192remedy table: docs/PLAYBOOK.md (shipped in the package). MCP resources: dexe://playbook (recipes + error remedies), dexe://graph-schema (subgraph entity reference for dexe_graph_query), dexe://tools (full tool catalog). Recipe skills ship with the package (${SHIPPED_SKILLS.join(", ")}); dexe-agent-team also needs DEXE_TOOLSETS=core,agents plus hot keys. Installed automatically with the Claude Code plugin (\`/plugin install dexe@dexe-mcp\`), or copy them standalone with \`npx dexe-mcp skills\`.`;
+  return "Tools for DeXe Protocol governance DAOs, plus dexe_gov_* (needs DEXE_TOOLSETS=core,governor) \u2014 a generic surface for external OpenZeppelin/Compound Governor DAOs. For any MULTI-STEP request (create a DAO, launch a token economy, OTC sale, staking, distribution, pass a proposal) call dexe_guide FIRST \u2014 it returns the exact plan, the questions to ask the user with risk notes, and the known pitfalls. Call dexe_context first WHEN you need orientation (signer, active chain, env readiness, DAOs/proposals from prior sessions) \u2014 skip it when the user already gave you the target DAO and chain. Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (ANY of the 33 catalog proposal types \u2014 pass proposalType + params), dexe_proposal_vote_and_execute (auto-deposits when power is short). Amounts on the composites and proposal builders accept raw wei (digits-only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. For images (DAO avatars): pass a LOCAL FILE PATH (avatarPath / newAvatarPath / filePath) and the server reads, validates, and pins it \u2014 never read image files or pass base64 through the conversation. The composites handle approve\u2192deposit\u2192create sequencing, correct IPFS metadata, and the known deploy/proposal reverts; on partial failure they return the landed-steps ledger \u2014 fix the cause and re-run the same call. " + RESUME_SUMMARY + ` When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). Contract introspection \u2014 dexe_compile, dexe_get_abi, dexe_get_source, dexe_list_contracts, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): run the compile step once per session before the reads. The tool surface is gated by DEXE_TOOLSETS (default '${DEFAULT_TOOLSETS.join(",")}' \u2014 ${defaultCount} tools: the composites plus the zero-config reporting reads). The ~30 single-purpose dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) builders are NOT in it, and you do not need them: dexe_proposal_create covers every on-chain catalog type. dexe_context reports which sets are off and what they unlock \u2014 check it BEFORE telling a user to edit DEXE_TOOLSETS. Full intent\u2192call recipes + error\u2192remedy table: docs/PLAYBOOK.md (shipped in the package). MCP resources: dexe://playbook (recipes + error remedies), dexe://graph-schema (subgraph entity reference for dexe_graph_query), dexe://tools (full tool catalog). Recipe skills ship with the package (${SHIPPED_SKILLS.join(", ")}); dexe-agent-team also needs DEXE_TOOLSETS=core,agents plus hot keys. Installed automatically with the Claude Code plugin (\`/plugin install dexe@dexe-mcp\`), or copy them standalone with \`npx dexe-mcp skills\`.`;
 }
 
 // dist/resources.js

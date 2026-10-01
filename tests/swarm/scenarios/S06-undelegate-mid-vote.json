@@ -1,12 +1,12 @@
 {
   "id": "S06-undelegate-mid-vote",
-  "title": "Undelegate during a live vote: A delegates to B, B votes, A pulls back; weight recomputes",
+  "title": "Undelegate during a live vote: A delegates to B, B votes, A cannot pull back until the vote ends (F23)",
   "priority": 1,
   "dao": "{{firstAllowlistedDao}}",
   "dependsOn": ["S00-reset"],
-  "requiresChain": [56, 97],
+  "requiresChain": [97],
   "requiresBrowser": false,
-  "notes": "Validates that GovUserKeeper recomputes B's voting weight when A undelegates while a proposal is still in Voting. A delegates to B before the proposal exists; B votes (locking weight); A undelegates after the vote is cast.",
+  "notes": "Pins upstream F23 (docs/UPSTREAM-ISSUES.md): once the delegatee has a vote on record, GovPool.undelegate reverts 'SphereX error: disallowed tx pattern' in every shape, and while the proposal is still in Voting a standalone unlock(delegatee) reverts too. A delegates to B before the proposal exists; B votes; A's undelegate is EXPECTED to revert and B keeps the delegated weight. Chain 97 only — mainnet has not been measured. The next S00-reset (after the vote ends) unlocks B and returns the delegation.",
   "agents": [
     { "alias": "A", "role": "Delegator",        "wallet": "AGENT_PK_2" },
     { "alias": "B", "role": "Voter",            "wallet": "AGENT_PK_8" },
@@ -122,8 +122,9 @@
         "nftIds": []
       },
       "broadcast": true,
+      "expectError": "disallowed tx pattern",
       "captureAs": "undelAB",
-      "comment": "Undelegate while proposal is still in Voting state"
+      "comment": "Undelegate while the proposal is still in Voting — F23: the firewall rejects it because B now has a vote on record"
     },
     {
       "step": 10,
@@ -132,13 +133,13 @@
       "args": { "govPool": "{{dao}}", "user": "{{agent:B:address}}" },
       "broadcast": false,
       "captureAs": "powerBPost",
-      "comment": "After undelegate: B's Micropool balance should drop back to 0; Personal still shows the locked 5k"
+      "comment": "After the refused undelegate: B's Micropool balance still holds A's 8k; Personal still shows the locked 5k"
     }
   ],
   "successCriteria": [
     {
-      "id": "B-micropool-drops-to-zero",
-      "check": "powerBPost.power.MicropoolVote.tokenBalance == '0'"
+      "id": "B-micropool-keeps-the-delegation",
+      "check": "powerBPost.power.MicropoolVote.tokenBalance == '8000000000000000000000'"
     },
     {
       "id": "B-personal-still-locked",

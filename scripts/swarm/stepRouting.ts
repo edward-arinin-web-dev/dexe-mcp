@@ -44,6 +44,8 @@ export interface RoutableStep {
   tool?: string;
   broadcast?: boolean;
   serverSign?: boolean;
+  /** The step's tool arguments; an explicit `signerKey` here wins over the derived slot. */
+  args?: Record<string, unknown>;
 }
 
 export type StepRoute = { mode: "local" } | { mode: "server"; signerKey: string };
@@ -83,7 +85,11 @@ export function routeStep(
         `Use a tool the MCP handles, or remove the inline dispatcher.`,
     );
   }
-  const signerKey = slotForEnvKey(agentEnvKey);
+  // An explicit args.signerKey is the scenario's intent — S67 step 4 names a
+  // slot that does not exist to prove the server refuses it — and must reach
+  // the MCP as written. The derived slot is the default, not an override.
+  const explicit = typeof step.args?.signerKey === "string" && step.args.signerKey ? step.args.signerKey : null;
+  const signerKey = explicit ?? slotForEnvKey(agentEnvKey);
   if (!signerKey) {
     throw new Error(
       `${where}: agent wallet ${agentEnvKey} maps to no keyring slot. serverSign needs AGENT_PK_<n> ` +

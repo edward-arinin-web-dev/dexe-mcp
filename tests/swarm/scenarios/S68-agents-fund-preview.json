@@ -40,7 +40,7 @@
         "chainId": 97,
         "source": "funder",
         "agents": ["agent8"],
-        "amount": "100",
+        "amount": "100.0",
         "dryRun": true
       },
       "broadcast": false,

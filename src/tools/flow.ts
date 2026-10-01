@@ -1569,7 +1569,10 @@ export async function runProposalCreate(
             "https://dweb.link",
           ].filter(Boolean))) as string[];
           try {
-            const fetched = await fetchIpfs(currentDescriptionURL, { gateways, perRequestTimeoutMs: 6000 });
+            // No per-hop override: a hard-coded 6 s here sat under the shared
+            // default and timed out on a gateway that answers in 5–6 s, so every
+            // partial modify_dao_profile was refused (S07/S64, 2026-09-24).
+            const fetched = await fetchIpfs(currentDescriptionURL, { gateways });
             if (fetched.json && typeof fetched.json === "object") {
               currentMeta = fetched.json as Record<string, unknown>;
             } else {
@@ -2767,7 +2770,11 @@ export function registerFlowTools(
         .positive()
         .optional()
         .describe("Target chain (56 mainnet, 97 testnet); needs an RPC for it. Default: the MCP's default chain."),
-      proposalId: z.number().int().min(1).describe(PROPOSAL_ID_DESC),
+      // Number OR digits-only string: dexe_proposal_create's own reply and
+      // every dexe_proposal_state / dexe_vote_build_* call render the id as a
+      // string, and an agent pasting `"proposalId":"1"` from one of those was
+      // refused here with "Expected number, received string".
+      proposalId: z.union([z.string(), z.number()]).describe(PROPOSAL_ID_DESC),
       isVoteFor: z.boolean().default(true).describe("Vote for (true) or against (false)"),
       voteAmount: z
         .string()
@@ -2810,7 +2817,11 @@ export function registerFlowTools(
       if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
       const provider = pr.ok;
       const govPool = input.govPool;
-      const proposalId = input.proposalId;
+      // Schema admits a digits-only string (see the input description); everything below wants the number.
+      const proposalId = Number(input.proposalId);
+      if (!Number.isInteger(proposalId) || proposalId < 1) {
+        return err(`Invalid proposalId: ${String(input.proposalId)} — a positive integer (1-indexed), as a number or digits-only string.`);
+      }
 
       // Step 1: read proposal state
       const stateCalls: Call[] = [

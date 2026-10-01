@@ -4,9 +4,9 @@
   "priority": 2,
   "dao": "{{firstAllowlistedDao}}",
   "dependsOn": [],
-  "requiresChain": [56, 97],
+  "requiresChain": [56],
   "requiresBrowser": false,
-  "notes": "HISTORY-AGNOSTIC. Used to pin proposal ids 1 (daos[0]) and 4 / 23 (daos[1]) from a 2026-04 smoke test — ids that do not exist on a freshly repointed fixture DAO. It now discovers an id through dexe_proposal_list and asserts the shape invariant (the response echoes the proposal it was asked about and returns a well-formed voters array). Pure read; no broadcasts so no funding requirements. Needs the POOLS subgraph for the active chain — a chain with no endpoint errors by design rather than answering from another chain's index.",
+  "notes": "Chain 56 only: the subgraph-backed reads in this scenario (experts / members / validator list / voters) have no chain-97 index and 0.30.2 refuses to answer 97 from the mainnet one. HISTORY-AGNOSTIC. Used to pin proposal ids 1 (daos[0]) and 4 / 23 (daos[1]) from a 2026-04 smoke test — ids that do not exist on a freshly repointed fixture DAO. It now discovers an id through dexe_proposal_list and asserts the shape invariant (the response echoes the proposal it was asked about and returns a well-formed voters array). Pure read; no broadcasts so no funding requirements. Needs the POOLS subgraph for the active chain — a chain with no endpoint errors by design rather than answering from another chain's index.",
   "agents": [
     { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }
   ],

@@ -1432,6 +1432,29 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
         ? null
         : (poolsSource.reason ?? `No pools subgraph for chain ${resolvedChainId}.`);
 
+      // An index that is NOT CONFIGURED for this chain has one static reason
+      // (which chains are indexed, which env var adds one), already emitted in
+      // `sources.subgraphs.<name>.reason`. Every section that needed that index
+      // used to repeat it verbatim — fourteen copies, ~7 KB, on every report
+      // for an unindexed chain. Sections now point at the one copy. A
+      // configured index whose QUERY failed keeps its own message inline: that
+      // one is dynamic (HTTP status, GraphQL error) and worth reading in place.
+      const indexRef = (name: "pools" | "validators" | "interactions", configured: boolean, full: string | null) =>
+        full === null ? null : configured ? full : `${name} subgraph not configured for chain ${resolvedChainId} — see sources.subgraphs.${name}.reason.`;
+      const poolsRef = indexRef("pools", Boolean(pools.url), poolsDown);
+      const validatorsRef = indexRef(
+        "validators",
+        Boolean(validatorsSg.url),
+        validatorsSource.available ? null : (validatorsSource.reason ?? "no validators subgraph"),
+      );
+      const interactionsRef = indexRef(
+        "interactions",
+        Boolean(interactions.url),
+        interactionsSource.available
+          ? null
+          : (interactionsSource.reason ?? `Activity needs the interactions subgraph on chain ${resolvedChainId}.`),
+      );
+
       const record = (name: ReportSection, s: Section) => {
         if (!want(name)) return;
         sectionsOut[name] = s;
@@ -1451,7 +1474,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           record(
             "identity",
             missing(
-              `Neither the RPC nor the pools subgraph could describe ${dao}. ${onchainDown ?? ""} ${poolsDown ?? ""}`.trim(),
+              `Neither the RPC nor the pools subgraph could describe ${dao}. ${onchainDown ?? ""} ${poolsRef ?? ""}`.trim(),
               `${toolRef("dexe_dao_registry_lookup", "is this address a DeXe DAO on this chain?")} / ` +
                 toolRef("dexe_dao_info", "helpers + validator count, one RPC round-trip"),
             ),
@@ -1473,7 +1496,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
               creationTimeUTC: daoPool ? unixToUtc(str(daoPool.creationTime) ?? 0) : null,
               creationBlock: daoPool ? str(daoPool.creationBlock) : null,
               ...(helpers ? {} : { onchainUnavailable: onchainDown }),
-              ...(daoPool ? {} : { subgraphUnavailable: poolsDown ?? "DAO not indexed" }),
+              ...(daoPool ? {} : { subgraphUnavailable: poolsRef ?? "DAO not indexed" }),
             }),
           );
         }
@@ -1534,7 +1557,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
                 },
               })
             : missing(
-                poolsDown ?? "Members need the pools subgraph.",
+                poolsRef ?? "Members need the pools subgraph.",
                 `${toolRef("dexe_read_dao_members", "same index, paginated")} / ` +
                   `${toolRef("dexe_graph_query", "subgraph: 'pools', voterInPools")} / ` +
                   toolRef("dexe_read_multicall", "on-chain balances, no indexer"),
@@ -1573,7 +1596,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
                 })),
               })
             : missing(
-                poolsDown ?? "Delegation pairs need the pools subgraph.",
+                poolsRef ?? "Delegation pairs need the pools subgraph.",
                 `${toolRef("dexe_read_delegation_map", "needs the addresses up front")} / ` +
                   toolRef("dexe_graph_query", "subgraph: 'pools', voterInPoolPairs — no address list needed"),
               ),
@@ -1595,7 +1618,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
                 })),
               })
             : missing(
-                poolsDown ?? "Experts need the pools subgraph.",
+                poolsRef ?? "Experts need the pools subgraph.",
                 `${toolRef("dexe_graph_query", "subgraph: 'pools', voterInPools where expertNft_: {id_not: null}")} / ` +
                   `${toolRef("dexe_read_dao_experts", "the roster, one call")} / ` +
                   toolRef("dexe_read_expert_status", "one address, on-chain — works with no indexer"),
@@ -1625,11 +1648,11 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
                     })) ?? null,
                   ...(validatorRows
                     ? {}
-                    : { rosterUnavailable: validatorsSource.reason ?? "no validators subgraph" }),
+                    : { rosterUnavailable: validatorsRef ?? "no validators subgraph" }),
                 },
               )
             : missing(
-                onchainDown ?? validatorsSource.reason ?? "Validator data unavailable.",
+                onchainDown ?? validatorsRef ?? "Validator data unavailable.",
                 `${toolRef("dexe_dao_info", "on-chain validator count + the validators contract")} / ` +
                   `${toolRef("dexe_read_validators", "chamber state on-chain")} / ` +
                   toolRef("dexe_read_validator_list", "the roster, from the validators subgraph"),
@@ -1719,7 +1742,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           record(
             "turnout",
             missing(
-              `${poolsDown ?? "Turnout needs the pools subgraph."} Per-proposal vote TOTALS are still in the ` +
+              `${poolsRef ?? "Turnout needs the pools subgraph."} Per-proposal vote TOTALS are still in the ` +
                 `\`proposals\` section (on-chain votesFor/votesAgainst); only the per-proposal VOTER COUNTS need the indexer.`,
               `${toolRef("dexe_graph_query", "subgraph: 'pools', proposals { proposalId votersVoted } — every proposal in one query")} / ` +
                 toolRef("dexe_proposal_voters", "one call per proposal"),
@@ -1780,8 +1803,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           record(
             "activity",
             missing(
-              interactionsSource.reason ??
-                `Activity needs the interactions subgraph on chain ${resolvedChainId}.`,
+              interactionsRef ?? `Activity needs the interactions subgraph on chain ${resolvedChainId}.`,
               `${toolRef("dexe_graph_query", "subgraph: 'interactions', same feed, hand-written")} / ` +
                 toolRef("dexe_read_user_activity", "per user"),
             ),

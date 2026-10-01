@@ -148,6 +148,34 @@ The same firewall enforces **opposite rules** across GovPool flows. There is no 
 
 ---
 
+## F23 — `GovPool.undelegate` blocked once the delegatee has a vote on record (P2; delegation stuck for the length of the vote)
+
+**Symptom.** A delegator cannot pull a delegation back from a delegatee who has voted: `undelegate(delegatee, amount, nftIds)` reverts `"SphereX error: disallowed tx pattern"`. The same call succeeds against a delegatee that has never voted.
+
+**What decides it.** `GovPool.getUserActiveProposalsCount(delegatee)` — the length of the delegatee's `votedInProposals` list. `undelegate` runs `_unlock(delegatee)` and then `_revoteDelegated(delegatee, MicropoolVote)` (`GovPool.sol:320–341`); with an empty list both are no-ops, with one entry the call trace differs and the firewall rejects it. Entries stay on the list after a proposal ends, until something unlocks them.
+
+**Call shapes tested (Kestrel `0xb0Ca396b…2145`, chain 97, 2026-10-01):**
+
+| Delegatee's list | Shape | Result |
+| --- | --- | --- |
+| empty | raw `undelegate` | ✓ allowed |
+| 1 entry, proposal ended (Defeated) | raw `undelegate` | ✗ blocked |
+| 1 entry, proposal ended | `multicall([undelegate])` | ✗ blocked |
+| 1 entry, proposal ended | `multicall([unlock(delegatee), undelegate])` | ✗ blocked |
+| 1 entry, proposal ended | `unlock(delegatee)` as its own tx, **then** raw `undelegate` | ✓ both allowed — txs `0x28778d18…cfd5`, `0xc817cf92…a98e` |
+| 1 entry, proposal still in Voting | raw `undelegate` | ✗ blocked |
+| 1 entry, proposal still in Voting | `unlock(delegatee)` as its own tx | ✗ blocked |
+
+**Frontend.** The DeXe UI sends the raw shape (`src/hooks/dao/useGovPoolDelegate.ts:61`, `govPool.undelegate(delegatee, tokens, nfts)`) and never sends a standalone `unlock`, so it hits the same revert with no way out from the UI.
+
+**Impact.** P2. Not funds-loss — the tokens come back once the vote ends and someone calls `unlock(delegatee)` — but a delegator cannot withdraw support from a delegate **during** a vote, which is exactly when it matters, and after the vote the recovery path is a call the official UI never makes. Measured on chain 97 only; mainnet (56) has not been tested either way.
+
+**Current tooling mitigation.** `dexe_vote_build_undelegate` reads the count on chain 97 and, when it is non-zero, says the payload will revert and hands back the `unlock(delegatee)` call to send first (PLAYBOOK `undelegate-after-vote`).
+
+**Suggested remediation.** Allowlist the `undelegate` trace that includes the unlock/re-vote of the delegatee's proposals, so the frontend's own shape works whether or not the delegatee has voted.
+
+---
+
 ## C-2 — governance-validation issue (details withheld)
 
 One additional protocol-side governance-validation weakness (not a SphereX
@@ -169,8 +197,9 @@ withheld from this public document.
 | **#35** | `GovPool.multicall([deposit, createProposalAndVote])` | bundled multicall | separate raw txs | send deposit + create separately | P2 | Yes (unbundle) |
 | **#36** | `GovPool.execute → GovSettings.addSettings` | `addSettings` — **testnet 97 only** (mainnet 56 fixed as of 2026-07-22) | `editSettings` (with settingsIds); any shape on 56 | pass `settingsIds` on 97 | P2 | Yes (on 97) |
 | **F4** | `GovPool.vote()` / `delegate()` | **raw** call | `multicall([call])` single-element | wrap in single-element multicall | P2 | No (frontend always wraps) |
+| **F23** | `GovPool.undelegate` once the delegatee has a vote on record (chain 97) | raw, `multicall([undelegate])`, `multicall([unlock, undelegate])` | raw, after a standalone `unlock(delegatee)` | wait for the vote to end → `unlock(delegatee)` → `undelegate`; **none during the vote** | P2 | Yes |
 | **C-2** | (withheld — governance validation, not SphereX) | — | — | MCP denylist (harm-reduction) | details on request | N/A |
 
 **Cross-cutting note.** F15/F12/F14 have **no** client-side workaround and require a protocol change. #35/#36/F4 are workable today but expose an inconsistent, undocumented allowlist policy that makes every new GovPool write path a per-selector on-chain guessing game. We recommend (a) allowlisting the funds-loss/no-workaround selectors as the priority, and (b) publishing or normalizing the raw-vs-multicall policy.
 
-**References:** dexe-mcp `docs/PLAYBOOK.md` (KB rows `otc-vesting-broken`, `spherex-create-pattern`, `spherex-vote-multicall`, `validator-cancel-blocked`, `settings-ids-semantics`); campaign `D:\dev\dao-e2e-kit\campaigns\2026-07-21-full-verify\FINDINGS.md` (F4/F12/F14/F15).
+**References:** dexe-mcp `docs/PLAYBOOK.md` (KB rows `otc-vesting-broken`, `spherex-create-pattern`, `spherex-vote-multicall`, `undelegate-after-vote`, `validator-cancel-blocked`, `settings-ids-semantics`); campaign `D:\dev\dao-e2e-kit\campaigns\2026-07-21-full-verify\FINDINGS.md` (F4/F12/F14/F15).

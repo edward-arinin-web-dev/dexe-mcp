@@ -4,9 +4,9 @@
   "priority": 2,
   "dao": "{{firstAllowlistedDao}}",
   "dependsOn": [],
-  "requiresChain": [56, 97],
+  "requiresChain": [56],
   "requiresBrowser": false,
-  "notes": "PK_1 has been the proposer on Sentinel and a voter on Glacier across the suite. read_user_activity should return distinct activity sets per DAO. Validates cross-DAO read isolation.",
+  "notes": "Chain 56 only: dexe_read_user_activity needs the interactions subgraph, which chain 97 does not have (0.30.2 refuses to answer 97 from the mainnet index). PK_1 has been the proposer on Sentinel and a voter on Glacier across the suite. read_user_activity should return distinct activity sets per DAO. Validates cross-DAO read isolation.",
   "agents": [
     { "alias": "P", "role": "Proposer", "wallet": "AGENT_PK_1" }
   ],

@@ -4,9 +4,9 @@
   "priority": 2,
   "dao": "{{secondAllowlistedDao}}",
   "dependsOn": [],
-  "requiresChain": [56, 97],
+  "requiresChain": [56],
   "requiresBrowser": false,
-  "notes": "Pure read sweep of Sentinel's validator set. Confirms PK_6 + PK_7 are registered with 1k SVT each and the Validators contract returns the expected count.",
+  "notes": "Chain 56 only: the subgraph-backed reads in this scenario (experts / members / validator list / voters) have no chain-97 index and 0.30.2 refuses to answer 97 from the mainnet one. Pure read sweep of Sentinel's validator set. Confirms PK_6 + PK_7 are registered with 1k SVT each and the Validators contract returns the expected count.",
   "agents": [
     { "alias": "A", "role": "Voter1/Delegator", "wallet": "AGENT_PK_2" }
   ],

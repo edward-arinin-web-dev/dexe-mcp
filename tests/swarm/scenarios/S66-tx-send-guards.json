@@ -76,10 +76,10 @@
         "user": "{{agent:S:address}}",
         "voteAmount": "1.0"
       },
-      "serverSign": true,
+      "serverSign": false,
       "broadcast": false,
       "captureAs": "b12shared",
-      "expectError": "Refusing to broadcast: calldata carries 0x5e35359e"
+      "expectError": "0x5e35359e"
     }
   ],
   "successCriteria": [

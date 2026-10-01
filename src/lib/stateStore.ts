@@ -50,9 +50,34 @@ export interface KnownDao {
   chainId: number;
   userKeeper?: string;
   token?: string;
+  /**
+   * The DAO's TokenSaleProposal / DistributionProposal helpers, as predicted at
+   * deploy. Neither is readable back from the GovPool, so a later OTC call has
+   * nowhere else to get them — recording them here is what lets
+   * `dexe_otc_dao_open_sale` / `dexe_otc_list_sales_for_dao` default
+   * `tokenSaleProposal` for a DAO this install created.
+   */
+  tokenSaleProposal?: string;
+  distributionProposal?: string;
   txHash?: string;
   /** ISO-8601 timestamp of when it was recorded. */
   deployedAt: string;
+}
+
+/** The recorded DAO for (chainId, govPool), or null. Never throws. */
+export function findKnownDao(
+  state: { getState(): PersistedState } | undefined,
+  chainId: number,
+  govPool: string,
+): KnownDao | null {
+  try {
+    const want = govPool.toLowerCase();
+    return (
+      state?.getState().knownDaos.find((d) => d.chainId === chainId && d.govPool.toLowerCase() === want) ?? null
+    );
+  } catch {
+    return null;
+  }
 }
 
 export interface RecentProposal {

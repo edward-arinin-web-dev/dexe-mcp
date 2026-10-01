@@ -50,7 +50,7 @@
       },
       "broadcast": false,
       "captureAs": "unreachable",
-      "expectError": "governance-dead"
+      "expectError": "un-governable"
     }
   ],
   "successCriteria": [
