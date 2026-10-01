@@ -1,7 +1,7 @@
 name: MCP Registry
 
 # Publishes server.json to the official MCP Registry
-# (registry.modelcontextprotocol.io) after a release has reached npm.
+# (registry.modelcontextprotocol.io) once a release has reached npm.
 #
 # A SEPARATE workflow file from release.yml, on purpose. npm's trusted
 # publisher is bound to the workflow FILENAME: any job in release.yml that holds
@@ -10,32 +10,28 @@ name: MCP Registry
 # never happen inside a workflow npm trusts. Here the OIDC token is only good
 # for the registry's own `github-oidc` login.
 #
-# The registry stores metadata only. It verifies the manifest against the
-# PUBLISHED npm tarball — `mcpName` in package.json must equal `name` in
-# server.json — so this can only succeed for a version that is already live on
-# npm and that shipped `mcpName` (0.35.0 onwards).
+# Triggered by the same tag push as Release rather than by `workflow_run`: a
+# `workflow_run` job that checks out the triggering commit is the
+# untrusted-checkout pattern, and a tag push needs no ref plumbing at all. The
+# two workflows therefore start together, and this one WAITS for npm — the
+# registry stores metadata only and verifies the manifest against the PUBLISHED
+# tarball (`mcpName` in package.json must equal `name` in server.json). If
+# Release fails, nothing reaches npm and this run times out red, which is the
+# right answer.
+#
+# To retry by hand: `gh workflow run mcp-registry.yml --ref vX.Y.Z`.
 
 on:
-  workflow_run:
-    workflows: ['Release']
-    types: [completed]
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Release tag to publish to the registry (e.g. v0.35.0)'
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 jobs:
   publish:
-    # After a Release run: only when it was a tag push that went green.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,14 +44,12 @@ jobs:
       MCP_PUBLISHER_VERSION: v1.8.1
       MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
     steps:
-      - name: Checkout the released commit
+      - name: Checkout
         # SHA-pinned: tags are mutable. Resolve an update with
         #   gh api repos/actions/checkout/git/ref/tags/v6 -q .object.sha
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
 
-      - name: Check the manifest against package.json and npm
+      - name: Check the manifest against package.json
         run: |
           VERSION=$(jq -r .version package.json)
           MCP_NAME=$(jq -r '.mcpName // empty' package.json)
@@ -71,12 +65,25 @@ jobs:
             echo "::error::server.json does not say ${VERSION} — run npm run bundle:plugin in the release commit"
             exit 1
           fi
-          PUBLISHED=$(npm view "dexe-mcp@${VERSION}" version 2>/dev/null || true)
-          if [ "$PUBLISHED" != "$VERSION" ]; then
-            echo "::error::dexe-mcp@${VERSION} is not on npm; the registry only lists published packages"
-            exit 1
-          fi
-          echo "server.json ${MCP_NAME}@${VERSION} matches package.json and npm"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "server.json ${MCP_NAME}@${VERSION} matches package.json"
+
+      # Release runs its gates (~4 min) and npm then takes a few more to show
+      # the version; 30 minutes covers both with room to spare.
+      - name: Wait for the version on npm
+        run: |
+          ATTEMPTS=60
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            PUBLISHED=$(npm view "dexe-mcp@${VERSION}" version 2>/dev/null || true)
+            if [ "$PUBLISHED" = "$VERSION" ]; then
+              echo "dexe-mcp@${VERSION} is live on npm"
+              exit 0
+            fi
+            echo "attempt ${attempt}/${ATTEMPTS}: dexe-mcp@${VERSION} not on npm yet; waiting 30s"
+            sleep 30
+          done
+          echo "::error::dexe-mcp@${VERSION} never appeared on npm — did the Release workflow publish? The registry only lists published packages."
+          exit 1
 
       - name: Install mcp-publisher (pinned, digest-checked)
         run: |
