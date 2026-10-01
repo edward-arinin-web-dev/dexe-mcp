@@ -371,7 +371,8 @@ export const GOTCHAS: readonly Gotcha[] = [
       "on record (getUserActiveProposalsCount(delegatee) > 0) — in every shape, wrapped or bundled. After the " +
       "proposals it voted on have left Voting: send GovPool.unlock(delegatee) as its OWN transaction (anyone may), " +
       "then undelegate. While one is still in Voting the unlock reverts too, so the delegation is stuck until the " +
-      "vote ends. dexe_vote_build_undelegate reads the count and hands you the unlock call. Mainnet 56 is unmeasured.",
+      "vote ends. dexe_vote_build_undelegate reads the count and hands you the unlock call. Mainnet 56 is NOT " +
+      "affected (a mid-vote undelegate landed there on 2026-10-01).",
     applies: { flows: ["vote_execute"], tools: ["dexe_vote_build_undelegate", "dexe_vote_build_delegate"] },
   },
   {

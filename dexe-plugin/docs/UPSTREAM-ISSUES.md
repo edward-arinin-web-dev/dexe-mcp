@@ -148,7 +148,7 @@ The same firewall enforces **opposite rules** across GovPool flows. There is no 
 
 ---
 
-## F23 — `GovPool.undelegate` blocked once the delegatee has a vote on record (P2; delegation stuck for the length of the vote)
+## F23 — `GovPool.undelegate` blocked once the delegatee has a vote on record — **testnet 97 only** (P2 there; mainnet 56 is clean)
 
 **Symptom.** A delegator cannot pull a delegation back from a delegatee who has voted: `undelegate(delegatee, amount, nftIds)` reverts `"SphereX error: disallowed tx pattern"`. The same call succeeds against a delegatee that has never voted.
 
@@ -166,13 +166,24 @@ The same firewall enforces **opposite rules** across GovPool flows. There is no 
 | 1 entry, proposal still in Voting | raw `undelegate` | ✗ blocked |
 | 1 entry, proposal still in Voting | `unlock(delegatee)` as its own tx | ✗ blocked |
 
-**Frontend.** The DeXe UI sends the raw shape (`src/hooks/dao/useGovPoolDelegate.ts:61`, `govPool.undelegate(delegatee, tokens, nfts)`) and never sends a standalone `unlock`, so it hits the same revert with no way out from the UI.
+**Chain asymmetry (same day, mainnet 56, Silverpine `0xbb191801…626d`).** None of it reproduces on mainnet:
 
-**Impact.** P2. Not funds-loss — the tokens come back once the vote ends and someone calls `unlock(delegatee)` — but a delegator cannot withdraw support from a delegate **during** a vote, which is exactly when it matters, and after the vote the recovery path is a call the official UI never makes. Measured on chain 97 only; mainnet (56) has not been tested either way.
+| Delegatee's list | Shape | Result |
+| --- | --- | --- |
+| 1 entry, proposal ended | raw `undelegate` (simulated) | ✓ allowed |
+| 1 entry, proposal ended | `multicall([undelegate])` (simulated) | ✓ allowed |
+| 1 entry, proposal still in Voting | raw `undelegate` | ✓ allowed — tx `0x38dd8027…31aa`, status 1 |
+| 1 entry, proposal still in Voting | `unlock(delegatee)` (simulated) | ✓ allowed |
+
+This is the #36 pattern again: testnet (97) runs an older protocol deployment whose allowlist lacks a trace mainnet has. **Please mirror the mainnet allowlist to the testnet factory** — integrators validate on 97 first.
+
+**Frontend.** The DeXe UI sends the raw shape (`src/hooks/dao/useGovPoolDelegate.ts:61`, `govPool.undelegate(delegatee, tokens, nfts)`) and never sends a standalone `unlock`, so on chain 97 it hits the same revert with no way out from the UI.
+
+**Impact.** P2 on chain 97, none on mainnet. Not funds-loss — the tokens come back once the vote ends and someone calls `unlock(delegatee)` — but on testnet a delegator cannot withdraw support from a delegate **during** a vote, and after the vote the recovery path is a call the official UI never makes.
 
 **Current tooling mitigation.** `dexe_vote_build_undelegate` reads the count on chain 97 and, when it is non-zero, says the payload will revert and hands back the `unlock(delegatee)` call to send first (PLAYBOOK `undelegate-after-vote`).
 
-**Suggested remediation.** Allowlist the `undelegate` trace that includes the unlock/re-vote of the delegatee's proposals, so the frontend's own shape works whether or not the delegatee has voted.
+**Suggested remediation.** On the testnet deployment, allowlist the `undelegate` trace that includes the unlock/re-vote of the delegatee's proposals — as mainnet already does — so the frontend's own shape works whether or not the delegatee has voted.
 
 ---
 
@@ -197,7 +208,7 @@ withheld from this public document.
 | **#35** | `GovPool.multicall([deposit, createProposalAndVote])` | bundled multicall | separate raw txs | send deposit + create separately | P2 | Yes (unbundle) |
 | **#36** | `GovPool.execute → GovSettings.addSettings` | `addSettings` — **testnet 97 only** (mainnet 56 fixed as of 2026-07-22) | `editSettings` (with settingsIds); any shape on 56 | pass `settingsIds` on 97 | P2 | Yes (on 97) |
 | **F4** | `GovPool.vote()` / `delegate()` | **raw** call | `multicall([call])` single-element | wrap in single-element multicall | P2 | No (frontend always wraps) |
-| **F23** | `GovPool.undelegate` once the delegatee has a vote on record (chain 97) | raw, `multicall([undelegate])`, `multicall([unlock, undelegate])` | raw, after a standalone `unlock(delegatee)` | wait for the vote to end → `unlock(delegatee)` → `undelegate`; **none during the vote** | P2 | Yes |
+| **F23** | `GovPool.undelegate` once the delegatee has a vote on record — **testnet 97 only** (mainnet 56 clean, 2026-10-01) | raw, `multicall([undelegate])`, `multicall([unlock, undelegate])` | raw, after a standalone `unlock(delegatee)`; any shape on 56 | wait for the vote to end → `unlock(delegatee)` → `undelegate`; **none during the vote** | P2 (on 97) | Yes (on 97) |
 | **C-2** | (withheld — governance validation, not SphereX) | — | — | MCP denylist (harm-reduction) | details on request | N/A |
 
 **Cross-cutting note.** F15/F12/F14 have **no** client-side workaround and require a protocol change. #35/#36/F4 are workable today but expose an inconsistent, undocumented allowlist policy that makes every new GovPool write path a per-selector on-chain guessing game. We recommend (a) allowlisting the funds-loss/no-workaround selectors as the priority, and (b) publishing or normalizing the raw-vs-multicall policy.

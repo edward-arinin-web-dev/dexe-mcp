@@ -6,7 +6,7 @@
   "dependsOn": ["S00-reset"],
   "requiresChain": [97],
   "requiresBrowser": false,
-  "notes": "Pins upstream F23 (docs/UPSTREAM-ISSUES.md): once the delegatee has a vote on record, GovPool.undelegate reverts 'SphereX error: disallowed tx pattern' in every shape, and while the proposal is still in Voting a standalone unlock(delegatee) reverts too. A delegates to B before the proposal exists; B votes; A's undelegate is EXPECTED to revert and B keeps the delegated weight. Chain 97 only — mainnet has not been measured. The next S00-reset (after the vote ends) unlocks B and returns the delegation.",
+  "notes": "Pins upstream F23 (docs/UPSTREAM-ISSUES.md): once the delegatee has a vote on record, GovPool.undelegate reverts 'SphereX error: disallowed tx pattern' in every shape, and while the proposal is still in Voting a standalone unlock(delegatee) reverts too. A delegates to B before the proposal exists; B votes; A's undelegate is EXPECTED to revert and B keeps the delegated weight. Chain 97 only — on mainnet the same undelegate lands (measured 2026-10-01). The next S00-reset (after the vote ends) unlocks B and returns the delegation.",
   "agents": [
     { "alias": "A", "role": "Delegator",        "wallet": "AGENT_PK_2" },
     { "alias": "B", "role": "Voter",            "wallet": "AGENT_PK_8" },

@@ -367,7 +367,9 @@ export const VALIDATOR_VOTE_IRREVOCABLE_ADVISORY = upstream(
  * Chains where `GovPool.undelegate` is MEASURED to revert once the delegatee
  * has a vote on record. Same rule as `ADD_SETTINGS_BLOCKED_CHAINS`: the list
  * only grows from evidence (Kestrel `0xb0Ca…2145`, chain 97, 2026-10-01).
- * Mainnet 56 has not been measured either way.
+ * Mainnet 56 was measured the same day and is clean — a mid-vote undelegate
+ * landed on Silverpine `0xbb19…626d` — so, like #36, this is the older
+ * testnet deployment.
  */
 export const UNDELEGATE_AFTER_VOTE_CHAINS: readonly number[] = [97];
 
