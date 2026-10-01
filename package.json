@@ -75,7 +75,7 @@
     "execa": "^9.5.0",
     "jpeg-js": "^0.4.4",
     "multiformats": "^13.4.2",
-    "p-limit": "^6.2.0",
+    "p-limit": "^7.3.2",
     "qrcode": "^1.5.4",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
