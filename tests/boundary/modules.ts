@@ -172,6 +172,8 @@ const READ = [
 
 const WRITE = [
   "bootstrap.ts",
+  // `dexe-mcp key` — create / import / list / change-password / remove the encrypted keystore
+  "cli/key.ts",
   // WriteConfig + the single server's loadConfig; re-exports configRead.ts so
   // pre-split importers keep compiling (read code imports configRead.ts)
   "config.ts",
@@ -202,6 +204,16 @@ const WRITE = [
   "knowledge/write/index.ts",
   "knowledge/write/nextSteps.ts",
   "lib/agentLedger.ts",
+  // keystore-mode approvals: store, loopback server, page, review, browser opener,
+  // per-call scope, the ordered-only ApprovedSigner (2c Phase A)
+  "lib/approval/approvedSigner.ts",
+  "lib/approval/index.ts",
+  "lib/approval/openBrowser.ts",
+  "lib/approval/page.ts",
+  "lib/approval/review.ts",
+  "lib/approval/scope.ts",
+  "lib/approval/server.ts",
+  "lib/approval/store.ts",
   "lib/avatarImage.ts",
   "lib/avatarUpload.ts",
   "lib/blacklist.ts",
@@ -219,6 +231,8 @@ const WRITE = [
   // Pinata client + the pin-or-preview fork
   "lib/ipfsPin.ts",
   "lib/ipfsPreview.ts",
+  // keystore v3 at rest: native scrypt, select / write (0600) / decrypt + address check
+  "lib/keystore.ts",
   "lib/markdownToSlate.ts",
   // DEXE_PINATA_JWT guard and hint for upload sites
   "lib/pinata.ts",
@@ -232,6 +246,8 @@ const WRITE = [
   "lib/reportStoreFile.ts",
   "lib/resumeContract.ts",
   "lib/signer.ts",
+  // the ONE signer-mode resolver (walletconnect | keystore | readonly | unattended) + chain fence
+  "lib/signerMode.ts",
   // eth_call simulation core: pre-checks for writes (sim tools, broadcast guard)
   "lib/simulate.ts",
   // treasury-guard advisories + the build/deploy/execute gate

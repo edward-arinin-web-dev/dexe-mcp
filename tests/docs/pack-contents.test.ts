@@ -78,6 +78,7 @@ const PUBLIC_DOCS = [
   "SAFE.md",
   "SECURITY.md",
   "SETUP.md",
+  "SIGNING.md",
   "SIMULATOR.md",
   "SKILLS.md",
   "TOOLS.md",
@@ -135,6 +136,13 @@ describe("published-package contents", () => {
         true,
       );
       expect(existsSync(resolve(ROOT, p)), `${p} is quoted to users but missing on disk`).toBe(true);
+    }
+  });
+
+  it("the keystore-approval E2E harness (it plays the human with a password) never ships", () => {
+    for (const p of ["tests/e2e/approval/harness.ts", "scripts/e2e-approval-testnet.mjs"]) {
+      expect(existsSync(resolve(ROOT, p)), `${p} missing on disk`).toBe(true);
+      expect(shipped(p), `${p} would ship in the npm tarball`).toBe(false);
     }
   });
 
