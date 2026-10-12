@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
@@ -13,6 +13,7 @@ import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadRepo
 import { envKeys, FULL_ENV_SURFACE } from "./env/schema.js";
 import { debugHint, debugLog, formatDiagnostic } from "./runtime.js";
 import { safeErrorMessage } from "./lib/redact.js";
+import { isMainModule } from "./stdioRuntime.js";
 import { writeDoctorChecks } from "./diag/writeChecks.js";
 import { runServeHttp } from "./http/cli.js";
 
@@ -548,6 +549,9 @@ async function bootstrap(): Promise<void> {
 // the published `bin` — so any runtime that happens to set it would exit 0 with
 // no output at all, which is the exact silent-death failure mode this release
 // exists to remove.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+//
+// Compared through real paths (isMainModule): npm installs the bin as a symlink
+// on Linux/macOS, and a string compare against argv[1] never matched there.
+if (isMainModule(import.meta.url)) {
   await bootstrap();
 }

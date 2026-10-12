@@ -36,6 +36,8 @@ const READ = [
   "rpc.ts",
   // DEXE_DEBUG diagnostics; the npm/hardhat/git resolvers are runtimeDev.ts
   "runtime.ts",
+  // isMainModule: the entrypoint check every binary boots through
+  "stdioRuntime.ts",
   "cli/doctor.ts",
   "cli/skills.ts",
   // the read doctor checks + the ExtraChecks hook the write checks
