@@ -52,6 +52,11 @@ const READ = [
   "governor/tools/read.ts",
   // dexe_gov_simulate_vote_impact
   "governor/tools/simulate.ts",
+  // serve-http transport layer (options, Host/Origin/rate-limit, the HTTP app).
+  // Takes the MCP server as an injected factory; imports no tool code.
+  "http/options.ts",
+  "http/security.ts",
+  "http/server.ts",
   "knowledge/topics.ts",
   "knowledge/types.ts",
   "lib/abi/tokenSale.ts",
@@ -218,6 +223,11 @@ const ROOT = [
   "index.ts",
   // registerAll(): every register function of both editions
   "tools/index.ts",
+  // serve-http entry: wires the interim factory into the HTTP app
+  "http/cli.ts",
+  // interim remote factory: registerAll() forced to the read profile, filtered
+  // to READ_TOOLS. Replaced by the read edition's createReadServer() (A9).
+  "http/readServer.ts",
 ];
 
 /** The raw lists, so the boundary test can check nothing is listed twice. */

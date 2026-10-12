@@ -1,0 +1,23 @@
+# The image copies package*.json, tsconfig.json and src/ only; this keeps the
+# build context small and makes sure no local secrets reach the Docker daemon.
+.env
+.env.*
+!.env.example
+.git
+.github
+.claude
+.claude-plugin
+node_modules
+dist
+coverage
+tests
+internal
+research
+scripts
+assets
+dexe-plugin
+docs
+plans
+reports
+*.log
+*.tgz

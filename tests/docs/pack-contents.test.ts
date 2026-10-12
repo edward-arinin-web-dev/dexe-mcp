@@ -73,6 +73,7 @@ const PUBLIC_DOCS = [
   "PLAYBOOK.md",
   "PROFILE.md",
   "PROFILES.md",
+  "REMOTE.md",
   "REPORTING.md",
   "SAFE.md",
   "SECURITY.md",
