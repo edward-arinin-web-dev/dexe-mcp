@@ -55,7 +55,10 @@ describe("isMainModule", () => {
 });
 
 describe.skipIf(!symlinks)("the built binaries, launched through a symlink", () => {
-  it.each([["dexe-mcp", resolve(ROOT, "dist", "index.js")]])("%s --version answers", (name, target) => {
+  it.each([
+    ["dexe-mcp", resolve(ROOT, "dist", "index.js")],
+    ["dexe-mcp-read", resolve(ROOT, "dist", "read", "bin.js")],
+  ])("%s --version answers", (name, target) => {
     if (!existsSync(target)) return; // needs `npm run build`, like tests/cli/usage.test.ts
     const link = join(work, name);
     symlinkSync(target, link);
