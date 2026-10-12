@@ -76,6 +76,8 @@ const READ = [
   "tools/read.ts",
   "tools/report.ts",
   "tools/risk.ts",
+  // generic tools/list schema post-processing (oneOf → anyOf, closed objects)
+  "tools/schemaNormalize.ts",
   "tools/subgraph.ts",
   "tools/tokenSaleRead.ts",
   "tools/vote.ts",
@@ -178,19 +180,17 @@ const ROOT = [
   "tools/index.ts",
 ];
 
-function classes(): ReadonlyMap<string, ModuleClass> {
-  const m = new Map<string, ModuleClass>();
-  const add = (files: readonly string[], cls: ModuleClass) => {
-    for (const f of files) {
-      if (m.has(f)) throw new Error(`tests/boundary/modules.ts: ${f} is classified twice`);
-      m.set(f, cls);
-    }
-  };
-  add(READ, "read");
-  add(WRITE, "write");
-  add(MIXED, "mixed");
-  add(ROOT, "root");
-  return m;
-}
+/** The raw lists, so the boundary test can check nothing is listed twice. */
+export const MODULE_GROUPS: Readonly<Record<ModuleClass, readonly string[]>> = {
+  read: READ,
+  write: WRITE,
+  mixed: MIXED,
+  root: ROOT,
+};
 
-export const MODULE_CLASSES: ReadonlyMap<string, ModuleClass> = classes();
+/** File → class. A file listed twice keeps its last class; the test fails on it. */
+export const MODULE_CLASSES: ReadonlyMap<string, ModuleClass> = new Map(
+  (Object.entries(MODULE_GROUPS) as [ModuleClass, readonly string[]][]).flatMap(([cls, files]) =>
+    files.map((f) => [f, cls] as const),
+  ),
+);
