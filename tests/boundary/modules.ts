@@ -28,6 +28,8 @@ const READ = [
   // bundled protocol ABI snapshot the decode tools fall back to (no compile step)
   "abi/protocolSnapshot.generated.ts",
   "artifacts.ts",
+  // ReadConfig + loadReadConfig and the loader phases the write loader reuses
+  "configRead.ts",
   "resources.ts",
   "rpc.ts",
   // DEXE_DEBUG diagnostics; the npm/hardhat/git resolvers are runtimeDev.ts
@@ -35,11 +37,12 @@ const READ = [
   "cli/doctor.ts",
   "cli/skills.ts",
   // the read doctor checks + the ExtraChecks hook the write checks
-  // (diag/writeChecks.ts) come in through. Env presence still walks the whole
-  // ENV_SPEC until the env schema splits.
+  // (diag/writeChecks.ts) come in through, with the full env surface to walk
   "diag/checks.ts",
   "env/loader.ts",
   "env/parse.ts",
+  // the read env spec, the foreign (write) key names, the read env surface
+  "env/schemaRead.ts",
   "governor/adapter.ts",
   // registers the read governor tools; the write half (governor/write.ts) is
   // passed in by the composition root
@@ -99,6 +102,8 @@ const READ = [
   "lib/tokenSaleResult.ts",
   "lib/units.ts",
   "lib/upstreamAdvisories.ts",
+  // ToolContext over the read config; write tools take tools/writeContext.ts
+  "tools/context.ts",
   "tools/dao.ts",
   "tools/doctor.ts",
   "tools/gov.ts",
@@ -119,12 +124,18 @@ const READ = [
 
 const WRITE = [
   "bootstrap.ts",
+  // WriteConfig + the single server's loadConfig; re-exports configRead.ts so
+  // pre-split importers keep compiling (read code imports configRead.ts)
+  "config.ts",
   "hardhat.ts",
   // npm / hardhat / git resolvers for the dev toolchain
   "runtimeDev.ts",
   // Pinata JWT / pin probe, signer + keyring + broadcast guards, the
   // WalletConnect shared default — handed to runAllChecks as ExtraChecks
   "diag/writeChecks.ts",
+  // the write + dev env specs and the full ENV_SPEC (display order) the
+  // single server validates, loads and doctors
+  "env/schema.ts",
   "governor/encoder.ts",
   "governor/tools/build.ts",
   // dexe_gov_build_cancel, dexe_gov_decode_calldata, dexe_gov_hash_*
@@ -196,23 +207,22 @@ const WRITE = [
   "tools/txSend.ts",
   "tools/voteBuild.ts",
   "tools/walletconnectStatus.ts",
+  // ToolContext with the write config and the hardhat runner
+  "tools/writeContext.ts",
 ];
 
 const MIXED = [
-  // read config + write config (keys, WalletConnect, guards) in one loader
-  "config.ts",
   // lists both editions' tools; each edition will carry its own list
   "editions.ts",
   "instructions.ts",
   // read wizard (RPC, subgraph, gateway) + write wizard (key, Pinata, WC)
   "cli/init.ts",
-  "env/schema.ts",
   "knowledge/gotchas.ts",
   "knowledge/index.ts",
   "knowledge/render.ts",
   "tools/annotations.ts",
-  "tools/context.ts",
   "tools/gate.ts",
+  // reports the write posture through a structural type, not the write config
   "tools/getConfig.ts",
   "tools/guide.ts",
   "tools/operationalContext.ts",

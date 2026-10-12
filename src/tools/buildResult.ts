@@ -26,7 +26,7 @@
  *     that matters lives on the composites, which do broadcast.
  *   • `block: "none"` never refuses anywhere.
  */
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import {
   assessBuildPure,
   type AssessableAction,
@@ -47,7 +47,7 @@ export type { BuildWarning };
  * assumed default is downgraded rather than acted on.
  */
 export function assessActions(args: {
-  ctx: Pick<ToolContext, "config"> | undefined;
+  ctx: Pick<WriteToolContext, "config"> | undefined;
   /** Exactly what the caller passed — `undefined` means "not supplied". */
   chainId: number | undefined;
   actions: readonly AssessableAction[];

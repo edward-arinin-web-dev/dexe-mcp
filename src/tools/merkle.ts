@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import {
   buildAddressMerkleTree,
   buildMerkleTree,
@@ -44,7 +44,7 @@ function normaliseAddresses(addresses: readonly string[]): string[] {
   return result;
 }
 
-export function registerMerkleTools(server: McpServer, _ctx: ToolContext): void {
+export function registerMerkleTools(server: McpServer, _ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_merkle_build",
     {

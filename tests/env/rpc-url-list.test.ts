@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseEnv } from "../../src/env/parse.js";
+import { parseEnv as parseWithSpec } from "../../src/env/parse.js";
+import { ENV_SPEC } from "../../src/env/schema.js";
+
+/** The single server's parse: the full env spec (read + write + dev). */
+const parseEnv = (env: NodeJS.ProcessEnv) => parseWithSpec(env, ENV_SPEC);
 
 describe("RPC URL comma-list schema (R1)", () => {
   const base = { ...process.env };

@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, sep, posix } from "node:path";
-import type { DexeConfig } from "./config.js";
 
 /**
  * Minimal artifact record loaded from a Hardhat artifact JSON.
@@ -46,7 +45,12 @@ interface LoadedIndex {
 export class Artifacts {
   private cache: LoadedIndex | null = null;
 
-  constructor(private readonly config: DexeConfig) {}
+  /**
+   * Takes only the checkout path, not a config: the path is a dev-toolchain
+   * setting (`WriteConfig.protocolPath`, src/config.ts), and the decoders that
+   * read artifacts fall back to the bundled ABI snapshot when nothing is there.
+   */
+  constructor(private readonly config: { readonly protocolPath: string }) {}
 
   /** Directory holding contract artifacts (not build-info). */
   get contractsDir(): string {

@@ -2,6 +2,7 @@ import { Wallet } from "ethers";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
 import { hintFor, type EnvGuardResult } from "./requireEnv.js";
+import { ENV_SPEC } from "../env/schema.js";
 import { safeErrorMessage } from "./redact.js";
 import { attachBroadcastRecorder, registerLedgerSecrets } from "./agentLedger.js";
 
@@ -191,7 +192,7 @@ export class SignerManager {
         remediation:
           err instanceof NoSignerKeyError
             ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it."
-            : hintFor(["DEXE_PRIVATE_KEY"]),
+            : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC),
       };
     }
   }
@@ -255,7 +256,7 @@ export class SignerManager {
   private failNoKey(): never {
     throw new NoSignerKeyError(
       "No signing key is configured, so this call cannot sign. Reads work without one.\n" +
-        hintFor(["DEXE_PRIVATE_KEY"]) +
+        hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC) +
         "\nPrefer WalletConnect (keys stay on your phone): set DEXE_WALLETCONNECT_PROJECT_ID in .env, then run " +
         "dexe_wc_connect. Run dexe_doctor to see which values this server loaded and from where, or /dexe-setup " +
         "for a guided walkthrough.",

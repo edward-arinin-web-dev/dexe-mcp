@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DexeConfig } from "../config.js";
+import type { ReadConfig } from "../configRead.js";
 import { RpcProvider } from "../rpc.js";
 import { registerGovernorReadTools } from "./tools/read.js";
 import { registerGovernorSimulateTools } from "./tools/simulate.js";
@@ -27,7 +27,7 @@ export interface GovernorWriteTools {
 
 export function registerGovernorTools(
   server: McpServer,
-  config: DexeConfig,
+  config: ReadConfig,
   write?: GovernorWriteTools,
 ): void {
   const rpc = new RpcProvider(config);

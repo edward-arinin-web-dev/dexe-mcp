@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DexeConfig, SubgraphKind } from "../config.js";
-import { SUBGRAPH_KINDS } from "../config.js";
+import type { ReadConfig, SubgraphKind } from "../configRead.js";
+import { SUBGRAPH_KINDS } from "../configRead.js";
 import type { SignerManager } from "../lib/signer.js";
 import { subgraphChains } from "../lib/subgraph.js";
 import { maskUrl } from "../lib/redact.js";
@@ -16,11 +16,25 @@ const CHAIN_NAMES: Record<number, string> = {
 };
 
 /**
+ * The write-edition config fields `dexe_get_config` reports (signer posture).
+ * Declared structurally so this read-side file does not import the write
+ * config (src/config.ts); the single server passes its `WriteConfig`. The
+ * signer half of this tool moves to the write edition (D6), and this goes
+ * with it.
+ */
+type GetConfigInput = ReadConfig & {
+  readonly pinataJwt?: string;
+  readonly walletConnectProjectId?: string;
+  readonly walletConnectRelayUrl?: string;
+  readonly walletConnectApprovalTimeoutMs?: number;
+};
+
+/**
  * Read-only diagnostic. Returns the chains the MCP knows about, which one is
  * the default for tools that omit `chainId`, and whether a signer is
  * available. Call this at the start of a session to orient before any write.
  */
-export function registerGetConfigTool(server: McpServer, config: DexeConfig, signer: SignerManager): void {
+export function registerGetConfigTool(server: McpServer, config: GetConfigInput, signer: SignerManager): void {
   server.tool(
     "dexe_get_config",
     "Read-only, local. The MCP's chain set, default chain, and signer status.",

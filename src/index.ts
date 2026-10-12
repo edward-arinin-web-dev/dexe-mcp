@@ -10,7 +10,7 @@ import { serverInstructions } from "./instructions.js";
 import { registerDocResources } from "./resources.js";
 import { homedir } from "node:os";
 import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadReport } from "./env/loader.js";
-import { envKeys } from "./env/schema.js";
+import { envKeys, FULL_ENV_SURFACE } from "./env/schema.js";
 import { debugHint, debugLog, formatDiagnostic } from "./runtime.js";
 import { safeErrorMessage } from "./lib/redact.js";
 import { writeDoctorChecks } from "./diag/writeChecks.js";
@@ -184,12 +184,12 @@ function loadEnvironment(): string[] {
   let envReport: EnvLoadReport | undefined;
   for (const candidate of envCandidates) {
     if (!existsSync(candidate)) continue;
-    const report = loadEnvFile(candidate, prevSnapshot);
+    const report = loadEnvFile(candidate, prevSnapshot, FULL_ENV_SURFACE);
     if (!envReport) envReport = report; // first existing file drives the banner
   }
   // Nothing on disk anywhere — still emit a banner naming the recommended home
   // location so the user knows exactly where to create their config.
-  writeStartupBanner(envReport ?? loadEnvFile(homeEnvPath, prevSnapshot));
+  writeStartupBanner(envReport ?? loadEnvFile(homeEnvPath, prevSnapshot, FULL_ENV_SURFACE));
   return envCandidates;
 }
 
@@ -209,8 +209,9 @@ async function runSubcommand(name: Exclude<Subcommand, "serve-http">): Promise<v
     // process.exit() itself with the graded code — do NOT "clean that up" into
     // a returned value, or every doctor run exits 0 and CI goes green forever.
     // The read checks plus the write ones (signer, Pinata incl. --probe-pin,
-    // WalletConnect): this binary carries both editions.
-    await mod.run(process.argv.slice(3), writeDoctorChecks);
+    // WalletConnect), over the full config and env surface: this binary
+    // carries both editions.
+    await mod.run(process.argv.slice(3), writeDoctorChecks, loadConfig);
     process.exit(0);
   }
   if (name === "init") {

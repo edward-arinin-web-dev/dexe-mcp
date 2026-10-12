@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { Contract } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DexeConfig } from "../config.js";
-import { DEFAULTS, DEFAULT_SUBGRAPH_CHAIN_ID } from "../config.js";
+import type { ReadConfig } from "../configRead.js";
+import { DEFAULTS, DEFAULT_SUBGRAPH_CHAIN_ID } from "../configRead.js";
 import type { SignerManager } from "../lib/signer.js";
 import type { StateStore, KnownDao } from "../lib/stateStore.js";
 import { RpcProvider } from "../rpc.js";
@@ -10,6 +10,18 @@ import { subgraphChains } from "../lib/subgraph.js";
 import { maskUrl } from "../lib/redact.js";
 import { resolveToolsets, TOOLSETS } from "./gate.js";
 import { getAgentLedger, DAY_MS, type SpendRow } from "../lib/agentLedger.js";
+
+/**
+ * The write-edition config fields `dexe_context` reports (Pinata and
+ * WalletConnect posture). Declared structurally so this read-side file does
+ * not import the write config (src/config.ts); the single server passes its
+ * `WriteConfig`. Goes with the signer/keyring report when that moves to
+ * `dexe_write_context` (A6).
+ */
+type ContextConfig = ReadConfig & {
+  readonly pinataJwt?: string;
+  readonly walletConnectProjectId?: string;
+};
 
 export interface ToolsetUnlock {
   /**
@@ -147,7 +159,7 @@ const USER_KEEPER_ABI = [
   "function tokenBalance(address voter, uint8 voteType) view returns (uint256 balance, uint256 ownedBalance)",
 ];
 
-function signerMode(config: DexeConfig, signer: SignerManager): "readonly" | "eoa" | "safe" | "walletconnect" {
+function signerMode(config: ContextConfig, signer: SignerManager): "readonly" | "eoa" | "safe" | "walletconnect" {
   const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined;
   return signer.hasSigner()
     ? safeServiceUrl
@@ -224,7 +236,7 @@ interface KeyringSigner {
  * read, no RPC.
  */
 export async function keyringReport(
-  config: DexeConfig,
+  config: ContextConfig,
   signer: SignerManager,
   rpc: RpcProvider,
   includeBalances: boolean,
@@ -347,7 +359,7 @@ function windowNote(
 
 export function registerOperationalContextTools(
   server: McpServer,
-  config: DexeConfig,
+  config: ContextConfig,
   signer: SignerManager,
   state: StateStore,
 ): void {

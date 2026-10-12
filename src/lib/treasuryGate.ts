@@ -1,17 +1,63 @@
-import {
-  classifyTreasuryActions,
-  resolveTreasuryGuardMode,
-  type TreasuryGuardMode,
-  type TreasuryHit,
-} from "./quorumRisk.js";
+import { classifyTreasuryActions, type TreasuryHit } from "./quorumRisk.js";
 
 /**
- * The treasury guard as it acts on writes: the advisory strings builders,
- * deploys and executes attach, the call-time posture lookup, and the one gate
- * that decides whether a treasury-moving act proceeds, warns or is refused.
- * The pure risk math (quorum units, treasury-action classification, the
- * posture parser config and the env schema share) is in ./quorumRisk.ts.
+ * The treasury guard as it acts on writes: the posture parser the write config
+ * and the env schema share, the advisory strings builders, deploys and
+ * executes attach, the call-time posture lookup, and the one gate that decides
+ * whether a treasury-moving act proceeds, warns or is refused. The pure risk
+ * math (quorum units, treasury-action classification) is in ./quorumRisk.ts.
+ *
+ * The posture (`DEXE_TREASURY_GUARD`) is a write-edition setting: it decides
+ * what a build, deploy or execute does. It moved here from ./quorumRisk.ts
+ * when the env spec split into read and write halves.
  */
+
+// ─── guard posture: off | warn | block (0.33.0) ──────────────────────────────
+// `warn` stays the default and the product decision: an advisory names the risk
+// and the operator owns the outcome. `block` is the opt-in for operators who
+// want the guard to be a control rather than a note — a treasury-moving act
+// whose safety checks FAILED is refused instead of narrated.
+
+/** Treasury-guard posture. `block` ⊃ `warn`: it advises AND refuses. */
+export type TreasuryGuardMode = "off" | "warn" | "block";
+
+export const TREASURY_GUARD_MODES = ["off", "warn", "block"] as const;
+
+/** The posture used when unset — and the fallback for a malformed value. */
+export const TREASURY_GUARD_DEFAULT: TreasuryGuardMode = "warn";
+
+/** 0.30.1-shaped startup issue: what was wrong, and what we did instead. */
+export interface TreasuryGuardIssue {
+  key: "DEXE_TREASURY_GUARD";
+  message: string;
+  fallback: string;
+}
+
+export interface TreasuryGuardResolution {
+  mode: TreasuryGuardMode;
+  /** Present iff the raw value was malformed. Never a reason to exit. */
+  issue?: TreasuryGuardIssue;
+}
+
+/**
+ * Parse a raw `DEXE_TREASURY_GUARD` value. NEVER throws and never exits
+ * (0.30.1 precedent): a malformed value falls back to the SAFE posture —
+ * `warn`, which keeps every advisory on — and records a startup issue.
+ * `off` is never chosen implicitly, because a typo must not silence the guard.
+ */
+export function resolveTreasuryGuardMode(raw: string | undefined | null): TreasuryGuardResolution {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "") return { mode: TREASURY_GUARD_DEFAULT };
+  if (v === "off" || v === "warn" || v === "block") return { mode: v };
+  return {
+    mode: TREASURY_GUARD_DEFAULT,
+    issue: {
+      key: "DEXE_TREASURY_GUARD",
+      message: `DEXE_TREASURY_GUARD must be one of ${TREASURY_GUARD_MODES.join("|")}, got: ${v}`,
+      fallback: `using the default '${TREASURY_GUARD_DEFAULT}' (advisories stay on; nothing is blocked)`,
+    },
+  };
+}
 
 // ─── advisory strings (tone mirrors protocolAdvisories.ts) ────────────────────
 

@@ -58,8 +58,10 @@ should **rotate** these keys — see [§8 Subgraph configuration](#8-subgraph-co
 > failure, **call `dexe_doctor` first** — it walks every recognized var,
 > checks RPC / Pinata / subgraph reachability, and returns paste-ready
 > remediation hints. The canonical schema lives in
-> [`src/env/schema.ts`](../src/env/schema.ts); `dexe_doctor` reads from
-> there, so the schema is the source of truth and this document tracks it.
+> [`src/env/schema.ts`](../src/env/schema.ts) (`ENV_SPEC`: the read vars from
+> [`src/env/schemaRead.ts`](../src/env/schemaRead.ts) plus the write and dev
+> vars); `dexe_doctor` reads from there, so the schema is the source of truth
+> and this document tracks it.
 > Env edits go in the `.env` the server actually loads — `~/.dexe-mcp/.env`
 > for a plugin/`npx` install, the repo-root `.env` for a source checkout (see
 > the precedence list at the top of this file). Never in the MCP host's `env`
@@ -573,4 +575,4 @@ supported chain (BSC mainnet 56 or BSC testnet 97 — both baked in) or set
 - [`README.md`](../README.md) — install + quickstart
 - [`TOOLS.md`](./TOOLS.md) — full per-tool catalog
 - [`tests/swarm/README.md`](../tests/swarm/README.md) — swarm setup runbook
-- [`src/config.ts`](../src/config.ts) — canonical env reader (single source of truth)
+- [`src/config.ts`](../src/config.ts) — canonical env reader (single source of truth); its read half (chains, subgraphs, backend, analysis knobs) is [`src/configRead.ts`](../src/configRead.ts)

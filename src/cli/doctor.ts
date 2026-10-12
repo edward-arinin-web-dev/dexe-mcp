@@ -1,4 +1,4 @@
-import { loadConfig } from "../config.js";
+import { loadReadConfig, type ReadConfig } from "../configRead.js";
 import { runAllChecks, type DoctorExtraChecks } from "../diag/checks.js";
 import { getEnvLoadState } from "../env/loader.js";
 import { safeErrorMessage } from "../lib/redact.js";
@@ -61,8 +61,14 @@ export function doctorExitCode(t: { warn: number; fail: number }, strict: boolea
  *
  * `extraChecks` adds another edition's checks to the read ones — src/index.ts
  * passes the write checks (src/diag/writeChecks.ts), which own `--probe-pin`.
+ * `loadConfig` is that edition's config loader (the single server's
+ * `loadConfig` from src/config.ts); the read loader when omitted.
  */
-export async function run(argv: readonly string[] = [], extraChecks?: DoctorExtraChecks): Promise<void> {
+export async function run<C extends ReadConfig = ReadConfig>(
+  argv: readonly string[] = [],
+  extraChecks?: DoctorExtraChecks<C>,
+  loadConfig: () => Promise<C> = loadReadConfig as () => Promise<C>,
+): Promise<void> {
   const args = parseDoctorArgs(argv);
   if (args.unknown.length) {
     process.stderr.write(

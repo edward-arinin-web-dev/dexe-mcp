@@ -2,7 +2,7 @@ import { z } from "zod";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { buildChainIdParam } from "../lib/writeParams.js";
 import { VALIDATOR_VOTE_IRREVOCABLE_ADVISORY } from "../lib/protocolAdvisories.js";
@@ -103,7 +103,7 @@ function outputSchema() {
 
 export function registerProposalBuildInternalTools(
   server: McpServer,
-  _ctx: ToolContext,
+  _ctx: WriteToolContext,
 ): void {
   registerChangeValidatorBalances(server);
   registerChangeValidatorSettings(server);

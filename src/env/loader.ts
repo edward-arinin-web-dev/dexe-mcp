@@ -2,13 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { safeErrorMessage } from "../lib/redact.js";
 import {
-  ENV_REGISTRY,
   DYNAMIC_PER_CHAIN_RPC_RE,
-  envKeys,
+  READ_ENV_SURFACE,
   isKnownEnvKey,
-  type EnvKey,
-  type EnvEntry,
-} from "./schema.js";
+  type EnvSurface,
+} from "./schemaRead.js";
 
 /**
  * A raw-byte trap in the `.env` file. `process.loadEnvFile` reports none of
@@ -57,16 +55,21 @@ export interface EnvLoadReport {
    * malformed syntax). Proof of a silent trap rather than a suspicion.
    */
   keysDropped: string[];
-  /** DEXE_* vars in process.env that ENV_SPEC does not know about. */
+  /**
+   * DEXE_* vars in process.env that the env surface does not know about.
+   * Another edition's vars (`EnvSurface.isForeign`) are not listed: a
+   * read-only process sharing a `.env` with the write edition must not call
+   * its signing keys typos.
+   */
   unknownDexeVars: string[];
   /** Vars that are NOT set but would unlock a common flow if they were. */
-  missingButEnablesFlows: Array<{ key: EnvKey; flows: readonly string[] }>;
+  missingButEnablesFlows: Array<{ key: string; flows: readonly string[] }>;
   /**
    * Schema keys that were already in process.env BEFORE .env was loaded —
    * meaning they were injected by the MCP host (.claude.json env block) and
    * SHADOW the .env file. Subtle precedence trap.
    */
-  preExistingVars: EnvKey[];
+  preExistingVars: string[];
 }
 
 /** Everything the server learned while resolving `.env`, for `dexe_doctor`. */
@@ -188,10 +191,14 @@ function scanAssignments(lines: string[]): { assignments: Assignment[]; spaceLin
  * @param prevEnvSnapshot  set of DEXE_* keys that were already in
  *   `process.env` before this function runs. Pass an empty set to skip the
  *   precedence-collision check.
+ * @param surface  the env vars this edition reads — what counts as known, and
+ *   what is another edition's (ignored silently). Defaults to the read
+ *   edition's; the single server passes `FULL_ENV_SURFACE` from ./schema.ts.
  */
 export function loadEnvFile(
   envFilePath: string,
   prevEnvSnapshot: ReadonlySet<string>,
+  surface: EnvSurface = READ_ENV_SURFACE,
 ): EnvLoadReport {
   const parseIssues: EnvParseIssue[] = [];
   const envFileExists = existsSync(envFilePath);
@@ -320,12 +327,13 @@ export function loadEnvFile(
   for (const key of Object.keys(process.env)) {
     if (!key.startsWith("DEXE_")) continue;
     if (DYNAMIC_PER_CHAIN_RPC_RE.test(key)) continue;
-    if (!isKnownEnvKey(key)) unknownDexeVars.push(key);
+    if (surface.isForeign?.(key)) continue;
+    if (!isKnownEnvKey(key, surface.spec)) unknownDexeVars.push(key);
   }
 
   // Vars NOT set but which would enable a common flow.
-  const missingButEnablesFlows: Array<{ key: EnvKey; flows: readonly string[] }> = [];
-  for (const [k, v] of Object.entries(ENV_REGISTRY) as [EnvKey, EnvEntry][]) {
+  const missingButEnablesFlows: Array<{ key: string; flows: readonly string[] }> = [];
+  for (const [k, v] of Object.entries(surface.spec)) {
     if (!v.enablesFlows?.length) continue;
     if (process.env[k]?.trim()) continue;
     missingButEnablesFlows.push({ key: k, flows: v.enablesFlows });
@@ -333,7 +341,7 @@ export function loadEnvFile(
 
   // Schema keys present in process.env BEFORE we loaded .env — they came
   // from the MCP host (.claude.json env block) and will shadow .env.
-  const preExistingVars: EnvKey[] = envKeys().filter(k => prevEnvSnapshot.has(k));
+  const preExistingVars: string[] = Object.keys(surface.spec).filter(k => prevEnvSnapshot.has(k));
 
   const report: EnvLoadReport = {
     envFilePath,

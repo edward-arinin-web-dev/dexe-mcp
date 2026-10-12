@@ -3,11 +3,11 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { FunctionFragment, id as keccakId } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { ArtifactsMissingError } from "../artifacts.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
-export function registerIntrospectTools(server: McpServer, ctx: ToolContext): void {
+export function registerIntrospectTools(server: McpServer, ctx: WriteToolContext): void {
   registerListContracts(server, ctx);
   registerGetAbi(server, ctx);
   registerGetMethods(server, ctx);
@@ -20,7 +20,7 @@ export function registerIntrospectTools(server: McpServer, ctx: ToolContext): vo
 // All tools here wrap their body in this guard so users get one consistent
 // "run dexe_compile first" message instead of a raw stack.
 async function guarded<T>(
-  ctx: ToolContext,
+  ctx: WriteToolContext,
   fn: () => T | Promise<T>,
 ): Promise<
   | { ok: true; value: T }
@@ -46,7 +46,7 @@ function errorResult(message: string) {
 
 // ---------- dexe_list_contracts ----------
 
-function registerListContracts(server: McpServer, ctx: ToolContext): void {
+function registerListContracts(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_list_contracts",
     {
@@ -118,7 +118,7 @@ function registerListContracts(server: McpServer, ctx: ToolContext): void {
  */
 const ABI_SOFT_CAP_CHARS = 16_000;
 
-function registerGetAbi(server: McpServer, ctx: ToolContext): void {
+function registerGetAbi(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_get_abi",
     {
@@ -247,7 +247,7 @@ function normalizeParam(p: AbiParam): {
   return out;
 }
 
-function registerGetMethods(server: McpServer, ctx: ToolContext): void {
+function registerGetMethods(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_get_methods",
     {
@@ -510,7 +510,7 @@ function canonicalType(p: AbiParam): string {
 
 // ---------- dexe_get_selectors ----------
 
-function registerGetSelectors(server: McpServer, ctx: ToolContext): void {
+function registerGetSelectors(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_get_selectors",
     {
@@ -563,7 +563,7 @@ function registerGetSelectors(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_find_selector ----------
 
-function registerFindSelector(server: McpServer, ctx: ToolContext): void {
+function registerFindSelector(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_find_selector",
     {
@@ -623,7 +623,7 @@ function registerFindSelector(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_get_natspec ----------
 
-function registerGetNatspec(server: McpServer, ctx: ToolContext): void {
+function registerGetNatspec(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_get_natspec",
     {
@@ -689,7 +689,7 @@ function filterMember(methods: Record<string, unknown>, member: string): Record<
 
 // ---------- dexe_get_source ----------
 
-function registerGetSource(server: McpServer, ctx: ToolContext): void {
+function registerGetSource(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_get_source",
     {

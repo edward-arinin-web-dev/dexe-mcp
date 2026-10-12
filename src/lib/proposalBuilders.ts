@@ -16,7 +16,7 @@
  */
 import { z } from "zod";
 import { Interface, isAddress, getAddress, ZeroAddress } from "ethers";
-import type { ToolContext } from "../tools/context.js";
+import type { WriteToolContext } from "../tools/writeContext.js";
 import { checkBlacklist, blacklistError } from "./blacklist.js";
 import { settingsAdvisories } from "./protocolAdvisories.js";
 import { assessBuildPure, assertStakingWindow } from "./buildAdvisories.js";
@@ -153,7 +153,7 @@ function settingsRisk(
 }
 
 export interface BuilderDeps {
-  ctx: ToolContext;
+  ctx: WriteToolContext;
   /** DAO GovPool address — used as `from` for treasury NFT transfers. */
   govPool: string;
   chainId: number;
@@ -273,7 +273,7 @@ const withdrawTreasuryBuilder: CatalogBuilder = {
  */
 async function resolveGovSettings(
   explicit: string | undefined,
-  deps: { ctx: ToolContext; govPool: string; chainId: number },
+  deps: { ctx: WriteToolContext; govPool: string; chainId: number },
 ): Promise<string> {
   if (explicit !== undefined && explicit !== "") {
     if (!isAddress(explicit)) throw new Error(`Invalid govSettings: ${explicit}`);

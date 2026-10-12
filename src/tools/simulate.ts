@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Interface, ZeroAddress, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { SignerManager } from "../lib/signer.js";
 import { RpcProvider } from "../rpc.js";
 import { chainIdParam, govPoolParam, PROPOSAL_ID_DESC } from "../lib/params.js";
@@ -61,7 +61,7 @@ function bigintReplacer(_k: string, v: unknown): unknown {
 
 export function registerSimulateTools(
   server: McpServer,
-  ctx: ToolContext,
+  ctx: WriteToolContext,
   signer: SignerManager,
 ): void {
   const rpc = new RpcProvider(ctx.config);

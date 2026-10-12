@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import type { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
@@ -162,7 +162,7 @@ function requestOutputSchema() {
 
 export function registerProposalBuildOffchainTools(
   server: McpServer,
-  _ctx: ToolContext,
+  _ctx: WriteToolContext,
   signer?: SignerManager,
   wc?: WalletConnectManager,
 ): void {

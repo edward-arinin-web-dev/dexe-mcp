@@ -1,5 +1,5 @@
-import type { DexeConfig, SubgraphKind } from "../config.js";
-import { DEFAULT_SUBGRAPH_CHAIN_ID, DEFAULTS, SUBGRAPH_KINDS, subgraphEnvVar } from "../config.js";
+import type { ReadConfig, SubgraphKind } from "../configRead.js";
+import { DEFAULT_SUBGRAPH_CHAIN_ID, DEFAULTS, SUBGRAPH_KINDS, subgraphEnvVar } from "../configRead.js";
 import { maskUrl, safeErrorMessage } from "./redact.js";
 import { defangFenceMarkers, sanitizeUntrusted } from "./sanitize.js";
 
@@ -27,7 +27,7 @@ export interface ResolvedSubgraph {
  * subgraph; omit it for chains covered by any of the three. Tools use this to
  * tell the user where they CAN look.
  */
-export function subgraphChains(config: DexeConfig, kind?: SubgraphKind): number[] {
+export function subgraphChains(config: ReadConfig, kind?: SubgraphKind): number[] {
   const out: number[] = [];
   for (const [chainId, endpoints] of config.subgraphUrls) {
     const has = kind ? !!endpoints[kind] : SUBGRAPH_KINDS.some((k) => !!endpoints[k]);
@@ -41,7 +41,7 @@ export function subgraphChains(config: DexeConfig, kind?: SubgraphKind): number[
  *
  * Every subgraph-backed tool must route through here rather than reading
  * `config.subgraphPoolsUrl` & co. Those flat fields carry ONE chain's endpoint
- * (see `DexeConfig.subgraphChainId`), so a tool that reads them while working
+ * (see `ReadConfig.subgraphChainId`), so a tool that reads them while working
  * on another chain returns that other chain's data with no hint that it did —
  * which an agent will then act on. Answering with the wrong chain is worse
  * than not answering, so an unconfigured chain throws.
@@ -49,7 +49,7 @@ export function subgraphChains(config: DexeConfig, kind?: SubgraphKind): number[
  * @param chainId chain to query; defaults to the config's default chain.
  */
 export function resolveSubgraphUrl(
-  config: DexeConfig,
+  config: ReadConfig,
   kind: SubgraphKind,
   chainId?: number,
 ): ResolvedSubgraph {

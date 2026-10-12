@@ -2,7 +2,7 @@ import { z } from "zod";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import {
   govPoolParam,
@@ -118,7 +118,7 @@ type Action = { executor: string; value: string; data: string };
  * `governanceAdvisories` (the 0.33.0 channel) is preserved alongside the new
  * `warnings` array — merged, never replaced.
  */
-function makeWrapperResult(ctx: ToolContext) {
+function makeWrapperResult(ctx: WriteToolContext) {
   return function wrapperResult(params: {
     metadata: unknown;
     actions: Action[];
@@ -173,7 +173,7 @@ function payloadOutputSchema() {
 
 export function registerProposalBuildMoreTools(
   server: McpServer,
-  _ctx: ToolContext,
+  _ctx: WriteToolContext,
 ): void {
   registerChangeVotingSettings(server, _ctx);
   registerManageValidators(server, _ctx);
@@ -186,7 +186,7 @@ export function registerProposalBuildMoreTools(
 
 // ---------- 1. change_voting_settings ----------
 
-function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void {
+function registerChangeVotingSettings(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_change_voting_settings",
@@ -279,7 +279,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: ToolContext): void
 
 // ---------- 2. manage_validators ----------
 
-function registerManageValidators(server: McpServer, ctx: ToolContext): void {
+function registerManageValidators(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_manage_validators",
@@ -347,7 +347,7 @@ function registerManageValidators(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 3. add_expert (local or global) ----------
 
-function registerAddExpert(server: McpServer, ctx: ToolContext): void {
+function registerAddExpert(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_add_expert",
@@ -409,7 +409,7 @@ function registerAddExpert(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 4. remove_expert (local or global) ----------
 
-function registerRemoveExpert(server: McpServer, ctx: ToolContext): void {
+function registerRemoveExpert(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_remove_expert",
@@ -472,7 +472,7 @@ const ERC721_TRANSFER_ABI = [
   "function transferFrom(address from, address to, uint256 tokenId)",
 ] as const;
 
-function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
+function registerWithdrawTreasury(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_withdraw_treasury",
@@ -582,7 +582,7 @@ function registerWithdrawTreasury(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 6. delegate_to_expert ----------
 
-function registerDelegateToExpert(server: McpServer, ctx: ToolContext): void {
+function registerDelegateToExpert(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_delegate_to_expert",
@@ -646,7 +646,7 @@ function registerDelegateToExpert(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 7. revoke_from_expert ----------
 
-function registerRevokeFromExpert(server: McpServer, ctx: ToolContext): void {
+function registerRevokeFromExpert(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_revoke_from_expert",

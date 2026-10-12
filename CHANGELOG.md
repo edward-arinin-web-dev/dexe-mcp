@@ -96,6 +96,15 @@ the doctor checks, with the write halves (Pinata uploads, write remedies, signer
 and Pinata doctor checks) added by write code. The allowlisted crossings went
 from 16 to 9. No tool, schema, error text or doctor output changed.
 
+Config and the env spec are split the same way: `loadReadConfig()`
+(`src/configRead.ts`) covers chains, subgraphs, the backend, the analysis knobs,
+toolsets and the state path, and never parses a signing key or reports a write
+var from a shared `.env`; `WriteConfig` (`src/config.ts`, still `DexeConfig` /
+`loadConfig`) adds keys, guards, Pinata, WalletConnect, the treasury guard and
+the protocol checkout, and the env spec is a read, a write and a dev half
+combined in the original order. Crossings went from 9 to 7; startup output,
+`tools/list` and doctor output are unchanged.
+
 ## 0.35.0 — 2026-10-12
 
 ### Fixed — a third of the MCP handshake never reached the model

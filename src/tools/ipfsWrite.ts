@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { cidForJson, fetchIpfs, pinataCidForJson, toCidV1, DEFAULT_IPFS_HOP_TIMEOUT_MS } from "../lib/ipfs.js";
 import { PinataClient } from "../lib/ipfsPin.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
@@ -22,7 +22,7 @@ import { readFile } from "node:fs/promises";
  * historical order — the six uploads, then the two reads, then
  * `dexe_ipfs_cid_for_json` — and src/tools/index.ts calls the three in turn.
  */
-export function registerIpfsUploadTools(server: McpServer, ctx: ToolContext): void {
+export function registerIpfsUploadTools(server: McpServer, ctx: WriteToolContext): void {
   const gateways = resolveGateways(ctx);
 
   registerUploadProposalMetadata(server, ctx);
@@ -76,7 +76,7 @@ async function warmDexeIpfsCache(cidV0: string): Promise<{ ok: boolean; status?:
   }
 }
 
-function requirePinata(ctx: ToolContext): PinataClient | { error: string } {
+function requirePinata(ctx: WriteToolContext): PinataClient | { error: string } {
   if (!ctx.config.pinataJwt) {
     return { error: pinataUploadHint("to upload to IPFS") };
   }
@@ -85,7 +85,7 @@ function requirePinata(ctx: ToolContext): PinataClient | { error: string } {
 
 // ---------- dexe_ipfs_upload_proposal_metadata ----------
 
-function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): void {
+function registerUploadProposalMetadata(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_ipfs_upload_proposal_metadata",
     {
@@ -162,7 +162,7 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
  *   documents: [{ name: string, url: string }, ...]
  * }
  */
-function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
+function registerUploadDaoMetadata(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_ipfs_upload_dao_metadata",
     {
@@ -300,7 +300,7 @@ function registerUploadDaoMetadata(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_ipfs_upload_file ----------
 
-function registerUploadFile(server: McpServer, ctx: ToolContext): void {
+function registerUploadFile(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_ipfs_upload_file",
     {
@@ -453,7 +453,7 @@ function registerCidForJson(server: McpServer): void {
  *
  * Single call replaces: pinFile → toV1 → rename → build subdomain URL.
  */
-function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
+function registerUploadAvatar(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_ipfs_upload_avatar",
     {
@@ -519,7 +519,7 @@ function registerUploadAvatar(server: McpServer, ctx: ToolContext): void {
  * the DeXe ipfs-cache service re-serves avatar bytes as hardcoded image/jpeg
  * and browsers refuse SVG bytes under that label (bug #34).
  */
-function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
+function registerGenerateAvatar(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_dao_generate_avatar",
     {
@@ -588,7 +588,7 @@ function registerGenerateAvatar(server: McpServer, ctx: ToolContext): void {
  * (daoName, websiteUrl, socialLinks, …) on every edit, and any forgotten
  * field would silently disappear from the profile.
  */
-function registerUpdateDaoMetadata(server: McpServer, ctx: ToolContext, gateways: string[]): void {
+function registerUpdateDaoMetadata(server: McpServer, ctx: WriteToolContext, gateways: string[]): void {
   server.registerTool(
     "dexe_ipfs_update_dao_metadata",
     {
