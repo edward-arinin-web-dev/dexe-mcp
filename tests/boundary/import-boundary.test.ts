@@ -45,8 +45,6 @@ const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
     "the guide engine is wired to the write flow corpus. Gone when the corpus becomes a parameter.",
   "knowledge/render.ts -> knowledge/flows.ts":
     "renders flows next to topics and gotchas. Gone when knowledge/ splits into read and write halves.",
-  "lib/buildAdvisories.ts -> lib/buildWarning.ts":
-    "risk assessment's governance classifier lives in the build-time harm pass. Gone once it moves to its own module.",
   "lib/protocolAdvisories.ts -> lib/preflight.ts":
     "the upstream-advisory helpers the read side needs share a file with build-time advisories. Gone once they move.",
   "tools/context.ts -> hardhat.ts":
