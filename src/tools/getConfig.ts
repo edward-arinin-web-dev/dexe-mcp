@@ -24,8 +24,18 @@ const CHAIN_NAMES: Record<number, string> = {
  * READ edition (D6). Signer, Safe, WalletConnect and Pinata posture are the
  * write edition's `dexe_write_context` (./operationalContextWrite.ts).
  */
-export function registerGetConfigTool(server: McpServer, ctx: ToolContext): void {
+export interface GetConfigOptions {
+  /**
+   * Served to many callers over HTTP: no endpoint URLs or hostnames (an
+   * operator's RPC, backend or gateway host is not public information) — the
+   * chain set, subgraph coverage and counts only.
+   */
+  remote?: boolean;
+}
+
+export function registerGetConfigTool(server: McpServer, ctx: ToolContext, opts: GetConfigOptions = {}): void {
   const { config } = ctx;
+  const remote = opts.remote === true;
   server.tool(
     "dexe_get_config",
     "Read-only, local. The resolved read config: chain set and default chain, subgraph coverage per chain, " +
@@ -38,7 +48,7 @@ export function registerGetConfigTool(server: McpServer, ctx: ToolContext): void
         .sort((a, b) => a.chainId - b.chainId)
         .map(c => ({
           chainId: c.chainId,
-          rpcUrl: maskUrl(c.rpcUrl),
+          ...(remote ? {} : { rpcUrl: maskUrl(c.rpcUrl) }),
           name: CHAIN_NAMES[c.chainId] ?? `chain ${c.chainId}`,
           isDefault: c.chainId === config.defaultChainId,
           registryOverride: c.registryOverride,
@@ -79,13 +89,13 @@ export function registerGetConfigTool(server: McpServer, ctx: ToolContext): void
         },
         backend: {
           /** DeXe backend API base (treasury, holders, stats); null when unset. */
-          url: config.backendApiUrl ? maskUrl(config.backendApiUrl) : null,
+          ...(remote ? {} : { url: config.backendApiUrl ? maskUrl(config.backendApiUrl) : null }),
           /** True while it is the shared public default rather than the operator's own. */
           sharedDefault: config.backendApiUrl === DEFAULTS.backendApiUrl,
         },
         ipfs: {
-          /** Read gateways, in the order dexe_ipfs_fetch tries them (hostnames). */
-          readGateways: gateways,
+          /** Read gateways, in the order dexe_ipfs_fetch tries them (hostnames; a count when served remotely). */
+          ...(remote ? { readGatewayCount: gateways.length } : { readGateways: gateways }),
           /** False when DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1 keeps the public gateways out. */
           publicFallback: process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK !== "1",
         },

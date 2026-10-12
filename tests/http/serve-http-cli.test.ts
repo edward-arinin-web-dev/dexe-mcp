@@ -1,21 +1,25 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { READ_TOOLS } from "../../src/editions.js";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
- * The built bin: `dexe-mcp serve-http`. Proves the things only a real process
- * can — that NO .env file is loaded (cwd, DEXE_ENV_FILE), that a signing key
- * placed in one never reaches the server or its log, that the profile is
- * forced to read-only whatever DEXE_TOOLSETS says, and that the server refuses
- * to start on the shared built-in endpoints. Needs `npm run build` first, like
- * tests/cli/usage.test.ts.
+ * The built bins: `dexe-mcp-read serve-http`, and `dexe-mcp serve-http`, which
+ * starts the same entry in a child process. Proves the things only a real
+ * process can — that NO .env file is loaded (cwd, DEXE_ENV_FILE), that a
+ * signing key placed in one never reaches the server or its log, that the read
+ * edition's 54 tools are served whatever DEXE_TOOLSETS says, that nothing is
+ * written under HOME, and that the server refuses to start on the shared
+ * built-in endpoints. Needs `npm run build` first, like tests/cli/usage.test.ts.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const DIST = resolve(here, "..", "..", "dist", "index.js");
+const READ_BIN = resolve(here, "..", "..", "dist", "read", "bin.js");
+const FULL_BIN = resolve(here, "..", "..", "dist", "index.js");
+const DIST = READ_BIN;
 
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 // Its address (Hardhat account #1). Must never appear in the server's output.
@@ -31,9 +35,14 @@ function cleanEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   return { ...env, ...extra };
 }
 
-function runToExit(args: string[], env: NodeJS.ProcessEnv, cwd: string): Promise<{ code: number | null; out: string; err: string }> {
+function runToExit(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  bin: string = DIST,
+): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((done) => {
-    const child = spawn(process.execPath, [DIST, ...args], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [bin, ...args], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));
@@ -88,14 +97,24 @@ async function stop(child: ChildProcess | undefined): Promise<void> {
   await exited;
 }
 
-describe.skipIf(!existsSync(DIST))("dexe-mcp serve-http (built bin)", () => {
+/** Every file under `dir`, relative — a server that writes nothing leaves this empty. */
+function filesUnder(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile())
+    .map((e) => join(e.parentPath ?? (e as { path?: string }).path ?? "", e.name));
+}
+
+describe.skipIf(!existsSync(DIST))("dexe-mcp-read serve-http (built bin)", () => {
   let work: string;
   let stateDir: string;
+  let home: string;
   let run: Running;
 
   beforeAll(async () => {
     work = mkdtempSync(join(tmpdir(), "dexe-serve-http-"));
     stateDir = mkdtempSync(join(tmpdir(), "dexe-serve-http-state-"));
+    // An empty HOME: whatever lands under it was written by the server.
+    home = mkdtempSync(join(tmpdir(), "dexe-serve-http-home-"));
     // A .env that WOULD switch on signing, the full tool surface and any
     // browser origin if it were loaded.
     const envFile = join(work, ".env");
@@ -106,6 +125,11 @@ describe.skipIf(!existsSync(DIST))("dexe-mcp serve-http (built bin)", () => {
         DEXE_STATE_PATH: join(stateDir, "state.json"),
         DEXE_TOOLSETS: "full",
         DEXE_HTTP_ALLOW_SHARED_DEFAULTS: "1",
+        // planted in the process env, not a file: still never read or echoed
+        DEXE_PINATA_JWT: "planted-jwt-value",
+        DEXE_AGENT_PK_1: TEST_KEY,
+        HOME: home,
+        USERPROFILE: home,
       }),
       work,
     );
@@ -115,13 +139,14 @@ describe.skipIf(!existsSync(DIST))("dexe-mcp serve-http (built bin)", () => {
     await stop(run?.child);
     rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     rmSync(stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
-  it("starts on the requested ephemeral port, read profile only, marked experimental", () => {
+  it("starts on the requested ephemeral port with the read edition's 54 tools, marked pre-release", () => {
     const l = run.listening;
-    expect(l).toMatchObject({ mode: "serve-http", experimental: true, endpoint: "/mcp", host: "127.0.0.1" });
+    expect(l).toMatchObject({ mode: "serve-http", server: "dexe-mcp-read", preRelease: true, endpoint: "/mcp", host: "127.0.0.1" });
     expect(l.port).toEqual(expect.any(Number));
-    expect(l.tools as number).toBeLessThan(60);
+    expect(l.tools).toBe(READ_TOOLS.length);
     // The env was reduced to the allowlist; only a count is logged.
     expect(l.removedEnvVars).toEqual(expect.any(Number));
     // The .env's `DEXE_HTTP_ALLOWED_ORIGINS=*` did not apply: it was never loaded.
@@ -149,12 +174,15 @@ describe.skipIf(!existsSync(DIST))("dexe-mcp serve-http (built bin)", () => {
     expect(body.result.serverInfo.name).toBe("dexe-mcp-read");
   });
 
-  it("never prints the signer, writes an access log line to stdout, and leaves DEXE_STATE_PATH empty", async () => {
+  it("never prints a signer or a planted secret, logs access to stdout, and writes nothing to disk", async () => {
     await new Promise((r) => setTimeout(r, 100));
-    expect(run.stderr().toLowerCase()).not.toContain(TEST_ADDR_PREFIX.toLowerCase());
-    expect(run.stdout().toLowerCase()).not.toContain(TEST_ADDR_PREFIX.toLowerCase());
+    const out = `${run.stderr()}\n${run.stdout()}`.toLowerCase();
+    expect(out).not.toContain(TEST_ADDR_PREFIX.toLowerCase());
+    expect(out).not.toContain("planted-jwt-value");
+    expect(out).not.toContain(TEST_KEY.slice(2, 20));
     expect(run.stdout()).toMatch(/"event":"http"/);
     expect(readdirSync(stateDir)).toEqual([]);
+    expect(filesUnder(home), "remote mode writes nothing under HOME").toEqual([]);
   });
 
   it("refuses to start on the shared built-in endpoints and names the vars to set", async () => {
@@ -186,16 +214,40 @@ describe.skipIf(!existsSync(DIST))("dexe-mcp serve-http (built bin)", () => {
     }
   }, 30_000);
 
-  it("--help exits 0 and says EXPERIMENTAL; a typo exits 2; a public bind without a Host allowlist refuses to start", async () => {
+  it("--help exits 0 and says PRE-RELEASE; a typo exits 2; a public bind without a Host allowlist refuses to start", async () => {
     const env = cleanEnv({});
     const help = await runToExit(["serve-http", "--help"], env, work);
     expect(help.code).toBe(0);
-    expect(help.out).toMatch(/EXPERIMENTAL/);
+    expect(help.out).toMatch(/PRE-RELEASE/);
     const typo = await runToExit(["serve-http", "--prot", "1"], env, work);
     expect(typo.code).toBe(2);
     expect(typo.err).toMatch(/unknown option '--prot'/);
     const open = await runToExit(["serve-http", "--host", "0.0.0.0", "--port", "0"], env, work);
     expect(open.code).toBe(2);
     expect(open.err).toMatch(/DEXE_HTTP_ALLOWED_HOSTS is required/);
+  }, 45_000);
+});
+
+describe.skipIf(!existsSync(FULL_BIN) || !existsSync(READ_BIN))("dexe-mcp serve-http delegates to the read edition", () => {
+  let work: string;
+
+  beforeAll(() => {
+    work = mkdtempSync(join(tmpdir(), "dexe-serve-http-full-"));
+  });
+  afterAll(() => {
+    rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it("answers with the read edition's usage, refusals and exit codes", async () => {
+    const env = cleanEnv({});
+    const help = await runToExit(["serve-http", "--help"], env, work, FULL_BIN);
+    expect(help.code).toBe(0);
+    expect(help.out).toMatch(/^dexe-mcp-read .*PRE-RELEASE/);
+    const typo = await runToExit(["serve-http", "--prot", "1"], env, work, FULL_BIN);
+    expect(typo.code).toBe(2);
+    expect(typo.err).toMatch(/unknown option '--prot'/);
+    const shared = await runToExit(["serve-http", "--port", "0"], env, work, FULL_BIN);
+    expect(shared.code).toBe(2);
+    expect(shared.err).toMatch(/refusing to start on shared built-in defaults/);
   }, 45_000);
 });

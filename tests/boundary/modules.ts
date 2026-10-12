@@ -36,7 +36,7 @@ const READ = [
   "rpc.ts",
   // DEXE_DEBUG diagnostics; the npm/hardhat/git resolvers are runtimeDev.ts
   "runtime.ts",
-  // isMainModule: the entrypoint check every binary boots through
+  // Node floor, process/transport guards and isMainModule, for both stdio binaries
   "stdioRuntime.ts",
   "cli/doctor.ts",
   "cli/skills.ts",
@@ -59,9 +59,13 @@ const READ = [
   "governor/tools/read.ts",
   // dexe_gov_simulate_vote_impact
   "governor/tools/simulate.ts",
-  // serve-http transport layer (options, Host/Origin/rate-limit, the HTTP app).
-  // Takes the MCP server as an injected factory; imports no tool code.
+  // serve-http: the read edition over HTTP. cli.ts is its composition root
+  // (options → remote env → read server factory → HTTP app); remoteEnv.ts the
+  // env allowlist, shared-default refusal and /readyz probe; the rest is the
+  // transport layer, which takes the MCP server as an injected factory.
+  "http/cli.ts",
   "http/options.ts",
+  "http/remoteEnv.ts",
   "http/security.ts",
   "http/server.ts",
   // the knowledge engine and renderers, parameterized by corpus + tool locator
@@ -122,6 +126,12 @@ const READ = [
   "lib/tokenSaleResult.ts",
   "lib/units.ts",
   "lib/upstreamAdvisories.ts",
+  // the read edition's entry: createReadServer (+ the HTTP pool) and the
+  // `dexe-mcp-read` binary. Read-classified like everything they import, so the
+  // walk proves they reach no write module (tests/read/module-graph.test.ts
+  // checks the same from the binary, by name).
+  "read/bin.ts",
+  "read/server.ts",
   // the annotation wrapper, the AnnotationTable shape, the read edition's classes
   "tools/annotations.ts",
   // ToolContext over the read config; write tools take tools/writeContext.ts
@@ -278,11 +288,6 @@ const ROOT = [
   "knowledge/index.ts",
   // registerAll(): every register function of both editions
   "tools/index.ts",
-  // serve-http entry: wires the interim factory into the HTTP app
-  "http/cli.ts",
-  // interim remote factory: registerAll() forced to the read profile, filtered
-  // to READ_TOOLS. Replaced by the read edition's createReadServer() (A9).
-  "http/readServer.ts",
 ];
 
 /** The raw lists, so the boundary test can check nothing is listed twice. */

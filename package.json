@@ -34,7 +34,8 @@
     "calldata-builder"
   ],
   "bin": {
-    "dexe-mcp": "dist/index.js"
+    "dexe-mcp": "dist/index.js",
+    "dexe-mcp-read": "dist/read/bin.js"
   },
   "main": "dist/index.js",
   "files": [

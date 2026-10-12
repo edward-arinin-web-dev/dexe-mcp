@@ -49,6 +49,12 @@ export type ReadinessProbe = () => Promise<ReadinessResult>;
 
 export interface HttpAppDeps {
   serverFactory: McpServerFactory;
+  /**
+   * Called with a request's server once its transport has closed, so a factory
+   * that pools servers can serve a later request with it. Never called while
+   * the server is still connected.
+   */
+  releaseServer?: (server: McpServer) => void;
   /** Backs `/readyz`. When absent, ready == healthy. */
   readiness?: ReadinessProbe;
   version: string;
@@ -418,7 +424,13 @@ export function createHttpApp(opts: HttpServerOptions, deps: HttpAppDeps): HttpA
     const tearDown = (): void => {
       if (tornDown || !mcp) return;
       tornDown = true;
-      void mcp.close().catch(() => undefined);
+      const done = mcp;
+      void done
+        .close()
+        .then(
+          () => deps.releaseServer?.(done),
+          () => undefined,
+        );
     };
     try {
       // The SDK transport speaks web-standard Request/Response. Build that

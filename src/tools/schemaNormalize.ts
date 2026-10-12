@@ -57,17 +57,19 @@ interface ListedTool {
  * {@link normalizeJsonSchema}. Intercepts `setRequestHandler` on the underlying
  * low-level server, so call it BEFORE any tool is registered.
  */
-export function installListToolsNormalizer(server: McpServer): void {
+export function installListToolsNormalizer(server: McpServer, opts: { cache?: ListToolsCache } = {}): void {
   const low = (server as unknown as { server?: { setRequestHandler?: unknown } }).server;
   if (!low || typeof low.setRequestHandler !== "function") return;
   const original = (low.setRequestHandler as (...a: unknown[]) => unknown).bind(low);
+  const cache = opts.cache;
   (low as { setRequestHandler: unknown }).setRequestHandler = (schema: unknown, handler: unknown) => {
     const method = (schema as { shape?: { method?: { value?: unknown } } })?.shape?.method?.value;
     if (method !== "tools/list" || typeof handler !== "function") return original(schema, handler);
     const wrapped = async (...args: unknown[]) => {
+      if (cache?.result !== undefined) return cache.result;
       const res = (await (handler as (...a: unknown[]) => unknown)(...args)) as { tools?: ListedTool[] };
       if (!res || !Array.isArray(res.tools)) return res;
-      return {
+      const normalized = {
         ...res,
         tools: res.tools.map((t) => ({
           ...t,
@@ -75,7 +77,19 @@ export function installListToolsNormalizer(server: McpServer): void {
           ...(t.outputSchema !== undefined ? { outputSchema: normalizeJsonSchema(t.outputSchema) } : {}),
         })),
       };
+      if (cache) cache.result = normalized;
+      return normalized;
     };
     return original(schema, wrapped);
   };
+}
+
+/**
+ * A `tools/list` answer shared by servers whose tool set is fixed and
+ * identical — the read edition's per-request HTTP servers. Converting 54 zod
+ * schemas to JSON Schema is most of what a `tools/list` costs; with a cache it
+ * happens once per process. Never share one between servers whose tools differ.
+ */
+export interface ListToolsCache {
+  result?: unknown;
 }
