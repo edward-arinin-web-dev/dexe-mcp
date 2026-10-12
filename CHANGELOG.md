@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.35.0 — unreleased
+## 0.35.0 — 2026-10-12
 
 ### Fixed — a third of the MCP handshake never reached the model
 Claude Code keeps 2,048 characters of a server's `instructions` and drops the
@@ -38,6 +38,22 @@ npm now answers a publish with "Your package is being processed"; 0.34.1 took
 about 2.5 minutes to become visible and the 75-second verify window gave up
 first. The window is 10 minutes, and the failure message says the publish step
 itself succeeded.
+
+### Security — two advisories in the shipped tree
+The release PR's audit gate went red on two advisories published after the
+last green run. The SDK floor is raised and `proxy-addr` gets an override
+floor; the lockfile is re-resolved and the plugin bundle (which inlines both)
+is rebuilt.
+
+| Package | Floor | Was | Advisory |
+| --- | --- | --- | --- |
+| `@modelcontextprotocol/sdk` | `^1.31.0` (resolves 1.32.1) | `^1.29.0` | GHSA-6qxp-vccf-f47h (high) |
+| `proxy-addr` | `>=2.0.8` | — | GHSA-jqcg-44mw-7w3h (critical) |
+
+Neither path is reachable from this server as shipped: it never acts as an
+OAuth client and runs over stdio, so the SDK's express/`proxy-addr` HTTP stack
+is not started. The floors are raised so the audit gate and installs stay
+clean.
 
 ## 0.34.1 — 2026-10-01
 

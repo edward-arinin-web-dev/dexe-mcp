@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Only the latest published version on npm receives security updates. Pin to the latest minor (`^0.34`) in your MCP client config — note that npm caret ranges on a `0.x` package do not cross minors, so `^0.34` means `>=0.34.0 <0.35.0`; re-pin on every minor bump to keep receiving security updates.
+Only the latest published version on npm receives security updates. Pin to the latest minor (`^0.35`) in your MCP client config — note that npm caret ranges on a `0.x` package do not cross minors, so `^0.35` means `>=0.35.0 <0.36.0`; re-pin on every minor bump to keep receiving security updates.
 
 ## Automated security checks
 
