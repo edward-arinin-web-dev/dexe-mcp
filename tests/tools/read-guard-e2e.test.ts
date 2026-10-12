@@ -242,17 +242,20 @@ describe("fan-out and cancellation", () => {
   });
 
   it("cancelling the call aborts the in-flight requests and starts none of the queued ones", async () => {
-    mode.topDelayMs = 1_000;
+    mode.topDelayMs = 2_000;
     const ctrl = new AbortController();
     const pending = call("dexe_read_protocol_stats", { chainIds: [1, 2, 3, 4, 5, 6, 7, 8] }, ctrl.signal);
-    await new Promise((r) => setTimeout(r, 300));
-    const inFlight = hits.filter((h) => /\/pools\/gov\/top/.test(h)).length;
+    const tops = () => hits.filter((h) => /\/pools\/gov\/top/.test(h)).length;
+    // Wait until the first batch is in flight (polled: CI can be slow to get there).
+    for (let i = 0; i < 100 && tops() < 4; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+    const inFlight = tops();
     ctrl.abort();
     await pending.catch(() => undefined);
     // Past the point where the first four would have answered and the
     // queued four would have started, had the abort been ignored.
-    await new Promise((r) => setTimeout(r, 1_500));
-    const after = hits.filter((h) => /\/pools\/gov\/top/.test(h)).length;
+    await new Promise((r) => setTimeout(r, 2_500));
+    const after = tops();
     expect(inFlight).toBe(4);
     expect(after).toBe(inFlight);
     expect(closedEarly).toBeGreaterThanOrEqual(4);
