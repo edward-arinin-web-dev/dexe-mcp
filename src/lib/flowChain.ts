@@ -25,8 +25,8 @@ const flowContextObject = z.object({
  * the value it was handed is the value the server rejected. The preprocess is a
  * server-side net, not a widened contract — `z.union([object, string])` would
  * publish an `anyOf` on four composite schemas and cost `tools/list` bytes for
- * a shape nobody should send. ZodEffects is emitted by the SDK's
- * zod-to-json-schema bridge as its INNER schema, so the advertised JSON Schema
+ * a shape nobody should send. A transform/preprocess is emitted by the SDK's
+ * JSON Schema converter as its INNER schema, so the advertised JSON Schema
  * stays byte-identical to the pre-0.34.0 object form.
  */
 export const flowContextSchema = z

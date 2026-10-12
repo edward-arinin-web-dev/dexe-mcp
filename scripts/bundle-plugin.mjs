@@ -28,8 +28,34 @@ const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 
 mkdirSync(outDir, { recursive: true });
 
+// `dist/index.js` loads the doctor with `await import("./cli/doctor.js")`.
+// In a single-file bundle esbuild answers a dynamic import by wrapping the
+// target AND everything only it reaches in a lazy `init_*()` closure. The
+// doctor pulls in zod (the env schema), so zod 4 got wrapped and the MCP SDK's
+// top-level `custom(...)` calls ran before `ZodCustom` was assigned: the
+// bundle died on load with "Class2 is not a constructor". Turning that one
+// import static keeps zod a plain module graph. The doctor module only defines
+// functions at load, so loading it eagerly costs nothing at startup.
+const staticDoctor = {
+  name: "static-doctor",
+  setup(b) {
+    b.onLoad({ filter: /dist[\\/]index\.js$/ }, (args) => {
+      if (resolve(args.path) !== resolve(root, "dist/index.js")) return undefined;
+      const src = readFileSync(args.path, "utf8");
+      const needle = 'await import("./cli/doctor.js")';
+      if (!src.includes(needle)) throw new Error("bundle-plugin: doctor import not found in dist/index.js");
+      return {
+        contents: src.replace(needle, "__doctorMod") + '\nimport * as __doctorMod from "./cli/doctor.js";\n',
+        loader: "js",
+        resolveDir: dirname(args.path),
+      };
+    });
+  },
+};
+
 await build({
   entryPoints: [resolve(root, "dist/index.js")],
+  plugins: [staticDoctor],
   bundle: true,
   platform: "node",
   format: "esm",

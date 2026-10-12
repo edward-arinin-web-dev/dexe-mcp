@@ -22,6 +22,21 @@ changes; the one wording change is below.
 | actions/dependency-review-action | v4 | v5 | Runtime moves to node24 (needs runner >= 2.327.1; hosted runners are fine). |
 | ossf/scorecard-action | v2.4.3 | v2.4.4 | SHA-pinned. |
 
+Two fixes ride along with the zod 4 move:
+
+- **Plugin bundle.** `npm run bundle:plugin` produced a bundle that crashed on
+  load ("Class2 is not a constructor"): the doctor is loaded with a dynamic
+  `import()`, esbuild wrapped it and zod 4 (which only it reached) in a lazy
+  initialiser, and the MCP SDK used zod before it was set up. The bundle script
+  now makes that one import static. Still a single file. A test now starts the
+  bundle over stdio and compares its tool list with `dist/index.js`.
+- **Advertised schemas.** zod 4 emits `oneOf` for discriminated unions (three
+  token-sale tools) and drops `additionalProperties: false`. `tools/list` now
+  rewrites `oneOf` to `anyOf` (OpenAI strict and Gemini reject `oneOf`) and
+  restores `additionalProperties: false` on objects that list properties, so
+  a typo such as `chainID` is caught by the client. Open maps are untouched.
+  A test checks every tool on the full profile.
+
 Deferred:
 
 - **execa 9 to 10** and **vitest 4 to 5**: both require Node >= 22, and

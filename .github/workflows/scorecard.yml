@@ -39,7 +39,7 @@ jobs:
           persist-credentials: false
 
       - name: Run Scorecard
-        # Pinned to commit SHA for v2.4.3. Tags are mutable; pinning a 3rd-party
+        # Pinned to commit SHA for v2.4.4. Tags are mutable; pinning a 3rd-party
         # action by SHA defends against the upstream account being compromised.
         # Update by running: git ls-remote https://github.com/ossf/scorecard-action.git 'vX.Y.Z^{}'
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc  # v2.4.4
