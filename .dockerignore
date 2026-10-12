@@ -1,5 +1,6 @@
-# The image copies package*.json, tsconfig.json and src/ only; this keeps the
-# build context small and makes sure no local secrets reach the Docker daemon.
+# The image copies package*.json, tsconfig.json, src/, scripts/bundle-read.mjs,
+# docs/GRAPH.md and LICENSE only; this keeps the build context small and makes
+# sure no local secrets reach the Docker daemon.
 .env
 .env.*
 !.env.example
@@ -13,10 +14,12 @@ coverage
 tests
 internal
 research
-scripts
+scripts/*
+!scripts/bundle-read.mjs
 assets
 dexe-plugin
-docs
+docs/*
+!docs/GRAPH.md
 plans
 reports
 *.log
