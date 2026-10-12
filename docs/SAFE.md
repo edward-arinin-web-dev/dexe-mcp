@@ -50,7 +50,7 @@ DEXE_SAFE_DELEGATECALL=block           # forbid operation=1 outright, overriding
   (`eth`, `bnb`, `matic`, `base`, `arb1`, `sep`, …).
 - **BSC testnet (97) has no hosted service** — set `DEXE_SAFE_TX_SERVICE_URL`
   to a self-hosted instance to use it there.
-- `dexe_get_config` shows `signerMode: "safe"` once both `DEXE_PRIVATE_KEY` and
+- `dexe_write_context` shows `signer.mode: "safe"` once both `DEXE_PRIVATE_KEY` and
   `DEXE_SAFE_TX_SERVICE_URL` are set.
 
 ---

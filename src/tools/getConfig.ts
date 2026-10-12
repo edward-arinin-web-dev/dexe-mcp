@@ -1,10 +1,11 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ReadConfig, SubgraphKind } from "../configRead.js";
-import { SUBGRAPH_KINDS } from "../configRead.js";
-import type { SignerManager } from "../lib/signer.js";
+import type { SubgraphKind } from "../configRead.js";
+import { DEFAULTS, SUBGRAPH_KINDS } from "../configRead.js";
+import type { ToolContext } from "./context.js";
 import { subgraphChains } from "../lib/subgraph.js";
 import { maskUrl } from "../lib/redact.js";
+import { gatewayHostname, resolveGateways } from "./ipfsRead.js";
 
 const CHAIN_NAMES: Record<number, string> = {
   1: "Ethereum mainnet",
@@ -16,28 +17,19 @@ const CHAIN_NAMES: Record<number, string> = {
 };
 
 /**
- * The write-edition config fields `dexe_get_config` reports (signer posture).
- * Declared structurally so this read-side file does not import the write
- * config (src/config.ts); the single server passes its `WriteConfig`. The
- * signer half of this tool moves to the write edition (D6), and this goes
- * with it.
+ * Read-only diagnostic: the resolved READ config — the chains the MCP knows
+ * about and which one tools use when `chainId` is omitted, subgraph coverage
+ * per chain and kind, the backend API, and the IPFS read gateways.
+ *
+ * READ edition (D6). Signer, Safe, WalletConnect and Pinata posture are the
+ * write edition's `dexe_write_context` (./operationalContextWrite.ts).
  */
-type GetConfigInput = ReadConfig & {
-  readonly pinataJwt?: string;
-  readonly walletConnectProjectId?: string;
-  readonly walletConnectRelayUrl?: string;
-  readonly walletConnectApprovalTimeoutMs?: number;
-};
-
-/**
- * Read-only diagnostic. Returns the chains the MCP knows about, which one is
- * the default for tools that omit `chainId`, and whether a signer is
- * available. Call this at the start of a session to orient before any write.
- */
-export function registerGetConfigTool(server: McpServer, config: GetConfigInput, signer: SignerManager): void {
+export function registerGetConfigTool(server: McpServer, ctx: ToolContext): void {
+  const { config } = ctx;
   server.tool(
     "dexe_get_config",
-    "Read-only, local. The MCP's chain set, default chain, and signer status.",
+    "Read-only, local. The resolved read config: chain set and default chain, subgraph coverage per chain, " +
+      "the backend API and the IPFS read gateways.",
     {
       _placeholder: z.boolean().optional().describe("Unused; tool takes no input."),
     },
@@ -52,34 +44,6 @@ export function registerGetConfigTool(server: McpServer, config: GetConfigInput,
           registryOverride: c.registryOverride,
         }));
 
-      const signerInfo = signer.hasSigner()
-        ? { available: true, address: signer.getAddress() }
-        : { available: false, address: null };
-
-      // How writes are dispatched:
-      //   - "readonly": no DEXE_PRIVATE_KEY → tools return unsigned TxPayloads only
-      //   - "safe":     key + DEXE_SAFE_TX_SERVICE_URL → dexe_safe_* can queue txs
-      //                 to the Safe multisig instead of broadcasting
-      //   - "eoa":      key set, no Safe service → dexe_tx_send broadcasts directly
-      //   - "walletconnect": no key, but DEXE_WALLETCONNECT_PROJECT_ID set →
-      //                 txs are forwarded to the operator's phone for approval
-      //                 (Phase B). WC wins only when no hot key is present.
-      const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined;
-      const signerMode: "readonly" | "eoa" | "safe" | "walletconnect" = signer.hasSigner()
-        ? safeServiceUrl
-          ? "safe"
-          : "eoa"
-        : config.walletConnectProjectId
-          ? "walletconnect"
-          : "readonly";
-
-      // Flag a hot key as unsafe and steer toward WalletConnect (the phone
-      // signs, so the key never touches disk).
-      const safety =
-        signerMode === "eoa" || signerMode === "safe"
-          ? "⚠️ NOT SAFE — hot key (DEXE_PRIVATE_KEY) in plaintext on disk. Recommended: unset it and run dexe_wc_connect so the phone signs."
-          : null;
-
       // A subgraph endpoint indexes exactly ONE chain (0.30.2), so "is the
       // subgraph configured?" has no chain-free answer. The flat
       // `config.subgraph*Url` fields hold only the slot named by
@@ -91,27 +55,16 @@ export function registerGetConfigTool(server: McpServer, config: GetConfigInput,
         SUBGRAPH_KINDS.map(k => [k, subgraphChains(config, k)]),
       ) as Record<SubgraphKind, number[]>;
 
+      // Hostnames only: a dedicated gateway URL can carry an access token in
+      // its path or query.
+      const gateways = resolveGateways(ctx)
+        .map(gatewayHostname)
+        .filter((h): h is string => h !== null);
+
       const result = {
         defaultChainId: config.defaultChainId,
         defaultChainName: CHAIN_NAMES[config.defaultChainId] ?? `chain ${config.defaultChainId}`,
         chains,
-        signerMode,
-        recommendedSigner: "walletconnect",
-        ...(safety ? { safety } : {}),
-        signer: signerInfo,
-        safe: {
-          txServiceConfigured: !!safeServiceUrl,
-          txServiceUrl: safeServiceUrl ?? null,
-          apiKeyConfigured: !!(process.env.DEXE_SAFE_API_KEY?.trim()),
-        },
-        walletConnect: {
-          projectIdConfigured: !!config.walletConnectProjectId,
-          relayUrl: config.walletConnectRelayUrl ?? null,
-          approvalTimeoutMs: config.walletConnectApprovalTimeoutMs ?? null,
-        },
-        ipfs: {
-          pinataConfigured: !!config.pinataJwt,
-        },
         subgraph: {
           /** Chains with at least one endpoint. Any other chain has no indexer. */
           chainsCovered: subgraphChains(config),
@@ -123,6 +76,18 @@ export function registerGetConfigTool(server: McpServer, config: GetConfigInput,
           ),
           /** Chain the unsuffixed DEXE_SUBGRAPH_*_URL vars are filed under. */
           unsuffixedVarsChainId: config.subgraphChainId,
+        },
+        backend: {
+          /** DeXe backend API base (treasury, holders, stats); null when unset. */
+          url: config.backendApiUrl ? maskUrl(config.backendApiUrl) : null,
+          /** True while it is the shared public default rather than the operator's own. */
+          sharedDefault: config.backendApiUrl === DEFAULTS.backendApiUrl,
+        },
+        ipfs: {
+          /** Read gateways, in the order dexe_ipfs_fetch tries them (hostnames). */
+          readGateways: gateways,
+          /** False when DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1 keeps the public gateways out. */
+          publicFallback: process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK !== "1",
         },
       };
 

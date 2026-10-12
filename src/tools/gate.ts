@@ -46,6 +46,9 @@ const CORE = [
   "dexe_guide",
   "dexe_doctor",
   "dexe_get_config",
+  // signer, keyring and upload/WalletConnect/Safe posture — the write half of
+  // what dexe_context and dexe_get_config reported before 0.36.0
+  "dexe_write_context",
   // composite signing flows
   "dexe_proposal_create",
   "dexe_proposal_vote_and_execute",
@@ -341,6 +344,92 @@ export const TOOLSETS: Record<string, Set<string>> = {
   agents: new Set(AGENTS),
   governor: new Set(GOVERNOR),
   dev: new Set(DEV),
+};
+
+export interface ToolsetUnlock {
+  /**
+   * What this set ADDS. Every `dexe_*` name here must be a member of
+   * `TOOLSETS[set]` — asserted by tests/tools/context-unlocks-truthfulness.test.ts,
+   * because a name in the wrong row sends the user to edit DEXE_TOOLSETS and
+   * restart for a tool the session already has.
+   */
+  unlocks: string;
+  /** Cross-reference prose; MAY name tools from other sets. Not asserted. */
+  note?: string;
+}
+
+/** How `dexe_context` describes a server's toolsets (src/tools/operationalContext.ts describeToolsets). */
+export interface ToolsetCatalog {
+  /** One "what you're missing" summary per gateable set. */
+  unlocks: Readonly<Record<string, ToolsetUnlock>>;
+  /**
+   * What the default profile already covers, quoted at the head of the enable
+   * hint ("Check the `enabled` list first — <this>, so …").
+   */
+  defaultCovers: string;
+}
+
+/**
+ * One-line "what you're missing" summary per gateable set (U5 discoverability).
+ *
+ * Wording source of truth: the Toolsets table in docs/PLAYBOOK.md — keep the
+ * two in the same commit. This is the single server's table: it names write
+ * tools, so it lives with the gate that registers them and reaches the read
+ * `dexe_context` as a parameter.
+ */
+export const TOOLSET_UNLOCKS: Record<string, ToolsetUnlock> = {
+  core: {
+    unlocks:
+      "the default surface: dexe_context / dexe_write_context / dexe_doctor / dexe_guide, the composites " +
+      "(dexe_dao_create, dexe_proposal_create — all 33 catalog types — dexe_proposal_vote_and_execute), the OTC " +
+      "composites, dexe_tx_send/dexe_tx_status + WalletConnect, IPFS uploads, and the key-free reporting reads " +
+      "(dexe_dao_report, dexe_graph_query, dexe_graph_schema, dexe_read_dao_list, dexe_read_dao_stats, " +
+      "dexe_read_dao_members, dexe_read_token_holders, dexe_read_delegation_map, dexe_read_treasury, " +
+      "dexe_read_settings, dexe_proposal_list, dexe_proposal_state, dexe_dao_info)",
+  },
+  proposals: {
+    unlocks:
+      "the ~30 single-purpose dexe_proposal_build_* calldata builders, the off-chain (backend API) proposal " +
+      "types, and dexe_auth_login — the pre-0.31.0 default, restored verbatim",
+    note:
+      "NOT needed to create a proposal: dexe_proposal_create is already in the default profile and covers " +
+      "every on-chain catalog type.",
+  },
+  read: {
+    unlocks:
+      "the long-tail reads the default profile leaves out: dexe_read_multicall, dexe_read_nfts, " +
+      "dexe_read_validators, dexe_read_protocol_stats, dexe_read_expert_status, dexe_read_staking_info, " +
+      "the token-sale/distribution reads, dexe_read_user_activity, dexe_read_dao_experts, " +
+      "dexe_read_validator_list, dexe_proposal_voters, dexe_user_inbox, dexe_proposal_forecast, " +
+      "dexe_proposal_risk_assess, dexe_ipfs_cid_info",
+    note:
+      "The zero-config reporting reads (dao list/stats/members, token_holders, delegation_map, graph_query) " +
+      "are ALREADY in the default profile — enable `read` only for the names above.",
+  },
+  vote: {
+    unlocks:
+      "delegate/undelegate to experts, claim_rewards, staking, NFT multiplier, cancel_vote, validator_vote",
+  },
+  agents: {
+    unlocks:
+      "multi-agent keyring: dexe_agents_list (personas + addresses), dexe_agents_fund (guarded funding), " +
+      "dexe_agents_ledger (who did what, spend per persona)",
+  },
+  governor: {
+    unlocks: "dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs (Uniswap, Compound, Optimism…)",
+  },
+  dev: {
+    unlocks:
+      "dexe_compile + contract introspection (dexe_get_abi / dexe_get_methods / dexe_find_selector), " +
+      "dexe_dao_build_deploy, simulate/decode, merkle, safe",
+  },
+};
+
+/** The single server's toolset catalog, handed to `dexe_context` by src/tools/index.ts. */
+export const TOOLSET_CATALOG: ToolsetCatalog = {
+  unlocks: TOOLSET_UNLOCKS,
+  defaultCovers:
+    "the default profile already includes dexe_proposal_create (all 33 proposal types) and the reporting reads",
 };
 
 /**

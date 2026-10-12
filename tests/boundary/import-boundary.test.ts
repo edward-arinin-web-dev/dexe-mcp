@@ -44,12 +44,6 @@ const SRC = join(REPO, "src");
 const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
   "instructions.ts -> lib/resumeContract.ts":
     "the handshake text carries the write resume rule. Gone when each edition gets its own instructions.",
-  "tools/getConfig.ts -> lib/signer.ts":
-    "dexe_get_config reports signer mode. Gone when the signer half moves to a write-edition context tool.",
-  "tools/operationalContext.ts -> lib/agentLedger.ts":
-    "dexe_context reports the persona keyring. Gone when that moves to a write-edition context tool.",
-  "tools/operationalContext.ts -> lib/signer.ts":
-    "dexe_context reports signer mode and persona balances. Gone when that moves to a write-edition context tool.",
 };
 
 /**

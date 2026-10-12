@@ -9,16 +9,18 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
 import { SignerManager } from "../../src/lib/signer.js";
-import { keyringReport } from "../../src/tools/operationalContext.js";
+import { keyringReport } from "../../src/tools/operationalContextWrite.js";
 import { getAgentLedger, __resetAgentLedgerCache } from "../../src/lib/agentLedger.js";
 
 /**
- * ── dexe_context reports the fleet ─────────────────────────────────────────
+ * ── dexe_write_context reports the fleet ───────────────────────────────────
  *
  * An orchestrating agent cannot plan a multi-persona run it cannot see. Before
  * 0.32.0 the keyring was fully wired — parsed from env, resolvable by
  * `SignerManager`, threaded through every composite — and reported by nothing
  * the model calls at session start. `dexe_context` said "signer: one address".
+ * 0.32.0 put the fleet on `dexe_context`; 0.36.0 moved it, with the rest of the
+ * signer posture, to the write edition's `dexe_write_context`.
  *
  * It must show the personas WITHOUT ever showing a key: the whole reason the
  * keyring is safe to expose is that only labels and 20-byte addresses leave the
@@ -71,7 +73,7 @@ async function callContext(args: Record<string, unknown> = {}) {
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(st), client.connect(ct)]);
   const res = (await client.callTool({
-    name: "dexe_context",
+    name: "dexe_write_context",
     arguments: { includeDepositedPower: false, includeAgentBalances: false, ...args },
   })) as { content: { type: string; text: string }[] };
   const text = res.content[0]!.text;
@@ -80,7 +82,7 @@ async function callContext(args: Record<string, unknown> = {}) {
   return { parsed: JSON.parse(text), text };
 }
 
-describe("dexe_context — the agent keyring is discoverable", () => {
+describe("dexe_write_context — the agent keyring is discoverable", () => {
   it("lists every configured persona with the signerKey to pass and its address", async () => {
     scratch();
     process.env.DEXE_PRIVATE_KEY = PK_PRIMARY;

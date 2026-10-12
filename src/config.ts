@@ -6,7 +6,7 @@ import { ENV_SPEC } from "./env/schema.js";
 import { safeErrorMessage } from "./lib/redact.js";
 import { resolveTreasuryGuardMode, type TreasuryGuardMode } from "./lib/treasuryGate.js";
 import {
-  DEFAULTS,
+  DEFAULTS as READ_DEFAULTS,
   applyEnvSpec,
   assembleReadConfig,
   createIssueSink,
@@ -34,6 +34,24 @@ import {
  * directly — never this file (tests/boundary/import-boundary.test.ts).
  */
 export * from "./configRead.js";
+
+/**
+ * Baked defaults only the write edition uses. Same terms as the read
+ * `DEFAULTS` (./configRead.ts): they ship publicly on npm + GitHub, the
+ * WalletConnect project id is shared, heavy users set their own (dexe_doctor
+ * advises this).
+ */
+export const WRITE_DEFAULTS = {
+  walletConnectProjectId: "d3b16069bf12d7cdb9acbc4947b5ed33",
+} as const;
+
+/**
+ * The single server's view of every baked default: the read table plus
+ * WRITE_DEFAULTS. Shadows the read `DEFAULTS` that `export *` above would
+ * re-export, so pre-split importers of `DEFAULTS.walletConnectProjectId` keep
+ * compiling; read code imports ./configRead.ts and never sees the WC id.
+ */
+export const DEFAULTS = { ...READ_DEFAULTS, ...WRITE_DEFAULTS } as const;
 
 /** The dev toolchain's fields (dexe_compile, dexe_test, introspection). */
 export interface DevConfig {
@@ -347,7 +365,7 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
   // Falls back to the baked shared project id so phone-approval signing is
   // available out of the box; a user `.env` overrides with their own.
   const wcFromEnv = process.env.DEXE_WALLETCONNECT_PROJECT_ID?.trim() || undefined;
-  const walletConnectProjectId = wcFromEnv || DEFAULTS.walletConnectProjectId;
+  const walletConnectProjectId = wcFromEnv || WRITE_DEFAULTS.walletConnectProjectId;
   const walletConnectRelayUrl =
     process.env.DEXE_WALLETCONNECT_RELAY_URL?.trim() || "wss://relay.walletconnect.com";
   let walletConnectApprovalTimeoutMs = 120000;

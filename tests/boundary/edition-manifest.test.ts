@@ -20,11 +20,11 @@ describe("edition manifest", () => {
     full = await listTools("full");
   });
 
-  it("has 54 read and 114 write tools, no duplicates", () => {
+  it("has 54 read and 115 write tools, no duplicates", () => {
     expect(dupes(READ_TOOLS), "listed twice in READ_TOOLS").toEqual([]);
     expect(dupes(WRITE_TOOLS), "listed twice in WRITE_TOOLS").toEqual([]);
     expect(READ_TOOLS.length).toBe(54);
-    expect(WRITE_TOOLS.length).toBe(114);
+    expect(WRITE_TOOLS.length).toBe(115);
   });
 
   it("the two editions are disjoint", () => {

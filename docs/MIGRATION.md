@@ -6,6 +6,67 @@ something on your side.
 
 ---
 
+## 0.35.0 → 0.36.0 — read this if you read the signer from dexe_context or dexe_get_config
+
+Tool count **169 tools** / 19 groups (was 168): new **`dexe_write_context`**,
+in the default `core` profile (45 tools). No emitted calldata changed, no tool
+was renamed, and no write tool's input changed.
+
+Orientation is split the way the server itself is being split. `dexe_context`
+and `dexe_get_config` report read-side state only; everything about signing
+moved to `dexe_write_context`.
+
+1. **The signer, keyring and upload posture moved off `dexe_context`.**
+
+   | Was (`dexe_context`) | Now |
+   |---|---|
+   | `signer.mode`, `signer.address` | `dexe_write_context` → `signer.mode`, `signer.address` |
+   | `keyring` (whole object) | `dexe_write_context` → `keyring` (same shape) |
+   | `env.ipfsUploads` | `dexe_write_context` → `ipfsUploads.pinataConfigured` |
+   | `env.walletConnectAvailable` | `dexe_write_context` → `walletConnect.available` |
+   | `"walletconnect"` in `env.usingSharedDefaults` | `dexe_write_context` → `walletConnect.sharedDefaultProjectId` |
+   | `activeFlow` and the "Mid-journey" hint | `dexe_write_context` → `activeFlow` + `hint` (`dexe_guide` still reports it in `context.activeFlow`) |
+   | `lastDaoPower` for the signer | `dexe_write_context` → `lastDaoPower`; or `dexe_context {user: "0x…"}` for any wallet |
+   | inputs `includeDepositedPower`, `includeAgentBalances` | inputs of `dexe_write_context`; `dexe_context` ignores them |
+
+   `dexe_context` keeps chains, env readiness (`rpcConfigured`,
+   `usingPublicRpcFallback`, `ipfsReads`, the subgraph fields,
+   `backendOffchain`, `usingSharedDefaults` for rpc / subgraph / backend),
+   `toolsets`, and the recorded `knownDaos` / `recentProposals` /
+   `walletLabels`. Its new optional `user` input reports that wallet's
+   deposited power in the newest recorded DAO (`lastDaoPower.user` says whose).
+
+2. **`dexe_get_config` no longer reports the signer.**
+
+   | Was (`dexe_get_config`) | Now (`dexe_write_context`) |
+   |---|---|
+   | `signerMode` | `signer.mode` |
+   | `recommendedSigner` | `signer.recommended` |
+   | `safety` | `signer.safety` |
+   | `signer.available`, `signer.address` | `signer.address` (null = no hot key) |
+   | `safe.txServiceConfigured`, `.txServiceUrl`, `.apiKeyConfigured` | `safe.*` (the URL is now masked) |
+   | `walletConnect.projectIdConfigured`, `.relayUrl`, `.approvalTimeoutMs` | `walletConnect.available`, `.relayUrl`, `.approvalTimeoutMs` |
+   | `ipfs.pinataConfigured` | `ipfsUploads.pinataConfigured` |
+
+   It gains `backend` (`url`, masked; `sharedDefault`) and `ipfs`
+   (`readGateways` — hostnames in the order `dexe_ipfs_fetch` tries them;
+   `publicFallback`). `chains`, `defaultChainId` and `subgraph` are unchanged.
+
+3. **What to do.** If a script, prompt or skill of yours reads `signer`,
+   `keyring` or `activeFlow` from `dexe_context`, or `signerMode` / `safe` /
+   `walletConnect` from `dexe_get_config`, read them from `dexe_write_context`
+   instead. Nothing else changes: if you only orient on chains and known DAOs,
+   no action.
+
+4. **Wording changes in read tools** (no field changed): the `read_dao_data`
+   guide topic, the `multicall-signature-form` gotcha, the
+   `dexe_otc_list_sales_for_dao` description and error, the `dexe_user_inbox`
+   description and the public-RPC hint no longer send an agent to a write tool.
+   The full list is in the CHANGELOG. If you snapshot those texts, or the
+   handshake instructions (now 2,041 characters), re-baseline them.
+
+---
+
 ## 0.34.1 → 0.35.0 — no action
 
 Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.

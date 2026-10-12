@@ -112,12 +112,16 @@ const READ = [
   "tools/context.ts",
   "tools/dao.ts",
   "tools/doctor.ts",
+  // dexe_get_config: chains, subgraph coverage, backend, IPFS read gateways
+  "tools/getConfig.ts",
   "tools/gov.ts",
   // dexe_guide over whatever Knowledge it is handed; write extras come in as a hook
   "tools/guide.ts",
   "tools/inbox.ts",
   // dexe_ipfs_fetch, dexe_ipfs_cid_info, the gateway chain and the IPFS error sink
   "tools/ipfsRead.ts",
+  // dexe_context: chains, env readiness, toolsets, recorded DAOs (no signer)
+  "tools/operationalContext.ts",
   "tools/predict.ts",
   "tools/proposal.ts",
   "tools/read.ts",
@@ -209,6 +213,8 @@ const WRITE = [
   // the Pinata uploads, generated avatar, profile re-upload, dexe_ipfs_cid_for_json
   "tools/ipfsWrite.ts",
   "tools/merkle.ts",
+  // dexe_write_context: signer, keyring, Pinata/WalletConnect/Safe posture, activeFlow
+  "tools/operationalContextWrite.ts",
   // OTC composites; the read-only position view is tools/tokenSaleRead.ts
   "tools/otc.ts",
   "tools/proposalBuild.ts",
@@ -232,10 +238,8 @@ const MIXED = [
   // read wizard (RPC, subgraph, gateway) + write wizard (key, Pinata, WC)
   "cli/init.ts",
   "tools/annotations.ts",
+  // TOOLSETS + TOOLSET_UNLOCKS name both editions' tools; per-edition gate is A7
   "tools/gate.ts",
-  // reports the write posture through a structural type, not the write config
-  "tools/getConfig.ts",
-  "tools/operationalContext.ts",
 ];
 
 const ROOT = [

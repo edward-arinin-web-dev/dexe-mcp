@@ -37,7 +37,7 @@ const NUDGE =
   "To ENABLE WRITES (vote / execute), connect a wallet with dexe_wc_connect (approve on your phone). " +
   "To CREATE DAOs or proposals you also need a free Pinata JWT (DEXE_PINATA_JWT) for IPFS metadata.\n" +
   "Run /dexe-setup for a guided walkthrough, or dexe_doctor to check config. " +
-  "Tip: call dexe_context first to see the current signer / chain / env state.\n" +
+  "Tip: call dexe_context first to see the chain / env state, and dexe_write_context for the signer.\n" +
   "</dexe-mcp-onboarding>";
 
 async function main() {

@@ -42,17 +42,15 @@ function splitRpcUrls(raw: string): string[] {
  * default — a standalone key that differs from the URL-embedded one produces a
  * Bearer-vs-URL mismatch at the gateway.
  *
- * These ship publicly on npm + GitHub. The Graph key is billable and the WC id
- * is shared; heavy users should set their own (dexe_doctor advises this).
- * Rotate if abused. See docs/ENVIRONMENT.md.
+ * These ship publicly on npm + GitHub. The Graph key is billable; heavy users
+ * should set their own (dexe_doctor advises this). Rotate if abused. See
+ * docs/ENVIRONMENT.md.
  *
- * `walletConnectProjectId` is a write-edition default; it stays in this table
- * until `dexe_context` (a read-side file that still reports WalletConnect
- * posture) moves that report to the write edition.
+ * Read-edition defaults only. The shared WalletConnect project id is a write
+ * default: `WRITE_DEFAULTS` in ./config.ts.
  */
 export const DEFAULTS = {
   backendApiUrl: "https://api.dexe.io",
-  walletConnectProjectId: "d3b16069bf12d7cdb9acbc4947b5ed33",
   // The Graph decentralized gateway (modern host); key embedded in the path.
   subgraphPoolsUrl:
     "https://gateway.thegraph.com/api/b860428fe3ef79a961556cf763ef2b2a/subgraphs/id/2XDP2ZxHc25n4xeDqKWTGBy5FJojS6dw4WM79oof2YLn",
