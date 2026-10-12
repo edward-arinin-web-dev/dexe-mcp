@@ -5,7 +5,8 @@ import type { Topic } from "../types.js";
  * "how do I DO X"; topics answer "how do I FIND OUT X". Same authoring rules
  * as flows: self-contained text, tool names spelled out, corrected rules only.
  *
- * READ corpus: topics cite only read gotchas (../read/gotchas.ts).
+ * READ corpus: a topic routes only to read-edition tools and cites only read
+ * gotchas (../read/gotchas.ts) — tests/knowledge/corpus-split.test.ts.
  */
 export const READ_TOPICS: readonly Topic[] = [
   {
@@ -34,8 +35,9 @@ export const READ_TOPICS: readonly Topic[] = [
           "Prefer the structured dexe_read_* tools first (dexe_read_dao_members, dexe_read_treasury, " +
           "dexe_read_user_activity, dexe_proposal_voters, …) — they return shaped, documented payloads. Reach for " +
           "dexe_graph_query when no structured tool covers the question (custom filters, joins, historical slices). " +
-          "Use dexe_read_multicall for arbitrary on-chain contract state, and dexe_sim_calldata to dry-run calldata " +
-          "without broadcasting. ALL reads are anonymous: no signer, no private key, no API key required.",
+          "Use dexe_read_multicall for arbitrary on-chain contract state, and dexe_decode_calldata / " +
+          "dexe_decode_proposal to see what a calldata blob or a proposal's actions would call. ALL reads are " +
+          "anonymous: no signer, no private key, no API key required.",
       },
       {
         heading: "Subgraph querying (dexe_graph_query)",
@@ -65,9 +67,9 @@ export const READ_TOPICS: readonly Topic[] = [
         text:
           "dexe_read_multicall reads ANY contract: each call is {target, signature, method, args} where signature " +
           "is the full fragment 'function balanceOf(address) view returns (uint256)'; all calls batch into one RPC " +
-          "round-trip. dexe_sim_calldata (dev toolset) eth_call-simulates arbitrary {to, data, value} and decodes " +
-          "revert reasons. To discover DeXe contract methods: dexe_compile once per session, then dexe_get_methods " +
-          "/ dexe_get_abi / dexe_find_selector (`dev` toolset).",
+          "round-trip. To read calldata rather than state: dexe_decode_calldata decodes '0x…' against the bundled " +
+          "DeXe ABIs (no compile step), dexe_decode_proposal fetches a GovPool proposal and decodes its actions, and " +
+          "dexe_list_gov_contract_types catalogs the DeXe governance contracts (all three in the `dev` toolset).",
       },
       {
         heading: "Toolset gating",
@@ -77,8 +79,8 @@ export const READ_TOPICS: readonly Topic[] = [
           "dexe_read_token_holders, dexe_read_delegation_map, dexe_read_treasury, dexe_read_settings, " +
           "dexe_proposal_list, dexe_proposal_state, dexe_dao_info, dexe_ipfs_fetch. The long-tail reads " +
           "(dexe_read_multicall, dexe_read_validators, dexe_read_user_activity, dexe_proposal_voters, " +
-          "dexe_user_inbox, dexe_read_staking_info, dexe_read_token_sale_*, …) need the 'read' set; " +
-          "dexe_sim_calldata needs 'dev'. If a read tool 404s, tell the user to set DEXE_TOOLSETS (e.g. " +
+          "dexe_user_inbox, dexe_read_staking_info, dexe_read_token_sale_*, …) need the 'read' set; the " +
+          "decoders (dexe_decode_calldata, dexe_decode_proposal) need 'dev'. If a read tool 404s, tell the user to set DEXE_TOOLSETS (e.g. " +
           "'core,read' or 'full') and restart — dexe_context reports which sets are off and what they unlock.",
       },
       {
@@ -104,7 +106,7 @@ export const READ_TOPICS: readonly Topic[] = [
       "dexe_read_protocol_stats",
       "dexe_read_nfts",
       "dexe_read_multicall",
-      "dexe_sim_calldata",
+      "dexe_decode_calldata",
       "dexe_proposal_voters",
     ],
     gotchaIds: ["quorum-two-units", "subgraph-backend-mainnet-only", "graph-bound-first", "multicall-signature-form"],

@@ -10,7 +10,8 @@ import type { Gotcha } from "../types.js";
  * correction lands in one place.
  *
  * Same authoring rules as the rest of the corpus (../types.ts): self-contained
- * imperatives, tool names spelled out, corrected rules only.
+ * imperatives, tool names spelled out, corrected rules only. Read text must
+ * not route an agent to a write-edition tool (tests/knowledge/corpus-split.test.ts).
  */
 export const READ_GOTCHAS: readonly Gotcha[] = [
   // ── quorum units ──────────────────────────────────────────────────────────
@@ -99,8 +100,8 @@ export const READ_GOTCHAS: readonly Gotcha[] = [
       "dexe_read_multicall calls need the FULL function fragment as `signature` — " +
       "'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, " +
       "and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single " +
-      "RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / " +
-      "dexe_get_abi (`dev` toolset).",
+      "RPC round-trip. Do not guess a DeXe fragment: dexe_list_gov_contract_types names each governance contract, " +
+      "and dexe_decode_calldata shows the exact function a known calldata calls (`dev` toolset).",
     applies: { tools: ["dexe_read_multicall"] },
   },
 ] as const;

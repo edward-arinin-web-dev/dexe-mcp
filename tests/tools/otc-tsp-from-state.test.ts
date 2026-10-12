@@ -125,7 +125,8 @@ describe("dexe_otc_list_sales_for_dao without tokenSaleProposal", () => {
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("tokenSaleProposal is required");
     expect(text(res)).toContain("dexe_dao_predict_addresses");
-    expect(text(res)).toContain("predicted.govTokenSale");
+    expect(text(res)).toContain("govTokenSale");
+    expect(text(res)).not.toContain("dexe_dao_create");
     expect(mc).not.toHaveBeenCalled();
   });
 

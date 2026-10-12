@@ -41,7 +41,7 @@ const PUBLIC_RPC_HINT =
   "\n\n[hint] this call used the shared PUBLIC BSC RPC, which rate-limits and can be flaky. " +
   "For reliability set your own endpoint in .env — DEXE_RPC_URL_MAINNET (chain 56) / " +
   "DEXE_RPC_URL_TESTNET (chain 97), e.g. an Alchemy / QuickNode / Ankr URL — then restart " +
-  "(Claude Code: quit + relaunch). Run /dexe-setup for a guided walkthrough.";
+  "(Claude Code: quit + relaunch); dexe_doctor then checks the new endpoint.";
 
 /** Backoff before retry attempt N (ms). Total worst-case wait ≈ 3.9s. */
 const RETRY_DELAYS_MS = [400, 1000, 2500];
