@@ -178,8 +178,8 @@ export function registerOperationalContextTools(
     "dexe_context",
     "Read-only. Session orientation — configured chains and the default, env readiness (RPC/IPFS/subgraph/backend), " +
       "which toolsets are on or hidden and what the hidden ones unlock, and the DAOs/proposals recorded in this " +
-      "install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Skip it " +
-      "when the user already named the DAO and chain. Persisted DAOs/proposals are WINDOWED; the *Total fields " +
+      "install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Not " +
+      "needed once the DAO and chain are known. Persisted DAOs/proposals are WINDOWED; the *Total fields " +
       "carry real counts.",
     {
       user: z

@@ -23,8 +23,7 @@ export interface DoctorText {
 /** The read edition's doctor: read checks only, no pin probe. */
 export const READ_DOCTOR_TEXT: DoctorText = {
   description:
-    "Read-only. Diagnoses env setup: presence + reachability checks (RPC, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. " +
-    "Call FIRST on an env-related failure. " +
+    "Read-only. Diagnoses env setup — the cause and the fix of an env-related failure: presence + reachability checks (RPC, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. " +
     "Warnings are advisories — a healthy zero-config install always has some.",
 };
 

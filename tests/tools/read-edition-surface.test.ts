@@ -26,6 +26,47 @@ const LOCAL = new Set([
 ]);
 
 const READ = new Set(READ_TOOLS);
+const WRITE = new Set(WRITE_TOOLS);
+
+/**
+ * Prose that tells the model to call another tool, or to do something first —
+ * which directory review rejects in a tool description. The last two catch the
+ * self-referential imperatives the 0.35 descriptions used ("Call this FIRST",
+ * "Never improvise … without it").
+ */
+const INSTRUCTS: readonly RegExp[] = [
+  /\bcall\b.*\bdexe_/i,
+  /\bfirst\b.*\bdexe_/i,
+  /\brun\b.*\bdexe_/i,
+  /\buse\b.*\bdexe_[a-z_]+ (first|before)/i,
+  /\bcall (this|it) first\b/i,
+  /\bnever improvise\b/i,
+];
+
+/** Every `dexe_*` token in `text` other than `self`. */
+const otherTools = (text: string, self: string): string[] =>
+  [...new Set(text.match(/dexe_[a-z0-9_]+/g) ?? [])].filter((n) => n !== self);
+
+function checkDescriptions(tools: Tool[]): string[] {
+  const bad: string[] = [];
+  for (const t of tools) {
+    const d = t.description ?? "";
+    for (const re of INSTRUCTS) if (re.test(d)) bad.push(`${t.name}: description matches ${re}`);
+    const named = otherTools(d, t.name);
+    if (named.length) bad.push(`${t.name}: description names ${named.join(", ")}`);
+  }
+  return bad;
+}
+
+/** Write-edition tool names anywhere in the published tool (title, description, every parameter). */
+function writeToolsNamed(tools: Tool[]): string[] {
+  const bad: string[] = [];
+  for (const t of tools) {
+    const named = otherTools(JSON.stringify(t), t.name).filter((n) => WRITE.has(n));
+    if (named.length) bad.push(`${t.name}: names ${named.join(", ")}`);
+  }
+  return bad;
+}
 
 function checkAnnotations(tools: Tool[]): string[] {
   const bad: string[] = [];
@@ -85,6 +126,19 @@ describe("read edition surface (wired from read modules only)", () => {
     expect(edition.tools.filter((t) => t.name.length > 64).map((t) => t.name)).toEqual([]);
   });
 
+  it("no description tells the model to call another tool, or names one", () => {
+    expect(checkDescriptions(edition.tools)).toEqual([]);
+  });
+
+  it("nothing a tool publishes names a write-edition tool", () => {
+    expect(writeToolsNamed(edition.tools)).toEqual([]);
+  });
+
+  it("descriptions stay short", () => {
+    const long = edition.tools.filter((t) => (t.description ?? "").length > 600);
+    expect(long.map((t) => `${t.name} (${t.description!.length})`)).toEqual([]);
+  });
+
   it("dexe_dao_report keeps nothing between calls", () => {
     const report = edition.tools.find((t) => t.name === "dexe_dao_report")!;
     const props = (report.inputSchema as { properties: Record<string, unknown> }).properties;
@@ -112,6 +166,14 @@ describe("read tools on the single server", () => {
 
   it("carry short human-readable titles", () => {
     expect(checkTitles(full.filter((t) => READ.has(t.name)))).toEqual([]);
+  });
+
+  it("descriptions neither instruct the model to call a tool nor name one", () => {
+    expect(checkDescriptions(full.filter((t) => READ.has(t.name)))).toEqual([]);
+  });
+
+  it("name no write-edition tool anywhere they publish", () => {
+    expect(writeToolsNamed(full.filter((t) => READ.has(t.name)))).toEqual([]);
   });
 
   it("no registered tool name is longer than 64 characters", () => {

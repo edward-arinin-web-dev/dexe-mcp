@@ -38,7 +38,7 @@ export interface GuideText {
 export const READ_GUIDE_TEXT: GuideText = {
   description:
     "Read-only, local. Reference guide for reading DeXe DAO data — querying the subgraph, the backend and the " +
-    "chain, and pulling a whole DAO report — with the tools to call for each and the known pitfalls. No args or a " +
+    "chain, and pulling a whole DAO report — with the relevant tools for each and the known pitfalls. No args or a " +
     "free-text `intent` returns the menu; `flow` returns the full topic.",
   intent:
     "The user's request in free text — matched against the topic triggers (e.g. 'weekly report on my DAO').",

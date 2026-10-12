@@ -288,13 +288,16 @@ describe("default profile names no tool it does not have", () => {
     expect(defaultNames.has("dexe_graph_schema")).toBe(true);
   });
 
-  it("annotates the on-chain fallbacks the default profile lacks", () => {
+  it("leaves the on-chain fallbacks to the error that needs them", () => {
     // chainNote() is appended to three core subgraph tools. It used to offer
-    // dexe_read_gov_state / dexe_read_multicall unqualified.
+    // dexe_read_gov_state / dexe_read_multicall unqualified, then annotated;
+    // since 0.36.0 a read description names no other tool at all (connector
+    // directory rule), and the resolver's error — the text a caller sees when
+    // a chain has no endpoint — carries the alternatives.
     const daoList = defaultTools.find((t) => t.name === "dexe_read_dao_list");
     expect(daoList, "dexe_read_dao_list must be default-visible").toBeDefined();
     const desc = daoList!.description ?? "";
-    expect(desc).toContain("dexe_read_multicall (needs DEXE_TOOLSETS=core,read)");
-    expect(desc).toContain("dexe_read_gov_state (needs DEXE_TOOLSETS=core,dev)");
+    expect(desc).not.toMatch(/dexe_read_multicall|dexe_read_gov_state/);
+    expect(desc).toContain("an error that names the on-chain reads to use instead");
   });
 });

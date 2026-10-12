@@ -216,7 +216,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext, state?: 
         "Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked " +
         `deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that ` +
         `chain's pools subgraph (limit 50; ${discoveryNote}); on a chain with none the DAOs this install's local ` +
-        "state records on that chain (dexe_context's list) are scanned instead, else pass `daos[]` — the scan itself is pure " +
+        "state records on that chain are scanned instead, else pass `daos[]` — the scan itself is pure " +
         "on-chain. The reply echoes `indexedChainId` and `daoSource`.",
       inputSchema: {
         user: z.string().describe("User wallet address"),
