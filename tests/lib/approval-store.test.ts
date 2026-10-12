@@ -171,6 +171,20 @@ describe("state machine", () => {
     expect(store.resumeNoteFor("dexe_tx_send", FROM, 97)).toBeUndefined();
   });
 
+  it("forgets closed approvals long after they stop mattering (memory stays flat)", () => {
+    const c = clock();
+    const store = new ApprovalStore({ ttlMs: 60_000, now: c.now });
+    const old = store.create(batch());
+    store.decline(old.approvalId);
+    c.advance(2 * 10 * 60_000 - 1);
+    store.create(batch({ tool: "dexe_tx_send" }));
+    expect(store.get(old.approvalId)).toBeDefined(); // still inside 2× the cooldown
+    c.advance(2);
+    store.create(batch({ tool: "dexe_dao_create" }));
+    expect(store.get(old.approvalId)).toBeUndefined();
+    expect(store.getByToken(old.pathToken)).toBeUndefined();
+  });
+
   it("only a pending approval can be approved", () => {
     const store = new ApprovalStore({ ttlMs: 900_000 });
     const r = store.create(batch());

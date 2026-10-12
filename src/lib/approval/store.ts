@@ -137,6 +137,7 @@ export class ApprovalStore {
 
   create(input: NewApproval): ApprovalRecord {
     const t = this.now();
+    this.prune(t);
     const rec: ApprovalRecord = {
       approvalId: `apr_${token(9)}`,
       pathToken: token(24),
@@ -354,6 +355,21 @@ export class ApprovalStore {
   }
 
   // ---- internals ---------------------------------------------------------------
+
+  /**
+   * Forget closed approvals once nothing can still refer to them: past the
+   * decline cooldown and the TTL (so dexe_tx_approval_status keeps answering
+   * for a while). Keeps a long session's memory flat.
+   */
+  private prune(t: number): void {
+    const keepMs = Math.max(this.cooldownMs, this.opts.ttlMs) * 2;
+    for (const [id, r] of this.records) {
+      if (TERMINAL.has(r.status) && (r.decidedAt ?? r.createdAt) + keepMs < t) {
+        this.records.delete(id);
+        this.byToken.delete(r.pathToken);
+      }
+    }
+  }
 
   private flowKey(tool: string, from: string, chainId: number): string {
     return `${tool}|${from.toLowerCase()}|${chainId}`;

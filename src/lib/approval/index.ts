@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { registerLedgerSecrets } from "../agentLedger.js";
 import { decryptKeystore, isWrongPasswordError, KeystoreAddressMismatchError } from "../keystore.js";
 import { ApprovalServer, type ApproveAttempt } from "./server.js";
 import { ApprovalStore, dataHashOf, type ApprovalRecord, type StoreOptions } from "./store.js";
@@ -105,6 +106,9 @@ export class ApprovalManager {
       }
       return { kind: "error", message: "The keystore could not be decrypted — nothing was signed." };
     }
+    // Digest only: lets the ledger scrubber recognise this key if it ever
+    // surfaced in some free-text field, as it does for hot keys.
+    registerLedgerSecrets([account.privateKey]);
     const signer = new ApprovedSigner(record.approvalId, account.address, account.privateKey, record.chainId, record.expected, {
       store: this.store,
       connect: (pk) => this.opts.connect(pk, record.chainId),

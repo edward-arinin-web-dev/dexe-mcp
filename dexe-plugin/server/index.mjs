@@ -137747,8 +137747,8 @@ function describeTx(tx) {
 }
 
 // dist/lib/approval/index.js
-init_keystore();
 import { readFileSync as readFileSync10 } from "node:fs";
+init_keystore();
 
 // dist/lib/approval/server.js
 import { createServer } from "node:http";
@@ -137957,6 +137957,7 @@ var ApprovalStore = class {
   }
   create(input3) {
     const t2 = this.now();
+    this.prune(t2);
     const rec = {
       approvalId: `apr_${token(9)}`,
       pathToken: token(24),
@@ -138161,6 +138162,20 @@ var ApprovalStore = class {
     });
   }
   // ---- internals ---------------------------------------------------------------
+  /**
+   * Forget closed approvals once nothing can still refer to them: past the
+   * decline cooldown and the TTL (so dexe_tx_approval_status keeps answering
+   * for a while). Keeps a long session's memory flat.
+   */
+  prune(t2) {
+    const keepMs = Math.max(this.cooldownMs, this.opts.ttlMs) * 2;
+    for (const [id2, r2] of this.records) {
+      if (TERMINAL.has(r2.status) && (r2.decidedAt ?? r2.createdAt) + keepMs < t2) {
+        this.records.delete(id2);
+        this.byToken.delete(r2.pathToken);
+      }
+    }
+  }
   flowKey(tool, from10, chainId) {
     return `${tool}|${from10.toLowerCase()}|${chainId}`;
   }
@@ -139298,6 +139313,7 @@ var ApprovalManager = class {
       }
       return { kind: "error", message: "The keystore could not be decrypted \u2014 nothing was signed." };
     }
+    registerLedgerSecrets([account.privateKey]);
     const signer = new ApprovedSigner(record2.approvalId, account.address, account.privateKey, record2.chainId, record2.expected, {
       store: this.store,
       connect: (pk) => this.opts.connect(pk, record2.chainId),
