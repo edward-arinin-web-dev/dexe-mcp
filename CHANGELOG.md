@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.37.0 — unreleased
+
+Tool count unchanged for `dexe-mcp` (169 tools). Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0361--0370--read-this-if-you-run-serve-http).
+
+### Added — `dexe-mcp-read`, the read-only edition
+A second binary in the package: `dexe-mcp-read` (stdio) and
+`dexe-mcp-read serve-http` (MCP Streamable HTTP). It serves exactly the 54 read
+tools (`READ_TOOLS` in `src/editions.ts`) and identifies as `dexe-mcp-read` in
+the handshake, with the read instructions. Docs: [docs/REMOTE.md](./docs/REMOTE.md).
+
+- **Read code only.** `createReadServer(config, { remote, version })`
+  (`src/read/server.ts`) registers the read tools from read modules, with the
+  read annotation table, the tools/list schema normalizer, the read-result guard
+  (cancellation, secret scrub, 256 KB cap) and the read knowledge corpus behind
+  `dexe_guide`. Nothing that signs, broadcasts, pins or builds calldata is
+  loaded: `tests/read/module-graph.test.ts` walks the import graph from the
+  binary (no write or root module; packages limited to the MCP SDK, ethers,
+  zod, multiformats and p-limit) and records every module the built binary
+  loads in a live session with signing keys in its `.env` and env (none of
+  `lib/signer`, `lib/walletconnect`, `lib/writeErrors`, `lib/ipfsPin`,
+  `lib/pinata`, `config`, `tools/index`). No `Wallet`, `SignerManager` or
+  `WalletConnectManager` is ever constructed.
+- **Resources rendered from read sources:** `dexe://graph-schema`
+  (docs/GRAPH.md), `dexe://tools` (a catalog of exactly the tools the server
+  registered) and `dexe://playbook` (the read topics, pitfalls and the READ
+  failure table). No prompts.
+- **Keeps nothing between calls**, on stdio and over HTTP: no `state.json`, no
+  `reports.json`. `dexe_dao_report` publishes no `persist` input and answers
+  `since: "last"` with a request for an explicit anchor. A program embedding
+  `createReadServer` may pass its own `reportStore`; a remote server refuses one.
+- **stdio** reads `.env` from the same candidates as `dexe-mcp`, then deletes
+  every write-edition variable from its process (signing and agent keys,
+  Pinata, WalletConnect, Safe, the dev toolchain). `DEXE_TOOLSETS` is not used:
+  all 54 tools are always served.
+- **Remote mode** (`remote: true`, what `serve-http` runs) redacts the
+  diagnostics: `dexe_doctor` returns upstream rows only — no env files, paths,
+  set variables, rejected values, start time, endpoint hostnames or
+  remediation — plus a `note` and a `rejectedSettings` count; `dexe_context` and
+  `dexe_get_config` name no RPC, backend or gateway host. Error remedies use
+  remote wording that never asks the caller to edit a `.env`.
+- `npm run bundle:read` (`scripts/bundle-read.mjs`) bundles the binary and its
+  five packages into one file — what the Docker image runs.
+
+### Changed — `serve-http` serves the read edition
+- `dexe-mcp serve-http` starts `dexe-mcp-read serve-http` in a child process
+  (same flags, env and logs), so the HTTP process never loads the full server's
+  code. The interim `registerAll` wrapper and its remote guard are gone; config
+  comes from the read loader.
+- It now serves all 54 read tools (it served the 35 in both the `read` profile
+  and the read edition) and the three read resources.
+- Server instances are pooled across requests (a finished one serves the next
+  request on a fresh transport, after forgetting the previous caller's
+  `initialize`), and the `tools/list` answer is computed once per process.
+  Per-request CPU: about 1 ms for `initialize`, `tools/list` and a local tool
+  call, down from 8–11 ms; 400 concurrent `tools/list` 3.7 s → 0.9 s.
+- `DEXE_TOOLSETS` and `DEXE_STATE_PATH` no longer pass the env allowlist.
+- The `listening` log line carries `server: "dexe-mcp-read"` and
+  `preRelease: true` (was `experimental: true`); `--help` says PRE-RELEASE.
+- Docker: the image runs the bundled read binary — no `node_modules`, none of
+  the write edition's dependencies. 537 MB → 330 MB (the rest is the
+  `node:22-slim` base).
+
+### Changed — read code names no write tool or setup skill
+- `ArtifactsMissingError` says decoding uses the bundled ABI snapshot; the dev
+  tools keep their "Run dexe_compile first" remedy.
+- The `dexe_decode_calldata` no-match hint naming `dexe_find_selector` comes
+  from the full server only (it has the dev tools).
+- The shared-Graph-key hint on subgraph errors and the public-gateway hint on
+  IPFS errors name the variables to set instead of `/dexe-setup` (both servers).
+- `dexe_doctor`: the `env.file` wording and the `/dexe-setup` pointer are the
+  full server's own; the read edition's say neither, and its doctor has no
+  `state.path` row. The full server's doctor output is unchanged.
+- The read failure table's `subgraph-failed` remedy carries no `DEXE_TOOLSETS`
+  hints (the read server has no profiles); the full server keeps its wording.
+- Without a state store (the read edition), `dexe_context` takes no inputs and
+  its description no longer mentions recorded DAOs.
+
 ## 0.36.1 — 2026-10-12
 
 ### Fixed — `dexe-mcp` did nothing when installed with npm on Linux or macOS
