@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.35.1 — unreleased
+
+### Dependencies
+October Dependabot triage, consolidated into one change. No tool behaviour
+changes; the one wording change is below.
+
+| Package | From | To | Note |
+| --- | --- | --- | --- |
+| zod | 3.25.76 | 4.6.5 | Major. `z.record` now takes key and value schemas; `errorMap` became `error`; `z.unknown()` fields are now required unless marked `.optional()`, so the ones in tool schemas were marked (otherwise outputs without `metadata`/`body`/`json` would fail validation). Out-of-range `pageSize` errors now read "Too big: expected number to be <=100". |
+| typescript | 5.9.3 | 7.0.2 | Major (native compiler). `typecheck` and `build` unchanged and clean. |
+| p-limit | 6.2.0 | 7.3.3 | Major. Node >= 20; we only use `pLimit(1)`. |
+| @walletconnect/universal-provider | 2.23.9 | 2.26.0 | |
+| ethers | 6.16.0 | 6.17.0 | |
+| tsx | 4.22.0 | 4.23.15 | |
+| @types/node | 22.19.19 | 22.20.5 | Stays on the 22 line. |
+| source-map-js | 1.2.1 | 1.2.2 | Transitive (vite/postcss). |
+| actions/checkout | v6.1.0 | v7.0.1 | SHA-pinned where it was pinned. |
+| actions/setup-node | v6.5.0 | v7.0.0 | No longer exports a dummy `NODE_AUTH_TOKEN`. |
+| actions/upload-artifact | v4 | v7 | Scorecard SARIF upload only; one zipped file, no change needed. |
+| actions/dependency-review-action | v4 | v5 | Runtime moves to node24 (needs runner >= 2.327.1; hosted runners are fine). |
+| ossf/scorecard-action | v2.4.3 | v2.4.4 | SHA-pinned. |
+
+Deferred:
+
+- **execa 9 to 10** and **vitest 4 to 5**: both require Node >= 22, and
+  `engines` is `>=20.12.0` with Node 20 in the CI matrix. Taking either means
+  dropping Node 20 support first. execa 10 also turns the subprocess into a
+  plain promise (`src/hardhat.ts` would need a re-read); vitest 5 passed the
+  full suite locally on Node 24.
+- **@types/node 22 to 26**: would type APIs that Node 20 and 22 do not have.
+  Revisit with the Node 20 drop.
+
 ## 0.35.0 — 2026-10-12
 
 ### Fixed — a third of the MCP handshake never reached the model

@@ -62,10 +62,10 @@ jobs:
     steps:
       - name: Checkout
         # Pinned to a commit SHA — tags are mutable, and a compromised upstream
-        # account could repoint `v6` at arbitrary code inside a job that holds
+        # account could repoint `v7` at arbitrary code inside a job that holds
         # publish rights. Resolve an update with:
-        #   gh api repos/actions/checkout/git/ref/tags/v6 -q .object.sha
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+        #   gh api repos/actions/checkout/git/ref/tags/v7 -q .object.sha
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # Full history + tag objects so `git verify-tag` can read the
           # annotated tag and its GPG signature (shallow checkout omits them).
@@ -101,8 +101,8 @@ jobs:
 
       - name: Setup Node
         # Pinned to a commit SHA — see the checkout step. Resolve an update with:
-        #   gh api repos/actions/setup-node/git/ref/tags/v6 -q .object.sha
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
+        #   gh api repos/actions/setup-node/git/ref/tags/v7 -q .object.sha
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         # Node 24 ships npm 11.x. OIDC trusted publishing needs npm >= 11.5.1,
         # and Node 22's bundled npm 10.x is below that line — hence 24 here even
         # though the package supports Node >= 20.12 at runtime.

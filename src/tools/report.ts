@@ -670,17 +670,17 @@ const SECTION_ENVELOPE = z.object({
   /** The tool to call for the missing part, when one exists. */
   followUp: z.string().optional(),
   /** Section payload; shapes are documented per section in docs/REPORTING.md. */
-  data: z.record(z.unknown()).nullable(),
+  data: z.record(z.string(), z.unknown()).nullable(),
 });
 
-const rows = z.array(z.record(z.unknown()));
+const rows = z.array(z.record(z.string(), z.unknown()));
 
 /**
  * Declared so the report can be consumed by code, which is the point of a
  * recurring report: every existing subgraph tool emits `structuredContent` with
  * no `outputSchema`, so nothing downstream can be typed against them.
  *
- * Leaf rows stay `z.record(z.unknown())` rather than enumerating every subgraph
+ * Leaf rows stay `z.record(z.string(), z.unknown())` rather than enumerating every subgraph
  * field — `tools/list` ships this schema on every session, and the envelope
  * (`available` / `source` / `reason`) plus `deadlines` and `changes` are what
  * automation actually branches on.
@@ -703,6 +703,7 @@ export const DAO_REPORT_OUTPUT_SHAPE = {
   sources: z.object({
     rpc: z.object({ available: z.boolean(), reason: z.string().optional() }),
     subgraphs: z.record(
+      z.string(),
       z.object({
         available: z.boolean(),
         indexedChainId: z.number().nullable(),

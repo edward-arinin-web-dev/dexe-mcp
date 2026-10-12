@@ -96,8 +96,8 @@ export const CanonicalProposalMetadataSchema = z
     isMeta: z.boolean().optional(),
     changes: z
       .object({
-        proposedChanges: z.record(z.unknown()),
-        currentChanges: z.record(z.unknown()),
+        proposedChanges: z.record(z.string(), z.unknown()),
+        currentChanges: z.record(z.string(), z.unknown()),
       })
       .optional(),
   })

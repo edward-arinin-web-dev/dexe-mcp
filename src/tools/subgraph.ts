@@ -435,7 +435,7 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
         query: z.string().min(1).max(10_000).describe("GraphQL query document (read-only)"),
-        variables: z.record(z.unknown()).optional().describe("GraphQL variables referenced by the query"),
+        variables: z.record(z.string(), z.unknown()).optional().describe("GraphQL variables referenced by the query"),
         chainId: chainIdParam,
       },
     },

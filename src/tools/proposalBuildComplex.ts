@@ -457,7 +457,7 @@ function errorResult(message: string) {
 
 function payloadOutputSchema() {
   return {
-    metadata: z.unknown(),
+    metadata: z.unknown().optional(),
     actions: z.array(
       z.object({ executor: z.string(), value: z.string(), data: z.string() }),
     ),

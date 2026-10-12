@@ -2685,7 +2685,7 @@ export function registerFlowTools(
           "What kind of proposal to create — required in practice. 'custom' means you supply actionsOnFor. Unsure? Call dexe_proposal_catalog.",
         ),
       params: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .optional()
         .describe("Type-specific builder inputs for the chosen proposalType (recipes: tool description / dexe://playbook)."),
       title: z.string().describe("Proposal title"),
@@ -2709,7 +2709,7 @@ export function registerFlowTools(
         data: z.string().describe("0x-hex calldata for the action."),
       })).default([]).describe("Actions run when the proposal passes. Required for proposalType:'custom'."),
       category: z.string().optional().describe("Proposal category (included in IPFS metadata)."),
-      proposalMetadataExtra: z.record(z.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
+      proposalMetadataExtra: z.record(z.string(), z.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
       voteAmount: z
         .string()
         .optional()

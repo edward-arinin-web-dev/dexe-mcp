@@ -101,8 +101,8 @@ function registerCatalog(server: McpServer): void {
             implemented: z.boolean(),
           }),
         ),
-        externalMetadataShape: z.unknown(),
-        internalMetadataShape: z.unknown(),
+        externalMetadataShape: z.unknown().optional(),
+        internalMetadataShape: z.unknown().optional(),
       },
     },
     async ({ category = "all", implementedOnly = false }) => {
@@ -371,15 +371,15 @@ function registerBuildOffchain(server: McpServer, ctx: ToolContext): void {
         endpoint: z
           .string()
           .describe("Backend endpoint path, e.g. '/proposals' or '/templates/voting'"),
-        body: z.record(z.unknown()).describe("JSON body to POST"),
+        body: z.record(z.string(), z.unknown()).describe("JSON body to POST"),
         method: z.enum(["POST", "PUT", "PATCH"]).default("POST").describe("HTTP verb for the request."),
       },
       outputSchema: {
         request: z.object({
           method: z.string(),
           url: z.string(),
-          headers: z.record(z.string()),
-          body: z.unknown(),
+          headers: z.record(z.string(), z.string()),
+          body: z.unknown().optional(),
         }),
       },
     },
@@ -430,7 +430,7 @@ function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
         proposalDescription: z.string().default("").describe("Proposal body, markdown."),
       },
       outputSchema: {
-        metadata: z.unknown(),
+        metadata: z.unknown().optional(),
         actions: z.array(
           z.object({
             executor: z.string(),

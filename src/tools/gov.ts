@@ -56,7 +56,7 @@ function registerDecodeCalldata(
             sourceName: z.string().nullable(),
             signature: z.string(),
             selector: z.string(),
-            args: z.record(z.unknown()),
+            args: z.record(z.string(), z.unknown()),
             argsArray: z.array(z.unknown()),
             privileged: z.boolean().optional(),
             nested: z.array(z.unknown()).optional(),

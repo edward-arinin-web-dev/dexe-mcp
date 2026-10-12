@@ -132,7 +132,7 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
         results: z.array(
           z.object({
             success: z.boolean(),
-            value: z.unknown().nullable(),
+            value: z.unknown().nullable().optional(),
             raw: z.string(),
             error: z.string().optional(),
           }),
@@ -753,7 +753,7 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
         points: z.number().describe("Raw point count returned by the tracker"),
         returnedPoints: z.number().describe("Points in `data` after downsampling"),
         downsampled: z.boolean(),
-        data: z.array(z.record(z.unknown())),
+        data: z.array(z.record(z.string(), z.unknown())),
       },
     },
     async ({ govPool, chainId: chainIdArg, period = "7 days", maxPoints = 30 }) => {
@@ -844,10 +844,10 @@ function registerProtocolStats(server: McpServer): void {
       outputSchema: {
         chainIds: z.array(z.number()),
         period: z.string(),
-        summary: z.record(z.unknown()),
-        tvlDots: z.array(z.record(z.unknown())),
+        summary: z.record(z.string(), z.unknown()),
+        tvlDots: z.array(z.record(z.string(), z.unknown())),
         tvlDotsTotal: z.number(),
-        top: z.array(z.record(z.unknown())),
+        top: z.array(z.record(z.string(), z.unknown())),
       },
     },
     async ({ chainIds = [1, 56], period = "24 hours", maxDots = 30, topDaos = 10 }) => {
@@ -968,7 +968,7 @@ function registerNftsByWallet(server: McpServer, rpc: RpcProvider): void {
         count: z.number(),
         nextPageToken: z.string(),
         truncated: z.boolean().optional(),
-        nfts: z.array(z.record(z.unknown())),
+        nfts: z.array(z.record(z.string(), z.unknown())),
       },
     },
     async ({
@@ -1230,8 +1230,8 @@ function registerSettings(server: McpServer, rpc: RpcProvider): void {
       outputSchema: {
         govPool: z.string(),
         settings: z.string(),
-        defaultSettings: z.unknown(),
-        internalSettings: z.unknown(),
+        defaultSettings: z.unknown().optional(),
+        internalSettings: z.unknown().optional(),
       },
     },
     async ({ govPool, chainId }) => {

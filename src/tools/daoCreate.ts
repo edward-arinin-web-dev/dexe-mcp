@@ -736,7 +736,7 @@ export function registerDaoCreateTools(
       // handler (see the safeParse below), so per-field errors still name the
       // offending path. The typed surface lives on dexe_dao_build_deploy.
       params: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .optional()
         .describe(
           "ADVANCED mode: the full deployGovPool params struct. Prefer SIMPLE mode. Field-by-field schema: " +

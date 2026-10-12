@@ -87,7 +87,7 @@ const intStr = (what: string, example: string) => {
  */
 const enumStr = <T extends readonly [string, ...string[]]>(values: T) => {
   const msg = `must be one of ${values.map((v) => `\`${v}\``).join(" | ")}, e.g. ${values[0]}`;
-  return z.enum(values, { errorMap: () => ({ message: msg }) }).optional().describe(msg);
+  return z.enum(values, { error: () => msg }).optional().describe(msg);
 };
 
 /** One absolute URL. `scheme` names the shape we document, not what zod accepts. */

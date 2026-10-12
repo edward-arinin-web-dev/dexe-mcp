@@ -217,7 +217,7 @@ function registerUploadProposalMetadata(server: McpServer, ctx: ToolContext): vo
           "Proposal body; Markdown supported, converted to the Slate format the frontend expects.",
         ),
         extra: z
-          .record(z.unknown())
+          .record(z.string(), z.unknown())
           .optional()
           .describe("Extra fields merged into the metadata object."),
       },
@@ -537,7 +537,7 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
         contentType: z.string(),
         sizeBytes: z.number(),
         attempts: z.number(),
-        json: z.unknown().nullable(),
+        json: z.unknown().nullable().optional(),
       },
     },
     async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
@@ -640,7 +640,7 @@ function registerCidForJson(server: McpServer): void {
         "upload it. `pinataCid` is the dag-pb CIDv0 a real Pinata upload returns: use it wherever a CID goes " +
         "on-chain. `cid` is the json-codec CIDv1.",
       inputSchema: {
-        value: z.unknown().describe("Any JSON value to hash locally."),
+        value: z.unknown().optional().describe("Any JSON value to hash locally."),
       },
       outputSchema: {
         cid: z.string(),

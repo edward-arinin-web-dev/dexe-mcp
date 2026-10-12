@@ -349,7 +349,7 @@ function payloadOutputSchema() {
     // shape is collapsed, because this schema is paid on every default-profile
     // tool on every tools/list and nobody should be writing NEW code against it.
     // Remove no earlier than 0.36.0.
-    advisories: z.array(z.record(z.unknown())).optional().describe("Deprecated — use warnings."),
+    advisories: z.array(z.record(z.string(), z.unknown())).optional().describe("Deprecated — use warnings."),
     warnings: warningsOutputField,
   };
 }

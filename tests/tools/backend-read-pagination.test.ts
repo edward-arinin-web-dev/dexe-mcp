@@ -176,7 +176,7 @@ describe("backend paging is a round trip, not a dead end", () => {
       expect(r.isError).toBe(true);
       expect(
         (r.content as Array<{ text?: string }>).map((x) => x.text ?? "").join("\n"),
-      ).toMatch(/less than or equal to 100/);
+      ).toMatch(/(less than or equal to|<=) ?100/);
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
