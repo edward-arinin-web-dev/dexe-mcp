@@ -29,7 +29,8 @@ import { renderApprovalPage, renderClosedPage, renderNotFoundPage } from "./page
 
 export type ApproveAttempt =
   | { kind: "approved" }
-  | { kind: "wrong-password"; remaining: number; declined: boolean }
+  | { kind: "wrong-password"; remaining: number; declined: boolean; lockedMs: number }
+  | { kind: "locked"; retryAfterMs: number }
   | { kind: "error"; message: string };
 
 export interface ApprovalServerDeps {
@@ -220,15 +221,21 @@ export class ApprovalServer {
       });
       return;
     }
-    const locked = this.deps.store.lockedForMs();
-    if (locked > 0) {
-      const s = Math.ceil(locked / 1000);
+    const locked429 = (ms: number) => {
+      const s = Math.max(1, Math.ceil(ms / 1000));
       this.json(
         res,
         429,
-        { status: "locked", message: `Too many wrong passwords — try again in ${s} s.` },
+        { status: "locked", message: `Too many wrong passwords — password entry is locked; try again in ${s} s.` },
         { "Retry-After": String(s) },
       );
+    };
+    // Checked here (cheap early refusal) AND again inside the queue right
+    // before the password is verified: attempts queued behind a lockout must
+    // not run once it starts.
+    const locked = this.deps.store.lockedForMs();
+    if (locked > 0) {
+      locked429(locked);
       return;
     }
     const password = typeof body.password === "string" ? body.password : "";
@@ -236,11 +243,13 @@ export class ApprovalServer {
       this.json(res, 400, { status: "refused", message: "enter the keystore password" });
       return;
     }
-    const attempt = this.attemptChain.then(() =>
-      record.status === "pending"
+    const attempt = this.attemptChain.then((): Promise<ApproveAttempt> => {
+      const lockedNow = this.deps.store.lockedForMs();
+      if (lockedNow > 0) return Promise.resolve({ kind: "locked", retryAfterMs: lockedNow });
+      return record.status === "pending"
         ? this.deps.attemptApprove(record, password)
-        : Promise.resolve<ApproveAttempt>({ kind: "error", message: `this approval is already ${record.status}` }),
-    );
+        : Promise.resolve({ kind: "error", message: `this approval is already ${record.status}` });
+    });
     this.attemptChain = attempt.catch(() => undefined);
     let out: ApproveAttempt;
     try {
@@ -249,18 +258,27 @@ export class ApprovalServer {
       out = { kind: "error", message: "could not check the password" };
     }
     if (out.kind === "approved") {
+      const mins = Math.max(1, Math.round(this.deps.store.approvedUseWindowMs / 60_000));
       this.json(res, 200, {
         status: "approved",
-        message: "Approved. Signing now — keep this tab open to watch the transactions land.",
+        message:
+          "Approved. If the tool call is still waiting it signs now — keep this tab open to watch the transactions " +
+          `land. If it already returned, re-run it within ${mins} min; after that the key is dropped and you approve again.`,
       });
       return;
     }
+    if (out.kind === "locked") {
+      locked429(out.retryAfterMs);
+      return;
+    }
     if (out.kind === "wrong-password") {
+      const lock = out.lockedMs > 0 ? ` Password entry is now locked for ${Math.ceil(out.lockedMs / 1000)} s.` : "";
       this.json(res, 401, {
         status: out.declined ? "declined" : "wrong-password",
-        message: out.declined
-          ? "Too many wrong passwords — this approval was declined and password entry is locked for a while."
-          : `Wrong password. ${out.remaining} attempt(s) left for this approval.`,
+        message:
+          (out.declined
+            ? "Too many wrong passwords — this approval was declined."
+            : `Wrong password. ${out.remaining} attempt(s) left for this approval.`) + lock,
       });
       return;
     }

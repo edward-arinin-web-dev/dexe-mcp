@@ -17,6 +17,9 @@
  *      without a new page (cooldown).
  *   4. deviation: an approved batch cannot be spent on a tampered one — the
  *      changed call gets its own approval and nothing is signed (nonce flat).
+ *   5. global lockout: wrong guesses spread over three fresh approvals lock
+ *      password entry everywhere (the right password is then refused), and a
+ *      fourth approval is refused outright.
  *
  * Funding: a funded testnet key from the swarm environment (`E2E_FUNDER_PK`,
  * else `AGENT_PK_8`) sends the throwaway a little tBNB and, if it holds the
@@ -315,6 +318,31 @@ export async function runApprovalE2E(o: E2EOptions): Promise<E2EResult> {
         stillApproved.json?.status === "approved" &&
         nonceAfter4 === nonceBefore4,
       `approved ${eAppr.fingerprint} vs tampered ${e2Appr.fingerprint}; nonce ${nonceBefore4}→${nonceAfter4}`,
+    );
+
+    // ---- 5. global lockout + approval caps (security review fix 1) --------
+    // Wrong guesses spread over several fresh approvals add up to ONE lockout,
+    // after which even the right password is refused; a further approval is
+    // refused outright (≤ 3 waiting, ≤ 6 created per minute).
+    const nonceBefore5 = await provider.getTransactionCount(throwaway.address);
+    const l1 = await a.call("dexe_tx_send", { payload: await buildApprove(a, "0.41"), chainId: CHAIN });
+    const l2 = await a.call("dexe_tx_send", { payload: await buildApprove(a, "0.42"), chainId: CHAIN });
+    const u1 = String((l1.json?.approval as Record<string, string> | undefined)?.url ?? "");
+    const u2 = String((l2.json?.approval as Record<string, string> | undefined)?.url ?? "");
+    const guesses = [e2Appr.url!, e2Appr.url!, u1, u1, u2];
+    const codes: number[] = [];
+    for (const u of guesses) codes.push((await approveAsHuman(u, "not-the-password")).status);
+    const right = await approveAsHuman(u2, password);
+    const extra = await a.call("dexe_tx_send", { payload: await buildApprove(a, "0.43"), chainId: CHAIN });
+    const nonceAfter5 = await provider.getTransactionCount(throwaway.address);
+    record(
+      "5  global lockout across approvals: 5 guesses on 3 pages → right password refused (429); 4th approval refused",
+      codes.every((c) => c === 401) &&
+        right.status === 429 &&
+        extra.isError &&
+        extra.json?.mode === "approval_refused" &&
+        nonceAfter5 === nonceBefore5,
+      `guesses ${codes.join(",")} → right password ${right.status}; extra call mode=${String(extra.json?.mode)}; nonce ${nonceBefore5}→${nonceAfter5}`,
     );
   } finally {
     await a.close();

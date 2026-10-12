@@ -65,7 +65,7 @@ export function runInToolScope<T>(scope: ToolScope, fn: () => T): T {
 
 /** What the human has (not) done, as the tool reports it. */
 export interface ApprovalHalt {
-  status: "pending" | "declined" | "executing" | "expired";
+  status: "pending" | "declined" | "executing" | "expired" | "throttled";
   approvalId: string;
   url?: string;
   fingerprint: string;
@@ -75,8 +75,10 @@ export interface ApprovalHalt {
   /** Short human labels of the batch steps. */
   steps: string[];
   message: string;
-  /** Decline cooldown end, when declined. */
+  /** Decline cooldown end (declined), or when a new approval may be requested (throttled). */
   retryAfter?: string;
+  /** throttled: the approvals already waiting for the owner. */
+  open?: Array<{ approvalId: string; fingerprint: string; url?: string }>;
 }
 
 /** Thrown by the keystore branch when signing must wait for (or was refused by) the owner. */
@@ -90,13 +92,33 @@ export class ApprovalHaltError extends Error {
 export const AWAITING_APPROVAL_NEXT =
   "Nothing was signed yet. Tell the user to open the approval page (url) in their own browser, check the " +
   "fingerprint matches, and approve with their keystore password there — never ask for the password in chat. " +
-  "Then re-run this same call (the approved batch is signed without asking again), or wait with " +
+  "Then re-run this same call promptly — an approved batch is held only ~2 minutes (DEXE_APPROVAL_USE_S) and is " +
+  "signed without asking again — or wait with " +
   "dexe_tx_approval_status {\"approvalId\":\"<approvalId>\",\"waitMs\":60000} first.";
 
 export const DECLINED_MESSAGE = "Owner declined; nothing signed. Do not retry unless the user asks.";
 
 /** The tool result for a halted approval. `awaiting_approval` is not an error; `declined` is. */
 export function approvalHaltResult(halt: ApprovalHalt, landedThisCall: Array<{ label: string; txHash: string }> = []) {
+  if (halt.status === "throttled") {
+    const body = {
+      mode: "approval_refused",
+      status: "throttled",
+      guard: "approval-rate",
+      message: halt.message,
+      fingerprint: halt.fingerprint,
+      chainId: halt.chainId,
+      from: halt.from,
+      steps: halt.steps,
+      ...(halt.retryAfter ? { retryAfter: halt.retryAfter } : {}),
+      ...(halt.open?.length ? { waitingApprovals: halt.open } : {}),
+      ...(landedThisCall.length ? { landedThisCall } : {}),
+      next:
+        "Nothing was signed and no new page was opened. Ask the user to approve or decline the approvals already " +
+        "waiting (dexe_tx_approval_status shows them), then re-run this call — do not retry in a loop.",
+    };
+    return { content: [{ type: "text" as const, text: JSON.stringify(body, null, 2) }], isError: true };
+  }
   const body =
     halt.status === "declined"
       ? {

@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { registerLedgerSecrets } from "../agentLedger.js";
-import { decryptKeystore, isWrongPasswordError, KeystoreAddressMismatchError } from "../keystore.js";
+import {
+  decryptKeystore,
+  isWrongPasswordError,
+  KeystoreAddressMismatchError,
+  parseKeystoreMeta,
+  weakKdfReason,
+} from "../keystore.js";
 import { ApprovalServer, type ApproveAttempt } from "./server.js";
 import { ApprovalStore, dataHashOf, type ApprovalRecord, type StoreOptions } from "./store.js";
 import { ApprovedSigner, type SendCapable } from "./approvedSigner.js";
@@ -85,11 +91,23 @@ export class ApprovalManager {
 
   /** Approve with the password typed on the page. The only path from `pending` to `approved`. */
   private async attemptApprove(record: ApprovalRecord, password: string): Promise<ApproveAttempt> {
+    // Second lockout check (the server checks inside its queue too): nothing
+    // decrypts while password entry is locked.
+    const locked = this.store.lockedForMs();
+    if (locked > 0) return { kind: "locked", retryAfterMs: locked };
     let json: string;
     try {
       json = this.opts.readKeystore ? this.opts.readKeystore() : readFileSync(this.opts.keystoreFile, "utf8");
     } catch {
       return { kind: "error", message: "The keystore file could not be read — nothing was signed." };
+    }
+    // The file may have been swapped since startup: a cheap KDF turns each
+    // guess into microseconds, so it is refused here as well.
+    try {
+      const weak = weakKdfReason(parseKeystoreMeta(json));
+      if (weak) return { kind: "error", message: `${weak} Nothing was signed.` };
+    } catch {
+      return { kind: "error", message: "The keystore file is not a keystore v3 file — nothing was signed." };
     }
     let account: { address: string; privateKey: string };
     try {
@@ -98,7 +116,7 @@ export class ApprovalManager {
       if (isWrongPasswordError(e)) {
         const f = this.store.recordFailure(record.approvalId);
         this.opts.log?.(`[dexe-mcp] approval ${record.approvalId}: wrong password${f.declined ? " — auto-declined" : ""}`);
-        return { kind: "wrong-password", remaining: f.remaining, declined: f.declined };
+        return { kind: "wrong-password", remaining: f.remaining, declined: f.declined, lockedMs: f.lockedMs };
       }
       if (e instanceof KeystoreAddressMismatchError) {
         this.store.decline(record.approvalId, e.message);
@@ -171,6 +189,25 @@ export class ApprovalManager {
 
     let record = this.store.findByBatch(batchHash, "pending");
     if (!record) {
+      const admit = this.store.admitCreate();
+      if (!admit.ok) {
+        const open = this.store.open().filter((r) => r.status === "pending");
+        throw new ApprovalHaltError({
+          status: "throttled",
+          approvalId: "",
+          fingerprint: fingerprintOf(batchHash),
+          chainId: req.chainId,
+          from: req.from,
+          steps: stepLabels(req.steps),
+          message: `Not put up for approval: ${admit.reason}`,
+          retryAfter: new Date(Date.now() + admit.retryAfterMs).toISOString(),
+          open: open.map((r) => ({
+            approvalId: r.approvalId,
+            fingerprint: r.fingerprint,
+            ...(this.server.started ? { url: this.server.urlFor(r) } : {}),
+          })),
+        });
+      }
       const resumeNote = this.store.resumeNoteFor(req.tool, req.from, req.chainId);
       record = this.store.create({
         tool: req.tool,
@@ -243,7 +280,8 @@ export class ApprovalManager {
     const next: Record<string, string> = {
       pending:
         "Waiting for the owner. Ask them to approve on the page (never for the password in chat), then re-run the original call.",
-      approved: "Approved and not used yet — re-run the ORIGINAL call with the same arguments now; it signs without asking again.",
+      approved:
+        "Approved and not used yet — re-run the ORIGINAL call with the same arguments now (the approved batch is held only briefly); it signs without asking again.",
       executing: "Being signed and sent right now — check again shortly.",
       consumed: "Done — every approved transaction was sent (see landed).",
       declined: "The owner declined. Do not retry unless the user asks.",

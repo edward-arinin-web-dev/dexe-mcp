@@ -2,8 +2,9 @@ import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { keccak256, Wallet } from "ethers";
 import { encryptPrivateKey } from "../../src/lib/keystore.js";
 import { ApprovalManager } from "../../src/lib/approval/index.js";
-import { ApprovalHaltError } from "../../src/lib/approval/scope.js";
+import { ApprovalHaltError, approvalHaltResult } from "../../src/lib/approval/scope.js";
 import type { ReviewStep } from "../../src/lib/approval/review.js";
+import type { StoreOptions } from "../../src/lib/approval/store.js";
 import { approveAsHuman, csrfFromPage, declineAsHuman, rawRequest } from "../helpers/approvalHttp.js";
 
 /**
@@ -12,7 +13,8 @@ import { approveAsHuman, csrfFromPage, declineAsHuman, rawRequest } from "../hel
  * HTTP. Covers the re-run path, the blocking path, decline + cooldown, wrong
  * passwords + lockout, webdriver refusal, and the HTTP admission rules.
  */
-const FAST = { N: 2 ** 10, r: 8, p: 1 };
+// The smallest KDF keystore mode accepts (production writes 2^18). Cheaper ones are refused.
+const FAST = { N: 2 ** 17, r: 8, p: 1 };
 const KEY = Wallet.createRandom();
 const PW = "a fine keystore password";
 let keystoreJson: string;
@@ -43,7 +45,9 @@ function stepView(i: number, to: string, note?: string): ReviewStep {
   };
 }
 
-function makeManager(over: { waitMs?: number; maxFailures?: number } = {}) {
+function makeManager(
+  over: { waitMs?: number; maxFailures?: number; store?: Partial<StoreOptions>; keystore?: () => string } = {},
+) {
   const sent: Array<{ to: string; data: string }> = [];
   const m = new ApprovalManager({
     keystoreFile: "(in memory)",
@@ -51,7 +55,7 @@ function makeManager(over: { waitMs?: number; maxFailures?: number } = {}) {
     waitMs: over.waitMs ?? 0,
     ttlMs: 900_000,
     openBrowser: false,
-    readKeystore: () => keystoreJson,
+    readKeystore: over.keystore ?? (() => keystoreJson),
     connect: () => ({
       address: KEY.address,
       async sendTransaction(tx) {
@@ -61,7 +65,7 @@ function makeManager(over: { waitMs?: number; maxFailures?: number } = {}) {
     }),
     lock: (_c, task) => task(),
     log: () => undefined,
-    ...(over.maxFailures ? { storeOptions: { maxFailures: over.maxFailures } } : {}),
+    storeOptions: { ...(over.maxFailures ? { maxFailures: over.maxFailures } : {}), ...(over.store ?? {}) },
   });
   managers.push(m);
   return { m, sent };
@@ -147,7 +151,7 @@ describe("approval loop", () => {
   });
 
   it("wrong passwords count down, then auto-decline and lock password entry", async () => {
-    const { m } = makeManager({ maxFailures: 2 });
+    const { m } = makeManager({ maxFailures: 2, store: { globalFailureThreshold: 2 } });
     const halt = await pending(m);
     const first = await approveAsHuman(halt.url!, "nope nope nope");
     expect(first.status).toBe(401);
@@ -160,6 +164,83 @@ describe("approval loop", () => {
     const locked = await approveAsHuman(next.url!, PW);
     expect(locked.status).toBe(429);
     expect(locked.headers["retry-after"]).toBeTruthy();
+  });
+
+  it("review bypass 1a: guesses spread over fresh approvals hit the GLOBAL lockout; the right password is then refused", async () => {
+    const { m } = makeManager();
+    // Three fresh approvals (the pending cap), 1-wei-style variations of one call.
+    const halts = [];
+    for (const d of ["0x00000011", "0x00000012", "0x00000013"]) halts.push(await pending(m, req("dexe_tx_send", d)));
+    const guesses = [halts[0], halts[0], halts[1], halts[1]];
+    for (const h of guesses) expect((await approveAsHuman(h!.url!, "guess guess guess")).status).toBe(401);
+    const fifth = await approveAsHuman(halts[2]!.url!, "guess guess guess");
+    expect(fifth.json().message).toMatch(/locked/);
+    const right = await approveAsHuman(halts[2]!.url!, PW);
+    expect(right.status).toBe(429);
+    for (const h of halts) expect(m.view(h.approvalId)!.status).toBe("pending");
+  });
+
+  it("review bypass 1b: password attempts queued before the lockout do not run after it", async () => {
+    const { m } = makeManager();
+    const a = await pending(m, req("dexe_tx_send", "0x00000021"));
+    const b = await pending(m, req("dexe_tx_send", "0x00000022"));
+    // Fire everything at once: 5 wrong guesses, then the right password, all queued.
+    const posts = [
+      approveAsHuman(a.url!, "wrong one 1"),
+      approveAsHuman(a.url!, "wrong one 2"),
+      approveAsHuman(b.url!, "wrong one 3"),
+      approveAsHuman(b.url!, "wrong one 4"),
+      approveAsHuman(a.url!, "wrong one 5"),
+    ];
+    // Let the five wrong ones reach the queue first.
+    await new Promise((r) => setTimeout(r, 50));
+    const right = approveAsHuman(b.url!, PW);
+    const results = await Promise.all([...posts, right]);
+    expect(results[5]!.status).toBe(429);
+    expect(m.view(b.approvalId)!.status).toBe("pending");
+    expect(results.filter((r) => r.status === 200)).toHaveLength(0);
+  });
+
+  it("review bypass 1c: at most 3 approvals wait at once; more are refused, not queued", async () => {
+    const { m } = makeManager();
+    for (const d of ["0x00000031", "0x00000032", "0x00000033"]) await pending(m, req("dexe_tx_send", d));
+    const err = await m.request(req("dexe_tx_send", "0x00000034")).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApprovalHaltError);
+    const halt = (err as ApprovalHaltError).halt;
+    expect(halt.status).toBe("throttled");
+    expect(halt.open).toHaveLength(3);
+    const rendered = approvalHaltResult(halt);
+    expect(rendered.isError).toBe(true);
+    expect(JSON.parse(rendered.content[0]!.text).mode).toBe("approval_refused");
+  });
+
+  it("review bypass 1c: approval creation is rate-limited per minute", async () => {
+    const { m } = makeManager({ store: { maxPending: 100 } });
+    for (let i = 0; i < 6; i++) await pending(m, req("dexe_tx_send", `0x0000004${i}`));
+    const err = await m.request(req("dexe_tx_send", "0x00000047")).catch((e: unknown) => e);
+    expect((err as ApprovalHaltError).halt.status).toBe("throttled");
+    expect((err as ApprovalHaltError).halt.message).toMatch(/last minute/);
+  });
+
+  it("an approved batch not used within the use window is dropped (re-run gets a fresh approval)", async () => {
+    const { m } = makeManager({ store: { useWindowMs: 60 } });
+    const halt = await pending(m, req("dexe_tx_send", "0x00000051"));
+    expect((await approveAsHuman(halt.url!, PW)).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 120));
+    expect(m.view(halt.approvalId)!.status).toBe("expired");
+    const again = await pending(m, req("dexe_tx_send", "0x00000051"));
+    expect(again.approvalId).not.toBe(halt.approvalId);
+  });
+
+  it("refuses to decrypt a keystore whose KDF is too cheap (swapped after startup)", async () => {
+    const weak = await encryptPrivateKey(KEY.privateKey, PW, { N: 2 ** 10, r: 8, p: 1 });
+    // A cheap-KDF file must be refused even with the right password.
+    const { m } = makeManager({ keystore: () => weak });
+    const halt = await pending(m, req("dexe_tx_send", "0x00000061"));
+    const res = await approveAsHuman(halt.url!, PW);
+    expect(res.status).toBe(400);
+    expect(res.json().message).toMatch(/minimum 2\^17/);
+    expect(m.view(halt.approvalId)!.status).toBe("pending");
   });
 
   it("refuses the password from an automated browser (navigator.webdriver)", async () => {

@@ -125,7 +125,7 @@ describe("state machine", () => {
     const r1 = store.create(batch());
     for (let i = 0; i < 4; i++) expect(store.recordFailure(r1.approvalId).declined).toBe(false);
     expect(store.lockedForMs()).toBe(0);
-    expect(store.recordFailure(r1.approvalId)).toEqual({ declined: true, remaining: 0 });
+    expect(store.recordFailure(r1.approvalId)).toEqual({ declined: true, remaining: 0, lockedMs: 60_000 });
     expect(store.get(r1.approvalId)!.status).toBe("declined");
     expect(store.lockedForMs()).toBe(60_000);
 
@@ -134,6 +134,73 @@ describe("state machine", () => {
     const r2 = store.create(batch({ tool: "dexe_tx_send" }));
     for (let i = 0; i < 5; i++) store.recordFailure(r2.approvalId);
     expect(store.lockedForMs()).toBe(120_000);
+  });
+
+  it("the lockout is GLOBAL: wrong passwords on fresh approvals add up (review bypass: 5 approvals x 4 guesses)", () => {
+    const c = clock();
+    const store = new ApprovalStore({ ttlMs: 900_000, now: c.now, maxPending: 10, maxCreatesPerMinute: 100 });
+    const ids = [0, 1, 2, 3, 4].map((i) => store.create(batch({ tool: `t${i}` })).approvalId);
+    // One guess on each of five fresh approvals — no per-approval counter reaches 5.
+    for (let i = 0; i < 4; i++) {
+      expect(store.recordFailure(ids[i]!).lockedMs).toBe(0);
+    }
+    expect(store.lockedForMs()).toBe(0);
+    expect(store.recordFailure(ids[4]!).lockedMs).toBe(60_000);
+    expect(store.lockedForMs()).toBe(60_000);
+    // None of them was declined — the counter that bit is the global one.
+    for (const id of ids) expect(store.get(id)!.status).toBe("pending");
+  });
+
+  it("a correct password does not reset the global count, and the lockout keeps doubling for the process lifetime", () => {
+    const c = clock();
+    const store = new ApprovalStore({ ttlMs: 900_000, now: c.now, maxPending: 10, maxCreatesPerMinute: 100 });
+    const a = store.create(batch({ tool: "a" })).approvalId;
+    for (let i = 0; i < 4; i++) store.recordFailure(a);
+    store.approve(a, holder()); // the owner finally types it right
+    const b = store.create(batch({ tool: "b" })).approvalId;
+    expect(store.recordFailure(b).lockedMs).toBe(60_000); // 5th failure overall, despite the success
+    c.advance(60_000);
+    for (let i = 0; i < 5; i++) store.recordFailure(b);
+    expect(store.lockedForMs()).toBe(120_000);
+    c.advance(120_000);
+    const d = store.create(batch({ tool: "d" })).approvalId;
+    for (let i = 0; i < 5; i++) store.recordFailure(d);
+    expect(store.lockedForMs()).toBe(240_000);
+  });
+
+  it("caps open approvals and the rate at which new ones are created", () => {
+    const c = clock();
+    const store = new ApprovalStore({ ttlMs: 900_000, now: c.now });
+    const r = [0, 1, 2].map((i) => store.create(batch({ tool: `p${i}` })));
+    const full = store.admitCreate();
+    expect(full.ok).toBe(false);
+    expect(!full.ok && full.reason).toMatch(/already waiting/);
+    // Declining frees a slot, but only 6 creations per rolling minute.
+    for (const x of r) store.decline(x.approvalId);
+    for (let i = 0; i < 3; i++) {
+      expect(store.admitCreate().ok).toBe(true);
+      store.decline(store.create(batch({ tool: `q${i}` })).approvalId);
+    }
+    const rate = store.admitCreate();
+    expect(rate.ok).toBe(false);
+    expect(!rate.ok && rate.reason).toMatch(/last minute/);
+    c.advance(60_001);
+    expect(store.admitCreate().ok).toBe(true);
+  });
+
+  it("drops an approved key that is not used within the use window", () => {
+    const c = clock();
+    const store = new ApprovalStore({ ttlMs: 900_000, now: c.now, useWindowMs: 120_000 });
+    const r = store.create(batch());
+    const h = holder();
+    store.approve(r.approvalId, h);
+    c.advance(119_999);
+    expect(store.get(r.approvalId)!.status).toBe("approved");
+    c.advance(2);
+    expect(store.get(r.approvalId)!.status).toBe("expired");
+    expect(store.get(r.approvalId)!.reason).toMatch(/not used within 120 s/);
+    expect(h.drop).toHaveBeenCalled();
+    expect(store.take(r.approvalId)).toBeUndefined();
   });
 
   it("a declined batch is refused for the cooldown, then may be asked again", () => {
@@ -173,7 +240,7 @@ describe("state machine", () => {
 
   it("forgets closed approvals long after they stop mattering (memory stays flat)", () => {
     const c = clock();
-    const store = new ApprovalStore({ ttlMs: 60_000, now: c.now });
+    const store = new ApprovalStore({ ttlMs: 60_000, now: c.now, useWindowMs: 60_000 });
     const old = store.create(batch());
     store.decline(old.approvalId);
     c.advance(2 * 10 * 60_000 - 1);
@@ -257,6 +324,48 @@ describe("ApprovedSigner — ordered-only signing", () => {
     await s.signer.send({ to: B, value: "5", data: "0xabcdef01", chainId: 97 });
     await expect(s.signer.send({ to: B, value: "5", data: "0xabcdef01", chainId: 97 })).rejects.toThrow(/all were sent/);
     expect(s.sent).toHaveLength(2);
+  });
+
+  it("never forwards a caller gas limit; estimates server-side and refuses above the cap", async () => {
+    const store = new ApprovalStore({ ttlMs: 900_000 });
+    const b = batch();
+    const r = store.create(b);
+    const sent: Array<Record<string, unknown>> = [];
+    let estimate = 50_000n;
+    const signer = new ApprovedSigner(r.approvalId, FROM, "0x" + "9".repeat(64), 97, b.expected, {
+      store,
+      connect: () => ({
+        address: FROM,
+        async estimateGas() {
+          return estimate;
+        },
+        async sendTransaction(tx) {
+          sent.push(tx as unknown as Record<string, unknown>);
+          return { hash: "0x" + "1".repeat(64) } as never;
+        },
+      }),
+      lock: (task) => task(),
+    });
+    store.approve(r.approvalId, signer);
+    store.take(r.approvalId);
+    // A caller-supplied gasLimit is not even part of the accepted shape.
+    await signer.send({ to: A, value: "0", data: "0x12345678", chainId: 97, gasLimit: "999999999" } as never);
+    expect(sent[0]!.gasLimit).toBe(60_000n); // 50k estimate + 20%
+    estimate = 40_000_000n;
+    await expect(signer.send({ to: B, value: "5", data: "0xabcdef01", chainId: 97 })).rejects.toThrow(/above the .* cap/);
+    expect(sent).toHaveLength(1);
+    expect(store.get(r.approvalId)!.status).toBe("revoked");
+  });
+
+  it("never serializes or prints the key", async () => {
+    const { signer } = setup();
+    const KEY_HEX = "9".repeat(64);
+    expect(JSON.stringify({ signer })).not.toContain(KEY_HEX);
+    expect(Object.keys(signer).join(",")).not.toMatch(/key/i);
+    const { inspect } = await import("node:util");
+    expect(inspect(signer, { showHidden: true, depth: 5 })).not.toContain(KEY_HEX);
+    expect(inspect(signer)).toMatch(/redacted/);
+    expect(JSON.stringify({ ...signer }, (_k, v) => (typeof v === "bigint" ? v.toString() : v))).not.toContain(KEY_HEX);
   });
 
   it("finishing early revokes the unsent remainder", async () => {
