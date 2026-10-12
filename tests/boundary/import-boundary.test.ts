@@ -41,23 +41,17 @@ const SRC = join(REPO, "src");
  * Read-side → write-side imports that exist today. Key: "<from> -> <to>",
  * paths relative to src/. Value: why it exists and what removes it.
  */
-const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
-  "instructions.ts -> lib/resumeContract.ts":
-    "the handshake text carries the write resume rule. Gone when each edition gets its own instructions.",
-};
+const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {};
 
 /**
  * Read-side files that write the local disk. The read edition is meant to run
  * as a shared server, so every local write on its side is listed here.
  *
- * The first entry is the one that matters for annotations: dexe_dao_report is
- * annotated `readOnlyHint: true` (tests/boundary/edition-manifest.test.ts
- * checks that for every read tool) but persists a snapshot file.
+ * `dexe_dao_report` is not here: its snapshot store is injected
+ * (src/tools/report.ts `ReportSnapshotStore`), the file implementation lives on
+ * the write side (src/lib/reportStoreFile.ts), and the read edition passes none.
  */
 const KNOWN_DISK_WRITERS: Readonly<Record<string, string>> = {
-  "tools/report.ts":
-    "dexe_dao_report persists reports.json beside state.json as its diff baseline, while annotated read-only. " +
-    "Gone when snapshot persistence becomes pluggable and off in the read edition.",
   "lib/stateStore.ts":
     "the state.json writer. Only write flows call it; read tools call getState / findKnownDao.",
   "cli/init.ts":
@@ -472,7 +466,23 @@ describe("read/write edition boundary — import graph", () => {
   it("analysed the real tree — otherwise every assertion here is vacuous", () => {
     expect(report.files.length).toBeGreaterThan(100);
     expect(report.edgeCount, "almost no imports found — is the scanner broken?").toBeGreaterThan(300);
-    expect(report.crossings.length, "no crossings found at all — is the walk broken?").toBeGreaterThan(0);
+    // Zero crossings since A7. That is only meaningful if the walk can still SEE
+    // one: the fixture block below proves detection, and this proves the real
+    // graph does reach write modules — from the composition roots, which are
+    // allowed to import both sides.
+    const tree = loadSrcTree();
+    const roots = [...MODULE_CLASSES].filter(([, c]) => c === "root").map(([f]) => f);
+    const rootReachesWrite = roots.some((f) =>
+      scanModule(tree.get(f)!)
+        .specifiers.filter((s) => s.startsWith("."))
+        .some((s) => MODULE_CLASSES.get(resolveIn(tree, f, s) ?? "") === "write"),
+    );
+    expect(rootReachesWrite, "no composition root imports a write module — is the resolver broken?").toBe(true);
+  });
+
+  it("no read-side module imports a write or root module (A7: zero crossings)", () => {
+    expect(report.crossings).toEqual([]);
+    expect(Object.keys(KNOWN_CROSSINGS)).toEqual([]);
   });
 
   it("every src module is classified exactly once in tests/boundary/modules.ts, and only real ones", () => {

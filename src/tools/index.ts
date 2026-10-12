@@ -21,12 +21,13 @@ import { registerProposalBuildInternalTools } from "./proposalBuildInternal.js";
 import { registerVoteBuildTools } from "./voteBuild.js";
 import { registerDaoDeployTools } from "./daoDeploy.js";
 import { registerSubgraphTools } from "./subgraph.js";
-import { registerReportTools } from "./report.js";
+import { registerReportTools, type ReportSnapshotStore } from "./report.js";
+import { FileReportStore, reportStorePath } from "../lib/reportStoreFile.js";
 import { registerTxTools } from "./txSend.js";
 import { registerAgentTools } from "./agents.js";
 import { registerGetConfigTool } from "./getConfig.js";
 import { registerDoctorTool } from "./doctor.js";
-import { writeDoctorChecks } from "../diag/writeChecks.js";
+import { WRITE_DOCTOR_TEXT, writeDoctorChecks } from "../diag/writeChecks.js";
 import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
 import { registerDaoCreateTools } from "./daoCreate.js";
@@ -48,17 +49,31 @@ import { SignerManager } from "../lib/signer.js";
 import { WalletConnectManager } from "../lib/walletconnect.js";
 import { registerGovernorTools } from "../governor/index.js";
 import { governorWriteTools } from "../governor/write.js";
-import { applyToolGate, TOOLSET_CATALOG } from "./gate.js";
+import { applyToolGate, SINGLE_SERVER_TOOLSETS } from "./gate.js";
 import { applyToolAnnotations } from "./annotations.js";
+import { SINGLE_SERVER_ANNOTATIONS } from "./annotationsWrite.js";
 import { applyReadResultGuard } from "./readGuard.js";
 import { installListToolsNormalizer } from "./schemaNormalize.js";
+
+export interface RegisterAllOptions {
+  /**
+   * Where `dexe_dao_report` keeps run snapshots. Default: `reports.json` beside
+   * `state.json`. `null`: nothing is kept (the remote read server).
+   */
+  reportStore?: ReportSnapshotStore | null;
+}
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
  * WriteToolContext (artifacts cache, hardhat runner, selector index) once so all
  * tools share state.
+ *
+ * The single server: its toolset table (src/tools/gate.ts), its annotation
+ * table (src/tools/annotationsWrite.ts), the write doctor checks and the file
+ * report store. Each read register function is handed these as parameters; none
+ * of them imports the single server's tables.
  */
-export function registerAll(server: McpServer, config: WriteConfig): void {
+export function registerAll(server: McpServer, config: WriteConfig, opts: RegisterAllOptions = {}): void {
   // Phase 2: gate tool registration by the active DEXE_TOOLSETS profile. The
   // wrapped server drops any tool name not in the active allowlist; `full`
   // returns the server unchanged. Every register* call below sees the gate, so
@@ -72,7 +87,10 @@ export function registerAll(server: McpServer, config: WriteConfig): void {
   // with the request's cancellation signal, and its result is scrubbed of
   // configured endpoints/keys and capped in size (src/tools/readGuard.ts).
   installListToolsNormalizer(server);
-  server = applyReadResultGuard(applyToolAnnotations(applyToolGate(server, config)), config);
+  server = applyReadResultGuard(
+    applyToolAnnotations(applyToolGate(server, config), SINGLE_SERVER_ANNOTATIONS),
+    config,
+  );
 
   const artifacts = new Artifacts(config);
   const runner = new HardhatRunner(config);
@@ -97,7 +115,13 @@ export function registerAll(server: McpServer, config: WriteConfig): void {
   registerProposalBuildInternalTools(server, ctx);
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
-  registerReportTools(server, ctx);
+  registerReportTools(server, ctx, {
+    store:
+      opts.reportStore === undefined
+        ? new FileReportStore(reportStorePath(config))
+        : (opts.reportStore ?? undefined),
+    toolsets: SINGLE_SERVER_TOOLSETS,
+  });
   registerMerkleTools(server, ctx);
   registerPredictTools(server, ctx);
   registerRiskTools(server, ctx);
@@ -114,7 +138,10 @@ export function registerAll(server: McpServer, config: WriteConfig): void {
   registerAgentTools(server, config, signer);
   registerGetConfigTool(server, ctx);
   // Diagnostics — call dexe_doctor first when env-related failures show up.
-  registerDoctorTool(server, config, writeDoctorChecks);
+  registerDoctorTool(server, config, writeDoctorChecks, {
+    toolsets: SINGLE_SERVER_TOOLSETS,
+    text: WRITE_DOCTOR_TEXT,
+  });
   registerWalletConnectTools(server, config, signer, wc);
   registerProposalBuildOffchainTools(server, ctx, signer, wc);
   registerFlowTools(server, ctx, signer, wc, state);
@@ -124,7 +151,7 @@ export function registerAll(server: McpServer, config: WriteConfig): void {
   // interrupted flow). The read tool names no write tool itself — this root
   // hands it the toolset catalog and the pointer at the write half.
   registerOperationalContextTools(server, config, state, {
-    toolsets: TOOLSET_CATALOG,
+    toolsets: SINGLE_SERVER_TOOLSETS,
     hintSuffix:
       "Signer, agent keyring, Pinata/WalletConnect/Safe posture and an unfinished flow: dexe_write_context.",
   });

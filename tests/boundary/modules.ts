@@ -30,6 +30,8 @@ const READ = [
   "artifacts.ts",
   // ReadConfig + loadReadConfig and the loader phases the write loader reuses
   "configRead.ts",
+  // the read edition's handshake text + the instructions budget
+  "instructions.ts",
   "resources.ts",
   "rpc.ts",
   // DEXE_DEBUG diagnostics; the npm/hardhat/git resolvers are runtimeDev.ts
@@ -118,6 +120,8 @@ const READ = [
   "lib/tokenSaleResult.ts",
   "lib/units.ts",
   "lib/upstreamAdvisories.ts",
+  // the annotation wrapper, the AnnotationTable shape, the read edition's classes
+  "tools/annotations.ts",
   // ToolContext over the read config; write tools take tools/writeContext.ts
   "tools/context.ts",
   "tools/dao.ts",
@@ -143,6 +147,8 @@ const READ = [
   "tools/schemaNormalize.ts",
   "tools/subgraph.ts",
   "tools/tokenSaleRead.ts",
+  // the gate machinery over any ToolsetTable + the read edition's (ungated) table
+  "tools/toolsets.ts",
   "tools/vote.ts",
 ];
 
@@ -152,6 +158,9 @@ const WRITE = [
   // pre-split importers keep compiling (read code imports configRead.ts)
   "config.ts",
   "hardhat.ts",
+  // the write edition's handshake, the single server's (unchanged) handshake,
+  // the shipped skill roster
+  "instructionsWrite.ts",
   // npm / hardhat / git resolvers for the dev toolchain
   "runtimeDev.ts",
   // Pinata JWT / pin probe, signer + keyring + broadcast guards, the
@@ -201,6 +210,8 @@ const WRITE = [
   // build-time advisories; the advisory core and F15 are lib/upstreamAdvisories.ts
   "lib/protocolAdvisories.ts",
   "lib/qr.ts",
+  // dexe_dao_report snapshots on disk (reports.json), injected by the composition root
+  "lib/reportStoreFile.ts",
   "lib/resumeContract.ts",
   "lib/signer.ts",
   // eth_call simulation core: pre-checks for writes (sim tools, broadcast guard)
@@ -214,11 +225,17 @@ const WRITE = [
   // builder chainId, signerKey, off-chain proposal id
   "lib/writeParams.ts",
   "tools/agents.ts",
+  // the write edition's annotation classes + the single server's merged table
+  "tools/annotationsWrite.ts",
   "tools/build.ts",
   "tools/buildResult.ts",
   "tools/daoCreate.ts",
   "tools/daoDeploy.ts",
   "tools/flow.ts",
+  // the single server's toolset table (TOOLSETS, defaults, unlocks) and the
+  // write edition's (the same sets narrowed to WRITE_TOOLS). Names read tools
+  // only as members of the single server's sets.
+  "tools/gate.ts",
   // the write half of the guide: interrupted-flow context, flow prompts, flow wording
   "tools/guideWrite.ts",
   "tools/introspect.ts",
@@ -246,12 +263,8 @@ const WRITE = [
 const MIXED = [
   // lists both editions' tools; each edition will carry its own list
   "editions.ts",
-  "instructions.ts",
   // read wizard (RPC, subgraph, gateway) + write wizard (key, Pinata, WC)
   "cli/init.ts",
-  "tools/annotations.ts",
-  // TOOLSETS + TOOLSET_UNLOCKS name both editions' tools; per-edition gate is A7
-  "tools/gate.ts",
 ];
 
 const ROOT = [

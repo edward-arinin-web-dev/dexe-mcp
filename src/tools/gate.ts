@@ -1,16 +1,38 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ReadConfig } from "../configRead.js";
+import { WRITE_TOOLS } from "../editions.js";
+import {
+  applyToolsetGate,
+  defaultToolNames,
+  resolveToolsetsIn,
+  restrictToolsetTable,
+  tableSurface,
+  type ResolvedToolsets,
+  type ToolsetCatalog,
+  type ToolsetTable,
+  type ToolsetUnlock,
+} from "./toolsets.js";
+
+export type { ResolvedToolsets, ToolsetCatalog, ToolsetTable, ToolsetUnlock } from "./toolsets.js";
 
 /**
- * Toolset gating (Phase 2 / v0.13.0). Registering every tool unconditionally
- * costs ~62K tokens (~255 KB) of `tools/list` per session. `DEXE_TOOLSETS`
- * selects named profiles so a default session loads a slim subset.
+ * Toolset gating (Phase 2 / v0.13.0) — the SINGLE server's table. Registering
+ * every tool unconditionally costs ~62K tokens (~255 KB) of `tools/list` per
+ * session. `DEXE_TOOLSETS` selects named profiles so a default session loads a
+ * slim subset.
  *
  * `TOOLSETS` maps a profile name → the exact tool names it enables. Sets may
  * overlap; the active allowlist is their union. `full` is special — it bypasses
  * filtering entirely (registers everything). The union of all named sets equals
  * the full surface (asserted in tests/tools/gate.test.ts), so every tool is
  * reachable under at least one non-`full` profile.
+ *
+ * The machinery (resolve, gate, describe) is edition-neutral and lives in
+ * ./toolsets.ts; this file is the DATA for the server this repo ships today:
+ * `SINGLE_SERVER_TOOLSETS`, plus `WRITE_EDITION_TOOLSETS` — the same sets
+ * narrowed to the write edition's tools. The read edition's table
+ * (`READ_EDITION_TOOLSETS`, ungated) is in ./toolsets.ts. Read-side modules
+ * never import this file: they are handed a `ToolsetTable`.
  *
  * Applied as a one-line wrap in `registerAll()` — the wrapped server proxies
  * `registerTool`/`tool`, dropping any name not in the active allowlist. The 30+
@@ -346,29 +368,6 @@ export const TOOLSETS: Record<string, Set<string>> = {
   dev: new Set(DEV),
 };
 
-export interface ToolsetUnlock {
-  /**
-   * What this set ADDS. Every `dexe_*` name here must be a member of
-   * `TOOLSETS[set]` — asserted by tests/tools/context-unlocks-truthfulness.test.ts,
-   * because a name in the wrong row sends the user to edit DEXE_TOOLSETS and
-   * restart for a tool the session already has.
-   */
-  unlocks: string;
-  /** Cross-reference prose; MAY name tools from other sets. Not asserted. */
-  note?: string;
-}
-
-/** How `dexe_context` describes a server's toolsets (src/tools/operationalContext.ts describeToolsets). */
-export interface ToolsetCatalog {
-  /** One "what you're missing" summary per gateable set. */
-  unlocks: Readonly<Record<string, ToolsetUnlock>>;
-  /**
-   * What the default profile already covers, quoted at the head of the enable
-   * hint ("Check the `enabled` list first — <this>, so …").
-   */
-  defaultCovers: string;
-}
-
 /**
  * One-line "what you're missing" summary per gateable set (U5 discoverability).
  *
@@ -444,6 +443,20 @@ export const TOOLSET_CATALOG: ToolsetCatalog = {
  */
 export const DEFAULT_TOOLSETS = ["core"] as const;
 
+/** The single server's table: the sets above, default `core`, the catalog `dexe_context` reports. */
+export const SINGLE_SERVER_TOOLSETS: ToolsetTable = {
+  sets: TOOLSETS,
+  defaults: DEFAULT_TOOLSETS,
+  catalog: TOOLSET_CATALOG,
+};
+
+/**
+ * The write edition's table: every set above narrowed to WRITE_TOOLS, empty
+ * sets dropped, default `core`. No catalog yet — the write edition has no
+ * `dexe_context` (decision D1); its orientation tool is `dexe_write_context`.
+ */
+export const WRITE_EDITION_TOOLSETS: ToolsetTable = restrictToolsetTable(SINGLE_SERVER_TOOLSETS, WRITE_TOOLS);
+
 /**
  * The tool names a session sees when `DEXE_TOOLSETS` is unset. Callers that need
  * to answer "is this tool visible by default?" (knowledge annotations, doctor,
@@ -451,117 +464,25 @@ export const DEFAULT_TOOLSETS = ["core"] as const;
  * answer can never drift from `DEFAULT_TOOLSETS`.
  */
 export function defaultProfileToolNames(): ReadonlySet<string> {
-  const names = new Set<string>();
-  for (const set of DEFAULT_TOOLSETS) for (const n of TOOLSETS[set]!) names.add(n);
-  return names;
+  return defaultToolNames(SINGLE_SERVER_TOOLSETS);
 }
 
-export interface ResolvedToolsets {
-  /** Active allowlist, or null when everything should register (`full`). */
-  names: Set<string> | null;
-  /** Set names that weren't recognized. */
-  unknown: string[];
-  /** True when filtering is bypassed (explicit `full` or unknown-name fallback). */
-  full: boolean;
-  /** The requested profiles (post-default). */
-  requested: string[];
-}
-
-/**
- * Resolve the requested profiles into a concrete allowlist. Only an explicit
- * `full` bypasses filtering. Unknown set names are DROPPED (loudly, by the
- * caller) and the recognized ones still apply — a typo in one entry must not
- * dump the entire surface (~62K tokens) plus the dev/write sets the user never
- * asked for. When nothing recognizable remains, fall back to the
- * defaults rather than registering nothing. Pure — no side effects.
- */
+/** `resolveToolsetsIn` over the single server's table. Pure — no side effects. */
 export function resolveToolsets(requested: readonly string[]): ResolvedToolsets {
-  const req = requested.length > 0 ? [...requested] : [...DEFAULT_TOOLSETS];
-  const unknown = req.filter((s) => s !== "full" && !(s in TOOLSETS));
-  if (req.includes("full")) {
-    return { names: null, unknown, full: true, requested: req };
-  }
-  const known = req.filter((s) => s in TOOLSETS);
-  const effective = known.length > 0 ? known : [...DEFAULT_TOOLSETS];
-  const names = new Set<string>();
-  for (const s of effective) for (const n of TOOLSETS[s]!) names.add(n);
-  return { names, unknown, full: false, requested: effective };
+  return resolveToolsetsIn(SINGLE_SERVER_TOOLSETS, requested);
 }
 
 /**
  * Size of the whole registered surface, derived from TOOLSETS so it can never
  * go stale the way a literal would.
  */
-export const FULL_SURFACE_SIZE = new Set(Object.values(TOOLSETS).flatMap((s) => [...s])).size;
+export const FULL_SURFACE_SIZE = tableSurface(SINGLE_SERVER_TOOLSETS).size;
 
 /**
- * Some MCP hosts cap how many tools may be enabled in one request — VS Code /
- * GitHub Copilot Chat rejects a request carrying more than 128 enabled tools,
- * counting its own built-ins and every other connected server. `full` is well
- * past that on its own, so a user who follows an escalation hint to `full`
- * there breaks every chat request instead of gaining tools. Warn at startup
- * rather than letting them discover it as an opaque client-side error.
- *
- * Documented, with the profile combinations that fit, in docs/PROFILES.md.
- */
-const CLIENT_TOOL_CAP = 128;
-
-/** The cap warning, or "" when the loaded surface fits any known client. */
-function capNote(loaded: number): string {
-  if (loaded <= CLIENT_TOOL_CAP) return "";
-  return (
-    ` NOTE: ${loaded} tools exceeds the ${CLIENT_TOOL_CAP}-enabled-tool cap some hosts` +
-    ` (VS Code / GitHub Copilot) apply per chat request — see docs/PROFILES.md for a` +
-    ` smaller profile if your client rejects requests.`
-  );
-}
-
-/**
- * Wrap `server` so tool registrations for names outside the active allowlist
- * are dropped. Returns the original server unchanged when the active profile is
- * `full`. Emits a one-line stderr banner. Call once in `registerAll`.
+ * The single server's gate: `applyToolsetGate` over `SINGLE_SERVER_TOOLSETS`.
+ * Returns the original server unchanged when the active profile is `full`.
+ * Emits a one-line stderr banner. Call once in `registerAll`.
  */
 export function applyToolGate(server: McpServer, config: ReadConfig): McpServer {
-  const resolved = resolveToolsets(config.toolsets ?? [...DEFAULT_TOOLSETS]);
-
-  if (resolved.unknown.length > 0) {
-    process.stderr.write(
-      `[dexe-mcp] unknown DEXE_TOOLSETS: [${resolved.unknown.join(", ")}] — ignored. ` +
-        `Active: [${resolved.full ? "full" : resolved.requested.join(", ")}]. ` +
-        `Valid sets: ${Object.keys(TOOLSETS).join(", ")}, full.\n`,
-    );
-  }
-  if (resolved.full) {
-    process.stderr.write(
-      `[dexe-mcp] toolsets: full — all ${FULL_SURFACE_SIZE} tools loaded.${capNote(FULL_SURFACE_SIZE)}\n`,
-    );
-    return server;
-  }
-
-  const allow = resolved.names!;
-  process.stderr.write(
-    `[dexe-mcp] toolsets: [${resolved.requested.join(", ")}] → ${allow.size} tools loaded ` +
-      `(set DEXE_TOOLSETS=full to load all, or add sets: ${Object.keys(TOOLSETS).join(", ")}).` +
-      `${capNote(allow.size)}\n`,
-  );
-
-  const wrap = (fn: (...a: unknown[]) => unknown) =>
-    (name: unknown, ...rest: unknown[]) => {
-      if (typeof name === "string" && !allow.has(name)) return undefined;
-      return fn(name, ...rest);
-    };
-
-  return new Proxy(server, {
-    get(target, prop, receiver) {
-      if (prop === "registerTool" || prop === "tool") {
-        const original = Reflect.get(target, prop, receiver) as
-          | ((...a: unknown[]) => unknown)
-          | undefined;
-        if (typeof original !== "function") return original;
-        return wrap(original.bind(target));
-      }
-      const v = Reflect.get(target, prop, receiver);
-      return typeof v === "function" ? v.bind(target) : v;
-    },
-  }) as McpServer;
+  return applyToolsetGate(server, config, SINGLE_SERVER_TOOLSETS);
 }

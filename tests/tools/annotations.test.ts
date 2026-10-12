@@ -5,8 +5,17 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
-import { serverInstructions } from "../../src/instructions.js";
-import { alwaysLoadedToolNames, classifiedToolNames, titledToolNames } from "../../src/tools/annotations.js";
+import { serverInstructions } from "../../src/instructionsWrite.js";
+import {
+  alwaysLoadedToolNames as alwaysLoadedIn,
+  classifiedToolNames as classifiedIn,
+  titledToolNames as titledIn,
+} from "../../src/tools/annotations.js";
+import { SINGLE_SERVER_ANNOTATIONS } from "../../src/tools/annotationsWrite.js";
+
+const classifiedToolNames = () => classifiedIn(SINGLE_SERVER_ANNOTATIONS);
+const titledToolNames = () => titledIn(SINGLE_SERVER_ANNOTATIONS);
+const alwaysLoadedToolNames = () => alwaysLoadedIn(SINGLE_SERVER_ANNOTATIONS);
 
 /**
  * ── MCP annotations and titles, asserted on the WIRE ───────────────────────

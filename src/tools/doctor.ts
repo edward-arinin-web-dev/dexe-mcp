@@ -8,7 +8,32 @@ import {
   type DoctorExtraChecks,
 } from "../diag/checks.js";
 import { getEnvLoadState } from "../env/loader.js";
-import { resolveToolsets, TOOLSETS, DEFAULT_TOOLSETS } from "./gate.js";
+import { READ_EDITION_TOOLSETS, resolveToolsetsIn, type ToolsetTable } from "./toolsets.js";
+
+/** The doctor's own wording — per edition, because the checks are. */
+export interface DoctorText {
+  description: string;
+  /**
+   * Description of the `probePin` input. Omitted: the input is not published —
+   * only an edition whose extra checks own a pin probe has one.
+   */
+  probePin?: string;
+}
+
+/** The read edition's doctor: read checks only, no pin probe. */
+export const READ_DOCTOR_TEXT: DoctorText = {
+  description:
+    "Read-only. Diagnoses env setup: presence + reachability checks (RPC, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. " +
+    "Call FIRST on an env-related failure. " +
+    "Warnings are advisories — a healthy zero-config install always has some.",
+};
+
+export interface DoctorOptions {
+  /** The server's toolset table, for the `toolsets` report. Default: the read edition's (ungated). */
+  toolsets?: ToolsetTable;
+  /** Default: READ_DOCTOR_TEXT. */
+  text?: DoctorText;
+}
 
 interface Tally {
   passed: number;
@@ -47,35 +72,33 @@ function tally(results: CheckResult[]): Tally {
  *
  * The checks here are the read ones; `extraChecks` adds another edition's (the
  * single server passes the write checks, src/diag/writeChecks.ts, which own the
- * pin probe — `probePin` is handed through to them).
+ * pin probe — `probePin` is handed through to them, and their `DoctorText`
+ * publishes the input). The toolset report reads the server's own table.
  */
 export function registerDoctorTool<C extends ReadConfig>(
   server: McpServer,
   config: C,
   extraChecks?: DoctorExtraChecks<C>,
+  opts: DoctorOptions = {},
 ): void {
+  const table = opts.toolsets ?? READ_EDITION_TOOLSETS;
+  const text = opts.text ?? READ_DOCTOR_TEXT;
   server.tool(
     "dexe_doctor",
-    "Read-only. Diagnoses env setup: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. " +
-      "Call FIRST on an env-related failure. " +
-      "Warnings are advisories — a healthy zero-config install always has some. " +
-      "`probePin` is the one write: one tiny IPFS pin.",
+    text.description,
     {
       _placeholder: z
         .boolean()
         .optional()
         .describe("Unused; tool takes no input."),
-      probePin: z
-        .boolean()
-        .optional()
-        .describe(
-          "Probe pin to Pinata (added, then removed) — use when an IPFS upload fails with HTTP 403.",
-        ),
+      ...(text.probePin ? { probePin: z.boolean().optional().describe(text.probePin) } : {}),
     },
     async (args) => {
       const checks = await runAllChecks({
         config,
-        extraChecks: extraChecks?.({ probePin: args?.probePin === true }),
+        extraChecks: extraChecks?.({
+          probePin: text.probePin !== undefined && (args as { probePin?: boolean } | undefined)?.probePin === true,
+        }),
       });
       const summary = tally(checks);
       const remediationSummary = checks
@@ -85,14 +108,19 @@ export function registerDoctorTool<C extends ReadConfig>(
       const startupTime = new Date(Date.now() - process.uptime() * 1000).toISOString();
 
       // Phase 2 — report which tool profiles are active this session.
-      const resolvedSets = resolveToolsets(config.toolsets ?? [...DEFAULT_TOOLSETS]);
+      const resolvedSets = resolveToolsetsIn(table, config.toolsets ?? [...table.defaults]);
       const toolsets = {
         requested: resolvedSets.requested,
         mode: resolvedSets.full ? ("full" as const) : ("filtered" as const),
         loadedToolCount: resolvedSets.full ? null : resolvedSets.names!.size,
-        availableSets: [...Object.keys(TOOLSETS), "full"],
-        remediation:
-          "Set DEXE_TOOLSETS=full to load every tool, or add sets (read, vote, governor, dev). Restart Claude Code after editing .env.",
+        // An ungated server (the read edition) has nothing to switch on.
+        ...(table.ungated
+          ? { ungated: true as const, availableSets: Object.keys(table.sets) }
+          : {
+              availableSets: [...Object.keys(table.sets), "full"],
+              remediation:
+                "Set DEXE_TOOLSETS=full to load every tool, or add sets (read, vote, governor, dev). Restart Claude Code after editing .env.",
+            }),
         ...(resolvedSets.unknown.length ? { unknownSets: resolvedSets.unknown } : {}),
       };
 
@@ -144,6 +172,7 @@ function renderText(r: {
     requested: string[];
     mode: "full" | "filtered";
     loadedToolCount: number | null;
+    ungated?: true;
     unknownSets?: string[];
   };
 }): string {
@@ -171,9 +200,11 @@ function renderText(r: {
     );
   }
   lines.push(
-    r.toolsets.mode === "full"
-      ? `toolsets: full — all tools loaded${r.toolsets.unknownSets?.length ? ` (unknown set(s): ${r.toolsets.unknownSets.join(", ")})` : ""}.`
-      : `toolsets: [${r.toolsets.requested.join(", ")}] → ${r.toolsets.loadedToolCount} tools loaded. Set DEXE_TOOLSETS=full for all.`,
+    r.toolsets.ungated
+      ? `toolsets: all ${r.toolsets.loadedToolCount} tools loaded (this server has no profiles to pick).`
+      : r.toolsets.mode === "full"
+        ? `toolsets: full — all tools loaded${r.toolsets.unknownSets?.length ? ` (unknown set(s): ${r.toolsets.unknownSets.join(", ")})` : ""}.`
+        : `toolsets: [${r.toolsets.requested.join(", ")}] → ${r.toolsets.loadedToolCount} tools loaded. Set DEXE_TOOLSETS=full for all.`,
   );
   lines.push("");
   for (const c of r.checks) {

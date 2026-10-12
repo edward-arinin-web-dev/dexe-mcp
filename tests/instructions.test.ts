@@ -1,8 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { serverInstructions, SHIPPED_SKILLS, INSTRUCTIONS_MAX_CHARS } from "../src/instructions.js";
-import { DEFAULT_TOOLSETS, TOOLSETS, defaultProfileToolNames } from "../src/tools/gate.js";
+import { INSTRUCTIONS_MAX_CHARS, READ_SKILLS, readInstructions } from "../src/instructions.js";
+import { serverInstructions, SHIPPED_SKILLS, WRITE_SKILLS, writeInstructions } from "../src/instructionsWrite.js";
+import {
+  DEFAULT_TOOLSETS,
+  TOOLSETS,
+  WRITE_EDITION_TOOLSETS,
+  defaultProfileToolNames,
+} from "../src/tools/gate.js";
+import { defaultToolNames } from "../src/tools/toolsets.js";
+import { READ_TOOLS, WRITE_TOOLS } from "../src/editions.js";
 import { ENV_SPEC } from "../src/env/schema.js";
 import { toolRefs, annotationAfter } from "./helpers/toolTokens.js";
 
@@ -101,7 +109,7 @@ describe("server instructions — shipped skills", () => {
   it("SHIPPED_SKILLS matches the directories that actually ship", () => {
     expect(
       [...SHIPPED_SKILLS].sort(),
-      "SHIPPED_SKILLS in src/instructions.ts is out of sync with dexe-plugin/skills — " +
+      "SHIPPED_SKILLS in src/instructionsWrite.ts is out of sync with dexe-plugin/skills — " +
         "add the new skill name to the const and a row to docs/SKILLS.md",
     ).toEqual(shipped);
   });
@@ -144,7 +152,7 @@ describe("the env schema agrees with the gate", () => {
 describe("no shipped surface restates the pre-0.31 default", () => {
   /** Bans the CLAIM ("default core,proposals"), not the string — `(needs DEXE_TOOLSETS=core,proposals)` is correct. */
   const STALE = /default[^\n.]{0,30}['"`]?core,proposals/i;
-  const SURFACES = ["src/instructions.ts", "src/env/schema.ts", ".env.example", "docs/USAGE.md"];
+  const SURFACES = ["src/instructions.ts", "src/instructionsWrite.ts", "src/env/schema.ts", ".env.example", "docs/USAGE.md"];
 
   for (const rel of SURFACES) {
     it(`${rel} does not claim the default is core,proposals`, () => {
@@ -156,4 +164,89 @@ describe("no shipped surface restates the pre-0.31 default", () => {
       ).toBe(-1);
     });
   }
+});
+
+/**
+ * A7 — each edition carries its own handshake. The read text may name read
+ * tools only; the write text may name write tools only (it points at the read
+ * server without naming its tools). A glob counts as the other edition's when
+ * ANY tool it matches is — `dexe_gov_*` spans both, so neither text may use it.
+ */
+describe("per-edition instructions", () => {
+  const READ = new Set(READ_TOOLS);
+  const WRITE = new Set(WRITE_TOOLS);
+  const otherEdition = (text: string, other: readonly string[], otherSet: ReadonlySet<string>) =>
+    toolRefs(text)
+      .filter(({ ref, glob }) => (glob ? other.some((n) => n.startsWith(ref)) : otherSet.has(ref)))
+      .map(({ raw }) => raw);
+  const unknownTools = (text: string, own: readonly string[], ownSet: ReadonlySet<string>) =>
+    toolRefs(text)
+      .filter(({ ref, glob }) => (glob ? !own.some((n) => n.startsWith(ref)) : !ownSet.has(ref)))
+      .map(({ raw }) => raw);
+
+  const read = readInstructions();
+  const write = writeInstructions();
+
+  it("both fit the 2,048-character handshake budget", () => {
+    expect(read.length, `readInstructions() is ${read.length} characters`).toBeLessThanOrEqual(INSTRUCTIONS_MAX_CHARS);
+    expect(write.length, `writeInstructions() is ${write.length} characters`).toBeLessThanOrEqual(INSTRUCTIONS_MAX_CHARS);
+  });
+
+  it("the read handshake names no write tool, and only real read tools", () => {
+    expect(otherEdition(read, WRITE_TOOLS, WRITE), "write tools in readInstructions()").toEqual([]);
+    expect(unknownTools(read, READ_TOOLS, READ), "names that are not read tools").toEqual([]);
+  });
+
+  it("the write handshake names no read tool, and only real write tools", () => {
+    expect(otherEdition(write, READ_TOOLS, READ), "read tools in writeInstructions()").toEqual([]);
+    expect(unknownTools(write, WRITE_TOOLS, WRITE), "names that are not write tools").toEqual([]);
+  });
+
+  it("the read handshake carries none of the write rules", () => {
+    // No composites, no resume contract, no amount/image/approve rules, no write skills.
+    for (const banned of [/composite/i, /re-run/i, /raw wei/i, /LOCAL FILE PATH/, /ERC20\.approve/, /DEXE_TOOLSETS/]) {
+      expect(read, `readInstructions() mentions ${banned}`).not.toMatch(banned);
+    }
+    for (const skill of WRITE_SKILLS) expect(read, `write skill ${skill}`).not.toContain(skill);
+    for (const skill of READ_SKILLS) expect(read).toContain(skill);
+  });
+
+  it("the read handshake leads with the report and the graph schema", () => {
+    expect(read).toContain("dexe_dao_report");
+    expect(read).toContain("dexe_graph_schema");
+    expect(read.indexOf("dexe_dao_report")).toBeLessThan(read.indexOf("dexe_graph_query"));
+  });
+
+  it("the write handshake keeps the resume contract and states its own default profile", () => {
+    expect(write).toContain("dexe_tx_status");
+    const n = defaultToolNames(WRITE_EDITION_TOOLSETS).size;
+    expect(write).toContain(`default '${WRITE_EDITION_TOOLSETS.defaults.join(",")}' — ${n} tools`);
+    for (const skill of WRITE_SKILLS) expect(write).toContain(skill);
+    for (const skill of READ_SKILLS) expect(write).not.toContain(skill);
+  });
+
+  it("every write-handshake tool outside the write default profile says how to get it", () => {
+    const defaults = defaultToolNames(WRITE_EDITION_TOOLSETS);
+    const dangling: string[] = [];
+    for (const { raw, ref, glob, end } of toolRefs(write)) {
+      const satisfied = glob ? [...defaults].some((n) => n.startsWith(ref)) : defaults.has(ref);
+      if (satisfied) continue;
+      const sets = annotationAfter(write, end);
+      const unlocked = new Set<string>();
+      for (const s of sets ?? []) for (const name of WRITE_EDITION_TOOLSETS.sets[s] ?? []) unlocked.add(name);
+      const ok = glob ? [...unlocked].some((n) => n.startsWith(ref)) : unlocked.has(ref);
+      if (!ok) dangling.push(raw);
+    }
+    expect(dangling).toEqual([]);
+  });
+
+  it("the read and write skill rosters partition the shipped skills", () => {
+    expect([...READ_SKILLS, ...WRITE_SKILLS].sort()).toEqual([...SHIPPED_SKILLS].sort());
+  });
+
+  it("the single server's handshake is not one of the edition texts", () => {
+    // It stays byte-for-byte what 0.35.0 shipped while the single server ships.
+    expect(serverInstructions()).not.toBe(read);
+    expect(serverInstructions()).not.toBe(write);
+  });
 });

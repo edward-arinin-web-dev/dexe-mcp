@@ -3,7 +3,7 @@ import { describeToolsets } from "../../src/tools/operationalContext.js";
 import {
   TOOLSETS,
   DEFAULT_TOOLSETS,
-  TOOLSET_CATALOG,
+  SINGLE_SERVER_TOOLSETS,
   TOOLSET_UNLOCKS,
   defaultProfileToolNames,
 } from "../../src/tools/gate.js";
@@ -55,13 +55,13 @@ describe("TOOLSET_UNLOCKS is true about its own set", () => {
 
 describe("describeToolsets", () => {
   it("only lists a hidden set that would actually add tools", () => {
-    const d = describeToolsets([...DEFAULT_TOOLSETS], TOOLSET_CATALOG);
+    const d = describeToolsets([...DEFAULT_TOOLSETS], SINGLE_SERVER_TOOLSETS);
     expect(d.hidden.length).toBeGreaterThan(0);
     for (const row of d.hidden) expect(row.newToolCount).toBeGreaterThan(0);
   });
 
   it("leads the hint with 'check what you already have', not with a set to enable", () => {
-    const d = describeToolsets([...DEFAULT_TOOLSETS], TOOLSET_CATALOG);
+    const d = describeToolsets([...DEFAULT_TOOLSETS], SINGLE_SERVER_TOOLSETS);
     expect(d.enableHint).toBeDefined();
     expect(d.enableHint!).toContain("Check the `enabled` list first");
     // The bug this replaces: the hint's worked example named `proposals`, the
@@ -70,7 +70,7 @@ describe("describeToolsets", () => {
   });
 
   it("has nothing hidden under full", () => {
-    const d = describeToolsets(["full"], TOOLSET_CATALOG);
+    const d = describeToolsets(["full"], SINGLE_SERVER_TOOLSETS);
     expect(d.hidden).toEqual([]);
     expect(d.enableHint).toBeUndefined();
   });

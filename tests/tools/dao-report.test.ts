@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { z } from "zod";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -451,10 +451,29 @@ interface ToolResult {
   structuredContent?: Record<string, unknown>;
 }
 
-async function callReport(cfg: DexeConfig, args: Record<string, unknown>): Promise<ToolResult> {
+/**
+ * Register the report the way a server wires it: the single server (default
+ * here) hands it the file store and its toolset table; `{ store: false }` is
+ * the read edition, which keeps nothing between calls.
+ */
+async function registerReport(server: McpServer, cfg: DexeConfig, opts: { store?: boolean } = {}): Promise<void> {
   const { registerReportTools } = await import("../../src/tools/report.js");
+  const { FileReportStore, reportStorePath } = await import("../../src/lib/reportStoreFile.js");
+  const { SINGLE_SERVER_TOOLSETS } = await import("../../src/tools/gate.js");
+  registerReportTools(
+    server,
+    { config: cfg } as unknown as ToolContext,
+    opts.store === false ? {} : { store: new FileReportStore(reportStorePath(cfg)), toolsets: SINGLE_SERVER_TOOLSETS },
+  );
+}
+
+async function callReport(
+  cfg: DexeConfig,
+  args: Record<string, unknown>,
+  opts: { store?: boolean } = {},
+): Promise<ToolResult> {
   const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerReportTools(server, { config: cfg } as unknown as ToolContext);
+  await registerReport(server, cfg, opts);
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
@@ -661,11 +680,8 @@ describe("dexe_dao_report — structured payload is typed", () => {
   });
 
   it("advertises an outputSchema in tools/list", async () => {
-    const { registerReportTools } = await import("../../src/tools/report.js");
     const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-    registerReportTools(server, {
-      config: config({ statePath: statePath() }),
-    } as unknown as ToolContext);
+    await registerReport(server, config({ statePath: statePath() }));
     const client = new Client({ name: "test-client", version: "0.0.0" });
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverT), client.connect(clientT)]);
@@ -943,9 +959,9 @@ describe("parseSince", () => {
   });
 });
 
-describe("ReportStore", () => {
+describe("FileReportStore", () => {
   it("round-trips per chain+DAO and tolerates a missing/corrupt file", async () => {
-    const { ReportStore } = await import("../../src/tools/report.js");
+    const { FileReportStore: ReportStore } = await import("../../src/lib/reportStoreFile.js");
     const path = join(tmp, "reports.json");
     const store = new ReportStore(path);
     expect(store.get(56, DAO)).toBeNull();
@@ -975,5 +991,60 @@ describe("ReportStore", () => {
     // An unwritable path degrades to "no baseline", it does not throw.
     const dead = new ReportStore(join(tmp, "no", "such", "dir", "x", "reports.json"));
     expect(() => dead.put({ ...snap, chainId: 97 })).not.toThrow();
+  });
+});
+
+// ---------- 6. no snapshot store (the read edition) ----------
+
+describe("dexe_dao_report — no snapshot store", () => {
+  async function listed(store: boolean) {
+    const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
+    await registerReport(server, config({ statePath: statePath() }), { store });
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverT), client.connect(clientT)]);
+    const tool = (await client.listTools()).tools.find((t) => t.name === "dexe_dao_report")!;
+    await client.close();
+    await server.close();
+    return tool;
+  }
+
+  it("publishes no persist input and no 'last' anchor", async () => {
+    const tool = await listed(false);
+    const props = (tool.inputSchema as { properties: Record<string, { description?: string }> }).properties;
+    expect(props).not.toHaveProperty("persist");
+    expect(props.since!.description).not.toContain("'last'");
+    expect(tool.description).not.toMatch(/stores a snapshot|`last`/);
+    // The single server keeps both.
+    const withStore = await listed(true);
+    expect((withStore.inputSchema as { properties: Record<string, unknown> }).properties).toHaveProperty("persist");
+  });
+
+  it("refuses since:'last' with an explicit-anchor remedy", async () => {
+    const res = await callReport(config({ statePath: statePath() }), { govPool: DAO, since: "last" }, { store: false });
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("keeps no report snapshots");
+    expect(text(res)).toContain("ISO-8601");
+  });
+
+  it("writes nothing to disk, even when asked to persist", async () => {
+    const res = await callReport(
+      config({ statePath: statePath() }),
+      { govPool: DAO, persist: true },
+      { store: false },
+    );
+    expect(res.isError).toBeFalsy();
+    expect(res.structuredContent!.snapshotPersisted).toBe(false);
+    expect(existsSync(join(tmp, "reports.json"))).toBe(false);
+  });
+
+  it("a since-diff says why it has no state changes", async () => {
+    const res = await callReport(
+      config({ statePath: statePath() }),
+      { govPool: DAO, since: "2026-01-01T00:00:00Z" },
+      { store: false },
+    );
+    const changes = res.structuredContent!.changes as Record<string, unknown>;
+    expect((changes.notes as string[]).join(" ")).toContain("keeps no report snapshots");
   });
 });

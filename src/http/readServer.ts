@@ -21,7 +21,9 @@ import type { McpServerFactory, ReadinessProbe, ReadinessResult } from "./server
  *   - tools: the `read` toolset INTERSECTED with READ_TOOLS (src/editions.ts),
  *     so a write tool added to the `read` set by mistake is still not served;
  *   - no prompts and no doc resources (today's are the write-flow recipes);
- *   - `dexe_dao_report` runs with `persist: false` (no reports.json on disk);
+ *   - `dexe_dao_report` gets no snapshot store (registerAll `reportStore:
+ *     null`), and its `persist` argument is still pinned to false here as a
+ *     second guard — no reports.json on disk;
  *   - its own handshake name and instructions, which name no write tool.
  */
 
@@ -308,7 +310,11 @@ export function createInterimReadServerFactory(config: WriteConfig, version: str
       { instructions: REMOTE_READ_INSTRUCTIONS },
     );
     const served = new Set<string>();
-    const { captured } = withStderrCaptured(() => registerAll(remoteReadGuard(server, served), config));
+    // No report store: the remote server keeps nothing between calls, so
+    // dexe_dao_report publishes no `persist` input and refuses `since: "last"`.
+    const { captured } = withStderrCaptured(() =>
+      registerAll(remoteReadGuard(server, served), config, { reportStore: null }),
+    );
     if (first) {
       first = false;
       names = [...served].sort();

@@ -94,8 +94,10 @@ to false, `destructiveHint` to true and `openWorldHint` to true — so a
 conformant client has to treat `dexe_read_treasury` as exactly as dangerous as
 `dexe_tx_send`, and may prompt for confirmation on every read.
 
-Classification lives in one file, `src/tools/annotations.ts`, and is applied by
-a single wrapper at registration. It is **exhaustive**: a tool that is not
+Classification lives in one table per edition — the read tools in
+`src/tools/annotations.ts`, the write tools in `src/tools/annotationsWrite.ts`
+(which also merges both for the single server) — and is applied by a single
+wrapper at registration. It is **exhaustive**: a tool that is not
 classified ships with no annotations at all (so the conservative spec default
 still applies) and fails `tests/tools/annotations.test.ts` by name. Only
 spec-meaningful fields are emitted — `destructiveHint` and `idempotentHint` are
