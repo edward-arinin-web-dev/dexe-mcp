@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { envWithNodeBinDir, hasGit, npmCommand } from "./runtime.js";
+import { envWithNodeBinDir, hasGit, npmCommand } from "./runtimeDev.js";
 import { safeErrorMessage } from "./lib/redact.js";
 
 const execFileAsync = promisify(execFile);

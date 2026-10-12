@@ -20,7 +20,7 @@ import {
   BroadcastGuardError,
 } from "../lib/broadcastGuards.js";
 import { safeErrorMessage } from "../lib/redact.js";
-import { toActionableError } from "../lib/errors.js";
+import { toActionableError } from "../lib/writeErrors.js";
 
 // ---------- helpers ----------
 

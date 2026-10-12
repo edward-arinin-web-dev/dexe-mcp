@@ -1,5 +1,5 @@
 import { loadConfig } from "../config.js";
-import { runAllChecks } from "../diag/checks.js";
+import { runAllChecks, type DoctorExtraChecks } from "../diag/checks.js";
 import { getEnvLoadState } from "../env/loader.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
@@ -58,8 +58,11 @@ export function doctorExitCode(t: { warn: number; fail: number }, strict: boolea
  * every doc points at when the server itself misbehaves, so it must run even
  * when the config is degraded — `loadConfig` never exits, and a throw here is
  * still reported rather than swallowed.
+ *
+ * `extraChecks` adds another edition's checks to the read ones — src/index.ts
+ * passes the write checks (src/diag/writeChecks.ts), which own `--probe-pin`.
  */
-export async function run(argv: readonly string[] = []): Promise<void> {
+export async function run(argv: readonly string[] = [], extraChecks?: DoctorExtraChecks): Promise<void> {
   const args = parseDoctorArgs(argv);
   if (args.unknown.length) {
     process.stderr.write(
@@ -97,7 +100,7 @@ export async function run(argv: readonly string[] = []): Promise<void> {
   }
   process.stdout.write("\n");
 
-  const checks = await runAllChecks({ config, probePin: args.probePin });
+  const checks = await runAllChecks({ config, extraChecks: extraChecks?.({ probePin: args.probePin }) });
   let pass = 0;
   let warn = 0;
   let fail = 0;

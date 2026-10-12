@@ -6,12 +6,14 @@ import {
   judgeQuorum,
   quorumConcentration,
   worstRisk,
-  buildTimeTreasuryAdvisory,
   treasurySelectors,
+} from "../../src/lib/quorumRisk.js";
+import {
+  buildTimeTreasuryAdvisory,
   lowQuorumAdvisory,
   treasuryExecuteAdvisory,
   TREASURY_RISK_ADVISORY,
-} from "../../src/lib/quorumRisk.js";
+} from "../../src/lib/treasuryGate.js";
 
 /**
  * Low-quorum governance-safety advisories. Pins the quorum-unit math, the

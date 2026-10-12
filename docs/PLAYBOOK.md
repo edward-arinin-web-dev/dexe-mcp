@@ -391,8 +391,9 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 | `tokens locked` after an execute | Voted tokens stay locked per proposal | `dexe_vote_build_withdraw` between proposals, then proceed |
 | tool not found (`dexe_…`) | Toolset gated off | `dexe_context` lists hidden sets; set `DEXE_TOOLSETS` in `.env` + restart |
 
-Composite failures also carry a stable `slug` (GENERATED from
-`src/lib/errors.ts` KNOWN_FAILURES — the classifier the composites actually run):
+Composite failures also carry a stable `slug` (GENERATED from the read table in
+`src/lib/errors.ts` plus the write table `src/lib/writeErrors.ts` registers on
+top — the classifier the composites actually run):
 
 <!-- BEGIN GENERATED: error-slugs -->
 | Failure | What it means | Do this |

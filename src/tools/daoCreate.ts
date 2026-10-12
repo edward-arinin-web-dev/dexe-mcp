@@ -5,11 +5,12 @@ import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
-import { toCidV1, pinJsonOrPreview } from "../lib/ipfs.js";
+import { toCidV1 } from "../lib/ipfs.js";
+import { pinJsonOrPreview } from "../lib/ipfsPin.js";
 import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain } from "../config.js";
-import { pinataForWrites } from "../lib/requireEnv.js";
+import { pinataForWrites } from "../lib/pinata.js";
 import {
   attachPairingQr,
   sendOrCollect,
@@ -34,19 +35,18 @@ import { checkAllProposalSettings, formatSettingsSlotIssues } from "../lib/deplo
 import { simulateDeployGovPool } from "../lib/deploySim.js";
 import { mapDeployRevert } from "../lib/deployRevertMap.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
-import { signerKeyParam } from "../lib/params.js";
+import { signerKeyParam } from "../lib/writeParams.js";
 import {
   quorumPctFromRaw,
   checkQuorumMargin,
-  treasuryGate,
-  treasuryGuardMode,
   QUORUM_TURNOUT_CEILING,
 } from "../lib/quorumRisk.js";
+import { treasuryGate, treasuryGuardMode } from "../lib/treasuryGate.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
-import { resolveGateways } from "./ipfs.js";
+import { resolveGateways } from "./ipfsRead.js";
 import { safeErrorMessage } from "../lib/redact.js";
-import { toActionableError } from "../lib/errors.js";
+import { toActionableError } from "../lib/writeErrors.js";
 
 /**
  * `dexe_dao_create` — the one-call DAO deploy composite. Two ways to call it:

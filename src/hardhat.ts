@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DexeConfig } from "./config.js";
 import { ensureBuildReady } from "./bootstrap.js";
-import { envWithNodeBinDir, hardhatCommand, npmCommand } from "./runtime.js";
+import { envWithNodeBinDir, hardhatCommand, npmCommand } from "./runtimeDev.js";
 
 /** Result of a shelled-out hardhat/npm invocation. */
 export interface RunResult {

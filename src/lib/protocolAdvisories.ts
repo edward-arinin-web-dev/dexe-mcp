@@ -6,7 +6,8 @@
  */
 
 import { Interface } from "ethers";
-import { quorumPctFromRaw, judgeQuorum, lowQuorumAdvisory } from "./quorumRisk.js";
+import { quorumPctFromRaw, judgeQuorum } from "./quorumRisk.js";
+import { lowQuorumAdvisory } from "./treasuryGate.js";
 import { checkTokensUnlocked } from "./preflight.js";
 import { UPSTREAM_DOC, upstream, VESTING_WITHDRAW_ADVISORY, type UpstreamAdvisory } from "./upstreamAdvisories.js";
 

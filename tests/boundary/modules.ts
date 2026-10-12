@@ -30,15 +30,28 @@ const READ = [
   "artifacts.ts",
   "resources.ts",
   "rpc.ts",
+  // DEXE_DEBUG diagnostics; the npm/hardhat/git resolvers are runtimeDev.ts
+  "runtime.ts",
   "cli/doctor.ts",
   "cli/skills.ts",
+  // the read doctor checks + the ExtraChecks hook the write checks
+  // (diag/writeChecks.ts) come in through. Env presence still walks the whole
+  // ENV_SPEC until the env schema splits.
+  "diag/checks.ts",
   "env/loader.ts",
   "env/parse.ts",
   "governor/adapter.ts",
+  // registers the read governor tools; the write half (governor/write.ts) is
+  // passed in by the composition root
+  "governor/index.ts",
   "governor/loader.ts",
   "governor/rpc.ts",
   "governor/tally.ts",
+  // dexe_gov_get_state, dexe_gov_has_voted
+  "governor/tools/extras.ts",
   "governor/tools/read.ts",
+  // dexe_gov_simulate_vote_impact
+  "governor/tools/simulate.ts",
   "knowledge/topics.ts",
   "knowledge/types.ts",
   "lib/abi/tokenSale.ts",
@@ -51,15 +64,25 @@ const READ = [
   "lib/dangerousSelectors.ts",
   "lib/decoders.ts",
   "lib/decodeAbis.ts",
+  // the read remedy table + the registry write code adds its table to
+  "lib/errors.ts",
   "lib/govAddresses.ts",
   "lib/govEnums.ts",
   "lib/governanceHits.ts",
   "lib/govProposalView.ts",
   "lib/interactionTypes.ts",
+  // gateway fetch, CID parsing, offline CIDs; pinning is lib/ipfsPin.ts
+  "lib/ipfs.ts",
   "lib/merkleTree.ts",
   "lib/multicall.ts",
   "lib/page.ts",
+  // shared input-param vocabulary; write-only params are lib/writeParams.ts
+  "lib/params.ts",
+  // pure quorum/treasury risk math; the gate and its advisories are lib/treasuryGate.ts
+  "lib/quorumRisk.ts",
   "lib/redact.ts",
+  // generic env guard; the Pinata guard is lib/pinata.ts
+  "lib/requireEnv.ts",
   "lib/sanitize.ts",
   "lib/selectors.ts",
   // Persistence infrastructure. Read tools only call getState / findKnownDao;
@@ -75,6 +98,8 @@ const READ = [
   "tools/doctor.ts",
   "tools/gov.ts",
   "tools/inbox.ts",
+  // dexe_ipfs_fetch, dexe_ipfs_cid_info, the gateway chain and the IPFS error sink
+  "tools/ipfsRead.ts",
   "tools/predict.ts",
   "tools/proposal.ts",
   "tools/read.ts",
@@ -90,8 +115,19 @@ const READ = [
 const WRITE = [
   "bootstrap.ts",
   "hardhat.ts",
+  // npm / hardhat / git resolvers for the dev toolchain
+  "runtimeDev.ts",
+  // Pinata JWT / pin probe, signer + keyring + broadcast guards, the
+  // WalletConnect shared default — handed to runAllChecks as ExtraChecks
+  "diag/writeChecks.ts",
   "governor/encoder.ts",
   "governor/tools/build.ts",
+  // dexe_gov_build_cancel, dexe_gov_decode_calldata, dexe_gov_hash_*
+  "governor/tools/extrasWrite.ts",
+  // dexe_gov_simulate_proposal (execute() dry-run)
+  "governor/tools/simulateWrite.ts",
+  // the write half of the governor surface, slotted in by governor/index.ts
+  "governor/write.ts",
   "knowledge/flows.ts",
   "knowledge/nextSteps.ts",
   "lib/agentLedger.ts",
@@ -109,8 +145,12 @@ const WRITE = [
   "lib/ethersProvider.ts",
   "lib/flowChain.ts",
   "lib/imageSniff.ts",
+  // Pinata client + the pin-or-preview fork
+  "lib/ipfsPin.ts",
   "lib/ipfsPreview.ts",
   "lib/markdownToSlate.ts",
+  // DEXE_PINATA_JWT guard and hint for upload sites
+  "lib/pinata.ts",
   "lib/preflight.ts",
   "lib/proposalBuilders.ts",
   "lib/proposalCatalog.ts",
@@ -121,8 +161,14 @@ const WRITE = [
   "lib/signer.ts",
   // eth_call simulation core: pre-checks for writes (sim tools, broadcast guard)
   "lib/simulate.ts",
+  // treasury-guard advisories + the build/deploy/execute gate
+  "lib/treasuryGate.ts",
   "lib/txWait.ts",
   "lib/walletconnect.ts",
+  // write remedy table, registered on top of lib/errors.ts by the composition root
+  "lib/writeErrors.ts",
+  // builder chainId, signerKey, off-chain proposal id
+  "lib/writeParams.ts",
   "tools/agents.ts",
   "tools/build.ts",
   "tools/buildResult.ts",
@@ -130,6 +176,8 @@ const WRITE = [
   "tools/daoDeploy.ts",
   "tools/flow.ts",
   "tools/introspect.ts",
+  // the Pinata uploads, generated avatar, profile re-upload, dexe_ipfs_cid_for_json
+  "tools/ipfsWrite.ts",
   "tools/merkle.ts",
   // OTC composites; the read-only position view is tools/tokenSaleRead.ts
   "tools/otc.ts",
@@ -151,29 +199,17 @@ const MIXED = [
   // lists both editions' tools; each edition will carry its own list
   "editions.ts",
   "instructions.ts",
-  // debug/diagnostic helpers (read) + npm/hardhat/git resolvers (dev)
-  "runtime.ts",
   // read wizard (RPC, subgraph, gateway) + write wizard (key, Pinata, WC)
   "cli/init.ts",
-  "diag/checks.ts",
   "env/schema.ts",
-  "governor/index.ts",
-  "governor/tools/extras.ts",
-  "governor/tools/simulate.ts",
   "knowledge/gotchas.ts",
   "knowledge/index.ts",
   "knowledge/render.ts",
-  "lib/errors.ts",
-  "lib/ipfs.ts",
-  "lib/params.ts",
-  "lib/quorumRisk.ts",
-  "lib/requireEnv.ts",
   "tools/annotations.ts",
   "tools/context.ts",
   "tools/gate.ts",
   "tools/getConfig.ts",
   "tools/guide.ts",
-  "tools/ipfs.ts",
   "tools/operationalContext.ts",
 ];
 

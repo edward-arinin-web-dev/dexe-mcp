@@ -172,7 +172,7 @@ describe("governor tools all route through the fallback", () => {
   // first-call failure on chains 1 and 10.
   it("no src/governor/tools/*.ts calls rpc.tryProvider directly", () => {
     const root = resolve(__dirname, "..", "..", "src", "governor", "tools");
-    for (const f of ["read.ts", "extras.ts", "simulate.ts", "build.ts"]) {
+    for (const f of ["read.ts", "extras.ts", "extrasWrite.ts", "simulate.ts", "simulateWrite.ts", "build.ts"]) {
       const src = readFileSync(resolve(root, f), "utf8");
       expect(src, `${f} must use governorProvider(rpc, cfg)`).not.toContain("rpc.tryProvider(");
     }

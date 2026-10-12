@@ -27,8 +27,8 @@ const SIGNER_ADDR = "0xdeadbeef00000000000000000000000000000001";
 
 // A pin here would be a side effect in a review-only response.
 const pinJson = vi.fn();
-vi.mock("../../src/lib/ipfs.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/ipfs.js")>()),
+vi.mock("../../src/lib/ipfsPin.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/ipfsPin.js")>()),
   PinataClient: class {
     async pinJson(obj: unknown) {
       pinJson(obj);

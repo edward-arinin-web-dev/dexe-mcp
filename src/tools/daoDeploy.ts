@@ -7,7 +7,7 @@ import { resolveChain } from "../config.js";
 import { ArtifactsMissingError } from "../artifacts.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { RpcProvider } from "../rpc.js";
-import { PinataClient, pinJsonOrPreview } from "../lib/ipfs.js";
+import { PinataClient, pinJsonOrPreview } from "../lib/ipfsPin.js";
 import { quorumPctFromRaw, judgeQuorum } from "../lib/quorumRisk.js";
 import {
   firstFailure,

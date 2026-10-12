@@ -37,8 +37,8 @@ vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
 // fake CID is a hash of the pinned JSON, so "the same call re-derives the same
 // descriptionURL" — the property the whole duplicate guard rests on — is
 // exercised rather than assumed.
-vi.mock("../../src/lib/ipfs.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/ipfs.js")>()),
+vi.mock("../../src/lib/ipfsPin.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/ipfsPin.js")>()),
   PinataClient: class {
     async pinJson(obj: unknown) {
       return { cid: `bafyfake${createHash("sha256").update(JSON.stringify(obj)).digest("hex").slice(0, 24)}` };

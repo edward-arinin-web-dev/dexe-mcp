@@ -130,7 +130,7 @@ describe("public-fallback note is wired into every success payload", () => {
   // The behaviour of `governorProvider` itself is covered in rpc-fallback.test.ts.
   it("every governor tool that takes a provider spreads rpcNote(pr)", () => {
     const root = resolve(__dirname, "..", "..", "src", "governor", "tools");
-    for (const file of ["read.ts", "extras.ts", "simulate.ts"]) {
+    for (const file of ["read.ts", "extras.ts", "extrasWrite.ts", "simulate.ts", "simulateWrite.ts"]) {
       const src = readFileSync(resolve(root, file), "utf8");
       const providerSites = src.match(/governorProvider\(rpc, cfg\)/g)?.length ?? 0;
       const noteSites =

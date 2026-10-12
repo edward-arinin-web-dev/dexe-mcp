@@ -5,6 +5,7 @@ import {
   runAllChecks,
   type CheckResult,
   type CheckStatus,
+  type DoctorExtraChecks,
 } from "../diag/checks.js";
 import { getEnvLoadState } from "../env/loader.js";
 import { resolveToolsets, TOOLSETS, DEFAULT_TOOLSETS } from "./gate.js";
@@ -43,8 +44,16 @@ function tally(results: CheckResult[]): Tally {
  * Read-only by default. Never broadcasts. Safe to call at session start. The
  * one exception is the opt-in `probePin` input, which writes a tiny IPFS pin
  * and says so in its own result row.
+ *
+ * The checks here are the read ones; `extraChecks` adds another edition's (the
+ * single server passes the write checks, src/diag/writeChecks.ts, which own the
+ * pin probe — `probePin` is handed through to them).
  */
-export function registerDoctorTool(server: McpServer, config: DexeConfig): void {
+export function registerDoctorTool(
+  server: McpServer,
+  config: DexeConfig,
+  extraChecks?: DoctorExtraChecks,
+): void {
   server.tool(
     "dexe_doctor",
     "Read-only. Diagnoses env setup: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. " +
@@ -64,7 +73,10 @@ export function registerDoctorTool(server: McpServer, config: DexeConfig): void 
         ),
     },
     async (args) => {
-      const checks = await runAllChecks({ config, probePin: args?.probePin === true });
+      const checks = await runAllChecks({
+        config,
+        extraChecks: extraChecks?.({ probePin: args?.probePin === true }),
+      });
       const summary = tally(checks);
       const remediationSummary = checks
         .filter(c => c.status !== "pass" && c.remediation)

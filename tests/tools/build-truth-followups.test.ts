@@ -4,7 +4,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
-import { buildChainIdParam, chainIdParam } from "../../src/lib/params.js";
+import { chainIdParam } from "../../src/lib/params.js";
+import { buildChainIdParam } from "../../src/lib/writeParams.js";
 
 /**
  * 0.30.3 review follow-ups. Each case here is a defect that survived the first

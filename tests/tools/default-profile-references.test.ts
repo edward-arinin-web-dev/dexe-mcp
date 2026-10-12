@@ -254,7 +254,7 @@ describe("default profile names no tool it does not have", () => {
 
   it("keeps the quarantine honest — every entry must still be dangling", () => {
     // Forces the list to shrink. Once someone annotates the text in
-    // src/lib/params.ts / src/tools/ipfs.ts, this fails until the entry is
+    // src/lib/params.ts / src/tools/ipfsWrite.ts, this fails until the entry is
     // deleted, so a fixed item cannot masquerade as permanent debt.
     const stillDangling = new Set(findDanglers().map((d) => d.ref.replace(/[*_]+$/, "")));
     const stale = QUARANTINE.filter((q) => !stillDangling.has(q.ref));

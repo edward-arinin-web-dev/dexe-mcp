@@ -2,7 +2,7 @@ import type { Flow, Gotcha, Topic } from "./types.js";
 import { FLOWS } from "./flows.js";
 import { TOPICS } from "./topics.js";
 import { GOTCHAS } from "./gotchas.js";
-import { KNOWN_FAILURES } from "../lib/errors.js";
+import { knownFailures, type KnownFailure } from "../lib/errors.js";
 
 /**
  * Markdown renderers for the knowledge corpus. Used by scripts/gen-knowledge.ts
@@ -86,9 +86,13 @@ export function renderGotchasSection(): string {
     .join("\n");
 }
 
-/** The `error-remedies` generated region: rendered from KNOWN_FAILURES (one source). */
-export function renderErrorTable(): string {
-  const rows = KNOWN_FAILURES.map(
+/**
+ * The `error-slugs` generated region: rendered from the known-failure table
+ * (one source). Defaults to the table registered in this process; gen:knowledge
+ * passes the single server's combined read + write table explicitly.
+ */
+export function renderErrorTable(table: readonly KnownFailure[] = knownFailures()): string {
+  const rows = table.map(
     (k) => `| \`${k.slug}\` | ${k.what} | ${k.remedy.replace(/\n/g, " ")} |`,
   );
   return ["| Failure | What it means | Do this |", "|---|---|---|", ...rows].join("\n");

@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runAllChecks } from "../../src/diag/checks.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runAllChecks as runReadChecks, type RunCheckOpts } from "../../src/diag/checks.js";
+import { writeDoctorChecks } from "../../src/diag/writeChecks.js";
+import { DEFAULTS, type DexeConfig } from "../../src/config.js";
+
+/**
+ * The doctor as the single server runs it: the read checks plus the write
+ * checks (signer, Pinata, WalletConnect) it hands in.
+ */
+const runAllChecks = (opts: RunCheckOpts = {}) => runReadChecks({ ...opts, extraChecks: writeDoctorChecks() });
 
 /**
  * Coverage for the doctor check suite. Mocks `global.fetch` to control HTTP
@@ -158,5 +168,100 @@ describe("runAllChecks stays inside an overall network budget", () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+/**
+ * The read/write split. `runAllChecks` runs the read checks; the write ones
+ * (signer, Pinata, WalletConnect — src/diag/writeChecks.ts) come in as
+ * `extraChecks`. With them added the report must read exactly as before the
+ * split; without them a read-only doctor must not touch signing or pinning.
+ */
+describe("read checks alone, and with the write checks added", () => {
+  const KEYS = ["DEXE_PINATA_JWT", "DEXE_IPFS_GATEWAY", "DEXE_SIGNER_ALLOWLIST", "DEXE_PRIVATE_KEY"];
+  const original: Record<string, string | undefined> = {};
+  let realFetch: typeof globalThis.fetch;
+  let calledUrls: string[];
+
+  // Every shared public default in use, a public-RPC fallback, no signer loaded.
+  const config = {
+    startupIssues: [],
+    chains: new Map(),
+    defaultChainId: 56,
+    subgraphUrls: new Map([[56, { pools: DEFAULTS.subgraphPoolsUrl }]]),
+    walletConnectProjectId: DEFAULTS.walletConnectProjectId,
+    backendApiUrl: DEFAULTS.backendApiUrl,
+    usingPublicRpcFallback: true,
+    statePath: join(tmpdir(), "dexe-mcp-doctor-split-test", "state.json"),
+    privateKey: undefined,
+    agentKeys: {},
+  } as unknown as DexeConfig;
+
+  beforeEach(() => {
+    for (const k of KEYS) original[k] = process.env[k];
+    delete process.env.DEXE_IPFS_GATEWAY;
+    delete process.env.DEXE_PRIVATE_KEY;
+    process.env.DEXE_PINATA_JWT = "fake-jwt";
+    process.env.DEXE_SIGNER_ALLOWLIST = "0x" + "a".repeat(40);
+    realFetch = globalThis.fetch;
+    calledUrls = [];
+    globalThis.fetch = vi.fn(async (input: unknown) => {
+      calledUrls.push(String(input));
+      return new Response(JSON.stringify({ message: "ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+  });
+
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (original[k] === undefined) delete process.env[k];
+      else process.env[k] = original[k];
+    }
+    globalThis.fetch = realFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("with the write checks: the shared-defaults row reads exactly as before the split", async () => {
+    const row = (await runAllChecks({ config, timeoutMs: 100 })).find((r) => r.id === "env.sharedDefaults");
+    expect(row?.message).toBe(
+      "Using shared public defaults for: subgraph (shared Graph API key), WalletConnect project id, backend API. " +
+        "Fine for light use; rate-limited and billable-shared.",
+    );
+    expect(row?.remediation).toBe(
+      "For production / heavy use set your own: your DEXE_SUBGRAPH_*_URL (with your Graph key, or DEXE_GRAPH_API_KEY) " +
+        "and DEXE_WALLETCONNECT_PROJECT_ID. Run /dexe-setup for a guided walkthrough. See docs/ENVIRONMENT.md.",
+    );
+  });
+
+  it("with the write checks: each write row lands where the single server always listed it", async () => {
+    const ids = (await runAllChecks({ config, timeoutMs: 100 })).map((r) => r.id);
+    const at = (id: string) => {
+      expect(ids, `missing ${id}`).toContain(id);
+      return ids.indexOf(id);
+    };
+    // Network phase: the Pinata probe sits between the RPC probes and the rest.
+    expect(at("pinata.jwt")).toBeLessThan(at("backend.reachable"));
+    // Config rows: after subgraph coverage, before the chain / shared-default / state rows.
+    expect(at("subgraph.coverage")).toBeLessThan(at("signer.allowlist"));
+    expect(at("signer.allowlist")).toBeLessThan(at("chain.publicRpcFallback"));
+    expect(at("chain.publicRpcFallback")).toBeLessThan(at("env.sharedDefaults"));
+    expect(at("env.sharedDefaults")).toBeLessThan(at("state.path"));
+  });
+
+  it("read checks alone: no signer, Pinata or WalletConnect rows, and Pinata is never called", async () => {
+    const results = await runReadChecks({ config, timeoutMs: 100 });
+    const writeRows = results.filter(
+      (r) => r.id.startsWith("signer.") || r.id.startsWith("pinata.") || r.id === "chain.signerNeedsRpc",
+    );
+    expect(writeRows).toEqual([]);
+    expect(calledUrls.some((u) => u.includes("api.pinata.cloud"))).toBe(false);
+    const row = results.find((r) => r.id === "env.sharedDefaults");
+    expect(row?.message).toBe(
+      "Using shared public defaults for: subgraph (shared Graph API key), backend API. " +
+        "Fine for light use; rate-limited and billable-shared.",
+    );
+    expect(row?.remediation).not.toMatch(/WALLETCONNECT/);
   });
 });

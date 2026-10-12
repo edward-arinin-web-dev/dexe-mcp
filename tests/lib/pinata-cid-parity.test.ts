@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cidForJson, pinataCidForJson, pinJsonOrPreview, type PinataClient } from "../../src/lib/ipfs.js";
+import { cidForJson, pinataCidForJson } from "../../src/lib/ipfs.js";
+import { pinJsonOrPreview, type PinataClient } from "../../src/lib/ipfsPin.js";
 
 /**
  * The load-bearing claim of the 0.34.0 dryRun work: a preview's CID is the SAME

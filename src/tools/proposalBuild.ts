@@ -7,10 +7,11 @@ import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
 import { CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY } from "../lib/protocolAdvisories.js";
-import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
+import { buildTimeTreasuryAdvisory } from "../lib/treasuryGate.js";
 import { assessActions, withWarnings, type BuildWarning } from "./buildResult.js";
 import { warningsOutputField } from "../lib/buildWarning.js";
-import { buildChainIdParam, govPoolParam } from "../lib/params.js";
+import { govPoolParam } from "../lib/params.js";
+import { buildChainIdParam } from "../lib/writeParams.js";
 import { DEFAULTS } from "../config.js";
 import {
   PROPOSAL_CATALOG,

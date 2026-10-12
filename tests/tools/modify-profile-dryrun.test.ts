@@ -37,7 +37,7 @@ vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
 import { multicall } from "../../src/lib/multicall.js";
 import { loadConfig } from "../../src/config.js";
 import { RpcProvider } from "../../src/rpc.js";
-import { PinataClient } from "../../src/lib/ipfs.js";
+import { PinataClient } from "../../src/lib/ipfsPin.js";
 import { renderAvatarJpeg } from "../../src/lib/avatarImage.js";
 import { runProposalCreate } from "../../src/tools/flow.js";
 

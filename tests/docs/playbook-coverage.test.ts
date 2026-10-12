@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { FLOW_PROPOSAL_TYPES } from "../../src/lib/proposalBuilders.js";
-import { KNOWN_FAILURES } from "../../src/lib/errors.js";
+import { COMBINED_KNOWN_FAILURES as KNOWN_FAILURES } from "../../src/lib/writeErrors.js";
 import { TOOLSETS } from "../../src/tools/gate.js";
 
 /**

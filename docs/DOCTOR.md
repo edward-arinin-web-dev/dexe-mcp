@@ -37,7 +37,8 @@ non-zero there.
 pin. It is the only check that WRITES anything — see
 [Pinata pin capability](#pinata-pin-capability--pinatapinquota-opt-in-writes).
 
-The MCP tool and the CLI share `src/diag/checks.ts` — they always agree.
+The MCP tool and the CLI share `src/diag/checks.ts` (plus the signer, Pinata
+and WalletConnect checks in `src/diag/writeChecks.ts`) — they always agree.
 
 ---
 
@@ -272,7 +273,9 @@ the `message`, and the `file` + `line` it points at — alongside `errorCount`,
 
 Edit `src/diag/checks.ts`. Each check is an `async function` returning
 `CheckResult | null` (return `null` to skip when the relevant env is
-unset). Add it to the `Promise.all([...])` block in `runAllChecks`. Add
+unset). Add it to the `Promise.all([...])` block in `runAllChecks`. A check
+about signing, broadcasting or pinning goes in `src/diag/writeChecks.ts`
+instead, through `writeDoctorChecks()` — the read checks never call it. Add
 a row to this document. Write a test in `tests/diag/checks.test.ts` that
 mocks `fetch` and asserts the new check's pass/fail/warn behavior.
 

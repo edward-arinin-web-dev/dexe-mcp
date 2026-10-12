@@ -42,9 +42,18 @@ function doctorHandler(): ToolHandler {
       handler = rest[rest.length - 1] as ToolHandler;
     },
   } as unknown as McpServer;
-  registerDoctorTool(server, { startupIssues: [], toolsets: ["core"] } as unknown as DexeConfig);
+  // The single server hands the write checks in; probePin is forwarded to them.
+  registerDoctorTool(server, { startupIssues: [], toolsets: ["core"] } as unknown as DexeConfig, (opts) => {
+    extraChecksMock.opts = opts;
+    return extraChecksMock.checks;
+  });
   return handler!;
 }
+
+const extraChecksMock = {
+  opts: undefined as { probePin: boolean } | undefined,
+  checks: { config: () => [] as CheckResult[] },
+};
 
 const pass = (id: string): CheckResult => ({ id, category: "core", status: "pass", message: "ok" });
 const warn = (id: string): CheckResult => ({ id, category: "core", status: "warn", message: "advisory" });
@@ -93,9 +102,11 @@ describe("dexe_doctor verdict", () => {
   it("probePin defaults to off and is forwarded only when asked", async () => {
     checksMock.results = [pass("a")];
     await doctorHandler()({});
-    expect((checksMock.opts as { probePin?: boolean }).probePin).toBe(false);
+    expect(extraChecksMock.opts?.probePin).toBe(false);
+    // ...and the checks it built are the ones the run gets.
+    expect((checksMock.opts as { extraChecks?: unknown }).extraChecks).toBe(extraChecksMock.checks);
 
     await doctorHandler()({ probePin: true });
-    expect((checksMock.opts as { probePin?: boolean }).probePin).toBe(true);
+    expect(extraChecksMock.opts?.probePin).toBe(true);
   });
 });

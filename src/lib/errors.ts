@@ -5,9 +5,21 @@ import { renderUntrusted } from "./sanitize.js";
  * Actionable-error layer (v0.22). Every catch-all in the composite flows, the
  * read tools, and the `dexe_tx_send` broadcast routes through
  * `toActionableError` so the model/user gets "what happened + what to do next"
- * instead of a raw ethers dump. The remedy table is exported so
- * `npm run gen:knowledge` renders it into docs/PLAYBOOK.md — one source
+ * instead of a raw ethers dump. The remedy tables are exported so
+ * `npm run gen:knowledge` renders them into docs/PLAYBOOK.md — one source
  * (drift-checked by gen:knowledge:check in prepublishOnly).
+ *
+ * TWO TABLES. This file holds the failures a read can hit, with remedies that
+ * only ever point at reads: retry, check an input, use another read tool, fix
+ * the endpoint. Write code (src/lib/writeErrors.ts) registers its own table
+ * through `registerKnownFailures`: the failures only signing, broadcasting or
+ * pinning can raise (gas, nonce, wallet, Pinata), plus its own wording for
+ * shared failures whose write-side remedy differs (a timed-out receipt wait,
+ * the resume rule after a revert). It registers that table when it loads, so
+ * in the single server — which loads it with every write tool —
+ * `toActionableError` classifies and words every failure exactly as one
+ * combined table would; a read-only server never loads it and never hands a
+ * caller write advice.
  *
  * `toActionableError` goes through `safeErrorMessage`, so it is also a safe
  * sink for the W36 credential leak: no call site that uses it can print a keyed
@@ -37,61 +49,12 @@ export interface KnownFailure {
 }
 
 /**
- * Known failure signatures across the DeXe flows. Order matters — first match
- * wins. Keep `what`/`remedy` self-contained: they are shown without the
- * surrounding code context.
+ * Known failure signatures a READ can hit. Order matters — first match wins.
+ * Keep `what`/`remedy` self-contained: they are shown without the surrounding
+ * code context. Remedies here name read tools and read-side settings only; the
+ * write-side wording of the shared entries is in src/lib/writeErrors.ts.
  */
-export const KNOWN_FAILURES: readonly KnownFailure[] = [
-  {
-    match: /insufficient funds for (gas|intrinsic)/i,
-    slug: "no-gas",
-    what: "The signer wallet has no BNB to pay gas.",
-    remedy:
-      "Fund the signer address with BNB on the target chain (testnet 97: use a faucet, e.g. https://www.bnbchain.org/en/testnet-faucet), then re-run.",
-  },
-  {
-    match: /nonce (too low|has already been used)|already known|replacement transaction underpriced/i,
-    slug: "nonce-conflict",
-    what: "A transaction with this nonce is already pending or mined.",
-    remedy:
-      "A previous broadcast is still settling. Check it with dexe_tx_status FIRST: if it succeeded that step is done " +
-      "and a re-run continues after it; if it is still pending, wait ~15s and check again — do not re-send. " +
-      "On re-run ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain " +
-      "state and skipped; GovPool.execute and the validator round are NOT.",
-  },
-  {
-    match: /user rejected|user denied|rejected by user/i,
-    slug: "wallet-rejected",
-    what: "The transaction was rejected in the wallet.",
-    remedy: "Re-run the call and approve the request on the phone/wallet when it appears.",
-  },
-  {
-    // `Pinata JWT is required` is what PinataClient throws when constructed
-    // without a key — same root cause as a missing DEXE_PINATA_JWT, so it must
-    // land here and not on the transient `pinata-failed` entry below.
-    match: /DEXE_PINATA_JWT|Pinata JWT is required/i,
-    slug: "pinata-missing",
-    what: "IPFS uploads need a Pinata JWT and none is configured.",
-    remedy:
-      "1) Create a free API key at https://app.pinata.cloud/developers/api-keys with pinJSONToIPFS + pinFileToIPFS permissions. " +
-      "2) Add DEXE_PINATA_JWT=<jwt> to the .env at the dexe-mcp root (never .claude.json). " +
-      "3) Restart Claude Code (the .env is read once at startup). Or run /dexe-setup for a guided walkthrough.",
-  },
-  {
-    // Bounded gap so the IPFS-gateway message ("…set a dedicated Pinata
-    // gateway…") can't be mistaken for a pinning failure.
-    match: /Pinata [\w ]{0,24}(failed|timed out)/i,
-    slug: "pinata-failed",
-    what:
-      "Pinata (the IPFS pinning service) rejected or never answered the upload, so the metadata was NOT pinned.",
-    remedy:
-      "HTTP 401/403 means the DEXE_PINATA_JWT is wrong, revoked, or lacks the pinJSONToIPFS/pinFileToIPFS scopes — " +
-      "mint a fresh key at https://app.pinata.cloud/developers/api-keys, put it in .env, and restart. " +
-      "A 429 or a timeout is transient (check status.pinata.cloud): wait ~30s and re-run the SAME call — " +
-      "ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and " +
-      "skipped, so nothing is paid for twice. If a transaction was already broadcast (you have a hash), check " +
-      "dexe_tx_status first.",
-  },
+export const READ_KNOWN_FAILURES: readonly KnownFailure[] = [
   {
     // MUST precede `subgraph-failed`: the orphan fault's message also matches
     // `Subgraph errors:`, and the generic remedy there says "re-run once
@@ -155,9 +118,8 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
     what:
       "The DeXe backend API (api.dexe.io) failed or timed out — the enriched answer (USD prices, token discovery, off-chain proposals) is unavailable.",
     remedy:
-      "For reads, re-run: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). " +
-      "For off-chain proposals/votes there is no on-chain fallback — the backend is the system of record, so wait and retry. " +
-      "A 401 means the Bearer token expired: re-run dexe_auth_login (needs DEXE_TOOLSETS=core,proposals) to mint a new one. " +
+      "Re-run the call: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). " +
+      "Off-chain proposal data has no on-chain fallback — the backend is its system of record, so wait and retry. " +
       "Point DEXE_BACKEND_API_URL at another host only if you run your own.",
   },
   {
@@ -169,35 +131,117 @@ export const KNOWN_FAILURES: readonly KnownFailure[] = [
     what:
       "The endpoint accepted the connection and then went silent until the deadline fired. The call was abandoned, not answered.",
     remedy:
-      "No state was changed by a timed-out READ — re-run it. If a WRITE timed out while waiting for a receipt, do NOT re-send blindly: " +
-      "check it with dexe_tx_status first, it may still land. A public endpoint that keeps stalling will not improve: set your own " +
-      "DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET (Alchemy/QuickNode/Ankr) in .env and restart. " +
-      "The receipt-wait budget is tunable via DEXE_TX_WAIT_TIMEOUT_MS.",
+      "No state was changed by a timed-out read — re-run it. A public endpoint that keeps stalling will not improve: " +
+      "set your own DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET (Alchemy/QuickNode/Ankr) in .env and restart.",
   },
   {
     match: /rate.?limit|\b429\b|SERVER_ERROR|could not detect network|failed to fetch|fetch failed|ETIMEDOUT|ECONNRESET/i,
     slug: "rpc-flaky",
     what: "The RPC endpoint failed or rate-limited mid-call (retries were already attempted).",
     remedy:
-      "Re-run the call; ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from " +
-      "chain state and skipped. If the failure came after a broadcast (you have a tx hash), check dexe_tx_status " +
-      "first — GovPool.execute and the validator round are NOT auto-skipped. For reliability set a private endpoint " +
+      "Re-run the call — a read changes nothing, so a retry is safe. For reliability set a private endpoint " +
       "in .env (DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET, e.g. Alchemy/QuickNode/Ankr) and restart.",
   },
   {
     match: /execution reverted|CALL_EXCEPTION|transaction failed|status.*0\b/i,
     slug: "onchain-revert",
-    what: "The transaction reverted on-chain (state was NOT changed by this step).",
+    what: "The contract call reverted on-chain (nothing was changed).",
     remedy:
-      "Read the revert reason above if present. Common causes: proposal not in the required state " +
-      "(check dexe_proposal_state), tokens locked in an active proposal (withdraw between proposals), " +
-      "or a blacklisted recipient. Fix the cause and re-run — ERC20.approve / GovPool.deposit / " +
-      "createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round " +
-      "are NOT, so check dexe_proposal_state before re-running one of those.",
+      "Read the revert reason above if present. On a read the usual causes are an address that is not the " +
+      "contract the tool expects (check it with dexe_dao_registry_lookup or dexe_dao_info), a proposal id that " +
+      "does not exist yet or is in a state the call does not accept (check dexe_proposal_list / " +
+      "dexe_proposal_state), or the wrong chain (pass the DAO's chainId). Fix the input and re-run.",
   },
 ] as const;
 
-/** Result of classifying an unknown error against the KNOWN_FAILURES table. */
+/**
+ * Another edition's wording for a failure the read table already classifies:
+ * same slug, same `match`, its own `what` / `remedy`.
+ */
+export interface KnownFailureWording {
+  what?: string;
+  remedy: string;
+}
+
+/** What write code registers on top of the read table. */
+export interface KnownFailureRegistration {
+  /**
+   * Failures no read can raise (gas, nonce, wallet, Pinata). Matched BEFORE
+   * every read entry, in this order. A slug the read table already has is
+   * refused: a second `match` would change which failures that slug claims —
+   * reword it with `wording` instead.
+   */
+  failures?: readonly KnownFailure[];
+  /** Write-side wording for shared failures, keyed by read slug. */
+  wording?: Readonly<Record<string, KnownFailureWording>>;
+}
+
+/**
+ * The read table with a registration applied: registered failures first, then
+ * every read entry in order, reworded where the registration says so. Pure —
+ * `registerKnownFailures` applies it to the live table, `gen:knowledge` to the
+ * one it renders. Throws on a registration that would change a classification.
+ */
+export function mergeKnownFailures(
+  base: readonly KnownFailure[],
+  reg: KnownFailureRegistration,
+): readonly KnownFailure[] {
+  const baseSlugs = new Set(base.map((k) => k.slug));
+  for (const f of reg.failures ?? []) {
+    if (baseSlugs.has(f.slug)) {
+      throw new Error(
+        `registerKnownFailures: '${f.slug}' is already classified by the read table — pass its wording, not a second entry.`,
+      );
+    }
+  }
+  const wording = reg.wording ?? {};
+  for (const slug of Object.keys(wording)) {
+    if (!baseSlugs.has(slug)) {
+      throw new Error(`registerKnownFailures: no read failure '${slug}' to reword — register it as a failure instead.`);
+    }
+  }
+  return [
+    ...(reg.failures ?? []),
+    ...base.map((k) => {
+      const w = wording[k.slug];
+      return w ? { ...k, what: w.what ?? k.what, remedy: w.remedy } : k;
+    }),
+  ];
+}
+
+/** Everything registered so far. Re-registering a slug replaces it in place. */
+const registeredFailures: KnownFailure[] = [];
+const registeredWording = new Map<string, KnownFailureWording>();
+let activeTable: readonly KnownFailure[] = READ_KNOWN_FAILURES;
+
+/**
+ * Add another edition's failures and wording to the table `toActionableError`
+ * uses by default. src/lib/writeErrors.ts registers the write table when it
+ * loads, so it is in force in any process that runs write code. Idempotent:
+ * registering the same table again changes nothing.
+ */
+export function registerKnownFailures(reg: KnownFailureRegistration): void {
+  const failures = [...registeredFailures];
+  for (const f of reg.failures ?? []) {
+    const at = failures.findIndex((x) => x.slug === f.slug);
+    if (at >= 0) failures[at] = f;
+    else failures.push(f);
+  }
+  const wording = new Map(registeredWording);
+  for (const [slug, w] of Object.entries(reg.wording ?? {})) wording.set(slug, w);
+  // Validate the whole result before touching the live table.
+  activeTable = mergeKnownFailures(READ_KNOWN_FAILURES, { failures, wording: Object.fromEntries(wording) });
+  registeredFailures.splice(0, registeredFailures.length, ...failures);
+  registeredWording.clear();
+  for (const [slug, w] of wording) registeredWording.set(slug, w);
+}
+
+/** The table `toActionableError` classifies against right now. */
+export function knownFailures(): readonly KnownFailure[] {
+  return activeTable;
+}
+
+/** Result of classifying an unknown error against the known-failure table. */
 export interface ActionableError {
   message: string;
   slug?: string;
@@ -206,10 +250,16 @@ export interface ActionableError {
 /**
  * Wrap a caught error with step context and, when the signature is recognized,
  * a concrete remedy. Falls back to the redacted raw message so nothing is lost.
+ * Classifies against the registered table (`knownFailures()`) unless a table is
+ * passed.
  */
-export function toActionableError(err: unknown, step?: string): ActionableError {
+export function toActionableError(
+  err: unknown,
+  step?: string,
+  table: readonly KnownFailure[] = knownFailures(),
+): ActionableError {
   const raw = safeErrorMessage(err);
-  const hit = KNOWN_FAILURES.find((k) => k.match.test(raw));
+  const hit = table.find((k) => k.match.test(raw));
   const prefix = step ? `${step} failed: ` : "";
   if (!hit) return { message: `${prefix}${raw}` };
   return {

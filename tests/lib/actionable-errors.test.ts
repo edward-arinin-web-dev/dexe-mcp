@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { KNOWN_FAILURES, toActionableError } from "../../src/lib/errors.js";
+import {
+  knownFailures,
+  mergeKnownFailures,
+  READ_KNOWN_FAILURES,
+  registerKnownFailures,
+  toActionableError,
+} from "../../src/lib/errors.js";
+import { COMBINED_KNOWN_FAILURES, WRITE_KNOWN_FAILURES } from "../../src/lib/writeErrors.js";
+import { WRITE_TOOLS } from "../../src/editions.js";
+
+/**
+ * Importing src/lib/writeErrors.ts registers the write table on top of the
+ * read one, as it does in the single server. Every assertion in this file that
+ * predates the read/write split runs against that combined table, unchanged;
+ * the split's own guarantees are at the bottom.
+ */
+const KNOWN_FAILURES = knownFailures();
 
 /**
  * The actionable-error layer turns a caught throw into "what happened + what to
@@ -245,4 +261,100 @@ describe("no remedy promises a blanket resume skip", () => {
       expect(hit.remedy).toMatch(/\bNOT\b|are not/);
     },
   );
+});
+
+describe("read table + registered write table", () => {
+  /**
+   * The table split into a read half (src/lib/errors.ts) and a write half
+   * (src/lib/writeErrors.ts) that write code registers. The single server must
+   * not notice: same slugs, same order, same matches, same words.
+   */
+  const SLUGS_BEFORE_THE_SPLIT = [
+    "no-gas",
+    "nonce-conflict",
+    "wallet-rejected",
+    "pinata-missing",
+    "pinata-failed",
+    "subgraph-orphan-relation",
+    "subgraph-failed",
+    "backend-page-token-rejected",
+    "backend-failed",
+    "rpc-timeout",
+    "rpc-flaky",
+    "onchain-revert",
+  ];
+
+  it("the single server classifies against the pre-split table, slug for slug, in order", () => {
+    expect(KNOWN_FAILURES.map((k) => k.slug)).toEqual(SLUGS_BEFORE_THE_SPLIT);
+    // Loading write code registered it; write tools classify against the same table directly.
+    expect(KNOWN_FAILURES).toEqual(COMBINED_KNOWN_FAILURES);
+  });
+
+  it("the write table rewords shared failures but never re-matches them", () => {
+    for (const read of READ_KNOWN_FAILURES) {
+      expect(KNOWN_FAILURES.find((k) => k.slug === read.slug)?.match, read.slug).toBe(read.match);
+    }
+  });
+
+  it("registering the write table again changes nothing", () => {
+    registerKnownFailures(WRITE_KNOWN_FAILURES);
+    expect(knownFailures()).toEqual(KNOWN_FAILURES);
+  });
+
+  it("refuses a registration that would change what a read slug claims", () => {
+    expect(() =>
+      mergeKnownFailures(READ_KNOWN_FAILURES, { failures: [{ ...READ_KNOWN_FAILURES[0]!, match: /anything/ }] }),
+    ).toThrow(/already classified/);
+    expect(() => mergeKnownFailures(READ_KNOWN_FAILURES, { wording: { "no-such-slug": { remedy: "x" } } })).toThrow(
+      /no read failure/,
+    );
+  });
+
+  it.each([
+    ["Subgraph HTTP 429 from https://gateway.thegraph.com/*** — rate-limited.", "subgraph-failed"],
+    ["Subgraph errors: Null value resolved for non-null field `voter`", "subgraph-orphan-relation"],
+    ["DeXe backend rejected the request: HTTP 400 (bad request) for /x", "backend-page-token-rejected"],
+    ["backend HTTP 502", "backend-failed"],
+    ["RPC request timed out after 15000ms", "rpc-timeout"],
+    ["SERVER_ERROR: bad response", "rpc-flaky"],
+    ["execution reverted: Gov: wrong proposal state", "onchain-revert"],
+  ])("a server with only the read table still classifies %j as %s", (raw, slug) => {
+    expect(toActionableError(new Error(raw), "step", READ_KNOWN_FAILURES).slug).toBe(slug);
+  });
+
+  describe("read remedies give read advice only", () => {
+    /**
+     * What a read-only server hands its caller. A read never signs, broadcasts
+     * or pins, so a remedy that sends it to the resume rule, a receipt check or
+     * an auth login is advice for a tool it does not have.
+     */
+    const WRITE_ADVICE = [
+      /createProposalAndVote/,
+      /ERC20\.approve/,
+      /GovPool\.(deposit|vote|execute)/,
+      /validator round/i,
+      /broadcast/i,
+      /receipt/i,
+      /DEXE_TX_WAIT_TIMEOUT_MS/,
+      /DEXE_PINATA_JWT/,
+      /Bearer token/i,
+    ];
+    for (const k of READ_KNOWN_FAILURES) {
+      it(`${k.slug}`, () => {
+        const text = `${k.what}\n${k.remedy}`;
+        for (const tool of WRITE_TOOLS) {
+          expect(new RegExp(`\\b${tool}\\b`).test(text), `${k.slug} names the write tool ${tool}`).toBe(false);
+        }
+        for (const re of WRITE_ADVICE) {
+          expect(re.test(text), `${k.slug} gives write advice (${re})`).toBe(false);
+        }
+      });
+    }
+
+    it("and every one still says what to do next", () => {
+      for (const k of READ_KNOWN_FAILURES) {
+        expect(k.remedy, k.slug).toMatch(/re-run|retry|check|set |prefer|Fix|wait/i);
+      }
+    });
+  });
 });

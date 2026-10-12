@@ -24,8 +24,8 @@ import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 
 vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
 
-vi.mock("../../src/lib/ipfs.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/ipfs.js")>()),
+vi.mock("../../src/lib/ipfsPin.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/ipfsPin.js")>()),
   PinataClient: class {
     async pinJson(obj: unknown) {
       return { cid: `bafyfake${createHash("sha256").update(JSON.stringify(obj)).digest("hex").slice(0, 24)}` };
