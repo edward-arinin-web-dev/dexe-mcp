@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { RpcProvider } from "../rpc.js";
 import { SignerManager } from "../lib/signer.js";
+import { ApprovalHaltError } from "../lib/approval/scope.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { toCidV1 } from "../lib/ipfs.js";
 import { pinJsonOrPreview } from "../lib/ipfsPin.js";
@@ -1195,6 +1196,7 @@ export function registerDaoCreateTools(
         // The deploy broadcast is a write: no gas / nonce clash / RPC stall all
         // land here, and each has a different next step. Classify rather than
         // handing back the ethers dump.
+        if (e instanceof ApprovalHaltError) throw e; // awaiting_approval / declined — rendered by the approval scope
         return err(toActionableError(e, "dexe_dao_create deploy broadcast").message);
       }
       if (result.mode === "failed") {

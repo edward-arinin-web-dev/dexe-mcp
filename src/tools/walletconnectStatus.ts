@@ -24,39 +24,35 @@ export function registerWalletConnectTools(
   signer: SignerManager,
   wc: WalletConnectManager,
 ): void {
-  const resolveSignerMode = (): "readonly" | "eoa" | "safe" | "walletconnect" => {
-    const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined;
-    return signer.hasSigner()
-      ? safeServiceUrl
-        ? "safe"
-        : "eoa"
-      : wc.isConfigured()
-        ? "walletconnect"
-        : "readonly";
-  };
+  // The signer mode is resolved ONCE, at startup (src/lib/signerMode.ts);
+  // WalletConnect dispatches only in `walletconnect` mode (or, transitionally,
+  // an unattended session with no primary key).
+  const wcIsDispatch = (): boolean =>
+    wc.isConfigured() && !signer.hasSigner() && signer.mode !== "keystore" && signer.mode !== "readonly";
 
   server.tool(
     "dexe_wc_status",
     "Read-only. WalletConnect config plus live session state (connected?, account, chain, topic, peer " +
-      "wallet, last error). Active only when DEXE_WALLETCONNECT_PROJECT_ID is set AND no " +
-      "DEXE_PRIVATE_KEY is present.",
+      "wallet, last error). It dispatches transactions in DEXE_SIGNER_MODE=walletconnect (the default).",
     {
       chainId: z.number().int().positive().optional().describe("Unused; reserved."),
     },
     async () => {
-      const signerMode = resolveSignerMode();
+      const signerMode = signer.mode;
+      const active = wcIsDispatch();
       const session = wc.status();
       const result = {
         signerMode,
-        active: signerMode === "walletconnect",
+        active,
         projectIdConfigured: wc.isConfigured(),
         relayUrl: config.walletConnectRelayUrl ?? null,
         approvalTimeoutMs: config.walletConnectApprovalTimeoutMs ?? null,
         session,
         note: !wc.isConfigured()
           ? "No DEXE_WALLETCONNECT_PROJECT_ID set. Get a free id at https://cloud.reown.com to enable WalletConnect mode."
-          : signerMode !== "walletconnect"
-            ? "WalletConnect project id is set but inactive — DEXE_PRIVATE_KEY (or Safe) takes precedence."
+          : !active
+            ? `WalletConnect project id is set but this server signs in ${signerMode} mode (DEXE_SIGNER_MODE); ` +
+              "a WalletConnect session is used only for message signing there."
             : session.connected
               ? "Connected. dexe_tx_send will forward transactions to the phone wallet for approval."
               : session.connecting
@@ -102,9 +98,12 @@ export function registerWalletConnectTools(
       }
       // A hot key no longer blocks pairing — but be honest that it still signs
       // until removed (we keep key-wins precedence to avoid a breaking change).
-      const keyPrecedenceNote = signer.hasSigner()
-        ? "⚠️ DEXE_PRIVATE_KEY is set and still takes signing precedence — dexe_tx_send will use the hot key, not this session, until you unset the key. Unset it to make WalletConnect the active signer."
-        : undefined;
+      const keyPrecedenceNote =
+        signer.mode === "keystore"
+          ? "This server signs transactions with the encrypted keystore (DEXE_SIGNER_MODE=keystore); this session is used for message signatures (dexe_auth_login). Set DEXE_SIGNER_MODE=walletconnect to send transactions through the phone."
+          : signer.hasSigner()
+            ? "⚠️ A hot key is set and still takes signing precedence — dexe_tx_send will use it, not this session. Set DEXE_SIGNER_MODE=walletconnect (and restart) to make WalletConnect the active signer."
+            : undefined;
       try {
         const { uri, chainId: resolved } = await wc.connect(chainId);
         return {

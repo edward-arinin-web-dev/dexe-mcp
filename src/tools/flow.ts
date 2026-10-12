@@ -11,7 +11,10 @@ import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { resolveGateways } from "./ipfsRead.js";
-import { SignerManager, HOT_KEY_SAFETY, hotKeySafetyFields } from "../lib/signer.js";
+import { SignerManager, HOT_KEY_SAFETY, KEYSTORE_SAFETY, hotKeySafetyFields, safetyForMode } from "../lib/signer.js";
+import { buildReview } from "../lib/approval/review.js";
+import { currentToolScope } from "../lib/approval/scope.js";
+import { StateStore } from "../lib/stateStore.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
@@ -59,7 +62,6 @@ import { parseAmount, formatAmount, formatUnitsWithSymbol } from "../lib/units.j
 import { unixToUtc } from "../lib/time.js";
 import { govPoolParam, PROPOSAL_ID_DESC, NFT_IDS_OWN_DESC } from "../lib/params.js";
 import { signerKeyParam } from "../lib/writeParams.js";
-import type { StateStore } from "../lib/stateStore.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { withActionContext, currentActionContext } from "../lib/agentLedger.js";
 
@@ -804,10 +806,27 @@ export const ENABLE_WRITES_HINT =
   "  • ✅ RECOMMENDED — connect a wallet: if WalletConnect is configured, a scannable QR is already attached " +
   "to this response — just scan it and approve on your phone (keys never touch this machine). Otherwise run " +
   "`dexe_wc_connect` to print one.\n" +
-  "  • ⚠️ NOT SAFE — set `DEXE_PRIVATE_KEY` in .env so the server auto-signs: a hot key then lives in " +
-  "PLAINTEXT on disk. Use only a throwaway/test wallet, never a treasury or personal key. Restart Claude Code " +
-  "after editing .env.\n" +
+  "  • Encrypted local key — in a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), " +
+  "set DEXE_SIGNER_MODE=keystore and restart: every batch then waits for your password on a local approval page.\n" +
+  "  • ⚠️ NOT SAFE — a hot key (`DEXE_PRIVATE_KEY` with DEXE_SIGNER_MODE=unattended) signs with no confirmation " +
+  "from PLAINTEXT on disk, testnet only by default. Throwaway wallets only. Restart Claude Code after editing .env.\n" +
   "Then re-run this call to broadcast.";
+
+/** keystore mode with no usable keystore file. */
+export const KEYSTORE_MISSING_HINT =
+  "⚠️ DEXE_SIGNER_MODE=keystore but no usable keystore was found — the steps below are UNSIGNED payloads; nothing " +
+  "was broadcast. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart " +
+  "Claude Code, then re-run this call. dexe_doctor shows the path it looked in.";
+
+/** DEXE_SIGNER_MODE=readonly: the operator chose a server that never signs. */
+export const READONLY_MODE_HINT =
+  "DEXE_SIGNER_MODE=readonly — this server never signs. The steps below are UNSIGNED payloads for your own wallet; " +
+  "nothing was broadcast.";
+
+/** signerKey picks a hot key; keystore mode has exactly one key and no keyring. */
+export const KEYSTORE_SIGNERKEY_REFUSAL =
+  "signerKey selects a hot key from the agent keyring, and hot keys sign only in DEXE_SIGNER_MODE=unattended. " +
+  "This server is in keystore mode (one encrypted key, approved per batch) — omit signerKey.";
 
 /**
  * Best-effort WalletConnect auto-pairing for no-signer write flows. Returns
@@ -1228,15 +1247,29 @@ export async function sendOrCollect(
     let whoDry: { signerKey: string; address: string } | undefined;
     try {
       if (signer.hasSigner(opts?.signerKey)) {
-        const sgDry = signer.trySigner?.(opts?.chainId, opts?.signerKey);
-        if (sgDry && !("error" in sgDry)) {
-          whoDry = describeBroadcaster(signer, sgDry.ok, opts?.signerKey);
+        if (signer.mode === "keystore") {
+          // The keystore never yields a Wallet outside an approved batch; name it directly.
+          whoDry = signer.describeSigner(opts?.signerKey);
+        } else {
+          const sgDry = signer.trySigner?.(opts?.chainId, opts?.signerKey);
+          if (sgDry && !("error" in sgDry)) {
+            whoDry = describeBroadcaster(signer, sgDry.ok, opts?.signerKey);
+          }
         }
       }
     } catch {
       /* a preview never fails over naming its payer */
     }
     return { mode: "dryRun", steps, ...(whoDry ? { signer: whoDry } : {}) };
+  }
+  // ---- keystore mode: one approval per batch, then ordered-only signing ----
+  if (signer.mode === "keystore") {
+    if (opts?.signerKey && !signer.hasSigner(opts.signerKey)) {
+      throw new Error(KEYSTORE_SIGNERKEY_REFUSAL);
+    }
+    if (signer.hasSigner()) return sendWithKeystoreApproval(signer, payloads, opts, rechecks);
+    for (const p of payloads) steps.push({ label: p.description, skipped: false, payload: p });
+    return { mode: "payloads", steps, enableWrites: KEYSTORE_MISSING_HINT };
   }
   if (!opts?.signerKey && !signer.hasSigner()) {
     for (const p of payloads) {
@@ -1246,11 +1279,12 @@ export async function sendOrCollect(
     // these payloads to dexe_tx_send (which broadcasts via the phone). This is
     // best-effort: `mode` and `steps` stay byte-identical whether or not
     // pairing succeeds, so the swarm mcpFallbackDispatcher is unaffected.
-    const paired = await tryAutoPair(opts?.wc, opts?.chainId);
+    // A readonly server pairs nothing: it never signs, by the operator's choice.
+    const paired = signer.mode === "readonly" ? undefined : await tryAutoPair(opts?.wc, opts?.chainId);
     return {
       mode: "payloads",
       steps,
-      enableWrites: ENABLE_WRITES_HINT,
+      enableWrites: signer.mode === "readonly" ? READONLY_MODE_HINT : ENABLE_WRITES_HINT,
       ...(paired ? { pairing: paired.pairing, pairingContent: paired.content } : {}),
     };
   }
@@ -1346,6 +1380,135 @@ export async function sendOrCollect(
     }
   }
   return { mode: "executed", steps, signer: { ...who, safety: HOT_KEY_SAFETY } };
+}
+
+type SendOrCollectOpts = NonNullable<Parameters<typeof sendOrCollect>[2]>;
+type SendOrCollectResult = Awaited<ReturnType<typeof sendOrCollect>>;
+
+/** Recorded DAOs for the approval page's labels. Best-effort: no state file, no labels. */
+function knownDaosFor(cfg: DexeConfig): Array<{ govPool: string; name?: string; chainId: number }> {
+  try {
+    return new StateStore(cfg.statePath).getState().knownDaos.map((d) => ({
+      govPool: d.govPool,
+      name: d.name,
+      chainId: d.chainId,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The keystore leg of {@link sendOrCollect}: review → ONE approval for the
+ * whole ordered batch → sign each step through the ApprovedSigner, which
+ * refuses anything that is not the next approved transaction.
+ *
+ * A batch that is not approved (yet) throws ApprovalHaltError; the approval
+ * scope (src/lib/approval/scope.ts) turns it into the tool's
+ * `awaiting_approval` / `declined` result. A step that fails revokes the
+ * approval (the key is dropped) and returns the same `failed` ledger as the
+ * hot-key path; the re-run re-derives what landed and asks for a NEW approval
+ * for the remainder, whose page lists the steps that already landed.
+ */
+async function sendWithKeystoreApproval(
+  signer: SignerManager,
+  payloads: TxPayload[],
+  opts: SendOrCollectOpts | undefined,
+  rechecks: string,
+): Promise<SendOrCollectResult> {
+  const approvals = signer.approvals;
+  if (!approvals) throw new Error(KEYSTORE_MISSING_HINT);
+  const from = signer.getAddress();
+  const who = { signerKey: "keystore", address: from };
+  const chainIds = [...new Set(payloads.map((p) => Number(p.chainId)))];
+  if (chainIds.length !== 1) {
+    throw new Error(`One approval covers one chain; this batch spans chains ${chainIds.join(", ")}.`);
+  }
+  const chainId = chainIds[0]!;
+  const scope = currentToolScope();
+  const tool = opts?.tool ?? scope?.tool ?? currentActionContext()?.tool ?? "unknown";
+  const cfg = signer.getConfig();
+
+  const review = await buildReview(
+    payloads.map((p) => ({ to: p.to, data: p.data, value: p.value, description: p.description })),
+    { chainId, from, config: cfg, simulateFirst: true, knownDaos: knownDaosFor(cfg) },
+  );
+  if (!review.ok) {
+    const p = payloads[review.stepIndex]!;
+    return {
+      mode: "failed",
+      steps: [],
+      signer: who,
+      failure: {
+        failedStep: p.description,
+        error: `[${review.guard}] ${review.reason}`,
+        landedSteps: [],
+        resume: `No steps landed on-chain and nothing was put up for approval. Fix the cause above and re-run this same call. ${rechecks}`,
+      },
+    };
+  }
+
+  const approved = await approvals.request(
+    { tool, chainId, from, payloads, steps: review.steps, prechecks: review.prechecks },
+    { ...(scope?.signal ? { signal: scope.signal } : {}), ...(scope ? { progress: (m: string) => scope.progress(m) } : {}) },
+  );
+
+  const steps: FlowStep[] = [];
+  for (const [i, p] of payloads.entries()) {
+    try {
+      // Same send-time guards as the hot-key loop (B6/B7/B10/B11/B12); B9 ran on
+      // step 1 before the page was shown, later steps depend on earlier ones.
+      await runBroadcastGuards(
+        { to: p.to, data: p.data, value: p.value, chainId, from },
+        cfg,
+        { skipSimulation: true },
+      );
+      const tx = await withActionContext({ ...(tool ? { tool } : {}), action: p.description }, () =>
+        approved.send({ to: p.to, data: p.data, value: p.value, chainId }),
+      );
+      const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
+      assertReceiptSuccess(receipt, p.description);
+      const txHash = receipt?.hash ?? tx.hash;
+      approved.landed(i, txHash);
+      steps.push({ label: p.description, skipped: false, txHash });
+      scope?.landed.push({ label: p.description, txHash });
+      if (opts?.postStep) {
+        try {
+          await opts.postStep(i, p);
+        } catch {
+          /* best-effort wait — never fails the flow */
+        }
+      }
+    } catch (e) {
+      const landed = steps.filter((s) => s.txHash);
+      const actionable = toActionableError(e, p.description);
+      approved.revoke(
+        `transaction ${i + 1} failed: ${actionable.message.slice(0, 200)}`,
+        landed.map((s) => ({ label: s.label, txHash: s.txHash! })),
+      );
+      const timedOut = broadcastTimeout(e);
+      return {
+        mode: "failed",
+        steps,
+        signer: landed.length > 0 ? { ...who, safety: KEYSTORE_SAFETY } : who,
+        failure: {
+          failedStep: p.description,
+          error: actionable.message,
+          landedSteps: landed,
+          resume: timedOut
+            ? timeoutResume(p.description, chainId, landed, timedOut.txHash, rechecks)
+            : (landed.length > 0
+                ? `${landed.length} earlier step(s) already landed on-chain (see landedSteps txHashes). `
+                : "No steps landed on-chain. ") +
+              "The approval was revoked; fix the cause above and re-run this same call — it asks the owner to " +
+              `approve only what is left. ${rechecks}`,
+        },
+      };
+    }
+  }
+  approved.finish();
+  approvals.store.clearResumeNote(tool, from, chainId);
+  return { mode: "executed", steps, signer: { ...who, safety: KEYSTORE_SAFETY } };
 }
 
 // ---------- exported runner ----------
@@ -2118,7 +2281,7 @@ export async function runProposalCreate(
           descriptionURL,
           proposalMetadataCID: proposalMetaCid,
           ...(result.signer ? { signer: result.signer } : {}),
-          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
+          ...hotKeySafetyFields(result.signer?.safety),
         });
       }
 
@@ -2223,7 +2386,7 @@ export async function runProposalCreate(
           prereqs: prereqsBlock(prereqs),
           steps: [...skippedSteps, ...result.steps],
           ...(result.signer ? { signer: result.signer } : {}),
-          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
+          ...hotKeySafetyFields(result.signer?.safety),
           ...(governanceAdvisories ? { governanceAdvisories } : {}),
           ...(buildWarnings.length > 0 ? { warnings: buildWarnings } : {}),
           // The guide pointers are worth returning in a preview too, but the
@@ -2442,7 +2605,7 @@ async function runInternalProposalCreate(
     return flowFailureResult(result, {
       proposalKind: "internal",
       ...(result.signer ? { signer: result.signer } : {}),
-      ...hotKeySafetyFields(Boolean(result.signer?.safety)),
+      ...hotKeySafetyFields(result.signer?.safety),
       descriptionURL,
       note: "Internal proposals can only be created by a CURRENT validator of this DAO — a non-validator sender reverts.",
     });
@@ -2506,7 +2669,7 @@ async function runInternalProposalCreate(
       summary: built.summary,
       steps: result.steps,
       ...(result.signer ? { signer: result.signer } : {}),
-      ...hotKeySafetyFields(Boolean(result.signer?.safety)),
+      ...hotKeySafetyFields(result.signer?.safety),
       note:
         "Internal proposals are created and voted on by the DAO's validators only (their own validator balances — " +
         "no token deposit). The sender must be a current validator or the tx reverts.",
@@ -2874,7 +3037,7 @@ export function registerFlowTools(
               proposalStateBefore: stateName,
               ...executeAdvisoryFields(decision),
               ...(execResult.signer ? { signer: execResult.signer } : {}),
-              ...hotKeySafetyFields(Boolean(execResult.signer?.safety)),
+              ...hotKeySafetyFields(execResult.signer?.safety),
             },
           );
         }
@@ -2883,7 +3046,7 @@ export function registerFlowTools(
           proposalId,
           proposalStateBefore: stateName,
           ...(execResult.signer ? { signer: execResult.signer } : {}),
-          ...hotKeySafetyFields(Boolean(execResult.signer?.safety)),
+          ...hotKeySafetyFields(execResult.signer?.safety),
           ...executeAdvisoryFields(decision),
           steps: [
             voteSkipped,
@@ -2961,7 +3124,7 @@ export function registerFlowTools(
             // and discards their `signer`, so this leg used to broadcast with a
             // hot key and say nothing. A landed txHash is the proof.
             ...hotKeySafetyFields(
-              [...drive.steps, ...execSteps].some((s) => Boolean(s.txHash)),
+              [...drive.steps, ...execSteps].some((s) => Boolean(s.txHash)) ? safetyForMode(signer.mode) : false,
             ),
             ...(executed
               ? flowChainFields(input.flowContext as FlowContext | undefined, state, { chainId, govPool })
@@ -3160,7 +3323,7 @@ export function registerFlowTools(
           proposalId,
           proposalStateBefore: stateName,
           ...(result.signer ? { signer: result.signer } : {}),
-          ...hotKeySafetyFields(Boolean(result.signer?.safety)),
+          ...hotKeySafetyFields(result.signer?.safety),
         });
       }
 
@@ -3342,7 +3505,7 @@ export function registerFlowTools(
         ...(tally ? { tally } : {}),
         steps: [...skippedSteps, ...result.steps],
         ...(result.signer ? { signer: result.signer } : {}),
-        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
+        ...hotKeySafetyFields(result.signer?.safety),
         executed,
         ...(voteAlreadyCast ? { voteAlreadyCast } : {}),
         ...(voteChangeAdvisory ? { voteChangeAdvisory } : {}),

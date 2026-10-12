@@ -31,6 +31,14 @@ export const WRITE_SKILLS: readonly string[] = SHIPPED_SKILLS.filter(
 );
 
 /**
+ * The keystore-mode rule, in both handshakes. The model must never be the
+ * channel the password travels through, and an `awaiting_approval` result is
+ * not a failure to retry around.
+ */
+export const KEYSTORE_INSTRUCTION =
+  "Keystore: on awaiting_approval ask the user to approve on the local page, then re-run the same call; never ask for the password.";
+
+/**
  * The single server's MCP handshake `instructions` — the one block of text
  * EVERY session reads before it acts.
  *
@@ -53,19 +61,21 @@ export function serverInstructions(): string {
   const defaultCount = defaultProfileToolNames().size;
   return (
     "Tools for DeXe Protocol governance DAOs, plus dexe_gov_* (needs DEXE_TOOLSETS=core,governor) for external OpenZeppelin/Compound Governors. " +
-    "For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_guide FIRST: it returns the plan, the questions to ask the user, and the known pitfalls. " +
-    "Orientation: dexe_context (chain, env readiness, known DAOs, toolsets off); dexe_write_context (signer, keyring, upload posture). Skip both when the user already named the DAO and chain. " +
-    "Prefer the composites over hand-sequenced calldata: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types — proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). " +
+    "For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_guide FIRST: it returns the plan, the questions to ask and the pitfalls. " +
+    "Orientation: dexe_context (chain, env, known DAOs, toolsets off); dexe_write_context (signer, keyring, uploads) — skip both when the user named the DAO and chain. " +
+    "Prefer the composites: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types — proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). " +
     "On partial failure they return the landed-steps ledger — fix the cause and re-run the same call. " +
     RESUME_SUMMARY +
     " " +
-    "Amounts: composites and proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. " +
-    "Images: pass a LOCAL FILE PATH, never base64 through the conversation. " +
+    "Amounts: composites/proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. " +
+    "Images: pass a LOCAL FILE PATH, never base64. " +
     "ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
-    `The tool surface is gated by DEXE_TOOLSETS (default '${DEFAULT_TOOLSETS.join(",")}' — ${defaultCount} tools). ` +
+    KEYSTORE_INSTRUCTION +
+    " " +
+    `Tools are gated by DEXE_TOOLSETS (default '${DEFAULT_TOOLSETS.join(",")}' — ${defaultCount} tools). ` +
     "dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) are off and not needed: dexe_proposal_create covers every type. " +
     "dexe_compile, dexe_get_abi, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): compile once before the reads. " +
-    "Recipes and error remedies: resource dexe://playbook; full catalog: dexe://tools. " +
+    "Recipes + error remedies: dexe://playbook; catalog: dexe://tools. " +
     `Skills: ${SHIPPED_SKILLS.join(", ")}; dexe-agent-team needs DEXE_TOOLSETS=core,agents plus hot keys.`
   );
 }
@@ -84,18 +94,20 @@ export function writeInstructions(): string {
     "DAO data, reports and the step-by-step flow plans come from the DeXe read server — install it next to this " +
     "one; plan any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) with its guide or the " +
     "dexe-flow-* prompts first. " +
-    "Orientation: dexe_write_context (signer, keyring, upload posture, an unfinished flow). " +
-    "Prefer the composites over hand-sequenced calldata: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types — proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). " +
+    "Orientation: dexe_write_context (signer, keyring, uploads, an unfinished flow). " +
+    "Prefer the composites: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types — proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). " +
     "On partial failure they return the landed-steps ledger — fix the cause and re-run the same call. " +
     RESUME_SUMMARY +
     " " +
-    "Amounts: composites and proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. " +
-    "Images: pass a LOCAL FILE PATH, never base64 through the conversation. " +
+    "Amounts: composites/proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. " +
+    "Images: pass a LOCAL FILE PATH, never base64. " +
     "ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " +
-    `The tool surface is gated by DEXE_TOOLSETS (default '${WRITE_EDITION_TOOLSETS.defaults.join(",")}' — ${defaultCount} tools). ` +
+    KEYSTORE_INSTRUCTION +
+    " " +
+    `Tools are gated by DEXE_TOOLSETS (default '${WRITE_EDITION_TOOLSETS.defaults.join(",")}' — ${defaultCount} tools). ` +
     "dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) are off and not needed: dexe_proposal_create covers every type. " +
     "dexe_compile, dexe_get_abi, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): compile once before the reads. " +
-    "Recipes and error remedies: resource dexe://playbook. " +
+    "Recipes + error remedies: dexe://playbook. " +
     `Skills: ${WRITE_SKILLS.join(", ")}; dexe-agent-team needs DEXE_TOOLSETS=core,agents plus hot keys.`
   );
 }

@@ -13,7 +13,7 @@ themselves; this one is about the shape of the surface.
 
 | Set | Tools | What it is |
 | --- | ---: | --- |
-| `core` | 45 | The default. Composites, orientation, the zero-config reporting reads. |
+| `core` | 46 | The default. Composites, orientation, the zero-config reporting reads. |
 | `proposals` | 42 | Every single-purpose `dexe_proposal_build_*`, the off-chain/auth surface, the IPFS writes. |
 | `read` | 36 | The full analytics surface — per-DAO, per-user, per-sale reads. |
 | `vote` | 30 | Delegation, staking, NFT multiplier, claims, validator votes. |
@@ -21,10 +21,10 @@ themselves; this one is about the shape of the surface.
 | `governor` | 18 | External OpenZeppelin / Compound Bravo governors. |
 | `dev` | 23 | Hardhat + ABI introspection against a local DeXe-Protocol checkout. |
 
-`DEXE_TOOLSETS=full` is the union: **169 tools**. The sets overlap, so a
+`DEXE_TOOLSETS=full` is the union: **170 tools**. The sets overlap, so a
 combination is a union and not a sum.
 
-Measured sizes (real `McpServer` + `InMemoryTransport` `tools/list`, 0.36.0).
+Measured sizes (real `McpServer` + `InMemoryTransport` `tools/list`, 0.37.0).
 The numbers are for the tools. Every profile listed here also carries the two
 **deprecated aliases** of the token-sale reads renamed in 0.36.0
 (`dexe_otc_buyer_status`, `dexe_otc_list_sales_for_dao` — see
@@ -33,16 +33,16 @@ on top of each row, until the aliases are removed in a future major.
 
 | `DEXE_TOOLSETS` | Tools | `tools/list` bytes |
 | --- | ---: | ---: |
-| *(unset — `core`)* | 45 | 95,284 (~93 KB) |
-| `core,agents` | 48 | 99,536 |
-| `core,read` | 64 | 123,425 |
-| `core,vote` | 69 | 140,917 |
-| `core,proposals` | 84 | 190,398 (~186 KB) |
-| `core,read,vote` | 88 | 169,058 |
-| `core,proposals,read,vote` | 127 | 264,172 |
-| `core,proposals,read,vote,agents` | 128 | 265,550 |
-| `core,proposals,read,vote,agents,governor` | 146 | 284,397 |
-| `full` | 169 | 325,635 (~318 KB) |
+| *(unset — `core`)* | 46 | 95,987 (~94 KB) |
+| `core,agents` | 49 | 100,239 |
+| `core,read` | 65 | 124,128 |
+| `core,vote` | 70 | 141,620 |
+| `core,proposals` | 85 | 191,101 (~187 KB) |
+| `core,read,vote` | 89 | 169,761 |
+| `core,proposals,read,vote` | 128 | 264,875 |
+| `core,proposals,read,vote,agents` | 129 | 266,253 |
+| `core,proposals,read,vote,agents,governor` | 147 | 285,100 |
+| `full` | 170 | 326,338 (~319 KB) |
 
 The default profile is held under a hard 96,000-byte ceiling by
 `tests/tools/gate.test.ts`. That is a budget, not a debt line: anything that
@@ -51,16 +51,17 @@ raised it once, from 95,000, for the ~2.5 KB that MCP tool annotations
 (`readOnlyHint` and friends) and the 21 previously missing titles cost —
 bytes the spec asks for, not description bloat. The description-style pass then
 won the headroom back, which is why the default measured 86,742 B against a
-96,000 B line at 0.34.0; it is 95,284 B at 0.36.0, which added
+96,000 B line at 0.34.0; it was 95,284 B at 0.36.0, which added
 `dexe_write_context` to `core` and spells all four MCP hints on every read
-tool. The two deprecated aliases are budgeted separately (under 3,000 B) so
+tool, and is 95,987 B at 0.37.0, which added the read-only
+`dexe_tx_approval_status` (the keystore-mode follow-up to `dexe_tx_send`). The two deprecated aliases are budgeted separately (under 3,000 B) so
 they cannot crowd out tools. Every tool that was in `core` in 0.33 is still in `core`.
 
 ## If your client caps enabled tools per request
 
 **VS Code / GitHub Copilot Chat rejects a chat request carrying more than
 128 enabled tools per request** — counting its own built-ins and every other
-MCP server you have connected, not just this one. `full` (169) is over that on its own, so a
+MCP server you have connected, not just this one. `full` (170) is over that on its own, so a
 Copilot user who follows an escalation hint to `full` breaks every request
 instead of gaining tools. Claude Code and Claude Desktop have no such cap.
 
@@ -72,22 +73,22 @@ Recommended combinations when your client has the cap — pick the smallest one
 that covers what you are doing. The counts in brackets are what `tools/list`
 carries, aliases included:
 
-- **`core`** (45 tools, 47 listed — the default) — create a DAO,
+- **`core`** (46 tools, 48 listed — the default) — create a DAO,
   create/vote/execute proposals, run an OTC sale, query the subgraph, pull a
   DAO report. This is the whole product for most sessions; there is no reason
   to escalate until a tool is actually missing.
-- **`core,read`** (64, 66 listed) — adds the full analytics surface:
+- **`core,read`** (65, 67 listed) — adds the full analytics surface:
   validators, experts, staking, distributions, per-user activity, token-sale
   tiers.
-- **`core,proposals`** (84, 86 listed) — adds every single-purpose proposal
+- **`core,proposals`** (85, 87 listed) — adds every single-purpose proposal
   builder plus the off-chain voting and IPFS-write tools. Use it when you want
   the raw unsigned calldata instead of the `dexe_proposal_create` composite.
-- **`core,read,vote`** (88, 90 listed) — the largest "do everything on DeXe"
-  profile with ~38 entries of headroom left for the host's own built-ins and
+- **`core,read,vote`** (89, 91 listed) — the largest "do everything on DeXe"
+  profile with ~37 entries of headroom left for the host's own built-ins and
   other servers.
 
-`core,proposals,read,vote` (127 tools, **129 listed** since the 0.36.0
-aliases), `full` (169) and `core,proposals,read,vote,agents,governor` (146) are
+`core,proposals,read,vote` (128 tools, **130 listed** with the 0.36.0
+aliases), `full` (170) and `core,proposals,read,vote,agents,governor` (147) are
 over the cap. Use them on Claude Code / Claude Desktop only.
 
 No profile is ever removed or renamed: any `DEXE_TOOLSETS` value that worked

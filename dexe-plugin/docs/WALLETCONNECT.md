@@ -21,6 +21,12 @@ never leaves the device.
 
 This adds a **fourth `signerMode`**: `readonly` | `eoa` | `safe` | `walletconnect`.
 
+> **Since 0.37.0** the signer is chosen with `DEXE_SIGNER_MODE` — `walletconnect`
+> (the default), `keystore`, `readonly` or `unattended` — and WalletConnect is the
+> recommended mode for any AI agent that can run shell commands or drive a
+> browser: the signature happens on a separate device. The encrypted-keystore
+> alternative and the full threat model are in [SIGNING.md](./SIGNING.md).
+
 ## SDK choice
 
 `@walletconnect/universal-provider` (WalletConnect v2 / Reown). It is the dApp-side

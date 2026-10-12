@@ -1,10 +1,21 @@
-import { Wallet } from "ethers";
+import { getAddress, Wallet } from "ethers";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
 import { hintFor, type EnvGuardResult } from "./requireEnv.js";
 import { ENV_SPEC } from "../env/schema.js";
 import { safeErrorMessage } from "./redact.js";
 import { attachBroadcastRecorder, registerLedgerSecrets } from "./agentLedger.js";
+import { type SignerMode, type SignerModeSource } from "./signerMode.js";
+import { ApprovalManager } from "./approval/index.js";
+
+export {
+  resolveSignerMode,
+  signerDispatch,
+  humanConfirms,
+  IMPLICIT_UNATTENDED_DEPRECATION,
+  type SignerMode,
+  type SignerModeSource,
+} from "./signerMode.js";
 
 /**
  * Thrown by {@link SignerManager} when no signing key is configured for the
@@ -17,6 +28,27 @@ export class NoSignerKeyError extends Error {
     this.name = "NoSignerKeyError";
   }
 }
+
+/**
+ * Thrown when a hot-key path asks for a wallet the mode does not allow:
+ * keystore mode never hands out a Wallet (it signs only through an approved
+ * batch), and unattended mode refuses chains outside DEXE_UNATTENDED_CHAINS.
+ */
+export class SignerModeRefusal extends Error {
+  constructor(
+    message: string,
+    readonly remediation: string,
+  ) {
+    super(message);
+    this.name = "SignerModeRefusal";
+  }
+}
+
+/** One message for "keystore mode does not do this yet" (Safe typed data, EIP-191). */
+export const KEYSTORE_NO_MESSAGE_SIGNING =
+  "Keystore mode signs transactions only (each batch approved on the local page). Message and typed-data " +
+  "signatures (off-chain login, Safe transactions) are not supported in keystore mode yet - connect a phone " +
+  "wallet with dexe_wc_connect for this step, or take the unsigned payload and sign it in your own wallet.";
 
 /**
  * Signer registry. The primary key (`DEXE_PRIVATE_KEY`) is the default; the
@@ -44,15 +76,63 @@ export class SignerManager {
   private readonly key: string | undefined;
   private readonly agentKeys: Record<string, string>;
   private readonly config: DexeConfig;
+  /** How this server signs (src/lib/signerMode.ts). */
+  readonly mode: SignerMode;
+  readonly modeSource: SignerModeSource;
+  /** keystore mode: the file and the address it holds. Never the key. */
+  private readonly keystore: { file: string; address: string } | undefined;
+  private approvalManager: ApprovalManager | undefined;
 
   constructor(config: DexeConfig) {
-    this.key = config.privateKey;
-    this.agentKeys = config.agentKeys ?? {};
     this.config = config;
+    // A config built by hand (tests, embedders) carries no mode: infer the
+    // pre-0.37 behaviour - keys sign unattended, no key means WalletConnect.
+    const hasHot = !!config.privateKey || Object.keys(config.agentKeys ?? {}).length > 0;
+    this.mode = config.signerMode ?? (hasHot ? "unattended" : "walletconnect");
+    this.modeSource =
+      config.signerModeSource ?? (config.signerMode ? "explicit" : hasHot ? "implicit-hot-key" : "default");
+    // Hot keys exist ONLY in unattended mode. The config loader already drops
+    // them in every other mode; this is the second lock on the same door.
+    this.key = this.mode === "unattended" ? config.privateKey : undefined;
+    this.agentKeys = this.mode === "unattended" ? (config.agentKeys ?? {}) : {};
+    this.keystore = this.mode === "keystore" ? config.keystore : undefined;
     // Digests only — the ledger scrubber can then recognize a key that arrives
     // through a free-text or hash-shaped field (a tx hash and a private key are
     // byte-identical in shape) without anything holding the key itself.
     registerLedgerSecrets([this.key, ...Object.values(this.agentKeys)]);
+  }
+
+  /** The chains unattended mode may sign on; null = no fence (transitional implicit mode). */
+  get unattendedChains(): number[] | null {
+    return this.mode === "unattended" ? (this.config.unattendedChains ?? null) : null;
+  }
+
+  /** keystore mode: the approval flow (created on first use). Undefined in every other mode. */
+  get approvals(): ApprovalManager | undefined {
+    if (this.mode !== "keystore" || !this.keystore) return undefined;
+    if (!this.approvalManager) {
+      const ks = this.keystore;
+      this.approvalManager = new ApprovalManager({
+        keystoreFile: ks.file,
+        address: ks.address,
+        waitMs: this.config.approvalWaitMs ?? 120_000,
+        ttlMs: (this.config.approvalTtlS ?? 900) * 1000,
+        openBrowser: this.config.approvalOpenBrowser ?? true,
+        storeOptions: { useWindowMs: (this.config.approvalUseS ?? 120) * 1000 },
+        connect: (pk, chainId) => this.walletFor(pk, chainId, "keystore"),
+        lock: (chainId, task) => this.withBroadcastLock(chainId, task, ks.address),
+        log: (line) => void process.stderr.write(`${line}\n`),
+      });
+    }
+    return this.approvalManager;
+  }
+
+  /** A provider-bound, ledger-instrumented wallet for `pk` on `chainId`. Never cached. */
+  private walletFor(pk: string, chainId: number, label: string): Wallet {
+    const chain = resolveChain(this.config, chainId);
+    const wallet = new Wallet(pk, createChainProvider(chain, this.config));
+    attachBroadcastRecorder(wallet, { signerKey: label, address: wallet.address, chainId: chain.chainId });
+    return wallet;
   }
 
   /**
@@ -101,6 +181,10 @@ export class SignerManager {
    * X" without touching key material. Throws if the key is not configured.
    */
   describeSigner(signerKey?: string): { signerKey: string; address: string } {
+    if (this.mode === "keystore") {
+      if (this.keystoreMatches(signerKey)) return { signerKey: "keystore", address: this.keystore!.address };
+      this.failNoKey();
+    }
     const key = this.resolveKey(signerKey);
     if (!key) this.failNoKey();
     return { signerKey: this.labelFor(key, signerKey), address: new Wallet(key).address };
@@ -119,6 +203,7 @@ export class SignerManager {
   }
 
   hasSigner(signerKey?: string): boolean {
+    if (this.mode === "keystore") return this.keystoreMatches(signerKey);
     if (!signerKey) return !!this.key;
     try {
       return !!this.resolveKey(signerKey);
@@ -137,6 +222,10 @@ export class SignerManager {
    * Throws if the requested key is not configured.
    */
   getAddress(signerKey?: string): string {
+    if (this.mode === "keystore") {
+      if (this.keystoreMatches(signerKey)) return this.keystore!.address;
+      this.failNoKey();
+    }
     const key = this.resolveKey(signerKey);
     if (!key) this.failNoKey();
     return new Wallet(key).address;
@@ -148,9 +237,29 @@ export class SignerManager {
    * primary key is used.
    */
   requireSigner(chainId?: number, signerKey?: string): Wallet {
+    if (this.mode === "keystore") {
+      // The keystore key is never handed out as a Wallet: it signs only inside
+      // an ApprovedSigner, for a batch the owner approved with the password.
+      throw new SignerModeRefusal(
+        "Keystore mode signs only through an approved batch (dexe_tx_send and the composites ask the owner on a " +
+          "local approval page). Nothing on this path may sign with the keystore.",
+        "Use dexe_tx_send or a composite; for message / Safe signatures connect WalletConnect (dexe_wc_connect).",
+      );
+    }
     const key = this.resolveKey(signerKey);
     if (!key) this.failNoKey();
     const chain = resolveChain(this.config, chainId);
+    const fence = this.unattendedChains;
+    if (fence && !fence.includes(chain.chainId)) {
+      throw new SignerModeRefusal(
+        `Unattended signing is fenced to chain(s) ${fence.join(", ")} (DEXE_UNATTENDED_CHAINS) - refusing to sign ` +
+          `on chain ${chain.chainId}. Nothing was signed.`,
+        `To sign on chain ${chain.chainId} with a human confirming each batch, use DEXE_SIGNER_MODE=keystore or ` +
+          `walletconnect. To let hot keys sign there unattended, add it deliberately: ` +
+          `DEXE_UNATTENDED_CHAINS=${[...fence, chain.chainId].join(",")} (and set DEXE_SIGNER_ALLOWLIST / ` +
+          "DEXE_SIGNER_MAX_VALUE_WEI caps), then restart.",
+      );
+    }
     const cacheKey = `${chain.chainId}:${signerKey ? new Wallet(key).address : "primary"}`;
     let wallet = this.cache.get(cacheKey);
     if (!wallet) {
@@ -190,9 +299,11 @@ export class SignerManager {
         // caller joins `error` + `remediation` (sendOrCollect does). Every
         // OTHER cause (unknown signerKey, provider construction) still needs it.
         remediation:
-          err instanceof NoSignerKeyError
-            ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it."
-            : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC),
+          err instanceof SignerModeRefusal
+            ? err.remediation
+            : err instanceof NoSignerKeyError
+              ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it."
+              : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC),
       };
     }
   }
@@ -204,9 +315,21 @@ export class SignerManager {
    * extract the key into its own signing code. Chain-agnostic (no provider
    * needed for message signing). Throws if the key is not configured.
    */
-  async signMessage(message: string, signerKey?: string): Promise<string> {
+  async signMessage(message: string, signerKey?: string, forChainId?: number): Promise<string> {
+    if (this.mode === "keystore") throw new SignerModeRefusal(KEYSTORE_NO_MESSAGE_SIGNING, "dexe_wc_connect");
     const key = this.resolveKey(signerKey);
     if (!key) this.failNoKey();
+    // The unattended fence covers signatures too: a backend login for chain 56
+    // is as much a mainnet act as a mainnet transaction. A message with no
+    // stated chain is refused while a fence is on (fail closed).
+    const fence = this.unattendedChains;
+    if (fence && (forChainId === undefined || !fence.includes(forChainId))) {
+      throw new SignerModeRefusal(
+        `Unattended signing is fenced to chain(s) ${fence.join(", ")} (DEXE_UNATTENDED_CHAINS) — refusing to sign a ` +
+          `message for ${forChainId === undefined ? "an unspecified chain" : `chain ${forChainId}`}. Nothing was signed.`,
+        `Add ${forChainId ?? "the chain"} to DEXE_UNATTENDED_CHAINS deliberately, or sign this with WalletConnect (dexe_wc_connect).`,
+      );
+    }
     return new Wallet(key).signMessage(message);
   }
 
@@ -253,7 +376,32 @@ export class SignerManager {
    * not the user's next step (~20 names on a real machine, including every
    * DEXE_AGENT_PK_* slot), and `dexe_doctor` reports it properly.
    */
+  /** keystore mode: does `signerKey` (omitted, "keystore"/"primary", or the keystore address) name the keystore? */
+  private keystoreMatches(signerKey?: string): boolean {
+    if (!this.keystore) return false;
+    const k = signerKey?.trim().toLowerCase();
+    if (!k || k === "keystore" || k === "primary") return true;
+    try {
+      return getAddress(k) === this.keystore.address;
+    } catch {
+      return false;
+    }
+  }
+
   private failNoKey(): never {
+    if (this.mode === "keystore") {
+      throw new NoSignerKeyError(
+        "Keystore mode is on but no usable keystore was found, so this call cannot sign. Reads work without one.\n" +
+          "Create one in a terminal (not through the AI): `npx dexe-mcp key create` (or `key import`), then restart " +
+          "Claude Code. Run dexe_doctor for the exact path and problem.",
+      );
+    }
+    if (this.mode === "readonly") {
+      throw new NoSignerKeyError(
+        "DEXE_SIGNER_MODE=readonly - this server never signs. Write tools return unsigned payloads for your own " +
+          "wallet; set DEXE_SIGNER_MODE=walletconnect (or keystore) and restart to sign from here.",
+      );
+    }
     throw new NoSignerKeyError(
       "No signing key is configured, so this call cannot sign. Reads work without one.\n" +
         hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC) +
@@ -264,6 +412,12 @@ export class SignerManager {
   }
 
   private failUnknownSigner(signerKey: string): never {
+    if (this.mode !== "unattended") {
+      throw new Error(
+        `signerKey "${signerKey}" selects a hot key, and hot keys sign only in DEXE_SIGNER_MODE=unattended ` +
+          `(this server is in ${this.mode} mode). Omit signerKey.`,
+      );
+    }
     const known = Object.keys(this.agentKeys);
     throw new Error(
       `Unknown signerKey "${signerKey}". Configured keyring: ${
@@ -292,11 +446,27 @@ export const HOT_KEY_SAFETY =
   "Prefer WalletConnect: run dexe_wc_connect and the phone signs, so the key never touches this machine.";
 
 /**
- * Spread into a tool response ONLY when this call actually broadcast with a
- * local key. `false` yields `{}` — a dryRun or a payloads-only return signed
- * nothing, and a warning that fires when it is false is what makes warnings
- * unreadable.
+ * Carried on every keystore broadcast - what the owner's password did and did
+ * not protect against (docs/SIGNING.md has the threat model).
  */
-export function hotKeySafetyFields(broadcast: boolean): { safety?: string } {
+export const KEYSTORE_SAFETY =
+  "Signed with the encrypted keystore after the owner approved this exact batch with their password on the local " +
+  "approval page. That stops prompt injection and mistakes; it does not stop an agent that can drive your browser " +
+  "or shell - for such agents WalletConnect (dexe_wc_connect) is the recommended signer.";
+
+/** The note a broadcast in `mode` carries. */
+export function safetyForMode(mode: SignerMode | undefined): string {
+  return mode === "keystore" ? KEYSTORE_SAFETY : HOT_KEY_SAFETY;
+}
+
+/**
+ * Spread into a tool response ONLY when this call actually broadcast with a
+ * local key. `false`/undefined yields `{}` - a dryRun or a payloads-only
+ * return signed nothing, and a warning that fires when it is false is what
+ * makes warnings unreadable. `true` means a hot-key broadcast; a string is the
+ * signer's own note (`signer.safety` - HOT_KEY_SAFETY or KEYSTORE_SAFETY).
+ */
+export function hotKeySafetyFields(broadcast: boolean | string | undefined): { safety?: string } {
+  if (typeof broadcast === "string") return broadcast ? { safety: broadcast } : {};
   return broadcast ? { safety: HOT_KEY_SAFETY } : {};
 }

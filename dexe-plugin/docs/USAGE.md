@@ -11,7 +11,7 @@ or any custom MCP client.
 ## What this is
 
 `dexe-mcp` is a Model Context Protocol server that operates **DeXe Protocol**
-DAOs end-to-end — **169 tools** across 19 groups
+DAOs end-to-end — **170 tools** across 19 groups
 (catalog: [`TOOLS.md`](./TOOLS.md)):
 
 - Deploy a DAO with one call (`dexe_dao_create`).
@@ -61,7 +61,7 @@ mid-session failure (`dexe_doctor` flags the same problems).
 | `DEXE_PINATA_JWT` | **The only hard blocker for broadcasting a create flow** — DAO/proposal metadata pins to IPFS. Required to broadcast a creation, not to preview one: a `dryRun` computes the CIDs locally and pins nothing. A missing key errors with a numbered 3-step guide (get key → `.env` → restart). |
 | `DEXE_PRIVATE_KEY` | Opt-in hot key (**NOT SAFE** — plaintext on disk). WalletConnect is the recommended signer — see [§6](#6-walletconnect-signing). |
 | `DEXE_TX_WAIT_TIMEOUT_MS` | Per-broadcast mining-wait budget (default `180000` = 3 min). On timeout you get a check-`dexe_tx_status` error, never a hang. |
-| `DEXE_TOOLSETS` | Tool gating. Default `core` = 45 of 169 tools — see [§11](#11-toolsets). |
+| `DEXE_TOOLSETS` | Tool gating. Default `core` = 46 of 170 tools — see [§11](#11-toolsets). |
 
 Full reference — including `DEXE_MAX_DESCRIPTION_LEN`, `DEXE_PROTOCOL_REF`,
 subgraph/IPFS/signer-guard vars — in [`ENVIRONMENT.md`](./ENVIRONMENT.md).
@@ -529,7 +529,7 @@ which answered). Introspection (`dexe_find_selector`,
 ## 11. Toolsets
 
 The registered surface is gated by `DEXE_TOOLSETS` (default `core` =
-**45 tools** of the 169):
+**46 tools** of the 170):
 
 | Set | Unlocks |
 |-----|---------|
@@ -574,6 +574,6 @@ Changes require a Claude Code restart.
 | Decode / introspect | `dexe_decode_calldata`, `dexe_decode_proposal`, `dexe_find_selector` |
 | External Governor DAOs | `dexe_gov_*` (`governor` toolset) |
 
-For the full per-tool schema (**169 tools** across 19 groups) see
+For the full per-tool schema (**170 tools** across 19 groups) see
 [`TOOLS.md`](./TOOLS.md) — every input/output is a Zod schema exposed via MCP
 `tools/list`.

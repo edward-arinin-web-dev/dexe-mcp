@@ -61,6 +61,9 @@ describe("hotKeySafetyFields", () => {
   it("is emitted only when something was actually broadcast", () => {
     expect(hotKeySafetyFields(true).safety).toBe(HOT_KEY_SAFETY);
     expect(hotKeySafetyFields(false)).toEqual({});
+    expect(hotKeySafetyFields(undefined)).toEqual({});
+    // A signer's own note passes through unchanged (keystore broadcasts carry KEYSTORE_SAFETY).
+    expect(hotKeySafetyFields("note").safety).toBe("note");
     expect(HOT_KEY_SAFETY).toContain("NOT SAFE");
     expect(HOT_KEY_SAFETY).toContain("dexe_wc_connect");
   });
@@ -106,8 +109,9 @@ describe("the string cannot fork again", () => {
     for (const file of ["flow.ts", "otc.ts"]) {
       const src = readFileSync(new URL(`../../src/tools/${file}`, import.meta.url), "utf8");
       const signerSpreads = (src.match(/\{ signer: (result|execResult)\.signer \}/g) ?? []).length;
-      const safetySpreads = (src.match(/hotKeySafetyFields\(Boolean\((result|execResult)\.signer\?\.safety\)\)/g) ?? [])
-        .length;
+      // 0.37.0: the signer's own note is forwarded (HOT_KEY_SAFETY for a hot
+      // key, KEYSTORE_SAFETY for the keystore), not a boolean.
+      const safetySpreads = (src.match(/hotKeySafetyFields\((result|execResult)\.signer\?\.safety\)/g) ?? []).length;
       expect(safetySpreads, `${file}: ${signerSpreads} signer spreads but ${safetySpreads} safety spreads`).toBe(
         signerSpreads,
       );

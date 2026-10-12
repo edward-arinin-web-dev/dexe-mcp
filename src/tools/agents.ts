@@ -435,6 +435,15 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
       },
     },
     async ({ amount, agents: requested = [], token, source, chainId, confirm = false, dryRun = false }) => {
+      // Funding moves value between hot keys with nobody confirming it — the
+      // definition of unattended mode, and allowed in no other.
+      if (signer.mode && signer.mode !== "unattended") {
+        return err(
+          `dexe_agents_fund runs only in DEXE_SIGNER_MODE=unattended (this server is in ${signer.mode} mode): ` +
+            "it sends value between hot keys with no human confirmation. Fund the agent addresses from your own " +
+            "wallet instead, or run the agent keyring in unattended mode (testnet by default).",
+        );
+      }
       const keyring = signer.listAgents();
       if (keyring.length === 0) {
         return err("Agent keyring is empty — set DEXE_AGENT_PK_1..16 (or AGENT_PK_1..16 / AGENT_FUNDER_PK) first.");

@@ -279,6 +279,7 @@ field is dropped, not written.
 
 | Var | Purpose |
 |---|---|
+| `DEXE_SIGNER_MODE` | must be `unattended` for a keyring fleet (0.37.0); unset still works but is deprecated. Hot keys sign only on `DEXE_UNATTENDED_CHAINS` (default `97`) — see [SIGNING.md](./SIGNING.md) |
 | `DEXE_AGENT_PK_1..16` (alias `AGENT_PK_*`) | persona hot keys → `signerKey: "agent<n>"` |
 | `DEXE_AGENT_FUNDER_PK` (alias `AGENT_FUNDER_PK`) | gas funder → `signerKey: "funder"`, `source: "funder"` |
 | `DEXE_AGENT_FUND_MAX_WEI` | per-transfer funding cap (default 0.1 native) |

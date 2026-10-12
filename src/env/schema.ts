@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { resolveTreasuryGuardMode, TREASURY_GUARD_MODES } from "../lib/treasuryGate.js";
+import { SIGNER_MODES } from "../lib/signerMode.js";
 import {
   ENV_SPEC_READ,
   enumStr,
@@ -52,6 +53,8 @@ const privateKeyStr = () => {
 };
 
 const TREASURY_GUARD_MSG = `must be one of ${TREASURY_GUARD_MODES.join(" | ")}, e.g. warn`;
+const UNATTENDED_CHAINS_MSG = "must be a comma-separated list of chain ids (digits only), e.g. 97 or 97,56";
+const KEYSTORE_ADDRESS_MSG = "must be a 0x-prefixed 40-hex EVM address (42 characters total), e.g. 0xAbc…(40 hex chars)";
 
 /** The write edition's vars: signing, broadcast guards, uploads, WalletConnect, Safe, the treasury guard. */
 export const ENV_SPEC_WRITE = {
@@ -80,12 +83,25 @@ export const ENV_SPEC_WRITE = {
   },
 
   // ─── signer ──────────────────────────────────────────────────────────────
+  DEXE_SIGNER_MODE: {
+    schema: enumStr(SIGNER_MODES),
+    category: "signer",
+    required: false,
+    example: "walletconnect",
+    doc:
+      "How this server signs: walletconnect (default — the phone wallet signs) | keystore (encrypted local key; the owner " +
+      "approves every batch with its password on a local page) | readonly (never signs) | unattended (hot keys, NO human " +
+      "confirmation, only on DEXE_UNATTENDED_CHAINS). Unset + a hot key = unattended by a DEPRECATED implicit default that flips in the next major.",
+    enablesFlows: ["broadcast"],
+  },
   DEXE_PRIVATE_KEY: {
     schema: privateKeyStr(),
     category: "signer",
     required: false,
     example: "0x<64-hex>",
-    doc: "Hot EOA key for dexe_tx_send broadcast. Requires an RPC.",
+    doc:
+      "Hot EOA key — read ONLY in DEXE_SIGNER_MODE=unattended (or the deprecated implicit default). Plaintext on disk; " +
+      "move it into the encrypted keystore with `dexe-mcp key import --from-env`. Requires an RPC.",
     enablesFlows: ["broadcast"],
     secret: true,
   },
@@ -140,6 +156,78 @@ export const ENV_SPEC_WRITE = {
     required: false,
     example: "",
     doc: "Rate limit broadcasts per rolling minute (B10 guard).",
+  },
+  DEXE_UNATTENDED_CHAINS: {
+    schema: z
+      .string()
+      .regex(/^\s*\d+\s*(,\s*\d+\s*)*$/, UNATTENDED_CHAINS_MSG)
+      .optional()
+      .describe(UNATTENDED_CHAINS_MSG),
+    category: "signer",
+    required: false,
+    example: "97",
+    doc:
+      "Chains unattended mode may sign on, comma-separated. Default 97 (BSC testnet) when DEXE_SIGNER_MODE=unattended is " +
+      "explicit. Mainnet only if you list 56 — and set DEXE_SIGNER_ALLOWLIST / DEXE_SIGNER_MAX_VALUE_WEI with it.",
+  },
+  DEXE_KEYSTORE_PATH: {
+    schema: z.string().optional(),
+    category: "signer",
+    required: false,
+    example: "",
+    doc: "Keystore directory, or one keystore file. Default ~/.dexe-mcp/keystore. Created by `dexe-mcp key create` / `key import`.",
+  },
+  DEXE_KEYSTORE_ADDRESS: {
+    schema: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{40}$/, KEYSTORE_ADDRESS_MSG)
+      .optional()
+      .describe(KEYSTORE_ADDRESS_MSG),
+    category: "signer",
+    required: false,
+    example: "",
+    doc: "Which keystore to sign with when the directory holds several (the address it holds).",
+  },
+  DEXE_APPROVAL_WAIT_MS: {
+    schema: intStr("a wait in milliseconds", "120000 for 2 minutes"),
+    category: "signer",
+    required: false,
+    example: "120000",
+    doc:
+      "Keystore mode: how long a tool call waits for the owner to approve before returning `awaiting_approval` " +
+      "(then re-run the same call). Default 120000, max 600000; 0 = return at once.",
+  },
+  DEXE_APPROVAL_TTL_S: {
+    schema: intStr("a lifetime in seconds", "900 for 15 minutes"),
+    category: "signer",
+    required: false,
+    example: "900",
+    doc: "Keystore mode: how long an approval link (and an approved-but-unused batch) stays valid. Default 900, range 60–3600.",
+  },
+  DEXE_APPROVAL_USE_S: {
+    schema: intStr("a duration in seconds", "120 for 2 minutes"),
+    category: "signer",
+    required: false,
+    example: "120",
+    doc:
+      "Keystore mode: how long an APPROVED batch may wait for its tool call to start sending before the decrypted key " +
+      "is dropped (re-run within this window). Default 120, range 10 to DEXE_APPROVAL_TTL_S.",
+  },
+  DEXE_APPROVAL_OPEN_BROWSER: {
+    schema: enumStr(["1", "0", "true", "false"]),
+    category: "signer",
+    required: false,
+    example: "1",
+    doc: "Keystore mode: open the approval page in the default browser automatically. Default 1; 0 only prints the link.",
+  },
+  DEXE_KEYSTORE_PASSWORD_FILE: {
+    schema: z.string().optional(),
+    category: "signer",
+    required: false,
+    example: "",
+    doc:
+      "Unattended/CI only: a file holding the keystore password, so DEXE_SIGNER_MODE=unattended can sign with the keystore " +
+      "instead of a plaintext DEXE_PRIVATE_KEY. Ignored in keystore mode, which never reads a password from a file.",
   },
 
   // ─── ipfs (uploads) ──────────────────────────────────────────────────────
@@ -273,6 +361,7 @@ export const ENV_DISPLAY_ORDER: readonly string[] = [
   "DEXE_DEFAULT_CHAIN_ID",
   "DEXE_CONTRACTS_REGISTRY",
   "DEXE_DISABLE_PUBLIC_RPC",
+  "DEXE_SIGNER_MODE",
   "DEXE_PRIVATE_KEY",
   ...Array.from({ length: 16 }, (_, i) => `DEXE_AGENT_PK_${i + 1}`),
   "DEXE_AGENT_FUNDER_PK",
@@ -280,6 +369,14 @@ export const ENV_DISPLAY_ORDER: readonly string[] = [
   "DEXE_SIGNER_ALLOWLIST",
   "DEXE_SIGNER_MAX_VALUE_WEI",
   "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN",
+  "DEXE_UNATTENDED_CHAINS",
+  "DEXE_KEYSTORE_PATH",
+  "DEXE_KEYSTORE_ADDRESS",
+  "DEXE_APPROVAL_WAIT_MS",
+  "DEXE_APPROVAL_TTL_S",
+  "DEXE_APPROVAL_USE_S",
+  "DEXE_APPROVAL_OPEN_BROWSER",
+  "DEXE_KEYSTORE_PASSWORD_FILE",
   "DEXE_PINATA_JWT",
   "DEXE_IPFS_GATEWAY",
   "DEXE_IPFS_GATEWAYS_FALLBACK",

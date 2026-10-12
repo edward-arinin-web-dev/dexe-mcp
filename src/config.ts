@@ -1,10 +1,19 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
 import { resolveStatePath } from "./lib/stateStore.js";
 import { ENV_SPEC } from "./env/schema.js";
 import { safeErrorMessage } from "./lib/redact.js";
 import { resolveTreasuryGuardMode, type TreasuryGuardMode } from "./lib/treasuryGate.js";
+import {
+  IMPLICIT_UNATTENDED_DEPRECATION,
+  parseUnattendedChains,
+  resolveSignerMode,
+  unattendedChainFence,
+  type SignerMode,
+  type SignerModeSource,
+} from "./lib/signerMode.js";
+import { decryptKeystore, parseKeystoreMeta, selectKeystore, weakKdfReason } from "./lib/keystore.js";
 import {
   DEFAULTS as READ_DEFAULTS,
   applyEnvSpec,
@@ -112,6 +121,27 @@ export interface WriteConfig extends ReadConfig, DevConfig {
   walletConnectRelayUrl?: string;
   /** C12 — per-tx phone-approval timeout in ms. Default 120000. */
   walletConnectApprovalTimeoutMs?: number;
+
+  /**
+   * 0.37.0 — how this server signs (src/lib/signerMode.ts): walletconnect |
+   * keystore | readonly | unattended. Only `unattended` loads hot keys
+   * (`privateKey`, `agentKeys` are empty in every other mode).
+   */
+  signerMode?: SignerMode;
+  /** explicit (DEXE_SIGNER_MODE set) | implicit-hot-key (transitional, deprecated) | default. */
+  signerModeSource?: SignerModeSource;
+  /** Chains unattended signing is allowed on; null = no fence (transitional implicit mode only). */
+  unattendedChains?: number[] | null;
+  /** keystore mode: the selected keystore file and the address it holds. */
+  keystore?: { file: string; address: string };
+  /** keystore mode: how long a tool call blocks waiting for the owner (DEXE_APPROVAL_WAIT_MS). */
+  approvalWaitMs?: number;
+  /** keystore mode: approval lifetime in seconds (DEXE_APPROVAL_TTL_S). */
+  approvalTtlS?: number;
+  /** keystore mode: open the approval page in the default browser (DEXE_APPROVAL_OPEN_BROWSER). */
+  approvalOpenBrowser?: boolean;
+  /** keystore mode: seconds an approved batch may wait to be used before its key is dropped (DEXE_APPROVAL_USE_S). */
+  approvalUseS?: number;
 }
 
 /**
@@ -144,6 +174,12 @@ function schemaRejectionConsequence(key: string): string {
   }
   if (key === "DEXE_PRIVATE_KEY" || /^DEXE_AGENT_(PK_\d+|FUNDER_PK)$/.test(key)) {
     return "that key is ignored — signing falls back to WalletConnect, or readonly";
+  }
+  if (key === "DEXE_SIGNER_MODE") {
+    return "ignored — signing falls back to WalletConnect and hot keys are NOT used until it is fixed (a typo never widens to unattended)";
+  }
+  if (key === "DEXE_UNATTENDED_CHAINS") {
+    return "unattended signing is fenced to chain 97 only until it is fixed";
   }
   return "value ignored, using the built-in default";
 }
@@ -226,7 +262,60 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
   const pinataJwt = process.env.DEXE_PINATA_JWT?.trim() || undefined;
   const dataSources = resolveDataSources(sink);
 
-  let privateKey = process.env.DEXE_PRIVATE_KEY?.trim() || undefined;
+  // ---- signer mode (0.37.0) ------------------------------------------------
+  // Decided ONCE, here, before any key is read: only `unattended` loads hot
+  // keys. An invalid DEXE_SIGNER_MODE was already rejected by the ENV_SPEC
+  // pass above (deleted + startup issue). It must not resolve as "unset" —
+  // with a hot key present that would be the implicit unattended default, so
+  // a typo of `keystore` would sign unattended. It resolves to WalletConnect.
+  const hotKeyVars = hotKeyEnvNames(process.env);
+  const modeRes = resolveSignerMode({
+    requested: process.env.DEXE_SIGNER_MODE,
+    // A rejected (malformed) mode must not fall through to the implicit hot-key default.
+    hasHotKey: hotKeyVars.length > 0 && !rejected.includes("DEXE_SIGNER_MODE"),
+    // The shared default project id makes WalletConnect available on every install.
+    walletConnectConfigured: true,
+  });
+  const signerMode: SignerMode = modeRes.mode;
+  const signerModeSource: SignerModeSource = modeRes.source;
+  if (signerMode !== "unattended" && hotKeyVars.length > 0) {
+    process.stderr.write(
+      `[dexe-mcp] ${hotKeyVars.join(", ")} ${hotKeyVars.length === 1 ? "is" : "are"} IGNORED: DEXE_SIGNER_MODE=${signerMode} ` +
+        "never signs with a hot key. Move the key into the encrypted keystore with `dexe-mcp key import --from-env` " +
+        "(it removes the plaintext line), or set DEXE_SIGNER_MODE=unattended to sign with it unattended.\n",
+    );
+  }
+
+  let privateKey = signerMode === "unattended" ? process.env.DEXE_PRIVATE_KEY?.trim() || undefined : undefined;
+
+  // Unattended/CI only: the primary key may come from the keystore, unlocked
+  // with DEXE_KEYSTORE_PASSWORD_FILE. Keystore mode NEVER reads this file —
+  // there the password is typed by the owner, per batch, on the approval page.
+  const passwordFile = process.env.DEXE_KEYSTORE_PASSWORD_FILE?.trim() || undefined;
+  if (signerMode === "unattended" && !privateKey && passwordFile) {
+    const sel = selectKeystore({ path: process.env.DEXE_KEYSTORE_PATH, address: process.env.DEXE_KEYSTORE_ADDRESS });
+    if ("error" in sel) {
+      degrade("DEXE_KEYSTORE_PASSWORD_FILE", `DEXE_KEYSTORE_PASSWORD_FILE is set but ${sel.error}`, "no primary key loaded");
+    } else {
+      try {
+        const password = readFileSync(passwordFile, "utf8").replace(/\r?\n$/, "");
+        privateKey = (await decryptKeystore(readFileSync(sel.file, "utf8"), password, sel.address)).privateKey;
+        process.stderr.write(`[dexe-mcp] unattended primary key unlocked from keystore ${sel.address} (password file)\n`);
+      } catch (err) {
+        degrade(
+          "DEXE_KEYSTORE_PASSWORD_FILE",
+          `could not unlock ${sel.file} with DEXE_KEYSTORE_PASSWORD_FILE: ${safeErrorMessage(err)}`,
+          "no primary key loaded",
+        );
+      }
+    }
+  } else if (signerMode !== "unattended" && passwordFile) {
+    process.stderr.write(
+      `[dexe-mcp] DEXE_KEYSTORE_PASSWORD_FILE is ignored in ${signerMode} mode — the keystore password is only ever ` +
+        "typed by its owner on the approval page.\n",
+    );
+  }
+
   if (privateKey && chains.size === 0) {
     degrade(
       "DEXE_PRIVATE_KEY",
@@ -263,9 +352,13 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
   // ---- opt-in agent keyring (DEXE_AGENT_PK_1..16 / AGENT_PK_1..16) --------
   // Multi-persona/swarm flows: each key becomes signerKey "agent<n>" on
   // dexe_tx_send + the composites; AGENT_FUNDER_PK → signerKey "funder".
-  let agentKeys = parseAgentKeys(process.env, (message) =>
-    degrade("DEXE_AGENT_PK_*", message, "that key is skipped; the other slots still load"),
-  );
+  // Hot keys load in unattended mode only (see the signer-mode block above).
+  let agentKeys =
+    signerMode === "unattended"
+      ? parseAgentKeys(process.env, (message) =>
+          degrade("DEXE_AGENT_PK_*", message, "that key is skipped; the other slots still load"),
+        )
+      : {};
   if (Object.keys(agentKeys).length > 0 && chains.size === 0) {
     degrade(
       "DEXE_AGENT_PK_*",
@@ -382,9 +475,9 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
       walletConnectApprovalTimeoutMs = n;
     }
   }
-  if (privateKey) {
-    // WC id present (env or default) but a hot key takes precedence — stay quiet
-    // beyond the "signing enabled" line already emitted above.
+  if (signerMode !== "walletconnect") {
+    // Another mode signs; WalletConnect stays available for dexe_wc_connect /
+    // message signing but is not the dispatch path. The mode lines below say so.
   } else if (wcFromEnv) {
     process.stderr.write("[dexe-mcp] WalletConnect signing available (project id from env)\n");
   } else {
@@ -392,6 +485,64 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
       "[dexe-mcp] WalletConnect signing available (shared default project id) — connect a wallet with dexe_wc_connect; set DEXE_WALLETCONNECT_PROJECT_ID to use your own.\n",
     );
   }
+
+  // ---- unattended chain fence (0.37.0) -------------------------------------
+  // A malformed DEXE_UNATTENDED_CHAINS was deleted by the ENV_SPEC pass; it
+  // must fail CLOSED (testnet only), never fall through to "no fence".
+  const parsedChains = parseUnattendedChains(process.env.DEXE_UNATTENDED_CHAINS);
+  const fenceRejected =
+    rejected.includes("DEXE_UNATTENDED_CHAINS") || (parsedChains !== null && !Array.isArray(parsedChains));
+  const unattendedChains: number[] | null =
+    signerMode !== "unattended"
+      ? null
+      : fenceRejected
+        ? [97]
+        : unattendedChainFence(signerModeSource, Array.isArray(parsedChains) ? parsedChains : null);
+  if (signerMode === "unattended" && (privateKey || Object.keys(agentKeys).length > 0)) {
+    if (signerModeSource === "implicit-hot-key") {
+      process.stderr.write(`[dexe-mcp] ⚠️ ${IMPLICIT_UNATTENDED_DEPRECATION}\n`);
+    } else {
+      process.stderr.write(
+        `[dexe-mcp] signer mode: unattended — hot keys sign with NO human confirmation, on chain(s) ${
+          unattendedChains?.join(", ") ?? "any"
+        } only (DEXE_UNATTENDED_CHAINS).\n`,
+      );
+    }
+  }
+
+  // ---- keystore mode (0.37.0) ----------------------------------------------
+  let keystore: { file: string; address: string } | undefined;
+  if (signerMode === "keystore") {
+    const sel = selectKeystore({ path: process.env.DEXE_KEYSTORE_PATH, address: process.env.DEXE_KEYSTORE_ADDRESS });
+    if ("error" in sel) {
+      degrade(
+        "DEXE_KEYSTORE_PATH",
+        `DEXE_SIGNER_MODE=keystore but ${sel.error}.`,
+        "keystore signing unavailable — write tools return unsigned payloads until a keystore exists",
+      );
+    } else if (chains.size === 0) {
+      degrade(
+        "DEXE_KEYSTORE_PATH",
+        "keystore signing requires at least one of DEXE_RPC_URL / DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET (signing needs an RPC endpoint).",
+        "keystore signing unavailable — set an RPC URL and restart",
+      );
+    } else if (keystoreWeakness(sel.file)) {
+      degrade(
+        "DEXE_KEYSTORE_PATH",
+        keystoreWeakness(sel.file)!,
+        "keystore signing refused — write tools return unsigned payloads until the keystore is re-encrypted",
+      );
+    } else {
+      keystore = sel;
+      process.stderr.write(
+        `[dexe-mcp] signer mode: keystore (${sel.address}) — every batch waits for the owner's password on a local approval page\n`,
+      );
+    }
+  }
+  const approvalWaitMs = boundedInt(process.env.DEXE_APPROVAL_WAIT_MS, 120_000, 0, 600_000);
+  const approvalTtlS = boundedInt(process.env.DEXE_APPROVAL_TTL_S, 900, 60, 3600);
+  const approvalUseS = boundedInt(process.env.DEXE_APPROVAL_USE_S, 120, 10, approvalTtlS);
+  const approvalOpenBrowser = !/^(0|false|no|off)$/i.test(process.env.DEXE_APPROVAL_OPEN_BROWSER?.trim() ?? "");
 
   const risk = resolveRiskSettings(sink);
   // DEXE_TREASURY_GUARD resolves through `resolveTreasuryGuardMode` — the same
@@ -434,13 +585,14 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
   // allowed to broadcast, which is the opposite of what the operator asked for
   // by setting the var at all. Drop to readonly instead — the server stays up
   // and doctor explains exactly which var to fix.
-  if (signerGuardBroken && (privateKey || Object.keys(agentKeys).length > 0)) {
+  if (signerGuardBroken && (privateKey || Object.keys(agentKeys).length > 0 || keystore)) {
     process.stderr.write(
       "[dexe-mcp] signing disabled: a broadcast-guard variable is malformed (see the config issues above). " +
         "Fix it and restart, or run 'npx dexe-mcp doctor'.\n",
     );
     privateKey = undefined;
     agentKeys = {};
+    keystore = undefined;
   }
 
   const read = assembleReadConfig({
@@ -484,7 +636,45 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
     walletConnectApprovalTimeoutMs,
     toolsets: read.toolsets,
     statePath: read.statePath,
+    signerMode,
+    signerModeSource,
+    unattendedChains,
+    keystore,
+    approvalWaitMs,
+    approvalTtlS,
+    approvalOpenBrowser,
+    approvalUseS,
   });
+}
+
+/** Env var names that hold a hot key (set and non-empty). DEXE_-prefixed and swarm aliases both count. */
+export function hotKeyEnvNames(env: NodeJS.ProcessEnv): string[] {
+  const out: string[] = [];
+  const has = (k: string) => !!env[k]?.trim();
+  if (has("DEXE_PRIVATE_KEY")) out.push("DEXE_PRIVATE_KEY");
+  for (let n = 1; n <= 16; n++) {
+    if (has(`DEXE_AGENT_PK_${n}`)) out.push(`DEXE_AGENT_PK_${n}`);
+    else if (has(`AGENT_PK_${n}`)) out.push(`AGENT_PK_${n}`);
+  }
+  if (has("DEXE_AGENT_FUNDER_PK")) out.push("DEXE_AGENT_FUNDER_PK");
+  else if (has("AGENT_FUNDER_PK")) out.push("AGENT_FUNDER_PK");
+  return out;
+}
+
+/** Why the keystore file is refused for keystore mode (weak KDF / unreadable), or null. */
+function keystoreWeakness(file: string): string | null {
+  try {
+    return weakKdfReason(parseKeystoreMeta(readFileSync(file, "utf8")));
+  } catch (err) {
+    return `the keystore ${file} could not be read: ${safeErrorMessage(err)}`;
+  }
+}
+
+/** Digits-only integer clamped to [min, max]; anything else → `fallback` (the env spec reports a bad value). */
+function boundedInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+  const t = raw?.trim();
+  if (!t || !/^\d+$/.test(t)) return fallback;
+  return Math.min(max, Math.max(min, Number(t)));
 }
 
 /** The single server's config loader — `loadWriteConfig`, under its pre-split name. */

@@ -1,13 +1,21 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { HOT_KEY_SAFETY, type SignerManager } from "../lib/signer.js";
+import { HOT_KEY_SAFETY, KEYSTORE_SAFETY, type SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
 import { waitWithTimeout, waitForHashWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/writeErrors.js";
-import { ENABLE_WRITES_HINT, describeBroadcaster } from "./flow.js";
+import {
+  ENABLE_WRITES_HINT,
+  KEYSTORE_MISSING_HINT,
+  KEYSTORE_SIGNERKEY_REFUSAL,
+  READONLY_MODE_HINT,
+  describeBroadcaster,
+} from "./flow.js";
+import { buildReview } from "../lib/approval/review.js";
+import { currentToolScope } from "../lib/approval/scope.js";
 import { wcPairingContent } from "../lib/qr.js";
 import { withActionContext } from "../lib/agentLedger.js";
 import {
@@ -51,8 +59,15 @@ export function registerTxTools(
   signer: SignerManager,
   wc: WalletConnectManager,
 ): void {
-  // WalletConnect is the dispatch path only when there is no hot key to sign with.
-  const wcActive = (): boolean => !signer.hasSigner() && wc.isConfigured();
+  // WalletConnect is the dispatch path only when there is no hot key to sign
+  // with — and never in keystore mode (the keystore signs, after the owner's
+  // password) or readonly mode (nothing signs).
+  const wcActive = (): boolean =>
+    !signer.hasSigner() && wc.isConfigured() && signer.mode !== "keystore" && signer.mode !== "readonly";
+  const rejected = (body: Record<string, unknown>) => ({
+    content: [{ type: "text" as const, text: JSON.stringify({ status: "rejected", ...body }, null, 2) }],
+    isError: true,
+  });
   server.tool(
     "dexe_tx_send",
     "Broadcasts when a signer is configured. Sends the TxPayload fields from any dexe_*_build_* tool and waits for confirmation. " +
@@ -154,6 +169,116 @@ export function registerTxTools(
       }
 
       const chain = resolveChain(config, chainId);
+
+      // ---- keystore dispatch path ----------------------------------------
+      // One-step batch: review (B6/B7/B11/B12 + B9) → the owner approves on the
+      // local page with the keystore password → the ApprovedSigner signs exactly
+      // this transaction. Not approved yet / declined → ApprovalHaltError, which
+      // the approval scope renders as awaiting_approval / declined.
+      if (signer.mode === "keystore") {
+        if (signerKey && !signer.hasSigner(signerKey)) {
+          return rejected({ reason: KEYSTORE_SIGNERKEY_REFUSAL, chainId: chain.chainId });
+        }
+        const approvals = signer.approvals;
+        if (!signer.hasSigner() || !approvals) {
+          return rejected({ reason: KEYSTORE_MISSING_HINT, chainId: chain.chainId });
+        }
+        if (payloadChainId !== undefined && payloadChainId !== chain.chainId) {
+          return rejected({
+            guard: "B11",
+            reason:
+              `Payload was built for chain ${payloadChainId} but you are broadcasting on chain ${chain.chainId}. ` +
+              `Refusing: an address holds a different contract (or none) on each chain.`,
+            chainId: chain.chainId,
+          });
+        }
+        const from = signer.getAddress();
+        const review = await buildReview([{ to, data, value }], {
+          chainId: chain.chainId,
+          from,
+          config,
+          simulateFirst: true,
+        });
+        if (!review.ok) return rejected({ guard: review.guard, reason: review.reason, chainId: chain.chainId });
+        const scope = currentToolScope();
+        const approved = await approvals.request(
+          { tool: "dexe_tx_send", chainId: chain.chainId, from, payloads: [{ to, data, value }], steps: review.steps, prechecks: review.prechecks },
+          { ...(scope?.signal ? { signal: scope.signal } : {}), ...(scope ? { progress: (m: string) => scope.progress(m) } : {}) },
+        );
+        // Full guards again at send time — the owner may have taken minutes.
+        try {
+          await runBroadcastGuards({ to, data, value, chainId: chain.chainId, from, payloadChainId }, config);
+        } catch (e) {
+          approved.revoke(`send-time guard refused: ${e instanceof Error ? e.message.slice(0, 160) : "guard"}`);
+          if (e instanceof BroadcastGuardError) {
+            return rejected({ guard: e.guard, reason: e.message, chainId: chain.chainId });
+          }
+          throw e;
+        }
+        let ktx;
+        try {
+          ktx = await withActionContext({ tool: "dexe_tx_send", action: `${selectorOf(data) ?? "0x"} → ${to}` }, () =>
+            // gasLimit is NOT forwarded: the owner did not approve it. The
+            // ApprovedSigner estimates it server-side under a cap.
+            approved.send({ to, data, value, chainId: chain.chainId }),
+          );
+        } catch (e) {
+          approved.revoke("broadcast failed");
+          const actionable = toActionableError(e, "dexe_tx_send broadcast");
+          return rejected({
+            reason: actionable.message,
+            ...(actionable.slug ? { failure: actionable.slug } : {}),
+            from,
+            chainId: chain.chainId,
+          });
+        }
+        approved.landed(0, ktx.hash);
+        approved.finish();
+        const base = {
+          txHash: ktx.hash,
+          from,
+          signerKey: "keystore",
+          chainId: chain.chainId,
+          signer: "keystore",
+          ...(gasLimit ? { gasLimitNote: "gasLimit was ignored: in keystore mode gas is estimated server-side (capped)." } : {}),
+        };
+        if (waitConfirmations === 0) {
+          return {
+            content: [
+              { type: "text" as const, text: JSON.stringify({ ...base, status: "submitted", safety: KEYSTORE_SAFETY }, null, 2) },
+            ],
+          };
+        }
+        let kreceipt;
+        try {
+          kreceipt = await waitWithTimeout(ktx, { confirmations: waitConfirmations, timeoutMs: txWaitTimeoutMs() });
+        } catch (e) {
+          return {
+            content: [{ type: "text" as const, text: toActionableError(e, "dexe_tx_send wait").message }],
+            isError: true,
+          };
+        }
+        const kreverted = kreceipt?.status === 0;
+        const kresult = kreceipt
+          ? {
+              ...base,
+              txHash: kreceipt.hash,
+              blockNumber: kreceipt.blockNumber,
+              gasUsed: kreceipt.gasUsed.toString(),
+              status: kreceipt.status,
+              ...(kreverted ? { reverted: true, note: REVERTED_NOTE } : {}),
+              safety: KEYSTORE_SAFETY,
+            }
+          : { ...base, status: "unknown", safety: KEYSTORE_SAFETY };
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(kresult, null, 2) }],
+          ...(kreverted ? { isError: true } : {}),
+        };
+      }
+
+      if (signer.mode === "readonly") {
+        return rejected({ reason: READONLY_MODE_HINT, chainId: chain.chainId });
+      }
 
       if (signerKey && wcActive()) {
         return {
@@ -549,6 +674,65 @@ export function registerTxTools(
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
       };
+    },
+  );
+
+  // Read-only on purpose: there is no approve or decline tool, and no
+  // parameter here changes an approval. Only the owner, on the page, can.
+  server.tool(
+    "dexe_tx_approval_status",
+    "Read-only. Status + landed tx hashes of a keystore approval (`awaiting_approval`). Cannot approve; only the owner can, on the page.",
+    {
+      approvalId: z.string().max(64).describe("`approval.approvalId` of the awaiting_approval result"),
+      waitMs: z.number().int().min(0).max(120_000).default(0).describe("Long-poll up to this many ms for a change"),
+    },
+    async ({ approvalId, waitMs }, extra) => {
+      const approvals = signer.approvals;
+      if (!approvals) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  status: "unavailable",
+                  signerMode: signer.mode,
+                  reason:
+                    signer.mode === "keystore"
+                      ? KEYSTORE_MISSING_HINT
+                      : `This server is in ${signer.mode} mode; approvals exist only in DEXE_SIGNER_MODE=keystore.`,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+          isError: true,
+        };
+      }
+      const view = waitMs > 0 ? await approvals.waitView(approvalId, waitMs, extra?.signal) : approvals.view(approvalId);
+      if (!view) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  status: "not_found",
+                  approvalId,
+                  reason:
+                    "No such approval in this server. Approvals live in memory only — a restart forgets them. " +
+                    "Re-run the original call to get a new approval link.",
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+          isError: true,
+        };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(view, null, 2) }] };
     },
   );
 }

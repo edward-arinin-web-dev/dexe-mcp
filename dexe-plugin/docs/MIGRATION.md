@@ -6,17 +6,78 @@ something on your side.
 
 ---
 
-## 0.36.1 → 0.37.0 — read this if you run `serve-http`
+## 0.36.1 → 0.37.0 — read this if you sign with DEXE_PRIVATE_KEY, read `signer.mode`, or run `serve-http`
 
-Tool count unchanged (**169 tools** / 19 groups). No emitted calldata changed and
-no tool's input or output changed on the full server; three tool descriptions
-(`dexe_decode_proposal`, `dexe_read_gov_state`, `dexe_ipfs_fetch`) no longer
-name env variables.
+Tool count **170 tools** / 19 groups for `dexe-mcp` (was 169): new read-only
+**`dexe_tx_approval_status`**, in the default `core` profile (46 tools); the new
+read-only edition `dexe-mcp-read` serves the 54 read tools. No emitted calldata
+changed and no tool input changed. New: `DEXE_SIGNER_MODE` and the encrypted
+keystore ([SIGNING.md](./SIGNING.md)); `dexe-mcp-read` (items 7–8).
 
-1. **New: `dexe-mcp-read`.** The read-only edition ships as a second binary in
+1. **Hot-key users: nothing breaks in 0.37 — but set the mode now.** With
+   `DEXE_SIGNER_MODE` unset and `DEXE_PRIVATE_KEY` (or `DEXE_AGENT_PK_*` /
+   `AGENT_PK_*`) present, the server signs exactly as before — `unattended`,
+   on every configured chain — and warns at startup and in `dexe_doctor`
+   (`signer.mode`, warn). Pick one before the next major:
+
+   ```bash
+   # a) keep unattended signing (bots, CI) — explicit, fenced to testnet:
+   DEXE_SIGNER_MODE=unattended
+   DEXE_UNATTENDED_CHAINS=97          # add 56 deliberately for mainnet, with
+                                      # DEXE_SIGNER_ALLOWLIST + DEXE_SIGNER_MAX_VALUE_WEI
+
+   # b) a person at the keyboard — encrypt the key, approve each batch:
+   npx dexe-mcp key import --from-env # encrypts DEXE_PRIVATE_KEY, removes the
+                                      # plaintext line, sets DEXE_SIGNER_MODE=keystore
+
+   # c) or the phone: delete DEXE_PRIVATE_KEY and use WalletConnect (the default)
+   ```
+
+   Careful with (a) on mainnet: an **explicit** `unattended` mode signs only on
+   `DEXE_UNATTENDED_CHAINS`, default `97`. A setup that broadcast on 56 with an
+   implicit hot key needs `DEXE_UNATTENDED_CHAINS=97,56` once the mode is
+   explicit.
+
+2. **`dexe_write_context` → `signer.mode` values changed.** It now reports the
+   signer mode itself; the pre-0.37 label moved to `signer.dispatch`.
+
+   | Before | `signer.mode` now | `signer.dispatch` |
+   |---|---|---|
+   | `eoa` | `unattended` | `eoa` |
+   | `safe` | `unattended` | `safe` |
+   | `walletconnect` | `walletconnect` | `walletconnect` |
+   | `readonly` | `readonly` (or `keystore` with no keystore yet) | `readonly` |
+   | — | `keystore` | `keystore` |
+
+   New fields: `signer.modeSource` (`explicit` / `implicit-hot-key` /
+   `default`), `signer.humanConfirmation`, `signer.unattendedChains` and
+   `signer.deprecation` (unattended), `signer.keystore` and
+   `signer.pendingApprovals` (keystore). `dexe_wc_status.signerMode` carries the
+   same four values.
+
+3. **A hot key set next to an explicit other mode is ignored.**
+   `DEXE_SIGNER_MODE=walletconnect` / `keystore` / `readonly` never read
+   `DEXE_PRIVATE_KEY` or the keyring (doctor row `signer.hotKeyIgnored`).
+   A malformed `DEXE_SIGNER_MODE` falls back to `walletconnect` — never to
+   `unattended`.
+
+4. **New result mode `awaiting_approval`** (keystore mode only) on
+   `dexe_tx_send` and every composite: nothing was signed yet; the user
+   approves on the local page, then the same call is re-run. A declined batch
+   returns `mode: "declined"` (an error). Clients that only knew `executed` /
+   `payloads` / `dryRun` / `failed` should treat both as "not broadcast". The
+   swarm dispatcher is unaffected (it runs unattended).
+
+5. **`dexe_agents_fund` runs only in unattended mode**, and `signerKey` is
+   refused in keystore and WalletConnect modes (one key each).
+
+6. **`dexe-mcp init`** offers WalletConnect (default) → encrypted key →
+   read-only; the plaintext hot key moved behind `init --unattended`.
+
+7. **New: `dexe-mcp-read`.** The read-only edition ships as a second binary in
    the same package (`npx -y -p dexe-mcp dexe-mcp-read`). Nothing to change if
    you use `dexe-mcp`; see [REMOTE.md](./REMOTE.md) to run the read edition.
-2. **`serve-http` is now the read edition's.** `dexe-mcp serve-http` keeps
+8. **`serve-http` is now the read edition's.** `dexe-mcp serve-http` keeps
    working (it starts `dexe-mcp-read serve-http`), but what it serves changed:
    all 54 read tools instead of 35, plus three resources (`dexe://graph-schema`,
    `dexe://tools`, `dexe://playbook`). `DEXE_TOOLSETS` and `DEXE_STATE_PATH` are
@@ -28,6 +89,13 @@ name env variables.
    `dexe_ipfs_fetch`'s `gateway` field), and network-error peers and IPs are
    masked. **What to do:** update a Docker deployment to the new image
    (`ENTRYPOINT` is `node dist/read/bin.js serve-http`); nothing else.
+
+### Next major (planned): the implicit hot-key default goes away
+
+`DEXE_PRIVATE_KEY` will stop signing unless `DEXE_SIGNER_MODE=unattended` is
+set, and doctor will turn the warning into an error that names the fix
+(`npx dexe-mcp key import --from-env`, or set the mode). Setting the mode
+explicitly today makes that upgrade a no-op.
 
 ---
 

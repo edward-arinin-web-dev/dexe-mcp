@@ -12,10 +12,13 @@ output, or a transaction hash) where possible.
 
 ## Posture
 
-`dexe-mcp` is primarily a **calldata builder**: by default (no
-`DEXE_PRIVATE_KEY`) every write tool returns an unsigned `TxPayload` for an
-external signer/wallet — nothing is broadcast. Broadcasting requires an
-explicitly-configured hot key, and is gated by opt-in guards:
+`dexe-mcp` is primarily a **calldata builder**: every write tool can return an
+unsigned `TxPayload` for an external signer/wallet. When the server itself
+signs, `DEXE_SIGNER_MODE` decides how ([SIGNING.md](./SIGNING.md)):
+`walletconnect` (default — the phone confirms each transaction), `keystore`
+(encrypted key — the owner confirms each batch with its password on a local
+page), `readonly`, or `unattended` (hot keys, no confirmation, testnet by
+default). Every broadcast is gated by these guards:
 
 | Guard | Env | Effect |
 |---|---|---|
@@ -27,9 +30,31 @@ explicitly-configured hot key, and is gated by opt-in guards:
 | B12 GovUserKeeper denylist | (always) | denylisted selectors, leading or embedded in a multicall |
 | B13 Safe DELEGATECALL | `DEXE_SAFE_DELEGATECALL=block` | `dexe_safe_propose_tx` with `operation: 1` unless the call passes `allowDelegateCall: true` |
 
-Never write `DEXE_PRIVATE_KEY` to `.env` without intent; prefer calldata mode or
-WalletConnect / Safe. A Safe **dry run does not sign** — pass `sign: true` if you
+Never write `DEXE_PRIVATE_KEY` to `.env` without intent; prefer calldata mode,
+WalletConnect, the keystore (`npx dexe-mcp key import --from-env` moves an
+existing one) or a Safe. A Safe **dry run does not sign** — pass `sign: true` if you
 want a real owner signature.
+
+## 0.37.0 — who confirms a signature
+
+A hot key is not AI-proof: whoever drives the tools can spend it. 0.37.0
+makes the confirming human explicit per mode and adds a second
+human-confirmed mode next to WalletConnect.
+
+| Threat | `walletconnect` | `keystore` | `unattended` |
+|---|---|---|---|
+| Prompt injection (proposal text, IPFS, a neighbouring MCP server, a crafted payload) | covered — the phone shows the tx | covered — the password page decodes the bytes; approvals are bound to the batch and single-use | **not covered** — guards only |
+| The model calling tools it should not | covered | covered — no tool/param/env approves | **not covered** |
+| An agent that drives your browser | covered (separate device) | **not covered** — it can read the password as typed (`navigator.webdriver` is refused, partial) | not covered |
+| An agent with a shell | covered (separate device) | **not covered** — it can fake the page or read process memory | not covered |
+| Local malware | out of scope | out of scope | out of scope |
+
+Hence the recommendation: **for agents with shell or browser control, use
+WalletConnect.** The keystore stops mistakes and injection-driven calls.
+The approval page's own hardening (exact `Host`, same-origin JSON + CSRF,
+one-time path token, no-store / no-referrer / nonce CSP, password lockout,
+ordered-only signing, key dropped after use) is listed in
+[SIGNING.md](./SIGNING.md#the-loopback-page-specifically).
 
 ## MCP annotations are hints, not access control
 
@@ -37,8 +62,9 @@ Every tool declares `readOnlyHint` / `destructiveHint` / `idempotentHint` /
 `openWorldHint`, and 21 carry a human title for the host's approval dialog.
 Those annotations are advisory metadata for the *host*: a host is free to ignore
 them, and nothing in this server's authorization depends on them. What actually
-enforces is the env-level posture — no `DEXE_PRIVATE_KEY` and no WalletConnect
-session means nothing can be broadcast at all — plus the guard table above.
+enforces is the signer posture — in `walletconnect` and `keystore` mode a human
+confirms every batch outside the model's reach; with no signer nothing can be
+broadcast at all — plus the guard table above.
 
 ## 0.9.0 — red-team audit remediation
 
@@ -158,5 +184,7 @@ it never silently blocks a build.
 |---|---|
 | `DEXE_SIGNER_ALLOWLIST` / `DEXE_SIGNER_MAX_VALUE_WEI` / `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | broadcast guards (B6/B7/B10) |
 | `DEXE_SAFE_DELEGATECALL` | `block` refuses a Safe DELEGATECALL outright (B13) |
+| `DEXE_SIGNER_MODE` | who signs and who confirms: `walletconnect` / `keystore` / `readonly` / `unattended` ([SIGNING.md](./SIGNING.md)) |
+| `DEXE_UNATTENDED_CHAINS` | chains hot keys may sign on in unattended mode (default `97`) |
 | `DEXE_PROTOCOL_REF` | pin the DeXe-Protocol clone to a branch/tag (supply-chain) |
 | `DEXE_MAX_DESCRIPTION_LEN` | cap markdown-conversion input length (default 16384; lower for shared/untrusted hosts) |

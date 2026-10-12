@@ -15,9 +15,9 @@
 
 An MCP (Model Context Protocol) server for [DeXe Protocol](https://dexe.io) governance on BNB Chain, with an additional generic surface for OpenZeppelin and Compound-Bravo Governor DAOs (Uniswap, Compound, Optimism).
 
-It exposes 169 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, one-call DAO reporting, IPFS metadata, transaction simulation, multi-agent orchestration, and diagnostics. Any MCP client that can launch a local command can use it — Claude Code, Claude Desktop, Cursor, Codex CLI, or a custom agent. The package also ships a **read-only edition**, `dexe-mcp-read` (54 tools that only read, on stdio or over HTTP for remote clients) — see [Read-only edition](#read-only-edition-dexe-mcp-read).
+It exposes 170 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, one-call DAO reporting, IPFS metadata, transaction simulation, multi-agent orchestration, and diagnostics. Any MCP client that can launch a local command can use it — Claude Code, Claude Desktop, Cursor, Codex CLI, or a custom agent. The package also ships a **read-only edition**, `dexe-mcp-read` (54 tools that only read, on stdio or over HTTP for remote clients) — see [Read-only edition](#read-only-edition-dexe-mcp-read).
 
-Writes are calldata-first: tools return a `{ to, data, value, chainId }` payload for your own wallet to sign. Broadcasting from the server is opt-in, either through WalletConnect (transactions are approved on your phone; no key on disk) or a private key you explicitly configure.
+Writes are calldata-first: tools return a `{ to, data, value, chainId }` payload for your own wallet to sign. Broadcasting from the server is opt-in, and a human confirms every transaction: through WalletConnect (approved on your phone; no key on disk — the default) or an encrypted local keystore (each batch approved with its password on a local page). A plaintext hot key that signs unattended exists for bots and CI only, testnet by default. [docs/SIGNING.md](./docs/SIGNING.md) explains the modes and what each protects against.
 
 <p align="center">
   <a href="#install-in-claude-code">Install</a> ·
@@ -135,7 +135,7 @@ dexe_proposal_create({
 
 `dexe_proposal_create` covers every on-chain catalog type; the single-purpose `dexe_proposal_build_*` builders (raw calldata, one tool per type) need `DEXE_TOOLSETS=core,proposals`.
 
-Each write tool returns a `TxPayload` you pass to your wallet. To let the server broadcast instead, connect a wallet over WalletConnect (`dexe_wc_connect`) or set `DEXE_PRIVATE_KEY`; that enables the composite flows `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, and `dexe_tx_send`.
+Each write tool returns a `TxPayload` you pass to your wallet. To let the server broadcast instead, connect a wallet over WalletConnect (`dexe_wc_connect`), or create an encrypted key with `npx dexe-mcp key create` and set `DEXE_SIGNER_MODE=keystore` — each batch then opens a local approval page that asks for its password. That enables the composite flows `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, and `dexe_tx_send`. A hot `DEXE_PRIVATE_KEY` signs only with `DEXE_SIGNER_MODE=unattended` (bots, CI); see [docs/SIGNING.md](./docs/SIGNING.md).
 
 ## Requirements
 
@@ -164,11 +164,11 @@ Verified, prompt-level scenarios live in **[docs/USE_CASES.md](https://github.co
 
 ## Tool catalog
 
-169 tools in 19 groups. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
+170 tools in 19 groups. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
-**A default session loads the `core` profile — 45 tools, ~93 KB of `tools/list`.** That is orientation (`dexe_context`, `dexe_write_context`, `dexe_guide`, `dexe_doctor`), the one-call composites (`dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, the four `dexe_otc_*` composites with the token-sale reads `dexe_read_token_sale_position` / `dexe_read_token_sales`), signing (`dexe_tx_send`, WalletConnect, the key vote builders), the IPFS upload trio plus `dexe_ipfs_fetch`, `dexe_dao_info` / `dexe_dao_registry_lookup` / `dexe_dao_predict_addresses`, `dexe_proposal_state` / `_list` / `_catalog`, `dexe_read_treasury` / `_settings`, and the zero-config reporting reads (`dexe_dao_report`, `dexe_graph_query`, `dexe_graph_schema`, DAO list/members/stats, token holders, delegation map). Which profile to run, and what each costs: [docs/PROFILES.md](./docs/PROFILES.md).
+**A default session loads the `core` profile — 46 tools, ~94 KB of `tools/list`.** That is orientation (`dexe_context`, `dexe_write_context`, `dexe_guide`, `dexe_doctor`), the one-call composites (`dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, the four `dexe_otc_*` composites with the token-sale reads `dexe_read_token_sale_position` / `dexe_read_token_sales`), signing (`dexe_tx_send`, `dexe_tx_approval_status`, WalletConnect, the key vote builders), the IPFS upload trio plus `dexe_ipfs_fetch`, `dexe_dao_info` / `dexe_dao_registry_lookup` / `dexe_dao_predict_addresses`, `dexe_proposal_state` / `_list` / `_catalog`, `dexe_read_treasury` / `_settings`, and the zero-config reporting reads (`dexe_dao_report`, `dexe_graph_query`, `dexe_graph_schema`, DAO list/members/stats, token holders, delegation map). Which profile to run, and what each costs: [docs/PROFILES.md](./docs/PROFILES.md).
 
-Changed in v0.31.0: the ~30 single-purpose `dexe_proposal_build_*` builders are **no longer loaded by default** — `dexe_proposal_create` covers every on-chain catalog type from `proposalType` + `params`, and `dexe_proposal_catalog` still enumerates them. Set `DEXE_TOOLSETS=core,proposals` to restore the pre-0.31 default exactly. Add profiles (`proposals`, `read`, `vote`, `agents`, `governor`, `dev`) or `DEXE_TOOLSETS=full` for everything — see [docs/PROFILES.md](./docs/PROFILES.md). Note before reaching for `full`: it registers all 169, and some hosts (VS Code / GitHub Copilot) cap a chat request at 128 enabled tools per request and reject the session above that; the server prints a startup note when you cross it. Call `dexe_context` first in a session: it returns the active chain, env readiness, which profiles are off and what each unlocks, and DAOs/proposals recorded in prior sessions. Since v0.36.0 the signer, the agent keyring and the Pinata / WalletConnect / Safe posture are `dexe_write_context`.
+Changed in v0.31.0: the ~30 single-purpose `dexe_proposal_build_*` builders are **no longer loaded by default** — `dexe_proposal_create` covers every on-chain catalog type from `proposalType` + `params`, and `dexe_proposal_catalog` still enumerates them. Set `DEXE_TOOLSETS=core,proposals` to restore the pre-0.31 default exactly. Add profiles (`proposals`, `read`, `vote`, `agents`, `governor`, `dev`) or `DEXE_TOOLSETS=full` for everything — see [docs/PROFILES.md](./docs/PROFILES.md). Note before reaching for `full`: it registers all 170, and some hosts (VS Code / GitHub Copilot) cap a chat request at 128 enabled tools per request and reject the session above that; the server prints a startup note when you cross it. Call `dexe_context` first in a session: it returns the active chain, env readiness, which profiles are off and what each unlocks, and DAOs/proposals recorded in prior sessions. Since v0.36.0 the signer, the agent keyring and the Pinata / WalletConnect / Safe posture are `dexe_write_context`.
 
 New in v0.32.0: **`agents`**, a seventh profile for running a multi-persona fleet — `dexe_agents_list` (who is in the keyring, and their balances), `dexe_agents_fund` (top them up, preview-then-confirm, inside the enforced caps), and `dexe_agents_ledger` (who did what, and what it cost). Set `DEXE_TOOLSETS=core,agents` and restart; add `vote` (`core,agents,vote`) when the scenario needs the raw delegation and validator builders. `dexe_agents_list` / `dexe_agents_fund` also remain in `vote`, so an existing `core,vote` session keeps exactly the surface it had. Details and the safety model: [docs/AGENTS.md](./docs/AGENTS.md).
 
@@ -186,7 +186,7 @@ The `Tools` column counts the whole group, not what a default session loads — 
 | Internal validator wrappers | 4 | Validator-chamber proposals: balances, settings, monthly withdraw, off-chain internal. |
 | Off-chain wrappers and auth | 9 | DeXe backend integration: SIWE login, off-chain proposal creation and voting. |
 | Vote, stake, delegate, execute, claim builders | 26 | Direct EOA writes on `GovPool` and `Validators`: deposit, vote, delegate, execute, claim, staking, token-sale buy/claim, multicall. |
-| Composite signing flows | 11 | `dexe_guide` (call first for any multi-step request), `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`, `dexe_tx_status`, `dexe_get_config`, `dexe_context`, `dexe_write_context` (signer, keyring, upload/WalletConnect/Safe posture), plus the agent keyring — `dexe_agents_list`, `dexe_agents_fund`, and `dexe_agents_ledger` (v0.32), which are gated behind the `agents` profile. |
+| Composite signing flows | 12 | `dexe_guide` (call first for any multi-step request), `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`, `dexe_tx_status`, `dexe_tx_approval_status` (keystore approvals, read-only), `dexe_get_config`, `dexe_context`, `dexe_write_context` (signer, keyring, upload/WalletConnect/Safe posture), plus the agent keyring — `dexe_agents_list`, `dexe_agents_fund`, and `dexe_agents_ledger` (v0.32), which are gated behind the `agents` profile. |
 | Merkle utility | 2 | `dexe_merkle_build` and `dexe_merkle_proof`, compatible with OZ `StandardMerkleTree`. |
 | OTC composites | 4 | Open a multi-tier sale, read a buyer's position (`dexe_read_token_sale_position`), buy (native or with merkle proof), claim vested payouts. [docs/OTC.md](./docs/OTC.md) |
 | Safe multisig | 2 | Queue transactions in the Safe Transaction Service instead of broadcasting. [docs/SAFE.md](./docs/SAFE.md) |
@@ -210,7 +210,8 @@ No variable is required to start the server; tools that need a missing one fail 
 | `DEXE_PINATA_GATEWAY_TOKEN` | IPFS reads | Gateway key for restricted Pinata dedicated gateways. |
 | `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK` | hardening | Set `1` to disable public gateway fallback. |
 | `DEXE_WALLETCONNECT_PROJECT_ID` | WalletConnect signing | A shared default ships; set your own project ID for production use. |
-| `DEXE_PRIVATE_KEY` | broadcast mode | Hot-key signing. Opt-in; prefer WalletConnect. Never required for build tools. |
+| `DEXE_SIGNER_MODE` | signing | `walletconnect` (default) · `keystore` (encrypted key, password per batch on a local page — `npx dexe-mcp key create`) · `readonly` · `unattended` (hot keys, no confirmation, `DEXE_UNATTENDED_CHAINS` only, default 97). See [docs/SIGNING.md](./docs/SIGNING.md). |
+| `DEXE_PRIVATE_KEY` | unattended mode | Hot-key signing, read only in `DEXE_SIGNER_MODE=unattended`. Unset mode + a hot key still signs in 0.37 (deprecated; flips in the next major). Move it into the keystore with `npx dexe-mcp key import --from-env`. |
 | `DEXE_TOOLSETS` | tool gating | Comma list of profiles; default `core` (v0.31.0; was `core,proposals`). Valid: `core`, `proposals`, `read`, `vote`, `agents`, `governor`, `dev`, `full`. `agents` (v0.32.0) adds the keyring fleet tools — `DEXE_TOOLSETS=core,agents`. |
 | `DEXE_SUBGRAPH_POOLS_URL` / `_VALIDATORS_URL` / `_INTERACTIONS_URL` | subgraph reads | The Graph endpoints; defaults target the decentralized network. |
 | `DEXE_GRAPH_API_KEY` | subgraph reads | Only when the URL doesn't embed the key. |
@@ -224,7 +225,7 @@ No variable is required to start the server; tools that need a missing one fail 
 
 - [docs/USE_CASES.md](./docs/USE_CASES.md) — verified use-case catalog: what to say to your agent, what happens, on-chain evidence.
 - [docs/PLAYBOOK.md](./docs/PLAYBOOK.md) — the AI playbook: intent → exact call, per-type params, error → remedy. Also served as the MCP resource `dexe://playbook`.
-- [docs/TOOLS.md](./docs/TOOLS.md) — all 169 tools, grouped, with one-line descriptions, the toolset profile each section needs, and required env vars. Also served as the MCP resource `dexe://tools`.
+- [docs/TOOLS.md](./docs/TOOLS.md) — all 170 tools, grouped, with one-line descriptions, the toolset profile each section needs, and required env vars. Also served as the MCP resource `dexe://tools`.
 - [docs/REPORTING.md](./docs/REPORTING.md) — `dexe_dao_report`: the one-call DAO report, its sections, the `since` diff, and running it on a schedule.
 - [docs/USAGE.md](./docs/USAGE.md) — worked examples with copy-pasteable JSON.
 - [docs/ENVIRONMENT.md](./docs/ENVIRONMENT.md) — full env-var reference and common pitfalls.
@@ -235,6 +236,7 @@ No variable is required to start the server; tools that need a missing one fail 
 - [docs/SKILLS.md](./docs/SKILLS.md) — the Claude Code skills shipped with the package.
 - [docs/GRAPH.md](./docs/GRAPH.md) — subgraph entity reference for `dexe_graph_query` (pools / interactions / validators). Also served as the MCP resource `dexe://graph-schema`.
 - [docs/GOVERNOR.md](./docs/GOVERNOR.md) — the external OZ/Bravo Governor surface.
+- [docs/SIGNING.md](./docs/SIGNING.md) — signer modes (WalletConnect, encrypted keystore, read-only, unattended), the approval page, and the threat model.
 - [docs/WALLETCONNECT.md](./docs/WALLETCONNECT.md) — phone-approved signing without a hot key.
 - [docs/OTC.md](./docs/OTC.md) — multi-tier OTC sale flows for owners and buyers.
 - [docs/PROFILE.md](./docs/PROFILE.md) — DAO profile and avatar pipeline.
