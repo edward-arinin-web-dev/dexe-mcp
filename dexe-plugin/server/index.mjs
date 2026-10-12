@@ -155764,10 +155764,11 @@ function canonicalIp(ip) {
 }
 function ipv6Groups(ip) {
   let s2 = ip;
-  const v42 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s2);
-  if (v42) {
-    const b7 = v42.slice(1).map(Number);
-    s2 = `${s2.slice(0, v42.index)}${(b7[0] << 8 | b7[1]).toString(16)}:${(b7[2] << 8 | b7[3]).toString(16)}`;
+  const lastColon = s2.lastIndexOf(":");
+  const tailPart = s2.slice(lastColon + 1);
+  if (isIP(tailPart) === 4) {
+    const b7 = tailPart.split(".").map(Number);
+    s2 = `${s2.slice(0, lastColon + 1)}${(b7[0] << 8 | b7[1]).toString(16)}:${(b7[2] << 8 | b7[3]).toString(16)}`;
   }
   const halves = s2.split("::");
   if (halves.length > 2)

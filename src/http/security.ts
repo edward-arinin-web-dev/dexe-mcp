@@ -76,11 +76,13 @@ export function canonicalIp(ip: string): string {
 /** Eight 16-bit groups of an IPv6 address, or null when it does not parse. */
 function ipv6Groups(ip: string): number[] | null {
   let s = ip;
-  // Trailing dotted IPv4 (e.g. 64:ff9b::1.2.3.4) becomes two groups.
-  const v4 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s);
-  if (v4) {
-    const b = v4.slice(1).map(Number);
-    s = `${s.slice(0, v4.index)}${((b[0]! << 8) | b[1]!).toString(16)}:${((b[2]! << 8) | b[3]!).toString(16)}`;
+  // Trailing dotted IPv4 (e.g. 64:ff9b::1.2.3.4) becomes two groups. Parsed
+  // by splitting, not a regex: this runs on header-derived input.
+  const lastColon = s.lastIndexOf(":");
+  const tailPart = s.slice(lastColon + 1);
+  if (isIP(tailPart) === 4) {
+    const b = tailPart.split(".").map(Number);
+    s = `${s.slice(0, lastColon + 1)}${((b[0]! << 8) | b[1]!).toString(16)}:${((b[2]! << 8) | b[3]!).toString(16)}`;
   }
   const halves = s.split("::");
   if (halves.length > 2) return null;
