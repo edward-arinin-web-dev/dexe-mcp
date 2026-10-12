@@ -44,7 +44,7 @@ source to figure out parameters. Also served as the MCP resource `dexe://playboo
 | "What state is proposal N in?" | `dexe_proposal_state` / `dexe_proposal_list` | `{govPool, proposalId}` |
 | "Run an OTC / token sale" | `dexe_otc_dao_open_sale` | `{govPool, tokenSaleProposal, tiers:[…]}` then vote_and_execute |
 | "Buy from the sale / claim my tokens" | `dexe_otc_buyer_buy` / `dexe_otc_buyer_claim_all` | `{tokenSaleProposal, tierId, tokenToBuyWith, amount}` |
-| "What sales does this DAO have?" | `dexe_otc_list_sales_for_dao` / `dexe_otc_buyer_status` | `{govPool}` / `{tokenSaleProposal, tierIds, user}` |
+| "What sales does this DAO have?" | `dexe_read_token_sales` / `dexe_read_token_sale_position` | `{govPool}` / `{tokenSaleProposal, tierIds, user}` |
 | "Update the DAO profile/avatar" | `dexe_proposal_create` | `proposalType:"modify_dao_profile"`, pass only the fields to change; avatar via LOCAL `newAvatarPath` |
 | "Send this transaction" | `dexe_tx_send` | the TxPayload fields; check with `dexe_tx_status` |
 | "Vote on Uniswap/Compound/OP governance" | `dexe_gov_*` surface | needs `DEXE_TOOLSETS=core,governor` |
@@ -191,7 +191,7 @@ Open a multi-tier token sale (proposal → vote → execute → live), then buye
 **Steps:**
 1. `dexe_otc_dao_open_sale` — Build + create the TokenSaleProposal tiers proposal (auto-uploads merkle whitelist JSON if given).
 2. `dexe_proposal_vote_and_execute` — Vote + execute the sale proposal — the tier goes live at execute.
-3. `dexe_otc_list_sales_for_dao` — Confirm the tier is live and show its parameters (times are UTC).
+3. `dexe_read_token_sales` — Confirm the tier is live and show its parameters (times are UTC).
 
 ### Set up staking (reward tier) (`staking_setup`)
 
