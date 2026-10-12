@@ -154869,8 +154869,8 @@ function createRpcReadinessProbe(config2, timeoutMs, opts = {}) {
           return { ready: true, detail: { chainId, blockNumber: Number(BigInt(body.result)) } };
         }
         reason = "rpc returned no block number";
-      } catch (err14) {
-        reason = err14.name === "TimeoutError" ? "rpc timeout" : "rpc unreachable";
+      } catch (err16) {
+        reason = err16.name === "TimeoutError" ? "rpc timeout" : "rpc unreachable";
       }
     }
     return { ready: false, detail: { chainId, reason } };
@@ -155956,7 +155956,7 @@ function readBody(req, maxBytes, timeoutMs) {
     let done = false;
     const timer = setTimeout(() => finish(new BodyTimeoutError()), timeoutMs);
     timer.unref();
-    const finish = (err14, buf) => {
+    const finish = (err16, buf) => {
       if (done)
         return;
       done = true;
@@ -155964,8 +155964,8 @@ function readBody(req, maxBytes, timeoutMs) {
       req.off("data", onData);
       req.off("end", onEnd);
       req.off("error", onErr);
-      if (err14)
-        reject(err14);
+      if (err16)
+        reject(err16);
       else
         resolve8(buf);
     };
@@ -155994,8 +155994,8 @@ function createHttpApp(opts, deps) {
     process.stdout.write(`${JSON.stringify(entry)}
 `);
   });
-  const onError = deps.onError ?? ((context, err14) => {
-    const msg = safeErrorMessage(err14);
+  const onError = deps.onError ?? ((context, err16) => {
+    const msg = safeErrorMessage(err16);
     process.stderr.write(`${JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), level: "error", context, msg })}
 `);
   });
@@ -156063,9 +156063,9 @@ function createHttpApp(opts, deps) {
       if (deps.readiness) {
         try {
           result = await deps.readiness();
-        } catch (err14) {
+        } catch (err16) {
           result = { ready: false, detail: { reason: "readiness probe failed" } };
-          onError("readyz", err14);
+          onError("readyz", err16);
         }
       }
       send(result.ready ? 200 : 503, JSON.stringify({ status: result.ready ? "ready" : "not_ready", ...result.detail }));
@@ -156121,21 +156121,21 @@ function createHttpApp(opts, deps) {
     let raw;
     try {
       raw = await readBody(req, opts.maxBodyBytes, opts.bodyTimeoutMs);
-    } catch (err14) {
-      if (err14 instanceof BodyTooLargeError) {
+    } catch (err16) {
+      if (err16 instanceof BodyTooLargeError) {
         reject(413, "body", `Payload Too Large: request body must not exceed ${opts.maxBodyBytes} bytes`, {
           Connection: "close"
         });
         return;
       }
-      if (err14 instanceof BodyTimeoutError) {
+      if (err16 instanceof BodyTimeoutError) {
         res.once("finish", () => req.socket.destroy());
         reject(408, "body-timeout", `Request Timeout: the body did not arrive within ${opts.bodyTimeoutMs} ms`, {
           Connection: "close"
         });
         return;
       }
-      onError("read-body", err14);
+      onError("read-body", err16);
       reject(400, "body", "Bad Request: the request body could not be read", { Connection: "close" });
       return;
     }
@@ -156187,8 +156187,8 @@ function createHttpApp(opts, deps) {
       const webReq = new Request(url2, { method: "POST", headers });
       try {
         mcp = await deps.serverFactory();
-      } catch (err14) {
-        onError("server-factory", err14);
+      } catch (err16) {
+        onError("server-factory", err16);
         log2.reason = "factory";
         send(500, jsonRpcError(-32603, "Internal error: the server could not be initialised"));
         return;
@@ -156233,8 +156233,8 @@ function createHttpApp(opts, deps) {
         }
       }
       res.end();
-    } catch (err14) {
-      onError("mcp-request", err14);
+    } catch (err16) {
+      onError("mcp-request", err16);
       log2.reason = log2.reason ?? "internal";
       send(500, jsonRpcError(-32603, "Internal error"));
     } finally {
@@ -156250,8 +156250,8 @@ function createHttpApp(opts, deps) {
     requestTimeout: headersTimeout + opts.bodyTimeoutMs + 5e3,
     connectionsCheckingInterval: 1e3
   }, (req, res) => {
-    handler(req, res).catch((err14) => {
-      onError("http-handler", err14);
+    handler(req, res).catch((err16) => {
+      onError("http-handler", err16);
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(jsonRpcError(-32603, "Internal error"));
@@ -156287,8 +156287,8 @@ function installHttpProcessGuards() {
   process.on("unhandledRejection", (reason) => {
     logLine2("error", "unhandled_rejection", { detail: formatDiagnostic(reason) });
   });
-  process.on("uncaughtException", (err14) => {
-    logLine2("error", "uncaught_exception", { detail: formatDiagnostic(err14) });
+  process.on("uncaughtException", (err16) => {
+    logLine2("error", "uncaught_exception", { detail: formatDiagnostic(err16) });
   });
 }
 async function runServeHttp(argv, version5) {
@@ -156334,8 +156334,8 @@ async function runServeHttp(argv, version5) {
   const read3 = createInterimReadServerFactory(config2, version5);
   try {
     await read3.factory();
-  } catch (err14) {
-    logLine2("error", "startup_failed", { detail: formatDiagnostic(err14) });
+  } catch (err16) {
+    logLine2("error", "startup_failed", { detail: formatDiagnostic(err16) });
     process.exitCode = 1;
     return;
   }
@@ -156353,8 +156353,8 @@ async function runServeHttp(argv, version5) {
         resolve8();
       });
     });
-  } catch (err14) {
-    logLine2("error", "listen_failed", { host: opts.host, port: opts.port, detail: formatDiagnostic(err14) });
+  } catch (err16) {
+    logLine2("error", "listen_failed", { host: opts.host, port: opts.port, detail: formatDiagnostic(err16) });
     process.exitCode = 1;
     return;
   }
