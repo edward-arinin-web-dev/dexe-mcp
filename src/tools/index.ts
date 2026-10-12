@@ -32,7 +32,8 @@ import { registerOperationalContextTools } from "./operationalContext.js";
 import { registerGuideTools, registerKnowledgePrompts } from "./guide.js";
 import { StateStore } from "../lib/stateStore.js";
 import { registerMerkleTools } from "./merkle.js";
-import { registerOtcTools } from "./otc.js";
+import { registerOtcSaleTools, registerOtcBuyerTools } from "./otc.js";
+import { registerTokenSaleReadTools } from "./tokenSaleRead.js";
 import { registerSafeTools } from "./safe.js";
 import { registerSimulateTools } from "./simulate.js";
 import { registerInboxTools } from "./inbox.js";
@@ -108,7 +109,11 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   // per-flow MCP prompts for hosts that support them (Phase B).
   registerGuideTools(server, config, state);
   registerKnowledgePrompts(server);
-  registerOtcTools(server, ctx, signer, wc, state);
+  // OTC: open sale, then the read-only position view (dexe_otc_buyer_status,
+  // kept out of otc.ts), then buy / claim all — the historical tools/list order.
+  registerOtcSaleTools(server, ctx, signer, wc, state);
+  registerTokenSaleReadTools(server, ctx);
+  registerOtcBuyerTools(server, ctx, signer, wc);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
 

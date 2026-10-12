@@ -1,6 +1,6 @@
 import type { DexeConfig } from "../config.js";
 import { RpcProvider } from "../rpc.js";
-import { simulateCalldata } from "../tools/simulate.js";
+import { simulateCalldata } from "./simulate.js";
 import { mapDeployRevert, type DeployRevertVerdict } from "./deployRevertMap.js";
 import { safeErrorMessage } from "./redact.js";
 

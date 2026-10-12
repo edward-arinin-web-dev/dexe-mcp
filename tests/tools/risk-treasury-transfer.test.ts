@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Interface } from "ethers";
-import { classifyGovernanceActions, governanceVerdict } from "../../src/lib/buildAdvisories.js";
+import { classifyGovernanceActions, governanceVerdict } from "../../src/lib/governanceHits.js";
 import { recommend } from "../../src/tools/risk.js";
 
 /**

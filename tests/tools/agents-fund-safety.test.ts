@@ -47,9 +47,8 @@ vi.mock("../../src/rpc.js", () => ({
 
 const simState = { success: true, networkError: false, revertReason: undefined as string | undefined };
 
-vi.mock("../../src/tools/simulate.js", () => ({
+vi.mock("../../src/lib/simulate.js", () => ({
   simulateCalldata: async () => ({ ...simState }),
-  registerSimTools: () => {},
 }));
 
 const tokenState = {

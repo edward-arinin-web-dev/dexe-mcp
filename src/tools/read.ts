@@ -6,7 +6,7 @@ import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
-import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "./otc.js";
+import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "../lib/abi/tokenSale.js";
 import { DEFAULTS } from "../config.js";
 import { backendChainIdParam, chainIdParam, govPoolParam } from "../lib/params.js";
 import { toActionableError } from "../lib/errors.js";

@@ -8,6 +8,12 @@
 import { Interface } from "ethers";
 import { quorumPctFromRaw, judgeQuorum, lowQuorumAdvisory } from "./quorumRisk.js";
 import { checkTokensUnlocked } from "./preflight.js";
+import { UPSTREAM_DOC, upstream, VESTING_WITHDRAW_ADVISORY, type UpstreamAdvisory } from "./upstreamAdvisories.js";
+
+// The advisory shape, its constructor and F15 live in ./upstreamAdvisories.ts
+// (a read surface needs F15 too); re-exported so existing importers keep working.
+export { UPSTREAM_DOC, VESTING_WITHDRAW_ADVISORY };
+export type { UpstreamAdvisory };
 
 function toBig(s: string): bigint | null {
   return /^[0-9]+$/.test(s) ? BigInt(s) : null;
@@ -25,30 +31,6 @@ function toBig(s: string): bigint | null {
 // `docs/UPSTREAM-ISSUES.md` is the authoritative description of every id used
 // here; keep the two in sync.
 
-/** Path to the authoritative write-up, quoted in every advisory. */
-export const UPSTREAM_DOC = "docs/UPSTREAM-ISSUES.md";
-
-export interface UpstreamAdvisory {
-  /** Issue id as filed in docs/UPSTREAM-ISSUES.md — "F15", "F12", "#36". */
-  readonly id: string;
-  /** DANGER = funds or governance can be lost; WARN = the call will just fail. */
-  readonly severity: "DANGER" | "WARN";
-  /** Where the caller reads the full story. */
-  readonly upstream: string;
-  /** Ready-to-surface text, already prefixed with its severity marker. */
-  readonly text: string;
-}
-
-function upstream(id: string, severity: UpstreamAdvisory["severity"], body: string): UpstreamAdvisory {
-  const ref = `${UPSTREAM_DOC} (${id})`;
-  return {
-    id,
-    severity,
-    upstream: ref,
-    text: `⚠ ${severity} — UPSTREAM PROTOCOL DEFECT ${id} (not a dexe-mcp bug): ${body} See ${ref}.`,
-  };
-}
-
 /** Join advisories into one block for a tool's human-readable output. */
 export function renderAdvisories(
   list: readonly (UpstreamAdvisory | null | undefined)[],
@@ -58,22 +40,8 @@ export function renderAdvisories(
 }
 
 // ---------- F15 — TokenSaleProposal.vestingWithdraw is blocked (funds-loss) --
-
-/**
- * F15: on every SphereX-era pool, `vestingWithdraw` reverts in EVERY call shape
- * (raw and multicall-wrapped — the DeXe frontend uses only those two, so the
- * official UI fails identically). A tier opened with `vestingPercentage > 0`
- * therefore strands its vested allocation permanently. `claim` (the instant
- * portion) still works.
- */
-export const VESTING_WITHDRAW_ADVISORY = upstream(
-  "F15",
-  "DANGER",
-  "TokenSaleProposal.vestingWithdraw reverts \"SphereX error: disallowed tx pattern\" in every call shape on " +
-    "current pools, so the VESTED portion of a purchase can never be withdrawn — the tokens are stranded, with " +
-    "no client-side workaround. Only `claim` (the instant portion) works. Open tiers with vestingPercentage " +
-    "\"0\" and hold back the remainder off-chain, or wait for the protocol fix.",
-);
+//
+// VESTING_WITHDRAW_ADVISORY itself is in ./upstreamAdvisories.ts.
 
 /** A tier whose vesting leg would be stranded by F15. */
 export interface VestingTierRisk {

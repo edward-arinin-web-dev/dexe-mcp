@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const simulateCalldata = vi.fn();
-vi.mock("../../src/tools/simulate.js", () => ({
+vi.mock("../../src/lib/simulate.js", () => ({
   simulateCalldata: (...args: unknown[]) => simulateCalldata(...args),
 }));
 

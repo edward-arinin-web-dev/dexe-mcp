@@ -17,7 +17,7 @@ import {
   classifyGovernanceActions,
   governanceVerdict,
   type GovernanceHit,
-} from "../lib/buildAdvisories.js";
+} from "../lib/governanceHits.js";
 import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import { safeErrorMessage } from "../lib/redact.js";

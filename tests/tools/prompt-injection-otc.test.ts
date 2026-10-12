@@ -8,6 +8,7 @@ import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 import { RpcProvider } from "../../src/rpc.js";
 import { multicall, type Call } from "../../src/lib/multicall.js";
 import { registerOtcTools } from "../../src/tools/otc.js";
+import { registerTokenSaleReadTools } from "../../src/tools/tokenSaleRead.js";
 import { registerSubgraphTools } from "../../src/tools/subgraph.js";
 import { registerReadTools } from "../../src/tools/read.js";
 import { registerRiskTools } from "../../src/tools/risk.js";
@@ -15,8 +16,8 @@ import { registerRiskTools } from "../../src/tools/risk.js";
 /**
  * HIGH-4 / LOW-3 — identical on-chain bytes must not produce opposite outcomes.
  *
- * `dexe_read_token_sale_tiers` (read.ts) and `dexe_otc_buyer_status` (otc.ts)
- * decode the SAME `getTierViews` return. Before 0.33.0 only read.ts routed it
+ * `dexe_read_token_sale_tiers` (read.ts) and `dexe_otc_buyer_status` (then in
+ * otc.ts, now tokenSaleRead.ts) decode the SAME `getTierViews` return. Before 0.33.0 only read.ts routed it
  * through the sanitizing funnel; otc.ts had a local `ok()` doing a raw
  * `JSON.stringify`, so the same tier metadata came back with its zero-width
  * characters, its bidi override and its forged fence-close intact — and with no
@@ -253,12 +254,7 @@ afterEach(() => {
 describe("HIGH-4 — sale-opener text is neutralized on the OTC read surface", () => {
   it("dexe_otc_buyer_status: hostile tier metadata is escaped in BOTH channels", async () => {
     const { tools, server } = captureTools();
-    registerOtcTools(
-      server,
-      ctx(),
-      {} as unknown as SignerManager,
-      {} as unknown as WalletConnectManager,
-    );
+    registerTokenSaleReadTools(server, ctx());
 
     const res = await tools.get("dexe_otc_buyer_status")!({
       tokenSaleProposal: TSP,
@@ -299,12 +295,7 @@ describe("HIGH-4 — sale-opener text is neutralized on the OTC read surface", (
     // The finding was measured exactly this way: same tier, three tools, and
     // only one of them used to sanitize. Nothing tool-specific may differ.
     const { tools: otc, server: otcServer } = captureTools();
-    registerOtcTools(
-      otcServer,
-      ctx(),
-      {} as unknown as SignerManager,
-      {} as unknown as WalletConnectManager,
-    );
+    registerTokenSaleReadTools(otcServer, ctx());
     const { tools: sub, server: subServer } = captureTools();
     registerSubgraphTools(subServer, ctx());
     const { tools: read, server: readServer } = captureTools();

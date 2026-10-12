@@ -11,7 +11,7 @@ import {
   NFT_IDS_OWN_DESC,
   DELEGATEE_DESC,
 } from "../lib/params.js";
-import { ETHEREUM_ADDRESS, isNativeSentinel } from "./otc.js";
+import { ETHEREUM_ADDRESS, isNativeSentinel } from "../lib/abi/tokenSale.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";

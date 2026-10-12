@@ -64,6 +64,16 @@ Deferred:
 - **@types/node 22 to 26**: would type APIs that Node 20 and 22 do not have.
   Revisit with the Node 20 drop.
 
+### Internal — read/write edition boundary
+`src/editions.ts` assigns each of the 168 tools to a read edition (54) or a
+write edition (114), ahead of shipping them as two servers. A test walks the
+import graph from the read side and fails on any new import of write-side code;
+the 16 crossings left are listed, and the list must shrink as each is fixed.
+Shared pure code moved into its own modules (token-sale ABI fragments, the
+governance-call classifier, the upstream-advisory core, the `eth_call`
+simulation core), and `dexe_otc_buyer_status` is registered from its own file.
+No tool, schema or output changed.
+
 ## 0.35.0 — 2026-10-12
 
 ### Fixed — a third of the MCP handshake never reached the model
