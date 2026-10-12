@@ -103860,6 +103860,12 @@ function parseEnv(env = process.env, spec = ENV_SPEC_READ) {
   return { values, issues };
 }
 
+// dist/lib/audience.js
+var remote = false;
+function remoteAudience() {
+  return remote;
+}
+
 // dist/configRead.js
 function splitRpcUrls(raw) {
   return raw.split(",").map((s2) => s2.trim()).filter(Boolean);
@@ -104156,6 +104162,9 @@ function resolveChain(config2, chainId) {
   const chain2 = config2.chains.get(target);
   if (!chain2) {
     const configured = [...config2.chains.keys()].sort().join(", ") || "none";
+    if (remoteAudience()) {
+      throw new Error(`Chain ${target} is not available on this server. Chains it serves: [${configured}].`);
+    }
     throw new Error(`No RPC configured for chainId=${target}. Configured chains: [${configured}]. Set DEXE_RPC_URL_${target === 97 ? "TESTNET" : target === 56 ? "MAINNET" : "<chain>"} in the MCP env block.`);
   }
   return chain2;
@@ -114245,7 +114254,7 @@ var ResilientRpcProvider = class extends JsonRpcProvider {
   #finalize(err16) {
     const transport = isTransportError(err16);
     const safe = redactErrorInPlace(err16);
-    if (this.#annotatePublicHint && transport && !safe.message.includes("[hint]")) {
+    if (this.#annotatePublicHint && transport && !remoteAudience() && !safe.message.includes("[hint]")) {
       safe.message += PUBLIC_RPC_HINT;
     }
     return safe;
@@ -114285,7 +114294,7 @@ var RpcProvider = class {
     } catch (err16) {
       return {
         error: safeErrorMessage(err16),
-        remediation: "Set DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_<chainId> in .env, then restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify."
+        remediation: remoteAudience() ? "This server serves the chains dexe_get_config lists; pass one of them as chainId." : "Set DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_<chainId> in .env, then restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify."
       };
     }
   }
@@ -114665,7 +114674,7 @@ ${result.alternatives.length} alternative match(es): ${result.alternatives.map((
 function registerDecodeProposal(server, abis, rpc) {
   server.registerTool("dexe_decode_proposal", {
     title: "Read and decode a GovPool proposal",
-    description: "Read-only. Fetches a GovPool proposal via `getProposals(offset, limit)` and decodes its for/against actions. Works with the built-in public RPC; set DEXE_RPC_URL_MAINNET / _TESTNET for reliability.",
+    description: "Read-only. Fetches a GovPool proposal via `getProposals(offset, limit)` and decodes its for/against actions.",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool contract address"),
       proposalId: external_exports.number().int().positive().describe("Proposal ID (1-indexed)"),
@@ -114812,7 +114821,7 @@ ${decoded}`;
 function registerReadGovState(server, _ctx, addresses, rpc) {
   server.registerTool("dexe_read_gov_state", {
     title: "Read aggregate GovPool state",
-    description: "Read-only. Reads `getHelperContracts()` and `getNftContracts()` on a GovPool. Works with the built-in public RPC; set DEXE_RPC_URL_MAINNET / _TESTNET for reliability.",
+    description: "Read-only. Reads `getHelperContracts()` and `getNftContracts()` on a GovPool.",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool contract address"),
       chainId: chainIdParam
@@ -114953,7 +114962,8 @@ var AddressBook = class {
     this.chainId = cfg.chainId;
     const addr = cfg.registryOverride ?? CONTRACTS_REGISTRY_BY_CHAIN[cfg.chainId];
     if (!addr) {
-      throw new Error(`No ContractsRegistry address known for chainId=${cfg.chainId}. Set DEXE_CONTRACTS_REGISTRY or pick a supported chain (${Object.keys(CONTRACTS_REGISTRY_BY_CHAIN).join(", ")}).`);
+      const supported = Object.keys(CONTRACTS_REGISTRY_BY_CHAIN).join(", ");
+      throw new Error(remoteAudience() ? `No DeXe ContractsRegistry is known for chainId=${cfg.chainId} on this server. Supported chains: ${supported}.` : `No ContractsRegistry address known for chainId=${cfg.chainId}. Set DEXE_CONTRACTS_REGISTRY or pick a supported chain (${supported}).`);
     }
     this.registryAddress = addr;
     this.registry = new Contract(addr, REGISTRY_ABI, cfg.provider);
@@ -115651,6 +115661,9 @@ function resolveSubgraphUrl(config2, kind, chainId) {
   const where = available.length > 0 ? `A ${kind} subgraph IS configured for chain(s): ${available.join(", ")}.` : `No ${kind} subgraph is configured for ANY chain.`;
   const whyStop = target === DEFAULT_SUBGRAPH_CHAIN_ID ? "" : `The DeXe subgraphs index BSC mainnet (${DEFAULT_SUBGRAPH_CHAIN_ID}); answering chain ${target} from a mainnet endpoint would be wrong data, so this read stops here. `;
   const queryMainnet = available.includes(DEFAULT_SUBGRAPH_CHAIN_ID) ? `pass chainId: ${DEFAULT_SUBGRAPH_CHAIN_ID} to query BSC mainnet, ` : "";
+  if (remoteAudience()) {
+    throw new Error(`The ${kind} subgraph is not available on this server for chain ${target}. ${where.replace(/ IS configured for/, " is available for").replace(/ is configured for ANY chain/, " is available for any chain")} ${whyStop}${queryMainnet ? `Pass chainId: ${DEFAULT_SUBGRAPH_CHAIN_ID} to query BSC mainnet, or read` : "Read"} chain ${target} on-chain instead with dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall (no subgraph needed).`);
+  }
   throw new Error(`No DeXe ${kind} subgraph is configured for chain ${target}. ${where} ${whyStop}Either ${queryMainnet}read chain ${target} on-chain instead with dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall (no subgraph needed), or set ${subgraphEnvVar(kind, target)} to your own indexer endpoint and restart.`);
 }
 function extractGraphApiKey(endpoint) {
@@ -115685,6 +115698,8 @@ function isShippedDefaultSubgraph(endpoint) {
 }
 var SHIPPED_DEFAULT_HINT = "\n\n[hint] this query used the shared DEFAULT Graph endpoint baked into dexe-mcp \u2014 its API key is billable and shared by every install, so it rate-limits and can be revoked. Get a free key at thegraph.com/studio and set DEXE_SUBGRAPH_POOLS_URL / DEXE_SUBGRAPH_VALIDATORS_URL / DEXE_SUBGRAPH_INTERACTIONS_URL in .env (each URL carries your key: https://gateway.thegraph.com/api/<key>/subgraphs/id/<id>), then restart (Claude Code: quit + relaunch).";
 function defaultEndpointHint(endpoint) {
+  if (remoteAudience())
+    return "";
   return isShippedDefaultSubgraph(endpoint) ? SHIPPED_DEFAULT_HINT : "";
 }
 function httpRemediation(status, endpoint) {
@@ -115692,13 +115707,13 @@ function httpRemediation(status, endpoint) {
   if (status === 401 || status === 403) {
     return {
       transient: false,
-      message: `Subgraph HTTP ${status} from ${where} \u2014 the configured Graph endpoint rejected the request. Set DEXE_SUBGRAPH_*_URL to your own gateway key from thegraph.com/studio and restart.`
+      message: remoteAudience() ? `Subgraph HTTP ${status} from ${where} \u2014 the indexer refused this server's credentials, so subgraph reads are not available on this server right now. On-chain reads (dexe_proposal_list, dexe_read_settings, dexe_dao_info) still work.` : `Subgraph HTTP ${status} from ${where} \u2014 the configured Graph endpoint rejected the request. Set DEXE_SUBGRAPH_*_URL to your own gateway key from thegraph.com/studio and restart.`
     };
   }
   if (status === 429) {
     return {
       transient: true,
-      message: `Subgraph HTTP 429 from ${where} \u2014 rate-limited. Set your own DEXE_SUBGRAPH_*_URL, or retry.`
+      message: remoteAudience() ? `Subgraph HTTP 429 from ${where} \u2014 rate-limited; retry in a moment.` : `Subgraph HTTP 429 from ${where} \u2014 rate-limited. Set your own DEXE_SUBGRAPH_*_URL, or retry.`
     };
   }
   if (status >= 500) {
@@ -117013,7 +117028,7 @@ async function backendGetJson(path7, timeoutMs = 8e3) {
     if (deadline.cancelled())
       throw new RequestCancelledError("backend request");
     if (deadline.timedOut()) {
-      throw new Error(`DeXe backend request timed out after ${timeoutMs}ms (${path7.split("?")[0]}) \u2014 usually transient, re-run the call. If it persists: check network access to the DeXe backend (${maskUrl(base3)}) or set DEXE_BACKEND_API_URL.`);
+      throw new Error(`DeXe backend request timed out after ${timeoutMs}ms (${path7.split("?")[0]}) \u2014 usually transient, re-run the call. ` + (remoteAudience() ? `If it persists, the backend is not reachable from this server right now.` : `If it persists: check network access to the DeXe backend (${maskUrl(base3)}) or set DEXE_BACKEND_API_URL.`));
     }
     if (err16 instanceof BodyTooLargeError) {
       throw new Error(`DeXe backend answer for ${path7.split("?")[0]} is over ${formatBytes(UPSTREAM_JSON_MAX_BYTES)} \u2014 ask for a smaller page (pageSize) or a shorter period.`);
@@ -118814,7 +118829,7 @@ function resolveIpfsMaxBytes(env = process.env) {
 }
 var IpfsTooLargeError = class extends Error {
   constructor(cid, limit2, declared) {
-    super(`IPFS content too large: ${cid} is ` + (declared !== void 0 ? `${formatBytes(declared)} (${declared} bytes)` : `more than ${formatBytes(limit2)}`) + `, over the ${formatBytes(limit2)} read limit, so the fetch was stopped. DAO profiles and proposal descriptions are a few KB, so this CID is not DeXe metadata. Open it with an IPFS client or a gateway directly; the server operator can raise the limit with DEXE_IPFS_MAX_BYTES.`);
+    super(`IPFS content too large: ${cid} is ` + (declared !== void 0 ? `${formatBytes(declared)} (${declared} bytes)` : `more than ${formatBytes(limit2)}`) + `, over the ${formatBytes(limit2)} read limit, so the fetch was stopped. DAO profiles and proposal descriptions are a few KB, so this CID is not DeXe metadata. Open it with an IPFS client or a gateway ` + (remoteAudience() ? `directly.` : `directly; the server operator can raise the limit with DEXE_IPFS_MAX_BYTES.`));
     this.name = "IpfsTooLargeError";
   }
 };
@@ -118898,7 +118913,7 @@ async function fetchIpfs(cid, cfg) {
     const h3 = hostOf2(g3);
     return h3 != null && PUBLIC_READ_HOSTS.has(h3);
   });
-  const hint = allPublic ? " \u2014 the shared public IPFS gateways are failing. Set DEXE_IPFS_GATEWAY to a dedicated gateway (a free Pinata dedicated gateway takes ~2 min; Filebase / Quicknode also work), then restart. DEXE_IPFS_GATEWAYS_FALLBACK adds more, comma-separated." : "";
+  const hint = allPublic && remoteAudience() ? " \u2014 the public IPFS gateways this server reads through are failing; retry in a moment." : allPublic ? " \u2014 the shared public IPFS gateways are failing. Set DEXE_IPFS_GATEWAY to a dedicated gateway (a free Pinata dedicated gateway takes ~2 min; Filebase / Quicknode also work), then restart. DEXE_IPFS_GATEWAYS_FALLBACK adds more, comma-separated." : "";
   throw new Error(`IPFS fetch failed for ${cidStr} across ${attempts} gateway(s): ${errors.join("; ")}${hint}`);
 }
 async function verifyCidBytes(parsedCid, bytes2) {
@@ -119124,10 +119139,10 @@ function shrinkJson(value, budgetBytes, mode) {
 }
 
 // dist/tools/ipfsRead.js
-function registerIpfsReadTools(server, ctx) {
+function registerIpfsReadTools(server, ctx, opts = {}) {
   const gateways = resolveGateways(ctx);
-  registerFetch(server, gateways);
-  registerCidInfo(server, gateways);
+  registerFetch(server, gateways, opts.remote === true);
+  registerCidInfo(server, opts.remote === true ? [...DEFAULT_PUBLIC_READ_GATEWAYS] : gateways);
 }
 function errorResult7(message) {
   return { content: [{ type: "text", text: message }], isError: true };
@@ -119195,10 +119210,10 @@ function resolveGateways(_ctx) {
   return out;
 }
 var NO_GATEWAY_HINT = "No IPFS gateway available \u2014 the public read gateways are disabled (DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1) and no dedicated gateway is set. Set DEXE_IPFS_GATEWAY to a dedicated gateway (Pinata gives one free with your JWT \u2014 e.g. https://<your-subdomain>.mypinata.cloud \u2014 or use Filebase / Quicknode / a self-hosted gateway), or remove DEXE_IPFS_DISABLE_PUBLIC_FALLBACK to re-enable the public default (ipfs.io, dweb.link, cloudflare-ipfs.com).";
-function registerFetch(server, defaultGateways) {
+function registerFetch(server, defaultGateways, remote2) {
   server.registerTool("dexe_ipfs_fetch", {
     title: "Fetch content by CID (dedicated gateway, optional fallback)",
-    description: "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (a dedicated gateway, e.g. Pinata's). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
+    description: "Read-only. Fetches IPFS content by CID through the server's gateway chain: its dedicated gateway first when it has one, then the configured or public fallbacks.",
     inputSchema: {
       cid: external_exports.string().describe("CID (with or without ipfs:// prefix)"),
       timeoutMs: external_exports.number().int().min(500).max(3e4).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000).")
@@ -119217,7 +119232,7 @@ function registerFetch(server, defaultGateways) {
     }
   }, async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }, extra) => {
     if (defaultGateways.length === 0)
-      return errorResult7(NO_GATEWAY_HINT);
+      return errorResult7(remoteAudience() ? "IPFS reads are not available on this server (it has no gateway configured)." : NO_GATEWAY_HINT);
     try {
       const res = await fetchIpfs(cid, {
         gateways: defaultGateways,
@@ -119225,7 +119240,8 @@ function registerFetch(server, defaultGateways) {
         maxBytes: resolveIpfsMaxBytes(),
         signal: extra?.signal
       });
-      const gateway = gatewayLabel(res.gateway);
+      const position2 = defaultGateways.indexOf(res.gateway);
+      const gateway = remote2 ? `ipfs-gateway#${position2 >= 0 ? position2 + 1 : "?"}` : gatewayLabel(res.gateway);
       let json2 = res.json;
       let truncated = false;
       if (json2 != null) {
@@ -147872,13 +147888,13 @@ var CHAIN_NAMES = {
 };
 function registerGetConfigTool(server, ctx, opts = {}) {
   const { config: config2 } = ctx;
-  const remote = opts.remote === true;
+  const remote2 = opts.remote === true;
   server.tool("dexe_get_config", "Read-only, local. The resolved read config: chain set and default chain, subgraph coverage per chain, the backend API and the IPFS read gateways.", {
     _placeholder: external_exports.boolean().optional().describe("Unused; tool takes no input.")
   }, async () => {
     const chains = [...config2.chains.values()].sort((a3, b7) => a3.chainId - b7.chainId).map((c4) => ({
       chainId: c4.chainId,
-      ...remote ? {} : { rpcUrl: maskUrl(c4.rpcUrl) },
+      ...remote2 ? {} : { rpcUrl: maskUrl(c4.rpcUrl) },
       name: CHAIN_NAMES[c4.chainId] ?? `chain ${c4.chainId}`,
       isDefault: c4.chainId === config2.defaultChainId,
       registryOverride: c4.registryOverride
@@ -147901,13 +147917,13 @@ function registerGetConfigTool(server, ctx, opts = {}) {
       },
       backend: {
         /** DeXe backend API base (treasury, holders, stats); null when unset. */
-        ...remote ? {} : { url: config2.backendApiUrl ? maskUrl(config2.backendApiUrl) : null },
+        ...remote2 ? {} : { url: config2.backendApiUrl ? maskUrl(config2.backendApiUrl) : null },
         /** True while it is the shared public default rather than the operator's own. */
         sharedDefault: config2.backendApiUrl === DEFAULTS.backendApiUrl
       },
       ipfs: {
         /** Read gateways, in the order dexe_ipfs_fetch tries them (hostnames; a count when served remotely). */
-        ...remote ? { readGatewayCount: gateways.length } : { readGateways: gateways },
+        ...remote2 ? { readGatewayCount: gateways.length } : { readGateways: gateways },
         /** False when DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1 keeps the public gateways out. */
         publicFallback: process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK !== "1"
       }
@@ -148792,11 +148808,20 @@ function hostRow(id2) {
 }
 var URL_RE2 = /\b[a-z][a-z0-9+.-]*:\/\/[^\s,;)'"]+/gi;
 var HOSTNAME_RE = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/gi;
+var IPV4_RE = /(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?::\d{1,5})?(?![\w.])/g;
+var IPV6_RE = /\[[0-9a-f.%]*:[0-9a-f:.%]*\](?::\d{1,5})?|(?<![\w:])(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?(?![\w:])/gi;
+var ENV_NAME_RE = /\bDEXE_[A-Z0-9_*<>]+/g;
 function redactEndpoints(text5) {
-  return text5.replace(URL_RE2, "<endpoint>").replace(HOSTNAME_RE, "<host>");
+  return text5.replace(URL_RE2, "<endpoint>").replace(IPV6_RE, "<ip>").replace(IPV4_RE, "<ip>").replace(HOSTNAME_RE, "<host>").replace(ENV_NAME_RE, "a server setting");
 }
 function remoteCheckRows(checks) {
-  return checks.filter((c4) => !hostRow(c4.id)).map((c4) => ({ id: c4.id, category: c4.category, status: c4.status, message: redactEndpoints(c4.message) }));
+  return checks.filter((c4) => !hostRow(c4.id)).map((c4) => ({ id: c4.id, category: c4.category, status: c4.status, message: remoteMessage(c4) }));
+}
+function remoteMessage(c4) {
+  if (c4.id === "ipfs.gateway.dns") {
+    return c4.status === "pass" ? "the IPFS gateway's name resolves" : "the IPFS gateway's name does not resolve, or the gateway does not answer";
+  }
+  return redactEndpoints(c4.message);
 }
 function tally(results) {
   let passed = 0;
@@ -148815,8 +148840,8 @@ function tally(results) {
 }
 function registerDoctorTool(server, config2, extraChecks, opts = {}) {
   const table = opts.toolsets ?? READ_EDITION_TOOLSETS;
-  const remote = opts.remote === true;
-  const text5 = opts.text ?? (remote ? REMOTE_DOCTOR_TEXT : READ_DOCTOR_TEXT);
+  const remote2 = opts.remote === true;
+  const text5 = opts.text ?? (remote2 ? REMOTE_DOCTOR_TEXT : READ_DOCTOR_TEXT);
   server.tool("dexe_doctor", text5.description, {
     _placeholder: external_exports.boolean().optional().describe("Unused; tool takes no input."),
     ...text5.probePin ? { probePin: external_exports.boolean().optional().describe(text5.probePin) } : {}
@@ -148827,7 +148852,7 @@ function registerDoctorTool(server, config2, extraChecks, opts = {}) {
         probePin: text5.probePin !== void 0 && args?.probePin === true
       })
     });
-    if (remote) {
+    if (remote2) {
       const rows2 = remoteCheckRows(all2);
       const structured2 = {
         summary: tally(rows2),
@@ -155497,6 +155522,57 @@ var SINGLE_SERVER_ANNOTATIONS = {
   alwaysLoaded: READ_ANNOTATIONS.alwaysLoaded
 };
 
+// dist/lib/remoteLabels.js
+function redactDeep(value, redact, maxNodes = 5e5) {
+  let nodes = 0;
+  const walk3 = (v7, depth) => {
+    if (++nodes > maxNodes || depth > 64)
+      return v7;
+    if (typeof v7 === "string")
+      return redact(v7);
+    if (v7 === null || typeof v7 !== "object")
+      return v7;
+    if (Array.isArray(v7)) {
+      let changed2 = false;
+      const out2 = v7.map((x6) => {
+        const y6 = walk3(x6, depth + 1);
+        if (y6 !== x6)
+          changed2 = true;
+        return y6;
+      });
+      return changed2 ? out2 : v7;
+    }
+    let changed = false;
+    const out = {};
+    for (const [k5, val] of Object.entries(v7)) {
+      const v22 = walk3(val, depth + 1);
+      if (v22 !== val)
+        changed = true;
+      out[k5] = v22;
+    }
+    return changed ? out : v7;
+  };
+  return walk3(value, 0);
+}
+var ENV_NAME = /\bDEXE_[A-Z0-9_*<>]+/;
+var ENV_WORDS = /\b(?:and|then)\s+restart\b|\brestart (?:Claude|the MCP|the server|the host)|\.env\b|MCP env block|claude\.json|MCP host env/i;
+var ENV_ADVICE = { test: (s2) => ENV_NAME.test(s2) || ENV_WORDS.test(s2) };
+function stripEnvAdvice(text5) {
+  if (!ENV_ADVICE.test(text5))
+    return text5;
+  const lines = text5.split("\n").map((line2) => {
+    if (!ENV_ADVICE.test(line2))
+      return line2;
+    const sentences = line2.split(/(?<=[.!?])\s+(?=[A-Z(`"'])/);
+    const kept = sentences.filter((s2, i3) => i3 === 0 || !ENV_ADVICE.test(s2));
+    if (kept.length === 1 && ENV_ADVICE.test(kept[0]))
+      kept[0] = kept[0].replace(/\bDEXE_[A-Z0-9_*<>]+/g, "a server setting");
+    return kept.join(" ");
+  });
+  return `${lines.join("\n")}
+(This server's data sources are set by its operator.)`;
+}
+
 // dist/tools/readGuard.js
 var DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
 var MAX_RESPONSE_FLOOR = 16 * 1024;
@@ -155640,7 +155716,26 @@ function scrubResult(result, reps) {
     return result;
   return { ...result, content: content3, ...sc !== void 0 ? { structuredContent: sc } : {} };
 }
+function redactForRemote(result, redactor) {
+  const error62 = result.isError === true;
+  const content3 = Array.isArray(result.content) ? result.content.map((c4) => {
+    if (c4.type !== "text" || typeof c4.text !== "string")
+      return c4;
+    let text5 = redactor.text(c4.text, error62);
+    if (error62)
+      text5 = stripEnvAdvice(text5);
+    return text5 === c4.text ? c4 : { ...c4, text: text5 };
+  }) : result.content;
+  const sc = result.structuredContent === void 0 ? void 0 : redactDeep(result.structuredContent, (s2) => redactor.text(s2, error62));
+  if (content3 === result.content && sc === result.structuredContent)
+    return result;
+  return { ...result, content: content3, ...sc !== void 0 ? { structuredContent: sc } : {} };
+}
 function guardReadHandler(cb, opts) {
+  const finish = (r2) => {
+    const scrubbed = scrubResult(r2, opts.scrubber());
+    return opts.remote ? redactForRemote(scrubbed, opts.remote) : scrubbed;
+  };
   return async (...args) => {
     const extra = args[args.length - 1];
     const signal = extra && typeof extra === "object" && extra.signal instanceof AbortSignal ? extra.signal : void 0;
@@ -155652,18 +155747,19 @@ function guardReadHandler(cb, opts) {
     } catch (err16) {
       if (err16 instanceof RequestCancelledError || signal?.aborted)
         return cancelledResult();
-      return scrubResult(errorResult24(safeErrorMessage(err16)), opts.scrubber());
+      return finish(errorResult24(safeErrorMessage(err16)));
     }
     if (!result || typeof result !== "object")
       return result;
-    const scrubbed = scrubResult(result, opts.scrubber());
+    const scrubbed = finish(result);
     if (scrubbed.isError)
       return capToolResult(scrubbed, ERROR_TEXT_MAX_CHARS * 2, null);
     return capToolResult(scrubbed, resolveMaxResponseBytes(), opts.outputKeys);
   };
 }
-function applyReadResultGuard(server, config2, tools = new Set(READ_TOOLS)) {
+function applyReadResultGuard(server, config2, tools = new Set(READ_TOOLS), opts = {}) {
   const scrubber = createSecretScrubber(config2);
+  const remote2 = opts.remote;
   return new Proxy(server, {
     get(target, prop, receiver) {
       const v7 = Reflect.get(target, prop, receiver);
@@ -155678,13 +155774,13 @@ function applyReadResultGuard(server, config2, tools = new Set(READ_TOOLS)) {
           return original(name2, ...rest);
         if (prop === "registerTool") {
           if (typeof rest[1] === "function") {
-            rest[1] = guardReadHandler(rest[1], { outputKeys: outputKeysOf(rest[0]), scrubber });
+            rest[1] = guardReadHandler(rest[1], { outputKeys: outputKeysOf(rest[0]), scrubber, remote: remote2 });
           }
           return original(name2, ...rest);
         }
         const last = rest.length - 1;
         if (last >= 0 && typeof rest[last] === "function") {
-          rest[last] = guardReadHandler(rest[last], { outputKeys: null, scrubber });
+          rest[last] = guardReadHandler(rest[last], { outputKeys: null, scrubber, remote: remote2 });
         }
         return original(name2, ...rest);
       };
@@ -155970,6 +156066,92 @@ ${debugHint()}`);
 // dist/index.js
 import { spawn as spawn2 } from "node:child_process";
 
+// dist/http/remoteEnv.js
+var READ_DEXE_ENV = /* @__PURE__ */ new Set([
+  // RPC
+  "DEXE_RPC_URL",
+  "DEXE_CHAIN_ID",
+  "DEXE_RPC_URL_MAINNET",
+  "DEXE_RPC_URL_TESTNET",
+  "DEXE_RPC_TIMEOUT_MS",
+  "DEXE_DEFAULT_CHAIN_ID",
+  "DEXE_CONTRACTS_REGISTRY",
+  "DEXE_DISABLE_PUBLIC_RPC",
+  // subgraph + backend
+  "DEXE_SUBGRAPH_POOLS_URL",
+  "DEXE_SUBGRAPH_VALIDATORS_URL",
+  "DEXE_SUBGRAPH_INTERACTIONS_URL",
+  "DEXE_SUBGRAPH_CHAIN_ID",
+  "DEXE_GRAPH_API_KEY",
+  "DEXE_BACKEND_API_URL",
+  // IPFS reads (the gateway token authenticates reads from a dedicated gateway)
+  "DEXE_IPFS_GATEWAY",
+  "DEXE_IPFS_GATEWAYS_FALLBACK",
+  "DEXE_IPFS_DISABLE_PUBLIC_FALLBACK",
+  "DEXE_PINATA_GATEWAY_TOKEN",
+  "DEXE_IPFS_MAX_BYTES",
+  // read-tool result size limit
+  "DEXE_MAX_RESPONSE_BYTES",
+  // analysis knobs used by read tools
+  "DEXE_MIN_SAFE_QUORUM_PCT",
+  "DEXE_CONTROLLING_TOPN",
+  // diagnostics
+  "DEXE_DEBUG"
+]);
+var READ_DEXE_ENV_PATTERNS = [
+  /^DEXE_HTTP_[A-Z0-9_]+$/,
+  /^DEXE_RPC_URL_\d+$/,
+  /^DEXE_SUBGRAPH_(POOLS|VALIDATORS|INTERACTIONS)_URL_\d+$/
+];
+var RUNTIME_ENV = /* @__PURE__ */ new Set([
+  "PATH",
+  "PATHEXT",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "HOSTNAME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "TZ",
+  "LANG",
+  "LANGUAGE",
+  "PORT",
+  "NODE_ENV",
+  "NODE_OPTIONS",
+  "NODE_EXTRA_CA_CERTS",
+  "NODE_USE_ENV_PROXY",
+  "UV_THREADPOOL_SIZE",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "SYSTEMROOT",
+  "WINDIR",
+  "COMSPEC",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMDATA",
+  "NUMBER_OF_PROCESSORS",
+  "OS",
+  // Windows adds these to every child process (libuv's required set)
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "LOGONSERVER",
+  "SYSTEMDRIVE",
+  "USERDOMAIN",
+  "USERNAME"
+]);
+function isReadServerEnvKey(key) {
+  if (/^DEXE_/i.test(key))
+    return READ_DEXE_ENV.has(key) || READ_DEXE_ENV_PATTERNS.some((re5) => re5.test(key));
+  const upper = key.toUpperCase();
+  return RUNTIME_ENV.has(upper) || upper.startsWith("LC_");
+}
+
 // dist/cli/doctor.js
 var doctor_exports = {};
 __export(doctor_exports, {
@@ -156208,9 +156390,11 @@ async function delegateServeHttp(args) {
     process.exitCode = 2;
     return;
   }
-  const child = spawn2(process.execPath, [...process.execArgv, bin, "serve-http", ...args], {
-    stdio: "inherit",
-    env: process.env
+  const execArgv2 = ext === ".ts" ? process.execArgv.filter((a3) => !/^--(inspect|debug)/.test(a3)) : [];
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k5]) => isReadServerEnvKey(k5)));
+  const child = spawn2(process.execPath, [...execArgv2, bin, "serve-http", ...args], {
+    stdio: ["inherit", "inherit", "inherit", "ipc"],
+    env
   });
   const forward = (signal) => () => {
     if (child.exitCode === null && child.signalCode === null)
