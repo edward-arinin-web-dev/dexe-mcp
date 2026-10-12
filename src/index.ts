@@ -14,6 +14,7 @@ import { envKeys } from "./env/schema.js";
 import { debugHint, debugLog, formatDiagnostic } from "./runtime.js";
 import { safeErrorMessage } from "./lib/redact.js";
 import { writeDoctorChecks } from "./diag/writeChecks.js";
+import { runServeHttp } from "./http/cli.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,7 +71,7 @@ function packageVersion(): string {
  * unknown-argument message all read THIS list — never a second hand-written
  * one, so a fourth subcommand cannot land half-documented.
  */
-export const SUBCOMMANDS = ["doctor", "init", "skills"] as const;
+export const SUBCOMMANDS = ["doctor", "init", "skills", "serve-http"] as const;
 export type Subcommand = (typeof SUBCOMMANDS)[number];
 
 const HELP_ARGS = new Set(["--help", "-h", "help"]);
@@ -120,6 +121,9 @@ export function usageText(version: string): string {
     "        [--probe-pin]             also verify Pinata pin capability (WRITES one tiny pin)",
     "  dexe-mcp init [--skills-only]   interactive onboarding wizard (writes ~/.dexe-mcp/.env)",
     "  dexe-mcp skills [--global]      copy the shipped Claude skills into ./.claude/skills (or ~ with --global)",
+    "  dexe-mcp serve-http [--port <n>] [--host <addr>]",
+    "                                  EXPERIMENTAL: read-only tools over MCP Streamable HTTP for remote",
+    "                                  clients; process env only, no .env (`dexe-mcp serve-http --help`)",
     "  dexe-mcp --help | --version",
     "",
     "ENV",
@@ -198,7 +202,7 @@ function loadEnvironment(): string[] {
  * Subcommands must be handled BEFORE the stdio transport opens — the MCP
  * host passes no args, so any argv[2] means a human/CI invoked directly.
  */
-async function runSubcommand(name: Subcommand): Promise<void> {
+async function runSubcommand(name: Exclude<Subcommand, "serve-http">): Promise<void> {
   if (name === "doctor") {
     const mod = await import("./cli/doctor.js");
     // Forward argv[3..] the same way the skills branch does. `run()` calls
@@ -485,6 +489,16 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
+  // The remote HTTP server is configured by process env ONLY — dispatched
+  // before loadEnvironment() so no .env file (cwd, home, package dir) can
+  // configure a public endpoint or put a signing key into its process. It
+  // installs its own process guards (the stdio ones treat a closed pipe as
+  // fatal, which has no meaning for a socket server).
+  if (intent.kind === "subcommand" && intent.name === "serve-http") {
+    await runServeHttp(process.argv.slice(3), packageVersion());
+    return;
+  }
+
   // Before anything reads .env: on an old runtime the file is ignored outright,
   // so every later "missing var" complaint would point at the wrong cause.
   const versionWarning = nodeVersionWarning(process.versions.node);
@@ -501,7 +515,7 @@ async function bootstrap(): Promise<void> {
     );
   }
 
-  if (intent.kind === "subcommand") {
+  if (intent.kind === "subcommand" && intent.name !== "serve-http") {
     // A human/CI ran this in a terminal: report and exit, never open a
     // transport. Deliberately AFTER loadEnvironment() — `doctor`/`init` need
     // the same env the MCP startup path sees (see the note above it).

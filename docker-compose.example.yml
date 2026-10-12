@@ -1,0 +1,45 @@
+# EXPERIMENTAL example for the remote read-only MCP server. See docs/REMOTE.md.
+#
+#   cp docker-compose.example.yml docker-compose.yml   # then edit the values
+#   docker compose up -d --build
+#
+# TLS terminates at your reverse proxy; this container speaks plain HTTP and is
+# published on loopback only.
+services:
+  dexe-mcp-read:
+    build: .
+    image: dexe-mcp-read:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Public hostname(s) clients use. Required: the server refuses to start
+      # on 0.0.0.0 without it.
+      DEXE_HTTP_ALLOWED_HOSTS: mcp.example.com
+      # One reverse proxy in front: use its X-Forwarded-For for rate limiting.
+      DEXE_HTTP_TRUST_PROXY: "1"
+      # Browser-based clients only (e.g. a hosted MCP Inspector). Server-to-server
+      # clients such as Claude.ai and ChatGPT send no Origin and need nothing here.
+      # DEXE_HTTP_ALLOWED_ORIGINS: https://inspector.example.com
+      # DEXE_HTTP_RATE_LIMIT_PER_MIN: "300"
+      # DEXE_HTTP_RATE_LIMIT_BURST: "60"
+      # DEXE_HTTP_MAX_INFLIGHT: "32"
+      # DEXE_HTTP_REQUEST_TIMEOUT_MS: "120000"
+      #
+      # Data sources — REQUIRED. The server refuses to start on the endpoints
+      # and Graph key built into the package (shared by every install).
+      DEXE_RPC_URL_MAINNET: https://your-bsc-mainnet-rpc
+      # DEXE_RPC_URL_TESTNET: https://your-bsc-testnet-rpc
+      DEXE_SUBGRAPH_POOLS_URL: https://gateway.thegraph.com/api/<your-key>/subgraphs/id/<pools-id>
+      DEXE_SUBGRAPH_VALIDATORS_URL: https://gateway.thegraph.com/api/<your-key>/subgraphs/id/<validators-id>
+      DEXE_SUBGRAPH_INTERACTIONS_URL: https://gateway.thegraph.com/api/<your-key>/subgraphs/id/<interactions-id>
+      DEXE_BACKEND_API_URL: https://api.dexe.io
+      # DEXE_IPFS_GATEWAY: https://your-dedicated-gateway
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
