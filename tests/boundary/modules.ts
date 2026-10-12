@@ -62,6 +62,7 @@ const READ = [
   "lib/subgraph.ts",
   "lib/time.ts",
   "lib/units.ts",
+  "lib/upstreamAdvisories.ts",
   "tools/dao.ts",
   "tools/doctor.ts",
   "tools/gov.ts",
