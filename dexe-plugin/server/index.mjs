@@ -103328,6 +103328,8 @@ function quorumConcentration(args) {
   const verdict = pctOfSupplyForQuorum === null ? "CAUTION" : judgeQuorum(pctOfSupplyForQuorum, floorPct);
   return { requiredWeight, totalSupply, pctOfSupplyForQuorum, verdict };
 }
+
+// dist/lib/treasuryGate.js
 var TREASURY_GUARD_MODES = ["off", "warn", "block"];
 var TREASURY_GUARD_DEFAULT = "warn";
 function resolveTreasuryGuardMode(raw) {
@@ -103345,9 +103347,52 @@ function resolveTreasuryGuardMode(raw) {
     }
   };
 }
+var ADVISORY_TAG = "[governance-safety advisory]";
+var GUARD_TAG = "[governance-safety guard: block]";
+function treasuryGuardMode(args) {
+  const raw = (args?.env ?? process.env).DEXE_TREASURY_GUARD;
+  if (raw !== void 0 && raw.trim() !== "")
+    return resolveTreasuryGuardMode(raw).mode;
+  return resolveTreasuryGuardMode(args?.configured).mode;
+}
+function lowQuorumAdvisory(pct, floorPct) {
+  const shown2 = Number.isFinite(pct) ? `${pct}%` : "unparseable";
+  return `\u26A0 quorum=${shown2} is below the ${floorPct}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT). Low quorum reduces the participation required to pass a proposal. For a DAO that holds treasury assets, set quorum \u226550% (51%+ recommended) and verify stakeholder participation before executing treasury-moving proposals; the safe value is DAO-specific. ${ADVISORY_TAG}`;
+}
+var TREASURY_RISK_ADVISORY = `\u26A0 This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). Confirm the DAO's quorum is adequate (\u226550%) and that key stakeholders have participated before executing. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
+function buildTimeTreasuryAdvisory(actions, guard) {
+  if (guard === "off")
+    return null;
+  return classifyTreasuryActions(actions).length > 0 ? TREASURY_RISK_ADVISORY : null;
+}
+function treasuryExecuteAdvisory(reasons) {
+  return `\u26A0 Treasury-safety advisory: this proposal moves treasury value AND ${reasons.join("; ")}. Verify adequate quorum and stakeholder participation before executing \u2014 responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
+}
+function treasuryGate(input3) {
+  const none = { hits: [], triggered: false, blocked: false, advisory: null, refusal: null };
+  if (input3.mode === "off")
+    return none;
+  const hits = input3.hits ? [...input3.hits] : classifyTreasuryActions([...input3.actions ?? []]);
+  const reasons = [...input3.reasons ?? []];
+  const triggered = input3.stage === "deploy" ? reasons.length > 0 : hits.length > 0;
+  if (!triggered)
+    return none;
+  const advisory = reasons.length > 0 ? input3.stage === "deploy" ? `\u26A0 Treasury-safety advisory: ${reasons.join("; ")}. ${ADVISORY_TAG}` : treasuryExecuteAdvisory(reasons) : TREASURY_RISK_ADVISORY;
+  const blocked = input3.mode === "block" && input3.stage !== "build" && reasons.length > 0;
+  return {
+    hits,
+    triggered: true,
+    blocked,
+    advisory,
+    refusal: blocked ? treasuryBlockRefusal(reasons, input3.stage, input3.act) : null
+  };
+}
+function treasuryBlockRefusal(reasons, stage, act) {
+  const what = act ? `this ${stage} (${act})` : `this ${stage}`;
+  return `\u26D4 Refusing ${what}: DEXE_TREASURY_GUARD=block and the treasury-safety checks failed \u2014 ${reasons.join("; ")}. Nothing was broadcast. Fix the cause (raise the DAO's quorum, secure stakeholder participation, or shrink what the action moves), or set DEXE_TREASURY_GUARD=warn and restart the MCP server to make this an advisory again \u2014 the default posture, where the operator owns the outcome. ${GUARD_TAG}`;
+}
 
-// dist/env/schema.js
-var hex64 = /^0x[0-9a-fA-F]{64}$/;
+// dist/env/schemaRead.js
 var hex40 = /^0x[0-9a-fA-F]{40}$/;
 var intStr = (what, example) => {
   const msg = `must be ${what}, written as digits only (no sign, no decimal point, no unit suffix), e.g. ${example}`;
@@ -103371,43 +103416,19 @@ var urlListStr = (example) => {
   const msg = `must be one absolute http(s) URL, or a comma-separated list of URLs (first is primary, the rest are failover), e.g. ${example}`;
   return external_exports.string().refine((v7) => v7.split(",").map((s2) => s2.trim()).filter(Boolean).every((u4) => external_exports.string().url().safeParse(u4).success), { message: msg }).optional().describe(msg);
 };
-var privateKeyStr = () => {
-  const msg = "must be a 0x-prefixed 64-hex private key (66 characters total), e.g. 0xabc\u2026(64 hex chars)";
-  return external_exports.string().regex(hex64, msg).optional().describe(msg);
-};
 var addressStr = () => {
   const msg = "must be a 0x-prefixed 40-hex EVM address (42 characters total), e.g. 0xAbc\u2026(40 hex chars)";
   return external_exports.string().regex(hex40, msg).optional().describe(msg);
 };
-var TREASURY_GUARD_MSG = `must be one of ${TREASURY_GUARD_MODES.join(" | ")}, e.g. warn`;
 var subgraphUrlStr = () => urlStr("https://gateway.thegraph.com/api/subgraphs/id/<id>");
-var ENV_SPEC = {
-  // ─── core / dev ───────────────────────────────────────────────────────────
-  DEXE_PROTOCOL_PATH: {
-    schema: external_exports.string().optional(),
-    category: "core",
-    required: false,
-    example: "",
-    doc: "Override the DeXe-Protocol checkout path. Auto-managed when unset."
-  },
+var ENV_SPEC_READ = {
+  // ─── core ─────────────────────────────────────────────────────────────────
   DEXE_MIN_SAFE_QUORUM_PCT: {
     schema: intStr("a percent from 0 to 100", "50"),
     category: "core",
     required: false,
     example: "50",
     doc: "Minimum safe quorum percent (0\u2013100). Quorum below this is flagged as a governance-safety risk for treasury-moving proposals. Default 50."
-  },
-  DEXE_TREASURY_GUARD: {
-    // Validated by the SAME parser the config and every tool call resolve with
-    // (`resolveTreasuryGuardMode`), so this layer cannot reject a posture the
-    // runtime honours. A hardcoded `off|warn` enum here rejected `block` as
-    // malformed — deleting the value and degrading the operator to `warn`
-    // while `treasuryGuardMode()` still reported `block`.
-    schema: external_exports.string().refine((v7) => resolveTreasuryGuardMode(v7).issue === void 0, TREASURY_GUARD_MSG).optional().describe(TREASURY_GUARD_MSG),
-    category: "core",
-    required: false,
-    example: "warn",
-    doc: "Treasury-safety posture: off | warn | block. 'warn' (default) emits advisories/alerts everywhere (build, deploy, execute, risk_assess) but NEVER blocks; 'block' additionally REFUSES a deploy/execute whose treasury-safety checks failed; 'off' silences them."
   },
   DEXE_CONTROLLING_TOPN: {
     schema: intStr("how many top holders to include", "5"),
@@ -103481,7 +103502,7 @@ var ENV_SPEC = {
     enablesFlows: ["read", "broadcast"]
   },
   // Registered here (not by src/rpc.ts, which owns the timeout itself) because
-  // ENV_SPEC is the single source of truth: an unregistered DEXE_* var is
+  // the env spec is the single source of truth: an unregistered DEXE_* var is
   // reported as a typo by the loader and is invisible to dexe_doctor.
   DEXE_RPC_TIMEOUT_MS: {
     schema: intStr("a timeout in milliseconds", "15000 for 15 seconds"),
@@ -103489,13 +103510,6 @@ var ENV_SPEC = {
     required: false,
     example: "15000",
     doc: "Per-request timeout (milliseconds) for a single JSON-RPC call. Without it a blackholing endpoint stalls the whole tool call until the OS gives up (~20 min) and the host shows a frozen tool. On timeout the request fails fast and rotates to the next URL in the fallback list. Default 15000."
-  },
-  DEXE_TX_WAIT_TIMEOUT_MS: {
-    schema: intStr("a timeout in milliseconds", "180000 for 3 minutes"),
-    category: "rpc",
-    required: false,
-    example: "180000",
-    doc: "Max milliseconds to wait for a broadcast tx to mine before returning a check-with-dexe_tx_status error. Default 180000 (3 min)."
   },
   DEXE_DEFAULT_CHAIN_ID: {
     schema: intStr("an EVM chain id that has an RPC configured", "97 for BSC testnet"),
@@ -103517,6 +103531,161 @@ var ENV_SPEC = {
     required: false,
     example: "1",
     doc: "Set to 1 to disable the built-in public BSC RPC fallback (which activates only when no RPC is configured)."
+  },
+  // ─── ipfs (reads) ─────────────────────────────────────────────────────────
+  DEXE_IPFS_GATEWAY: {
+    schema: urlStr("https://gateway.pinata.cloud"),
+    category: "ipfs",
+    required: false,
+    example: "https://<subdomain>.mypinata.cloud",
+    doc: "Primary IPFS gateway base URL for reads.",
+    enablesFlows: ["ipfs-read"]
+  },
+  DEXE_IPFS_GATEWAYS_FALLBACK: {
+    schema: external_exports.string().optional(),
+    category: "ipfs",
+    required: false,
+    example: "",
+    doc: "Comma-separated public IPFS gateway fallbacks for reads."
+  },
+  DEXE_IPFS_DISABLE_PUBLIC_FALLBACK: {
+    schema: external_exports.string().optional(),
+    category: "ipfs",
+    required: false,
+    example: "1",
+    doc: "Set to 1 to disable the built-in public IPFS read-gateway default (ipfs.io, dweb.link, cloudflare). Reads then require DEXE_IPFS_GATEWAY."
+  },
+  DEXE_PINATA_GATEWAY_TOKEN: {
+    schema: external_exports.string().optional(),
+    category: "ipfs",
+    required: false,
+    example: "",
+    doc: "Auth token for a private Pinata dedicated gateway (optional).",
+    secret: true
+  },
+  // ─── subgraph ────────────────────────────────────────────────────────────
+  // A subgraph endpoint indexes exactly ONE chain, so every entry here is
+  // chain-scoped. The three unsuffixed vars below cover the chain named by
+  // DEXE_SUBGRAPH_CHAIN_ID (56 by default); per-chain endpoints use the
+  // DEXE_SUBGRAPH_<KIND>_URL_<chainId> form (see PER_CHAIN_SUBGRAPH_URL_RE),
+  // which is dynamic and therefore not enumerable in the spec.
+  DEXE_SUBGRAPH_POOLS_URL: {
+    schema: subgraphUrlStr(),
+    category: "subgraph",
+    required: false,
+    example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
+    doc: "Pools subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_POOLS_URL_<chainId>.",
+    enablesFlows: ["subgraph-read"]
+  },
+  DEXE_SUBGRAPH_VALIDATORS_URL: {
+    schema: subgraphUrlStr(),
+    category: "subgraph",
+    required: false,
+    example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
+    doc: "Validators subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_VALIDATORS_URL_<chainId>.",
+    enablesFlows: ["subgraph-read"]
+  },
+  DEXE_SUBGRAPH_INTERACTIONS_URL: {
+    schema: subgraphUrlStr(),
+    category: "subgraph",
+    required: false,
+    example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
+    doc: "Interactions subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_INTERACTIONS_URL_<chainId>.",
+    enablesFlows: ["subgraph-read"]
+  },
+  DEXE_SUBGRAPH_CHAIN_ID: {
+    schema: intStr("the EVM chain id that the unsuffixed DEXE_SUBGRAPH_*_URL endpoints index", "56 for BSC mainnet"),
+    category: "subgraph",
+    required: false,
+    example: "56",
+    doc: "Which chain the unsuffixed DEXE_SUBGRAPH_*_URL endpoints index. Default 56 (BSC mainnet) \u2014 both the built-in endpoints and every documented DeXe subgraph are mainnet. Set this when your own endpoints index a different chain, so reads for other chains fail loudly instead of returning this chain's data."
+  },
+  DEXE_GRAPH_API_KEY: {
+    schema: external_exports.string().optional(),
+    category: "subgraph",
+    required: false,
+    example: "",
+    doc: "The Graph API key for bearer auth (required by decentralized gateway).",
+    secret: true
+  },
+  // ─── backend ─────────────────────────────────────────────────────────────
+  DEXE_BACKEND_API_URL: {
+    schema: urlStr("https://api.dexe.io"),
+    category: "backend",
+    required: false,
+    example: "https://api.dexe.io",
+    doc: "DeXe backend API root for off-chain proposal flows.",
+    enablesFlows: ["backend-offchain"]
+  },
+  // ─── diagnostics ─────────────────────────────────────────────────────────
+  DEXE_DOCTOR_STRICT: {
+    schema: enumStr(["1", "0"]),
+    category: "dev",
+    required: false,
+    example: "1",
+    doc: "Set to 1 to make `npx dexe-mcp doctor` exit 1 on warnings (same as --strict), for CI wrappers that cannot add a flag."
+  }
+};
+var DYNAMIC_PER_CHAIN_RPC_RE = /^DEXE_RPC_URL_(\d+)$/;
+var PER_CHAIN_SUBGRAPH_URL_RE = /^DEXE_SUBGRAPH_(POOLS|VALIDATORS|INTERACTIONS)_URL_(\d+)$/;
+function isKnownEnvKey(k5, spec = ENV_SPEC_READ) {
+  return Object.prototype.hasOwnProperty.call(spec, k5) || DYNAMIC_PER_CHAIN_RPC_RE.test(k5) || PER_CHAIN_SUBGRAPH_URL_RE.test(k5);
+}
+var FOREIGN_WRITE_ENV_KEYS = /* @__PURE__ */ new Set([
+  "DEXE_TREASURY_GUARD",
+  "DEXE_TX_WAIT_TIMEOUT_MS",
+  "DEXE_PRIVATE_KEY",
+  ...Array.from({ length: 16 }, (_3, i3) => `DEXE_AGENT_PK_${i3 + 1}`),
+  "DEXE_AGENT_FUNDER_PK",
+  "DEXE_AGENT_FUND_MAX_WEI",
+  "DEXE_SIGNER_ALLOWLIST",
+  "DEXE_SIGNER_MAX_VALUE_WEI",
+  "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN",
+  "DEXE_PINATA_JWT",
+  "DEXE_IPFS_AVATAR_GATEWAY",
+  "DEXE_WALLETCONNECT_PROJECT_ID",
+  "DEXE_WALLETCONNECT_RELAY_URL",
+  "DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS",
+  "DEXE_SAFE_TX_SERVICE_URL",
+  "DEXE_SAFE_API_KEY",
+  "DEXE_SAFE_DELEGATECALL",
+  "DEXE_MAX_DESCRIPTION_LEN",
+  // dev toolchain
+  "DEXE_PROTOCOL_PATH",
+  "DEXE_FORK_BLOCK",
+  "DEXE_PROTOCOL_REF"
+]);
+var READ_ENV_SURFACE = {
+  spec: ENV_SPEC_READ,
+  isForeign: (key) => FOREIGN_WRITE_ENV_KEYS.has(key)
+};
+
+// dist/env/schema.js
+var hex64 = /^0x[0-9a-fA-F]{64}$/;
+var privateKeyStr = () => {
+  const msg = "must be a 0x-prefixed 64-hex private key (66 characters total), e.g. 0xabc\u2026(64 hex chars)";
+  return external_exports.string().regex(hex64, msg).optional().describe(msg);
+};
+var TREASURY_GUARD_MSG = `must be one of ${TREASURY_GUARD_MODES.join(" | ")}, e.g. warn`;
+var ENV_SPEC_WRITE = {
+  DEXE_TREASURY_GUARD: {
+    // Validated by the SAME parser the config and every tool call resolve with
+    // (`resolveTreasuryGuardMode`), so this layer cannot reject a posture the
+    // runtime honours. A hardcoded `off|warn` enum here rejected `block` as
+    // malformed — deleting the value and degrading the operator to `warn`
+    // while `treasuryGuardMode()` still reported `block`.
+    schema: external_exports.string().refine((v7) => resolveTreasuryGuardMode(v7).issue === void 0, TREASURY_GUARD_MSG).optional().describe(TREASURY_GUARD_MSG),
+    category: "core",
+    required: false,
+    example: "warn",
+    doc: "Treasury-safety posture: off | warn | block. 'warn' (default) emits advisories/alerts everywhere (build, deploy, execute, risk_assess) but NEVER blocks; 'block' additionally REFUSES a deploy/execute whose treasury-safety checks failed; 'off' silences them."
+  },
+  DEXE_TX_WAIT_TIMEOUT_MS: {
+    schema: intStr("a timeout in milliseconds", "180000 for 3 minutes"),
+    category: "rpc",
+    required: false,
+    example: "180000",
+    doc: "Max milliseconds to wait for a broadcast tx to mine before returning a check-with-dexe_tx_status error. Default 180000 (3 min)."
   },
   // ─── signer ──────────────────────────────────────────────────────────────
   DEXE_PRIVATE_KEY: {
@@ -103578,7 +103747,7 @@ var ENV_SPEC = {
     example: "",
     doc: "Rate limit broadcasts per rolling minute (B10 guard)."
   },
-  // ─── ipfs ────────────────────────────────────────────────────────────────
+  // ─── ipfs (uploads) ──────────────────────────────────────────────────────
   DEXE_PINATA_JWT: {
     schema: external_exports.string().optional(),
     category: "ipfs",
@@ -103588,87 +103757,12 @@ var ENV_SPEC = {
     enablesFlows: ["ipfs-upload", "dao-deploy"],
     secret: true
   },
-  DEXE_IPFS_GATEWAY: {
-    schema: urlStr("https://gateway.pinata.cloud"),
-    category: "ipfs",
-    required: false,
-    example: "https://<subdomain>.mypinata.cloud",
-    doc: "Primary IPFS gateway base URL for reads.",
-    enablesFlows: ["ipfs-read"]
-  },
-  DEXE_IPFS_GATEWAYS_FALLBACK: {
-    schema: external_exports.string().optional(),
-    category: "ipfs",
-    required: false,
-    example: "",
-    doc: "Comma-separated public IPFS gateway fallbacks for reads."
-  },
-  DEXE_IPFS_DISABLE_PUBLIC_FALLBACK: {
-    schema: external_exports.string().optional(),
-    category: "ipfs",
-    required: false,
-    example: "1",
-    doc: "Set to 1 to disable the built-in public IPFS read-gateway default (ipfs.io, dweb.link, cloudflare). Reads then require DEXE_IPFS_GATEWAY."
-  },
-  DEXE_PINATA_GATEWAY_TOKEN: {
-    schema: external_exports.string().optional(),
-    category: "ipfs",
-    required: false,
-    example: "",
-    doc: "Auth token for a private Pinata dedicated gateway (optional).",
-    secret: true
-  },
   DEXE_IPFS_AVATAR_GATEWAY: {
     schema: urlStr("https://gateway.pinata.cloud"),
     category: "ipfs",
     required: false,
     example: "",
     doc: "Optional override for the avatar fetch gateway."
-  },
-  // ─── subgraph ────────────────────────────────────────────────────────────
-  // A subgraph endpoint indexes exactly ONE chain, so every entry here is
-  // chain-scoped. The three unsuffixed vars below cover the chain named by
-  // DEXE_SUBGRAPH_CHAIN_ID (56 by default); per-chain endpoints use the
-  // DEXE_SUBGRAPH_<KIND>_URL_<chainId> form (see PER_CHAIN_SUBGRAPH_URL_RE),
-  // which is dynamic and therefore not enumerable in ENV_SPEC.
-  DEXE_SUBGRAPH_POOLS_URL: {
-    schema: subgraphUrlStr(),
-    category: "subgraph",
-    required: false,
-    example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
-    doc: "Pools subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_POOLS_URL_<chainId>.",
-    enablesFlows: ["subgraph-read"]
-  },
-  DEXE_SUBGRAPH_VALIDATORS_URL: {
-    schema: subgraphUrlStr(),
-    category: "subgraph",
-    required: false,
-    example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
-    doc: "Validators subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_VALIDATORS_URL_<chainId>.",
-    enablesFlows: ["subgraph-read"]
-  },
-  DEXE_SUBGRAPH_INTERACTIONS_URL: {
-    schema: subgraphUrlStr(),
-    category: "subgraph",
-    required: false,
-    example: "https://gateway.thegraph.com/api/subgraphs/id/<id>",
-    doc: "Interactions subgraph endpoint for the chain named by DEXE_SUBGRAPH_CHAIN_ID (default 56, BSC mainnet). Per-chain form: DEXE_SUBGRAPH_INTERACTIONS_URL_<chainId>.",
-    enablesFlows: ["subgraph-read"]
-  },
-  DEXE_SUBGRAPH_CHAIN_ID: {
-    schema: intStr("the EVM chain id that the unsuffixed DEXE_SUBGRAPH_*_URL endpoints index", "56 for BSC mainnet"),
-    category: "subgraph",
-    required: false,
-    example: "56",
-    doc: "Which chain the unsuffixed DEXE_SUBGRAPH_*_URL endpoints index. Default 56 (BSC mainnet) \u2014 both the built-in endpoints and every documented DeXe subgraph are mainnet. Set this when your own endpoints index a different chain, so reads for other chains fail loudly instead of returning this chain's data."
-  },
-  DEXE_GRAPH_API_KEY: {
-    schema: external_exports.string().optional(),
-    category: "subgraph",
-    required: false,
-    example: "",
-    doc: "The Graph API key for bearer auth (required by decentralized gateway).",
-    secret: true
   },
   // ─── walletconnect ───────────────────────────────────────────────────────
   DEXE_WALLETCONNECT_PROJECT_ID: {
@@ -103717,16 +103811,22 @@ var ENV_SPEC = {
     example: "block",
     doc: "Set to `block` to forbid Safe DELEGATECALL (operation=1) outright, overriding the per-call allowDelegateCall flag."
   },
-  // ─── backend ─────────────────────────────────────────────────────────────
-  DEXE_BACKEND_API_URL: {
-    schema: urlStr("https://api.dexe.io"),
-    category: "backend",
+  DEXE_MAX_DESCRIPTION_LEN: {
+    schema: intStr("a character count", "20000"),
+    category: "core",
     required: false,
-    example: "https://api.dexe.io",
-    doc: "DeXe backend API root for off-chain proposal flows.",
-    enablesFlows: ["backend-offchain"]
+    example: "20000",
+    doc: "Max characters accepted for proposal/DAO description markdown before conversion (guards IPFS payload size). Default 20000."
+  }
+};
+var ENV_SPEC_DEV = {
+  DEXE_PROTOCOL_PATH: {
+    schema: external_exports.string().optional(),
+    category: "core",
+    required: false,
+    example: "",
+    doc: "Override the DeXe-Protocol checkout path. Auto-managed when unset."
   },
-  // ─── dev ─────────────────────────────────────────────────────────────────
   DEXE_FORK_BLOCK: {
     schema: intStr("a block number", "45000000"),
     category: "dev",
@@ -103734,43 +103834,94 @@ var ENV_SPEC = {
     example: "",
     doc: "Optional fork block pin (Phase B)."
   },
-  DEXE_MAX_DESCRIPTION_LEN: {
-    schema: intStr("a character count", "20000"),
-    category: "core",
-    required: false,
-    example: "20000",
-    doc: "Max characters accepted for proposal/DAO description markdown before conversion (guards IPFS payload size). Default 20000."
-  },
   DEXE_PROTOCOL_REF: {
     schema: external_exports.string().optional(),
     category: "dev",
     required: false,
     example: "",
     doc: "Git ref (branch/tag/commit) checked out for the auto-managed DeXe-Protocol clone. Default: the pinned release the MCP ships with."
-  },
-  DEXE_DOCTOR_STRICT: {
-    schema: enumStr(["1", "0"]),
-    category: "dev",
-    required: false,
-    example: "1",
-    doc: "Set to 1 to make `npx dexe-mcp doctor` exit 1 on warnings (same as --strict), for CI wrappers that cannot add a flag."
   }
 };
-var ENV_REGISTRY = ENV_SPEC;
-function isKnownEnvKey(k5) {
-  return Object.prototype.hasOwnProperty.call(ENV_SPEC, k5) || DYNAMIC_PER_CHAIN_RPC_RE.test(k5) || PER_CHAIN_SUBGRAPH_URL_RE.test(k5);
+var ALL_ENTRIES = { ...ENV_SPEC_READ, ...ENV_SPEC_WRITE, ...ENV_SPEC_DEV };
+var ENV_DISPLAY_ORDER = [
+  "DEXE_PROTOCOL_PATH",
+  "DEXE_MIN_SAFE_QUORUM_PCT",
+  "DEXE_TREASURY_GUARD",
+  "DEXE_CONTROLLING_TOPN",
+  "DEXE_TOOLSETS",
+  "DEXE_STATE_PATH",
+  "DEXE_ENV_FILE",
+  "DEXE_DEBUG",
+  "DEXE_RPC_URL",
+  "DEXE_CHAIN_ID",
+  "DEXE_RPC_URL_TESTNET",
+  "DEXE_RPC_URL_MAINNET",
+  "DEXE_RPC_TIMEOUT_MS",
+  "DEXE_TX_WAIT_TIMEOUT_MS",
+  "DEXE_DEFAULT_CHAIN_ID",
+  "DEXE_CONTRACTS_REGISTRY",
+  "DEXE_DISABLE_PUBLIC_RPC",
+  "DEXE_PRIVATE_KEY",
+  ...Array.from({ length: 16 }, (_3, i3) => `DEXE_AGENT_PK_${i3 + 1}`),
+  "DEXE_AGENT_FUNDER_PK",
+  "DEXE_AGENT_FUND_MAX_WEI",
+  "DEXE_SIGNER_ALLOWLIST",
+  "DEXE_SIGNER_MAX_VALUE_WEI",
+  "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN",
+  "DEXE_PINATA_JWT",
+  "DEXE_IPFS_GATEWAY",
+  "DEXE_IPFS_GATEWAYS_FALLBACK",
+  "DEXE_IPFS_DISABLE_PUBLIC_FALLBACK",
+  "DEXE_PINATA_GATEWAY_TOKEN",
+  "DEXE_IPFS_AVATAR_GATEWAY",
+  "DEXE_SUBGRAPH_POOLS_URL",
+  "DEXE_SUBGRAPH_VALIDATORS_URL",
+  "DEXE_SUBGRAPH_INTERACTIONS_URL",
+  "DEXE_SUBGRAPH_CHAIN_ID",
+  "DEXE_GRAPH_API_KEY",
+  "DEXE_WALLETCONNECT_PROJECT_ID",
+  "DEXE_WALLETCONNECT_RELAY_URL",
+  "DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS",
+  "DEXE_SAFE_TX_SERVICE_URL",
+  "DEXE_SAFE_API_KEY",
+  "DEXE_SAFE_DELEGATECALL",
+  "DEXE_BACKEND_API_URL",
+  "DEXE_FORK_BLOCK",
+  "DEXE_MAX_DESCRIPTION_LEN",
+  "DEXE_PROTOCOL_REF",
+  "DEXE_DOCTOR_STRICT"
+];
+function inDisplayOrder(entries, order2) {
+  const out = {};
+  for (const k5 of order2) {
+    if (Object.prototype.hasOwnProperty.call(entries, k5))
+      out[k5] = entries[k5];
+  }
+  for (const k5 of Object.keys(entries)) {
+    if (!(k5 in out))
+      out[k5] = entries[k5];
+  }
+  return out;
 }
+var ENV_SPEC = inDisplayOrder(ALL_ENTRIES, ENV_DISPLAY_ORDER);
 function envKeys() {
   return Object.keys(ENV_SPEC);
 }
-var DYNAMIC_PER_CHAIN_RPC_RE = /^DEXE_RPC_URL_(\d+)$/;
-var PER_CHAIN_SUBGRAPH_URL_RE = /^DEXE_SUBGRAPH_(POOLS|VALIDATORS|INTERACTIONS)_URL_(\d+)$/;
+function signerFamilyCategory(key) {
+  if (key.includes("SIGNER") || key.includes("AGENT_PK") || key.includes("PRIVATE_KEY"))
+    return "signer";
+  return void 0;
+}
+var FULL_ENV_SURFACE = {
+  spec: ENV_SPEC,
+  categoryOf: signerFamilyCategory
+};
 
 // dist/env/parse.js
-function parseEnv(env = process.env) {
+function parseEnv(env = process.env, spec = ENV_SPEC_READ) {
   const values = {};
   const issues = [];
-  for (const [key, entry] of Object.entries(ENV_REGISTRY)) {
+  for (const [key, entry] of Object.entries(spec)) {
     const raw = env[key]?.trim();
     if (!raw) {
       if (entry.required) {
@@ -103796,7 +103947,7 @@ function parseEnv(env = process.env) {
   return { values, issues };
 }
 
-// dist/config.js
+// dist/configRead.js
 function splitRpcUrls(raw) {
   return raw.split(",").map((s2) => s2.trim()).filter(Boolean);
 }
@@ -103813,41 +103964,6 @@ var SUBGRAPH_KINDS = ["pools", "validators", "interactions"];
 function subgraphEnvVar(kind, chainId) {
   const base3 = `DEXE_SUBGRAPH_${kind.toUpperCase()}_URL`;
   return chainId === void 0 ? base3 : `${base3}_${chainId}`;
-}
-var SIGNER_GUARD_KEYS = /* @__PURE__ */ new Set([
-  "DEXE_SIGNER_ALLOWLIST",
-  "DEXE_SIGNER_MAX_VALUE_WEI",
-  "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN"
-]);
-function schemaRejectionConsequence(key) {
-  if (SIGNER_GUARD_KEYS.has(key)) {
-    return "signing disabled \u2014 a broadcast guard is never silently dropped";
-  }
-  if (key === "DEXE_PRIVATE_KEY" || /^DEXE_AGENT_(PK_\d+|FUNDER_PK)$/.test(key)) {
-    return "that key is ignored \u2014 signing falls back to WalletConnect, or readonly";
-  }
-  return "value ignored, using the built-in default";
-}
-function parseAgentKeys(env, onInvalid) {
-  const agentKeys = {};
-  const hex642 = /^0x[0-9a-fA-F]{64}$/;
-  const takeKey = (slot, primaryVar, aliasVar) => {
-    const prim = env[primaryVar]?.trim();
-    const alias = env[aliasVar]?.trim();
-    const v7 = prim || alias;
-    if (!v7)
-      return;
-    if (!prim && alias && !hex642.test(alias)) {
-      onInvalid(`${aliasVar} must be a 0x-prefixed 64-hex private key.`);
-      return;
-    }
-    agentKeys[slot] = v7;
-  };
-  for (let n4 = 1; n4 <= 16; n4++) {
-    takeKey(`agent${n4}`, `DEXE_AGENT_PK_${n4}`, `AGENT_PK_${n4}`);
-  }
-  takeKey("funder", "DEXE_AGENT_FUNDER_PK", "AGENT_FUNDER_PK");
-  return agentKeys;
 }
 function resolveSubgraphEndpoints(env, onIssue = () => {
 }) {
@@ -103909,35 +104025,34 @@ function resolveSubgraphEndpoints(env, onIssue = () => {
   }
   return { urls, chainId };
 }
-async function loadConfig() {
+function createIssueSink() {
   const startupIssues = [];
-  const degrade = (key, message, fallback) => {
-    startupIssues.push({ key, message, fallback });
-    process.stderr.write(`[dexe-mcp] config issue: ${message} \u2014 ${fallback}
+  return {
+    startupIssues,
+    degrade(key, message, fallback) {
+      startupIssues.push({ key, message, fallback });
+      process.stderr.write(`[dexe-mcp] config issue: ${message} \u2014 ${fallback}
 `);
+    }
   };
-  let signerGuardBroken = false;
-  {
-    const { issues } = parseEnv();
-    for (const issue2 of issues) {
-      process.stderr.write(`[dexe-mcp] env ${issue2.severity}: ${issue2.message}
-`);
-    }
-    for (const issue2 of issues.filter((i3) => i3.severity === "error")) {
-      delete process.env[issue2.key];
-      if (SIGNER_GUARD_KEYS.has(issue2.key))
-        signerGuardBroken = true;
-      degrade(issue2.key, issue2.message, schemaRejectionConsequence(issue2.key));
-    }
-  }
-  const protocolPath = resolve(resolveProtocolPath());
-  if (!existsSync4(protocolPath)) {
-    process.stderr.write(`[dexe-mcp] DeXe-Protocol checkout not found at ${protocolPath} \u2014 will be prepared on first dexe_compile call.
-`);
-  } else if (!isBuildReady(protocolPath)) {
-    process.stderr.write(`[dexe-mcp] DeXe-Protocol checkout at ${protocolPath} is incomplete (missing node_modules or hardhat.config) \u2014 will be prepared on first dexe_compile call.
+}
+var readRejectionConsequence = () => "value ignored, using the built-in default";
+function applyEnvSpec(sink, spec, consequence = readRejectionConsequence) {
+  const { issues } = parseEnv(process.env, spec);
+  for (const issue2 of issues) {
+    process.stderr.write(`[dexe-mcp] env ${issue2.severity}: ${issue2.message}
 `);
   }
+  const rejected = [];
+  for (const issue2 of issues.filter((i3) => i3.severity === "error")) {
+    delete process.env[issue2.key];
+    rejected.push(issue2.key);
+    sink.degrade(issue2.key, issue2.message, consequence(issue2.key));
+  }
+  return rejected;
+}
+function resolveChainSet(sink) {
+  const { degrade } = sink;
   const chains = /* @__PURE__ */ new Map();
   const registryOverride = process.env.DEXE_CONTRACTS_REGISTRY?.trim() || void 0;
   const rpcTestnet = process.env.DEXE_RPC_URL_TESTNET?.trim() || void 0;
@@ -104037,13 +104152,158 @@ async function loadConfig() {
   } else {
     process.stderr.write("[dexe-mcp] no RPC configured \u2014 read/write tools that touch a chain will fail with a clear error.\n");
   }
-  const pinataJwt = process.env.DEXE_PINATA_JWT?.trim() || void 0;
-  const { urls: subgraphUrls, chainId: subgraphChainId } = resolveSubgraphEndpoints(process.env, degrade);
+  return { chains, defaultChainId, usingPublicRpcFallback: usedPublicFallback, registryOverride };
+}
+function resolveDataSources(sink) {
+  const { urls: subgraphUrls, chainId: subgraphChainId } = resolveSubgraphEndpoints(process.env, sink.degrade);
   const forLegacyChain = subgraphUrls.get(subgraphChainId);
-  const subgraphPoolsUrl = forLegacyChain?.pools;
-  const subgraphValidatorsUrl = forLegacyChain?.validators;
-  const subgraphInteractionsUrl = forLegacyChain?.interactions;
-  const backendApiUrl = process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl;
+  return {
+    subgraphUrls,
+    subgraphChainId,
+    subgraphPoolsUrl: forLegacyChain?.pools,
+    subgraphValidatorsUrl: forLegacyChain?.validators,
+    subgraphInteractionsUrl: forLegacyChain?.interactions,
+    backendApiUrl: process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl
+  };
+}
+function resolveRiskSettings(sink) {
+  const { degrade } = sink;
+  let minSafeQuorumPct = 50;
+  const minQuorumRaw = process.env.DEXE_MIN_SAFE_QUORUM_PCT?.trim();
+  if (minQuorumRaw) {
+    const n4 = Number(minQuorumRaw);
+    if (!Number.isFinite(n4) || n4 < 0 || n4 > 100) {
+      degrade("DEXE_MIN_SAFE_QUORUM_PCT", `DEXE_MIN_SAFE_QUORUM_PCT must be a number between 0 and 100, got: ${minQuorumRaw}`, "using the default 50");
+    } else {
+      minSafeQuorumPct = n4;
+    }
+  }
+  let controllingTopN = 5;
+  const controllingTopNRaw = process.env.DEXE_CONTROLLING_TOPN?.trim();
+  if (controllingTopNRaw) {
+    const n4 = Number(controllingTopNRaw);
+    if (!Number.isInteger(n4) || n4 <= 0) {
+      degrade("DEXE_CONTROLLING_TOPN", `DEXE_CONTROLLING_TOPN must be a positive integer, got: ${controllingTopNRaw}`, "using the default 5");
+    } else {
+      controllingTopN = n4;
+    }
+  }
+  return { minSafeQuorumPct, controllingTopN };
+}
+function resolveToolsetsEnv() {
+  const toolsetsRaw = process.env.DEXE_TOOLSETS?.trim();
+  return toolsetsRaw ? toolsetsRaw.split(",").map((s2) => s2.trim().toLowerCase()).filter(Boolean) : [];
+}
+function assembleReadConfig(parts) {
+  const defaultChain = parts.chains.get(parts.defaultChainId);
+  return Object.freeze({
+    chains: Object.freeze(new Map(parts.chains)),
+    defaultChainId: parts.defaultChainId,
+    usingPublicRpcFallback: parts.usingPublicRpcFallback,
+    chainId: parts.defaultChainId,
+    rpcUrl: defaultChain?.rpcUrl,
+    registryOverride: defaultChain?.registryOverride ?? parts.registryOverride,
+    subgraphUrls: Object.freeze(parts.subgraphUrls),
+    subgraphChainId: parts.subgraphChainId,
+    subgraphPoolsUrl: parts.subgraphPoolsUrl,
+    subgraphValidatorsUrl: parts.subgraphValidatorsUrl,
+    subgraphInteractionsUrl: parts.subgraphInteractionsUrl,
+    backendApiUrl: parts.backendApiUrl,
+    startupIssues: parts.startupIssues,
+    minSafeQuorumPct: parts.minSafeQuorumPct,
+    controllingTopN: parts.controllingTopN,
+    toolsets: parts.toolsets,
+    statePath: parts.statePath
+  });
+}
+async function loadReadConfig() {
+  const sink = createIssueSink();
+  applyEnvSpec(sink, ENV_SPEC_READ);
+  const chainSet = resolveChainSet(sink);
+  const dataSources = resolveDataSources(sink);
+  const risk = resolveRiskSettings(sink);
+  return assembleReadConfig({
+    ...chainSet,
+    ...dataSources,
+    ...risk,
+    startupIssues: sink.startupIssues,
+    toolsets: resolveToolsetsEnv(),
+    statePath: resolveStatePath()
+  });
+}
+function inferChainIdFromRpcUrl(url2) {
+  const u4 = url2.toLowerCase();
+  if (u4.includes("prebsc") || u4.includes("testnet"))
+    return 97;
+  if (u4.includes("bsc") || u4.includes("binance"))
+    return 56;
+  return void 0;
+}
+function resolveChain(config2, chainId) {
+  const target = chainId ?? config2.defaultChainId;
+  const chain2 = config2.chains.get(target);
+  if (!chain2) {
+    const configured = [...config2.chains.keys()].sort().join(", ") || "none";
+    throw new Error(`No RPC configured for chainId=${target}. Configured chains: [${configured}]. Set DEXE_RPC_URL_${target === 97 ? "TESTNET" : target === 56 ? "MAINNET" : "<chain>"} in the MCP env block.`);
+  }
+  return chain2;
+}
+
+// dist/config.js
+var SIGNER_GUARD_KEYS = /* @__PURE__ */ new Set([
+  "DEXE_SIGNER_ALLOWLIST",
+  "DEXE_SIGNER_MAX_VALUE_WEI",
+  "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN"
+]);
+function schemaRejectionConsequence(key) {
+  if (SIGNER_GUARD_KEYS.has(key)) {
+    return "signing disabled \u2014 a broadcast guard is never silently dropped";
+  }
+  if (key === "DEXE_PRIVATE_KEY" || /^DEXE_AGENT_(PK_\d+|FUNDER_PK)$/.test(key)) {
+    return "that key is ignored \u2014 signing falls back to WalletConnect, or readonly";
+  }
+  return "value ignored, using the built-in default";
+}
+function parseAgentKeys(env, onInvalid) {
+  const agentKeys = {};
+  const hex642 = /^0x[0-9a-fA-F]{64}$/;
+  const takeKey = (slot, primaryVar, aliasVar) => {
+    const prim = env[primaryVar]?.trim();
+    const alias = env[aliasVar]?.trim();
+    const v7 = prim || alias;
+    if (!v7)
+      return;
+    if (!prim && alias && !hex642.test(alias)) {
+      onInvalid(`${aliasVar} must be a 0x-prefixed 64-hex private key.`);
+      return;
+    }
+    agentKeys[slot] = v7;
+  };
+  for (let n4 = 1; n4 <= 16; n4++) {
+    takeKey(`agent${n4}`, `DEXE_AGENT_PK_${n4}`, `AGENT_PK_${n4}`);
+  }
+  takeKey("funder", "DEXE_AGENT_FUNDER_PK", "AGENT_FUNDER_PK");
+  return agentKeys;
+}
+async function loadWriteConfig() {
+  const sink = createIssueSink();
+  const { degrade } = sink;
+  let signerGuardBroken = false;
+  const rejected = applyEnvSpec(sink, ENV_SPEC, schemaRejectionConsequence);
+  if (rejected.some((key) => SIGNER_GUARD_KEYS.has(key)))
+    signerGuardBroken = true;
+  const protocolPath = resolve(resolveProtocolPath());
+  if (!existsSync4(protocolPath)) {
+    process.stderr.write(`[dexe-mcp] DeXe-Protocol checkout not found at ${protocolPath} \u2014 will be prepared on first dexe_compile call.
+`);
+  } else if (!isBuildReady(protocolPath)) {
+    process.stderr.write(`[dexe-mcp] DeXe-Protocol checkout at ${protocolPath} is incomplete (missing node_modules or hardhat.config) \u2014 will be prepared on first dexe_compile call.
+`);
+  }
+  const chainSet = resolveChainSet(sink);
+  const { chains } = chainSet;
+  const pinataJwt = process.env.DEXE_PINATA_JWT?.trim() || void 0;
+  const dataSources = resolveDataSources(sink);
   let privateKey = process.env.DEXE_PRIVATE_KEY?.trim() || void 0;
   if (privateKey && chains.size === 0) {
     degrade("DEXE_PRIVATE_KEY", "DEXE_PRIVATE_KEY requires at least one of DEXE_RPC_URL / DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET to be set (signing needs an RPC endpoint).", "signing disabled (readonly) \u2014 set an RPC URL and restart to re-enable");
@@ -104148,27 +104408,8 @@ async function loadConfig() {
   } else {
     process.stderr.write("[dexe-mcp] WalletConnect signing available (shared default project id) \u2014 connect a wallet with dexe_wc_connect; set DEXE_WALLETCONNECT_PROJECT_ID to use your own.\n");
   }
-  let minSafeQuorumPct = 50;
-  const minQuorumRaw = process.env.DEXE_MIN_SAFE_QUORUM_PCT?.trim();
-  if (minQuorumRaw) {
-    const n4 = Number(minQuorumRaw);
-    if (!Number.isFinite(n4) || n4 < 0 || n4 > 100) {
-      degrade("DEXE_MIN_SAFE_QUORUM_PCT", `DEXE_MIN_SAFE_QUORUM_PCT must be a number between 0 and 100, got: ${minQuorumRaw}`, "using the default 50");
-    } else {
-      minSafeQuorumPct = n4;
-    }
-  }
+  const risk = resolveRiskSettings(sink);
   const treasuryGuard = resolveTreasuryGuardMode(process.env.DEXE_TREASURY_GUARD).mode;
-  let controllingTopN = 5;
-  const controllingTopNRaw = process.env.DEXE_CONTROLLING_TOPN?.trim();
-  if (controllingTopNRaw) {
-    const n4 = Number(controllingTopNRaw);
-    if (!Number.isInteger(n4) || n4 <= 0) {
-      degrade("DEXE_CONTROLLING_TOPN", `DEXE_CONTROLLING_TOPN must be a positive integer, got: ${controllingTopNRaw}`, "using the default 5");
-    } else {
-      controllingTopN = n4;
-    }
-  }
   let forkBlock;
   if (process.env.DEXE_FORK_BLOCK) {
     const n4 = Number(process.env.DEXE_FORK_BLOCK);
@@ -104178,63 +104419,54 @@ async function loadConfig() {
       forkBlock = n4;
     }
   }
-  const toolsetsRaw = process.env.DEXE_TOOLSETS?.trim();
-  const toolsets = toolsetsRaw ? toolsetsRaw.split(",").map((s2) => s2.trim().toLowerCase()).filter(Boolean) : [];
+  const toolsets = resolveToolsetsEnv();
   if (signerGuardBroken && (privateKey || Object.keys(agentKeys).length > 0)) {
     process.stderr.write("[dexe-mcp] signing disabled: a broadcast-guard variable is malformed (see the config issues above). Fix it and restart, or run 'npx dexe-mcp doctor'.\n");
     privateKey = void 0;
     agentKeys = {};
   }
-  const statePath = resolveStatePath();
-  const defaultChain = chains.get(defaultChainId);
+  const read3 = assembleReadConfig({
+    ...chainSet,
+    ...dataSources,
+    ...risk,
+    startupIssues: sink.startupIssues,
+    toolsets,
+    statePath: resolveStatePath()
+  });
   return Object.freeze({
     protocolPath,
-    chains: Object.freeze(new Map(chains)),
-    defaultChainId,
-    usingPublicRpcFallback: usedPublicFallback,
-    chainId: defaultChainId,
-    rpcUrl: defaultChain?.rpcUrl,
-    registryOverride: defaultChain?.registryOverride ?? registryOverride,
+    chains: read3.chains,
+    defaultChainId: read3.defaultChainId,
+    usingPublicRpcFallback: read3.usingPublicRpcFallback,
+    chainId: read3.chainId,
+    rpcUrl: read3.rpcUrl,
+    registryOverride: read3.registryOverride,
     pinataJwt,
-    subgraphUrls: Object.freeze(subgraphUrls),
-    subgraphChainId,
-    subgraphPoolsUrl,
-    subgraphValidatorsUrl,
-    subgraphInteractionsUrl,
-    backendApiUrl,
+    subgraphUrls: read3.subgraphUrls,
+    subgraphChainId: read3.subgraphChainId,
+    subgraphPoolsUrl: read3.subgraphPoolsUrl,
+    subgraphValidatorsUrl: read3.subgraphValidatorsUrl,
+    subgraphInteractionsUrl: read3.subgraphInteractionsUrl,
+    backendApiUrl: read3.backendApiUrl,
     forkBlock,
     privateKey,
     agentKeys,
-    startupIssues,
-    minSafeQuorumPct,
+    startupIssues: read3.startupIssues,
+    minSafeQuorumPct: read3.minSafeQuorumPct,
     treasuryGuard,
-    controllingTopN,
+    controllingTopN: read3.controllingTopN,
     signerAllowlist,
     signerMaxValueWei,
     signerMaxBroadcastsPerMin,
     walletConnectProjectId,
     walletConnectRelayUrl,
     walletConnectApprovalTimeoutMs,
-    toolsets,
-    statePath
+    toolsets: read3.toolsets,
+    statePath: read3.statePath
   });
 }
-function inferChainIdFromRpcUrl(url2) {
-  const u4 = url2.toLowerCase();
-  if (u4.includes("prebsc") || u4.includes("testnet"))
-    return 97;
-  if (u4.includes("bsc") || u4.includes("binance"))
-    return 56;
-  return void 0;
-}
-function resolveChain(config2, chainId) {
-  const target = chainId ?? config2.defaultChainId;
-  const chain2 = config2.chains.get(target);
-  if (!chain2) {
-    const configured = [...config2.chains.keys()].sort().join(", ") || "none";
-    throw new Error(`No RPC configured for chainId=${target}. Configured chains: [${configured}]. Set DEXE_RPC_URL_${target === 97 ? "TESTNET" : target === 56 ? "MAINNET" : "<chain>"} in the MCP env block.`);
-  }
-  return chain2;
+function loadConfig() {
+  return loadWriteConfig();
 }
 
 // dist/artifacts.js
@@ -104251,6 +104483,11 @@ var ArtifactsMissingError = class extends Error {
 var Artifacts = class {
   config;
   cache = null;
+  /**
+   * Takes only the checkout path, not a config: the path is a dev-toolchain
+   * setting (`WriteConfig.protocolPath`, src/config.ts), and the decoders that
+   * read artifacts fall back to the bundled ABI snapshot when nothing is there.
+   */
   constructor(config2) {
     this.config = config2;
   }
@@ -131503,52 +131740,6 @@ function blacklistError(token, account) {
 // dist/lib/protocolAdvisories.js
 init_lib2();
 
-// dist/lib/treasuryGate.js
-var ADVISORY_TAG = "[governance-safety advisory]";
-var GUARD_TAG = "[governance-safety guard: block]";
-function treasuryGuardMode(args) {
-  const raw = (args?.env ?? process.env).DEXE_TREASURY_GUARD;
-  if (raw !== void 0 && raw.trim() !== "")
-    return resolveTreasuryGuardMode(raw).mode;
-  return resolveTreasuryGuardMode(args?.configured).mode;
-}
-function lowQuorumAdvisory(pct, floorPct) {
-  const shown2 = Number.isFinite(pct) ? `${pct}%` : "unparseable";
-  return `\u26A0 quorum=${shown2} is below the ${floorPct}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT). Low quorum reduces the participation required to pass a proposal. For a DAO that holds treasury assets, set quorum \u226550% (51%+ recommended) and verify stakeholder participation before executing treasury-moving proposals; the safe value is DAO-specific. ${ADVISORY_TAG}`;
-}
-var TREASURY_RISK_ADVISORY = `\u26A0 This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). Confirm the DAO's quorum is adequate (\u226550%) and that key stakeholders have participated before executing. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
-function buildTimeTreasuryAdvisory(actions, guard) {
-  if (guard === "off")
-    return null;
-  return classifyTreasuryActions(actions).length > 0 ? TREASURY_RISK_ADVISORY : null;
-}
-function treasuryExecuteAdvisory(reasons) {
-  return `\u26A0 Treasury-safety advisory: this proposal moves treasury value AND ${reasons.join("; ")}. Verify adequate quorum and stakeholder participation before executing \u2014 responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
-}
-function treasuryGate(input3) {
-  const none = { hits: [], triggered: false, blocked: false, advisory: null, refusal: null };
-  if (input3.mode === "off")
-    return none;
-  const hits = input3.hits ? [...input3.hits] : classifyTreasuryActions([...input3.actions ?? []]);
-  const reasons = [...input3.reasons ?? []];
-  const triggered = input3.stage === "deploy" ? reasons.length > 0 : hits.length > 0;
-  if (!triggered)
-    return none;
-  const advisory = reasons.length > 0 ? input3.stage === "deploy" ? `\u26A0 Treasury-safety advisory: ${reasons.join("; ")}. ${ADVISORY_TAG}` : treasuryExecuteAdvisory(reasons) : TREASURY_RISK_ADVISORY;
-  const blocked = input3.mode === "block" && input3.stage !== "build" && reasons.length > 0;
-  return {
-    hits,
-    triggered: true,
-    blocked,
-    advisory,
-    refusal: blocked ? treasuryBlockRefusal(reasons, input3.stage, input3.act) : null
-  };
-}
-function treasuryBlockRefusal(reasons, stage, act) {
-  const what = act ? `this ${stage} (${act})` : `this ${stage}`;
-  return `\u26D4 Refusing ${what}: DEXE_TREASURY_GUARD=block and the treasury-safety checks failed \u2014 ${reasons.join("; ")}. Nothing was broadcast. Fix the cause (raise the DAO's quorum, secure stakeholder participation, or shrink what the action moves), or set DEXE_TREASURY_GUARD=warn and restart the MCP server to make this an advisory again \u2014 the default posture, where the operator owns the outcome. ${GUARD_TAG}`;
-}
-
 // dist/lib/preflight.js
 init_lib2();
 var pass = (check2, detail) => ({ check: check2, ok: true, detail });
@@ -141498,14 +141689,14 @@ function renderReport(p4) {
 init_lib2();
 
 // dist/lib/requireEnv.js
-function hintFor(keys) {
+function hintFor(keys, spec = ENV_SPEC_READ) {
   const parts = [];
   for (const k5 of keys) {
-    const spec = ENV_REGISTRY[k5];
-    if (!spec)
+    const entry = Object.prototype.hasOwnProperty.call(spec, k5) ? spec[k5] : void 0;
+    if (!entry)
       continue;
-    const flowHint = spec.enablesFlows?.length ? ` (enables: ${spec.enablesFlows.join(", ")})` : "";
-    parts.push(`Set ${k5} in .env \u2014 ${spec.doc}${flowHint}`);
+    const flowHint = entry.enablesFlows?.length ? ` (enables: ${entry.enablesFlows.join(", ")})` : "";
+    parts.push(`Set ${k5} in .env \u2014 ${entry.doc}${flowHint}`);
   }
   parts.push("After editing .env, restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify the new values were picked up.");
   return parts.join("\n");
@@ -142182,7 +142373,7 @@ var SignerManager = class {
         // repeating it here printed the same three sentences twice wherever a
         // caller joins `error` + `remediation` (sendOrCollect does). Every
         // OTHER cause (unknown signerKey, provider construction) still needs it.
-        remediation: err16 instanceof NoSignerKeyError ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it." : hintFor(["DEXE_PRIVATE_KEY"])
+        remediation: err16 instanceof NoSignerKeyError ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it." : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC)
       };
     }
   }
@@ -142233,7 +142424,7 @@ var SignerManager = class {
    * DEXE_AGENT_PK_* slot), and `dexe_doctor` reports it properly.
    */
   failNoKey() {
-    throw new NoSignerKeyError("No signing key is configured, so this call cannot sign. Reads work without one.\n" + hintFor(["DEXE_PRIVATE_KEY"]) + "\nPrefer WalletConnect (keys stay on your phone): set DEXE_WALLETCONNECT_PROJECT_ID in .env, then run dexe_wc_connect. Run dexe_doctor to see which values this server loaded and from where, or /dexe-setup for a guided walkthrough.");
+    throw new NoSignerKeyError("No signing key is configured, so this call cannot sign. Reads work without one.\n" + hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC) + "\nPrefer WalletConnect (keys stay on your phone): set DEXE_WALLETCONNECT_PROJECT_ID in .env, then run dexe_wc_connect. Run dexe_doctor to see which values this server loaded and from where, or /dexe-setup for a guided walkthrough.");
   }
   failUnknownSigner(signerKey) {
     const known = Object.keys(this.agentKeys);
@@ -147298,7 +147489,7 @@ function scanAssignments(lines) {
   });
   return { assignments, spaceLines };
 }
-function loadEnvFile(envFilePath, prevEnvSnapshot) {
+function loadEnvFile(envFilePath, prevEnvSnapshot, surface = READ_ENV_SURFACE) {
   const parseIssues = [];
   const envFileExists = existsSync10(envFilePath);
   let envFileLoaded = false;
@@ -147395,18 +147586,20 @@ function loadEnvFile(envFilePath, prevEnvSnapshot) {
       continue;
     if (DYNAMIC_PER_CHAIN_RPC_RE.test(key))
       continue;
-    if (!isKnownEnvKey(key))
+    if (surface.isForeign?.(key))
+      continue;
+    if (!isKnownEnvKey(key, surface.spec))
       unknownDexeVars.push(key);
   }
   const missingButEnablesFlows = [];
-  for (const [k5, v7] of Object.entries(ENV_REGISTRY)) {
+  for (const [k5, v7] of Object.entries(surface.spec)) {
     if (!v7.enablesFlows?.length)
       continue;
     if (process.env[k5]?.trim())
       continue;
     missingButEnablesFlows.push({ key: k5, flows: v7.enablesFlows });
   }
-  const preExistingVars = envKeys().filter((k5) => prevEnvSnapshot.has(k5));
+  const preExistingVars = Object.keys(surface.spec).filter((k5) => prevEnvSnapshot.has(k5));
   const report = {
     envFilePath,
     envFileExists,
@@ -147470,11 +147663,12 @@ async function withDeadline(p4, ms2) {
 async function runAllChecks(opts = {}) {
   const timeoutMs = opts.timeoutMs ?? 3e3;
   const extra = opts.extraChecks ?? {};
+  const env = extra.env ?? READ_ENV_SURFACE;
   const results = [];
   const envSource = opts.envSource ?? getEnvLoadState();
-  results.push(...startupIssueChecks(opts.config, envSource));
+  results.push(...startupIssueChecks(opts.config, envSource, env));
   results.push(...envSourceChecks(envSource));
-  results.push(...envPresenceChecks());
+  results.push(...envPresenceChecks(env.spec));
   const networkBudgetMs = opts.networkBudgetMs ?? timeoutMs * 4;
   const network = await withDeadline(Promise.all([
     ...rpcReachabilityChecks(opts.config, timeoutMs),
@@ -147504,7 +147698,7 @@ async function runAllChecks(opts = {}) {
   results.push(...stateStoreCheck(opts.config));
   return results;
 }
-function startupIssueChecks(config2, envSource) {
+function startupIssueChecks(config2, envSource, env = READ_ENV_SURFACE) {
   if (!config2)
     return [];
   const where = loadedEnvPath(envSource) ?? "your .env";
@@ -147520,24 +147714,21 @@ function startupIssueChecks(config2, envSource) {
   }
   return config2.startupIssues.map((issue2) => ({
     id: `startup.${issue2.key}`,
-    category: categoryForKey(issue2.key),
+    category: categoryForKey(issue2.key, env),
     status: "fail",
     message: `${issue2.message} The server did NOT exit: ${issue2.fallback}.`,
     remediation: `Correct ${issue2.key} in ${where}, then restart Claude Code \u2014 env is read once, at startup.`
   }));
 }
-function categoryForKey(key) {
-  const entry = ENV_REGISTRY[key];
+function categoryForKey(key, env) {
+  const entry = Object.prototype.hasOwnProperty.call(env.spec, key) ? env.spec[key] : void 0;
   if (entry)
     return entry.category;
   if (PER_CHAIN_SUBGRAPH_URL_RE.test(key))
     return "subgraph";
   if (DYNAMIC_PER_CHAIN_RPC_RE.test(key))
     return "rpc";
-  if (key.includes("SIGNER") || key.includes("AGENT_PK") || key.includes("PRIVATE_KEY")) {
-    return "signer";
-  }
-  return "process";
+  return env.categoryOf?.(key) ?? "process";
 }
 function winningReport(state) {
   const existing = state?.reports.filter((r2) => r2.envFileExists) ?? [];
@@ -147645,10 +147836,10 @@ function stateStoreCheck(config2) {
     ];
   }
 }
-function envPresenceChecks() {
+function envPresenceChecks(spec) {
   const out = [];
-  const parsed = parseEnv();
-  for (const [k5, v7] of Object.entries(ENV_REGISTRY)) {
+  const parsed = parseEnv(process.env, spec);
+  for (const [k5, v7] of Object.entries(spec)) {
     const set2 = !!process.env[k5]?.trim();
     const issue2 = parsed.issues.find((i3) => i3.key === k5);
     if (issue2) {
@@ -148187,6 +148378,9 @@ function renderText(r2) {
 // dist/diag/writeChecks.js
 function writeDoctorChecks(opts = {}) {
   return {
+    // Presence rows and startup-issue categories over every var the server
+    // reads (read + write + dev), in the order they have always been listed.
+    env: FULL_ENV_SURFACE,
     network: (timeoutMs) => [pinataJwtCheck(timeoutMs), pinataPinQuotaCheck(timeoutMs, opts.probePin === true)],
     config: (config2) => [...signerGuardConfigCheck(config2), ...signerNeedsRpcCheck(config2)],
     sharedDefaults: {
@@ -156416,14 +156610,14 @@ function doctorExitCode(t2, strict) {
     return 1;
   return 0;
 }
-async function run(argv = [], extraChecks) {
+async function run(argv = [], extraChecks, loadConfig2 = loadReadConfig) {
   const args = parseDoctorArgs(argv);
   if (args.unknown.length) {
     process.stderr.write(`[dexe-mcp doctor] unknown option(s): ${args.unknown.join(", ")}. Supported: --strict (exit 1 when there are warnings, for CI), --probe-pin (verify Pinata pin capability \u2014 writes one tiny pin).
 `);
     process.exit(2);
   }
-  const config2 = await loadConfig().catch((err16) => {
+  const config2 = await loadConfig2().catch((err16) => {
     process.stderr.write(`[dexe-mcp doctor] config load failed: ${safeErrorMessage(err16)}
 `);
     process.exit(2);
@@ -156566,17 +156760,17 @@ function loadEnvironment() {
   for (const candidate of envCandidates) {
     if (!existsSync15(candidate))
       continue;
-    const report = loadEnvFile(candidate, prevSnapshot);
+    const report = loadEnvFile(candidate, prevSnapshot, FULL_ENV_SURFACE);
     if (!envReport)
       envReport = report;
   }
-  writeStartupBanner(envReport ?? loadEnvFile(homeEnvPath, prevSnapshot));
+  writeStartupBanner(envReport ?? loadEnvFile(homeEnvPath, prevSnapshot, FULL_ENV_SURFACE));
   return envCandidates;
 }
 async function runSubcommand(name2) {
   if (name2 === "doctor") {
     const mod5 = doctor_exports;
-    await mod5.run(process.argv.slice(3), writeDoctorChecks);
+    await mod5.run(process.argv.slice(3), writeDoctorChecks, loadConfig);
     process.exit(0);
   }
   if (name2 === "init") {
