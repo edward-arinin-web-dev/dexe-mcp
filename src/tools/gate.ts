@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ReadConfig } from "../configRead.js";
 import { WRITE_TOOLS } from "../editions.js";
+import { DEPRECATED_ALIASES } from "./aliases.js";
 import {
   applyToolsetGate,
   defaultToolNames,
@@ -75,12 +76,14 @@ const CORE = [
   "dexe_proposal_create",
   "dexe_proposal_vote_and_execute",
   "dexe_dao_create",
-  // OTC composites
+  // OTC composites, and the two token-sale reads they pair with (renamed from
+  // dexe_otc_buyer_status / dexe_otc_list_sales_for_dao in 0.36.0 — the old
+  // names follow these through the gate as aliases, src/tools/aliases.ts)
   "dexe_otc_dao_open_sale",
-  "dexe_otc_buyer_status",
+  "dexe_read_token_sale_position",
   "dexe_otc_buyer_buy",
   "dexe_otc_buyer_claim_all",
-  "dexe_otc_list_sales_for_dao",
+  "dexe_read_token_sales",
   // broadcast + walletconnect
   "dexe_tx_send",
   "dexe_tx_status",
@@ -222,7 +225,7 @@ const READ = [
   "dexe_read_validator_list",
   "dexe_read_user_activity",
   "dexe_read_dao_experts",
-  "dexe_otc_list_sales_for_dao",
+  "dexe_read_token_sales",
   "dexe_graph_query",
   // Also in `core` (sets overlap) — it is the recovery path for a core tool's
   // most common failure, so it cannot be gated behind an env var. The static
@@ -443,11 +446,15 @@ export const TOOLSET_CATALOG: ToolsetCatalog = {
  */
 export const DEFAULT_TOOLSETS = ["core"] as const;
 
-/** The single server's table: the sets above, default `core`, the catalog `dexe_context` reports. */
+/**
+ * The single server's table: the sets above, default `core`, the catalog
+ * `dexe_context` reports, and the deprecated names it also lists.
+ */
 export const SINGLE_SERVER_TOOLSETS: ToolsetTable = {
   sets: TOOLSETS,
   defaults: DEFAULT_TOOLSETS,
   catalog: TOOLSET_CATALOG,
+  aliases: DEPRECATED_ALIASES,
 };
 
 /**

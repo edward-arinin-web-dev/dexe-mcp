@@ -74,7 +74,7 @@ const READ = [
   "lib/abiSnapshot.ts",
   "lib/addresses.ts",
   // A pure digits-only validator. Builders use it, but so does the read tool
-  // dexe_otc_buyer_status (tier ids), so it is shared code, not write code.
+  // dexe_read_token_sale_position (tier ids), so it is shared code, not write code.
   "lib/amount.ts",
   // byte-capped body reads for upstream responses
   "lib/boundedBody.ts",
@@ -225,6 +225,8 @@ const WRITE = [
   // builder chainId, signerKey, off-chain proposal id
   "lib/writeParams.ts",
   "tools/agents.ts",
+  // deprecated tool names the single server still answers to (D4 renames)
+  "tools/aliases.ts",
   // the write edition's annotation classes + the single server's merged table
   "tools/annotationsWrite.ts",
   "tools/build.ts",

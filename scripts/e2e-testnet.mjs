@@ -230,7 +230,7 @@ if (!sale.isError && sale.json?.mode === "executed") {
       buy.isError ? buy.text.slice(0, 300).replace(/\n/g, " ") : "bought",
     );
 
-    const status = await call("dexe_otc_buyer_status", {
+    const status = await call("dexe_read_token_sale_position", {
       tokenSaleProposal: tokenSale,
       chainId: CHAIN,
       tierIds: ["1"],

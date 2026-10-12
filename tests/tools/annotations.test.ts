@@ -13,6 +13,7 @@ import {
 } from "../../src/tools/annotations.js";
 import { SINGLE_SERVER_ANNOTATIONS } from "../../src/tools/annotationsWrite.js";
 import { READ_TOOLS } from "../../src/editions.js";
+import { DEPRECATED_ALIASES } from "../../src/tools/aliases.js";
 
 const classifiedToolNames = () => classifiedIn(SINGLE_SERVER_ANNOTATIONS);
 const titledToolNames = () => titledIn(SINGLE_SERVER_ANNOTATIONS);
@@ -187,7 +188,8 @@ describe("MCP tool annotations (wire shape)", () => {
     // READ-edition tools are the exception (0.36.0): connector directories
     // review every hint as an explicit boolean, so those 54 spell all four —
     // pinned in tests/tools/read-edition-surface.test.ts.
-    const read = new Set(READ_TOOLS);
+    // A deprecated alias (src/tools/aliases.ts) carries its read target's hints.
+    const read = new Set([...READ_TOOLS, ...Object.keys(DEPRECATED_ALIASES)]);
     for (const t of full) {
       if (t.annotations?.readOnlyHint !== true || read.has(t.name)) continue;
       expect(t.annotations.destructiveHint, t.name).toBeUndefined();

@@ -54,7 +54,7 @@ export interface KnownDao {
    * The DAO's TokenSaleProposal / DistributionProposal helpers, as predicted at
    * deploy. Neither is readable back from the GovPool, so a later OTC call has
    * nowhere else to get them — recording them here is what lets
-   * `dexe_otc_dao_open_sale` / `dexe_otc_list_sales_for_dao` default
+   * `dexe_otc_dao_open_sale` / `dexe_read_token_sales` default
    * `tokenSaleProposal` for a DAO this install created.
    */
   tokenSaleProposal?: string;

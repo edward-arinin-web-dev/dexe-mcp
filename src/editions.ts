@@ -24,7 +24,9 @@
  * nothing), yet builders belong to the write edition.
  *
  * Names are the CURRENT tool names. A new tool must be added to exactly one
- * list — the manifest test fails on an unclassified name.
+ * list — the manifest test fails on an unclassified name. A renamed tool's
+ * old name goes in DEPRECATED_ALIASES (src/tools/aliases.ts, write side),
+ * never in either list.
  */
 
 /** 54 tools for the read edition. */
@@ -74,9 +76,11 @@ export const READ_TOOLS: readonly string[] = [
   "dexe_read_user_activity",
   "dexe_read_validator_list",
 
-  // ── token-sale position reads (pure multicall + merkle proof, no signer)
-  "dexe_otc_list_sales_for_dao",
-  "dexe_otc_buyer_status",
+  // ── token-sale reads (pure multicall + merkle proof, no signer). Named
+  // dexe_otc_list_sales_for_dao / dexe_otc_buyer_status before 0.36.0 (D4);
+  // the single server still answers to the old names (src/tools/aliases.ts).
+  "dexe_read_token_sales",
+  "dexe_read_token_sale_position",
 
   // ── reporting and analysis
   "dexe_dao_report",

@@ -16,7 +16,7 @@ import type { DexeConfig } from "../../src/config.js";
  * one session and opened a sale in the next had to have kept the receipt.
  *
  * The deploy now records the TokenSaleProposal (and DistributionProposal) on
- * the KnownDao, and `dexe_otc_list_sales_for_dao` / `dexe_otc_dao_open_sale`
+ * the KnownDao, and `dexe_read_token_sales` / `dexe_otc_dao_open_sale`
  * default `tokenSaleProposal` from that record. For a DAO this install did not
  * deploy, the error says where the address comes from.
  */
@@ -64,7 +64,7 @@ async function listSales(args: Record<string, unknown>, state?: StateStore): Pro
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   try {
-    return (await client.callTool({ name: "dexe_otc_list_sales_for_dao", arguments: args })) as unknown as ToolResult;
+    return (await client.callTool({ name: "dexe_read_token_sales", arguments: args })) as unknown as ToolResult;
   } finally {
     await client.close();
     await server.close();
@@ -100,7 +100,7 @@ describe("findKnownDao", () => {
   });
 });
 
-describe("dexe_otc_list_sales_for_dao without tokenSaleProposal", () => {
+describe("dexe_read_token_sales without tokenSaleProposal", () => {
   it("uses the TokenSaleProposal recorded at deploy for this DAO", async () => {
     const state = stateWith([{ govPool: GOV, chainId: 97, tokenSaleProposal: TSP }]);
     const res = await listSales({ govPool: GOV, chainId: 97 }, state);

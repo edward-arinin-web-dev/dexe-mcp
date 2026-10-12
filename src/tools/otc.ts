@@ -45,7 +45,7 @@ import {
 
 // The sale ABI fragments and the native-coin sentinel live in
 // src/lib/abi/tokenSale.ts (the token-sale reads decode the same shapes);
-// re-exported so existing importers keep working. dexe_otc_buyer_status is
+// re-exported so existing importers keep working. dexe_read_token_sale_position is
 // registered from ./tokenSaleRead.ts.
 export {
   ETHEREUM_ADDRESS,
@@ -211,7 +211,7 @@ export async function resolveMerkleUris(
 
 /**
  * Every OTC write tool: open sale, buy, claim all. The read-only position view
- * (dexe_otc_buyer_status) is ./tokenSaleRead.ts; registerAll registers it
+ * (dexe_read_token_sale_position) is ./tokenSaleRead.ts; registerAll registers it
  * between the two halves below so `tools/list` keeps its historical order.
  */
 export function registerOtcTools(

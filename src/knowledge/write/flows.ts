@@ -442,12 +442,12 @@ export const FLOWS: readonly Flow[] = [
       },
       {
         id: "verify",
-        tool: "dexe_otc_list_sales_for_dao",
+        tool: "dexe_read_token_sales",
         purpose: "Confirm the tier is live and show its parameters (times are UTC).",
         paramsTemplate: { govPool: "{{govPool}}" },
         reportOnSuccess:
           "Report tier id, price, remaining allocation, saleStartTimeUTC/saleEndTimeUTC. Buyers proceed with " +
-          "dexe_otc_buyer_status → dexe_otc_buyer_buy → (after sale end) dexe_otc_buyer_claim_all.",
+          "dexe_read_token_sale_position → dexe_otc_buyer_buy → (after sale end) dexe_otc_buyer_claim_all.",
       },
     ],
     gotchaIds: ["amount-conventions"],

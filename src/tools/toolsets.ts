@@ -60,6 +60,18 @@ export interface ToolsetTable {
   readonly ungated?: boolean;
   /** How `dexe_context` describes the sets. Omitted by a server that has no `dexe_context`. */
   readonly catalog?: ToolsetCatalog;
+  /**
+   * Deprecated names the server also lists (old name → current name). Not
+   * tools and not in any set: an alias is listed exactly when its target is.
+   * Counted only where a client counts `tools/list` entries (the cap note).
+   */
+  readonly aliases?: Readonly<Record<string, string>>;
+}
+
+/** How many entries `tools/list` carries for an allowlist: the tools plus their aliases. */
+function listedCount(table: ToolsetTable, allow: ReadonlySet<string>): number {
+  const aliases = Object.values(table.aliases ?? {}).filter((target) => allow.has(target)).length;
+  return allow.size + aliases;
 }
 
 export interface ResolvedToolsets {
@@ -168,10 +180,10 @@ export const READ_EDITION_TOOLSETS: ToolsetTable = {
 const CLIENT_TOOL_CAP = 128;
 
 /** The cap warning, or "" when the loaded surface fits any known client. */
-function capNote(loaded: number): string {
-  if (loaded <= CLIENT_TOOL_CAP) return "";
+function capNote(listed: number): string {
+  if (listed <= CLIENT_TOOL_CAP) return "";
   return (
-    ` NOTE: ${loaded} tools exceeds the ${CLIENT_TOOL_CAP}-enabled-tool cap some hosts` +
+    ` NOTE: ${listed} listed tools exceeds the ${CLIENT_TOOL_CAP}-enabled-tool cap some hosts` +
     ` (VS Code / GitHub Copilot) apply per chat request — see docs/PROFILES.md for a` +
     ` smaller profile if your client rejects requests.`
   );
@@ -230,8 +242,10 @@ export function applyToolsetGate(server: McpServer, config: ReadConfig, table: T
     );
   }
   if (resolved.full) {
-    const size = tableSurface(table).size;
-    process.stderr.write(`[dexe-mcp] toolsets: full — all ${size} tools loaded.${capNote(size)}\n`);
+    const surface = tableSurface(table);
+    process.stderr.write(
+      `[dexe-mcp] toolsets: full — all ${surface.size} tools loaded.${capNote(listedCount(table, surface))}\n`,
+    );
     return server;
   }
 
@@ -239,7 +253,7 @@ export function applyToolsetGate(server: McpServer, config: ReadConfig, table: T
   process.stderr.write(
     `[dexe-mcp] toolsets: [${resolved.requested.join(", ")}] → ${allow.size} tools loaded ` +
       `(set DEXE_TOOLSETS=full to load all, or add sets: ${setNames.join(", ")}).` +
-      `${capNote(allow.size)}\n`,
+      `${capNote(listedCount(table, allow))}\n`,
   );
   return filterRegistrations(server, allow);
 }

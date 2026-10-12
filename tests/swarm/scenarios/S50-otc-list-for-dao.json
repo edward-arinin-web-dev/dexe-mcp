@@ -6,13 +6,13 @@
   "dependsOn": [],
   "requiresChain": [97],
   "requiresBrowser": false,
-  "notes": "Phase v0.5.0 — exercises dexe_otc_list_sales_for_dao against Glacier (BSC testnet). The TokenSaleProposal helper is wired but has zero tiers; expect tiers: [] and counts.active == 0. The helper address is now {{dao.tokenSale}}, so a mainnet variant only needs SWARM_TOKENSALE_MAINNET populated.",
+  "notes": "Phase v0.5.0 — exercises dexe_read_token_sales against Glacier (BSC testnet). The TokenSaleProposal helper is wired but has zero tiers; expect tiers: [] and counts.active == 0. The helper address is now {{dao.tokenSale}}, so a mainnet variant only needs SWARM_TOKENSALE_MAINNET populated.",
   "agents": [{ "alias": "R", "role": "Voter", "wallet": "AGENT_PK_2" }],
   "steps": [
     {
       "step": 1,
       "agent": "R",
-      "tool": "dexe_otc_list_sales_for_dao",
+      "tool": "dexe_read_token_sales",
       "args": {
         "govPool": "{{firstAllowlistedDao}}",
         "tokenSaleProposal": "{{dao.tokenSale}}"

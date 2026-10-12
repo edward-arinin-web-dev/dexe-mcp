@@ -105,7 +105,7 @@ tool result is therefore always one the server wrote.**
 Covered tools: `dexe_ipfs_fetch`, `dexe_graph_query`, `dexe_graph_schema`,
 `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_dao_experts`,
 `dexe_read_delegation_map`, `dexe_read_validator_list`,
-`dexe_read_user_activity`, `dexe_otc_list_sales_for_dao`, `dexe_proposal_list`,
+`dexe_read_user_activity`, `dexe_read_token_sales`, `dexe_proposal_list`,
 `dexe_proposal_voters`, `dexe_read_multicall`, `dexe_read_treasury` (backend and
 on-chain paths), `dexe_read_dao_stats`, `dexe_read_protocol_stats`,
 `dexe_read_nfts`, `dexe_read_settings`, `dexe_read_token_sale_tiers`,

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";
+import { DEPRECATED_ALIASES } from "../../src/tools/aliases.js";
 import { listTools, type ListedTools } from "../helpers/listTools.js";
 
 /**
@@ -32,10 +33,15 @@ describe("edition manifest", () => {
     expect(READ_TOOLS.filter((n) => write.has(n)), "in both editions").toEqual([]);
   });
 
-  it("read ∪ write is exactly the registered surface", () => {
-    const registered = new Set(full.names);
+  it("read ∪ write is exactly the registered surface (plus the deprecated aliases)", () => {
+    // An alias (src/tools/aliases.ts) is an old name for a renamed tool, not a
+    // tool: it is in neither edition and is registered only by the single
+    // server, next to its target.
+    const aliases = new Set(Object.keys(DEPRECATED_ALIASES));
+    const registered = new Set(full.names.filter((n) => !aliases.has(n)));
     const manifest = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
-    const unclassified = full.names.filter((n) => !manifest.has(n));
+    for (const a of aliases) expect(manifest.has(a), `${a} is an alias, not a tool`).toBe(false);
+    const unclassified = [...registered].filter((n) => !manifest.has(n));
     const phantom = [...manifest].filter((n) => !registered.has(n)).sort();
     expect(
       unclassified,

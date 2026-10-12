@@ -53,6 +53,7 @@ import { applyToolGate, SINGLE_SERVER_TOOLSETS } from "./gate.js";
 import { applyToolAnnotations } from "./annotations.js";
 import { SINGLE_SERVER_ANNOTATIONS } from "./annotationsWrite.js";
 import { applyReadResultGuard } from "./readGuard.js";
+import { applyToolAliases } from "./aliases.js";
 import { installListToolsNormalizer } from "./schemaNormalize.js";
 
 export interface RegisterAllOptions {
@@ -86,9 +87,14 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   // The read-result guard wraps outermost: every read-edition handler runs
   // with the request's cancellation signal, and its result is scrubbed of
   // configured endpoints/keys and capped in size (src/tools/readGuard.ts).
+  //
+  // The alias layer (deprecated tool names, src/tools/aliases.ts) sits between
+  // the annotations and the gate: it copies a target's finished config and
+  // guarded handler, and registers the old name only when the gate let the
+  // target through.
   installListToolsNormalizer(server);
   server = applyReadResultGuard(
-    applyToolAnnotations(applyToolGate(server, config), SINGLE_SERVER_ANNOTATIONS),
+    applyToolAnnotations(applyToolAliases(applyToolGate(server, config), server), SINGLE_SERVER_ANNOTATIONS),
     config,
   );
 
@@ -165,7 +171,7 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
     extraContext: activeFlowContext,
   });
   registerKnowledgePrompts(server);
-  // OTC: open sale, then the read-only position view (dexe_otc_buyer_status,
+  // OTC: open sale, then the read-only position view (dexe_read_token_sale_position,
   // kept out of otc.ts), then buy / claim all — the historical tools/list order.
   registerOtcSaleTools(server, ctx, signer, wc, state);
   registerTokenSaleReadTools(server, ctx);

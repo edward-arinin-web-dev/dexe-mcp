@@ -18,14 +18,14 @@ const PROVENANCE_KEY = "_untrustedContent";
 
 /**
  * THE result funnel for the OTC tools — every one that returns a payload
- * (src/tools/otc.ts and dexe_otc_buyer_status in src/tools/tokenSaleRead.ts)
+ * (src/tools/otc.ts and dexe_read_token_sale_position in src/tools/tokenSaleRead.ts)
  * returns it through here, and none of them build a result any other way.
  *
  * All the sanitizing is `untrustedResult`'s, unchanged: NFKC, control-char
  * escaping, zero-width/bidi stripping and fence-marker defanging applied to
  * every string AND every key, plus the provenance sentence. Nothing here
  * reimplements any of it. Before 0.33.0 this helper was a raw `JSON.stringify`,
- * so `dexe_otc_buyer_status` handed back sale-opener text with its zero-width
+ * so `dexe_read_token_sale_position` handed back sale-opener text with its zero-width
  * characters and forged fence-closes intact — while `dexe_read_token_sale_tiers`
  * returned the SAME on-chain bytes neutralized.
  *

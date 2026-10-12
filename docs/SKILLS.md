@@ -18,7 +18,7 @@ automatically with the plugin, or on demand via the CLI.
 | `dexe-create-dao` | One-call `dexe_dao_create`: param recipe, decimal conventions, the four deploy gotchas (cap>minted, LINEAR initData, non-zero userKeeper asset, mainnet treasury remainder), testnet-first rule. |
 | `dexe-create-proposal` | `dexe_proposal_create` for every wired `proposalType` + `params` recipe; the metadata / ABI-guessing / approve-target / blacklist failure modes. |
 | `dexe-vote-execute` | `dexe_proposal_vote_and_execute`: deposit-first, canonical ProposalState ordering, "withdraw between proposals" lock trap. |
-| `dexe-otc` | The five `dexe_otc_*` composites; PRECISION-1e25 rate, native-BNB sentinel, claim-timing gotchas. Full reference: [`OTC.md`](./OTC.md). |
+| `dexe-otc` | The three `dexe_otc_*` composites and the two token-sale reads (`dexe_read_token_sales`, `dexe_read_token_sale_position`); PRECISION-1e25 rate, native-BNB sentinel, claim-timing gotchas. Full reference: [`OTC.md`](./OTC.md). |
 | `dexe-staking` | Staking setup end-to-end: `create_staking_tier`, StakingProposal auto-resolve + the one-off permissionless `deployStakingProposal()`, the silent past-deadline rejection, mainnet-only rule. |
 | `dexe-report` | One-call `dexe_dao_report` + the subgraph/backend reads behind it: what to ask for, `since: "last"` incremental runs, scheduling a digest. Works with no configuration. Full reference: [`REPORTING.md`](./REPORTING.md). |
 | `dexe-agent-team` | Running a multi-persona fleet: `dexe_agents_list` / `_fund` / `_ledger`, `signerKey` routing, funding caps. **Needs `DEXE_TOOLSETS=core,agents` and plaintext hot keys — burner wallets, chain 97 first.** Full reference: [`AGENTS.md`](./AGENTS.md). |

@@ -3,7 +3,7 @@
 ## 0.36.0 — unreleased
 
 Retitled from 0.35.1: the orientation split below changes what two existing
-tools return. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0350--0360--read-this-if-you-read-the-signer-from-dexe_context-or-dexe_get_config).
+tools return. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0350--0360--read-this-if-you-read-the-signer-from-dexe_context-or-dexe_get_config-or-call-the-otc-read-tools-by-name).
 
 ### Added — `dexe_write_context` (169 tools)
 One new tool, in the default `core` profile: the write half of session
@@ -56,7 +56,7 @@ In this single server the following wording changed; nothing else did:
    PLAYBOOK gotchas region) points at `dexe_list_gov_contract_types` /
    `dexe_decode_calldata` instead of `dexe_compile` + `dexe_get_methods` /
    `dexe_get_abi`.
-3. `dexe_otc_list_sales_for_dao`: the description and the `tokenSaleProposal`
+3. `dexe_otc_list_sales_for_dao` (now `dexe_read_token_sales`, below): the description and the `tokenSaleProposal`
    parameter say "recorded in this install's local state" instead of "this
    install deployed"; the missing-address error points at the `govTokenSale`
    field of `dexe_dao_predict_addresses` instead of `dexe_dao_create`'s
@@ -68,6 +68,76 @@ In this single server the following wording changed; nothing else did:
    walkthrough" (it already named `DEXE_RPC_URL_MAINNET` / `_TESTNET`).
 6. Skill `dexe-report`: "never chain it into a voting or signing tool" instead
    of naming `dexe_proposal_vote_and_execute`.
+
+### Changed — two read tools renamed; the old names stay as deprecated aliases
+- `dexe_otc_buyer_status` → **`dexe_read_token_sale_position`**
+  (title "Token sale position for a wallet").
+- `dexe_otc_list_sales_for_dao` → **`dexe_read_token_sales`**
+  (title "List a DAO's token sale tiers").
+
+Same input, output, annotations and profiles (both in `core`;
+`dexe_read_token_sales` also in `read`). The server registers each old name as
+an alias of the new one — same input schema, output schema, hints and handler,
+title suffixed "(old name)", description "Deprecated alias of … (renamed in
+0.36.0)" — listed exactly when its new name is. Aliases are not tools: the
+count stays 169 (45 by default) while `tools/list` shows 171 (47). The
+knowledge corpus (`otc_sale` flow's verify step), the generated PLAYBOOK and
+`dexe-otc` skill, the docs and the S50 swarm scenario use the new names.
+The startup note about the 128-tool cap some hosts apply (VS Code / Copilot)
+counts listed entries, aliases included — `core,proposals,read,vote` lists 129
+and is now over that cap; docs/PROFILES.md recommends `core,read,vote` (90).
+Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md).
+
+### Changed — read tools pass connector-directory review (2e)
+- **Annotations.** All 54 read-edition tools publish the four MCP hints as
+  explicit booleans: `readOnlyHint: true`, `destructiveHint: false`,
+  `idempotentHint: true`, `openWorldHint` (true for chain / subgraph / backend
+  / IPFS data; false for `dexe_decode_calldata`, `dexe_get_config`,
+  `dexe_guide`, `dexe_ipfs_cid_info`, `dexe_list_gov_contract_types`). Write
+  tools are unchanged (builders keep the one-key form).
+- **Descriptions** state what the tool returns, never which tool to call:
+  the six subgraph list tools ("an error that names the on-chain reads to use
+  instead" replaces the `dexe_read_multicall` / `dexe_read_gov_state` tail),
+  `dexe_graph_query` ("NEVER guess a name — call dexe_graph_schema" →
+  names must match the schema, a wrong name errors with where to look),
+  `dexe_graph_schema`, `dexe_user_inbox`, `dexe_doctor` ("Call FIRST" → "the
+  cause and the fix of an env-related failure"), `dexe_context` ("Skip it
+  when…" → "Not needed once the DAO and chain are known"), `dexe_guide` ("Call
+  this FIRST … Never improvise …" → what the plan contains; the handshake still
+  says when to call it) and `dexe_ipfs_fetch` (no Pinata-JWT aside).
+- **Titles.** Every read title is at most 60 characters and says "token sale",
+  not "OTC": `dexe_ipfs_cid_info`, `dexe_graph_schema`,
+  `dexe_proposal_risk_assess`, `dexe_read_treasury`,
+  `dexe_list_gov_contract_types`, `dexe_proposal_forecast`, `dexe_user_inbox`
+  and the two renamed tools were reworded.
+- `tools/list` default profile 95,284 B for the 45 tools (+2,448 B for the two
+  aliases, budgeted separately); full 325,635 B for 169 tools.
+
+### Internal — per-edition surface (A7)
+- **Toolset gate per edition.** The machinery (resolve, gate, default names,
+  `describeToolsets`) is `src/tools/toolsets.ts` and takes a `ToolsetTable`.
+  `gate.ts` holds the single server's table (`SINGLE_SERVER_TOOLSETS`,
+  unchanged sets and defaults) and `WRITE_EDITION_TOOLSETS` (the same sets
+  narrowed to the write tools); `READ_EDITION_TOOLSETS` is every read tool,
+  ungated (`DEXE_TOOLSETS` ignored). `dexe_context`, `dexe_doctor` and
+  `dexe_dao_report`'s followUp hints read the table they are handed.
+- **Annotations per edition.** `AnnotationTable` + `applyToolAnnotations(server,
+  table)`: `READ_ANNOTATIONS` (`annotations.ts`), `WRITE_ANNOTATIONS` and the
+  merged `SINGLE_SERVER_ANNOTATIONS` (`annotationsWrite.ts`).
+- **Instructions per edition.** `readInstructions()` (`instructions.ts`:
+  zero-config reads, report first, the subgraph schema; read tools only) and
+  `writeInstructions()` (`instructionsWrite.ts`: the single server's text minus
+  the read material, pointing at the read server; write tools only), both
+  under 2,048 characters. `serverInstructions()` moved to
+  `instructionsWrite.ts` and is byte-identical.
+- **`dexe_dao_report` snapshots are injected** (`ReportSnapshotStore`). The
+  file store moved to `src/lib/reportStoreFile.ts`; the stdio server passes it
+  (unchanged behaviour), the remote read server passes none.
+- **`dexe_doctor` wording per edition** (`DoctorText`); `probePin` is published
+  only by a server whose checks own a pin probe.
+- Read → write import crossings: 1 → **0**; `tools/report.ts` left the
+  read-side disk-writer list. `tests/helpers/readEdition.ts` wires the 54 read
+  tools from read modules only, the way the read edition will.
 
 ### Internal — knowledge, context and config split (A6)
 - `src/knowledge/` is a read corpus (`read/`: the two topics and four read

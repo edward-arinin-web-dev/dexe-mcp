@@ -115,8 +115,6 @@ const READ_CLASSES: Record<string, ToolAnnotations> = {
   // bundled reference, whatever its position in the toolset profile.
   dexe_graph_schema: READ_PUBLIC,
   dexe_ipfs_fetch: READ_PUBLIC,
-  dexe_otc_buyer_status: READ_PUBLIC,
-  dexe_otc_list_sales_for_dao: READ_PUBLIC,
   dexe_proposal_forecast: READ_PUBLIC,
   dexe_proposal_list: READ_PUBLIC,
   dexe_proposal_risk_assess: READ_PUBLIC,
@@ -137,8 +135,10 @@ const READ_CLASSES: Record<string, ToolAnnotations> = {
   dexe_read_settings: READ_PUBLIC,
   dexe_read_staking_info: READ_PUBLIC,
   dexe_read_token_holders: READ_PUBLIC,
+  dexe_read_token_sale_position: READ_PUBLIC,
   dexe_read_token_sale_tiers: READ_PUBLIC,
   dexe_read_token_sale_user: READ_PUBLIC,
+  dexe_read_token_sales: READ_PUBLIC,
   dexe_read_treasury: READ_PUBLIC,
   dexe_read_user_activity: READ_PUBLIC,
   dexe_read_validator_list: READ_PUBLIC,
@@ -162,7 +162,6 @@ const READ_TITLES: Record<string, string> = {
   // the read edition's guide serves reference topics only; the single server
   // titles its flow-plan guide in ./annotationsWrite.ts
   dexe_guide: "DAO data reading guide",
-  dexe_otc_buyer_status: "Token sale position for a wallet",
 };
 
 /**

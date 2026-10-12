@@ -291,7 +291,7 @@ export function registerSubgraphTools(server: McpServer, ctx: ToolContext, state
   registerValidatorList(server, ctx);
   registerUserActivity(server, ctx);
   registerDaoExperts(server, ctx);
-  registerOtcListSalesForDao(server, ctx, state);
+  registerTokenSalesList(server, ctx, state);
   registerGraphQuery(server, ctx);
   registerGraphSchema(server, ctx);
 }
@@ -1212,11 +1212,11 @@ const GOV_POOL_HELPERS_DISCOVERY_ABI = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
 ]);
 
-function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext, state?: StateStore): void {
+function registerTokenSalesList(server: McpServer, ctx: ToolContext, state?: StateStore): void {
   const rpc = new RpcProvider(ctx.config);
 
   server.registerTool(
-    "dexe_otc_list_sales_for_dao",
+    "dexe_read_token_sales",
     {
       title: "List a DAO's token sale tiers",
       description:
@@ -1380,7 +1380,7 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext, state?:
         });
       } catch (e) {
         return errorResult(
-          toActionableError(e, "dexe_otc_list_sales_for_dao").message,
+          toActionableError(e, "dexe_read_token_sales").message,
         );
       }
     },

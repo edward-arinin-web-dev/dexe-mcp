@@ -2,8 +2,8 @@ import { ZeroAddress } from "ethers";
 
 /**
  * TokenSaleProposal ABI fragments shared by the token-sale reads
- * (dexe_read_token_sale_tiers / _user, dexe_otc_list_sales_for_dao,
- * dexe_otc_buyer_status) and the OTC write composites and buy builders, so
+ * (dexe_read_token_sale_tiers / _user, dexe_read_token_sales,
+ * dexe_read_token_sale_position) and the OTC write composites and buy builders, so
  * every surface decodes the same nested shapes.
  */
 

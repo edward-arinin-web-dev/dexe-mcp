@@ -6,6 +6,11 @@ custom rate, lockup, vesting, optional whitelist). Every step is one MCP call;
 calldata returned can be signed by any wallet (or auto-broadcast when
 `DEXE_PRIVATE_KEY` is set).
 
+> **Renamed in 0.36.0:** the two read tools are `dexe_read_token_sale_position`
+> (was `dexe_otc_buyer_status`) and `dexe_read_token_sales` (was
+> `dexe_otc_list_sales_for_dao`). The old names still work as deprecated
+> aliases — see [MIGRATION.md](./MIGRATION.md).
+
 ## Tools at a glance
 
 | Tool | Role |
@@ -15,9 +20,10 @@ calldata returned can be signed by any wallet (or auto-broadcast when
 | `dexe_otc_dao_open_sale` | composite — multi-tier `createTiers` envelope + IPFS metadata + deposit + `createProposalAndVote`. `buildOnly: true` skips the proposal flow and just returns the envelope |
 | `dexe_proposal_state` | poll `state` until index `4` (`SucceededFor`) — newly-passed proposals briefly land in `Locked` (idx 6) for finality before transitioning |
 | `dexe_vote_build_execute` | build the final `execute(proposalId)` payload |
-| `dexe_otc_buyer_status` | render-ready buyer view: per-tier prices + `totalSold`/`isOff` + claimable + vesting + auto-merkle proof (passed into `getUserViews`, so `canParticipate` is accurate for merkle tiers) |
+| `dexe_read_token_sale_position` | render-ready buyer view: per-tier prices + `totalSold`/`isOff` + claimable + vesting + auto-merkle proof (passed into `getUserViews`, so `canParticipate` is accurate for merkle tiers) |
 | `dexe_otc_buyer_buy` | preflights balance/allowance + builds approve + buy(); native sentinel `0xEeee…EEeE` (ETHEREUM_ADDRESS) skips approve and uses `value` — `0x0…0` accepted as alias |
 | `dexe_otc_buyer_claim_all` | reads `getUserViews`, picks tiers with `canClaim && !isClaimed` → `claim(...)`, tiers with `amountToWithdraw > 0` → `vestingWithdraw(...)`. `mode: "noop"` when nothing pending |
+| `dexe_read_token_sales` | list a DAO's tiers (prices, `totalSold`, `isOff`, UTC times) |
 | `dexe_proposal_build_token_sale_whitelist` | extend an existing tier's whitelist post-launch |
 | `dexe_merkle_build` / `dexe_merkle_proof` | OZ `StandardMerkleTree`-compatible utility (sorted-pair commutative keccak, double-hash leaf) |
 
@@ -72,7 +78,7 @@ calldata returned can be signed by any wallet (or auto-broadcast when
 | **`vestingPercentage > 0` is REFUSED outright** | F15: vested funds become permanently unwithdrawable on any current pool, so `dexe_otc_dao_open_sale` refuses **before** encoding, uploading or broadcasting anything — it names the offending tiers. Fix: set `vestingSettings.vestingPercentage` to `"0"` (buyers then get the whole allocation via `claim`, which works). Override only on a pre-SphereX pool where `vestingWithdraw` is known to work: `acknowledgeVestingBlocked: true` |
 | **`dryRun` does NOT pin the merkle whitelist** | Under `dryRun: true` the merkle `uri` is computed locally and nothing reaches IPFS. A tier built in a dry run and then broadcast as-is is **unbuyable** — buyers regenerate their proofs from a list that was never pinned. The result's `merkleWhitelistUploads[]` carries `pinned` per tier, so you can tell which is which; re-run without `dryRun` so the pin and the proposal land together |
 | **Pinata is needed to BROADCAST, not to preview** | `DEXE_PINATA_JWT` is required to open a sale whose tiers carry a merkle whitelist (and for the proposal metadata). A preview/`dryRun` needs no key at all |
-| **Times are UTC** | `saleStartTime`/`saleEndTime` are raw Unix seconds (timezone-agnostic). `dexe_otc_buyer_status` and `dexe_otc_list_sales_for_dao` also emit `saleStartTimeUTC`/`saleEndTimeUTC` (e.g. `"2026-07-03 17:45:59 UTC"`) so users don't misread them as local time — this matches the app.dexe.io tier labels ("… PM UTC") |
+| **Times are UTC** | `saleStartTime`/`saleEndTime` are raw Unix seconds (timezone-agnostic). `dexe_read_token_sale_position` and `dexe_read_token_sales` also emit `saleStartTimeUTC`/`saleEndTimeUTC` (e.g. `"2026-07-03 17:45:59 UTC"`) so users don't misread them as local time — this matches the app.dexe.io tier labels ("… PM UTC") |
 
 ## Project-owner flow (full lifecycle)
 
@@ -143,7 +149,7 @@ const exec = await call("dexe_vote_build_execute", { govPool: predicted.govPool,
 
 ```ts
 // Check status (auto-derives merkle proof if whitelist supplied)
-const status = await call("dexe_otc_buyer_status", {
+const status = await call("dexe_read_token_sale_position", {
   tokenSaleProposal: "0x…",
   tierIds: ["1"],
   user: buyer.address,

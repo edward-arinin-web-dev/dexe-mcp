@@ -11,7 +11,7 @@ live?".
 |------|------|
 | `dexe_user_inbox` | Multi-DAO attention aggregator — unvoted proposals, claimable rewards, locked deposits |
 | `dexe_proposal_forecast` | Predictive pass-rate from latest 10 proposals — projects quorum hit probability |
-| `dexe_otc_list_sales_for_dao` | Tier discovery for a DAO's TokenSaleProposal — status (`upcoming` / `active` / `ended`) |
+| `dexe_read_token_sales` | Tier discovery for a DAO's TokenSaleProposal — status (`upcoming` / `active` / `ended`) |
 
 All three are read-only — never broadcast a tx.
 
@@ -131,7 +131,10 @@ Mainnet only by default. Pass `forceRpcOnly: true` to run on testnet from
 on-chain reads alone — useful when you have enough historical proposals on
 chain 97 to get a meaningful sample.
 
-## `dexe_otc_list_sales_for_dao`
+## `dexe_read_token_sales`
+
+Named `dexe_otc_list_sales_for_dao` before 0.36.0; the old name still works as a
+deprecated alias on the `dexe-mcp` server.
 
 ```jsonc
 {

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { TOOLSETS, resolveToolsets, DEFAULT_TOOLSETS } from "../../src/tools/gate.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { listTools } from "../helpers/listTools.js";
+import { DEPRECATED_ALIASES } from "../../src/tools/aliases.js";
 
 describe("resolveToolsets", () => {
   it("defaults to core alone when empty", () => {
@@ -38,15 +40,31 @@ describe("resolveToolsets", () => {
   });
 });
 
+/**
+ * Deprecated aliases (src/tools/aliases.ts) are old names for renamed tools:
+ * listed while they exist, never counted as tools. The surface assertions
+ * below run on real tools only; the budget assertion counts alias bytes
+ * separately against their own (transitional) cap.
+ */
+const ALIASES: ReadonlySet<string> = new Set(Object.keys(DEPRECATED_ALIASES));
+const aliasBytesIn = (tools: Tool[]): number =>
+  tools.filter((t) => ALIASES.has(t.name)).reduce((n, t) => n + Buffer.byteLength(JSON.stringify(t), "utf8") + 1, 0);
+
 describe("tool gating (real server)", () => {
   let fullNames: string[];
   let fullBytes: number;
   let defaultNames: string[];
   let defaultBytes: number;
+  let defaultAliasBytes: number;
 
   beforeAll(async () => {
-    ({ names: fullNames, bytes: fullBytes } = await listTools("full"));
-    ({ names: defaultNames, bytes: defaultBytes } = await listTools(undefined));
+    const full = await listTools("full");
+    const def = await listTools(undefined);
+    fullNames = full.names.filter((n) => !ALIASES.has(n));
+    fullBytes = full.bytes - aliasBytesIn(full.tools);
+    defaultNames = def.names.filter((n) => !ALIASES.has(n));
+    defaultAliasBytes = aliasBytesIn(def.tools);
+    defaultBytes = def.bytes - defaultAliasBytes;
   });
 
   it("full registers each tool exactly once", () => {
@@ -173,7 +191,16 @@ describe("tool gating (real server)", () => {
     // for the mode the tool's own first sentence says not to use) and by
     // leading every description with one effect marker instead of a paragraph.
     // The rules that keep it there are tests/tools/description-lint.test.ts.
+    //
+    // 0.36.0: the read-edition tools spell all four MCP hints (~1.5 KB on the
+    // default profile) — paid for inside the line by trimming the read
+    // descriptions. The two deprecated aliases of the renamed token-sale reads
+    // (src/tools/aliases.ts) are NOT tools and are budgeted on their own: they
+    // carry their target's full input schema so old callers keep working, and
+    // they leave with the aliases in the next major. Do not let alias bytes
+    // drift into the tool budget.
     expect(defaultBytes).toBeLessThan(96_000);
+    expect(defaultAliasBytes, "deprecated aliases in the default profile").toBeLessThan(3_000);
     // Well below the 0.30.x default it replaces — the whole point of the swap.
     expect(defaultBytes).toBeLessThan(134_263);
     // The default is now the "maximum slim" profile that used to require opting
