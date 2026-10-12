@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
 import type { WriteConfig } from "../config.js";
-import { DEFAULTS } from "../config.js";
+import { DEFAULTS, hotKeyEnvNames } from "../config.js";
+import { IMPLICIT_UNATTENDED_DEPRECATION } from "../lib/signerMode.js";
+import { KEYSTORE_MIN_SAFE_N, keystorePermissionIssues, parseKeystoreMeta } from "../lib/keystore.js";
+import { safeErrorMessage } from "../lib/redact.js";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
 import { fetchJsonWithTimeout, type CheckResult, type EnvFileWording, type ExtraChecks } from "./checks.js";
 import type { DoctorText } from "../tools/doctor.js";
@@ -39,7 +43,11 @@ export function writeDoctorChecks(opts: WriteDoctorOptions = {}): ExtraChecks<Wr
     // reads (read + write + dev), in the order they have always been listed.
     env: FULL_ENV_SURFACE,
     network: (timeoutMs) => [pinataJwtCheck(timeoutMs), pinataPinQuotaCheck(timeoutMs, opts.probePin === true)],
-    config: (config) => [...signerGuardConfigCheck(config), ...signerNeedsRpcCheck(config)],
+    config: (config) => [
+      ...signerModeChecks(config),
+      ...signerGuardConfigCheck(config),
+      ...signerNeedsRpcCheck(config),
+    ],
     sharedDefaults: {
       inUse: (config) =>
         config.walletConnectProjectId === DEFAULTS.walletConnectProjectId ? ["WalletConnect project id"] : [],
@@ -186,6 +194,146 @@ async function pinataPinQuotaCheck(timeoutMs: number, enabled: boolean): Promise
   };
 }
 
+// ─── signer mode, keystore, approval page (0.37.0) ─────────────────────────
+
+/**
+ * What signs, and whether a human confirms it. One row always (`signer.mode`),
+ * plus the rows that only make sense for the resolved mode.
+ */
+export function signerModeChecks(config: WriteConfig | undefined, env: NodeJS.ProcessEnv = process.env): CheckResult[] {
+  if (!config?.signerMode) return [];
+  const out: CheckResult[] = [];
+  const mode = config.signerMode;
+  const hot = hotKeyEnvNames(env);
+  const hasHotKeyLoaded = !!config.privateKey || Object.keys(config.agentKeys ?? {}).length > 0;
+
+  if (mode === "unattended") {
+    const fence = config.unattendedChains ?? null;
+    if (config.signerModeSource === "implicit-hot-key") {
+      out.push({
+        id: "signer.mode",
+        category: "signer",
+        status: "warn",
+        message: `unattended (implicit, DEPRECATED) — hot keys sign with NO human confirmation on every configured chain. ${IMPLICIT_UNATTENDED_DEPRECATION}`,
+        remediation:
+          "Recommended: `npx dexe-mcp key import --from-env` then DEXE_SIGNER_MODE=keystore (or walletconnect). To keep " +
+          "unattended signing, set DEXE_SIGNER_MODE=unattended explicitly (testnet 97 only unless DEXE_UNATTENDED_CHAINS lists more).",
+      });
+    } else {
+      out.push({
+        id: "signer.mode",
+        category: "signer",
+        status: hasHotKeyLoaded ? "warn" : "fail",
+        message: hasHotKeyLoaded
+          ? `unattended — hot keys sign with NO human confirmation, on chain(s) ${fence?.join(", ") ?? "any"} only`
+          : "DEXE_SIGNER_MODE=unattended but no hot key is loaded — nothing can sign",
+        ...(hasHotKeyLoaded ? {} : { remediation: "Set DEXE_PRIVATE_KEY (or the keyring), or pick another DEXE_SIGNER_MODE." }),
+      });
+    }
+    const mainnet = fence === null || fence.includes(56) || fence.includes(1);
+    if (hasHotKeyLoaded && mainnet && !(config.signerAllowlist?.length && config.signerMaxValueWei !== undefined)) {
+      out.push({
+        id: "signer.unattendedMainnet",
+        category: "signer",
+        status: "warn",
+        message:
+          (fence === null ? "unattended signing is not fenced to testnet" : "unattended signing includes a mainnet") +
+          " and the B6/B7 caps (DEXE_SIGNER_ALLOWLIST + DEXE_SIGNER_MAX_VALUE_WEI) are not both set — an AI with a hot key can move real funds anywhere.",
+        remediation:
+          "Set DEXE_SIGNER_ALLOWLIST and DEXE_SIGNER_MAX_VALUE_WEI, or keep DEXE_UNATTENDED_CHAINS=97, or use keystore / walletconnect mode for mainnet.",
+      });
+    }
+  } else {
+    out.push({
+      id: "signer.mode",
+      category: "signer",
+      status: mode === "keystore" && !config.keystore ? "fail" : "pass",
+      message:
+        mode === "walletconnect"
+          ? "walletconnect — your phone wallet signs every transaction (recommended)"
+          : mode === "readonly"
+            ? "readonly — this server never signs; write tools return unsigned payloads"
+            : config.keystore
+              ? `keystore — ${config.keystore.address} signs after the owner approves each batch with its password on a local page`
+              : "keystore — but no usable keystore was found, so nothing can sign",
+      ...(mode === "keystore" && !config.keystore
+        ? { remediation: "In a terminal: `npx dexe-mcp key create` (or `key import`), then restart. See the startup row for the path." }
+        : {}),
+    });
+    if (hot.length > 0) {
+      out.push({
+        id: "signer.hotKeyIgnored",
+        category: "signer",
+        status: "warn",
+        message: `${hot.join(", ")} ${hot.length === 1 ? "is" : "are"} set but IGNORED in ${mode} mode — and still sit in plaintext on disk.`,
+        remediation:
+          "Move the primary key into the encrypted keystore with `npx dexe-mcp key import --from-env` (it removes the plaintext line), " +
+          "or delete the lines. Keyring slots are for DEXE_SIGNER_MODE=unattended only.",
+      });
+    }
+  }
+
+  if (mode === "keystore" && config.keystore) {
+    const issues: string[] = [];
+    let status: CheckResult["status"] = "pass";
+    try {
+      const meta = parseKeystoreMeta(readFileSync(config.keystore.file, "utf8"));
+      if (meta.kdf !== "scrypt" || meta.n === null || meta.n < KEYSTORE_MIN_SAFE_N) {
+        issues.push(`weak KDF (${meta.kdf}${meta.n ? ` N=${meta.n}` : ""}) — re-encrypt with \`dexe-mcp key change-password\``);
+        status = "warn";
+      }
+      for (const p of keystorePermissionIssues(config.keystore.file)) {
+        issues.push(p);
+        status = "warn";
+      }
+    } catch (e) {
+      issues.push(`unreadable: ${safeErrorMessage(e)}`);
+      status = "fail";
+    }
+    out.push({
+      id: "signer.keystore",
+      category: "signer",
+      status,
+      message: issues.length ? `${config.keystore.file}: ${issues.join("; ")}` : `${config.keystore.file} (scrypt, permissions ok)`,
+      ...(process.platform === "win32" && status === "pass"
+        ? { remediation: "On Windows the file is protected by your profile folder's ACL (you and administrators)." }
+        : {}),
+    });
+    const ssh = !!(env.SSH_CONNECTION || env.SSH_TTY);
+    const noDisplay = process.platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY;
+    if (ssh || noDisplay) {
+      out.push({
+        id: "approval.browser",
+        category: "signer",
+        status: "warn",
+        message:
+          "the approval page is served on 127.0.0.1 of THIS machine and there is no local desktop browser here" +
+          (ssh ? " (SSH session)" : " (no DISPLAY)") +
+          " — approvals will wait until someone opens the link on this machine.",
+        remediation:
+          "Forward the port (ssh -L) and open the printed link locally, or use DEXE_SIGNER_MODE=walletconnect on headless hosts.",
+      });
+    } else if (config.approvalOpenBrowser === false) {
+      out.push({
+        id: "approval.browser",
+        category: "signer",
+        status: "pass",
+        message: "DEXE_APPROVAL_OPEN_BROWSER=0 — the approval link is printed, not opened",
+      });
+    }
+    if (env.DEXE_KEYSTORE_PASSWORD_FILE?.trim()) {
+      out.push({
+        id: "signer.passwordFile",
+        category: "signer",
+        status: "warn",
+        message: "DEXE_KEYSTORE_PASSWORD_FILE is ignored in keystore mode — the owner types the password on the approval page.",
+        remediation: "Remove it (it is for DEXE_SIGNER_MODE=unattended / CI only), and delete the password file.",
+      });
+    }
+  }
+  return out;
+}
+
 // ─── signer broadcast guards ─────────────────────────────────────────────
 
 function signerGuardConfigCheck(config?: WriteConfig): CheckResult[] {
@@ -195,7 +343,10 @@ function signerGuardConfigCheck(config?: WriteConfig): CheckResult[] {
   // broadcast-guard var fails closed (signing off) while the env var it was
   // set from is still present — reading process.env here would tell the user
   // their hot key is "the active signer" while every broadcast is refused.
-  const hotKeySet = process.env.DEXE_PRIVATE_KEY?.trim();
+  // Outside unattended mode a present hot key is IGNORED by design, not
+  // "disabled by a fault" — signer.hotKeyIgnored above says so.
+  const unattended = !config?.signerMode || config.signerMode === "unattended";
+  const hotKeySet = unattended ? process.env.DEXE_PRIVATE_KEY?.trim() : undefined;
   const hotKeyActive = config ? config.privateKey !== undefined : Boolean(hotKeySet);
   if (hotKeySet && hotKeyActive) {
     out.push({
@@ -283,12 +434,12 @@ function signerGuardConfigCheck(config?: WriteConfig): CheckResult[] {
   // Agent keyring visibility: count configured slots + which naming supplied
   // them (DEXE_AGENT_PK_* vs the AGENT_PK_*/AGENT_FUNDER_PK swarm aliases).
   const slots: string[] = [];
-  for (let n = 1; n <= 16; n++) {
+  for (let n = 1; n <= 16 && unattended; n++) {
     if (process.env[`DEXE_AGENT_PK_${n}`]?.trim()) slots.push(`agent${n}`);
     else if (process.env[`AGENT_PK_${n}`]?.trim()) slots.push(`agent${n}(alias)`);
   }
-  if (process.env.DEXE_AGENT_FUNDER_PK?.trim()) slots.push("funder");
-  else if (process.env.AGENT_FUNDER_PK?.trim()) slots.push("funder(alias)");
+  if (unattended && process.env.DEXE_AGENT_FUNDER_PK?.trim()) slots.push("funder");
+  else if (unattended && process.env.AGENT_FUNDER_PK?.trim()) slots.push("funder(alias)");
   if (slots.length > 0) {
     // Same resolved-vs-raw distinction as signer.hotKey above: the env vars can
     // be present while the keyring was dropped (no RPC, or a failed-closed guard).
@@ -320,6 +471,7 @@ function signerGuardConfigCheck(config?: WriteConfig): CheckResult[] {
 /** Listed first among the chain rows: a hot key the server cannot broadcast with. */
 function signerNeedsRpcCheck(config: WriteConfig | undefined): CheckResult[] {
   if (!config) return [];
+  if (config.signerMode && config.signerMode !== "unattended") return [];
   if (process.env.DEXE_PRIVATE_KEY?.trim() && config.chains.size === 0) {
     return [
       {

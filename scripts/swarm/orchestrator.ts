@@ -29,6 +29,7 @@ import {
   type ProposalCreateMcpResult,
 } from "./proposalCreateResult.js";
 import { routeStep } from "./stepRouting.js";
+import { mcpChildEnv, swarmChainId } from "./mcpEnv.js";
 import {
   checkDaosRegistered,
   makeIsGovPool,
@@ -759,8 +760,10 @@ async function getMcpClient(kind: "payloads" | "signing" = "payloads"): Promise<
         args: [resolve("dist/index.js")],
         // DEXE_TOOLSETS=full: scenario steps hit read/vote/dev tools that the
         // slim default surface hides — without this ~34 steps 404 as "unknown
-        // tool" (P3 harness bug, 2026-07-07 run).
-        env: { ...process.env, DEXE_PRIVATE_KEY: primary, DEXE_TOOLSETS: "full" } as Record<string, string>,
+        // tool" (P3 harness bug, 2026-07-07 run). DEXE_SIGNER_MODE=unattended +
+        // DEXE_UNATTENDED_CHAINS=<this run's chain>: the fleet signs with hot
+        // keys, explicitly, on one chain (scripts/swarm/mcpEnv.ts).
+        env: mcpChildEnv(process.env, { primary, chainId: swarmChainId(process.env) }),
         cwd: process.cwd(),
       });
       const c = new McpClient({ name: `swarm-orchestrator-${kind}`, version: "0.1.0" });

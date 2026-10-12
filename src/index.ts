@@ -43,7 +43,7 @@ function packageVersion(): string {
  * unknown-argument message all read THIS list — never a second hand-written
  * one, so a fourth subcommand cannot land half-documented.
  */
-export const SUBCOMMANDS = ["doctor", "init", "skills", "serve-http"] as const;
+export const SUBCOMMANDS = ["doctor", "init", "key", "skills", "serve-http"] as const;
 export type Subcommand = (typeof SUBCOMMANDS)[number];
 
 const HELP_ARGS = new Set(["--help", "-h", "help"]);
@@ -92,6 +92,9 @@ export function usageText(version: string): string {
     "  dexe-mcp doctor [--strict]      diagnose env + connectivity; --strict exits 1 on warnings (CI)",
     "        [--probe-pin]             also verify Pinata pin capability (WRITES one tiny pin)",
     "  dexe-mcp init [--skills-only]   interactive onboarding wizard (writes ~/.dexe-mcp/.env)",
+    "        [--unattended]            offer the plaintext hot-key option (unattended signing)",
+    "  dexe-mcp key <command>          encrypted keystore: create | import [--from-env | --json <file>] |",
+    "                                  list | export-address | change-password | remove (`dexe-mcp key --help`)",
     "  dexe-mcp skills [--global]      copy the shipped Claude skills into ./.claude/skills (or ~ with --global)",
     "  dexe-mcp serve-http [--port <n>] [--host <addr>]",
     "                                  the read edition over MCP Streamable HTTP for remote clients (runs",
@@ -174,7 +177,7 @@ function loadEnvironment(): string[] {
  * Subcommands must be handled BEFORE the stdio transport opens — the MCP
  * host passes no args, so any argv[2] means a human/CI invoked directly.
  */
-async function runSubcommand(name: Exclude<Subcommand, "serve-http">): Promise<void> {
+async function runSubcommand(name: Exclude<Subcommand, "serve-http">, envFiles: readonly string[] = []): Promise<void> {
   if (name === "doctor") {
     const mod = await import("./cli/doctor.js");
     // Forward argv[3..] the same way the skills branch does. `run()` calls
@@ -188,8 +191,18 @@ async function runSubcommand(name: Exclude<Subcommand, "serve-http">): Promise<v
   }
   if (name === "init") {
     const mod = await import("./cli/init.js");
-    await mod.run();
+    const next = await mod.run();
+    // The wizard stays free of key handling (it is shared with the read
+    // edition); when the user picked the encrypted key it hands over here.
+    if (next === "key-create" || next === "key-import") {
+      const key = await import("./cli/key.js");
+      process.exit(await key.run([next === "key-create" ? "create" : "import"], { envFiles }));
+    }
     process.exit(0);
+  }
+  if (name === "key") {
+    const mod = await import("./cli/key.js");
+    process.exit(await mod.run(process.argv.slice(3), { envFiles }));
   }
   const mod = await import("./cli/skills.js");
   await mod.run(process.argv.slice(3));
@@ -421,7 +434,7 @@ async function bootstrap(): Promise<void> {
     // A human/CI ran this in a terminal: report and exit, never open a
     // transport. Deliberately AFTER loadEnvironment() — `doctor`/`init` need
     // the same env the MCP startup path sees (see the note above it).
-    await runSubcommand(intent.name);
+    await runSubcommand(intent.name, envCandidates);
     return;
   }
 

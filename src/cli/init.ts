@@ -29,7 +29,14 @@ import { fileURLToPath } from "node:url";
 const TESTNET_DEFAULT_RPC = "https://data-seed-prebsc-1-s1.bnbchain.org:8545";
 const MAINNET_DEFAULT_RPC = "https://bsc-dataseed.bnbchain.org";
 
-export async function run(): Promise<void> {
+/**
+ * What the wizard hands back to the CLI dispatcher (src/index.ts). The
+ * keystore steps run there, not here: this wizard is shared with the read
+ * edition and stays free of key handling.
+ */
+export type InitNext = "key-create" | "key-import" | undefined;
+
+export async function run(): Promise<InitNext> {
   // BEFORE the TTY check on purpose: on a real terminal `dexe-mcp init --help`
   // otherwise drops the user straight into the interactive wizard with no way
   // out but Ctrl-C, and off a TTY it exits 2 with an unrelated message.
@@ -37,9 +44,10 @@ export async function run(): Promise<void> {
   // (the `--skills-only` read below).
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     output.write(
-      "dexe-mcp init [--skills-only]\n\n" +
+      "dexe-mcp init [--skills-only] [--unattended]\n\n" +
         "  interactive wizard; writes ~/.dexe-mcp/.env and can install the skills\n" +
-        "  --skills-only   skip the env interview, just install the skills\n\n" +
+        "  --skills-only   skip the env interview, just install the skills\n" +
+        "  --unattended    also offer a plaintext hot key that signs with no confirmation (bots / CI)\n\n" +
         "Needs a TTY. For a non-interactive setup, copy .env.example by hand.\n",
     );
     return;
@@ -58,8 +66,8 @@ export async function run(): Promise<void> {
     output.write(line("─".repeat(64)));
     output.write(line("Reads already work with ZERO config (RPC, subgraphs, backend,"));
     output.write(line("IPFS reads, WalletConnect). This only overrides a default or"));
-    output.write(line("enables writes. Answers are stored in plaintext; use WalletConnect"));
-    output.write(line("or readonly mode if that worries you."));
+    output.write(line("enables writes. Answers are stored in plaintext — which is why the"));
+    output.write(line("signer choices below never put a key in this file by default."));
     output.write("\n");
 
     const repoRoot = findRepoRoot();
@@ -84,7 +92,7 @@ export async function run(): Promise<void> {
       await maybeInstallSkills(rl, repoRoot);
       output.write(line(""));
       output.write(line("Done. Restart Claude Code if it was already running."));
-      return;
+      return undefined;
     }
 
     // ---- Network selection ----------------------------------------------
@@ -139,32 +147,41 @@ export async function run(): Promise<void> {
     const graphKey = (await ask(rl, "Graph API key (blank = use shared default)", "")).trim();
 
     // ---- Signer mode ---------------------------------------------------
+    // WalletConnect (default) → encrypted keystore → read-only. A plaintext
+    // hot key is offered only with --unattended: it signs with nobody
+    // confirming anything, which is right for a bot and wrong for a person.
+    const allowUnattended = process.argv.includes("--unattended");
     output.write(line(""));
-    output.write(line("Signer mode:"));
-    output.write(line("  readonly   — no broadcast; tools return unsigned calldata (safest)"));
-    output.write(line("  walletconnect — broadcast via phone wallet; key never enters this process"));
-    output.write(line("  privkey    — hot key in .env; convenient for CI and bots, NOT recommended"));
-    const signerMode = await pickOne(
-      rl,
-      "Pick a signer mode",
-      [
-        ["r", "readonly (recommended)"],
-        ["w", "walletconnect"],
-        ["p", "privkey (warning: plaintext in .env)"],
-      ],
-      "r",
-    );
+    output.write(line("How should this server sign transactions?"));
+    output.write(line("  walletconnect — your phone wallet signs each one; keys never touch this machine"));
+    output.write(line("  keystore      — an encrypted key here; you approve every batch with its password"));
+    output.write(line("                  on a local web page (the AI never sees the password)"));
+    output.write(line("  readonly      — never sign; tools return unsigned calldata"));
+    if (allowUnattended) {
+      output.write(line("  unattended    — a PLAINTEXT hot key in .env signs with NO confirmation (bots/CI)"));
+    }
+    const signerOptions: Array<readonly [string, string]> = [
+      ["w", "walletconnect (recommended)"],
+      ["k", "encrypted key (keystore)"],
+      ["r", "read-only"],
+    ];
+    if (allowUnattended) signerOptions.push(["u", "unattended hot key (plaintext in .env, no confirmation)"]);
+    const signerMode = await pickOne(rl, "Pick a signer mode", signerOptions, "w");
 
     let privateKey: string | undefined;
     let wcProjectId: string | undefined;
-    if (signerMode === "p") {
+    let signerChoice: "walletconnect" | "keystore" | "readonly" | "unattended" = "walletconnect";
+    let unattendedChains: string | undefined;
+    let keystoreNext: InitNext;
+    if (signerMode === "u") {
+      signerChoice = "unattended";
       output.write(line(""));
-      output.write(line("⚠  Plaintext private keys in .env are a security risk."));
-      output.write(line("   Anyone who reads the file can drain that wallet."));
-      output.write(line("   Prefer WalletConnect (re-run init and pick `w`) when possible."));
-      const confirm = await yn(rl, "Continue with privkey mode?", false);
+      output.write(line("⚠  A plaintext private key in .env signs with NO human confirmation."));
+      output.write(line("   Anyone (or any AI) that reads the file can drain that wallet."));
+      output.write(line("   Use a throwaway wallet. For a person, pick walletconnect or keystore instead."));
+      const confirm = await yn(rl, "Continue with an unattended hot key?", false);
       if (!confirm) {
-        output.write(line("Aborted — re-run init and pick readonly or walletconnect."));
+        output.write(line("Aborted — re-run init and pick walletconnect or keystore."));
         process.exit(2);
       }
       const pk = (await ask(rl, "Private key (0x… 64 hex)", "")).trim();
@@ -180,8 +197,28 @@ export async function run(): Promise<void> {
         process.exit(2);
       }
       privateKey = pk;
-    } else if (signerMode === "w") {
-      wcProjectId = (await ask(rl, "WalletConnect project id (cloud.reown.com)", "")).trim();
+      unattendedChains = "97";
+      if (network !== "t") {
+        const main = await yn(rl, "Allow it to sign on MAINNET (chain 56) too? Real funds, no confirmation.", false);
+        if (main) unattendedChains = "97,56";
+      }
+    } else if (signerMode === "k") {
+      signerChoice = "keystore";
+      const how = await pickOne(
+        rl,
+        "Right after this, create the encrypted key:",
+        [
+          ["c", "create a new key (then fund its address)"],
+          ["i", "import a key you already have (pasted, hidden)"],
+        ],
+        "c",
+      );
+      keystoreNext = how === "i" ? "key-import" : "key-create";
+    } else if (signerMode === "r") {
+      signerChoice = "readonly";
+    } else {
+      output.write(line("A shared WalletConnect project id is built in. Press Enter to use it."));
+      wcProjectId = (await ask(rl, "Your own WalletConnect project id (cloud.reown.com)", "")).trim();
     }
 
     // ---- Build the env block + write .env ------------------------------
@@ -192,7 +229,9 @@ export async function run(): Promise<void> {
     if (pinataJwt) updates.DEXE_PINATA_JWT = pinataJwt;
     if (ipfsGateway) updates.DEXE_IPFS_GATEWAY = ipfsGateway;
     if (graphKey) updates.DEXE_GRAPH_API_KEY = graphKey;
+    updates.DEXE_SIGNER_MODE = signerChoice;
     if (privateKey) updates.DEXE_PRIVATE_KEY = privateKey;
+    if (unattendedChains) updates.DEXE_UNATTENDED_CHAINS = unattendedChains;
     if (wcProjectId) updates.DEXE_WALLETCONNECT_PROJECT_ID = wcProjectId;
 
     // Where to write config. A source checkout (has `src/`) keeps the
@@ -258,7 +297,13 @@ export async function run(): Promise<void> {
     output.write(line(""));
     output.write(jsonSnippet(repoRoot));
     output.write(line(""));
+    if (keystoreNext) {
+      output.write(line("Now the encrypted key (the password is typed here, hidden — never into an AI chat):"));
+      output.write(line(""));
+      return keystoreNext;
+    }
     output.write(line(`Next: run \`npx dexe-mcp doctor\` to verify, then restart Claude Code.`));
+    return undefined;
   } finally {
     rl.close();
   }
