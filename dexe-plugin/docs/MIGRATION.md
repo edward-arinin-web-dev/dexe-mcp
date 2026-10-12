@@ -6,7 +6,7 @@ something on your side.
 
 ---
 
-## 0.34.1 → 0.35.0 — no action (unreleased)
+## 0.34.1 → 0.35.0 — no action
 
 Tool count unchanged (**168 tools** / 19 groups). No emitted calldata changed.
 

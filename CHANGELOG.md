@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.35.0 — unreleased
+## 0.35.0 — 2026-10-12
 
 ### Fixed — a third of the MCP handshake never reached the model
 Claude Code keeps 2,048 characters of a server's `instructions` and drops the

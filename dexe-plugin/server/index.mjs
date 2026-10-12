@@ -137388,6 +137388,10 @@ var TITLES = {
   dexe_wc_disconnect: "Disconnect the wallet",
   dexe_wc_status: "WalletConnect session state"
 };
+var ALWAYS_LOADED = /* @__PURE__ */ new Set(["dexe_context", "dexe_guide"]);
+function metaFor(name2) {
+  return ALWAYS_LOADED.has(name2) ? { "anthropic/alwaysLoad": true } : void 0;
+}
 function annotationsFor(name2) {
   return TOOL_CLASSES[name2];
 }
@@ -137409,12 +137413,14 @@ function applyToolAnnotations(server) {
           return original(name2, ...rest);
         const ann = annotationsFor(name2);
         const title = titleFor(name2);
+        const meta = metaFor(name2);
         if (prop === "registerTool" && rest[0] !== null && typeof rest[0] === "object") {
           const cfg = rest[0];
           rest[0] = {
             ...cfg,
             ...ann ? { annotations: { ...ann, ...cfg.annotations } } : {},
-            ...cfg.title === void 0 && title !== void 0 ? { title } : {}
+            ...cfg.title === void 0 && title !== void 0 ? { title } : {},
+            ...meta ? { _meta: { ...meta, ...cfg._meta } } : {}
           };
           return original(name2, ...rest);
         }
@@ -137424,6 +137430,8 @@ function applyToolAnnotations(server) {
             reg.annotations = ann;
           if (title !== void 0 && reg.title === void 0)
             reg.title = title;
+          if (meta)
+            reg._meta = { ...meta, ...reg._meta };
         }
         return reg;
       };
@@ -137494,7 +137502,7 @@ var SHIPPED_SKILLS = [
 ];
 function serverInstructions() {
   const defaultCount = defaultProfileToolNames().size;
-  return "Tools for DeXe Protocol governance DAOs, plus dexe_gov_* (needs DEXE_TOOLSETS=core,governor) \u2014 a generic surface for external OpenZeppelin/Compound Governor DAOs. For any MULTI-STEP request (create a DAO, launch a token economy, OTC sale, staking, distribution, pass a proposal) call dexe_guide FIRST \u2014 it returns the exact plan, the questions to ask the user with risk notes, and the known pitfalls. Call dexe_context first WHEN you need orientation (signer, active chain, env readiness, DAOs/proposals from prior sessions) \u2014 skip it when the user already gave you the target DAO and chain. Prefer the composite flow tools over hand-sequencing calldata: dexe_dao_create (deploy a DAO), dexe_proposal_create (ANY of the 33 catalog proposal types \u2014 pass proposalType + params), dexe_proposal_vote_and_execute (auto-deposits when power is short). Amounts on the composites and proposal builders accept raw wei (digits-only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. For images (DAO avatars): pass a LOCAL FILE PATH (avatarPath / newAvatarPath / filePath) and the server reads, validates, and pins it \u2014 never read image files or pass base64 through the conversation. The composites handle approve\u2192deposit\u2192create sequencing, correct IPFS metadata, and the known deploy/proposal reverts; on partial failure they return the landed-steps ledger \u2014 fix the cause and re-run the same call. " + RESUME_SUMMARY + ` When depositing, ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). Contract introspection \u2014 dexe_compile, dexe_get_abi, dexe_get_source, dexe_list_contracts, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): run the compile step once per session before the reads. The tool surface is gated by DEXE_TOOLSETS (default '${DEFAULT_TOOLSETS.join(",")}' \u2014 ${defaultCount} tools: the composites plus the zero-config reporting reads). The ~30 single-purpose dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) builders are NOT in it, and you do not need them: dexe_proposal_create covers every on-chain catalog type. dexe_context reports which sets are off and what they unlock \u2014 check it BEFORE telling a user to edit DEXE_TOOLSETS. Full intent\u2192call recipes + error\u2192remedy table: docs/PLAYBOOK.md (shipped in the package). MCP resources: dexe://playbook (recipes + error remedies), dexe://graph-schema (subgraph entity reference for dexe_graph_query), dexe://tools (full tool catalog). Recipe skills ship with the package (${SHIPPED_SKILLS.join(", ")}); dexe-agent-team also needs DEXE_TOOLSETS=core,agents plus hot keys. Installed automatically with the Claude Code plugin (\`/plugin install dexe@dexe-mcp\`), or copy them standalone with \`npx dexe-mcp skills\`.`;
+  return "Tools for DeXe Protocol governance DAOs, plus dexe_gov_* (needs DEXE_TOOLSETS=core,governor) for external OpenZeppelin/Compound Governors. For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_guide FIRST: it returns the plan, the questions to ask the user, and the known pitfalls. Call dexe_context when you need orientation (signer, chain, env readiness, known DAOs, which toolsets are off) \u2014 skip it when the user already named the DAO and chain. Prefer the composites over hand-sequenced calldata: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types \u2014 proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). On partial failure they return the landed-steps ledger \u2014 fix the cause and re-run the same call. " + RESUME_SUMMARY + ` Amounts: composites and proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. Images: pass a LOCAL FILE PATH, never base64 through the conversation. ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). The tool surface is gated by DEXE_TOOLSETS (default '${DEFAULT_TOOLSETS.join(",")}' \u2014 ${defaultCount} tools). dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) are off and not needed: dexe_proposal_create covers every type. dexe_compile, dexe_get_abi, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): compile once before the reads. Recipes and error remedies: resource dexe://playbook; full catalog: dexe://tools. Skills: ${SHIPPED_SKILLS.join(", ")}; dexe-agent-team needs DEXE_TOOLSETS=core,agents plus hot keys.`;
 }
 
 // dist/resources.js
