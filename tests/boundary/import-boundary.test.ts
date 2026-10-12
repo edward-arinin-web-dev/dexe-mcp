@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { extname, join, posix, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MODULE_CLASSES, MODULE_GROUPS, type ModuleClass } from "./modules.js";
@@ -480,9 +480,9 @@ function analyse(tree: Tree, classes: ReadonlyMap<string, ModuleClass>, allow: A
 function loadSrcTree(): Tree {
   const tree = new Map<string, string>();
   const walk = (dir: string): void => {
-    for (const name of readdirSync(dir)) {
-      const p = join(dir, name);
-      if (statSync(p).isDirectory()) walk(p);
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
       else if (extname(p) === ".ts" && !p.endsWith(".d.ts")) {
         tree.set(relative(SRC, p).split(sep).join("/"), readFileSync(p, "utf8"));
       }
