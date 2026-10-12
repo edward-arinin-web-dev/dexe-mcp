@@ -118387,7 +118387,7 @@ function resolveGateways(_ctx) {
   const haveGatewayKey = !!process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
   if (!disablePublic && usesRestrictedPinata && !haveGatewayKey) {
     const publicFallback = "https://ipfs.io";
-    if (!out.includes(publicFallback))
+    if (!out.some((g3) => g3 === publicFallback))
       out.push(publicFallback);
   }
   return out;

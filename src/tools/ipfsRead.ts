@@ -148,7 +148,7 @@ export function resolveGateways(_ctx: ToolContext): string[] {
   const haveGatewayKey = !!process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
   if (!disablePublic && usesRestrictedPinata && !haveGatewayKey) {
     const publicFallback = "https://ipfs.io";
-    if (!out.includes(publicFallback)) out.push(publicFallback);
+    if (!out.some((g) => g === publicFallback)) out.push(publicFallback);
   }
   return out;
 }
