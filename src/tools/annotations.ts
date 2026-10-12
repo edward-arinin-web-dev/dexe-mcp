@@ -245,6 +245,8 @@ const TOOL_CLASSES: Record<string, ToolAnnotations> = {
   dexe_vote_get_votes: READ_ONLY,
   dexe_vote_user_power: READ_ONLY,
   dexe_wc_status: READ_ONLY,
+  // signer posture + keyring; probes each persona's balance over RPC, so open world
+  dexe_write_context: READ_ONLY,
 };
 
 /**
@@ -280,6 +282,7 @@ const TITLES: Record<string, string> = {
   dexe_wc_connect: "Connect a wallet by QR",
   dexe_wc_disconnect: "Disconnect the wallet",
   dexe_wc_status: "WalletConnect session state",
+  dexe_write_context: "Signer and write posture",
 };
 
 /**

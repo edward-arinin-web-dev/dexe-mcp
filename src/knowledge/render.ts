@@ -1,13 +1,13 @@
-import type { Flow, Gotcha, Topic } from "./types.js";
-import { FLOWS } from "./flows.js";
-import { TOPICS } from "./topics.js";
-import { GOTCHAS } from "./gotchas.js";
+import type { Flow, Gotcha, KnowledgeCorpus, Topic } from "./types.js";
 import { knownFailures, type KnownFailure } from "../lib/errors.js";
 
 /**
- * Markdown renderers for the knowledge corpus. Used by scripts/gen-knowledge.ts
- * to rewrite the marked GENERATED regions of docs/PLAYBOOK.md (and, Phase B,
- * skill bodies + MCP prompts). Deterministic output — CI diff-checks it.
+ * Markdown renderers for a knowledge corpus. Used by scripts/gen-knowledge.ts
+ * to rewrite the marked GENERATED regions of docs/PLAYBOOK.md and the skill
+ * bodies, and by the MCP prompts. Deterministic output — CI diff-checks it.
+ *
+ * Every renderer takes the corpus it renders: the engine knows no corpus of
+ * its own (./engine.ts).
  */
 
 const SEVERITY_MARK: Record<Gotcha["severity"], string> = {
@@ -15,6 +15,8 @@ const SEVERITY_MARK: Record<Gotcha["severity"], string> = {
   warn: "⚠",
   info: "ℹ",
 };
+
+const SEVERITY_RANK = { danger: 0, warn: 1, info: 2 } as const;
 
 function renderFlow(f: Flow): string {
   const lines: string[] = [];
@@ -45,15 +47,14 @@ function renderFlow(f: Flow): string {
 }
 
 /** The `flows` generated region: every flow as a compact recipe. */
-export function renderFlowsSection(): string {
-  return FLOWS.map(renderFlow).join("\n\n");
+export function renderFlowsSection(corpus: KnowledgeCorpus): string {
+  return corpus.flows.map(renderFlow).join("\n\n");
 }
 
-function renderTopic(t: Topic): string {
-  const rank = { danger: 0, warn: 1, info: 2 } as const;
-  const gotchas = GOTCHAS.filter((g) => (t.gotchaIds ?? []).includes(g.id)).sort(
-    (a, b) => rank[a.severity] - rank[b.severity],
-  );
+function renderTopic(corpus: KnowledgeCorpus, t: Topic): string {
+  const gotchas = corpus.gotchas
+    .filter((g) => (t.gotchaIds ?? []).includes(g.id))
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   const lines: string[] = [];
   lines.push(`### ${t.title} (\`${t.id}\`)`);
   lines.push("");
@@ -73,14 +74,13 @@ function renderTopic(t: Topic): string {
 }
 
 /** The `topics` generated region: reference topics (non-journey knowledge). */
-export function renderTopicsSection(): string {
-  return TOPICS.map(renderTopic).join("\n\n");
+export function renderTopicsSection(corpus: KnowledgeCorpus): string {
+  return corpus.topics.map((t) => renderTopic(corpus, t)).join("\n\n");
 }
 
-/** The `gotchas` generated region: the full rule corpus, danger-first. */
-export function renderGotchasSection(): string {
-  const rank = { danger: 0, warn: 1, info: 2 } as const;
-  const sorted = [...GOTCHAS].sort((a, b) => rank[a.severity] - rank[b.severity]);
+/** The `gotchas` generated region: the corpus's full rule set, danger-first. */
+export function renderGotchasSection(corpus: KnowledgeCorpus): string {
+  const sorted = [...corpus.gotchas].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   return sorted
     .map((g) => `- ${SEVERITY_MARK[g.severity]} **${g.id}** — ${g.text}`)
     .join("\n");
@@ -99,28 +99,26 @@ export function renderErrorTable(table: readonly KnownFailure[] = knownFailures(
 }
 
 /**
- * Per-flow recipe for a skill's generated region (and the MCP prompts):
- * the flow recipe + its resolved gotchas, danger-first. Uses flowDetail so
- * chain-agnostic (no chainId → all gotchas included).
+ * Per-flow recipe for a skill's generated region (and the MCP prompts): the
+ * flow recipe + its gotchas, danger-first — chain-agnostic, so every gotcha is
+ * included. The closing line points at the guide tool that serves the
+ * machine-readable plan for this corpus.
  */
-export function renderSkillRecipe(flowId: string): string {
-  const f = FLOWS.find((x) => x.id === flowId);
+export function renderSkillRecipe(corpus: KnowledgeCorpus, flowId: string, guideTool = "dexe_guide"): string {
+  const f = corpus.flows.find((x) => x.id === flowId);
   if (!f) throw new Error(`renderSkillRecipe: unknown flow '${flowId}'`);
-  const rank = { danger: 0, warn: 1, info: 2 } as const;
   const ids = new Set<string>([...f.gotchaIds, ...f.steps.flatMap((s) => s.gotchaIds ?? [])]);
-  const gotchas = GOTCHAS.filter((g) => ids.has(g.id)).sort((a, b) => rank[a.severity] - rank[b.severity]);
-  const lines: string[] = [renderFlowsSectionFor(f)];
+  const gotchas = corpus.gotchas
+    .filter((g) => ids.has(g.id))
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  const lines: string[] = [renderFlow(f)];
   lines.push("");
   lines.push("**Pitfalls (danger first):**");
   for (const g of gotchas) lines.push(`- ${SEVERITY_MARK[g.severity]} ${g.text}`);
   lines.push("");
   lines.push(
     "_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` " +
-      "chaining), call the `dexe_guide` tool with `flow:\"" + f.id + "\"`._",
+      "chaining), call the `" + guideTool + "` tool with `flow:\"" + f.id + "\"`._",
   );
   return lines.join("\n");
-}
-
-function renderFlowsSectionFor(f: Flow): string {
-  return renderFlow(f);
 }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { nextAfter } from "../knowledge/nextSteps.js";
+import { nextAfter } from "../knowledge/write/nextSteps.js";
 import type { StateStore } from "./stateStore.js";
 
 /**

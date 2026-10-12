@@ -30,10 +30,11 @@
 /** 54 tools for the read edition. */
 export const READ_TOOLS: readonly string[] = [
   // ── orientation / diagnostics
+  // chains, env readiness, toolsets, recorded DAOs; the signer half is dexe_write_context
   "dexe_context",
   "dexe_guide",
   "dexe_doctor",
-  // chains + subgraph coverage only once the signer half moves out
+  // chains, subgraph coverage, backend, IPFS read gateways (D6)
   "dexe_get_config",
 
   // ── DAO / proposal / vote reads
@@ -104,7 +105,7 @@ export const READ_TOOLS: readonly string[] = [
   "dexe_gov_simulate_vote_impact",
 ];
 
-/** 114 tools for the write edition. */
+/** 115 tools for the write edition. */
 export const WRITE_TOOLS: readonly string[] = [
   // ── composites that sign and broadcast
   "dexe_proposal_create",
@@ -117,6 +118,8 @@ export const WRITE_TOOLS: readonly string[] = [
   "dexe_dao_build_deploy",
 
   // ── signing, broadcast, wallets, personas
+  // signer mode, keyring, Pinata/WalletConnect/Safe posture, the unfinished flow
+  "dexe_write_context",
   "dexe_tx_send",
   // the write edition's resume rule depends on it, so it stays beside tx_send
   "dexe_tx_status",

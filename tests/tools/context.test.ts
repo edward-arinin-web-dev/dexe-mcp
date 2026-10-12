@@ -27,7 +27,7 @@ afterEach(() => {
  * that re-stringifies the parsed object compactly measures ~13% less than
  * reality and would pass a response that busted the budget.
  */
-async function callContextRaw(statePath: string, args: Record<string, unknown> = {}) {
+async function callToolRaw(statePath: string, name: string, args: Record<string, unknown> = {}) {
   process.env.DEXE_STATE_PATH = statePath;
   const config = await loadConfig();
   const server = new McpServer({ name: "ctx-test", version: "0.0.0" }, {});
@@ -35,18 +35,33 @@ async function callContextRaw(statePath: string, args: Record<string, unknown> =
   const client = new Client({ name: "c", version: "0.0.0" });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(st), client.connect(ct)]);
-  const res = (await client.callTool({
-    name: "dexe_context",
-    arguments: { includeDepositedPower: false, includeAgentBalances: false, ...args },
-  })) as { content: { type: string; text: string }[] };
+  const res = (await client.callTool({ name, arguments: args })) as {
+    content: { type: string; text: string }[];
+    isError?: boolean;
+  };
   const text = res.content[0]!.text;
   await client.close();
   await server.close();
-  return { json: JSON.parse(text), text };
+  return { json: res.isError ? null : JSON.parse(text), text, isError: res.isError === true };
+}
+
+async function callContextRaw(statePath: string, args: Record<string, unknown> = {}) {
+  return callToolRaw(statePath, "dexe_context", args);
 }
 
 async function callContext(statePath: string) {
   return (await callContextRaw(statePath)).json;
+}
+
+function recordMeridian(statePath: string): void {
+  new StateStore(statePath).recordDao({
+    name: "Meridian Collective",
+    govPool: "0xf113630C0000000000000000000000000000abcd",
+    chainId: 97,
+    token: "0xToken",
+    txHash: "0xdeadbeef",
+    deployedAt: "2026-07-04T00:00:00.000Z",
+  });
 }
 
 describe("dexe_context persistence (Phase 3 acceptance)", () => {
@@ -56,25 +71,13 @@ describe("dexe_context persistence (Phase 3 acceptance)", () => {
     const statePath = join(dir, "state.json");
 
     // "Session 1" — a deploy auto-records the DAO.
-    new StateStore(statePath).recordDao({
-      name: "Meridian Collective",
-      govPool: "0xf113630C0000000000000000000000000000abcd",
-      chainId: 97,
-      token: "0xToken",
-      txHash: "0xdeadbeef",
-      deployedAt: "2026-07-04T00:00:00.000Z",
-    });
+    recordMeridian(statePath);
 
     // "Session 2" — a fresh server + dexe_context reads it back.
     const ctx = await callContext(statePath);
     expect(ctx.knownDaos).toHaveLength(1);
     expect(ctx.knownDaos[0].name).toBe("Meridian Collective");
     expect(ctx.chain.lastUsedChainId).toBe(97);
-    // No hot key in tests, but the baked default WalletConnect project id makes
-    // WC signing available out of the box → mode is "walletconnect" with no
-    // wallet connected yet (address null; actual signing still gated on connect).
-    expect(ctx.signer.mode).toBe("walletconnect");
-    expect(ctx.signer.address).toBeNull();
     expect(ctx.env).toHaveProperty("toolsets");
     expect(ctx.hint).toContain("Meridian Collective");
   });
@@ -86,6 +89,98 @@ describe("dexe_context persistence (Phase 3 acceptance)", () => {
     expect(ctx.knownDaos).toEqual([]);
     expect(ctx.recentProposals).toEqual([]);
     expect(ctx.hint).toMatch(/No DAOs recorded/);
+  });
+});
+
+/**
+ * 0.36.0 split orientation by edition. `dexe_context` is the READ half and
+ * carries nothing about signing; `dexe_write_context` carries the signer, the
+ * keyring, Pinata / WalletConnect / Safe posture and an unfinished flow.
+ */
+describe("dexe_context is the read half (0.36.0)", () => {
+  it("carries no signer, keyring, upload/WalletConnect posture or interrupted flow", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dexe-ctx-read-"));
+    dirs.push(dir);
+    const statePath = join(dir, "state.json");
+    recordMeridian(statePath);
+    new StateStore(statePath).setActiveFlow({ flow: "create_dao", step: "deploy", chainId: 97 });
+
+    const { json, text } = await callContextRaw(statePath);
+    for (const k of ["signer", "keyring", "activeFlow"]) expect(json, k).not.toHaveProperty(k);
+    expect(json.env).not.toHaveProperty("ipfsUploads");
+    expect(json.env).not.toHaveProperty("walletConnectAvailable");
+    expect(json.env.usingSharedDefaults).not.toContain("walletconnect");
+    // The only write-tool name in the reply is the pointer the single server's
+    // root appends to the hint.
+    expect(json.hint).toMatch(/dexe_write_context\.$/);
+    expect(text).not.toMatch(/Mid-journey|dexe_dao_create|dexe_tx_send/);
+  });
+
+  it("reports deposited power for the wallet the caller names, not for a signer", async () => {
+    process.env.DEXE_DISABLE_PUBLIC_RPC = "1"; // no network: the readout degrades to null
+    try {
+      const dir = mkdtempSync(join(tmpdir(), "dexe-ctx-user-"));
+      dirs.push(dir);
+      const statePath = join(dir, "state.json");
+      recordMeridian(statePath);
+      const user = "0x00000000000000000000000000000000000000c1";
+
+      const without = await callContextRaw(statePath);
+      expect(without.json.lastDaoPower).toBeNull();
+
+      const withUser = await callContextRaw(statePath, { user });
+      expect(withUser.json.lastDaoPower).toEqual({
+        govPool: "0xf113630C0000000000000000000000000000abcd",
+        chainId: 97,
+        user,
+        depositedPower: null,
+      });
+
+      const bad = await callContextRaw(statePath, { user: "0xnope" });
+      expect(bad.isError).toBe(true);
+      expect(bad.text).toContain("Invalid user");
+    } finally {
+      delete process.env.DEXE_DISABLE_PUBLIC_RPC;
+    }
+  });
+});
+
+describe("dexe_write_context is the write half (0.36.0)", () => {
+  const callWrite = (statePath: string) =>
+    callToolRaw(statePath, "dexe_write_context", { includeDepositedPower: false, includeAgentBalances: false });
+
+  it("reports the signer posture dexe_context and dexe_get_config used to carry", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dexe-wctx-"));
+    dirs.push(dir);
+    const { json } = await callWrite(join(dir, "state.json"));
+    // No hot key in tests, but the baked default WalletConnect project id makes
+    // WC signing available out of the box → mode is "walletconnect" with no
+    // wallet connected yet (address null; actual signing still gated on connect).
+    expect(json.signer.mode).toBe("walletconnect");
+    expect(json.signer.address).toBeNull();
+    expect(json.signer.recommended).toBe("walletconnect");
+    expect(json.signer.safety).toBeUndefined();
+    expect(json.walletConnect.available).toBe(true);
+    expect(json.walletConnect.sharedDefaultProjectId).toBe(true);
+    expect(json.safe.txServiceConfigured).toBe(false);
+    expect(json.ipfsUploads.pinataConfigured).toBe(false);
+    expect(json.keyring.configured).toBe(0);
+    expect(json.hint).toContain("dexe_wc_connect");
+    expect(json.hint).toContain("DEXE_PINATA_JWT is unset");
+    expect(json.hint).toContain("dexe_dao_create");
+  });
+
+  it("carries the interrupted write journey and the resume pointer", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dexe-wctx-flow-"));
+    dirs.push(dir);
+    const statePath = join(dir, "state.json");
+    recordMeridian(statePath);
+    new StateStore(statePath).setActiveFlow({ flow: "create_dao", step: "deploy", chainId: 97 });
+    const { json } = await callWrite(statePath);
+    expect(json.activeFlow).toMatchObject({ flow: "create_dao", step: "deploy", chainId: 97 });
+    expect(json.hint).toMatch(/^Mid-journey: flow 'create_dao'/);
+    expect(json.hint).toContain('dexe_guide {flow:"create_dao"}');
+    expect(json.hint).not.toContain("No DAOs recorded");
   });
 });
 

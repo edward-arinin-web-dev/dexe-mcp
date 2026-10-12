@@ -1,15 +1,17 @@
-import type { Gotcha } from "./types.js";
+import type { Gotcha } from "../types.js";
+import { READ_GOTCHAS, READ_GOTCHA_BY_ID } from "../read/gotchas.js";
 
 /**
- * The protocol gotcha corpus — every non-obvious DeXe rule an agent must know
- * before acting. Sources: docs/PLAYBOOK.md, the mainnet verification campaigns
- * (2026-07), and the project memory (bug_*.md / reference_*.md). Each entry
- * cites its origin so a future correction can be traced.
+ * The WRITE gotchas — every non-obvious DeXe rule an agent must know before it
+ * deploys, proposes, votes, sells or signs. Sources: docs/PLAYBOOK.md, the
+ * mainnet verification campaigns (2026-07), and the project memory
+ * (bug_*.md / reference_*.md). Each entry cites its origin so a future
+ * correction can be traced. The data-read rules live in ../read/gotchas.ts.
  *
  * Severity: danger = money/deadlock at stake, warn = a step will revert or
  * misbehave, info = convention that prevents confusion.
  */
-export const GOTCHAS: readonly Gotcha[] = [
+export const WRITE_GOTCHAS: readonly Gotcha[] = [
   // ── DAO creation ──────────────────────────────────────────────────────────
   {
     // reference_dao_creation_rules.md
@@ -52,36 +54,6 @@ export const GOTCHAS: readonly Gotcha[] = [
       "below it return mode:\"blocked-risky\" and need an explicit confirmRisky:true re-run. Warn the user before " +
       "they choose a low quorum.",
     applies: { flows: ["create_dao"], proposalTypes: ["change_voting_settings", "new_proposal_type"] },
-  },
-  {
-    // D1 audit 2026-09-11 (D1-3): dexe_proposal_forecast divided token-wei votes
-    // by the raw 1e25-scaled SETTING. Protocol truth: GovPoolVote._quorumReached
-    // (per-side) and GovPool.getProposalRequiredQuorum (absolute weight, 0 when
-    // the proposal does not exist / has not started).
-    id: "quorum-two-units",
-    severity: "warn",
-    text:
-      "DeXe expresses quorum in TWO units and mixing them is the classic error. (1) The SETTING — " +
-      "GovSettings.getDefaultSettings().quorum, the pools subgraph's Proposal.quorum, and the raw " +
-      "`quorum`/`quorumSettingRaw` on dexe_read_settings and dexe_dao_report — is a PERCENTAGE scaled by 1e25 " +
-      "(5e26 = 50%); read it as `quorumPct`/`quorumSettingPct`. (2) The TARGET — GovPool." +
-      "getProposalRequiredQuorum(id), the `requiredQuorum` field on getProposals rows, dexe_proposal_state and " +
-      "dexe_proposal_list — is an ABSOLUTE vote weight in token wei, equal to GovUserKeeper.getTotalPower() × " +
-      "setting / 1e27. Compare votes ONLY against the TARGET; against the SETTING you are off by " +
-      "totalPower/1e27 — orders of magnitude, in either direction. Quorum is also per-SIDE: " +
-      "GovPoolVote._quorumReached is true when EITHER votesFor OR votesAgainst clears the target, never their " +
-      "sum. getProposalRequiredQuorum returns 0 for a proposal that does not exist or has not started — treat " +
-      "0 as unknown, never as \"already reached\".",
-    applies: {
-      tools: [
-        "dexe_proposal_state",
-        "dexe_proposal_list",
-        "dexe_proposal_forecast",
-        "dexe_dao_report",
-        "dexe_read_settings",
-        "dexe_graph_query",
-      ],
-    },
   },
   {
     // bug_deploy_cap_equals_minted.md (CORRECTED rule)
@@ -512,66 +484,29 @@ export const GOTCHAS: readonly Gotcha[] = [
       "size budgets from Ethereum L1 intuition.",
     applies: { flows: ["create_dao", "launch_token_economy"] },
   },
-
-  // ── reading / querying data ───────────────────────────────────────────────
-  {
-    // docs/GRAPH.md ground rules; GRAPH_QUERY_MAX_RESPONSE_CHARS in subgraph.ts
-    id: "graph-bound-first",
-    severity: "warn",
-    text:
-      "ALWAYS bound dexe_graph_query list fields with `first:` (gateway max 1000) and paginate with `skip:` — " +
-      "responses over 120000 chars are rejected outright, so an unbounded query fails instead of streaming. " +
-      "Entity ids are lowercased concatenated bytes (e.g. proposal id = poolAddress + uint32-LE(proposalId), no " +
-      "separator); relation filters use the `_` suffix (pool_: {id: \"0x…\"}). Full entity/field reference: MCP " +
-      "resource dexe://graph-schema.",
-    applies: { tools: ["dexe_graph_query"] },
-  },
-  {
-    // reference_bsc_testnet.md — no subgraph/backend on 97
-    id: "subgraph-backend-mainnet-only",
-    severity: "warn",
-    text:
-      "Subgraph and DeXe-backend data exist for BSC MAINNET (56) only. Every subgraph-backed tool takes `chainId` " +
-      "and REFUSES a chain it has no endpoint for — it never answers from another chain, so a testnet call errors " +
-      "loudly instead of handing back mainnet rows. The error names the chains that are indexed, the on-chain " +
-      "alternatives, and the env var to set. Affected: dexe_graph_query, dexe_read_dao_list, dexe_read_dao_members, " +
-      "dexe_read_delegation_map, dexe_read_dao_experts, dexe_read_validator_list, dexe_read_user_activity, " +
-      "dexe_proposal_voters, dexe_user_inbox (auto-discovery only — pass `daos: [\"0x…\"]` to scan any chain), " +
-      "dexe_proposal_forecast. Backend-only tools (dexe_read_token_holders, dexe_read_dao_stats, " +
-      "dexe_read_protocol_stats, dexe_read_nfts) stay mainnet-only. For testnet DAOs read on-chain instead: " +
-      "dexe_read_gov_state, dexe_read_settings, dexe_proposal_state, dexe_read_multicall (dexe_read_treasury falls " +
-      "back to RPC automatically). Every subgraph response carries `indexedChainId` — the chain the rows came from. " +
-      "To index another chain yourself set DEXE_SUBGRAPH_<KIND>_URL_<chainId> (e.g. DEXE_SUBGRAPH_POOLS_URL_97).",
-    applies: {
-      tools: [
-        "dexe_graph_query",
-        "dexe_read_dao_list",
-        "dexe_read_dao_members",
-        "dexe_read_delegation_map",
-        "dexe_read_dao_experts",
-        "dexe_read_validator_list",
-        "dexe_read_user_activity",
-        "dexe_read_token_holders",
-        "dexe_read_dao_stats",
-        "dexe_read_protocol_stats",
-        "dexe_read_nfts",
-        "dexe_proposal_voters",
-      ],
-    },
-  },
-  {
-    // src/tools/read.ts registerReadMulticall input contract
-    id: "multicall-signature-form",
-    severity: "info",
-    text:
-      "dexe_read_multicall calls need the FULL function fragment as `signature` — " +
-      "'function balanceOf(address) view returns (uint256)', not just a name or selector — plus `target`, `method`, " +
-      "and `args`. Any contract address works (no allowlist); all calls in one request are batched into a single " +
-      "RPC round-trip. To discover signatures on DeXe contracts, run dexe_compile once then dexe_get_methods / " +
-      "dexe_get_abi (`dev` toolset).",
-    applies: { tools: ["dexe_read_multicall"] },
-  },
 ] as const;
 
-/** id → Gotcha map (validated unique in tests/knowledge/integrity.test.ts). */
-export const GOTCHA_BY_ID: ReadonlyMap<string, Gotcha> = new Map(GOTCHAS.map((g) => [g.id, g]));
+function readGotcha(id: string): Gotcha {
+  const g = READ_GOTCHA_BY_ID.get(id);
+  if (!g) throw new Error(`write gotcha corpus: unknown read gotcha '${id}'`);
+  return g;
+}
+
+/**
+ * Every gotcha a write flow may cite — its own plus the read ones it refers to
+ * by id — in the corpus's historical order. That order is load-bearing: the
+ * renderers list gotchas severity-first in corpus order (PLAYBOOK's gotchas
+ * region, each skill's recipe, the `dexe-flow-*` prompts), so appending the
+ * read rules instead would reshuffle every generated file. quorum-two-units
+ * sits with the quorum family; the three data-read rules close the list.
+ */
+export const WRITE_CORPUS_GOTCHAS: readonly Gotcha[] = (() => {
+  const afterQuorum = WRITE_GOTCHAS.findIndex((g) => g.id === "quorum-floor") + 1;
+  if (afterQuorum === 0) throw new Error("write gotcha corpus: 'quorum-floor' anchor is gone");
+  return [
+    ...WRITE_GOTCHAS.slice(0, afterQuorum),
+    readGotcha("quorum-two-units"),
+    ...WRITE_GOTCHAS.slice(afterQuorum),
+    ...READ_GOTCHAS.filter((g) => g.id !== "quorum-two-units"),
+  ];
+})();

@@ -196,8 +196,8 @@ describe("knowledge corpus integrity", () => {
     // can already see is the same failure as the reverse, just quieter.
     const graphQuery = d.tools.find((t) => t.tool === "dexe_graph_query")!;
     expect(graphQuery.requiresToolset).toBeUndefined();
-    const simCalldata = d.tools.find((t) => t.tool === "dexe_sim_calldata")!;
-    expect(simCalldata.requiresToolset).toContain("dev");
+    const decode = d.tools.find((t) => t.tool === "dexe_decode_calldata")!;
+    expect(decode.requiresToolset).toContain("dev");
   });
 
   it("chain-gated gotchas only surface on their chains", () => {

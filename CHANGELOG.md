@@ -1,6 +1,93 @@
 # Changelog
 
-## 0.35.1 — unreleased
+## 0.36.0 — unreleased
+
+Retitled from 0.35.1: the orientation split below changes what two existing
+tools return. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0350--0360--read-this-if-you-read-the-signer-from-dexe_context-or-dexe_get_config).
+
+### Added — `dexe_write_context` (169 tools)
+One new tool, in the default `core` profile: the write half of session
+orientation. It returns the signer `mode` (`readonly` / `eoa` / `safe` /
+`walletconnect`) and address with the hot-key `safety` note, the agent keyring
+(every persona's `signerKey`, address, native balance, 24h broadcasts and spend),
+WalletConnect (`available`, `sharedDefaultProjectId`, relay, approval timeout),
+Safe (tx service configured, masked URL, API key), `ipfsUploads.pinataConfigured`,
+the signer's deposited power in the newest recorded DAO, and the `activeFlow` a
+prior session left unfinished, plus a hint naming the next write step. It takes
+`includeDepositedPower` and `includeAgentBalances` (both default true). Unlike
+`dexe_context` it is not marked `anthropic/alwaysLoad`. Tool count 168 → 169;
+the default profile is 45 tools (93,928 B of `tools/list`, under the 96,000 B
+budget).
+
+### Changed — `dexe_context` and `dexe_get_config` report read-side state only (behaviour change)
+Part of the read/write split: these two tools now carry only what a read-only
+server can know, and everything about signing moved to `dexe_write_context`.
+
+- **`dexe_context`** drops `signer`, `keyring`, `activeFlow`,
+  `env.ipfsUploads`, `env.walletConnectAvailable` and the `"walletconnect"`
+  entry of `env.usingSharedDefaults`, and the `includeDepositedPower` /
+  `includeAgentBalances` inputs (extra arguments are ignored, not rejected).
+  It gains an optional **`user`** address: `lastDaoPower` is that wallet's
+  deposited power in the newest recorded DAO (`{govPool, chainId, user,
+  depositedPower}`), or `null` without one. It no longer reads the signer's
+  power by itself. The hint no longer suggests `dexe_dao_create` or reports a
+  mid-journey flow; it ends with a pointer to `dexe_write_context`.
+- **`dexe_get_config`** drops `signerMode`, `recommendedSigner`, `safety`,
+  `signer`, `safe`, `walletConnect` and `ipfs.pinataConfigured`. It gains
+  `backend` (`url`, masked, and `sharedDefault`) and `ipfs` (`readGateways` as
+  hostnames, `publicFallback`). Chains and subgraph coverage are unchanged.
+- The **handshake instructions** name `dexe_write_context` for the signer,
+  keyring and upload posture (2,041 characters, under the 2,048 limit).
+- `TOOLSET_UNLOCKS.core` (shown by `dexe_context` when `core` is hidden) lists
+  `dexe_write_context`.
+
+### Changed — read-side text no longer routes to write tools
+Read tools and read knowledge stop sending an agent to a write-edition tool.
+In this single server the following wording changed; nothing else did:
+
+1. `dexe_guide` topic `read_dao_data` (and the PLAYBOOK topics region): the
+   "Pick the right source", "Free-form contract reads" and "Toolset gating"
+   sections send calldata questions to `dexe_decode_calldata` /
+   `dexe_decode_proposal` / `dexe_list_gov_contract_types` instead of
+   `dexe_sim_calldata` and `dexe_compile` → `dexe_get_methods` / `dexe_get_abi`
+   / `dexe_find_selector`; the topic's `tools` list carries
+   `dexe_decode_calldata` instead of `dexe_sim_calldata`.
+2. Gotcha `multicall-signature-form` (served with that topic, and in the
+   PLAYBOOK gotchas region) points at `dexe_list_gov_contract_types` /
+   `dexe_decode_calldata` instead of `dexe_compile` + `dexe_get_methods` /
+   `dexe_get_abi`.
+3. `dexe_otc_list_sales_for_dao`: the description and the `tokenSaleProposal`
+   parameter say "recorded in this install's local state" instead of "this
+   install deployed"; the missing-address error points at the `govTokenSale`
+   field of `dexe_dao_predict_addresses` instead of `dexe_dao_create`'s
+   `predicted.govTokenSale`.
+4. `dexe_user_inbox` description: "the DAOs this install's local state records
+   on that chain" instead of "the DAOs this install created or used".
+5. The public-RPC hint appended to RPC errors ends with "dexe_doctor then
+   checks the new endpoint" instead of "Run /dexe-setup for a guided
+   walkthrough" (it already named `DEXE_RPC_URL_MAINNET` / `_TESTNET`).
+6. Skill `dexe-report`: "never chain it into a voting or signing tool" instead
+   of naming `dexe_proposal_vote_and_execute`.
+
+### Internal — knowledge, context and config split (A6)
+- `src/knowledge/` is a read corpus (`read/`: the two topics and four read
+  gotchas) and a write corpus (`write/`: the eight flows, their gotchas,
+  next-step chaining, the agent protocol). The engine (`engine.ts`) and the
+  renderers take a corpus and a tool locator as parameters; the locator can
+  report a tool as `providedBy` another server, for a write edition whose flows
+  call read tools. The single server's corpus (`knowledge/index.ts`) is the two
+  combined. `dexe_guide` output is byte-identical apart from the topic text
+  above (45 responses × 2 state fixtures), as are the `dexe-flow-*` prompts,
+  the PLAYBOOK flows region and the five skill recipes.
+- `dexe_guide` takes its corpus, wording and the interrupted-flow context as
+  parameters (`tools/guide.ts` + `tools/guideWrite.ts`); `dexe_context` takes
+  the toolset catalog and its hint pointer. Neither read file names a write
+  tool.
+- The shared WalletConnect project id moved from the read `DEFAULTS`
+  (`configRead.ts`) to `WRITE_DEFAULTS` (`config.ts`); `config.ts` still
+  exports a combined `DEFAULTS`.
+- Read → write import crossings: 7 → 1 (only `instructions.ts →
+  lib/resumeContract.ts` is left, for A7).
 
 ### Added — experimental remote (HTTP) mode
 `dexe-mcp serve-http` serves the read-only tools over stateless MCP Streamable
@@ -14,8 +101,8 @@ and backend endpoints, and it writes nothing to disk. Requests are limited by
 Host and Origin checks, a body cap and a body deadline, a per-IP rate limit
 (per /64 for IPv6), a cap on in-flight requests and a per-request timeout.
 JSON-RPC batches are refused. A Dockerfile, a compose example and the operator
-runbook `docs/REMOTE.md` ship with it. The stdio server is unchanged, and so is
-the tool count.
+runbook `docs/REMOTE.md` ship with it. The stdio server is unchanged, and
+serve-http itself adds no tool.
 
 ### Changed — decoding works without compiling the protocol
 `dexe_decode_calldata` and `dexe_decode_proposal` used to fail with "Hardhat

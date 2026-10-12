@@ -1,100 +1,38 @@
 import { z } from "zod";
-import { Contract } from "ethers";
+import { Contract, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ReadConfig } from "../configRead.js";
 import { DEFAULTS, DEFAULT_SUBGRAPH_CHAIN_ID } from "../configRead.js";
-import type { SignerManager } from "../lib/signer.js";
 import type { StateStore, KnownDao } from "../lib/stateStore.js";
 import { RpcProvider } from "../rpc.js";
 import { subgraphChains } from "../lib/subgraph.js";
 import { maskUrl } from "../lib/redact.js";
-import { resolveToolsets, TOOLSETS } from "./gate.js";
-import { getAgentLedger, DAY_MS, type SpendRow } from "../lib/agentLedger.js";
+import { resolveToolsets, TOOLSETS, type ToolsetCatalog } from "./gate.js";
 
 /**
- * The write-edition config fields `dexe_context` reports (Pinata and
- * WalletConnect posture). Declared structurally so this read-side file does
- * not import the write config (src/config.ts); the single server passes its
- * `WriteConfig`. Goes with the signer/keyring report when that moves to
- * `dexe_write_context` (A6).
- */
-type ContextConfig = ReadConfig & {
-  readonly pinataJwt?: string;
-  readonly walletConnectProjectId?: string;
-};
-
-export interface ToolsetUnlock {
-  /**
-   * What this set ADDS. Every `dexe_*` name here must be a member of
-   * `TOOLSETS[set]` — asserted by tests/tools/context-unlocks-truthfulness.test.ts,
-   * because a name in the wrong row sends the user to edit DEXE_TOOLSETS and
-   * restart for a tool the session already has.
-   */
-  unlocks: string;
-  /** Cross-reference prose; MAY name tools from other sets. Not asserted. */
-  note?: string;
-}
-
-/**
- * One-line "what you're missing" summary per gateable set (U5 discoverability).
+ * `dexe_context` (Phase 3 / v0.14.0) — the "where am I" call. One read that
+ * orients an agent at session start: active/configured chains, env readiness,
+ * which toolsets are on, and — when the server keeps a local state store — the
+ * DAOs and proposals recorded in prior sessions, so work doesn't start from zero.
  *
- * Wording source of truth: the Toolsets table in docs/PLAYBOOK.md — keep the
- * two in the same commit.
+ * READ edition. The signer, the agent keyring, the Pinata / WalletConnect /
+ * Safe posture and an interrupted write journey are the write edition's
+ * `dexe_write_context` (./operationalContextWrite.ts). This file names no write
+ * tool: the toolset descriptions and any pointer at the write context come in
+ * from the composition root.
+ *
+ * `context.ts` is taken by the ToolContext type, hence `operationalContext.ts`.
  */
-export const TOOLSET_UNLOCKS: Record<string, ToolsetUnlock> = {
-  core: {
-    unlocks:
-      "the default surface: dexe_context / dexe_doctor / dexe_guide, the composites (dexe_dao_create, " +
-      "dexe_proposal_create — all 33 catalog types — dexe_proposal_vote_and_execute), the OTC composites, " +
-      "dexe_tx_send/dexe_tx_status + WalletConnect, IPFS uploads, and the key-free reporting reads " +
-      "(dexe_dao_report, dexe_graph_query, dexe_graph_schema, dexe_read_dao_list, dexe_read_dao_stats, " +
-      "dexe_read_dao_members, dexe_read_token_holders, dexe_read_delegation_map, dexe_read_treasury, " +
-      "dexe_read_settings, dexe_proposal_list, dexe_proposal_state, dexe_dao_info)",
-  },
-  proposals: {
-    unlocks:
-      "the ~30 single-purpose dexe_proposal_build_* calldata builders, the off-chain (backend API) proposal " +
-      "types, and dexe_auth_login — the pre-0.31.0 default, restored verbatim",
-    note:
-      "NOT needed to create a proposal: dexe_proposal_create is already in the default profile and covers " +
-      "every on-chain catalog type.",
-  },
-  read: {
-    unlocks:
-      "the long-tail reads the default profile leaves out: dexe_read_multicall, dexe_read_nfts, " +
-      "dexe_read_validators, dexe_read_protocol_stats, dexe_read_expert_status, dexe_read_staking_info, " +
-      "the token-sale/distribution reads, dexe_read_user_activity, dexe_read_dao_experts, " +
-      "dexe_read_validator_list, dexe_proposal_voters, dexe_user_inbox, dexe_proposal_forecast, " +
-      "dexe_proposal_risk_assess, dexe_ipfs_cid_info",
-    note:
-      "The zero-config reporting reads (dao list/stats/members, token_holders, delegation_map, graph_query) " +
-      "are ALREADY in the default profile — enable `read` only for the names above.",
-  },
-  vote: {
-    unlocks:
-      "delegate/undelegate to experts, claim_rewards, staking, NFT multiplier, cancel_vote, validator_vote",
-  },
-  agents: {
-    unlocks:
-      "multi-agent keyring: dexe_agents_list (personas + addresses), dexe_agents_fund (guarded funding), " +
-      "dexe_agents_ledger (who did what, spend per persona)",
-  },
-  governor: {
-    unlocks: "dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs (Uniswap, Compound, Optimism…)",
-  },
-  dev: {
-    unlocks:
-      "dexe_compile + contract introspection (dexe_get_abi / dexe_get_methods / dexe_find_selector), " +
-      "dexe_dao_build_deploy, simulate/decode, merkle, safe",
-  },
-};
 
 /**
  * Report enabled vs hidden toolsets + what each hidden set unlocks, so the
  * model can tell the user exactly which DEXE_TOOLSETS value fixes a missing
  * capability instead of dead-ending on an invisible tool.
  */
-export function describeToolsets(requested: readonly string[]): {
+export function describeToolsets(
+  requested: readonly string[],
+  catalog: ToolsetCatalog,
+): {
   enabled: string[];
   hidden: { set: string; newToolCount: number; unlocks: string; note?: string }[];
   enableHint?: string;
@@ -109,7 +47,7 @@ export function describeToolsets(requested: readonly string[]): {
       // registered is not "hidden" in any useful sense — listing it is how an
       // agent ends up telling the user to restart for a tool they already have.
       const newToolCount = [...TOOLSETS[s]!].filter((n) => !have || !have.has(n)).length;
-      const u = TOOLSET_UNLOCKS[s];
+      const u = catalog.unlocks[s];
       return {
         set: s,
         newToolCount,
@@ -124,24 +62,14 @@ export function describeToolsets(requested: readonly string[]): {
     ...(hidden.length
       ? {
           enableHint:
-            "Check the `enabled` list first — the default profile already includes dexe_proposal_create (all 33 " +
-            "proposal types) and the reporting reads, so a missing capability is usually a wrong tool name, not a " +
-            "gated set. If a tool you actually need is absent: set " +
+            `Check the \`enabled\` list first — ${catalog.defaultCovers}, so a missing capability is usually a wrong ` +
+            "tool name, not a gated set. If a tool you actually need is absent: set " +
             `DEXE_TOOLSETS=${enabled.join(",")},<set> (or =full) in .env — NEVER in .claude.json — ` +
             "and restart Claude Code.",
         }
       : {}),
   };
 }
-
-/**
- * `dexe_context` (Phase 3 / v0.14.0) — the "who/where am I" call. One read that
- * orients an agent at session start: signer + mode, active/configured chains,
- * env readiness, and the persisted operational state (DAOs deployed and
- * proposals broadcast in prior sessions) so work doesn't start from zero.
- *
- * `context.ts` is taken by the ToolContext type, hence `operationalContext.ts`.
- */
 
 const CHAIN_NAMES: Record<number, string> = {
   1: "Ethereum mainnet",
@@ -159,24 +87,13 @@ const USER_KEEPER_ABI = [
   "function tokenBalance(address voter, uint8 voteType) view returns (uint256 balance, uint256 ownedBalance)",
 ];
 
-function signerMode(config: ContextConfig, signer: SignerManager): "readonly" | "eoa" | "safe" | "walletconnect" {
-  const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined;
-  return signer.hasSigner()
-    ? safeServiceUrl
-      ? "safe"
-      : "eoa"
-    : config.walletConnectProjectId
-      ? "walletconnect"
-      : "readonly";
-}
-
 /**
  * Best-effort deposited voting power for a DAO: getHelperContracts → userKeeper
  * → tokenBalance(user,0).balance − ownedBalance. Returns null on any failure
  * (no RPC, unregistered pool, revert) — this is a convenience readout, never a
  * hard dependency.
  */
-async function depositedPowerFor(
+export async function depositedPowerFor(
   rpc: RpcProvider,
   dao: KnownDao,
   user: string,
@@ -198,129 +115,6 @@ async function depositedPowerFor(
   } catch {
     return null;
   }
-}
-
-/**
- * One persona an orchestrator can act as. Labels and addresses only — key
- * material never appears here, and `SignerManager` is the only object that
- * holds it.
- */
-interface KeyringSigner {
-  /** Value to pass as `signerKey` ("primary" means: omit the field). */
-  signerKey: string;
-  address: string;
-  role: "primary" | "keyring";
-  /** Native balance on `balanceChainId`; null when the probe was skipped or failed. */
-  balanceWei: string | null;
-  /** balanceWei > 0 — "can this persona pay for its own gas". */
-  funded: boolean | null;
-  /** Broadcasts attributed to this persona in the last 24h (agent ledger). */
-  actions24h: number;
-  /** Native value + gas charged to this persona in the last 24h, wei. */
-  spentWei24h: string;
-}
-
-/**
- * The fleet an orchestrating agent can command: every configured persona, its
- * address, whether it can pay for gas, and what it has already done today.
- *
- * Before 0.32.0 `dexe_context` reported one signer address and nothing else, so
- * an agent asked to "run five personas" had no way to discover that four of them
- * existed — the keyring was configured in `.env`, resolvable by
- * `SignerManager`, threaded through every composite, and invisible. A fleet
- * cannot be planned from a surface that does not admit it exists.
- *
- * Balances are ONE `eth_getBalance` per persona on the default chain, issued in
- * parallel and individually best-effort; `includeAgentBalances: false` skips
- * them entirely. The 24h activity comes from the local agent ledger — a file
- * read, no RPC.
- */
-export async function keyringReport(
-  config: ContextConfig,
-  signer: SignerManager,
-  rpc: RpcProvider,
-  includeBalances: boolean,
-): Promise<{
-  configured: number;
-  balanceChainId: number | null;
-  fundedCount: number | null;
-  signers: KeyringSigner[];
-  spend24h: { actions: number; totalWei: string };
-  hint: string;
-}> {
-  const rows: Array<{ signerKey: string; address: string; role: "primary" | "keyring" }> = [];
-  if (signer.hasSigner()) {
-    rows.push({ ...signer.describeSigner(), role: "primary" });
-  }
-  for (const a of signer.listAgents()) {
-    // A slot whose key IS the primary key would otherwise be listed twice under
-    // two labels; keep both labels only when the addresses differ.
-    if (rows.some((r) => r.address.toLowerCase() === a.address.toLowerCase())) continue;
-    rows.push({ ...a, role: "keyring" });
-  }
-
-  // Per-persona 24h spend — the same ledger a budget guard reads, so the plan
-  // and the enforcement agree on the numbers.
-  const spend = getAgentLedger().spendSince({ windowMs: DAY_MS });
-  const byAgent = new Map<string, SpendRow>(spend.byAgent.map((r) => [r.signerKey, r]));
-
-  const wantBalances = includeBalances && rows.length > 0;
-  const pr = wantBalances ? rpc.tryProvider(config.defaultChainId) : null;
-  const provider = pr && !("error" in pr) ? pr.ok : null;
-
-  const balances = await Promise.all(
-    rows.map(async (r) => {
-      if (!provider) return null;
-      try {
-        return (await provider.getBalance(r.address)).toString();
-      } catch {
-        // A rate-limited public endpoint must not fail the orientation call.
-        return null;
-      }
-    }),
-  );
-
-  const signers: KeyringSigner[] = rows.map((r, i) => {
-    const row = byAgent.get(r.signerKey);
-    const balanceWei = balances[i] ?? null;
-    return {
-      signerKey: r.signerKey,
-      address: r.address,
-      role: r.role,
-      balanceWei,
-      funded: balanceWei === null ? null : BigInt(balanceWei) > 0n,
-      actions24h: row?.actions ?? 0,
-      spentWei24h: row?.totalWei ?? "0",
-    };
-  });
-
-  // null = "not known", never an optimistic 0/allFunded: an orchestrator that
-  // reads a skipped probe as "0 funded" would fund a fleet that is already funded.
-  const fundedCount =
-    signers.length === 0 || signers.some((s) => s.funded === null)
-      ? null
-      : signers.filter((s) => s.funded).length;
-  const agents = signers.filter((s) => s.role === "keyring").length;
-
-  const hint =
-    agents === 0
-      ? "No agent keyring configured — every write signs with the primary key. Set DEXE_AGENT_PK_1..16 " +
-        "(and DEXE_AGENT_FUNDER_PK for a gas funder) to run multiple personas, then pass signerKey on " +
-        "dexe_dao_create / dexe_proposal_create / dexe_proposal_vote_and_execute / dexe_tx_send."
-      : `${agents} agent persona(s) available. Pass signerKey:'<slot>' on any write tool to act as one; ` +
-        "omitting signerKey always signs with the primary key — a persona is never chosen implicitly. " +
-        (fundedCount === 0
-          ? "NONE of them holds native gas yet: fund them before they can broadcast."
-          : "Unfunded personas can build calldata but cannot broadcast.");
-
-  return {
-    configured: signers.length,
-    balanceChainId: provider ? config.defaultChainId : null,
-    fundedCount,
-    signers,
-    spend24h: { actions: spend.total.actions, totalWei: spend.total.totalWei },
-    hint,
-  };
 }
 
 /**
@@ -357,29 +151,36 @@ function windowNote(
   return ` Showing ${trimmed.join(" and ")} — call dexe_context {"daoLimit":50,"proposalLimit":50} to see the rest.`;
 }
 
+export interface ContextOptions {
+  /** What each toolset unlocks, for `env.toolsets` — the server's own gate catalog. */
+  toolsets: ToolsetCatalog;
+  /**
+   * Appended to `hint`: where the rest of the session posture lives. The single
+   * server names its write context tool here; a read-only server passes nothing.
+   */
+  hintSuffix?: string;
+}
+
 export function registerOperationalContextTools(
   server: McpServer,
-  config: ContextConfig,
-  signer: SignerManager,
-  state: StateStore,
+  config: ReadConfig,
+  state: StateStore | null,
+  opts: ContextOptions,
 ): void {
   const rpc = new RpcProvider(config);
 
   server.tool(
     "dexe_context",
-    "Read-only. Session orientation — the signer address + mode, configured chains, env readiness " +
-      "(RPC/IPFS/subgraph/signer), which toolsets are on or hidden and what the hidden ones unlock, your deposited power " +
-      "in the newest DAO, and the agent KEYRING (signerKey, address, gas, 24h broadcasts per persona). Skip it when the " +
-      "user already named the DAO and chain. Persisted DAOs/proposals are WINDOWED; the *Total fields carry real counts.",
+    "Read-only. Session orientation — configured chains and the default, env readiness (RPC/IPFS/subgraph/backend), " +
+      "which toolsets are on or hidden and what the hidden ones unlock, and the DAOs/proposals recorded in this " +
+      "install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Skip it " +
+      "when the user already named the DAO and chain. Persisted DAOs/proposals are WINDOWED; the *Total fields " +
+      "carry real counts.",
     {
-      includeDepositedPower: z
-        .boolean()
-        .default(true)
-        .describe("Read deposited power for the newest DAO (one extra RPC call)."),
-      includeAgentBalances: z
-        .boolean()
-        .default(true)
-        .describe("Probe each persona's native balance (one eth_getBalance per signer, default chain)."),
+      user: z
+        .string()
+        .optional()
+        .describe("Wallet address: adds its deposited voting power in the newest recorded DAO (one extra RPC call)."),
       daoLimit: z
         .number()
         .int()
@@ -395,13 +196,14 @@ export function registerOperationalContextTools(
         .default(DEFAULT_PROPOSAL_WINDOW)
         .describe("Recorded proposals to return, newest first."),
     },
-    async ({
-      includeDepositedPower = true,
-      includeAgentBalances = true,
-      daoLimit = DEFAULT_DAO_WINDOW,
-      proposalLimit = DEFAULT_PROPOSAL_WINDOW,
-    }) => {
-      const st = state.getState();
+    async ({ user, daoLimit = DEFAULT_DAO_WINDOW, proposalLimit = DEFAULT_PROPOSAL_WINDOW }) => {
+      if (user !== undefined && !isAddress(user)) {
+        return {
+          content: [{ type: "text" as const, text: `Invalid user: ${user} — pass a 0x-prefixed 20-byte address.` }],
+          isError: true,
+        };
+      }
+      const st = state ? state.getState() : null;
 
       const chains = [...config.chains.values()]
         .sort((a, b) => a.chainId - b.chainId)
@@ -412,17 +214,16 @@ export function registerOperationalContextTools(
           isDefault: c.chainId === config.defaultChainId,
         }));
 
-      const mode = signerMode(config, signer);
-      const address = signer.hasSigner() ? signer.getAddress() : null;
-
-      // Deposited power for the last DAO (best-effort, opt-out).
-      let lastDaoPower: { govPool: string; chainId: number; depositedPower: string | null } | null = null;
-      const last = st.knownDaos[0];
-      if (includeDepositedPower && last && address) {
+      // Deposited power of the caller-named wallet in the last DAO (best-effort).
+      let lastDaoPower: { govPool: string; chainId: number; user: string; depositedPower: string | null } | null =
+        null;
+      const last = st?.knownDaos[0];
+      if (user && last) {
         lastDaoPower = {
           govPool: last.govPool,
           chainId: last.chainId,
-          depositedPower: await depositedPowerFor(rpc, last, address),
+          user,
+          depositedPower: await depositedPowerFor(rpc, last, user),
         };
       }
 
@@ -433,50 +234,58 @@ export function registerOperationalContextTools(
       // reported "no subgraph reads" for a server whose mainnet endpoints work.
       const subgraphCovered = subgraphChains(config);
 
-      // The fleet. Never key material — labels, addresses, balances, counts.
-      const keyring = await keyringReport(config, signer, rpc, includeAgentBalances);
+      const env = {
+        rpcConfigured: config.chains.size > 0,
+        usingPublicRpcFallback: config.usingPublicRpcFallback,
+        ipfsReads:
+          process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1"
+            ? !!(process.env.DEXE_IPFS_GATEWAY?.trim() || process.env.DEXE_IPFS_GATEWAYS_FALLBACK?.trim())
+            : true,
+        subgraphReads: subgraphCovered.length > 0,
+        /** Chains a subgraph-backed read can answer for; any other chain refuses. */
+        subgraphChains: subgraphCovered,
+        subgraphDefaultChainCovered: subgraphCovered.includes(config.defaultChainId),
+        backendOffchain: !!config.backendApiUrl,
+        // Surfaces running on the shared PUBLIC defaults (not the user's own
+        // keys/endpoints). Fine for light use; heavy users should set their
+        // own — dexe_doctor advises this. Empty = everything is user-configured.
+        usingSharedDefaults: [
+          config.usingPublicRpcFallback ? "rpc" : null,
+          // Every baked endpoint indexes BSC mainnet, so the shared Graph key
+          // only ever occupies chain 56's slot. Testing the flat alias instead
+          // made the warning vanish whenever DEXE_SUBGRAPH_CHAIN_ID pointed
+          // the unsuffixed vars at another chain — while chain 56 was still
+          // being read on the shared key.
+          config.subgraphUrls.get(DEFAULT_SUBGRAPH_CHAIN_ID)?.pools === DEFAULTS.subgraphPoolsUrl
+            ? "subgraph"
+            : null,
+          config.backendApiUrl === DEFAULTS.backendApiUrl ? "backend" : null,
+        ].filter(Boolean),
+        toolsets: describeToolsets(config.toolsets, opts.toolsets),
+      };
+
+      const chain = {
+        defaultChainId: config.defaultChainId,
+        defaultChainName: CHAIN_NAMES[config.defaultChainId] ?? `chain ${config.defaultChainId}`,
+        configured: chains,
+        lastUsedChainId: st?.lastChainId ?? null,
+      };
+      const suffix = opts.hintSuffix ? ` ${opts.hintSuffix}` : "";
+
+      if (!st) {
+        const result = {
+          chain,
+          env,
+          hint:
+            "This server keeps no local state, so there are no recorded DAOs — name the DAO (govPool + chainId) " +
+            "in each call, or find one with dexe_read_dao_list." + suffix,
+        };
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      }
 
       const result = {
-        signer: { mode, address },
-        keyring,
-        chain: {
-          defaultChainId: config.defaultChainId,
-          defaultChainName: CHAIN_NAMES[config.defaultChainId] ?? `chain ${config.defaultChainId}`,
-          configured: chains,
-          lastUsedChainId: st.lastChainId ?? null,
-        },
-        env: {
-          rpcConfigured: config.chains.size > 0,
-          usingPublicRpcFallback: config.usingPublicRpcFallback,
-          ipfsUploads: !!config.pinataJwt,
-          ipfsReads:
-            process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1"
-              ? !!(process.env.DEXE_IPFS_GATEWAY?.trim() || process.env.DEXE_IPFS_GATEWAYS_FALLBACK?.trim())
-              : true,
-          subgraphReads: subgraphCovered.length > 0,
-          /** Chains a subgraph-backed read can answer for; any other chain refuses. */
-          subgraphChains: subgraphCovered,
-          subgraphDefaultChainCovered: subgraphCovered.includes(config.defaultChainId),
-          backendOffchain: !!config.backendApiUrl,
-          walletConnectAvailable: !!config.walletConnectProjectId,
-          // Surfaces running on the shared PUBLIC defaults (not the user's own
-          // keys/endpoints). Fine for light use; heavy users should set their
-          // own — dexe_doctor advises this. Empty = everything is user-configured.
-          usingSharedDefaults: [
-            config.usingPublicRpcFallback ? "rpc" : null,
-            // Every baked endpoint indexes BSC mainnet, so the shared Graph key
-            // only ever occupies chain 56's slot. Testing the flat alias instead
-            // made the warning vanish whenever DEXE_SUBGRAPH_CHAIN_ID pointed
-            // the unsuffixed vars at another chain — while chain 56 was still
-            // being read on the shared key.
-            config.subgraphUrls.get(DEFAULT_SUBGRAPH_CHAIN_ID)?.pools === DEFAULTS.subgraphPoolsUrl
-              ? "subgraph"
-              : null,
-            config.backendApiUrl === DEFAULTS.backendApiUrl ? "backend" : null,
-            config.walletConnectProjectId === DEFAULTS.walletConnectProjectId ? "walletconnect" : null,
-          ].filter(Boolean),
-          toolsets: describeToolsets(config.toolsets),
-        },
+        chain,
+        env,
         knownDaos: st.knownDaos.slice(0, daoLimit),
         knownDaosTotal: st.knownDaos.length,
         ...(st.knownDaos.length > daoLimit ? { knownDaosTruncated: true } : {}),
@@ -486,19 +295,16 @@ export function registerOperationalContextTools(
         // Belt and braces: the store caps this at 100 now, but a state.json
         // written by an older build has no cap at all.
         walletLabels: Object.fromEntries(Object.entries(st.walletLabels).slice(0, MAX_WINDOW)),
-        ...(st.activeFlow ? { activeFlow: st.activeFlow } : {}),
         lastDaoPower,
         hint:
-          (st.activeFlow
-            ? `Mid-journey: flow '${st.activeFlow.flow}' last completed step '${st.activeFlow.step}' on chain ${st.activeFlow.chainId} — call dexe_guide {flow:"${st.activeFlow.flow}"} to resume. `
-            : "") +
           (st.knownDaos.length === 0
-            ? "No DAOs recorded yet. Deploy one with dexe_dao_create (testnet chain 97) or pass a govPool explicitly."
+            ? "No DAOs recorded yet — pass a govPool explicitly, or find one with dexe_read_dao_list."
             : `Most recent DAO: ${st.knownDaos[0]!.name} (${st.knownDaos[0]!.govPool}) on chain ${st.knownDaos[0]!.chainId}.`) +
           // Name only the list(s) actually trimmed: recordProposal does not
           // require a recorded DAO, so "the 8 most recent DAO(s) of 0" is a
           // reachable state and would read as nonsense next to "No DAOs yet".
-          windowNote(st.knownDaos.length, daoLimit, st.recentProposals.length, proposalLimit),
+          windowNote(st.knownDaos.length, daoLimit, st.recentProposals.length, proposalLimit) +
+          suffix,
       };
 
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };

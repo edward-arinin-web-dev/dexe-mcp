@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextAfter } from "../../src/knowledge/nextSteps.js";
+import { nextAfter } from "../../src/knowledge/write/nextSteps.js";
 import { FLOWS } from "../../src/knowledge/index.js";
 
 describe("nextAfter (structured chaining)", () => {

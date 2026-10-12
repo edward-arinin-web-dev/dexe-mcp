@@ -31,7 +31,10 @@ import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
 import { registerDaoCreateTools } from "./daoCreate.js";
 import { registerOperationalContextTools } from "./operationalContext.js";
-import { registerGuideTools, registerKnowledgePrompts } from "./guide.js";
+import { registerWriteContextTool } from "./operationalContextWrite.js";
+import { registerGuideTool } from "./guide.js";
+import { FLOW_GUIDE_TEXT, activeFlowContext, registerKnowledgePrompts } from "./guideWrite.js";
+import { SINGLE_SERVER_KNOWLEDGE } from "../knowledge/index.js";
 import { StateStore } from "../lib/stateStore.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcSaleTools, registerOtcBuyerTools } from "./otc.js";
@@ -45,7 +48,7 @@ import { SignerManager } from "../lib/signer.js";
 import { WalletConnectManager } from "../lib/walletconnect.js";
 import { registerGovernorTools } from "../governor/index.js";
 import { governorWriteTools } from "../governor/write.js";
-import { applyToolGate } from "./gate.js";
+import { applyToolGate, TOOLSET_CATALOG } from "./gate.js";
 import { applyToolAnnotations } from "./annotations.js";
 import { installListToolsNormalizer } from "./schemaNormalize.js";
 
@@ -104,17 +107,31 @@ export function registerAll(server: McpServer, config: WriteConfig): void {
   registerSubgraphTools(server, ctx, state);
   registerTxTools(server, config, signer, wc);
   registerAgentTools(server, config, signer);
-  registerGetConfigTool(server, config, signer);
+  registerGetConfigTool(server, ctx);
   // Diagnostics — call dexe_doctor first when env-related failures show up.
   registerDoctorTool(server, config, writeDoctorChecks);
   registerWalletConnectTools(server, config, signer, wc);
   registerProposalBuildOffchainTools(server, ctx, signer, wc);
   registerFlowTools(server, ctx, signer, wc, state);
   registerDaoCreateTools(server, ctx, signer, wc, state);
-  registerOperationalContextTools(server, config, signer, state);
-  // Knowledge layer — dexe_guide serves flow plans/interviews/gotchas (Phase A);
+  // Orientation, split by edition: dexe_context (chains, env, toolsets, known
+  // DAOs) and dexe_write_context (signer, keyring, upload/WC/Safe posture, the
+  // interrupted flow). The read tool names no write tool itself — this root
+  // hands it the toolset catalog and the pointer at the write half.
+  registerOperationalContextTools(server, config, state, {
+    toolsets: TOOLSET_CATALOG,
+    hintSuffix:
+      "Signer, agent keyring, Pinata/WalletConnect/Safe posture and an unfinished flow: dexe_write_context.",
+  });
+  registerWriteContextTool(server, config, signer, state);
+  // Knowledge layer — dexe_guide serves the write flows next to the read
+  // topics (Phase A) and follows an interrupted write journey across sessions;
   // per-flow MCP prompts for hosts that support them (Phase B).
-  registerGuideTools(server, config, state);
+  registerGuideTool(server, config, state, {
+    knowledge: SINGLE_SERVER_KNOWLEDGE,
+    text: FLOW_GUIDE_TEXT,
+    extraContext: activeFlowContext,
+  });
   registerKnowledgePrompts(server);
   // OTC: open sale, then the read-only position view (dexe_otc_buyer_status,
   // kept out of otc.ts), then buy / claim all — the historical tools/list order.

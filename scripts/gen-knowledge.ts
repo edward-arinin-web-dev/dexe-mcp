@@ -21,27 +21,33 @@ import {
   renderErrorTable,
   renderSkillRecipe,
 } from "../src/knowledge/render.js";
+import { SINGLE_SERVER_CORPUS } from "../src/knowledge/index.js";
+import { WRITE_CORPUS } from "../src/knowledge/write/index.js";
 import { COMBINED_KNOWN_FAILURES } from "../src/lib/writeErrors.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+/** A write skill's recipe region: one write flow, rendered from the write corpus. */
+const recipe = (flowId: string) => () => renderSkillRecipe(WRITE_CORPUS, flowId);
+
 /** file → region name → renderer. Every listed region must exist in the file. */
 const TARGETS: Array<{ file: string; regions: Record<string, () => string> }> = [
   {
+    // PLAYBOOK documents the single server: write flows next to read topics,
+    // and the read error table with the write table on top.
     file: "docs/PLAYBOOK.md",
     regions: {
-      flows: renderFlowsSection,
-      topics: renderTopicsSection,
-      gotchas: renderGotchasSection,
-      // PLAYBOOK documents the single server: the read table + the write table on top.
+      flows: () => renderFlowsSection(SINGLE_SERVER_CORPUS),
+      topics: () => renderTopicsSection(SINGLE_SERVER_CORPUS),
+      gotchas: () => renderGotchasSection(SINGLE_SERVER_CORPUS),
       "error-slugs": () => renderErrorTable(COMBINED_KNOWN_FAILURES),
     },
   },
-  { file: "dexe-plugin/skills/dexe-create-dao/SKILL.md", regions: { "flow-recipe": () => renderSkillRecipe("create_dao") } },
-  { file: "dexe-plugin/skills/dexe-create-proposal/SKILL.md", regions: { "flow-recipe": () => renderSkillRecipe("create_proposal") } },
-  { file: "dexe-plugin/skills/dexe-vote-execute/SKILL.md", regions: { "flow-recipe": () => renderSkillRecipe("vote_execute") } },
-  { file: "dexe-plugin/skills/dexe-otc/SKILL.md", regions: { "flow-recipe": () => renderSkillRecipe("otc_sale") } },
-  { file: "dexe-plugin/skills/dexe-staking/SKILL.md", regions: { "flow-recipe": () => renderSkillRecipe("staking_setup") } },
+  { file: "dexe-plugin/skills/dexe-create-dao/SKILL.md", regions: { "flow-recipe": recipe("create_dao") } },
+  { file: "dexe-plugin/skills/dexe-create-proposal/SKILL.md", regions: { "flow-recipe": recipe("create_proposal") } },
+  { file: "dexe-plugin/skills/dexe-vote-execute/SKILL.md", regions: { "flow-recipe": recipe("vote_execute") } },
+  { file: "dexe-plugin/skills/dexe-otc/SKILL.md", regions: { "flow-recipe": recipe("otc_sale") } },
+  { file: "dexe-plugin/skills/dexe-staking/SKILL.md", regions: { "flow-recipe": recipe("staking_setup") } },
 ];
 
 function replaceRegion(source: string, file: string, name: string, body: string): string {

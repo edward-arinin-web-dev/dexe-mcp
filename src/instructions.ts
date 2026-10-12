@@ -55,7 +55,7 @@ export function serverInstructions(): string {
   return (
     "Tools for DeXe Protocol governance DAOs, plus dexe_gov_* (needs DEXE_TOOLSETS=core,governor) for external OpenZeppelin/Compound Governors. " +
     "For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_guide FIRST: it returns the plan, the questions to ask the user, and the known pitfalls. " +
-    "Call dexe_context when you need orientation (signer, chain, env readiness, known DAOs, which toolsets are off) — skip it when the user already named the DAO and chain. " +
+    "Orientation: dexe_context (chain, env readiness, known DAOs, toolsets off); dexe_write_context (signer, keyring, upload posture). Skip both when the user already named the DAO and chain. " +
     "Prefer the composites over hand-sequenced calldata: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types — proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). " +
     "On partial failure they return the landed-steps ledger — fix the cause and re-run the same call. " +
     RESUME_SUMMARY +

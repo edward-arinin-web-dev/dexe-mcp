@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderSkillRecipe } from "../../src/knowledge/render.js";
+import { WRITE_CORPUS } from "../../src/knowledge/write/index.js";
 
 /**
  * Skill-parity guard. `dexe-plugin/skills/` is the shipped source of truth;
@@ -102,7 +103,7 @@ describe("every shipped skill is guarded, mirror or not", () => {
       expect(
         onDisk,
         `${name}/SKILL.md's generated region is stale — run \`npm run gen:knowledge\` and commit the result`,
-      ).toBe(lf(renderSkillRecipe(flow)).trim());
+      ).toBe(lf(renderSkillRecipe(WRITE_CORPUS, flow)).trim());
     });
   }
 

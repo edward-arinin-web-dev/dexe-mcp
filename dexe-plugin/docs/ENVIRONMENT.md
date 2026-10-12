@@ -50,8 +50,10 @@ overridable: set the matching var and your value wins.
 **Shared defaults are billable-shared / rate-limited.** The default Graph API
 key and WalletConnect project id ship publicly; fine for light use, but heavy
 users should set their own. `dexe_doctor` flags this via the `env.sharedDefaults`
-advisory, and `dexe_context.env.usingSharedDefaults` lists which surfaces are on
-the shared defaults in the current session. Operators publishing their own fork
+advisory; `dexe_context.env.usingSharedDefaults` lists which read surfaces (RPC,
+subgraph, backend) are on the shared defaults in the current session, and
+`dexe_write_context.walletConnect.sharedDefaultProjectId` says the same for
+WalletConnect. Operators publishing their own fork
 should **rotate** these keys — see [§8 Subgraph configuration](#8-subgraph-configuration).
 
 > **For AI assistants and new users.** If a tool reports an env-related
@@ -150,7 +152,7 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_MIN_SAFE_QUORUM_PCT` | treasury-safety advisory | Minimum safe quorum percent (0–100). Proposals/DAOs whose quorum is below this are **flagged** in advisories (`dexe_proposal_vote_and_execute`, `dexe_proposal_risk_assess`, `dexe_dao_build_deploy`, treasury builders). **Advisory only — never blocks.** Default `50` (recommends 51%+). | `50`, `51`, `66` |
 | `DEXE_TREASURY_GUARD` | treasury-safety advisory | Posture: `off` \| `warn`. `warn` (default) = advisories/alerts everywhere (build, deploy, execute, risk_assess); `off` = silent. **Advisory only — it never blocks.** The durable control is an adequate on-chain quorum threshold configured per DAO. | `warn`, `off` |
 | `DEXE_CONTROLLING_TOPN` | treasury-safety advisory | Top-N token holders (by voting weight) in the "controlling set" alongside validators. `dexe_proposal_risk_assess` and the execute advisory **flag** a treasury proposal where **no** controlling member voted For (even at healthy quorum). Needs a **pools _and_ validators** endpoint for the chain being analyzed (chain 56 out of the box; other chains via `DEXE_SUBGRAPH_<KIND>_URL_<chainId>`) — an unindexed chain yields *unknown*, never another chain's controlling set. **Informational, never blocks.** Positive integer, default `5`. | `5`, `3`, `10` |
-| `DEXE_TOOLSETS` | tool gating (`tools/list` size) | Comma list of tool profiles to register: `core`, `proposals`, `read`, `vote`, `agents`, `governor`, `dev`, or `full`. **Default `core`** since v0.31.0 (44 of 168 tools, ~85 KB of `tools/list`) — it carries the composites plus the zero-config reporting reads; the ~30 single-purpose `dexe_proposal_build_*` tools moved to `proposals`, since `dexe_proposal_create` already covers every catalog type. `DEXE_TOOLSETS=core,proposals` restores the pre-0.31 surface; `core,agents` adds the multi-agent keyring tools (v0.32.0). `full` loads everything; an **unknown name is dropped** (the recognized sets still apply) rather than escalating to `full`. `dexe_doctor` reports the active set; restart Claude Code after editing. See [TOOLS.md § Toolset profiles](./TOOLS.md#toolset-profiles). | `core,proposals`, `full`, `core,proposals,vote,read` |
+| `DEXE_TOOLSETS` | tool gating (`tools/list` size) | Comma list of tool profiles to register: `core`, `proposals`, `read`, `vote`, `agents`, `governor`, `dev`, or `full`. **Default `core`** since v0.31.0 (45 of 169 tools, ~92 KB of `tools/list`) — it carries the composites plus the zero-config reporting reads; the ~30 single-purpose `dexe_proposal_build_*` tools moved to `proposals`, since `dexe_proposal_create` already covers every catalog type. `DEXE_TOOLSETS=core,proposals` restores the pre-0.31 surface; `core,agents` adds the multi-agent keyring tools (v0.32.0). `full` loads everything; an **unknown name is dropped** (the recognized sets still apply) rather than escalating to `full`. `dexe_doctor` reports the active set; restart Claude Code after editing. See [TOOLS.md § Toolset profiles](./TOOLS.md#toolset-profiles). | `core,proposals`, `full`, `core,proposals,vote,read` |
 | `DEXE_STATE_PATH` | `dexe_context` persistence | Override path for the persistent operational-state JSON (DAOs deployed and proposals broadcast, surfaced by `dexe_context` across sessions). Default `~/.dexe-mcp/state.json`. Must be in a writable directory — `dexe_doctor` warns if not. Tools still work without persistence. | `~/.dexe-mcp/state.json`, `/data/dexe-state.json` |
 | `DEXE_ENV_FILE` | env-file location | Absolute path to a `.env` loaded **first**, before the default cwd/home search. For CI/containers/hosts that can inject one variable but not a working directory. Must be set in the real process environment (it is read before any file loads), not inside a `.env`. | `/etc/dexe/prod.env`, `C:\config\dexe.env` |
 | `DEXE_PRIVATE_KEY` | `dexe_tx_send`, signed branch of `dexe_proposal_create` / `dexe_proposal_vote_and_execute` | 0x-prefixed 64-hex EOA key. Requires `DEXE_RPC_URL`. **Process-resident — see §4.** | `0xabc...` |
@@ -328,7 +330,7 @@ Endpoint resolution: with no override, `chainId` maps to
 `https://api.safe.global/tx-service/<shortname>/api/v2` (eth, bnb, matic, base,
 arb1, sep, …). `DEXE_SAFE_TX_SERVICE_URL` always wins when set.
 
-`dexe_get_config` reports the effective `signerMode`:
+`dexe_write_context` reports the effective signer mode (`signer.mode`):
 
 - `readonly` — no `DEXE_PRIVATE_KEY`; tools return unsigned `TxPayload`s only.
 - `eoa` — key set, no Safe service; `dexe_tx_send` broadcasts directly.

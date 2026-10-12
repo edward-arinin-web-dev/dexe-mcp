@@ -83,7 +83,7 @@ approval is an *additional* human gate, not a replacement for the guards.
 | `DEXE_WALLETCONNECT_RELAY_URL` | no | Override relay. Default `wss://relay.walletconnect.com`. |
 | `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS` | no | Per-tx phone-approval timeout. Default `120000`. |
 
-`signerMode` precedence (computed in `getConfig`): `safe` (if Safe env set) → `eoa`
+Signer-mode precedence (reported by `dexe_write_context` as `signer.mode`; before 0.36.0 by `dexe_get_config` as `signerMode`): `safe` (if Safe env set) → `eoa`
 (if `DEXE_PRIVATE_KEY` set) → `walletconnect` (if project id set) → `readonly`.
 
 ## Phased delivery
