@@ -48,16 +48,23 @@ Progress (each step is its own PR; the single server keeps working throughout):
 - [x] Decode tools work without compiling the protocol (bundled ABI snapshot) — #91
 - [x] Experimental remote mode `dexe-mcp serve-http` (not for public exposure
       yet — see `docs/REMOTE.md`) — #93
-- [ ] Read tools safe to serve remotely (IPFS byte cap, array limits, response
-      cap, output scrubbing)
-- [ ] Per-edition gate, annotations and handshake; report snapshots off in the
-      read edition
-- [ ] Physical move to `src/read/**` and `src/write/**`
-- [ ] Read entry point (`dexe-mcp-read`, stdio + HTTP) with its own server factory
-- [ ] Extract the read edition into its new repository; this repository depends
-      on the published package
-- [ ] Write edition: WalletConnect as the default signer (the wallet confirms
-      every transaction); hot keys opt-in with an encrypted keystore
+- [x] Read tools safe to serve remotely (IPFS byte cap, array limits, response
+      cap, output scrubbing) — #97
+- [x] Per-edition gate, annotations and handshake; report snapshots off in the
+      read edition — #101
+- [x] Read entry point (`dexe-mcp-read`, stdio + HTTP) with its own server
+      factory; no write module in its import graph — #103 (0.37.0)
+- [x] Human-confirmed signing: `DEXE_SIGNER_MODE`, encrypted keystore +
+      `dexe-mcp key`, a loopback approval page with a password per batch,
+      registry-verified labels — #105 (0.37.0). Phase B (Safe/message
+      approvals, terminal approval channel) still open.
+- [~] Extract the read edition into its new repository — assembled (clean
+      history, 54 tools, `./core` library export); this repository then
+      depends on the published package and drops its copy of the read code.
+      The physical `src/read` / `src/write` move is not needed: the boundary
+      classification drives the extraction.
+- [ ] Write edition major: WalletConnect / keystore by default; hot keys only
+      with an explicit `DEXE_SIGNER_MODE=unattended`
 - [ ] Hosted read server, MCP Registry entries for both editions, directory
       submissions
 
