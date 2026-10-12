@@ -113,6 +113,8 @@ const WRITE = [
   "lib/qr.ts",
   "lib/resumeContract.ts",
   "lib/signer.ts",
+  // eth_call simulation core: pre-checks for writes (sim tools, broadcast guard)
+  "lib/simulate.ts",
   "lib/txWait.ts",
   "lib/walletconnect.ts",
   "tools/agents.ts",

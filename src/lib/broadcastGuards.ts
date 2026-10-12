@@ -1,7 +1,7 @@
 import pLimit from "p-limit";
 import type { DexeConfig } from "../config.js";
 import { RpcProvider } from "../rpc.js";
-import { simulateCalldata } from "../tools/simulate.js";
+import { simulateCalldata } from "./simulate.js";
 import { scanForbiddenCalldata, forbiddenBroadcastError } from "./dangerousSelectors.js";
 import { sanitizeRevertReason } from "./errors.js";
 

@@ -17,7 +17,7 @@ import {
 import { PinataClient, pinataCidForJson } from "../lib/ipfs.js";
 import type { IpfsArtifact } from "../lib/ipfsPreview.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
-import { simulateCalldata } from "./simulate.js";
+import { simulateCalldata } from "../lib/simulate.js";
 import { parseUintString } from "../lib/amount.js";
 import { parseAmount, formatAmount, from18 } from "../lib/units.js";
 import { signerKeyParam, NFT_IDS_OWN_DESC } from "../lib/params.js";
