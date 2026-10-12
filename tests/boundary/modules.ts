@@ -106,6 +106,8 @@ const READ = [
   "lib/requestScope.ts",
   "lib/requireEnv.ts",
   "lib/sanitize.ts",
+  // masks configured endpoints/keys in read-tool output
+  "lib/secretScrub.ts",
   "lib/selectors.ts",
   // Persistence infrastructure. Read tools only call getState / findKnownDao;
   // the writers are called by write flows.
@@ -133,6 +135,8 @@ const READ = [
   "tools/predict.ts",
   "tools/proposal.ts",
   "tools/read.ts",
+  // read-tool result guard: request signal, secret scrub, response-size cap
+  "tools/readGuard.ts",
   "tools/report.ts",
   "tools/risk.ts",
   // generic tools/list schema post-processing (oneOf → anyOf, closed objects)

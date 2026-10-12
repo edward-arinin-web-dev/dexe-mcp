@@ -2,6 +2,15 @@ import type { ReadConfig, SubgraphKind } from "../configRead.js";
 import { DEFAULT_SUBGRAPH_CHAIN_ID, DEFAULTS, SUBGRAPH_KINDS, subgraphEnvVar } from "../configRead.js";
 import { maskUrl, safeErrorMessage } from "./redact.js";
 import { defangFenceMarkers, sanitizeUntrusted } from "./sanitize.js";
+import {
+  BodyTooLargeError,
+  formatBytes,
+  readJsonCapped,
+  readTextCapped,
+  UPSTREAM_JSON_MAX_BYTES,
+} from "./boundedBody.js";
+import { deadlineSignal, RequestCancelledError, throwIfCancelled } from "./requestScope.js";
+import { buildReplacements, scrubText } from "./secretScrub.js";
 
 export type { SubgraphKind };
 
@@ -298,27 +307,53 @@ export async function withOrphanVoterFallback<T>(
  * headers — a gateway that answers 200 and then stalls the body would otherwise
  * hang forever past the timeout, since the abort timer is what bounds it.
  */
+/**
+ * Remove the endpoint's own secrets from text the gateway sent back. A 404/400
+ * body commonly echoes the request path — `/api/<graph-key>/subgraphs/id/…` —
+ * so the key would ride into the tool error verbatim. The read-tool guard
+ * scrubs configured values again on the way out; this covers every other
+ * caller (write flows read the subgraph too) and keys passed in explicitly.
+ */
+function scrubEndpointEcho(text: string, endpoint: string, apiKey: string | undefined): string {
+  return scrubText(text, buildReplacements({ urls: [endpoint], secrets: apiKey ? [apiKey] : [] }));
+}
+
+/** Most of an error body worth reading; past this it is noise (and a stall risk). */
+const ERROR_BODY_MAX_BYTES = 16 * 1024;
+
 async function gqlAttempt<T>(
   endpoint: string,
   headers: Record<string, string>,
   body: string,
   timeoutMs: number,
+  apiKey: string | undefined,
 ): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const deadline = deadlineSignal(timeoutMs);
   try {
-    const res = await fetch(endpoint, { method: "POST", headers, body, signal: controller.signal });
+    const res = await fetch(endpoint, { method: "POST", headers, body, signal: deadline.signal });
     if (!res.ok) {
       // Best-effort detail: the status already decides what we tell the user,
       // and a stalled error body must not extend the stall.
-      const detail = await res.text().catch(() => "");
+      const detail = await readTextCapped(res, ERROR_BODY_MAX_BYTES).catch(() => "");
       const { message, transient } = httpRemediation(res.status, endpoint);
+      const said = detail ? untrustedGatewayText(scrubEndpointEcho(detail, endpoint, apiKey), 200) : "";
       throw new SubgraphError(
-        `${message}${detail ? ` — gateway said: ${untrustedGatewayText(detail, 200)}` : ""}${defaultEndpointHint(endpoint)}`,
+        `${message}${said ? ` — gateway said: ${said}` : ""}${defaultEndpointHint(endpoint)}`,
         transient,
       );
     }
-    const parsed = (await res.json()) as GqlResponse<T>;
+    let parsed: GqlResponse<T>;
+    try {
+      parsed = await readJsonCapped<GqlResponse<T>>(res, UPSTREAM_JSON_MAX_BYTES);
+    } catch (err) {
+      if (!(err instanceof BodyTooLargeError)) throw err;
+      throw new SubgraphError(
+        `Subgraph response from ${maskUrl(endpoint)} is over ${formatBytes(UPSTREAM_JSON_MAX_BYTES)} — ` +
+          `the query asks for far more than one answer can use. Ask for fewer rows (smaller first:) or ` +
+          `fewer nested fields, and page with skip.`,
+        false,
+      );
+    }
     if (parsed.errors?.length) {
       // A GraphQL-level error is a bad query, not a bad connection — never retry.
       throw new SubgraphError(`Subgraph errors: ${joinGqlErrors(parsed.errors)}`, false);
@@ -330,10 +365,12 @@ async function gqlAttempt<T>(
     // more informative than "timed out", and the deadline can legitimately fire
     // while we're reading the error body of a status we already have.
     if (err instanceof SubgraphError) throw err;
+    // The caller went away: not a gateway problem, and nothing to retry.
+    if (deadline.cancelled()) throw new RequestCancelledError("subgraph query");
     // Otherwise classify on the signal, not on err.name: an abort surfaces
     // differently depending on where in the exchange it lands (fetch reject vs
     // body read).
-    if (controller.signal.aborted) {
+    if (deadline.timedOut()) {
       throw new SubgraphError(
         `Subgraph request to ${maskUrl(endpoint)} timed out after ${timeoutMs}ms — ` +
           `transient, re-run the call.${defaultEndpointHint(endpoint)}`,
@@ -348,7 +385,7 @@ async function gqlAttempt<T>(
       true,
     );
   } finally {
-    clearTimeout(timer);
+    deadline.clear();
   }
 }
 
@@ -381,8 +418,10 @@ export async function gqlRequest<T>(
   let lastErr: unknown;
   let retried = false;
   for (let attempt = 0; attempt < 2; attempt++) {
+    // A cancelled tool call makes no further request — not the first, not the retry.
+    throwIfCancelled();
     try {
-      return await gqlAttempt<T>(endpoint, headers, body, timeoutMs);
+      return await gqlAttempt<T>(endpoint, headers, body, timeoutMs, key);
     } catch (err) {
       lastErr = err;
       if (attempt === 1 || !(err instanceof SubgraphError) || !err.transient) break;

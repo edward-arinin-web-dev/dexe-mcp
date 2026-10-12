@@ -1,5 +1,6 @@
 import { Contract, Interface, JsonRpcProvider } from "ethers";
 import { safeErrorMessage } from "./redact.js";
+import { throwIfCancelled } from "./requestScope.js";
 
 /**
  * Multicall3 — deployed at the same address on ~every EVM chain.
@@ -43,6 +44,9 @@ export async function multicall(
   calls: Call[],
 ): Promise<CallResult[]> {
   if (calls.length === 0) return [];
+  // Per-DAO / per-section loops (inbox, report) issue one multicall per step;
+  // once the read tool's caller has cancelled, the next step makes no RPC call.
+  throwIfCancelled();
   const mc = new Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, provider);
 
   const payload = calls.map((c) => ({
