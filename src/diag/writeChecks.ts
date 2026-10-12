@@ -1,7 +1,7 @@
 import type { WriteConfig } from "../config.js";
 import { DEFAULTS } from "../config.js";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
-import { fetchJsonWithTimeout, type CheckResult, type ExtraChecks } from "./checks.js";
+import { fetchJsonWithTimeout, type CheckResult, type EnvFileWording, type ExtraChecks } from "./checks.js";
 import type { DoctorText } from "../tools/doctor.js";
 
 /**
@@ -45,8 +45,21 @@ export function writeDoctorChecks(opts: WriteDoctorOptions = {}): ExtraChecks<Wr
         config.walletConnectProjectId === DEFAULTS.walletConnectProjectId ? ["WalletConnect project id"] : [],
       fix: "DEXE_WALLETCONNECT_PROJECT_ID",
     },
+    envFileWording: WRITE_ENV_FILE_WORDING,
+    setupGuide: "Run /dexe-setup for a guided walkthrough.",
+    // state.json: the DAOs and proposals the write flows record.
+    statePath: true,
   };
 }
+
+/** The `env.file` rows as the single server words them: its setup wizard, its signing keys. */
+export const WRITE_ENV_FILE_WORDING: EnvFileWording = {
+  zeroConfig: "Reads still work zero-config; signing and IPFS uploads do not.",
+  createOne:
+    "Create one with `npx dexe-mcp init` (writes ~/.dexe-mcp/.env), or set DEXE_ENV_FILE to an absolute path, then restart Claude Code. Editing a .env at any other location — including a repo checkout the server is not launched from — has no effect.",
+  notRecorded:
+    "Run `npx dexe-mcp doctor`, or call dexe_doctor inside Claude Code, to see what the server itself loaded.",
+};
 
 // ─── pinata jwt ──────────────────────────────────────────────────────────
 

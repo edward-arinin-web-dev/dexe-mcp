@@ -226,10 +226,13 @@ export function loadEnvFile(
       const lines = (hasBom ? raw.subarray(3) : raw).toString("utf8").split(/\r?\n/);
       const scan = scanAssignments(lines);
       spaceLines = scan.spaceLines;
-      fileKeys = [...new Set(scan.assignments.map(a => a.key))];
-      firstKey = scan.assignments[0]?.key;
+      // Another edition's vars (a read-only server sharing the write edition's
+      // .env) are not this server's business: never listed, never named.
+      const ours = (k: string | undefined): string | undefined => (k && surface.isForeign?.(k) ? undefined : k);
+      fileKeys = [...new Set(scan.assignments.map(a => a.key))].filter(k => ours(k) !== undefined);
+      firstKey = ours(scan.assignments[0]?.key);
       if (missingTrailingNewline) {
-        lastLineKey = scan.assignments.find(a => a.line === lines.length)?.key;
+        lastLineKey = ours(scan.assignments.find(a => a.line === lines.length)?.key);
       }
     } catch (err) {
       parseIssues.push({

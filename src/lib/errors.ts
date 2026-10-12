@@ -82,14 +82,15 @@ export const READ_KNOWN_FAILURES: readonly KnownFailure[] = [
     slug: "subgraph-failed",
     what:
       "The subgraph (indexer) failed, so this read returned NO data — that is NOT the same as 'the DAO has none'. Do not report an empty result.",
+    // No profile hints here: the read server registers every read tool. The
+    // single server words this with its DEXE_TOOLSETS hints (lib/writeErrors.ts).
     remedy:
       "Re-run once (429/5xx/timeouts are usually transient). If it persists, read the same facts on-chain instead — " +
-      "dexe_proposal_list / dexe_read_settings / dexe_dao_info need no indexer and are in the default profile; " +
-      "dexe_read_gov_state (needs DEXE_TOOLSETS=core,dev) and dexe_read_multicall (needs DEXE_TOOLSETS=core,read) " +
-      "cover the rest. " +
+      "dexe_proposal_list / dexe_read_settings / dexe_dao_info need no indexer; dexe_read_gov_state and " +
+      "dexe_read_multicall cover the rest. " +
       "A 401/403/429 on the shipped default endpoint means you are sharing the packaged Graph key: get a free one at " +
       "thegraph.com/studio, set DEXE_SUBGRAPH_POOLS_URL / _VALIDATORS_URL / _INTERACTIONS_URL in .env, and restart. " +
-      "Entity/field names for a hand-written query: call dexe_graph_schema (live introspection, default profile) " +
+      "Entity/field names for a hand-written query: call dexe_graph_schema (live introspection) " +
       "or read the dexe://graph-schema resource.",
   },
   {

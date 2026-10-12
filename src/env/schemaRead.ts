@@ -450,6 +450,40 @@ export const FOREIGN_WRITE_ENV_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Is `key` something only the write edition (or its test harness) reads — a
+ * signing key, an agent key under either spelling, the keyring ledger, an
+ * upload or WalletConnect credential, a dev-toolchain path?
+ */
+export function isWriteEnvKey(key: string): boolean {
+  return (
+    FOREIGN_WRITE_ENV_KEYS.has(key) ||
+    /^(DEXE_)?AGENT_PK_\d+$/.test(key) ||
+    key === "AGENT_FUNDER_PK" ||
+    /^DEXE_AGENT_LEDGER/.test(key) ||
+    /^SWARM_/.test(key)
+  );
+}
+
+/**
+ * Delete every write-edition var from `env`, in place, and return how many
+ * went. The read edition's stdio binary calls this after loading `.env`: a
+ * `.env` shared with the write edition puts signing keys into the process, and
+ * nothing in a read-only process — a tool, a dependency, an error message —
+ * should be able to read one back. (The HTTP server goes further and keeps an
+ * allowlist: src/http/remoteEnv.ts.)
+ */
+export function dropWriteEnv(env: NodeJS.ProcessEnv = process.env): number {
+  let removed = 0;
+  for (const key of Object.keys(env)) {
+    if (isWriteEnvKey(key)) {
+      delete env[key];
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/**
  * The env surface one edition reads: what its `.env` loading, its doctor and
  * its startup-issue rows walk. The read edition's is `READ_ENV_SURFACE`; the
  * single server passes the full one from ./schema.ts.
@@ -465,5 +499,5 @@ export interface EnvSurface {
 
 export const READ_ENV_SURFACE: EnvSurface = {
   spec: ENV_SPEC_READ,
-  isForeign: (key) => FOREIGN_WRITE_ENV_KEYS.has(key),
+  isForeign: isWriteEnvKey,
 };

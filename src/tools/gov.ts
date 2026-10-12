@@ -15,12 +15,21 @@ import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { toActionableError } from "../lib/errors.js";
 import { chainIdParam } from "../lib/params.js";
 
-export function registerGovTools(server: McpServer, ctx: ToolContext): void {
+export interface GovToolOptions {
+  /**
+   * Appended to a no-match decode answer when a local compile was searched: the
+   * tool that also searches its events and errors. Only a server that carries
+   * the dev tools has one to name; the read edition never has a local compile.
+   */
+  localCompileHint?: string;
+}
+
+export function registerGovTools(server: McpServer, ctx: ToolContext, opts: GovToolOptions = {}): void {
   const rpc = new RpcProvider(ctx.config);
   const abis = new DecodeAbis(ctx.artifacts, ctx.selectors);
   const addresses = new GovAddressResolver(ctx.artifacts);
 
-  registerDecodeCalldata(server, abis);
+  registerDecodeCalldata(server, abis, opts.localCompileHint);
   registerDecodeProposal(server, abis, rpc);
   registerReadGovState(server, ctx, addresses, rpc);
   registerListGovContractTypes(server);
@@ -72,7 +81,12 @@ function knownNames(source: DecodeAbiSource, max = 50): string {
  * Why nothing matched, and what to do about it. The snapshot branch names no
  * dev tool: it is the path a zero-config install (and the read edition) takes.
  */
-function noMatchMessage(data: string, contract: string | undefined, source: DecodeAbiSource): string {
+function noMatchMessage(
+  data: string,
+  contract: string | undefined,
+  source: DecodeAbiSource,
+  localCompileHint?: string,
+): string {
   const selector = data.slice(0, 10);
   if (contract) {
     return (
@@ -88,14 +102,12 @@ function noMatchMessage(data: string, contract: string | undefined, source: Deco
     "commit can also carry selectors the snapshot does not know.";
   // Both sets were searched by now (the local decoder falls back to the
   // snapshot); the dev hint only applies where a local compile exists.
-  return source.kind === "artifacts"
-    ? `${base} Try dexe_find_selector to search the local compile's events and errors too.`
-    : base;
+  return source.kind === "artifacts" && localCompileHint ? `${base} ${localCompileHint}` : base;
 }
 
 // ---------- dexe_decode_calldata ----------
 
-function registerDecodeCalldata(server: McpServer, abis: DecodeAbis): void {
+function registerDecodeCalldata(server: McpServer, abis: DecodeAbis, localCompileHint?: string): void {
   server.registerTool(
     "dexe_decode_calldata",
     {
@@ -174,7 +186,7 @@ function registerDecodeCalldata(server: McpServer, abis: DecodeAbis): void {
               `${differing.contract} as (${argNames(differing)}). Check which contract the target is before trusting the names.`
             : "") +
           snapshotNote(used, source, abis)
-        : noMatchMessage(data, contract, source);
+        : noMatchMessage(data, contract, source, localCompileHint);
 
       // The spread is mandatory: `untrustedResult` returns only content +
       // structuredContent, so building the object from it directly would drop

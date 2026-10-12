@@ -26,11 +26,16 @@ export interface ArtifactRecord {
  */
 export type AbiRecord = Pick<ArtifactRecord, "contractName" | "sourceName" | "abi">;
 
-/** Structured error thrown when introspection tools run before `dexe_compile`. */
+/**
+ * Thrown when there is no local compile of the DeXe Protocol to read. The
+ * decode tools catch it and use the ABI snapshot bundled with the package
+ * (src/lib/decodeAbis.ts), so on a read-only install it is never an error the
+ * caller sees. Code that needs the compile itself words its own remedy.
+ */
 export class ArtifactsMissingError extends Error {
   constructor(public readonly artifactsDir: string) {
     super(
-      `Hardhat artifacts not found at ${artifactsDir}. Run dexe_compile first to populate them.`,
+      `No compiled DeXe Protocol artifacts at ${artifactsDir} — decoding uses the ABI snapshot bundled with this package.`,
     );
     this.name = "ArtifactsMissingError";
   }
@@ -150,24 +155,6 @@ export class Artifacts {
     return this.load().byContractName.get(contractName) ?? [];
   }
 
-  /** Convenience: get exactly one artifact or throw. */
-  getOne(contractName: string): ArtifactRecord {
-    const list = this.get(contractName);
-    if (list.length === 0) {
-      throw new Error(
-        `Unknown contract: ${contractName}. Call dexe_list_contracts to see what's available.`,
-      );
-    }
-    if (list.length > 1) {
-      const paths = list.map((r) => r.sourceName).join(", ");
-      throw new Error(
-        `Ambiguous contract name: ${contractName} exists in multiple sources (${paths}). ` +
-          `Pass a fully-qualified name like "${list[0]!.sourceName}:${contractName}" (not yet supported — open an issue).`,
-      );
-    }
-    return list[0]!;
-  }
-
   // ---------- build-info ----------
 
   private readonly buildInfoCache = new Map<string, BuildInfoFile>();
@@ -229,6 +216,42 @@ export interface BuildInfoContract {
   metadata?: string;
   devdoc?: unknown;
   userdoc?: unknown;
+}
+
+/**
+ * The read edition's artifacts: there is no local compile, and none is looked
+ * for. No path on disk is consulted — so nothing placed at some predictable
+ * location can change which ABIs the decoders trust — and the decode tools use
+ * the ABI snapshot bundled with the package.
+ */
+export class NoLocalArtifacts extends Artifacts {
+  constructor() {
+    super({ protocolPath: "" });
+  }
+
+  override get contractsDir(): string {
+    return "<none>";
+  }
+
+  override get buildInfoDir(): string {
+    return "<none>";
+  }
+
+  override requireArtifactsExist(): void {
+    throw new ArtifactsMissingError(this.contractsDir);
+  }
+
+  override list(): ArtifactRecord[] {
+    return [];
+  }
+
+  override get(): ArtifactRecord[] {
+    return [];
+  }
+
+  override loadBuildInfoFor(): BuildInfoContract | null {
+    return null;
+  }
 }
 
 // ---------- helpers ----------

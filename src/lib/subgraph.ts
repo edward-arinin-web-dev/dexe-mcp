@@ -166,8 +166,8 @@ const SHIPPED_DEFAULT_HINT =
   "\n\n[hint] this query used the shared DEFAULT Graph endpoint baked into dexe-mcp — its API " +
   "key is billable and shared by every install, so it rate-limits and can be revoked. Get a free " +
   "key at thegraph.com/studio and set DEXE_SUBGRAPH_POOLS_URL / DEXE_SUBGRAPH_VALIDATORS_URL / " +
-  "DEXE_SUBGRAPH_INTERACTIONS_URL in .env, then restart (Claude Code: quit + relaunch). " +
-  "Run /dexe-setup for a guided walkthrough.";
+  "DEXE_SUBGRAPH_INTERACTIONS_URL in .env (each URL carries your key: " +
+  "https://gateway.thegraph.com/api/<key>/subgraphs/id/<id>), then restart (Claude Code: quit + relaunch).";
 
 /** Append the shipped-default nudge only where a different key would help. */
 function defaultEndpointHint(endpoint: string): string {

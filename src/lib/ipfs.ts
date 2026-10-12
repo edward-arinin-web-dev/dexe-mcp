@@ -221,7 +221,7 @@ export async function fetchIpfs(
   const hint = allPublic
     ? " — the shared public IPFS gateways are failing. Set DEXE_IPFS_GATEWAY to a dedicated " +
       "gateway (a free Pinata dedicated gateway takes ~2 min; Filebase / Quicknode also work), " +
-      "then restart. Run /dexe-setup for a guided walkthrough."
+      "then restart. DEXE_IPFS_GATEWAYS_FALLBACK adds more, comma-separated."
     : "";
   throw new Error(
     `IPFS fetch failed for ${cidStr} across ${attempts} gateway(s): ${errors.join("; ")}${hint}`,

@@ -83,7 +83,40 @@ export interface ExtraChecks<C extends ReadConfig = ReadConfig> {
    * server has always listed them.
    */
   env?: EnvSurface;
+  /**
+   * The `.env` rows' wording, replacing the read edition's
+   * (`READ_ENV_FILE_WORDING`): an edition with a setup wizard and signing keys
+   * names them.
+   */
+  envFileWording?: EnvFileWording;
+  /** A guided-setup pointer, placed in the `env.sharedDefaults` remediation before the docs link. */
+  setupGuide?: string;
+  /**
+   * Add the `state.path` writability row. Only an edition that keeps a local
+   * state file has one; the read edition keeps nothing between calls.
+   */
+  statePath?: boolean;
 }
+
+/** What the `env.file` row says, per edition. */
+export interface EnvFileWording {
+  /** Appended to "no .env file exists" when no MCP host env block supplies values either. */
+  zeroConfig: string;
+  /** Remediation for "no .env file exists". */
+  createOne: string;
+  /** Remediation when the checks run outside the server's startup path (nothing recorded). */
+  notRecorded: string;
+}
+
+/** The read edition's `env.file` wording: no setup wizard, no signing. */
+export const READ_ENV_FILE_WORDING: EnvFileWording = {
+  zeroConfig: "Reads work zero-config: a public RPC, subgraph endpoints and IPFS gateways are built in.",
+  createOne:
+    "Create ~/.dexe-mcp/.env with the DEXE_* vars you want to override (docs/ENVIRONMENT.md lists them), or set " +
+    "DEXE_ENV_FILE to an absolute path, then restart the MCP host. Editing a .env at any other location — including " +
+    "a repo checkout the server is not launched from — has no effect.",
+  notRecorded: "Call dexe_doctor inside your MCP host to see what the server itself loaded.",
+};
 
 /**
  * Another edition's checks for one doctor run, as `dexe_doctor` and
@@ -136,7 +169,7 @@ export async function runAllChecks<C extends ReadConfig = ReadConfig>(
   // Loudest first: a degraded startup or an unloaded .env explains most of
   // what follows.
   results.push(...startupIssueChecks(opts.config, envSource, env));
-  results.push(...envSourceChecks(envSource));
+  results.push(...envSourceChecks(envSource, extra.envFileWording));
   results.push(...envPresenceChecks(env.spec));
 
   // Every probe below already carries its own `timeoutMs`, but the number of
@@ -179,8 +212,8 @@ export async function runAllChecks<C extends ReadConfig = ReadConfig>(
   results.push(...subgraphCoverageCheck(opts.config));
   results.push(...(extra.config?.(opts.config) ?? []));
   results.push(...chainConsistencyCheck(opts.config));
-  results.push(...sharedDefaultsCheck(opts.config, extra.sharedDefaults));
-  results.push(...stateStoreCheck(opts.config));
+  results.push(...sharedDefaultsCheck(opts.config, extra.sharedDefaults, extra.setupGuide));
+  if (extra.statePath) results.push(...stateStoreCheck(opts.config));
 
   return results;
 }
@@ -258,7 +291,10 @@ function summarizeKeys(keys: string[], max = 12): string {
  * pre-set key, so an MCP host `env` block silently wins over the file the user
  * is editing — the "I changed .env and nothing happened" trap.
  */
-export function envSourceChecks(state: EnvSourceState | undefined): CheckResult[] {
+export function envSourceChecks(
+  state: EnvSourceState | undefined,
+  wording: EnvFileWording = READ_ENV_FILE_WORDING,
+): CheckResult[] {
   const out: CheckResult[] = [];
   if (!state || (state.candidates.length === 0 && state.reports.length === 0)) {
     return [
@@ -268,8 +304,7 @@ export function envSourceChecks(state: EnvSourceState | undefined): CheckResult[
         status: "warn",
         message:
           ".env resolution was not recorded — these checks are running outside the server's startup path, so the file list below would be a guess.",
-        remediation:
-          "Run `npx dexe-mcp doctor`, or call dexe_doctor inside Claude Code, to see what the server itself loaded.",
+        remediation: wording.notRecorded,
       },
     ];
   }
@@ -287,9 +322,8 @@ export function envSourceChecks(state: EnvSourceState | undefined): CheckResult[
         `no .env file exists — tried, in order: ${state.candidates.join(" → ")}. ` +
         (hostKeys.length
           ? `Every DEXE_* value comes from the MCP host env block instead (${summarizeKeys(hostKeys)}).`
-          : "Reads still work zero-config; signing and IPFS uploads do not."),
-      remediation:
-        "Create one with `npx dexe-mcp init` (writes ~/.dexe-mcp/.env), or set DEXE_ENV_FILE to an absolute path, then restart Claude Code. Editing a .env at any other location — including a repo checkout the server is not launched from — has no effect.",
+          : wording.zeroConfig),
+      remediation: wording.createOne,
     });
   } else {
     out.push({
@@ -1018,6 +1052,7 @@ function chainConsistencyCheck(config: ReadConfig | undefined): CheckResult[] {
 function sharedDefaultsCheck<C extends ReadConfig>(
   config: C | undefined,
   extra?: ExtraChecks<C>["sharedDefaults"],
+  setupGuide?: string,
 ): CheckResult[] {
   if (!config) return [];
   const shared: string[] = [];
@@ -1038,7 +1073,7 @@ function sharedDefaultsCheck<C extends ReadConfig>(
       category: "core",
       status: "warn",
       message: `Using shared public defaults for: ${shared.join(", ")}. Fine for light use; rate-limited and billable-shared.`,
-      remediation: `For production / heavy use set your own: ${fixes.join(" and ")}. Run /dexe-setup for a guided walkthrough. See docs/ENVIRONMENT.md.`,
+      remediation: `For production / heavy use set your own: ${fixes.join(" and ")}.${setupGuide ? ` ${setupGuide}` : ""} See docs/ENVIRONMENT.md.`,
     },
   ];
 }
