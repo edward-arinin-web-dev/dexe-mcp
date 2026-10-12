@@ -12,12 +12,12 @@ var __require = /* @__PURE__ */ ((x6) => typeof require !== "undefined" ? requir
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x6 + '" is not supported');
 });
-var __esm = (fn, res, err14) => function __init() {
-  if (err14) throw err14[0];
+var __esm = (fn, res, err16) => function __init() {
+  if (err16) throw err16[0];
   try {
     return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
   } catch (e2) {
-    throw err14 = [e2], e2;
+    throw err16 = [e2], e2;
   }
 };
 var __commonJS = (cb, mod4) => function __require2() {
@@ -1318,21 +1318,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen: gen4, keyword, schemaValue, data: data4, errsCount, it: it4 }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err14 = gen4.name("err");
+      const err16 = gen4.name("err");
       gen4.forRange("i", errsCount, names_1.default.errors, (i3) => {
-        gen4.const(err14, (0, codegen_1._)`${names_1.default.vErrors}[${i3}]`);
-        gen4.if((0, codegen_1._)`${err14}.instancePath === undefined`, () => gen4.assign((0, codegen_1._)`${err14}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it4.errorPath)));
-        gen4.assign((0, codegen_1._)`${err14}.schemaPath`, (0, codegen_1.str)`${it4.errSchemaPath}/${keyword}`);
+        gen4.const(err16, (0, codegen_1._)`${names_1.default.vErrors}[${i3}]`);
+        gen4.if((0, codegen_1._)`${err16}.instancePath === undefined`, () => gen4.assign((0, codegen_1._)`${err16}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it4.errorPath)));
+        gen4.assign((0, codegen_1._)`${err16}.schemaPath`, (0, codegen_1.str)`${it4.errSchemaPath}/${keyword}`);
         if (it4.opts.verbose) {
-          gen4.assign((0, codegen_1._)`${err14}.schema`, schemaValue);
-          gen4.assign((0, codegen_1._)`${err14}.data`, data4);
+          gen4.assign((0, codegen_1._)`${err16}.schema`, schemaValue);
+          gen4.assign((0, codegen_1._)`${err16}.data`, data4);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen4, errObj) {
-      const err14 = gen4.const("err", errObj);
-      gen4.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen4.assign(names_1.default.vErrors, (0, codegen_1._)`[${err14}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err14})`);
+      const err16 = gen4.const("err", errObj);
+      gen4.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen4.assign(names_1.default.vErrors, (0, codegen_1._)`[${err16}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err16})`);
       gen4.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it4, errs) {
@@ -17069,8 +17069,8 @@ function split2(name2, nf, ef) {
         }
       }
       info.type = type;
-    } catch (err14) {
-      info.error = err14;
+    } catch (err16) {
+      info.error = err16;
     }
     return info;
   });
@@ -28329,9 +28329,9 @@ var require_permessage_deflate = __commonJS({
        */
       decompress(data4, fin, callback) {
         zlibLimiter.add((done) => {
-          this._decompress(data4, fin, (err14, result) => {
+          this._decompress(data4, fin, (err16, result) => {
             done();
-            callback(err14, result);
+            callback(err16, result);
           });
         });
       }
@@ -28345,9 +28345,9 @@ var require_permessage_deflate = __commonJS({
        */
       compress(data4, fin, callback) {
         zlibLimiter.add((done) => {
-          this._compress(data4, fin, (err14, result) => {
+          this._compress(data4, fin, (err16, result) => {
             done();
-            callback(err14, result);
+            callback(err16, result);
           });
         });
       }
@@ -28378,11 +28378,11 @@ var require_permessage_deflate = __commonJS({
         this._inflate.write(data4);
         if (fin) this._inflate.write(TRAILER);
         this._inflate.flush(() => {
-          const err14 = this._inflate[kError];
-          if (err14) {
+          const err16 = this._inflate[kError];
+          if (err16) {
             this._inflate.close();
             this._inflate = null;
-            callback(err14);
+            callback(err16);
             return;
           }
           const data5 = bufferUtil.concat(
@@ -28463,14 +28463,14 @@ var require_permessage_deflate = __commonJS({
       this.removeListener("data", inflateOnData);
       this.reset();
     }
-    function inflateOnError(err14) {
+    function inflateOnError(err16) {
       this[kPerMessageDeflate]._inflate = null;
       if (this[kError]) {
         this[kCallback](this[kError]);
         return;
       }
-      err14[kStatusCode] = 1007;
-      this[kCallback](err14);
+      err16[kStatusCode] = 1007;
+      this[kCallback](err16);
     }
   }
 });
@@ -29123,8 +29123,8 @@ var require_receiver = __commonJS({
        */
       decompress(data4, cb) {
         const perMessageDeflate = this._extensions[PerMessageDeflate2.extensionName];
-        perMessageDeflate.decompress(data4, this._fin, (err14, buf) => {
-          if (err14) return cb(err14);
+        perMessageDeflate.decompress(data4, this._fin, (err16, buf) => {
+          if (err16) return cb(err16);
           if (buf.length) {
             this._messageLength += buf.length;
             if (this._messageLength > this._maxPayload && this._maxPayload > 0) {
@@ -29286,13 +29286,13 @@ var require_receiver = __commonJS({
       createError(ErrorCtor, message, prefix, statusCode, errorCode) {
         this._loop = false;
         this._errored = true;
-        const err14 = new ErrorCtor(
+        const err16 = new ErrorCtor(
           prefix ? `Invalid WebSocket frame: ${message}` : message
         );
-        Error.captureStackTrace(err14, this.createError);
-        err14.code = errorCode;
-        err14[kStatusCode] = statusCode;
-        return err14;
+        Error.captureStackTrace(err16, this.createError);
+        err16.code = errorCode;
+        err16[kStatusCode] = statusCode;
+        return err16;
       }
     };
     module.exports = Receiver2;
@@ -29671,10 +29671,10 @@ var require_sender = __commonJS({
         this._state = GET_BLOB_DATA;
         blob.arrayBuffer().then((arrayBuffer) => {
           if (this._socket.destroyed) {
-            const err14 = new Error(
+            const err16 = new Error(
               "The socket was closed while the blob was being read"
             );
-            process.nextTick(callCallbacks, this, err14, cb);
+            process.nextTick(callCallbacks, this, err16, cb);
             return;
           }
           this._bufferedBytes -= options[kByteLength];
@@ -29686,8 +29686,8 @@ var require_sender = __commonJS({
           } else {
             this.dispatch(data4, compress, options, cb);
           }
-        }).catch((err14) => {
-          process.nextTick(onError, this, err14, cb);
+        }).catch((err16) => {
+          process.nextTick(onError, this, err16, cb);
         });
       }
       /**
@@ -29723,10 +29723,10 @@ var require_sender = __commonJS({
         this._state = DEFLATING;
         perMessageDeflate.compress(data4, options.fin, (_3, buf) => {
           if (this._socket.destroyed) {
-            const err14 = new Error(
+            const err16 = new Error(
               "The socket was closed while data was being compressed"
             );
-            callCallbacks(this, err14, cb);
+            callCallbacks(this, err16, cb);
             return;
           }
           this._bufferedBytes -= options[kByteLength];
@@ -29777,17 +29777,17 @@ var require_sender = __commonJS({
       }
     };
     module.exports = Sender2;
-    function callCallbacks(sender, err14, cb) {
-      if (typeof cb === "function") cb(err14);
+    function callCallbacks(sender, err16, cb) {
+      if (typeof cb === "function") cb(err16);
       for (let i3 = 0; i3 < sender._queue.length; i3++) {
         const params = sender._queue[i3];
         const callback = params[params.length - 1];
-        if (typeof callback === "function") callback(err14);
+        if (typeof callback === "function") callback(err16);
       }
     }
-    function onError(sender, err14, cb) {
-      callCallbacks(sender, err14, cb);
-      sender.onerror(err14);
+    function onError(sender, err16, cb) {
+      callCallbacks(sender, err16, cb);
+      sender.onerror(err16);
     }
   }
 });
@@ -30441,8 +30441,8 @@ var require_websocket = __commonJS({
           return;
         }
         this._readyState = _WebSocket.CLOSING;
-        this._sender.close(code6, data4, !this._isServer, (err14) => {
-          if (err14) return;
+        this._sender.close(code6, data4, !this._isServer, (err16) => {
+          if (err16) return;
           this._closeFrameSent = true;
           if (this._closeFrameReceived || this._receiver._writableState.errorEmitted) {
             this._socket.end();
@@ -30712,11 +30712,11 @@ var require_websocket = __commonJS({
         invalidUrlMessage = "The URL contains a fragment identifier";
       }
       if (invalidUrlMessage) {
-        const err14 = new SyntaxError(invalidUrlMessage);
+        const err16 = new SyntaxError(invalidUrlMessage);
         if (websocket._redirects === 0) {
-          throw err14;
+          throw err16;
         } else {
-          emitErrorAndClose(websocket, err14);
+          emitErrorAndClose(websocket, err16);
           return;
         }
       }
@@ -30811,10 +30811,10 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, req, "Opening handshake has timed out");
         });
       }
-      req.on("error", (err14) => {
+      req.on("error", (err16) => {
         if (req === null || req[kAborted]) return;
         req = websocket._req = null;
-        emitErrorAndClose(websocket, err14);
+        emitErrorAndClose(websocket, err16);
       });
       req.on("response", (res) => {
         const location = res.headers.location;
@@ -30829,8 +30829,8 @@ var require_websocket = __commonJS({
           try {
             addr = new URL2(location, address);
           } catch (e2) {
-            const err14 = new SyntaxError(`Invalid URL: ${location}`);
-            emitErrorAndClose(websocket, err14);
+            const err16 = new SyntaxError(`Invalid URL: ${location}`);
+            emitErrorAndClose(websocket, err16);
             return;
           }
           initAsClient(websocket, addr, protocols, options);
@@ -30882,7 +30882,7 @@ var require_websocket = __commonJS({
           let extensions;
           try {
             extensions = parse4(secWebSocketExtensions);
-          } catch (err14) {
+          } catch (err16) {
             const message = "Invalid Sec-WebSocket-Extensions header";
             abortHandshake(websocket, socket, message);
             return;
@@ -30895,7 +30895,7 @@ var require_websocket = __commonJS({
           }
           try {
             perMessageDeflate.accept(extensions[PerMessageDeflate2.extensionName]);
-          } catch (err14) {
+          } catch (err16) {
             const message = "Invalid Sec-WebSocket-Extensions header";
             abortHandshake(websocket, socket, message);
             return;
@@ -30917,10 +30917,10 @@ var require_websocket = __commonJS({
         req.end();
       }
     }
-    function emitErrorAndClose(websocket, err14) {
+    function emitErrorAndClose(websocket, err16) {
       websocket._readyState = WebSocket3.CLOSING;
       websocket._errorEmitted = true;
-      websocket.emit("error", err14);
+      websocket.emit("error", err16);
       websocket.emitClose();
     }
     function netConnect(options) {
@@ -30936,17 +30936,17 @@ var require_websocket = __commonJS({
     }
     function abortHandshake(websocket, stream, message) {
       websocket._readyState = WebSocket3.CLOSING;
-      const err14 = new Error(message);
-      Error.captureStackTrace(err14, abortHandshake);
+      const err16 = new Error(message);
+      Error.captureStackTrace(err16, abortHandshake);
       if (stream.setHeader) {
         stream[kAborted] = true;
         stream.abort();
         if (stream.socket && !stream.socket.destroyed) {
           stream.socket.destroy();
         }
-        process.nextTick(emitErrorAndClose, websocket, err14);
+        process.nextTick(emitErrorAndClose, websocket, err16);
       } else {
-        stream.destroy(err14);
+        stream.destroy(err16);
         stream.once("error", websocket.emit.bind(websocket, "error"));
         stream.once("close", websocket.emitClose.bind(websocket));
       }
@@ -30958,10 +30958,10 @@ var require_websocket = __commonJS({
         else websocket._bufferedAmount += length3;
       }
       if (cb) {
-        const err14 = new Error(
+        const err16 = new Error(
           `WebSocket is not open: readyState ${websocket.readyState} (${readyStates[websocket.readyState]})`
         );
-        process.nextTick(cb, err14);
+        process.nextTick(cb, err16);
       }
     }
     function receiverOnConclude(code6, reason) {
@@ -30979,16 +30979,16 @@ var require_websocket = __commonJS({
       const websocket = this[kWebSocket];
       if (!websocket.isPaused) websocket._socket.resume();
     }
-    function receiverOnError(err14) {
+    function receiverOnError(err16) {
       const websocket = this[kWebSocket];
       if (websocket._socket[kWebSocket] !== void 0) {
         websocket._socket.removeListener("data", socketOnData);
         process.nextTick(resume, websocket._socket);
-        websocket.close(err14[kStatusCode]);
+        websocket.close(err16[kStatusCode]);
       }
       if (!websocket._errorEmitted) {
         websocket._errorEmitted = true;
-        websocket.emit("error", err14);
+        websocket.emit("error", err16);
       }
     }
     function receiverOnFinish() {
@@ -31008,7 +31008,7 @@ var require_websocket = __commonJS({
     function resume(stream) {
       stream.resume();
     }
-    function senderOnError(err14) {
+    function senderOnError(err16) {
       const websocket = this[kWebSocket];
       if (websocket.readyState === WebSocket3.CLOSED) return;
       if (websocket.readyState === WebSocket3.OPEN) {
@@ -31018,7 +31018,7 @@ var require_websocket = __commonJS({
       this._socket.end();
       if (!websocket._errorEmitted) {
         websocket._errorEmitted = true;
-        websocket.emit("error", err14);
+        websocket.emit("error", err16);
       }
     }
     function setCloseTimer(websocket) {
@@ -31084,11 +31084,11 @@ var require_stream = __commonJS({
         this.destroy();
       }
     }
-    function duplexOnError(err14) {
+    function duplexOnError(err16) {
       this.removeListener("error", duplexOnError);
       this.destroy();
       if (this.listenerCount("error") === 0) {
-        this.emit("error", err14);
+        this.emit("error", err16);
       }
     }
     function createWebSocketStream2(ws2, options) {
@@ -31104,28 +31104,28 @@ var require_stream = __commonJS({
         const data4 = !isBinary && duplex2._readableState.objectMode ? msg.toString() : msg;
         if (!duplex2.push(data4)) ws2.pause();
       });
-      ws2.once("error", function error62(err14) {
+      ws2.once("error", function error62(err16) {
         if (duplex2.destroyed) return;
         terminateOnDestroy = false;
-        duplex2.destroy(err14);
+        duplex2.destroy(err16);
       });
       ws2.once("close", function close() {
         if (duplex2.destroyed) return;
         duplex2.push(null);
       });
-      duplex2._destroy = function(err14, callback) {
+      duplex2._destroy = function(err16, callback) {
         if (ws2.readyState === ws2.CLOSED) {
-          callback(err14);
+          callback(err16);
           process.nextTick(emitClose, duplex2);
           return;
         }
         let called = false;
-        ws2.once("error", function error62(err15) {
+        ws2.once("error", function error62(err17) {
           called = true;
-          callback(err15);
+          callback(err17);
         });
         ws2.once("close", function close() {
-          if (!called) callback(err14);
+          if (!called) callback(err16);
           process.nextTick(emitClose, duplex2);
         });
         if (terminateOnDestroy) ws2.terminate();
@@ -31453,7 +31453,7 @@ var require_websocket_server = __commonJS({
         if (secWebSocketProtocol !== void 0) {
           try {
             protocols = subprotocol2.parse(secWebSocketProtocol);
-          } catch (err14) {
+          } catch (err16) {
             const message = "Invalid Sec-WebSocket-Protocol header";
             abortHandshakeOrEmitwsClientError(this, req, socket, 400, message);
             return;
@@ -31473,7 +31473,7 @@ var require_websocket_server = __commonJS({
               perMessageDeflate.accept(offers[PerMessageDeflate2.extensionName]);
               extensions[PerMessageDeflate2.extensionName] = perMessageDeflate;
             }
-          } catch (err14) {
+          } catch (err16) {
             const message = "Invalid or unacceptable Sec-WebSocket-Extensions header";
             abortHandshakeOrEmitwsClientError(this, req, socket, 400, message);
             return;
@@ -31604,9 +31604,9 @@ var require_websocket_server = __commonJS({
     }
     function abortHandshakeOrEmitwsClientError(server, req, socket, code6, message, headers) {
       if (server.listenerCount("wsClientError")) {
-        const err14 = new Error(message);
-        Error.captureStackTrace(err14, abortHandshakeOrEmitwsClientError);
-        server.emit("wsClientError", err14, socket, req);
+        const err16 = new Error(message);
+        Error.captureStackTrace(err16, abortHandshakeOrEmitwsClientError);
+        server.emit("wsClientError", err16, socket, req);
       } else {
         abortHandshake(socket, code6, message, headers);
       }
@@ -36557,7 +36557,7 @@ var require_resolveCommand = __commonJS({
       if (shouldSwitchCwd) {
         try {
           process.chdir(parsed.options.cwd);
-        } catch (err14) {
+        } catch (err16) {
         }
       }
       let resolved;
@@ -36742,9 +36742,9 @@ var require_enoent = __commonJS({
       const originalEmit = cp.emit;
       cp.emit = function(name2, arg1) {
         if (name2 === "exit") {
-          const err14 = verifyENOENT(arg1, parsed);
-          if (err14) {
-            return originalEmit.call(cp, "error", err14);
+          const err16 = verifyENOENT(arg1, parsed);
+          if (err16) {
+            return originalEmit.call(cp, "error", err16);
           }
         }
         return originalEmit.apply(cp, arguments);
@@ -39011,16 +39011,16 @@ var require_decoder = __commonJS({
         if (decoder.comments.length > 0) {
           image2["comments"] = decoder.comments;
         }
-      } catch (err14) {
-        if (err14 instanceof RangeError) {
+      } catch (err16) {
+        if (err16 instanceof RangeError) {
           throw new Error("Could not allocate enough memory for the image. Required: " + bytesNeeded);
         }
-        if (err14 instanceof ReferenceError) {
-          if (err14.message === "Buffer is not defined") {
+        if (err16 instanceof ReferenceError) {
+          if (err16.message === "Buffer is not defined") {
             throw new Error("Buffer is not globally defined in this environment. Consider setting useTArray to true");
           }
         }
-        throw err14;
+        throw err16;
       }
       decoder.copyToImageData(image2, opts.formatAsRGBA);
       return image2;
@@ -41920,8 +41920,8 @@ var require_parser_async = __commonJS({
       this._parser.start();
     };
     util2.inherits(ParserAsync, ChunkStream);
-    ParserAsync.prototype._handleError = function(err14) {
-      this.emit("error", err14);
+    ParserAsync.prototype._handleError = function(err16) {
+      this.emit("error", err16);
       this.writable = false;
       this.destroy();
       if (this._inflate && this._inflate.destroy) {
@@ -41948,11 +41948,11 @@ var require_parser_async = __commonJS({
           this._inflate = zlib.createInflate({ chunkSize });
           let leftToInflate = imageSize;
           let emitError = this.emit.bind(this, "error");
-          this._inflate.on("error", function(err14) {
+          this._inflate.on("error", function(err16) {
             if (!leftToInflate) {
               return;
             }
-            emitError(err14);
+            emitError(err16);
           });
           this._filter.on("complete", this._complete.bind(this));
           let filterWrite = this._filter.write.bind(this._filter);
@@ -42497,8 +42497,8 @@ var require_sync_inflate = __commonJS({
       let buffers = [];
       let nread = 0;
       let error62;
-      this.on("error", function(err14) {
-        error62 = err14;
+      this.on("error", function(err16) {
+        error62 = err16;
       });
       function handleChunk(availInAfter, availOutAfter) {
         if (self2._hadError) {
@@ -42670,9 +42670,9 @@ var require_parser_sync = __commonJS({
           "To use the sync capability of this library in old node versions, please pin pngjs to v2.3.0"
         );
       }
-      let err14;
+      let err16;
       function handleError(_err_) {
-        err14 = _err_;
+        err16 = _err_;
       }
       let metaData;
       function handleMetaData(_metaData_) {
@@ -42708,8 +42708,8 @@ var require_parser_sync = __commonJS({
       });
       parser.start();
       reader.process();
-      if (err14) {
-        throw err14;
+      if (err16) {
+        throw err16;
       }
       let inflateData = Buffer.concat(inflateDataList);
       inflateDataList.length = 0;
@@ -42860,9 +42860,9 @@ var require_png = __commonJS({
           this.data = parsedData2;
           callback(null, this);
         }.bind(this);
-        onError = function(err14) {
+        onError = function(err16) {
           this.removeListener("parsed", onParsed);
-          callback(err14, null);
+          callback(err16, null);
         }.bind(this);
         this.once("parsed", onParsed);
         this.once("error", onError);
@@ -43038,8 +43038,8 @@ var require_png2 = __commonJS({
         cb = options;
         options = void 0;
       }
-      exports.renderToBuffer(qrData, options, function(err14, output4) {
-        if (err14) cb(err14);
+      exports.renderToBuffer(qrData, options, function(err16, output4) {
+        if (err16) cb(err16);
         let url2 = "data:image/png;base64,";
         url2 += output4.toString("base64");
         cb(null, url2);
@@ -43508,8 +43508,8 @@ var require_server = __commonJS({
         return new Promise(function(resolve8, reject) {
           try {
             const data4 = QRCode.create(text5, params.opts);
-            return renderFunc(data4, params.opts, function(err14, data5) {
-              return err14 ? reject(err14) : resolve8(data5);
+            return renderFunc(data4, params.opts, function(err16, data5) {
+              return err16 ? reject(err16) : resolve8(data5);
             });
           } catch (e2) {
             reject(e2);
@@ -45329,11 +45329,11 @@ var require_utils5 = __commonJS({
       return keys.map((key) => normalizeKey(key)).filter(Boolean).join(":");
     }
     function createError(driver, message, opts) {
-      const err14 = new Error(`[unstorage] [${driver}] ${message}`, opts);
+      const err16 = new Error(`[unstorage] [${driver}] ${message}`, opts);
       if (Error.captureStackTrace) {
-        Error.captureStackTrace(err14, createError);
+        Error.captureStackTrace(err16, createError);
       }
-      return err14;
+      return err16;
     }
     function createRequiredError(driver, name2) {
       if (Array.isArray(name2)) {
@@ -45361,11 +45361,11 @@ var require_node_fs = __commonJS({
     exports.writeFile = writeFile;
     var _nodeFs = __require("node:fs");
     var _nodePath = __require("node:path");
-    function ignoreNotfound(err14) {
-      return err14.code === "ENOENT" || err14.code === "EISDIR" ? null : err14;
+    function ignoreNotfound(err16) {
+      return err16.code === "ENOENT" || err16.code === "EISDIR" ? null : err16;
     }
-    function ignoreExists(err14) {
-      return err14.code === "EEXIST" ? null : err14;
+    function ignoreExists(err16) {
+      return err16.code === "EEXIST" ? null : err16;
     }
     async function writeFile(path7, data4, encoding) {
       await ensuredir((0, _nodePath.dirname)(path7));
@@ -49483,12 +49483,12 @@ var init_errors2 = __esm({
 });
 
 // node_modules/ox/_esm/core/Errors.js
-function walk2(err14, fn) {
-  if (fn?.(err14))
-    return err14;
-  if (err14 && typeof err14 === "object" && "cause" in err14 && err14.cause)
-    return walk2(err14.cause, fn);
-  return fn ? null : err14;
+function walk2(err16, fn) {
+  if (fn?.(err16))
+    return err16;
+  if (err16 && typeof err16 === "object" && "cause" in err16 && err16.cause)
+    return walk2(err16.cause, fn);
+  return fn ? null : err16;
 }
 var BaseError;
 var init_Errors = __esm({
@@ -60554,8 +60554,8 @@ function weierstrassN(params, extraOpts = {}) {
       try {
         y6 = Fp3.sqrt(y22);
       } catch (sqrtError) {
-        const err14 = sqrtError instanceof Error ? ": " + sqrtError.message : "";
-        throw new Error("bad point: is not on curve, sqrt error" + err14);
+        const err16 = sqrtError instanceof Error ? ": " + sqrtError.message : "";
+        throw new Error("bad point: is not on curve, sqrt error" + err16);
       }
       assertCompressionIsSupported();
       const isYOdd = Fp3.isOdd(y6);
@@ -70712,8 +70712,8 @@ var require_lib4 = __commonJS({
       this.size = size3;
       this.timeout = timeout;
       if (body instanceof Stream) {
-        body.on("error", function(err14) {
-          const error62 = err14.name === "AbortError" ? err14 : new FetchError(`Invalid response body while trying to fetch ${_this.url}: ${err14.message}`, "system", err14);
+        body.on("error", function(err16) {
+          const error62 = err16.name === "AbortError" ? err16 : new FetchError(`Invalid response body while trying to fetch ${_this.url}: ${err16.message}`, "system", err16);
           _this[INTERNALS].error = error62;
         });
       }
@@ -70764,8 +70764,8 @@ var require_lib4 = __commonJS({
         return consumeBody.call(this).then(function(buffer) {
           try {
             return JSON.parse(buffer.toString());
-          } catch (err14) {
-            return Body.Promise.reject(new FetchError(`invalid json response body at ${_this2.url} reason: ${err14.message}`, "invalid-json"));
+          } catch (err16) {
+            return Body.Promise.reject(new FetchError(`invalid json response body at ${_this2.url} reason: ${err16.message}`, "invalid-json"));
           }
         });
       },
@@ -70849,12 +70849,12 @@ var require_lib4 = __commonJS({
             reject(new FetchError(`Response timeout while trying to fetch ${_this4.url} (over ${_this4.timeout}ms)`, "body-timeout"));
           }, _this4.timeout);
         }
-        body.on("error", function(err14) {
-          if (err14.name === "AbortError") {
+        body.on("error", function(err16) {
+          if (err16.name === "AbortError") {
             abort = true;
-            reject(err14);
+            reject(err16);
           } else {
-            reject(new FetchError(`Invalid response body while trying to fetch ${_this4.url}: ${err14.message}`, "system", err14));
+            reject(new FetchError(`Invalid response body while trying to fetch ${_this4.url}: ${err16.message}`, "system", err16));
           }
         });
         body.on("data", function(chunk) {
@@ -70876,8 +70876,8 @@ var require_lib4 = __commonJS({
           clearTimeout(resTimeout);
           try {
             resolve8(Buffer.concat(accum, accumBytes));
-          } catch (err14) {
-            reject(new FetchError(`Could not create Buffer from response body for ${_this4.url}: ${err14.message}`, "system", err14));
+          } catch (err16) {
+            reject(new FetchError(`Could not create Buffer from response body for ${_this4.url}: ${err16.message}`, "system", err16));
           }
         });
       });
@@ -71591,19 +71591,19 @@ var require_lib4 = __commonJS({
             }, request.timeout);
           });
         }
-        req.on("error", function(err14) {
-          reject(new FetchError(`request to ${request.url} failed, reason: ${err14.message}`, "system", err14));
+        req.on("error", function(err16) {
+          reject(new FetchError(`request to ${request.url} failed, reason: ${err16.message}`, "system", err16));
           if (response && response.body) {
-            destroyStream(response.body, err14);
+            destroyStream(response.body, err16);
           }
           finalize2();
         });
-        fixResponseChunkedTransferBadEnding(req, function(err14) {
+        fixResponseChunkedTransferBadEnding(req, function(err16) {
           if (signal && signal.aborted) {
             return;
           }
           if (response && response.body) {
-            destroyStream(response.body, err14);
+            destroyStream(response.body, err16);
           }
         });
         if (parseInt(process.version.substring(1)) < 14) {
@@ -71611,9 +71611,9 @@ var require_lib4 = __commonJS({
             s2.addListener("close", function(hadError) {
               const hasDataListener = s2.listenerCount("data") > 0;
               if (response && hasDataListener && !hadError && !(signal && signal.aborted)) {
-                const err14 = new Error("Premature close");
-                err14.code = "ERR_STREAM_PREMATURE_CLOSE";
-                response.body.emit("error", err14);
+                const err16 = new Error("Premature close");
+                err16.code = "ERR_STREAM_PREMATURE_CLOSE";
+                response.body.emit("error", err16);
               }
             });
           });
@@ -71626,7 +71626,7 @@ var require_lib4 = __commonJS({
             let locationURL = null;
             try {
               locationURL = location === null ? null : new URL$1(location, request.url).toString();
-            } catch (err14) {
+            } catch (err16) {
               if (request.redirect !== "manual") {
                 reject(new FetchError(`uri requested responds with an invalid redirect URL: ${location}`, "invalid-redirect"));
                 finalize2();
@@ -71642,8 +71642,8 @@ var require_lib4 = __commonJS({
                 if (locationURL !== null) {
                   try {
                     headers.set("Location", locationURL);
-                  } catch (err14) {
-                    reject(err14);
+                  } catch (err16) {
+                    reject(err16);
                   }
                 }
                 break;
@@ -71759,19 +71759,19 @@ var require_lib4 = __commonJS({
           response.once("close", function(hadError) {
             const hasDataListener = socket && socket.listenerCount("data") > 0;
             if (hasDataListener && !hadError) {
-              const err14 = new Error("Premature close");
-              err14.code = "ERR_STREAM_PREMATURE_CLOSE";
-              errorCallback(err14);
+              const err16 = new Error("Premature close");
+              err16.code = "ERR_STREAM_PREMATURE_CLOSE";
+              errorCallback(err16);
             }
           });
         }
       });
     }
-    function destroyStream(stream, err14) {
+    function destroyStream(stream, err16) {
       if (stream.destroy) {
-        stream.destroy(err14);
+        stream.destroy(err16);
       } else {
-        stream.emit("error", err14);
+        stream.emit("error", err16);
         stream.end();
       }
     }
@@ -72575,8 +72575,8 @@ async function run2() {
     output3.write(line("Reads work without it via a public gateway. Press Enter to skip."));
     const pinataJwt = (await ask(rl, "Pinata JWT", "")).trim();
     if (pinataJwt) {
-      const ok14 = await validatePinataJwt(pinataJwt);
-      if (!ok14) {
+      const ok16 = await validatePinataJwt(pinataJwt);
+      if (!ok16) {
         const proceed = await yn(rl, "Pinata says that JWT is invalid (or the network is unreachable). Save anyway?", false);
         if (!proceed) {
           output3.write(line("Aborted \u2014 re-run init when you have a valid JWT."));
@@ -72619,8 +72619,8 @@ async function run2() {
       }
       const addr = await deriveAddress(pk);
       output3.write(line(`  \u2192 Derived address: ${addr}`));
-      const ok14 = await yn(rl, "Is that the wallet you intended?", true);
-      if (!ok14) {
+      const ok16 = await yn(rl, "Is that the wallet you intended?", true);
+      if (!ok16) {
         output3.write(line("Aborted \u2014 re-run init."));
         process.exit(2);
       }
@@ -72655,9 +72655,9 @@ async function run2() {
     let existingEnv = null;
     try {
       existingEnv = readFileSync11(envPath, "utf8");
-    } catch (err14) {
-      if (err14.code !== "ENOENT")
-        throw err14;
+    } catch (err16) {
+      if (err16.code !== "ENOENT")
+        throw err16;
     }
     let action = "write";
     if (existingEnv !== null) {
@@ -73538,8 +73538,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err14) {
-        if (err14?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err16) {
+        if (err16?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -77924,10 +77924,10 @@ function defineLazyInternal(inst, key, compute) {
           Object.defineProperty(this, key, { configurable: true, writable: true, value });
         broke = broke || outer;
         return value;
-      } catch (err14) {
+      } catch (err16) {
         delete this[key];
         broke = broke || outer;
-        throw err14;
+        throw err16;
       }
     },
     set(value) {
@@ -89467,9 +89467,9 @@ function compile(schema, options) {
     const clone3 = withParser(schema, parser);
     clone3._zod.bag.validator = compileValidator(schema, parser);
     return clone3;
-  } catch (err14) {
+  } catch (err16) {
     if (options?.strict)
-      throw err14;
+      throw err16;
     return schema;
   }
 }
@@ -89559,8 +89559,8 @@ ${code6}
   try {
     const factory = new F3(...constantNames, factoryCode);
     fn = factory(...constantValues);
-  } catch (err14) {
-    throw new ZodCompileUnsupportedError(`this schema (generated code failed to evaluate: ${err14.message})`);
+  } catch (err16) {
+    throw new ZodCompileUnsupportedError(`this schema (generated code failed to evaluate: ${err16.message})`);
   }
   if (options?.debug) {
     fn.code = fullCode;
@@ -89598,9 +89598,9 @@ function compileChild(doc, ctx, schema, accessor, needsValue = true) {
   const varCounter = ctx.varCounter;
   try {
     return generateCheck(doc, ctx, schema, accessor, needsValue);
-  } catch (err14) {
-    if (!(err14 instanceof ZodCompileUnsupportedError) || !err14.islandable)
-      throw err14;
+  } catch (err16) {
+    if (!(err16 instanceof ZodCompileUnsupportedError) || !err16.islandable)
+      throw err16;
     doc.content.length = contentLen;
     if (ctx.constants.size > constantCount) {
       const trailing = Array.from(ctx.constants.keys()).slice(constantCount);
@@ -102344,8 +102344,8 @@ function hasGit() {
   if (gitAvailable !== null)
     return Promise.resolve(gitAvailable);
   return new Promise((resolvePromise) => {
-    execFile("git", ["--version"], { windowsHide: true }, (err14) => {
-      gitAvailable = !err14;
+    execFile("git", ["--version"], { windowsHide: true }, (err16) => {
+      gitAvailable = !err16;
       resolvePromise(gitAvailable);
     });
   });
@@ -102390,19 +102390,19 @@ function maskUrl(raw) {
 function redactUrlCredentials(text5) {
   return text5.replace(URL_RE, (m3) => maskUrl(m3));
 }
-function safeErrorMessage(err14) {
+function safeErrorMessage(err16) {
   let msg;
-  if (err14 && typeof err14 === "object") {
-    const e2 = err14;
+  if (err16 && typeof err16 === "object") {
+    const e2 = err16;
     if (typeof e2.shortMessage === "string" && e2.shortMessage.length > 0) {
       msg = e2.shortMessage;
     } else if (typeof e2.message === "string") {
       msg = e2.message;
     } else {
-      msg = String(err14);
+      msg = String(err16);
     }
   } else {
-    msg = String(err14);
+    msg = String(err16);
   }
   return redactUrlCredentials(msg);
 }
@@ -102415,20 +102415,20 @@ function trySet(obj, key, value) {
   }
 }
 var CLASSIFYING_FIELDS = ["code", "data", "reason"];
-function redactErrorInPlace(err14) {
-  const safe = safeErrorMessage(err14);
-  if (err14 instanceof Error) {
-    const e2 = err14;
-    const messageStuck = trySet(err14, "message", safe);
+function redactErrorInPlace(err16) {
+  const safe = safeErrorMessage(err16);
+  if (err16 instanceof Error) {
+    const e2 = err16;
+    const messageStuck = trySet(err16, "message", safe);
     let shortMessageLeaks = false;
     if (typeof e2.shortMessage === "string") {
       const cleaned = redactUrlCredentials(e2.shortMessage);
-      if (cleaned !== e2.shortMessage && !trySet(err14, "shortMessage", cleaned)) {
+      if (cleaned !== e2.shortMessage && !trySet(err16, "shortMessage", cleaned)) {
         shortMessageLeaks = true;
       }
     }
     if (typeof e2.stack === "string")
-      trySet(err14, "stack", redactUrlCredentials(e2.stack));
+      trySet(err16, "stack", redactUrlCredentials(e2.stack));
     const info = e2.info;
     if (info && typeof info === "object") {
       const requestUrl = info.requestUrl;
@@ -102436,10 +102436,10 @@ function redactErrorInPlace(err14) {
         trySet(info, "requestUrl", maskUrl(requestUrl));
     }
     if (messageStuck && !shortMessageLeaks)
-      return err14;
+      return err16;
   }
   const copy4 = new Error(safe);
-  const src3 = err14;
+  const src3 = err16;
   const target = copy4;
   for (const key of CLASSIFYING_FIELDS) {
     const v7 = src3?.[key];
@@ -102528,8 +102528,8 @@ async function ensureBuildReady(protocolPath) {
         log("This only happens once. Subsequent calls will be instant.");
         try {
           await execFileAsync("git", buildCloneArgs(REPO_URL, CHECKOUT_DIR, process.env.DEXE_PROTOCOL_REF), { cwd: cacheDir, windowsHide: true });
-        } catch (err14) {
-          const msg = safeErrorMessage(err14);
+        } catch (err16) {
+          const msg = safeErrorMessage(err16);
           throw new Error(`Failed to clone DeXe-Protocol. Check internet access and git credentials.
 ${msg}`);
         }
@@ -102551,8 +102551,8 @@ ${msg}`);
             shell: npm.needsShell,
             env: envWithNodeBinDir(npm.binDir)
           });
-        } catch (err14) {
-          const msg = safeErrorMessage(err14);
+        } catch (err16) {
+          const msg = safeErrorMessage(err16);
           throw new Error(`\`npm install\` failed inside ${protocolPath}.
 If your Node install lacks a bundled npm (e.g. a stripped node.exe), install Node from https://nodejs.org or via nvm and retry.
 ${msg}`);
@@ -102584,17 +102584,17 @@ function clampDiagnostic(text5) {
     return text5;
   return `${text5.slice(0, MAX_DIAGNOSTIC_CHARS)}\u2026 [truncated, ${text5.length - MAX_DIAGNOSTIC_CHARS} more chars]`;
 }
-function formatDiagnostic(err14) {
+function formatDiagnostic(err16) {
   const parts = [];
-  if (err14 instanceof Error) {
-    parts.push(err14.stack || `${err14.name}: ${err14.message}`);
-    let cause = err14.cause;
+  if (err16 instanceof Error) {
+    parts.push(err16.stack || `${err16.name}: ${err16.message}`);
+    let cause = err16.cause;
     for (let depth = 0; cause !== void 0 && cause !== null && depth < 3; depth++) {
       parts.push(`  caused by: ${cause instanceof Error ? cause.stack || `${cause.name}: ${cause.message}` : safeErrorMessage(cause)}`);
       cause = cause instanceof Error ? cause.cause : void 0;
     }
   } else {
-    parts.push(describeUnknown(err14));
+    parts.push(describeUnknown(err16));
   }
   return clampDiagnostic(redactUrlCredentials(parts.join("\n")));
 }
@@ -102684,11 +102684,11 @@ function renameWithRetry(tmp, target, hooks = {}) {
     try {
       renameSync(tmp, target);
       return;
-    } catch (err14) {
-      const code6 = err14.code;
+    } catch (err16) {
+      const code6 = err16.code;
       const transient = code6 === "EPERM" || code6 === "EACCES" || code6 === "EBUSY";
       if (!transient || attempt >= RENAME_ATTEMPTS - 1)
-        throw err14;
+        throw err16;
       const delay = renameBackoffMs(attempt, rand);
       debugLog("state", `rename contended (${String(code6)}); retry ${attempt + 1} in ${delay.toFixed(1)}ms`);
       sleep3(delay);
@@ -102727,8 +102727,8 @@ function withWriteLock(target, fn) {
           closeSync(fd);
         }
         held = true;
-      } catch (err14) {
-        const code6 = err14.code;
+      } catch (err16) {
+        const code6 = err16.code;
         const contended = code6 === "EEXIST" || code6 === "EPERM" || code6 === "EACCES" || code6 === "EBUSY";
         if (!contended)
           break;
@@ -102864,10 +102864,10 @@ var StateStore = class {
           ...parsed.activeFlow && typeof parsed.activeFlow === "object" && typeof parsed.activeFlow.flow === "string" && typeof parsed.activeFlow.step === "string" && typeof parsed.activeFlow.chainId === "number" ? { activeFlow: parsed.activeFlow } : {}
         }
       };
-    } catch (err14) {
-      process.stderr.write(`[dexe-mcp] could not read state at ${this.path} (${safeErrorMessage(err14)}); using empty state.
+    } catch (err16) {
+      process.stderr.write(`[dexe-mcp] could not read state at ${this.path} (${safeErrorMessage(err16)}); using empty state.
 `);
-      debugLog("state", "read failed", err14);
+      debugLog("state", "read failed", err16);
       return { raw, state: emptyState() };
     }
   }
@@ -102900,15 +102900,15 @@ var StateStore = class {
       this.cacheStamp = this.diskStamp();
       debugLog("state", `persisted ${state.knownDaos.length} dao(s) to ${this.path}`);
       return "published";
-    } catch (err14) {
+    } catch (err16) {
       this.unpublished = true;
       try {
         rmSync(tmp, { force: true });
       } catch {
       }
-      process.stderr.write(`[dexe-mcp] could not persist state to ${this.path} (${safeErrorMessage(err14)}); this session's DAOs/proposals will not be remembered next time.
+      process.stderr.write(`[dexe-mcp] could not persist state to ${this.path} (${safeErrorMessage(err16)}); this session's DAOs/proposals will not be remembered next time.
 `);
-      debugLog("state", "persist failed", err14);
+      debugLog("state", "persist failed", err16);
       return "failed";
     }
   }
@@ -103146,16 +103146,16 @@ function checkQuorumMargin(args) {
     };
   }
   const requiredTurnoutPct = Math.round(quorumPct / votablePct * 1e4) / 100;
-  const ok14 = quorumPct <= votablePct * ceiling + TURNOUT_EPS;
-  if (ok14) {
-    return { quorumPct, votablePct, requiredTurnoutPct, ceilingPct, ok: ok14, maxQuorumPct, minVotablePct };
+  const ok16 = quorumPct <= votablePct * ceiling + TURNOUT_EPS;
+  if (ok16) {
+    return { quorumPct, votablePct, requiredTurnoutPct, ceilingPct, ok: ok16, maxQuorumPct, minVotablePct };
   }
   return {
     quorumPct,
     votablePct,
     requiredTurnoutPct,
     ceilingPct,
-    ok: ok14,
+    ok: ok16,
     maxQuorumPct,
     minVotablePct,
     remediation: `Quorum ${quorumPct}% needs ${requiredTurnoutPct}% of the votable supply (${votablePct}% of total) to turn out \u2014 above the ${ceilingPct}% ceiling, so ordinary abstention makes every proposal fail and the DAO cannot fix itself (fixing quorum requires passing a proposal). Fix: raise the votable share to \u2265${minVotablePct}% of supply (shrink the treasury / distribute more), or lower quorum to \u2264${maxQuorumPct}% \u2014 note a quorum below 50% is itself a treasury-safety risk, so prefer raising the votable share.`
@@ -103948,8 +103948,8 @@ async function loadConfig() {
     let addr;
     try {
       addr = new Wallet2(privateKey).address;
-    } catch (err14) {
-      degrade("DEXE_PRIVATE_KEY", `DEXE_PRIVATE_KEY is not a usable private key: ${safeErrorMessage(err14)}`, "signing disabled (readonly) \u2014 fix the key and restart to re-enable");
+    } catch (err16) {
+      degrade("DEXE_PRIVATE_KEY", `DEXE_PRIVATE_KEY is not a usable private key: ${safeErrorMessage(err16)}`, "signing disabled (readonly) \u2014 fix the key and restart to re-enable");
       privateKey = void 0;
     }
     if (addr) {
@@ -103970,8 +103970,8 @@ async function loadConfig() {
     for (const slot of Object.keys(agentKeys)) {
       try {
         labels.push(`${slot}=${new Wallet2(agentKeys[slot]).address.slice(0, 10)}\u2026`);
-      } catch (err14) {
-        degrade(`DEXE_AGENT_PK_* (${slot})`, `agent keyring slot "${slot}" is not a usable private key: ${safeErrorMessage(err14)}`, "that slot is dropped; the other slots still load");
+      } catch (err16) {
+        degrade(`DEXE_AGENT_PK_* (${slot})`, `agent keyring slot "${slot}" is not a usable private key: ${safeErrorMessage(err16)}`, "that slot is dropped; the other slots still load");
         delete agentKeys[slot];
       }
     }
@@ -111409,15 +111409,15 @@ var SelectorIndex = class {
       };
       push(this.byEventTopic, ev.topicHash, hit);
     });
-    iface.forEachError((err14) => {
+    iface.forEachError((err16) => {
       const hit = {
         contract: record2.contractName,
         sourceName: record2.sourceName,
-        signature: err14.format("sighash"),
-        selector: err14.selector,
+        signature: err16.format("sighash"),
+        selector: err16.selector,
         kind: "error"
       };
-      push(this.byErrorSelector, err14.selector, hit);
+      push(this.byErrorSelector, err16.selector, hit);
     });
   }
   /** Look up a selector or event topic. Accepts function selector (4B), error selector (4B), or event topic (32B). */
@@ -111763,11 +111763,11 @@ async function guarded(ctx, fn) {
   try {
     ctx.artifacts.requireArtifactsExist();
     return { ok: true, value: await fn() };
-  } catch (err14) {
-    if (err14 instanceof ArtifactsMissingError) {
-      return { ok: false, error: err14.message };
+  } catch (err16) {
+    if (err16 instanceof ArtifactsMissingError) {
+      return { ok: false, error: err16.message };
     }
-    return { ok: false, error: safeErrorMessage(err14) };
+    return { ok: false, error: safeErrorMessage(err16) };
   }
 }
 function errorResult(message) {
@@ -113826,9 +113826,9 @@ var DecodeAbis = class {
     try {
       this.artifacts.requireArtifactsExist();
       return this.artifacts.list().length > 0;
-    } catch (err14) {
-      if (!(err14 instanceof ArtifactsMissingError)) {
-        debugLog("decode", "local artifacts unusable, decoding with the ABI snapshot", err14);
+    } catch (err16) {
+      if (!(err16 instanceof ArtifactsMissingError)) {
+        debugLog("decode", "local artifacts unusable, decoding with the ABI snapshot", err16);
       }
       return false;
     }
@@ -113908,16 +113908,16 @@ var GovAddressResolver = class {
 // dist/rpc.js
 init_lib2();
 var TRANSPORT_ERR_RE = /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|rate.?limit|\b429\b|\b50[234]\b|could not detect network|SERVER_ERROR|NETWORK_ERROR|TIMEOUT|failed to fetch|fetch failed/i;
-function isTransportError(err14) {
-  const code6 = err14?.code;
+function isTransportError(err16) {
+  const code6 = err16?.code;
   if (code6 === "TIMEOUT" || code6 === "SERVER_ERROR" || code6 === "NETWORK_ERROR")
     return true;
   if (code6 === "CALL_EXCEPTION")
     return false;
-  return TRANSPORT_ERR_RE.test(rawMessageForClassification(err14));
+  return TRANSPORT_ERR_RE.test(rawMessageForClassification(err16));
 }
-function rawMessageForClassification(err14) {
-  return err14 instanceof Error ? err14.message : String(err14);
+function rawMessageForClassification(err16) {
+  return err16 instanceof Error ? err16.message : String(err16);
 }
 var PUBLIC_RPC_HINT = "\n\n[hint] this call used the shared PUBLIC BSC RPC, which rate-limits and can be flaky. For reliability set your own endpoint in .env \u2014 DEXE_RPC_URL_MAINNET (chain 56) / DEXE_RPC_URL_TESTNET (chain 97), e.g. an Alchemy / QuickNode / Ankr URL \u2014 then restart (Claude Code: quit + relaunch). Run /dexe-setup for a guided walkthrough.";
 var RETRY_DELAYS_MS = [400, 1e3, 2500];
@@ -113960,8 +113960,8 @@ var ResilientRpcProvider = class extends JsonRpcProvider {
     if (method === "eth_sendRawTransaction") {
       try {
         return await super.send(method, params);
-      } catch (err14) {
-        throw this.#finalize(err14);
+      } catch (err16) {
+        throw this.#finalize(err16);
       }
     }
     let lastErr;
@@ -113973,17 +113973,17 @@ var ResilientRpcProvider = class extends JsonRpcProvider {
       const target = useFallback ? this.#fallbackAt((attempt - 1) % fallbackCount) : void 0;
       try {
         return target ? await target.send(method, params) : await super.send(method, params);
-      } catch (err14) {
-        if (!isTransportError(err14))
-          throw redactErrorInPlace(err14);
-        lastErr = err14;
+      } catch (err16) {
+        if (!isTransportError(err16))
+          throw redactErrorInPlace(err16);
+        lastErr = err16;
       }
     }
     throw this.#finalize(lastErr);
   }
-  #finalize(err14) {
-    const transport = isTransportError(err14);
-    const safe = redactErrorInPlace(err14);
+  #finalize(err16) {
+    const transport = isTransportError(err16);
+    const safe = redactErrorInPlace(err16);
     if (this.#annotatePublicHint && transport && !safe.message.includes("[hint]")) {
       safe.message += PUBLIC_RPC_HINT;
     }
@@ -114008,8 +114008,8 @@ var RpcProvider = class {
         this.cache.set(chain2.chainId, provider);
       }
       return provider;
-    } catch (err14) {
-      throw redactErrorInPlace(err14);
+    } catch (err16) {
+      throw redactErrorInPlace(err16);
     }
   }
   /**
@@ -114021,9 +114021,9 @@ var RpcProvider = class {
   tryProvider(chainId) {
     try {
       return { ok: this.requireProvider(chainId) };
-    } catch (err14) {
+    } catch (err16) {
       return {
-        error: safeErrorMessage(err14),
+        error: safeErrorMessage(err16),
         remediation: "Set DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_<chainId> in .env, then restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify."
       };
     }
@@ -114240,8 +114240,8 @@ function registerKnownFailures(reg) {
 function knownFailures() {
   return activeTable;
 }
-function toActionableError(err14, step, table = knownFailures()) {
-  const raw = safeErrorMessage(err14);
+function toActionableError(err16, step, table = knownFailures()) {
+  const raw = safeErrorMessage(err16);
   const hit = table.find((k5) => k5.match.test(raw));
   const prefix = step ? `${step} failed: ` : "";
   if (!hit)
@@ -114429,8 +114429,8 @@ ${pr2.remediation}`);
     let views;
     try {
       views = await pool.getFunction("getProposals")(proposalId - 1, 1);
-    } catch (err14) {
-      return errorResult2(toActionableError(err14, "dexe_decode_proposal getProposals").message);
+    } catch (err16) {
+      return errorResult2(toActionableError(err16, "dexe_decode_proposal getProposals").message);
     }
     if (!views || views.length === 0) {
       return errorResult2(`Proposal ${proposalId} not found at ${govPool}.`);
@@ -114590,8 +114590,8 @@ NFT contracts:
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult2(toActionableError(err14, "dexe_read_gov_state").message);
+    } catch (err16) {
+      return errorResult2(toActionableError(err16, "dexe_read_gov_state").message);
     }
   });
 }
@@ -114719,8 +114719,8 @@ async function multicall(provider, calls) {
   let results;
   try {
     results = await mc.getFunction("aggregate3").staticCall(payload);
-  } catch (err14) {
-    throw new Error(safeErrorMessage(err14));
+  } catch (err16) {
+    throw new Error(safeErrorMessage(err16));
   }
   return results.map((r2, i3) => {
     const c4 = calls[i3];
@@ -114731,12 +114731,12 @@ async function multicall(provider, calls) {
       const decoded = c4.iface.decodeFunctionResult(c4.method, r2.returnData);
       const value = decoded.length === 1 ? decoded[0] : decoded;
       return { success: true, value, raw: r2.returnData };
-    } catch (err14) {
+    } catch (err16) {
       return {
         success: false,
         value: null,
         raw: r2.returnData,
-        error: safeErrorMessage(err14)
+        error: safeErrorMessage(err16)
       };
     }
   });
@@ -114829,8 +114829,8 @@ ${ab.remediation}`);
         content: [{ type: "text", text: text5 }],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult3(toActionableError(err14, "dexe_dao_predict_addresses").message);
+    } catch (err16) {
+      return errorResult3(toActionableError(err16, "dexe_dao_predict_addresses").message);
     }
   });
 }
@@ -114879,8 +114879,8 @@ ${ab.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult3(toActionableError(err14, "dexe_dao_registry_lookup").message);
+    } catch (err16) {
+      return errorResult3(toActionableError(err16, "dexe_dao_registry_lookup").message);
     }
   });
 }
@@ -114993,8 +114993,8 @@ NFT contracts:
         label: `descriptionURL of GovPool ${govPool} (set by whoever deployed the DAO)`,
         structured
       });
-    } catch (err14) {
-      return errorResult3(toActionableError(err14, "dexe_dao_info").message);
+    } catch (err16) {
+      return errorResult3(toActionableError(err16, "dexe_dao_info").message);
     }
   });
 }
@@ -115140,16 +115140,16 @@ function joinGqlErrors(errors) {
 }
 var MISSING_RELATION_RE = /Null value resolved for non-null field `(\w+)`/;
 var PREFETCH_FAULT_RE = /internal error resolving \w+\.(\w+): expected prefetched result/;
-function missingRelationField(err14) {
-  const msg = safeErrorMessage(err14);
+function missingRelationField(err16) {
+  const msg = safeErrorMessage(err16);
   return MISSING_RELATION_RE.exec(msg)?.[1] ?? PREFETCH_FAULT_RE.exec(msg)?.[1] ?? null;
 }
 async function withOrphanVoterFallback(run4) {
   try {
     return { data: await run4(true), degraded: false };
-  } catch (err14) {
-    if (missingRelationField(err14) !== "voter")
-      throw err14;
+  } catch (err16) {
+    if (missingRelationField(err16) !== "voter")
+      throw err16;
     return { data: await run4(false), degraded: true };
   }
 }
@@ -115170,13 +115170,13 @@ async function gqlAttempt(endpoint, headers, body, timeoutMs) {
     if (!parsed.data)
       throw new SubgraphError("Subgraph returned empty data", false);
     return parsed.data;
-  } catch (err14) {
-    if (err14 instanceof SubgraphError)
-      throw err14;
+  } catch (err16) {
+    if (err16 instanceof SubgraphError)
+      throw err16;
     if (controller.signal.aborted) {
       throw new SubgraphError(`Subgraph request to ${maskUrl(endpoint)} timed out after ${timeoutMs}ms \u2014 transient, re-run the call.${defaultEndpointHint(endpoint)}`, true);
     }
-    throw new SubgraphError(`Subgraph request to ${maskUrl(endpoint)} failed: ${safeErrorMessage(err14)} \u2014 transient, re-run the call.${defaultEndpointHint(endpoint)}`, true);
+    throw new SubgraphError(`Subgraph request to ${maskUrl(endpoint)} failed: ${safeErrorMessage(err16)} \u2014 transient, re-run the call.${defaultEndpointHint(endpoint)}`, true);
   } finally {
     clearTimeout(timer);
   }
@@ -115197,9 +115197,9 @@ async function gqlRequest(endpoint, query, variables, apiKey, opts) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await gqlAttempt(endpoint, headers, body, timeoutMs);
-    } catch (err14) {
-      lastErr = err14;
-      if (attempt === 1 || !(err14 instanceof SubgraphError) || !err14.transient)
+    } catch (err16) {
+      lastErr = err16;
+      if (attempt === 1 || !(err16 instanceof SubgraphError) || !err16.transient)
         break;
       retried = true;
       await sleep2(retryDelayMs);
@@ -115303,11 +115303,11 @@ function pageMeta(o3) {
 function truncationNote(m3, tool, noun, keys = {}) {
   if (!m3.truncated || m3.nextOffset == null)
     return "";
-  const ok14 = keys.offsetKey ?? "offset";
+  const ok16 = keys.offsetKey ?? "offset";
   const lk = keys.limitKey ?? "limit";
   const of = m3.total != null ? `${m3.offset + m3.returned} of ${m3.total}` : `${m3.returned} (total unknown)`;
   return `
-\u26A0 PARTIAL LIST \u2014 showing ${of} ${noun}(s). Call ${tool} again with the SAME arguments plus ${ok14}: ${m3.nextOffset} (same ${lk}) for the next page. Do NOT report this page as the complete ${noun} list.`;
+\u26A0 PARTIAL LIST \u2014 showing ${of} ${noun}(s). Call ${tool} again with the SAME arguments plus ${ok16}: ${m3.nextOffset} (same ${lk}) for the next page. Do NOT report this page as the complete ${noun} list.`;
 }
 
 // dist/lib/units.js
@@ -115521,8 +115521,8 @@ ${pr2.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult4(toActionableError(err14, "dexe_proposal_state").message);
+    } catch (err16) {
+      return errorResult4(toActionableError(err16, "dexe_proposal_state").message);
     }
   });
 }
@@ -115639,8 +115639,8 @@ ${pr2.remediation}`);
         label: "proposal descriptionURLs (proposer-authored)",
         structured
       });
-    } catch (err14) {
-      return errorResult4(toActionableError(err14, "dexe_proposal_list").message);
+    } catch (err16) {
+      return errorResult4(toActionableError(err16, "dexe_proposal_list").message);
     }
   });
 }
@@ -115688,8 +115688,8 @@ function registerProposalVoters(server, ctx) {
     let sg;
     try {
       sg = resolveSubgraphUrl(ctx.config, "pools", chainId);
-    } catch (err14) {
-      return errorResult4(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult4(safeErrorMessage(err16));
     }
     const id2 = BigInt(proposalId).toString();
     const num = Number(id2);
@@ -115741,8 +115741,8 @@ function registerProposalVoters(server, ctx) {
         label: `voter rows (chain ${sg.chainId})`,
         structured
       });
-    } catch (err14) {
-      return errorResult4(toActionableError(err14, "dexe_proposal_voters").message);
+    } catch (err16) {
+      return errorResult4(toActionableError(err16, "dexe_proposal_voters").message);
     }
   });
 }
@@ -115878,8 +115878,8 @@ Token amounts are 18-decimal-normalized voting power, not the gov token's own un
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult5(toActionableError(err14, "dexe_vote_user_power").message);
+    } catch (err16) {
+      return errorResult5(toActionableError(err16, "dexe_vote_user_power").message);
     }
   });
 }
@@ -115965,8 +115965,8 @@ ${pr2.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult5(toActionableError(err14, "dexe_vote_get_votes").message);
+    } catch (err16) {
+      return errorResult5(toActionableError(err16, "dexe_vote_get_votes").message);
     }
   });
 }
@@ -116099,8 +116099,8 @@ ${pr2.remediation}`);
         label: "decoded return values (contract-authored)",
         structured
       });
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_multicall").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_multicall").message);
     }
   });
 }
@@ -116123,11 +116123,11 @@ async function fetchBackendBalances(base3, chainId, holder) {
       if (!res.ok)
         throw new Error(`backend HTTP ${res.status}`);
       json2 = await res.json();
-    } catch (err14) {
-      if (err14 instanceof Error && err14.name === "AbortError") {
+    } catch (err16) {
+      if (err16 instanceof Error && err16.name === "AbortError") {
         throw new Error(`backend request timed out after 8000ms \u2014 usually transient, re-run the call`);
       }
-      throw err14;
+      throw err16;
     } finally {
       clearTimeout(timer);
     }
@@ -116249,8 +116249,8 @@ function registerTreasury(server, rpc) {
           label: "token symbols/names (any address can airdrop a token)",
           structured
         });
-      } catch (err14) {
-        backendError = safeErrorMessage(err14);
+      } catch (err16) {
+        backendError = safeErrorMessage(err16);
       }
     }
     try {
@@ -116292,8 +116292,8 @@ ${pr2.remediation}`);
               }
             }
           }
-        } catch (err14) {
-          discoveryError = safeErrorMessage(err14);
+        } catch (err16) {
+          discoveryError = safeErrorMessage(err16);
         }
         if (tokens.length === 0) {
           const scopeNote = `
@@ -116344,8 +116344,8 @@ ${pr2.remediation}`);
         label: "token symbols (ERC20.symbol() is whatever the token returns)",
         structured
       });
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_treasury").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_treasury").message);
     }
   });
 }
@@ -116384,11 +116384,11 @@ async function backendGetJson(path7, timeoutMs = 8e3) {
     if (!res.ok)
       throw new Error(`backend HTTP ${res.status} for ${pathForError}`);
     return await res.json();
-  } catch (err14) {
-    if (err14 instanceof Error && err14.name === "AbortError") {
+  } catch (err16) {
+    if (err16 instanceof Error && err16.name === "AbortError") {
       throw new Error(`DeXe backend request timed out after ${timeoutMs}ms (${path7.split("?")[0]}) \u2014 usually transient, re-run the call. If it persists: check network access to ${base3} or set DEXE_BACKEND_API_URL.`);
     }
-    throw err14;
+    throw err16;
   } finally {
     clearTimeout(timer);
   }
@@ -116442,8 +116442,8 @@ function registerTokenHolders(server, rpc) {
 ` + holders.slice(0, 20).map((h3, i3) => `  ${String(i3 + 1).padStart(2)}. ${h3.holder}  ${h3.balance}`).join("\n") + (holders.length > 20 ? `
   \u2026 +${holders.length - 20} more on this page not shown above` : "");
       return { content: [{ type: "text", text: text5 }], structuredContent: structured };
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_token_holders").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_token_holders").message);
     }
   });
 }
@@ -116496,8 +116496,8 @@ function registerDaoStats(server, rpc) {
         label: "tracker rows (third-party index)",
         structured
       });
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_dao_stats").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_dao_stats").message);
     }
   });
 }
@@ -116575,8 +116575,8 @@ function registerProtocolStats(server) {
         label: "DAO names + tracker figures (DAO-authored)",
         structured
       });
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_protocol_stats").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_protocol_stats").message);
     }
   });
 }
@@ -116639,8 +116639,8 @@ function registerNftsByWallet(server, rpc) {
         label: "NFT metadata (any address can airdrop an NFT)",
         structured
       });
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_nfts").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_nfts").message);
     }
   });
 }
@@ -116731,8 +116731,8 @@ ${pr2.remediation}`);
   credit lines: ${creditInfo.map((c4) => `${c4.token} month=${c4.monthLimitFormatted ?? c4.monthLimit} available=${c4.currentWithdrawLimitFormatted ?? c4.currentWithdrawLimit} (18-dec normalized; raw ${c4.monthLimit}/${c4.currentWithdrawLimit})`).join("; ")}` : `
   credit lines: none funded (internal monthly_withdraw would revert \u2014 fund via validators_allocation)` : "");
       return { content: [{ type: "text", text: text5 }], structuredContent: structured };
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_validators").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_validators").message);
     }
   });
 }
@@ -116839,8 +116839,8 @@ ${pr2.remediation}`);
         structured,
         maxBodyChars: 6e3
       });
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_settings").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_settings").message);
     }
   });
 }
@@ -116897,8 +116897,8 @@ ${pr2.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_expert_status").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_expert_status").message);
     }
   });
 }
@@ -116948,8 +116948,8 @@ ${pr2.remediation}`);
         label: "tier metadata (sale-opener-authored)",
         structured
       });
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_token_sale_tiers").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_token_sale_tiers").message);
     }
   });
 }
@@ -116990,8 +116990,8 @@ ${pr2.remediation}`);
         content: [{ type: "text", text: `TokenSale user views for ${user}: ${tierIds.length} tier(s) queried` }],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_token_sale_user").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_token_sale_user").message);
     }
   });
 }
@@ -117041,8 +117041,8 @@ ${pr2.remediation}`);
 ${text5}` }],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_distribution_status").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_distribution_status").message);
     }
   });
 }
@@ -117133,8 +117133,8 @@ ${pr2.remediation}`);
         label: "staking tier metadata (DAO-authored)",
         structured
       });
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_staking_info").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_staking_info").message);
     }
   });
 }
@@ -117175,8 +117175,8 @@ ${pr2.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult6(toActionableError(err14, "dexe_read_privacy_policy_status").message);
+    } catch (err16) {
+      return errorResult6(toActionableError(err16, "dexe_read_privacy_policy_status").message);
     }
   });
 }
@@ -118213,8 +118213,8 @@ async function fetchIpfs(cid, cfg) {
         attempts,
         verified: verdict === "verified"
       };
-    } catch (err14) {
-      errors.push(controller.signal.aborted ? `${gw} \u2192 timed out after ${timeout}ms` : `${gw} \u2192 ${safeErrorMessage(err14)}`);
+    } catch (err16) {
+      errors.push(controller.signal.aborted ? `${gw} \u2192 timed out after ${timeout}ms` : `${gw} \u2192 ${safeErrorMessage(err16)}`);
     } finally {
       clearTimeout(t2);
     }
@@ -118318,6 +118318,166 @@ function codecName(code6) {
   }
 }
 
+// dist/tools/ipfsRead.js
+function registerIpfsReadTools(server, ctx) {
+  const gateways = resolveGateways(ctx);
+  registerFetch(server, gateways);
+  registerCidInfo(server, gateways);
+}
+function errorResult7(message) {
+  return { content: [{ type: "text", text: message }], isError: true };
+}
+function ipfsToolError(err16, step, classify = toActionableError) {
+  const raw = safeErrorMessage(err16);
+  if (/IPFS fetch failed/i.test(raw))
+    return `${step} failed: ${raw}`;
+  return classify(err16, step).message;
+}
+function stripUrlUserinfo(raw) {
+  try {
+    const u4 = new URL(raw);
+    if (!u4.username && !u4.password)
+      return raw;
+    u4.username = "";
+    u4.password = "";
+    return u4.toString();
+  } catch {
+    return raw.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g, "$1");
+  }
+}
+function gatewayHostname(u4) {
+  try {
+    const withScheme = /^https?:\/\//i.test(u4) ? u4 : `https://${u4}`;
+    return new URL(withScheme).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+function resolveGateways(_ctx) {
+  const out = [];
+  const normalize2 = (raw) => {
+    const trimmed = raw.trim().replace(/\/$/, "");
+    if (!trimmed)
+      return "";
+    if (/^https?:\/\//i.test(trimmed))
+      return trimmed;
+    return `https://${trimmed}`;
+  };
+  const primary = process.env.DEXE_IPFS_GATEWAY;
+  if (primary) {
+    const p4 = normalize2(primary);
+    if (p4)
+      out.push(p4);
+  }
+  const fallback = process.env.DEXE_IPFS_GATEWAYS_FALLBACK;
+  if (fallback) {
+    for (const g3 of fallback.split(",").map(normalize2)) {
+      if (g3 && !out.includes(g3))
+        out.push(g3);
+    }
+  }
+  const disablePublic = process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1";
+  if (out.length === 0 && !disablePublic) {
+    out.push(...DEFAULT_PUBLIC_READ_GATEWAYS);
+  }
+  const usesRestrictedPinata = out.some((g3) => {
+    const host = gatewayHostname(g3);
+    return host === "mypinata.cloud" || (host?.endsWith(".mypinata.cloud") ?? false);
+  });
+  const haveGatewayKey = !!process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
+  if (!disablePublic && usesRestrictedPinata && !haveGatewayKey) {
+    const publicFallback = "https://ipfs.io";
+    if (!out.includes(publicFallback))
+      out.push(publicFallback);
+  }
+  return out;
+}
+var NO_GATEWAY_HINT = "No IPFS gateway available \u2014 the public read gateways are disabled (DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1) and no dedicated gateway is set. Set DEXE_IPFS_GATEWAY to a dedicated gateway (Pinata gives one free with your JWT \u2014 e.g. https://<your-subdomain>.mypinata.cloud \u2014 or use Filebase / Quicknode / a self-hosted gateway), or remove DEXE_IPFS_DISABLE_PUBLIC_FALLBACK to re-enable the public default (ipfs.io, dweb.link, cloudflare-ipfs.com).";
+function registerFetch(server, defaultGateways) {
+  server.registerTool("dexe_ipfs_fetch", {
+    title: "Fetch content by CID (dedicated gateway, optional fallback)",
+    description: "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (dedicated; Pinata issues one with the JWT). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
+    inputSchema: {
+      cid: external_exports.string().describe("CID (with or without ipfs:// prefix)"),
+      timeoutMs: external_exports.number().int().min(500).max(3e4).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000).")
+    },
+    outputSchema: {
+      cid: external_exports.string(),
+      gateway: external_exports.string(),
+      contentType: external_exports.string(),
+      sizeBytes: external_exports.number(),
+      attempts: external_exports.number(),
+      json: external_exports.unknown().nullable().optional()
+    }
+  }, async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
+    if (defaultGateways.length === 0)
+      return errorResult7(NO_GATEWAY_HINT);
+    try {
+      const res = await fetchIpfs(cid, {
+        gateways: defaultGateways,
+        perRequestTimeoutMs: timeoutMs
+      });
+      const structured = {
+        cid: res.cid,
+        gateway: res.gateway,
+        contentType: res.contentType,
+        sizeBytes: res.bytes.length,
+        attempts: res.attempts,
+        json: res.json
+      };
+      return untrustedResult({
+        summary: `CID ${res.cid} via ${res.gateway} (attempts=${res.attempts})`,
+        label: `IPFS content of ${res.cid}`,
+        body: res.json != null ? res.json : `(${res.bytes.length} bytes of ${res.contentType})`,
+        structured,
+        maxBodyChars: 800
+      });
+    } catch (err16) {
+      return errorResult7(ipfsToolError(err16, "dexe_ipfs_fetch"));
+    }
+  });
+}
+function registerCidInfo(server, gateways) {
+  server.registerTool("dexe_ipfs_cid_info", {
+    title: "Parse a CID, show version/codec, compute the alternate version + gateway URLs",
+    description: "Read-only, local. Parses a CIDv0/v1, reports codec + multihash, converts v0\u2194v1 when legal, and emits a URL per configured gateway.",
+    inputSchema: {
+      cid: external_exports.string().describe("CID (with or without ipfs:// prefix)")
+    },
+    outputSchema: {
+      cid: external_exports.string(),
+      version: external_exports.number(),
+      codec: external_exports.string(),
+      multihash: external_exports.string(),
+      alternate: external_exports.string().nullable(),
+      gatewayUrls: external_exports.array(external_exports.string())
+    }
+  }, async ({ cid }) => {
+    try {
+      const info = parseCid(cid);
+      const gatewayUrls = gateways.length ? gateways.map((g3) => stripUrlUserinfo(`${g3.replace(/\/+$/, "").replace(/\/ipfs$/, "")}/ipfs/${info.cid}`)) : [];
+      const structured = { ...info, gatewayUrls };
+      return {
+        content: [
+          {
+            type: "text",
+            text: `CID    : ${info.cid}
+Version: v${info.version}
+Codec  : ${info.codec}
+Multihash (base58btc): ${info.multihash}
+Alt    : ${info.alternate ?? "(no legal alternate)"}
+Gateway URLs:
+${gatewayUrls.map((u4) => `  ${u4}`).join("\n")}`
+          }
+        ],
+        structuredContent: structured
+      };
+    } catch (err16) {
+      return errorResult7(ipfsToolError(err16, "dexe_ipfs_cid_info"));
+    }
+  });
+}
+
 // dist/lib/ipfsPin.js
 async function pinJsonOrPreview(value, opts) {
   if (opts.dryRun) {
@@ -118341,11 +118501,11 @@ async function pinataFetch(url2, init2, timeoutMs, what) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url2, { ...init2, signal: controller.signal });
-  } catch (err14) {
+  } catch (err16) {
     if (controller.signal.aborted) {
       throw new Error(`Pinata ${what} timed out after ${timeoutMs}ms \u2014 IPFS upload timed out, no metadata was pinned. Re-run the same call: ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote that already landed are re-derived from chain state and skipped, so nothing is paid for twice. If it keeps timing out, check status.pinata.cloud or set a different pinning service.`);
     }
-    throw err14;
+    throw err16;
   } finally {
     clearTimeout(timer);
   }
@@ -122114,7 +122274,7 @@ function regexCheck(regex) {
 }
 
 // node_modules/micromark-factory-space/index.js
-function factorySpace(effects, ok14, type, max) {
+function factorySpace(effects, ok16, type, max) {
   const limit2 = max ? max - 1 : Number.POSITIVE_INFINITY;
   let size3 = 0;
   return start;
@@ -122123,7 +122283,7 @@ function factorySpace(effects, ok14, type, max) {
       effects.enter(type);
       return prefix(code6);
     }
-    return ok14(code6);
+    return ok16(code6);
   }
   function prefix(code6) {
     if (markdownSpace(code6) && size3++ < limit2) {
@@ -122131,7 +122291,7 @@ function factorySpace(effects, ok14, type, max) {
       return prefix;
     }
     effects.exit(type);
-    return ok14(code6);
+    return ok16(code6);
   }
 }
 
@@ -122363,8 +122523,8 @@ function initializeDocument(effects) {
     self2.containerState._closeFlow = void 0;
   }
 }
-function tokenizeContainer(effects, ok14, nok) {
-  return factorySpace(effects, effects.attempt(this.parser.constructs.document, ok14, nok), "linePrefix", this.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4);
+function tokenizeContainer(effects, ok16, nok) {
+  return factorySpace(effects, effects.attempt(this.parser.constructs.document, ok16, nok), "linePrefix", this.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4);
 }
 
 // node_modules/micromark-util-classify-character/index.js
@@ -122491,7 +122651,7 @@ function resolveAllAttention(events, context) {
   }
   return events;
 }
-function tokenizeAttention(effects, ok14) {
+function tokenizeAttention(effects, ok16) {
   const attentionMarkers2 = this.parser.constructs.attentionMarkers.null;
   const previous3 = this.previous;
   const before = classifyCharacter(previous3);
@@ -122513,7 +122673,7 @@ function tokenizeAttention(effects, ok14) {
     const close = !before || before === 2 && after || attentionMarkers2.includes(previous3);
     token._open = Boolean(marker === 42 ? open2 : open2 && (before || !close));
     token._close = Boolean(marker === 42 ? close : close && (after || !open2));
-    return ok14(code6);
+    return ok16(code6);
   }
 }
 function movePoint(point3, offset) {
@@ -122527,7 +122687,7 @@ var autolink = {
   name: "autolink",
   tokenize: tokenizeAutolink
 };
-function tokenizeAutolink(effects, ok14, nok) {
+function tokenizeAutolink(effects, ok16, nok) {
   let size3 = 0;
   return start;
   function start(code6) {
@@ -122575,7 +122735,7 @@ function tokenizeAutolink(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("autolinkMarker");
       effects.exit("autolink");
-      return ok14;
+      return ok16;
     }
     if (code6 === null || code6 === 32 || code6 === 60 || asciiControl(code6)) {
       return nok(code6);
@@ -122609,7 +122769,7 @@ function tokenizeAutolink(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("autolinkMarker");
       effects.exit("autolink");
-      return ok14;
+      return ok16;
     }
     return emailValue(code6);
   }
@@ -122628,13 +122788,13 @@ var blankLine = {
   partial: true,
   tokenize: tokenizeBlankLine
 };
-function tokenizeBlankLine(effects, ok14, nok) {
+function tokenizeBlankLine(effects, ok16, nok) {
   return start;
   function start(code6) {
     return markdownSpace(code6) ? factorySpace(effects, after, "linePrefix")(code6) : after(code6);
   }
   function after(code6) {
-    return code6 === null || markdownLineEnding(code6) ? ok14(code6) : nok(code6);
+    return code6 === null || markdownLineEnding(code6) ? ok16(code6) : nok(code6);
   }
 }
 
@@ -122647,7 +122807,7 @@ var blockQuote = {
   name: "blockQuote",
   tokenize: tokenizeBlockQuoteStart
 };
-function tokenizeBlockQuoteStart(effects, ok14, nok) {
+function tokenizeBlockQuoteStart(effects, ok16, nok) {
   const self2 = this;
   return start;
   function start(code6) {
@@ -122673,13 +122833,13 @@ function tokenizeBlockQuoteStart(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("blockQuotePrefixWhitespace");
       effects.exit("blockQuotePrefix");
-      return ok14;
+      return ok16;
     }
     effects.exit("blockQuotePrefix");
-    return ok14(code6);
+    return ok16(code6);
   }
 }
-function tokenizeBlockQuoteContinuation(effects, ok14, nok) {
+function tokenizeBlockQuoteContinuation(effects, ok16, nok) {
   const self2 = this;
   return contStart;
   function contStart(code6) {
@@ -122689,7 +122849,7 @@ function tokenizeBlockQuoteContinuation(effects, ok14, nok) {
     return contBefore(code6);
   }
   function contBefore(code6) {
-    return effects.attempt(blockQuote, ok14, nok)(code6);
+    return effects.attempt(blockQuote, ok16, nok)(code6);
   }
 }
 function exit(effects) {
@@ -122701,7 +122861,7 @@ var characterEscape = {
   name: "characterEscape",
   tokenize: tokenizeCharacterEscape
 };
-function tokenizeCharacterEscape(effects, ok14, nok) {
+function tokenizeCharacterEscape(effects, ok16, nok) {
   return start;
   function start(code6) {
     effects.enter("characterEscape");
@@ -122716,7 +122876,7 @@ function tokenizeCharacterEscape(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("characterEscapeValue");
       effects.exit("characterEscape");
-      return ok14;
+      return ok16;
     }
     return nok(code6);
   }
@@ -122727,7 +122887,7 @@ var characterReference = {
   name: "characterReference",
   tokenize: tokenizeCharacterReference
 };
-function tokenizeCharacterReference(effects, ok14, nok) {
+function tokenizeCharacterReference(effects, ok16, nok) {
   const self2 = this;
   let size3 = 0;
   let max;
@@ -122777,7 +122937,7 @@ function tokenizeCharacterReference(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("characterReferenceMarker");
       effects.exit("characterReference");
-      return ok14;
+      return ok16;
     }
     if (test(code6) && size3++ < max) {
       effects.consume(code6);
@@ -122797,7 +122957,7 @@ var codeFenced = {
   name: "codeFenced",
   tokenize: tokenizeCodeFenced
 };
-function tokenizeCodeFenced(effects, ok14, nok) {
+function tokenizeCodeFenced(effects, ok16, nok) {
   const self2 = this;
   const closeStart = {
     partial: true,
@@ -122834,7 +122994,7 @@ function tokenizeCodeFenced(effects, ok14, nok) {
   function infoBefore(code6) {
     if (code6 === null || markdownLineEnding(code6)) {
       effects.exit("codeFencedFence");
-      return self2.interrupt ? ok14(code6) : effects.check(nonLazyContinuation, atNonLazyBreak, after)(code6);
+      return self2.interrupt ? ok16(code6) : effects.check(nonLazyContinuation, atNonLazyBreak, after)(code6);
     }
     effects.enter("codeFencedFenceInfo");
     effects.enter("chunkString", {
@@ -122910,9 +123070,9 @@ function tokenizeCodeFenced(effects, ok14, nok) {
   }
   function after(code6) {
     effects.exit("codeFenced");
-    return ok14(code6);
+    return ok16(code6);
   }
-  function tokenizeCloseStart(effects2, ok15, nok2) {
+  function tokenizeCloseStart(effects2, ok17, nok2) {
     let size3 = 0;
     return startBefore;
     function startBefore(code6) {
@@ -122947,13 +123107,13 @@ function tokenizeCodeFenced(effects, ok14, nok) {
     function sequenceCloseAfter(code6) {
       if (code6 === null || markdownLineEnding(code6)) {
         effects2.exit("codeFencedFence");
-        return ok15(code6);
+        return ok17(code6);
       }
       return nok2(code6);
     }
   }
 }
-function tokenizeNonLazyContinuation(effects, ok14, nok) {
+function tokenizeNonLazyContinuation(effects, ok16, nok) {
   const self2 = this;
   return start;
   function start(code6) {
@@ -122966,7 +123126,7 @@ function tokenizeNonLazyContinuation(effects, ok14, nok) {
     return lineStart;
   }
   function lineStart(code6) {
-    return self2.parser.lazy[self2.now().line] ? nok(code6) : ok14(code6);
+    return self2.parser.lazy[self2.now().line] ? nok(code6) : ok16(code6);
   }
 }
 
@@ -122979,7 +123139,7 @@ var furtherStart = {
   partial: true,
   tokenize: tokenizeFurtherStart
 };
-function tokenizeCodeIndented(effects, ok14, nok) {
+function tokenizeCodeIndented(effects, ok16, nok) {
   const self2 = this;
   return start;
   function start(code6) {
@@ -123010,10 +123170,10 @@ function tokenizeCodeIndented(effects, ok14, nok) {
   }
   function after(code6) {
     effects.exit("codeIndented");
-    return ok14(code6);
+    return ok16(code6);
   }
 }
-function tokenizeFurtherStart(effects, ok14, nok) {
+function tokenizeFurtherStart(effects, ok16, nok) {
   const self2 = this;
   return furtherStart2;
   function furtherStart2(code6) {
@@ -123030,7 +123190,7 @@ function tokenizeFurtherStart(effects, ok14, nok) {
   }
   function afterPrefix(code6) {
     const tail = self2.events[self2.events.length - 1];
-    return tail && tail[1].type === "linePrefix" && tail[2].sliceSerialize(tail[1], true).length >= 4 ? ok14(code6) : markdownLineEnding(code6) ? furtherStart2(code6) : nok(code6);
+    return tail && tail[1].type === "linePrefix" && tail[2].sliceSerialize(tail[1], true).length >= 4 ? ok16(code6) : markdownLineEnding(code6) ? furtherStart2(code6) : nok(code6);
   }
 }
 
@@ -123081,7 +123241,7 @@ function resolveCodeText(events) {
 function previous(code6) {
   return code6 !== 96 || this.events[this.events.length - 1][1].type === "characterEscape";
 }
-function tokenizeCodeText(effects, ok14, nok) {
+function tokenizeCodeText(effects, ok16, nok) {
   const self2 = this;
   let sizeOpen = 0;
   let size3;
@@ -123142,7 +123302,7 @@ function tokenizeCodeText(effects, ok14, nok) {
     if (size3 === sizeOpen) {
       effects.exit("codeTextSequence");
       effects.exit("codeText");
-      return ok14(code6);
+      return ok16(code6);
     }
     token.type = "codeTextData";
     return data4(code6);
@@ -123508,7 +123668,7 @@ function resolveContent(events) {
   subtokenize(events);
   return events;
 }
-function tokenizeContent(effects, ok14) {
+function tokenizeContent(effects, ok16) {
   let previous3;
   return chunkStart;
   function chunkStart(code6) {
@@ -123531,7 +123691,7 @@ function tokenizeContent(effects, ok14) {
   function contentEnd(code6) {
     effects.exit("chunkContent");
     effects.exit("content");
-    return ok14(code6);
+    return ok16(code6);
   }
   function contentContinue(code6) {
     effects.consume(code6);
@@ -123544,7 +123704,7 @@ function tokenizeContent(effects, ok14) {
     return chunkInside;
   }
 }
-function tokenizeContinuation(effects, ok14, nok) {
+function tokenizeContinuation(effects, ok16, nok) {
   const self2 = this;
   return startLookahead;
   function startLookahead(code6) {
@@ -123560,14 +123720,14 @@ function tokenizeContinuation(effects, ok14, nok) {
     }
     const tail = self2.events[self2.events.length - 1];
     if (!self2.parser.constructs.disable.null.includes("codeIndented") && tail && tail[1].type === "linePrefix" && tail[2].sliceSerialize(tail[1], true).length >= 4) {
-      return ok14(code6);
+      return ok16(code6);
     }
-    return effects.interrupt(self2.parser.constructs.flow, nok, ok14)(code6);
+    return effects.interrupt(self2.parser.constructs.flow, nok, ok16)(code6);
   }
 }
 
 // node_modules/micromark-factory-destination/index.js
-function factoryDestination(effects, ok14, nok, type, literalType2, literalMarkerType, rawType, stringType2, max) {
+function factoryDestination(effects, ok16, nok, type, literalType2, literalMarkerType, rawType, stringType2, max) {
   const limit2 = max || Number.POSITIVE_INFINITY;
   let balance = 0;
   return start;
@@ -123598,7 +123758,7 @@ function factoryDestination(effects, ok14, nok, type, literalType2, literalMarke
       effects.exit(literalMarkerType);
       effects.exit(literalType2);
       effects.exit(type);
-      return ok14;
+      return ok16;
     }
     effects.enter(stringType2);
     effects.enter("chunkString", {
@@ -123631,7 +123791,7 @@ function factoryDestination(effects, ok14, nok, type, literalType2, literalMarke
       effects.exit(stringType2);
       effects.exit(rawType);
       effects.exit(type);
-      return ok14(code6);
+      return ok16(code6);
     }
     if (balance < limit2 && code6 === 40) {
       effects.consume(code6);
@@ -123659,7 +123819,7 @@ function factoryDestination(effects, ok14, nok, type, literalType2, literalMarke
 }
 
 // node_modules/micromark-factory-label/index.js
-function factoryLabel(effects, ok14, nok, type, markerType, stringType2) {
+function factoryLabel(effects, ok16, nok, type, markerType, stringType2) {
   const self2 = this;
   let size3 = 0;
   let seen;
@@ -123687,7 +123847,7 @@ function factoryLabel(effects, ok14, nok, type, markerType, stringType2) {
       effects.consume(code6);
       effects.exit(markerType);
       effects.exit(type);
-      return ok14;
+      return ok16;
     }
     if (markdownLineEnding(code6)) {
       effects.enter("lineEnding");
@@ -123720,7 +123880,7 @@ function factoryLabel(effects, ok14, nok, type, markerType, stringType2) {
 }
 
 // node_modules/micromark-factory-title/index.js
-function factoryTitle(effects, ok14, nok, type, markerType, stringType2) {
+function factoryTitle(effects, ok16, nok, type, markerType, stringType2) {
   let marker;
   return start;
   function start(code6) {
@@ -123740,7 +123900,7 @@ function factoryTitle(effects, ok14, nok, type, markerType, stringType2) {
       effects.consume(code6);
       effects.exit(markerType);
       effects.exit(type);
-      return ok14;
+      return ok16;
     }
     effects.enter(stringType2);
     return atBreak(code6);
@@ -123782,7 +123942,7 @@ function factoryTitle(effects, ok14, nok, type, markerType, stringType2) {
 }
 
 // node_modules/micromark-factory-whitespace/index.js
-function factoryWhitespace(effects, ok14) {
+function factoryWhitespace(effects, ok16) {
   let seen;
   return start;
   function start(code6) {
@@ -123796,7 +123956,7 @@ function factoryWhitespace(effects, ok14) {
     if (markdownSpace(code6)) {
       return factorySpace(effects, start, seen ? "linePrefix" : "lineSuffix")(code6);
     }
-    return ok14(code6);
+    return ok16(code6);
   }
 }
 
@@ -123809,7 +123969,7 @@ var titleBefore = {
   partial: true,
   tokenize: tokenizeTitleBefore
 };
-function tokenizeDefinition(effects, ok14, nok) {
+function tokenizeDefinition(effects, ok16, nok) {
   const self2 = this;
   let identifier;
   return start;
@@ -123865,12 +124025,12 @@ function tokenizeDefinition(effects, ok14, nok) {
     if (code6 === null || markdownLineEnding(code6)) {
       effects.exit("definition");
       self2.parser.defined.push(identifier);
-      return ok14(code6);
+      return ok16(code6);
     }
     return nok(code6);
   }
 }
-function tokenizeTitleBefore(effects, ok14, nok) {
+function tokenizeTitleBefore(effects, ok16, nok) {
   return titleBefore2;
   function titleBefore2(code6) {
     return markdownLineEndingOrSpace(code6) ? factoryWhitespace(effects, beforeMarker)(code6) : nok(code6);
@@ -123882,7 +124042,7 @@ function tokenizeTitleBefore(effects, ok14, nok) {
     return markdownSpace(code6) ? factorySpace(effects, titleAfterOptionalWhitespace, "whitespace")(code6) : titleAfterOptionalWhitespace(code6);
   }
   function titleAfterOptionalWhitespace(code6) {
-    return code6 === null || markdownLineEnding(code6) ? ok14(code6) : nok(code6);
+    return code6 === null || markdownLineEnding(code6) ? ok16(code6) : nok(code6);
   }
 }
 
@@ -123891,7 +124051,7 @@ var hardBreakEscape = {
   name: "hardBreakEscape",
   tokenize: tokenizeHardBreakEscape
 };
-function tokenizeHardBreakEscape(effects, ok14, nok) {
+function tokenizeHardBreakEscape(effects, ok16, nok) {
   return start;
   function start(code6) {
     effects.enter("hardBreakEscape");
@@ -123901,7 +124061,7 @@ function tokenizeHardBreakEscape(effects, ok14, nok) {
   function after(code6) {
     if (markdownLineEnding(code6)) {
       effects.exit("hardBreakEscape");
-      return ok14(code6);
+      return ok16(code6);
     }
     return nok(code6);
   }
@@ -123943,7 +124103,7 @@ function resolveHeadingAtx(events, context) {
   }
   return events;
 }
-function tokenizeHeadingAtx(effects, ok14, nok) {
+function tokenizeHeadingAtx(effects, ok16, nok) {
   let size3 = 0;
   return start;
   function start(code6) {
@@ -123972,7 +124132,7 @@ function tokenizeHeadingAtx(effects, ok14, nok) {
     }
     if (code6 === null || markdownLineEnding(code6)) {
       effects.exit("atxHeading");
-      return ok14(code6);
+      return ok16(code6);
     }
     if (markdownSpace(code6)) {
       return factorySpace(effects, atBreak, "whitespace")(code6);
@@ -124094,7 +124254,7 @@ function resolveToHtmlFlow(events) {
   }
   return events;
 }
-function tokenizeHtmlFlow(effects, ok14, nok) {
+function tokenizeHtmlFlow(effects, ok16, nok) {
   const self2 = this;
   let marker;
   let closingTag;
@@ -124124,7 +124284,7 @@ function tokenizeHtmlFlow(effects, ok14, nok) {
     if (code6 === 63) {
       effects.consume(code6);
       marker = 3;
-      return self2.interrupt ? ok14 : continuationDeclarationInside;
+      return self2.interrupt ? ok16 : continuationDeclarationInside;
     }
     if (asciiAlpha(code6)) {
       effects.consume(code6);
@@ -124148,14 +124308,14 @@ function tokenizeHtmlFlow(effects, ok14, nok) {
     if (asciiAlpha(code6)) {
       effects.consume(code6);
       marker = 4;
-      return self2.interrupt ? ok14 : continuationDeclarationInside;
+      return self2.interrupt ? ok16 : continuationDeclarationInside;
     }
     return nok(code6);
   }
   function commentOpenInside(code6) {
     if (code6 === 45) {
       effects.consume(code6);
-      return self2.interrupt ? ok14 : continuationDeclarationInside;
+      return self2.interrupt ? ok16 : continuationDeclarationInside;
     }
     return nok(code6);
   }
@@ -124164,7 +124324,7 @@ function tokenizeHtmlFlow(effects, ok14, nok) {
     if (code6 === value.charCodeAt(index2++)) {
       effects.consume(code6);
       if (index2 === value.length) {
-        return self2.interrupt ? ok14 : continuation;
+        return self2.interrupt ? ok16 : continuation;
       }
       return cdataOpenInside;
     }
@@ -124184,7 +124344,7 @@ function tokenizeHtmlFlow(effects, ok14, nok) {
       const name2 = buffer.toLowerCase();
       if (!slash && !closingTag && htmlRawNames.includes(name2)) {
         marker = 1;
-        return self2.interrupt ? ok14(code6) : continuation(code6);
+        return self2.interrupt ? ok16(code6) : continuation(code6);
       }
       if (htmlBlockNames.includes(buffer.toLowerCase())) {
         marker = 6;
@@ -124192,7 +124352,7 @@ function tokenizeHtmlFlow(effects, ok14, nok) {
           effects.consume(code6);
           return basicSelfClosing;
         }
-        return self2.interrupt ? ok14(code6) : continuation(code6);
+        return self2.interrupt ? ok16(code6) : continuation(code6);
       }
       marker = 7;
       return self2.interrupt && !self2.parser.lazy[self2.now().line] ? nok(code6) : closingTag ? completeClosingTagAfter(code6) : completeAttributeNameBefore(code6);
@@ -124207,7 +124367,7 @@ function tokenizeHtmlFlow(effects, ok14, nok) {
   function basicSelfClosing(code6) {
     if (code6 === 62) {
       effects.consume(code6);
-      return self2.interrupt ? ok14 : continuation;
+      return self2.interrupt ? ok16 : continuation;
     }
     return nok(code6);
   }
@@ -124415,10 +124575,10 @@ function tokenizeHtmlFlow(effects, ok14, nok) {
   }
   function continuationAfter(code6) {
     effects.exit("htmlFlow");
-    return ok14(code6);
+    return ok16(code6);
   }
 }
-function tokenizeNonLazyContinuationStart(effects, ok14, nok) {
+function tokenizeNonLazyContinuationStart(effects, ok16, nok) {
   const self2 = this;
   return start;
   function start(code6) {
@@ -124431,16 +124591,16 @@ function tokenizeNonLazyContinuationStart(effects, ok14, nok) {
     return nok(code6);
   }
   function after(code6) {
-    return self2.parser.lazy[self2.now().line] ? nok(code6) : ok14(code6);
+    return self2.parser.lazy[self2.now().line] ? nok(code6) : ok16(code6);
   }
 }
-function tokenizeBlankLineBefore(effects, ok14, nok) {
+function tokenizeBlankLineBefore(effects, ok16, nok) {
   return start;
   function start(code6) {
     effects.enter("lineEnding");
     effects.consume(code6);
     effects.exit("lineEnding");
-    return effects.attempt(blankLine, ok14, nok);
+    return effects.attempt(blankLine, ok16, nok);
   }
 }
 
@@ -124449,7 +124609,7 @@ var htmlText = {
   name: "htmlText",
   tokenize: tokenizeHtmlText
 };
-function tokenizeHtmlText(effects, ok14, nok) {
+function tokenizeHtmlText(effects, ok16, nok) {
   const self2 = this;
   let marker;
   let index2;
@@ -124730,7 +124890,7 @@ function tokenizeHtmlText(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("htmlTextData");
       effects.exit("htmlText");
-      return ok14;
+      return ok16;
     }
     return nok(code6);
   }
@@ -124848,7 +125008,7 @@ function resolveToLabelEnd(events, context) {
   splice(events, open2, events.length, media);
   return events;
 }
-function tokenizeLabelEnd(effects, ok14, nok) {
+function tokenizeLabelEnd(effects, ok16, nok) {
   const self2 = this;
   let index2 = self2.events.length;
   let labelStart;
@@ -124891,14 +125051,14 @@ function tokenizeLabelEnd(effects, ok14, nok) {
     return effects.attempt(referenceCollapsedConstruct, labelEndOk, labelEndNok)(code6);
   }
   function labelEndOk(code6) {
-    return ok14(code6);
+    return ok16(code6);
   }
   function labelEndNok(code6) {
     labelStart._balanced = true;
     return nok(code6);
   }
 }
-function tokenizeResource(effects, ok14, nok) {
+function tokenizeResource(effects, ok16, nok) {
   return resourceStart;
   function resourceStart(code6) {
     effects.enter("resource");
@@ -124937,25 +125097,25 @@ function tokenizeResource(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("resourceMarker");
       effects.exit("resource");
-      return ok14;
+      return ok16;
     }
     return nok(code6);
   }
 }
-function tokenizeReferenceFull(effects, ok14, nok) {
+function tokenizeReferenceFull(effects, ok16, nok) {
   const self2 = this;
   return referenceFull;
   function referenceFull(code6) {
     return factoryLabel.call(self2, effects, referenceFullAfter, referenceFullMissing, "reference", "referenceMarker", "referenceString")(code6);
   }
   function referenceFullAfter(code6) {
-    return self2.parser.defined.includes(normalizeIdentifier(self2.sliceSerialize(self2.events[self2.events.length - 1][1]).slice(1, -1))) ? ok14(code6) : nok(code6);
+    return self2.parser.defined.includes(normalizeIdentifier(self2.sliceSerialize(self2.events[self2.events.length - 1][1]).slice(1, -1))) ? ok16(code6) : nok(code6);
   }
   function referenceFullMissing(code6) {
     return nok(code6);
   }
 }
-function tokenizeReferenceCollapsed(effects, ok14, nok) {
+function tokenizeReferenceCollapsed(effects, ok16, nok) {
   return referenceCollapsedStart;
   function referenceCollapsedStart(code6) {
     effects.enter("reference");
@@ -124970,7 +125130,7 @@ function tokenizeReferenceCollapsed(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("referenceMarker");
       effects.exit("reference");
-      return ok14;
+      return ok16;
     }
     return nok(code6);
   }
@@ -124982,7 +125142,7 @@ var labelStartImage = {
   resolveAll: labelEnd.resolveAll,
   tokenize: tokenizeLabelStartImage
 };
-function tokenizeLabelStartImage(effects, ok14, nok) {
+function tokenizeLabelStartImage(effects, ok16, nok) {
   const self2 = this;
   return start;
   function start(code6) {
@@ -125003,7 +125163,7 @@ function tokenizeLabelStartImage(effects, ok14, nok) {
     return nok(code6);
   }
   function after(code6) {
-    return code6 === 94 && "_hiddenFootnoteSupport" in self2.parser.constructs ? nok(code6) : ok14(code6);
+    return code6 === 94 && "_hiddenFootnoteSupport" in self2.parser.constructs ? nok(code6) : ok16(code6);
   }
 }
 
@@ -125013,7 +125173,7 @@ var labelStartLink = {
   resolveAll: labelEnd.resolveAll,
   tokenize: tokenizeLabelStartLink
 };
-function tokenizeLabelStartLink(effects, ok14, nok) {
+function tokenizeLabelStartLink(effects, ok16, nok) {
   const self2 = this;
   return start;
   function start(code6) {
@@ -125025,7 +125185,7 @@ function tokenizeLabelStartLink(effects, ok14, nok) {
     return after;
   }
   function after(code6) {
-    return code6 === 94 && "_hiddenFootnoteSupport" in self2.parser.constructs ? nok(code6) : ok14(code6);
+    return code6 === 94 && "_hiddenFootnoteSupport" in self2.parser.constructs ? nok(code6) : ok16(code6);
   }
 }
 
@@ -125034,13 +125194,13 @@ var lineEnding = {
   name: "lineEnding",
   tokenize: tokenizeLineEnding
 };
-function tokenizeLineEnding(effects, ok14) {
+function tokenizeLineEnding(effects, ok16) {
   return start;
   function start(code6) {
     effects.enter("lineEnding");
     effects.consume(code6);
     effects.exit("lineEnding");
-    return factorySpace(effects, ok14, "linePrefix");
+    return factorySpace(effects, ok16, "linePrefix");
   }
 }
 
@@ -125049,7 +125209,7 @@ var thematicBreak = {
   name: "thematicBreak",
   tokenize: tokenizeThematicBreak
 };
-function tokenizeThematicBreak(effects, ok14, nok) {
+function tokenizeThematicBreak(effects, ok16, nok) {
   let size3 = 0;
   let marker;
   return start;
@@ -125068,7 +125228,7 @@ function tokenizeThematicBreak(effects, ok14, nok) {
     }
     if (size3 >= 3 && (code6 === null || markdownLineEnding(code6))) {
       effects.exit("thematicBreak");
-      return ok14(code6);
+      return ok16(code6);
     }
     return nok(code6);
   }
@@ -125100,7 +125260,7 @@ var indentConstruct = {
   partial: true,
   tokenize: tokenizeIndent
 };
-function tokenizeListStart(effects, ok14, nok) {
+function tokenizeListStart(effects, ok16, nok) {
   const self2 = this;
   const tail = self2.events[self2.events.length - 1];
   let initialSize = tail && tail[1].type === "linePrefix" ? tail[2].sliceSerialize(tail[1], true).length : 0;
@@ -125166,16 +125326,16 @@ function tokenizeListStart(effects, ok14, nok) {
   }
   function endOfPrefix(code6) {
     self2.containerState.size = initialSize + self2.sliceSerialize(effects.exit("listItemPrefix"), true).length;
-    return ok14(code6);
+    return ok16(code6);
   }
 }
-function tokenizeListContinuation(effects, ok14, nok) {
+function tokenizeListContinuation(effects, ok16, nok) {
   const self2 = this;
   self2.containerState._closeFlow = void 0;
   return effects.check(blankLine, onBlank, notBlank);
   function onBlank(code6) {
     self2.containerState.furtherBlankLines = self2.containerState.furtherBlankLines || self2.containerState.initialBlankLine;
-    return factorySpace(effects, ok14, "listItemIndent", self2.containerState.size + 1)(code6);
+    return factorySpace(effects, ok16, "listItemIndent", self2.containerState.size + 1)(code6);
   }
   function notBlank(code6) {
     if (self2.containerState.furtherBlankLines || !markdownSpace(code6)) {
@@ -125185,31 +125345,31 @@ function tokenizeListContinuation(effects, ok14, nok) {
     }
     self2.containerState.furtherBlankLines = void 0;
     self2.containerState.initialBlankLine = void 0;
-    return effects.attempt(indentConstruct, ok14, notInCurrentItem)(code6);
+    return effects.attempt(indentConstruct, ok16, notInCurrentItem)(code6);
   }
   function notInCurrentItem(code6) {
     self2.containerState._closeFlow = true;
     self2.interrupt = void 0;
-    return factorySpace(effects, effects.attempt(list, ok14, nok), "linePrefix", self2.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4)(code6);
+    return factorySpace(effects, effects.attempt(list, ok16, nok), "linePrefix", self2.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4)(code6);
   }
 }
-function tokenizeIndent(effects, ok14, nok) {
+function tokenizeIndent(effects, ok16, nok) {
   const self2 = this;
   return factorySpace(effects, afterPrefix, "listItemIndent", self2.containerState.size + 1);
   function afterPrefix(code6) {
     const tail = self2.events[self2.events.length - 1];
-    return tail && tail[1].type === "listItemIndent" && tail[2].sliceSerialize(tail[1], true).length === self2.containerState.size ? ok14(code6) : nok(code6);
+    return tail && tail[1].type === "listItemIndent" && tail[2].sliceSerialize(tail[1], true).length === self2.containerState.size ? ok16(code6) : nok(code6);
   }
 }
 function tokenizeListEnd(effects) {
   effects.exit(this.containerState.type);
 }
-function tokenizeListItemPrefixWhitespace(effects, ok14, nok) {
+function tokenizeListItemPrefixWhitespace(effects, ok16, nok) {
   const self2 = this;
   return factorySpace(effects, afterPrefix, "listItemPrefixWhitespace", self2.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4 + 1);
   function afterPrefix(code6) {
     const tail = self2.events[self2.events.length - 1];
-    return !markdownSpace(code6) && tail && tail[1].type === "listItemPrefixWhitespace" ? ok14(code6) : nok(code6);
+    return !markdownSpace(code6) && tail && tail[1].type === "listItemPrefixWhitespace" ? ok16(code6) : nok(code6);
   }
 }
 
@@ -125264,7 +125424,7 @@ function resolveToSetextUnderline(events, context) {
   events.push(["exit", heading2, context]);
   return events;
 }
-function tokenizeSetextUnderline(effects, ok14, nok) {
+function tokenizeSetextUnderline(effects, ok16, nok) {
   const self2 = this;
   let marker;
   return start;
@@ -125299,7 +125459,7 @@ function tokenizeSetextUnderline(effects, ok14, nok) {
   function after(code6) {
     if (code6 === null || markdownLineEnding(code6)) {
       effects.exit("setextHeadingLine");
-      return ok14(code6);
+      return ok16(code6);
     }
     return nok(code6);
   }
@@ -125758,12 +125918,12 @@ function createTokenizer(parser, initialize, from10) {
             // This allows a “live binding”, which is needed for `interrupt`.
             fields ? Object.assign(Object.create(context), fields) : context,
             effects,
-            ok14,
+            ok16,
             nok
           )(code6);
         }
       }
-      function ok14(code6) {
+      function ok16(code6) {
         consumed = true;
         onreturn(currentConstruct, info);
         return returnState;
@@ -128741,7 +128901,7 @@ text4[72] = [emailAutolink, protocolAutolink];
 text4[104] = [emailAutolink, protocolAutolink];
 text4[87] = [emailAutolink, wwwAutolink];
 text4[119] = [emailAutolink, wwwAutolink];
-function tokenizeEmailAutolink(effects, ok14, nok) {
+function tokenizeEmailAutolink(effects, ok16, nok) {
   const self2 = this;
   let dot;
   let data4;
@@ -128785,12 +128945,12 @@ function tokenizeEmailAutolink(effects, ok14, nok) {
     if (data4 && dot && asciiAlpha(self2.previous)) {
       effects.exit("literalAutolinkEmail");
       effects.exit("literalAutolink");
-      return ok14(code6);
+      return ok16(code6);
     }
     return nok(code6);
   }
 }
-function tokenizeWwwAutolink(effects, ok14, nok) {
+function tokenizeWwwAutolink(effects, ok16, nok) {
   const self2 = this;
   return wwwStart;
   function wwwStart(code6) {
@@ -128804,10 +128964,10 @@ function tokenizeWwwAutolink(effects, ok14, nok) {
   function wwwAfter(code6) {
     effects.exit("literalAutolinkWww");
     effects.exit("literalAutolink");
-    return ok14(code6);
+    return ok16(code6);
   }
 }
-function tokenizeProtocolAutolink(effects, ok14, nok) {
+function tokenizeProtocolAutolink(effects, ok16, nok) {
   const self2 = this;
   let buffer = "";
   let seen = false;
@@ -128854,10 +129014,10 @@ function tokenizeProtocolAutolink(effects, ok14, nok) {
   function protocolAfter(code6) {
     effects.exit("literalAutolinkHttp");
     effects.exit("literalAutolink");
-    return ok14(code6);
+    return ok16(code6);
   }
 }
-function tokenizeWwwPrefix(effects, ok14, nok) {
+function tokenizeWwwPrefix(effects, ok16, nok) {
   let size3 = 0;
   return wwwPrefixInside;
   function wwwPrefixInside(code6) {
@@ -128873,10 +129033,10 @@ function tokenizeWwwPrefix(effects, ok14, nok) {
     return nok(code6);
   }
   function wwwPrefixAfter(code6) {
-    return code6 === null ? nok(code6) : ok14(code6);
+    return code6 === null ? nok(code6) : ok16(code6);
   }
 }
-function tokenizeDomain(effects, ok14, nok) {
+function tokenizeDomain(effects, ok16, nok) {
   let underscoreInLastSegment;
   let underscoreInLastLastSegment;
   let seen;
@@ -128906,10 +129066,10 @@ function tokenizeDomain(effects, ok14, nok) {
     if (underscoreInLastLastSegment || underscoreInLastSegment || !seen) {
       return nok(code6);
     }
-    return ok14(code6);
+    return ok16(code6);
   }
 }
-function tokenizePath(effects, ok14) {
+function tokenizePath(effects, ok16) {
   let sizeOpen = 0;
   let sizeClose = 0;
   return pathInside;
@@ -128923,10 +129083,10 @@ function tokenizePath(effects, ok14) {
       return pathAtPunctuation(code6);
     }
     if (code6 === 33 || code6 === 34 || code6 === 38 || code6 === 39 || code6 === 41 || code6 === 42 || code6 === 44 || code6 === 46 || code6 === 58 || code6 === 59 || code6 === 60 || code6 === 63 || code6 === 93 || code6 === 95 || code6 === 126) {
-      return effects.check(trail, ok14, pathAtPunctuation)(code6);
+      return effects.check(trail, ok16, pathAtPunctuation)(code6);
     }
     if (code6 === null || markdownLineEndingOrSpace(code6) || unicodeWhitespace(code6)) {
-      return ok14(code6);
+      return ok16(code6);
     }
     effects.consume(code6);
     return pathInside;
@@ -128939,7 +129099,7 @@ function tokenizePath(effects, ok14) {
     return pathInside;
   }
 }
-function tokenizeTrail(effects, ok14, nok) {
+function tokenizeTrail(effects, ok16, nok) {
   return trail2;
   function trail2(code6) {
     if (code6 === 33 || code6 === 34 || code6 === 39 || code6 === 41 || code6 === 42 || code6 === 44 || code6 === 46 || code6 === 58 || code6 === 59 || code6 === 63 || code6 === 95 || code6 === 126) {
@@ -128959,13 +129119,13 @@ function tokenizeTrail(effects, ok14, nok) {
       code6 === 60 || // So is whitespace.
       code6 === null || markdownLineEndingOrSpace(code6) || unicodeWhitespace(code6)
     ) {
-      return ok14(code6);
+      return ok16(code6);
     }
     return nok(code6);
   }
   function trailBracketAfter(code6) {
     if (code6 === null || code6 === 40 || code6 === 91 || markdownLineEndingOrSpace(code6) || unicodeWhitespace(code6)) {
-      return ok14(code6);
+      return ok16(code6);
     }
     return trail2(code6);
   }
@@ -128984,14 +129144,14 @@ function tokenizeTrail(effects, ok14, nok) {
     return nok(code6);
   }
 }
-function tokenizeEmailDomainDotTrail(effects, ok14, nok) {
+function tokenizeEmailDomainDotTrail(effects, ok16, nok) {
   return start;
   function start(code6) {
     effects.consume(code6);
     return after;
   }
   function after(code6) {
-    return asciiAlphanumeric(code6) ? nok(code6) : ok14(code6);
+    return asciiAlphanumeric(code6) ? nok(code6) : ok16(code6);
   }
 }
 function previousWww(code6) {
@@ -129057,7 +129217,7 @@ function gfmFootnote() {
     }
   };
 }
-function tokenizePotentialGfmFootnoteCall(effects, ok14, nok) {
+function tokenizePotentialGfmFootnoteCall(effects, ok16, nok) {
   const self2 = this;
   let index2 = self2.events.length;
   const defined = self2.parser.gfmFootnotes || (self2.parser.gfmFootnotes = []);
@@ -129087,7 +129247,7 @@ function tokenizePotentialGfmFootnoteCall(effects, ok14, nok) {
     effects.enter("gfmFootnoteCallLabelMarker");
     effects.consume(code6);
     effects.exit("gfmFootnoteCallLabelMarker");
-    return ok14(code6);
+    return ok16(code6);
   }
 }
 function resolveToPotentialGfmFootnoteCall(events, context) {
@@ -129149,7 +129309,7 @@ function resolveToPotentialGfmFootnoteCall(events, context) {
   events.splice(index2, events.length - index2 + 1, ...replacement);
   return events;
 }
-function tokenizeGfmFootnoteCall(effects, ok14, nok) {
+function tokenizeGfmFootnoteCall(effects, ok16, nok) {
   const self2 = this;
   const defined = self2.parser.gfmFootnotes || (self2.parser.gfmFootnotes = []);
   let size3 = 0;
@@ -129191,7 +129351,7 @@ function tokenizeGfmFootnoteCall(effects, ok14, nok) {
       effects.consume(code6);
       effects.exit("gfmFootnoteCallLabelMarker");
       effects.exit("gfmFootnoteCall");
-      return ok14;
+      return ok16;
     }
     if (!markdownLineEndingOrSpace(code6)) {
       data4 = true;
@@ -129209,7 +129369,7 @@ function tokenizeGfmFootnoteCall(effects, ok14, nok) {
     return callData(code6);
   }
 }
-function tokenizeDefinitionStart(effects, ok14, nok) {
+function tokenizeDefinitionStart(effects, ok16, nok) {
   const self2 = this;
   const defined = self2.parser.gfmFootnotes || (self2.parser.gfmFootnotes = []);
   let identifier;
@@ -129283,21 +129443,21 @@ function tokenizeDefinitionStart(effects, ok14, nok) {
     return nok(code6);
   }
   function whitespaceAfter(code6) {
-    return ok14(code6);
+    return ok16(code6);
   }
 }
-function tokenizeDefinitionContinuation(effects, ok14, nok) {
-  return effects.check(blankLine, ok14, effects.attempt(indent, ok14, nok));
+function tokenizeDefinitionContinuation(effects, ok16, nok) {
+  return effects.check(blankLine, ok16, effects.attempt(indent, ok16, nok));
 }
 function gfmFootnoteDefinitionEnd(effects) {
   effects.exit("gfmFootnoteDefinition");
 }
-function tokenizeIndent2(effects, ok14, nok) {
+function tokenizeIndent2(effects, ok16, nok) {
   const self2 = this;
   return factorySpace(effects, afterPrefix, "gfmFootnoteDefinitionIndent", 4 + 1);
   function afterPrefix(code6) {
     const tail = self2.events[self2.events.length - 1];
-    return tail && tail[1].type === "gfmFootnoteDefinitionIndent" && tail[2].sliceSerialize(tail[1], true).length === 4 ? ok14(code6) : nok(code6);
+    return tail && tail[1].type === "gfmFootnoteDefinitionIndent" && tail[2].sliceSerialize(tail[1], true).length === 4 ? ok16(code6) : nok(code6);
   }
 }
 
@@ -129365,7 +129525,7 @@ function gfmStrikethrough(options) {
     }
     return events;
   }
-  function tokenizeStrikethrough(effects, ok14, nok) {
+  function tokenizeStrikethrough(effects, ok16, nok) {
     const previous3 = this.previous;
     const events = this.events;
     let size3 = 0;
@@ -129390,7 +129550,7 @@ function gfmStrikethrough(options) {
       const after = classifyCharacter(code6);
       token._open = !after || after === 2 && Boolean(before);
       token._close = !before || before === 2 && Boolean(after);
-      return ok14(code6);
+      return ok16(code6);
     }
   }
 }
@@ -129513,7 +129673,7 @@ function gfmTable() {
     }
   };
 }
-function tokenizeTable(effects, ok14, nok) {
+function tokenizeTable(effects, ok16, nok) {
   const self2 = this;
   let size3 = 0;
   let sizeB = 0;
@@ -129684,7 +129844,7 @@ function tokenizeTable(effects, ok14, nok) {
       }
       effects.exit("tableDelimiterRow");
       effects.exit("tableHead");
-      return ok14(code6);
+      return ok16(code6);
     }
     return headDelimiterNok(code6);
   }
@@ -129704,7 +129864,7 @@ function tokenizeTable(effects, ok14, nok) {
     }
     if (code6 === null || markdownLineEnding(code6)) {
       effects.exit("tableRow");
-      return ok14(code6);
+      return ok16(code6);
     }
     if (markdownSpace(code6)) {
       return factorySpace(effects, bodyRowBreak, "whitespace")(code6);
@@ -129899,7 +130059,7 @@ function gfmTaskListItem() {
     }
   };
 }
-function tokenizeTasklistCheck(effects, ok14, nok) {
+function tokenizeTasklistCheck(effects, ok16, nok) {
   const self2 = this;
   return open2;
   function open2(code6) {
@@ -129944,20 +130104,20 @@ function tokenizeTasklistCheck(effects, ok14, nok) {
   }
   function after(code6) {
     if (markdownLineEnding(code6)) {
-      return ok14(code6);
+      return ok16(code6);
     }
     if (markdownSpace(code6)) {
       return effects.check({
         tokenize: spaceThenNonSpace
-      }, ok14, nok)(code6);
+      }, ok16, nok)(code6);
     }
     return nok(code6);
   }
 }
-function spaceThenNonSpace(effects, ok14, nok) {
+function spaceThenNonSpace(effects, ok16, nok) {
   return factorySpace(effects, after, "whitespace");
   function after(code6) {
-    return code6 === null ? nok(code6) : ok14(code6);
+    return code6 === null ? nok(code6) : ok16(code6);
   }
 }
 
@@ -130499,14 +130659,14 @@ async function checkAvatarCidBytes(cid, fileName, gateways, perRequestTimeoutMs 
       try {
         assertRasterAvatar(head);
         return { ok: true };
-      } catch (err14) {
+      } catch (err16) {
         return {
           ok: false,
-          error: `avatarCID ${cid}/${fileName} does not contain a usable avatar: ${safeErrorMessage(err14)}`
+          error: `avatarCID ${cid}/${fileName} does not contain a usable avatar: ${safeErrorMessage(err16)}`
         };
       }
-    } catch (err14) {
-      attempts.push(controller.signal.aborted ? `${base3} \u2192 timed out after ${perRequestTimeoutMs}ms` : `${base3} \u2192 ${safeErrorMessage(err14)}`);
+    } catch (err16) {
+      attempts.push(controller.signal.aborted ? `${base3} \u2192 timed out after ${perRequestTimeoutMs}ms` : `${base3} \u2192 ${safeErrorMessage(err16)}`);
     } finally {
       clearTimeout(t2);
     }
@@ -130649,13 +130809,13 @@ var WRITE_KNOWN_FAILURES = {
 };
 var COMBINED_KNOWN_FAILURES = mergeKnownFailures(READ_KNOWN_FAILURES, WRITE_KNOWN_FAILURES);
 registerKnownFailures(WRITE_KNOWN_FAILURES);
-function toActionableError2(err14, step) {
-  return toActionableError(err14, step, COMBINED_KNOWN_FAILURES);
+function toActionableError2(err16, step) {
+  return toActionableError(err16, step, COMBINED_KNOWN_FAILURES);
 }
 
-// dist/tools/ipfs.js
+// dist/tools/ipfsWrite.js
 import { readFile as readFile2 } from "node:fs/promises";
-function registerIpfsTools(server, ctx) {
+function registerIpfsUploadTools(server, ctx) {
   const gateways = resolveGateways(ctx);
   registerUploadProposalMetadata(server, ctx);
   registerUploadDaoMetadata(server, ctx);
@@ -130663,30 +130823,15 @@ function registerIpfsTools(server, ctx) {
   registerUploadAvatar(server, ctx);
   registerGenerateAvatar(server, ctx);
   registerUpdateDaoMetadata(server, ctx, gateways);
-  registerFetch(server, gateways);
-  registerCidInfo(server, gateways);
+}
+function registerIpfsCidForJsonTool(server) {
   registerCidForJson(server);
 }
-function errorResult7(message) {
+function errorResult8(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-function ipfsToolError(err14, step) {
-  const raw = safeErrorMessage(err14);
-  if (/IPFS fetch failed/i.test(raw))
-    return `${step} failed: ${raw}`;
-  return toActionableError2(err14, step).message;
-}
-function stripUrlUserinfo(raw) {
-  try {
-    const u4 = new URL(raw);
-    if (!u4.username && !u4.password)
-      return raw;
-    u4.username = "";
-    u4.password = "";
-    return u4.toString();
-  } catch {
-    return raw.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g, "$1");
-  }
+function ipfsToolError2(err16, step) {
+  return ipfsToolError(err16, step, toActionableError2);
 }
 async function warmDexeIpfsCache(cidV0) {
   try {
@@ -130697,58 +130842,10 @@ async function warmDexeIpfsCache(cidV0) {
       body
     });
     return { ok: r2.ok, status: r2.status };
-  } catch (err14) {
-    return { ok: false, error: safeErrorMessage(err14) };
+  } catch (err16) {
+    return { ok: false, error: safeErrorMessage(err16) };
   }
 }
-function gatewayHostname(u4) {
-  try {
-    const withScheme = /^https?:\/\//i.test(u4) ? u4 : `https://${u4}`;
-    return new URL(withScheme).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-function resolveGateways(_ctx) {
-  const out = [];
-  const normalize2 = (raw) => {
-    const trimmed = raw.trim().replace(/\/$/, "");
-    if (!trimmed)
-      return "";
-    if (/^https?:\/\//i.test(trimmed))
-      return trimmed;
-    return `https://${trimmed}`;
-  };
-  const primary = process.env.DEXE_IPFS_GATEWAY;
-  if (primary) {
-    const p4 = normalize2(primary);
-    if (p4)
-      out.push(p4);
-  }
-  const fallback = process.env.DEXE_IPFS_GATEWAYS_FALLBACK;
-  if (fallback) {
-    for (const g3 of fallback.split(",").map(normalize2)) {
-      if (g3 && !out.includes(g3))
-        out.push(g3);
-    }
-  }
-  const disablePublic = process.env.DEXE_IPFS_DISABLE_PUBLIC_FALLBACK === "1";
-  if (out.length === 0 && !disablePublic) {
-    out.push(...DEFAULT_PUBLIC_READ_GATEWAYS);
-  }
-  const usesRestrictedPinata = out.some((g3) => {
-    const host = gatewayHostname(g3);
-    return host === "mypinata.cloud" || (host?.endsWith(".mypinata.cloud") ?? false);
-  });
-  const haveGatewayKey = !!process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
-  if (!disablePublic && usesRestrictedPinata && !haveGatewayKey) {
-    const publicFallback = "https://ipfs.io";
-    if (!out.includes(publicFallback))
-      out.push(publicFallback);
-  }
-  return out;
-}
-var NO_GATEWAY_HINT = "No IPFS gateway available \u2014 the public read gateways are disabled (DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1) and no dedicated gateway is set. Set DEXE_IPFS_GATEWAY to a dedicated gateway (Pinata gives one free with your JWT \u2014 e.g. https://<your-subdomain>.mypinata.cloud \u2014 or use Filebase / Quicknode / a self-hosted gateway), or remove DEXE_IPFS_DISABLE_PUBLIC_FALLBACK to re-enable the public default (ipfs.io, dweb.link, cloudflare-ipfs.com).";
 function requirePinata(ctx) {
   if (!ctx.config.pinataJwt) {
     return { error: pinataUploadHint("to upload to IPFS") };
@@ -130773,7 +130870,7 @@ function registerUploadProposalMetadata(server, ctx) {
   }, async ({ title, description = "", extra }) => {
     const client = requirePinata(ctx);
     if ("error" in client)
-      return errorResult7(client.error);
+      return errorResult8(client.error);
     try {
       const slateDescription = markdownToSlate(description);
       const payload = { proposalName: title, proposalDescription: JSON.stringify(slateDescription), ...extra ?? {} };
@@ -130794,8 +130891,8 @@ Use as descriptionURL.`
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_ipfs_upload_proposal_metadata"));
+    } catch (err16) {
+      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_upload_proposal_metadata"));
     }
   });
 }
@@ -130825,7 +130922,7 @@ function registerUploadDaoMetadata(server, ctx) {
   }, async ({ daoName, description = "", websiteUrl = "", avatarCID, avatarFileName, socialLinks, documents }) => {
     const client = requirePinata(ctx);
     if ("error" in client)
-      return errorResult7(client.error);
+      return errorResult8(client.error);
     try {
       const descriptionPayload = markdownToSlate(description);
       const descriptionRes = await client.pinJson(descriptionPayload, {
@@ -130840,7 +130937,7 @@ function registerUploadDaoMetadata(server, ctx) {
         avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
         const check2 = await checkAvatarCidBytes(avatarCidV1, avatarFileName, resolveGateways(ctx));
         if (!check2.ok) {
-          return errorResult7(redactUrlCredentials(check2.error ?? "avatarCID failed raster validation"));
+          return errorResult8(redactUrlCredentials(check2.error ?? "avatarCID failed raster validation"));
         }
         avatarWarning = check2.warning ? redactUrlCredentials(check2.warning) : void 0;
       }
@@ -130880,8 +130977,8 @@ function registerUploadDaoMetadata(server, ctx) {
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_ipfs_upload_dao_metadata"));
+    } catch (err16) {
+      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_upload_dao_metadata"));
     }
   });
 }
@@ -130906,23 +131003,23 @@ function registerUploadFile(server, ctx) {
   }, async ({ filePath, base64: base644, fileName = "file", contentType = "application/octet-stream", normalizeImageExt = true }) => {
     const client = requirePinata(ctx);
     if ("error" in client)
-      return errorResult7(client.error);
+      return errorResult8(client.error);
     try {
       if (filePath && base644)
-        return errorResult7("Pass either `filePath` or `base64`, not both.");
+        return errorResult8("Pass either `filePath` or `base64`, not both.");
       if (!filePath && !base644)
-        return errorResult7("Provide the file as `filePath` (preferred for local files) or `base64`.");
+        return errorResult8("Provide the file as `filePath` (preferred for local files) or `base64`.");
       let bytes2;
       if (filePath) {
         let buf;
         try {
           buf = await readFile2(filePath);
         } catch (e2) {
-          return errorResult7(`Cannot read file at "${filePath}": ${safeErrorMessage(e2)}. Pass an absolute path to an existing file.`);
+          return errorResult8(`Cannot read file at "${filePath}": ${safeErrorMessage(e2)}. Pass an absolute path to an existing file.`);
         }
         const MAX_FILE_BYTES = 25 * 1024 * 1024;
         if (buf.length > MAX_FILE_BYTES) {
-          return errorResult7(`File is ${(buf.length / 1024 / 1024).toFixed(1)} MB \u2014 max 25 MB for this tool.`);
+          return errorResult8(`File is ${(buf.length / 1024 / 1024).toFixed(1)} MB \u2014 max 25 MB for this tool.`);
         }
         bytes2 = Uint8Array.from(buf);
       } else {
@@ -130954,92 +131051,8 @@ function registerUploadFile(server, ctx) {
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_ipfs_upload_file"));
-    }
-  });
-}
-function registerFetch(server, defaultGateways) {
-  server.registerTool("dexe_ipfs_fetch", {
-    title: "Fetch content by CID (dedicated gateway, optional fallback)",
-    description: "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (dedicated; Pinata issues one with the JWT). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
-    inputSchema: {
-      cid: external_exports.string().describe("CID (with or without ipfs:// prefix)"),
-      timeoutMs: external_exports.number().int().min(500).max(3e4).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000).")
-    },
-    outputSchema: {
-      cid: external_exports.string(),
-      gateway: external_exports.string(),
-      contentType: external_exports.string(),
-      sizeBytes: external_exports.number(),
-      attempts: external_exports.number(),
-      json: external_exports.unknown().nullable().optional()
-    }
-  }, async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
-    if (defaultGateways.length === 0)
-      return errorResult7(NO_GATEWAY_HINT);
-    try {
-      const res = await fetchIpfs(cid, {
-        gateways: defaultGateways,
-        perRequestTimeoutMs: timeoutMs
-      });
-      const structured = {
-        cid: res.cid,
-        gateway: res.gateway,
-        contentType: res.contentType,
-        sizeBytes: res.bytes.length,
-        attempts: res.attempts,
-        json: res.json
-      };
-      return untrustedResult({
-        summary: `CID ${res.cid} via ${res.gateway} (attempts=${res.attempts})`,
-        label: `IPFS content of ${res.cid}`,
-        body: res.json != null ? res.json : `(${res.bytes.length} bytes of ${res.contentType})`,
-        structured,
-        maxBodyChars: 800
-      });
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_ipfs_fetch"));
-    }
-  });
-}
-function registerCidInfo(server, gateways) {
-  server.registerTool("dexe_ipfs_cid_info", {
-    title: "Parse a CID, show version/codec, compute the alternate version + gateway URLs",
-    description: "Read-only, local. Parses a CIDv0/v1, reports codec + multihash, converts v0\u2194v1 when legal, and emits a URL per configured gateway.",
-    inputSchema: {
-      cid: external_exports.string().describe("CID (with or without ipfs:// prefix)")
-    },
-    outputSchema: {
-      cid: external_exports.string(),
-      version: external_exports.number(),
-      codec: external_exports.string(),
-      multihash: external_exports.string(),
-      alternate: external_exports.string().nullable(),
-      gatewayUrls: external_exports.array(external_exports.string())
-    }
-  }, async ({ cid }) => {
-    try {
-      const info = parseCid(cid);
-      const gatewayUrls = gateways.length ? gateways.map((g3) => stripUrlUserinfo(`${g3.replace(/\/+$/, "").replace(/\/ipfs$/, "")}/ipfs/${info.cid}`)) : [];
-      const structured = { ...info, gatewayUrls };
-      return {
-        content: [
-          {
-            type: "text",
-            text: `CID    : ${info.cid}
-Version: v${info.version}
-Codec  : ${info.codec}
-Multihash (base58btc): ${info.multihash}
-Alt    : ${info.alternate ?? "(no legal alternate)"}
-Gateway URLs:
-${gatewayUrls.map((u4) => `  ${u4}`).join("\n")}`
-          }
-        ],
-        structuredContent: structured
-      };
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_ipfs_cid_info"));
+    } catch (err16) {
+      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_upload_file"));
     }
   });
 }
@@ -131072,8 +131085,8 @@ Nothing was pinned \u2014 these are local hashes.`
         ],
         structuredContent: { cid, codec: "json", pinataCid: pin.cid, pinataCidExact: pin.exact, pinned: false }
       };
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_ipfs_cid_for_json"));
+    } catch (err16) {
+      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_cid_for_json"));
     }
   });
 }
@@ -131098,7 +131111,7 @@ function registerUploadAvatar(server, ctx) {
   }, async ({ filePath, base64: base644, fileName = "avatar" }) => {
     const client = requirePinata(ctx);
     if ("error" in client)
-      return errorResult7(client.error);
+      return errorResult8(client.error);
     try {
       const pinned = await pinAvatarFromInput({ filePath, base64: base644, fileName, pinata: client });
       const structured = {
@@ -131118,8 +131131,8 @@ function registerUploadAvatar(server, ctx) {
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_ipfs_upload_avatar"));
+    } catch (err16) {
+      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_upload_avatar"));
     }
   });
 }
@@ -131141,7 +131154,7 @@ function registerGenerateAvatar(server, ctx) {
   }, async ({ daoName, size: size3 = 512 }) => {
     const client = requirePinata(ctx);
     if ("error" in client)
-      return errorResult7(client.error);
+      return errorResult8(client.error);
     try {
       const bytes2 = renderAvatarJpeg(daoName, size3);
       const fileName = "avatar.jpeg";
@@ -131168,8 +131181,8 @@ function registerGenerateAvatar(server, ctx) {
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_dao_generate_avatar"));
+    } catch (err16) {
+      return errorResult8(ipfsToolError2(err16, "dexe_dao_generate_avatar"));
     }
   });
 }
@@ -131203,17 +131216,17 @@ function registerUpdateDaoMetadata(server, ctx, gateways) {
     }
   }, async ({ currentDescriptionURL, overrides: overrides2, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
     if (gateways.length === 0)
-      return errorResult7(NO_GATEWAY_HINT);
+      return errorResult8(NO_GATEWAY_HINT);
     const client = requirePinata(ctx);
     if ("error" in client)
-      return errorResult7(client.error);
+      return errorResult8(client.error);
     try {
       const fetched = await fetchIpfs(currentDescriptionURL, {
         gateways,
         perRequestTimeoutMs: timeoutMs
       });
       if (!fetched.json || typeof fetched.json !== "object") {
-        return errorResult7(`Current descriptionURL did not resolve to JSON metadata (content-type=${fetched.contentType}). Got ${fetched.bytes.length} bytes from ${fetched.gateway}.`);
+        return errorResult8(`Current descriptionURL did not resolve to JSON metadata (content-type=${fetched.contentType}). Got ${fetched.bytes.length} bytes from ${fetched.gateway}.`);
       }
       const current = fetched.json;
       const daoName = typeof overrides2.daoName === "string" ? overrides2.daoName : current.daoName ?? "";
@@ -131241,14 +131254,14 @@ function registerUpdateDaoMetadata(server, ctx, gateways) {
         avatarUrl = buildAvatarUrl(avatarCidV1, avatarFileName);
         const check2 = await checkAvatarCidBytes(avatarCidV1, avatarFileName, gateways);
         if (!check2.ok) {
-          return errorResult7(redactUrlCredentials(check2.error ?? "avatarCID failed raster validation"));
+          return errorResult8(redactUrlCredentials(check2.error ?? "avatarCID failed raster validation"));
         }
       } else if (overrides2.avatarCID === "") {
         avatarUrl = "";
         avatarCidV1 = void 0;
         avatarFileName = "";
       } else {
-        return errorResult7("Avatar overrides require BOTH avatarCID and avatarFileName (or empty string for avatarCID to clear).");
+        return errorResult8("Avatar overrides require BOTH avatarCID and avatarFileName (or empty string for avatarCID to clear).");
       }
       let descriptionIpfsPath;
       let descriptionCid;
@@ -131299,8 +131312,8 @@ Pass "${metadataRes.cid}" to dexe_proposal_build_modify_dao_profile.newDescripti
         ],
         structuredContent: structured
       };
-    } catch (err14) {
-      return errorResult7(ipfsToolError(err14, "dexe_ipfs_update_dao_metadata"));
+    } catch (err16) {
+      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_update_dao_metadata"));
     }
   });
 }
@@ -131356,8 +131369,8 @@ async function checkBlacklist(config2, token, account, chainId) {
     } else {
       provider = new RpcProvider(config2).requireProvider();
     }
-  } catch (err14) {
-    return { status: "skipped", reason: safeErrorMessage(err14) };
+  } catch (err16) {
+    return { status: "skipped", reason: safeErrorMessage(err16) };
   }
   try {
     const contract = new Contract(token, ERC20_GOV_BLACKLIST_ABI, provider);
@@ -131370,10 +131383,10 @@ async function checkBlacklist(config2, token, account, chainId) {
       }
     }
     return { status: "clean", token, account };
-  } catch (err14) {
+  } catch (err16) {
     return {
       status: "skipped",
-      reason: `blacklist getters unavailable on ${token} \u2014 not an ERC20Gov? (${safeErrorMessage(err14)})`
+      reason: `blacklist getters unavailable on ${token} \u2014 not an ERC20Gov? (${safeErrorMessage(err16)})`
     };
   }
 }
@@ -133050,7 +133063,7 @@ function toAction(a3) {
     throw new Error(`data must be 0x-hex, got: ${a3.data.slice(0, 16)}\u2026`);
   return { executor: a3.executor, value: BigInt(a3.value || "0"), data: a3.data };
 }
-function errorResult8(message) {
+function errorResult9(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function registerProposalBuildTools(server, ctx) {
@@ -133130,7 +133143,7 @@ function registerBuildExternal(server, ctx) {
     outputSchema: payloadSchema()
   }, async ({ govPool, descriptionURL, actionsOnFor = [], actionsOnAgainst = [], andVote = false, voteAmount = "0", voteNftIds = [], chainId }) => {
     if (!isAddress(govPool))
-      return errorResult8(`Invalid govPool: ${govPool}`);
+      return errorResult9(`Invalid govPool: ${govPool}`);
     try {
       const iface = new Interface(GOV_POOL_ABI3);
       const on7 = actionsOnFor.map(toAction);
@@ -133138,7 +133151,7 @@ function registerBuildExternal(server, ctx) {
       for (const a3 of [...on7, ...against]) {
         const forbidden = findForbiddenSelector(a3.data);
         if (forbidden)
-          return errorResult8(dangerousSelectorError(forbidden, a3.executor));
+          return errorResult9(dangerousSelectorError(forbidden, a3.executor));
       }
       const assessed = assessActions({
         ctx,
@@ -133181,8 +133194,8 @@ function registerBuildExternal(server, ctx) {
         });
       }
       return payloadResult(payload, treasuryAdvisory, warnings);
-    } catch (err14) {
-      return errorResult8(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult9(safeErrorMessage(err16));
     }
   });
 }
@@ -133202,9 +133215,9 @@ function registerBuildInternal(server, ctx) {
     outputSchema: payloadSchema()
   }, async ({ validators, proposalType, descriptionURL, data: data4 = "0x", chainId }) => {
     if (!isAddress(validators))
-      return errorResult8(`Invalid validators: ${validators}`);
+      return errorResult9(`Invalid validators: ${validators}`);
     if (!data4.startsWith("0x"))
-      return errorResult8("data must be 0x-prefixed hex");
+      return errorResult9("data must be 0x-prefixed hex");
     try {
       const iface = new Interface(GOV_VALIDATORS_ABI3);
       const label = INTERNAL_PROPOSAL_TYPE_LABELS[proposalType];
@@ -133218,8 +133231,8 @@ function registerBuildInternal(server, ctx) {
         description: `GovValidators.createInternalProposal(${label})`
       });
       return payloadResult(payload);
-    } catch (err14) {
-      return errorResult8(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult9(safeErrorMessage(err16));
     }
   });
 }
@@ -133249,7 +133262,7 @@ function registerBuildCustomAbi(server, ctx) {
     }
   }, async ({ target, signature, method, args = [], value = "0", chainId }) => {
     if (!isAddress(target))
-      return errorResult8(`Invalid target: ${target}`);
+      return errorResult9(`Invalid target: ${target}`);
     try {
       const iface = new Interface([signature]);
       const coerced = args.map((a3) => {
@@ -133265,7 +133278,7 @@ function registerBuildCustomAbi(server, ctx) {
       const data4 = iface.encodeFunctionData(method, coerced);
       const forbidden = findForbiddenSelector(data4);
       if (forbidden)
-        return errorResult8(dangerousSelectorError(forbidden, target));
+        return errorResult9(dangerousSelectorError(forbidden, target));
       const action = { executor: target, value, data: data4 };
       const preview = `ProposalAction \u2192 ${target}.${method}(${args.length} args), value=${value}, calldata=${data4.slice(0, 18)}\u2026`;
       const treasuryAdvisory = buildTimeTreasuryAdvisory([action], ctx.config.treasuryGuard);
@@ -133282,8 +133295,8 @@ ${CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY}` + (treasuryAdvisory ? `
 ${treasuryAdvisory}` : ""),
         structured: { action, preview }
       }, warnings);
-    } catch (err14) {
-      return errorResult8(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult9(safeErrorMessage(err16));
     }
   });
 }
@@ -133355,11 +133368,11 @@ function registerBuildTokenTransfer(server, ctx) {
     }
   }, async ({ govPool, token, recipient, chainId, amount, isNative = false, proposalName = "Token Transfer", proposalDescription = "" }) => {
     if (!isAddress(govPool))
-      return errorResult8(`Invalid govPool: ${govPool}`);
+      return errorResult9(`Invalid govPool: ${govPool}`);
     if (!isNative && !isAddress(token))
-      return errorResult8(`Invalid token: ${token}`);
+      return errorResult9(`Invalid token: ${token}`);
     if (!isAddress(recipient))
-      return errorResult8(`Invalid recipient: ${recipient}`);
+      return errorResult9(`Invalid recipient: ${recipient}`);
     try {
       let actions;
       let actionLabel;
@@ -133370,7 +133383,7 @@ function registerBuildTokenTransfer(server, ctx) {
       } else {
         const bl = await checkBlacklist(ctx.config, token, recipient, chainId ?? ctx.config.defaultChainId);
         if (bl.status === "blacklisted")
-          return errorResult8(blacklistError(token, recipient));
+          return errorResult9(blacklistError(token, recipient));
         blacklistNote = bl.status === "skipped" ? ` (blacklist precheck skipped: ${bl.reason})` : " (recipient not blacklisted)";
         const iface = new Interface(ERC20_ABI2);
         const data4 = iface.encodeFunctionData("transfer", [recipient, BigInt(amount)]);
@@ -133405,8 +133418,8 @@ ${nextStep}` + (treasuryAdvisory ? `
 ${treasuryAdvisory}` : ""),
         structured: { metadata, actions, nextStep }
       }, warnings);
-    } catch (err14) {
-      return errorResult8(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult9(safeErrorMessage(err16));
     }
   });
 }
@@ -133490,7 +133503,7 @@ function toSettingsTuple(s2) {
     s2.executorDescription
   ];
 }
-function errorResult9(message) {
+function errorResult10(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function makeWrapperResult(ctx) {
@@ -133556,9 +133569,9 @@ function registerChangeVotingSettings(server, ctx) {
     outputSchema: payloadOutputSchema()
   }, async ({ govSettings, settings, settingsIds = [], chainId, proposalName = "Change Voting Settings", proposalDescription = "" }) => {
     if (!isAddress(govSettings))
-      return errorResult9(`Invalid govSettings: ${govSettings}`);
+      return errorResult10(`Invalid govSettings: ${govSettings}`);
     if (settingsIds.length > 0 && settingsIds.length !== settings.length) {
-      return errorResult9("settingsIds length must match settings length when editing");
+      return errorResult10("settingsIds length must match settings length when editing");
     }
     try {
       const iface = new Interface(GOV_SETTINGS_ABI2);
@@ -133599,8 +133612,8 @@ Governance-safety advisories:
 ${advisories.join("\n")}` : ""),
         advisories
       });
-    } catch (err14) {
-      return errorResult9(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult10(safeErrorMessage(err16));
     }
   });
 }
@@ -133622,10 +133635,10 @@ function registerManageValidators(server, ctx) {
     outputSchema: payloadOutputSchema()
   }, async ({ govValidators, changes: changes2, proposalName = "Manage Validators", proposalDescription = "" }) => {
     if (!isAddress(govValidators))
-      return errorResult9(`Invalid govValidators: ${govValidators}`);
+      return errorResult10(`Invalid govValidators: ${govValidators}`);
     for (const c4 of changes2) {
       if (!isAddress(c4.user))
-        return errorResult9(`Invalid validator user: ${c4.user}`);
+        return errorResult10(`Invalid validator user: ${c4.user}`);
     }
     try {
       const iface = new Interface(GOV_VALIDATORS_ABI4);
@@ -133650,8 +133663,8 @@ function registerManageValidators(server, ctx) {
         detail: `Target: GovValidators(${govValidators}).changeBalances
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err14) {
-      return errorResult9(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult10(safeErrorMessage(err16));
     }
   });
 }
@@ -133672,9 +133685,9 @@ function registerAddExpert(server, ctx) {
     outputSchema: payloadOutputSchema()
   }, async ({ expertNftContract, scope, nominatedUser, uri = "", proposalName = "Add Expert", proposalDescription = "" }) => {
     if (!isAddress(expertNftContract))
-      return errorResult9(`Invalid expertNftContract: ${expertNftContract}`);
+      return errorResult10(`Invalid expertNftContract: ${expertNftContract}`);
     if (!isAddress(nominatedUser))
-      return errorResult9(`Invalid nominatedUser: ${nominatedUser}`);
+      return errorResult10(`Invalid nominatedUser: ${nominatedUser}`);
     try {
       const iface = new Interface(EXPERT_NFT_ABI);
       const data4 = iface.encodeFunctionData("mint", [nominatedUser, uri]);
@@ -133696,8 +133709,8 @@ function registerAddExpert(server, ctx) {
         detail: `Target: ExpertNft(${expertNftContract}).mint
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err14) {
-      return errorResult9(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult10(safeErrorMessage(err16));
     }
   });
 }
@@ -133717,9 +133730,9 @@ function registerRemoveExpert(server, ctx) {
     outputSchema: payloadOutputSchema()
   }, async ({ expertNftContract, scope, nominatedUser, proposalName = "Remove Expert", proposalDescription = "" }) => {
     if (!isAddress(expertNftContract))
-      return errorResult9(`Invalid expertNftContract: ${expertNftContract}`);
+      return errorResult10(`Invalid expertNftContract: ${expertNftContract}`);
     if (!isAddress(nominatedUser))
-      return errorResult9(`Invalid nominatedUser: ${nominatedUser}`);
+      return errorResult10(`Invalid nominatedUser: ${nominatedUser}`);
     try {
       const iface = new Interface(EXPERT_NFT_ABI);
       const data4 = iface.encodeFunctionData("burn", [nominatedUser]);
@@ -133741,8 +133754,8 @@ function registerRemoveExpert(server, ctx) {
         detail: `Target: ExpertNft(${expertNftContract}).burn
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err14) {
-      return errorResult9(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult10(safeErrorMessage(err16));
     }
   });
 }
@@ -133772,24 +133785,24 @@ function registerWithdrawTreasury(server, ctx) {
     outputSchema: payloadOutputSchema()
   }, async ({ chainId, govPool, receiver, token = "", amount = "0", nftAddress = "", nftIds = [], proposalName = "Withdraw from Treasury", proposalDescription = "" }) => {
     if (!isAddress(govPool))
-      return errorResult9(`Invalid govPool: ${govPool}`);
+      return errorResult10(`Invalid govPool: ${govPool}`);
     if (!isAddress(receiver))
-      return errorResult9(`Invalid receiver: ${receiver}`);
+      return errorResult10(`Invalid receiver: ${receiver}`);
     const wantToken = token.length > 0 && BigInt(amount) > 0n;
     const wantNfts = nftAddress.length > 0 && nftIds.length > 0;
     if (!wantToken && !wantNfts) {
-      return errorResult9("Nothing to withdraw \u2014 supply `token` + non-zero `amount`, and/or `nftAddress` + `nftIds`.");
+      return errorResult10("Nothing to withdraw \u2014 supply `token` + non-zero `amount`, and/or `nftAddress` + `nftIds`.");
     }
     if (wantToken && !isAddress(token))
-      return errorResult9(`Invalid token: ${token}`);
+      return errorResult10(`Invalid token: ${token}`);
     if (wantNfts && !isAddress(nftAddress))
-      return errorResult9(`Invalid nftAddress: ${nftAddress}`);
+      return errorResult10(`Invalid nftAddress: ${nftAddress}`);
     try {
       let blacklistNote = "";
       if (wantToken) {
         const bl = await checkBlacklist(ctx.config, token, receiver, chainId ?? ctx.config.defaultChainId);
         if (bl.status === "blacklisted")
-          return errorResult9(blacklistError(token, receiver));
+          return errorResult10(blacklistError(token, receiver));
         blacklistNote = bl.status === "skipped" ? ` Blacklist precheck skipped: ${bl.reason}.` : " Recipient not blacklisted.";
       }
       const actions = [];
@@ -133835,8 +133848,8 @@ function registerWithdrawTreasury(server, ctx) {
 
 ${treasuryAdvisory}` : "")
       });
-    } catch (err14) {
-      return errorResult9(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult10(safeErrorMessage(err16));
     }
   });
 }
@@ -133858,9 +133871,9 @@ function registerDelegateToExpert(server, ctx) {
     outputSchema: payloadOutputSchema()
   }, async ({ govPool, expert, amount, nftIds = [], value = "0", proposalName = "Delegate to Expert", proposalDescription = "" }) => {
     if (!isAddress(govPool))
-      return errorResult9(`Invalid govPool: ${govPool}`);
+      return errorResult10(`Invalid govPool: ${govPool}`);
     if (!isAddress(expert))
-      return errorResult9(`Invalid expert: ${expert}`);
+      return errorResult10(`Invalid expert: ${expert}`);
     try {
       const iface = new Interface(GOV_POOL_TREASURY_ABI);
       const data4 = iface.encodeFunctionData("delegateTreasury", [
@@ -133886,8 +133899,8 @@ function registerDelegateToExpert(server, ctx) {
         detail: `Target: GovPool(${govPool}).delegateTreasury
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err14) {
-      return errorResult9(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult10(safeErrorMessage(err16));
     }
   });
 }
@@ -133908,9 +133921,9 @@ function registerRevokeFromExpert(server, ctx) {
     outputSchema: payloadOutputSchema()
   }, async ({ govPool, expert, amount, nftIds = [], proposalName = "Revoke from Expert", proposalDescription = "" }) => {
     if (!isAddress(govPool))
-      return errorResult9(`Invalid govPool: ${govPool}`);
+      return errorResult10(`Invalid govPool: ${govPool}`);
     if (!isAddress(expert))
-      return errorResult9(`Invalid expert: ${expert}`);
+      return errorResult10(`Invalid expert: ${expert}`);
     try {
       const iface = new Interface(GOV_POOL_TREASURY_ABI);
       const data4 = iface.encodeFunctionData("undelegateTreasury", [
@@ -133936,8 +133949,8 @@ function registerRevokeFromExpert(server, ctx) {
         detail: `Target: GovPool(${govPool}).undelegateTreasury
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err14) {
-      return errorResult9(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult10(safeErrorMessage(err16));
     }
   });
 }
@@ -134251,7 +134264,7 @@ var GOV_SETTINGS_FULL_ABI = [
   "function addSettings(tuple(bool earlyCompletion, bool delegatedVotingAllowed, bool validatorsVote, uint64 duration, uint64 durationValidators, uint64 executionDelay, uint128 quorum, uint128 quorumValidators, uint256 minVotesForVoting, uint256 minVotesForCreating, tuple(address rewardToken, uint256 creationReward, uint256 executionReward, uint256 voteRewardsCoefficient) rewardsInfo, string executorDescription)[] settings)",
   "function changeExecutors(address[] executors, uint256[] settingsIds)"
 ];
-function errorResult10(message) {
+function errorResult11(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function payloadOutputSchema2() {
@@ -134323,9 +134336,9 @@ function registerTokenDistribution(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ distributionProposal, proposalId, token, amount, isNative = false, proposalName = "Token Distribution", proposalDescription = "" }) => {
     if (!isAddress(distributionProposal))
-      return errorResult10(`Invalid distributionProposal: ${distributionProposal}`);
+      return errorResult11(`Invalid distributionProposal: ${distributionProposal}`);
     if (!isAddress(token))
-      return errorResult10(`Invalid token: ${token}`);
+      return errorResult11(`Invalid token: ${token}`);
     try {
       const distIface = new Interface(DISTRIBUTION_PROPOSAL_ABI);
       const executeData = distIface.encodeFunctionData("execute", [
@@ -134358,8 +134371,8 @@ function registerTokenDistribution(server, ctx) {
         title: `Token Distribution \u2192 ${amount} of ${token} via proposal #${proposalId}`,
         detail: `Target: DistributionProposal(${distributionProposal}).execute (${actions.length} actions)`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -134472,7 +134485,7 @@ function buildTierTuple(tier) {
       let scaled;
       try {
         scaled = parseUnits(r2, PRECISION_DECIMALS);
-      } catch (err14) {
+      } catch (err16) {
         throw new Error(`Tier "${tier.name}": purchaseRatios[${i3}] = "${r2}" is not a valid decimal.`);
       }
       if (scaled === 0n) {
@@ -134636,7 +134649,7 @@ function registerTokenSaleMulti(server, ctx) {
     try {
       const vestingRisks = findVestingTiers(input3.tiers);
       if (vestingRisks.length > 0 && !input3.acknowledgeVestingBlocked) {
-        return errorResult10(vestingRefusalText(vestingRisks, "acknowledgeVestingBlocked: true"));
+        return errorResult11(vestingRefusalText(vestingRisks, "acknowledgeVestingBlocked: true"));
       }
       const built = buildTokenSaleMultiActions(input3);
       return wrapperResult({
@@ -134645,8 +134658,8 @@ function registerTokenSaleMulti(server, ctx) {
         title: `Token Sale tiers \u2192 ${built.tierNames}`,
         detail: `Target: TokenSaleProposal(${input3.tokenSaleProposal}).createTiers (${input3.tiers.length} tier${input3.tiers.length === 1 ? "" : "s"}${built.whitelistRequests.length > 0 ? ` + addToWhitelist(${built.whitelistRequests.length})` : ""})`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -134667,11 +134680,11 @@ function registerTokenSale(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ tokenSaleProposal, tier, latestTierId = "0", proposalName = "Token Sale", proposalDescription = "", acknowledgeVestingBlocked = false }) => {
     if (!isAddress(tokenSaleProposal)) {
-      return errorResult10(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      return errorResult11(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     }
     const vestingRisks = findVestingTiers([tier]);
     if (vestingRisks.length > 0 && !acknowledgeVestingBlocked) {
-      return errorResult10(vestingRefusalText(vestingRisks, "acknowledgeVestingBlocked: true"));
+      return errorResult11(vestingRefusalText(vestingRisks, "acknowledgeVestingBlocked: true"));
     }
     try {
       const iface = new Interface(TOKEN_SALE_PROPOSAL_ABI);
@@ -134706,8 +134719,8 @@ function registerTokenSale(server, ctx) {
         title: `Token Sale tier \u2192 ${tier.name}`,
         detail: `Target: TokenSaleProposal(${tokenSaleProposal}).createTiers (1 tier${built.whitelistUsers.length > 0 ? " + addToWhitelist" : ""})`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -134730,7 +134743,7 @@ function registerTokenSaleWhitelist(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ tokenSaleProposal, requests, proposalName = "Whitelist Token Sale Tier", proposalDescription = "" }) => {
     if (!isAddress(tokenSaleProposal)) {
-      return errorResult10(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      return errorResult11(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     }
     try {
       const normalised = requests.map((r2) => {
@@ -134763,8 +134776,8 @@ function registerTokenSaleWhitelist(server, ctx) {
         title: `addToWhitelist (${requests.length} request${requests.length === 1 ? "" : "s"})`,
         detail: `Target: TokenSaleProposal(${tokenSaleProposal}).addToWhitelist`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -134783,7 +134796,7 @@ function registerTokenSaleRecover(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ tokenSaleProposal, tierIds, proposalName = "Recover Token Sale", proposalDescription = "" }) => {
     if (!isAddress(tokenSaleProposal))
-      return errorResult10(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      return errorResult11(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     try {
       const iface = new Interface(TOKEN_SALE_PROPOSAL_ABI);
       const data4 = iface.encodeFunctionData("recover", [tierIds.map((n4) => BigInt(n4))]);
@@ -134804,8 +134817,8 @@ function registerTokenSaleRecover(server, ctx) {
         title: `Recover tiers [${tierIds.join(", ")}]`,
         detail: `Target: TokenSaleProposal(${tokenSaleProposal}).recover`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -134829,9 +134842,9 @@ function registerCreateStakingTier(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ stakingProposal, rewardToken, rewardAmount, startedAt, deadline, stakingMetadataUrl, isNative = false, proposalName = "Create Staking", proposalDescription = "" }) => {
     if (!isAddress(stakingProposal))
-      return errorResult10(`Invalid stakingProposal: ${stakingProposal}`);
+      return errorResult11(`Invalid stakingProposal: ${stakingProposal}`);
     if (!isAddress(rewardToken))
-      return errorResult10(`Invalid rewardToken: ${rewardToken}`);
+      return errorResult11(`Invalid rewardToken: ${rewardToken}`);
     try {
       assertStakingWindow(startedAt, deadline);
       const iface = new Interface(STAKING_PROPOSAL_ABI);
@@ -134873,8 +134886,8 @@ function registerCreateStakingTier(server, ctx) {
         title: `Create Staking \u2192 ${rewardAmount} of ${rewardToken}`,
         detail: `Target: StakingProposal(${stakingProposal}).createStaking`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -134893,9 +134906,9 @@ function registerChangeMathModel(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ govPool, newVotePower, proposalName = "Change Vote Power", proposalDescription = "" }) => {
     if (!isAddress(govPool))
-      return errorResult10(`Invalid govPool: ${govPool}`);
+      return errorResult11(`Invalid govPool: ${govPool}`);
     if (!isAddress(newVotePower))
-      return errorResult10(`Invalid newVotePower: ${newVotePower}`);
+      return errorResult11(`Invalid newVotePower: ${newVotePower}`);
     try {
       const iface = new Interface(GOV_POOL_EXT_ABI);
       const data4 = iface.encodeFunctionData("changeVotePower", [newVotePower]);
@@ -134918,8 +134931,8 @@ function registerChangeMathModel(server, ctx) {
 
 ${CHANGE_VOTE_POWER_ADVISORY}`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -134939,7 +134952,7 @@ function registerModifyDaoProfile(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ govPool, newDescriptionURL, proposalName = "Modify DAO Profile", proposalDescription = "", previousDescriptionURL }) => {
     if (!isAddress(govPool))
-      return errorResult10(`Invalid govPool: ${govPool}`);
+      return errorResult11(`Invalid govPool: ${govPool}`);
     try {
       const iface = new Interface(GOV_POOL_EXT_ABI);
       const data4 = iface.encodeFunctionData("editDescriptionURL", [newDescriptionURL]);
@@ -134963,8 +134976,8 @@ function registerModifyDaoProfile(server, ctx) {
         title: `Modify DAO Profile \u2192 ${newDescriptionURL}`,
         detail: `Target: GovPool(${govPool}).editDescriptionURL`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -134989,13 +135002,13 @@ function registerBlacklistManagement(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ erc20Gov, addAddresses = [], removeAddresses = [], chainId, govPool, proposalName = "Blacklist Management", proposalDescription = "" }) => {
     if (!isAddress(erc20Gov))
-      return errorResult10(`Invalid erc20Gov: ${erc20Gov}`);
+      return errorResult11(`Invalid erc20Gov: ${erc20Gov}`);
     for (const a3 of [...addAddresses, ...removeAddresses]) {
       if (!isAddress(a3))
-        return errorResult10(`Invalid blacklist address: ${a3}`);
+        return errorResult11(`Invalid blacklist address: ${a3}`);
     }
     if (addAddresses.length === 0 && removeAddresses.length === 0) {
-      return errorResult10("Must supply at least one address to add or remove");
+      return errorResult11("Must supply at least one address to add or remove");
     }
     try {
       const iface = new Interface(ERC20_GOV_ABI);
@@ -135032,8 +135045,8 @@ function registerBlacklistManagement(server, ctx) {
         title: `Blacklist: +${addAddresses.length} / -${removeAddresses.length}`,
         detail: `Target: ERC20Gov(${erc20Gov}).blacklist (${actions.length} action${actions.length === 1 ? "" : "s"})`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -135071,10 +135084,10 @@ function registerRewardMultiplier(server, ctx) {
       const warnings = [];
       if (mode === "set_address") {
         if (!input3.govPool || !isAddress(input3.govPool))
-          return errorResult10(`set_address requires valid govPool`);
+          return errorResult11(`set_address requires valid govPool`);
         const addr = input3.newMultiplierAddress ?? ZeroAddress;
         if (!isAddress(addr))
-          return errorResult10(`Invalid newMultiplierAddress: ${addr}`);
+          return errorResult11(`Invalid newMultiplierAddress: ${addr}`);
         const iface = new Interface(GOV_POOL_EXT_ABI);
         actions.push({
           executor: input3.govPool,
@@ -135083,18 +135096,18 @@ function registerRewardMultiplier(server, ctx) {
         });
       } else if (mode === "set_token_uri") {
         if (!input3.nftMultiplierContract || !isAddress(input3.nftMultiplierContract))
-          return errorResult10(`set_token_uri requires valid nftMultiplierContract`);
+          return errorResult11(`set_token_uri requires valid nftMultiplierContract`);
         if (!input3.tokenId)
-          return errorResult10(`set_token_uri requires tokenId`);
+          return errorResult11(`set_token_uri requires tokenId`);
         if (input3.uri === void 0)
-          return errorResult10(`set_token_uri requires uri`);
+          return errorResult11(`set_token_uri requires uri`);
         const pre = await precheckMultiplierContract(ctx.config, {
           govPool: input3.govPool,
           multiplierContract: input3.nftMultiplierContract,
           checkCurrentAddress: false
         }, chainId);
         if (pre.refuse)
-          return errorResult10(pre.refuse);
+          return errorResult11(pre.refuse);
         warnings.push(...pre.warnings);
         const iface = new Interface(ERC721_MULTIPLIER_ABI);
         actions.push({
@@ -135104,21 +135117,21 @@ function registerRewardMultiplier(server, ctx) {
         });
       } else if (mode === "change_token") {
         if (!input3.nftMultiplierContract || !isAddress(input3.nftMultiplierContract))
-          return errorResult10(`change_token requires valid nftMultiplierContract`);
+          return errorResult11(`change_token requires valid nftMultiplierContract`);
         if (!input3.tokenId)
-          return errorResult10(`change_token requires tokenId`);
+          return errorResult11(`change_token requires tokenId`);
         if (!input3.multiplier)
-          return errorResult10(`change_token requires multiplier`);
+          return errorResult11(`change_token requires multiplier`);
         const multiplierBn = BigInt(input3.multiplier);
         if (multiplierBn === 0n)
-          return errorResult10(`change_token: multiplier=0 is meaningless \u2014 pass 1.5e25 for 1.5x (PRECISION=1e25).`);
+          return errorResult11(`change_token: multiplier=0 is meaningless \u2014 pass 1.5e25 for 1.5x (PRECISION=1e25).`);
         if (multiplierBn < ERC721_MULTIPLIER_PRECISION / 100n)
-          return errorResult10(`change_token: multiplier ${multiplierBn} is suspiciously small \u2014 values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`);
+          return errorResult11(`change_token: multiplier ${multiplierBn} is suspiciously small \u2014 values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`);
         if (multiplierBn > ERC721_MULTIPLIER_MAX)
-          return errorResult10(`change_token: multiplier ${multiplierBn} looks over-scaled (> 100x = 1e27). PRECISION=1e25, so 1.5x = 15000000000000000000000000.`);
+          return errorResult11(`change_token: multiplier ${multiplierBn} looks over-scaled (> 100x = 1e27). PRECISION=1e25, so 1.5x = 15000000000000000000000000.`);
         const durationBn = BigInt(input3.rewardPeriod ?? "0");
         if (durationBn > UINT64_MAX)
-          return errorResult10(`change_token: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
+          return errorResult11(`change_token: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
         const pre = await precheckMultiplierContract(ctx.config, {
           govPool: input3.govPool,
           multiplierContract: input3.nftMultiplierContract,
@@ -135126,7 +135139,7 @@ function registerRewardMultiplier(server, ctx) {
           selectorCheck: "change_token"
         }, chainId);
         if (pre.refuse)
-          return errorResult10(pre.refuse);
+          return errorResult11(pre.refuse);
         warnings.push(...pre.warnings);
         const iface = new Interface(ERC721_MULTIPLIER_ABI);
         actions.push({
@@ -135140,25 +135153,25 @@ function registerRewardMultiplier(server, ctx) {
         });
       } else {
         if (!input3.nftMultiplierContract || !isAddress(input3.nftMultiplierContract))
-          return errorResult10(`mint requires valid nftMultiplierContract`);
+          return errorResult11(`mint requires valid nftMultiplierContract`);
         if (!input3.to || !isAddress(input3.to))
-          return errorResult10(`mint requires valid to`);
+          return errorResult11(`mint requires valid to`);
         if (input3.to === ZeroAddress)
-          return errorResult10(`mint: recipient 'to' is the zero address \u2014 ERC721 mint to 0x0 reverts. Pass the real holder address.`);
+          return errorResult11(`mint: recipient 'to' is the zero address \u2014 ERC721 mint to 0x0 reverts. Pass the real holder address.`);
         if (!input3.multiplier)
-          return errorResult10(`mint requires multiplier`);
+          return errorResult11(`mint requires multiplier`);
         const multiplierBn = BigInt(input3.multiplier);
         if (multiplierBn === 0n)
-          return errorResult10(`mint: multiplier=0 is meaningless \u2014 pass 1.5e25 for 1.5x (PRECISION=1e25).`);
+          return errorResult11(`mint: multiplier=0 is meaningless \u2014 pass 1.5e25 for 1.5x (PRECISION=1e25).`);
         if (multiplierBn < ERC721_MULTIPLIER_PRECISION / 100n)
-          return errorResult10(`mint: multiplier ${multiplierBn} is suspiciously small \u2014 values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`);
+          return errorResult11(`mint: multiplier ${multiplierBn} is suspiciously small \u2014 values are scaled by PRECISION=1e25 (1.5x => 1.5e25). Did you forget the scale?`);
         if (multiplierBn > ERC721_MULTIPLIER_MAX)
-          return errorResult10(`mint: multiplier ${multiplierBn} looks over-scaled (> 100x = 1e27). PRECISION=1e25, so 1.5x = 15000000000000000000000000.`);
+          return errorResult11(`mint: multiplier ${multiplierBn} looks over-scaled (> 100x = 1e27). PRECISION=1e25, so 1.5x = 15000000000000000000000000.`);
         const durationBn = BigInt(input3.rewardPeriod ?? "0");
         if (durationBn === 0n)
-          return errorResult10(`mint: rewardPeriod must be > 0 seconds (lock duration).`);
+          return errorResult11(`mint: rewardPeriod must be > 0 seconds (lock duration).`);
         if (durationBn > UINT64_MAX)
-          return errorResult10(`mint: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
+          return errorResult11(`mint: rewardPeriod ${durationBn} > uint64 max ${UINT64_MAX}.`);
         const pre = await precheckMultiplierContract(ctx.config, {
           govPool: input3.govPool,
           multiplierContract: input3.nftMultiplierContract,
@@ -135166,7 +135179,7 @@ function registerRewardMultiplier(server, ctx) {
           selectorCheck: "mint"
         }, chainId);
         if (pre.refuse)
-          return errorResult10(pre.refuse);
+          return errorResult11(pre.refuse);
         warnings.push(...pre.warnings);
         const iface = new Interface(ERC721_MULTIPLIER_ABI);
         actions.push({
@@ -135197,8 +135210,8 @@ function registerRewardMultiplier(server, ctx) {
         detail: `${actions.length} action${actions.length === 1 ? "" : "s"} encoded`,
         ...warnings.length ? { advisories: warnings } : {}
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -135222,13 +135235,13 @@ function registerApplyToDao(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ chainId, token, receiver, amount, treasuryBalance = "0", proposalName = "Apply to DAO", proposalDescription = "" }) => {
     if (!isAddress(token))
-      return errorResult10(`Invalid token: ${token}`);
+      return errorResult11(`Invalid token: ${token}`);
     if (!isAddress(receiver))
-      return errorResult10(`Invalid receiver: ${receiver}`);
+      return errorResult11(`Invalid receiver: ${receiver}`);
     try {
       const bl = await checkBlacklist(ctx.config, token, receiver, chainId ?? ctx.config.defaultChainId);
       if (bl.status === "blacklisted")
-        return errorResult10(blacklistError(token, receiver));
+        return errorResult11(blacklistError(token, receiver));
       const iface = new Interface(ERC20_GOV_ABI);
       const actions = [];
       const total = parseUintString(amount, "amount");
@@ -135274,8 +135287,8 @@ function registerApplyToDao(server, ctx) {
 
 ${treasuryAdvisory}` : "")
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -135316,10 +135329,10 @@ function registerNewProposalType(server, ctx) {
     outputSchema: payloadOutputSchema2()
   }, async ({ govSettings, settings, executors, newSettingId, chainId, proposalName = "New Proposal Type", proposalDescription = "" }) => {
     if (!isAddress(govSettings))
-      return errorResult10(`Invalid govSettings: ${govSettings}`);
+      return errorResult11(`Invalid govSettings: ${govSettings}`);
     for (const e2 of executors) {
       if (!isAddress(e2))
-        return errorResult10(`Invalid executor: ${e2}`);
+        return errorResult11(`Invalid executor: ${e2}`);
     }
     try {
       const iface = new Interface(GOV_SETTINGS_FULL_ABI);
@@ -135368,8 +135381,8 @@ function registerNewProposalType(server, ctx) {
         title: `New Proposal Type (settingsId=${newSettingId}, ${executors.length} executors)`,
         detail: `Target: GovSettings(${govSettings}).addSettings + changeExecutors (2 actions)`
       });
-    } catch (err14) {
-      return errorResult10(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult11(safeErrorMessage(err16));
     }
   });
 }
@@ -135392,11 +135405,11 @@ async function authPost(url2, body, label, timeoutMs = AUTH_TIMEOUT_MS) {
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
-  } catch (err14) {
-    if (err14 instanceof Error && err14.name === "AbortError") {
+  } catch (err16) {
+    if (err16 instanceof Error && err16.name === "AbortError") {
       throw new Error(`${label} timed out after ${timeoutMs}ms \u2014 the DeXe backend did not respond. You are NOT logged in and no access token was issued; nothing was changed, so it is safe to re-run dexe_auth_login. If it persists: check network access to the backend, or set DEXE_BACKEND_API_URL to a reachable host.`);
     }
-    throw err14;
+    throw err16;
   } finally {
     clearTimeout(timer);
   }
@@ -135404,7 +135417,7 @@ async function authPost(url2, body, label, timeoutMs = AUTH_TIMEOUT_MS) {
 var DEFAULT_TYPE_SINGLE_OPTION = "default_single_option_type";
 var DEFAULT_TYPE_MULTI_OPTION = "default_multiple_option_type";
 var FOR_AGAINST_UNSUPPORTED = "for_against off-chain voting is NOT supported by the DeXe backend/product. Only two off-chain voting types are creatable: single-option (dexe_proposal_build_offchain_single_option) and multi-option (dexe_proposal_build_offchain_multi_option). For a binary vote, use the single-option builder with voteOptions ['For','Against']. (Verified against investing-dashboard TemplateStep \u2014 only oneOf/multipleOf tabs \u2014 and the backend proposal-types endpoint.)";
-function errorResult11(message) {
+function errorResult12(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function requireBase() {
@@ -135462,10 +135475,10 @@ function registerAuthNonce(server) {
     outputSchema: requestOutputSchema()
   }, async ({ address }) => {
     if (!isAddress(address))
-      return errorResult11(`Invalid address: ${address}`);
+      return errorResult12(`Invalid address: ${address}`);
     const base3 = requireBase();
     if (typeof base3 !== "string")
-      return errorResult11(base3.error);
+      return errorResult12(base3.error);
     const body = {
       data: { type: "auth_nonce_request", attributes: { address } }
     };
@@ -135485,10 +135498,10 @@ function registerAuthLogin(server) {
     outputSchema: requestOutputSchema()
   }, async ({ address, signedMessage }) => {
     if (!isAddress(address))
-      return errorResult11(`Invalid address: ${address}`);
+      return errorResult12(`Invalid address: ${address}`);
     const base3 = requireBase();
     if (typeof base3 !== "string")
-      return errorResult11(base3.error);
+      return errorResult12(base3.error);
     const body = {
       data: {
         type: "login_request",
@@ -135520,7 +135533,7 @@ function registerAuthLoginComposite(server, signer, wc) {
   }, async ({ address }) => {
     const base3 = requireBase();
     if (typeof base3 !== "string")
-      return errorResult11(base3.error);
+      return errorResult12(base3.error);
     const eoa = signer.hasSigner();
     const wcConnected = wc.isConnected();
     if (!eoa && !wcConnected) {
@@ -135530,30 +135543,30 @@ function registerAuthLoginComposite(server, signer, wc) {
     }
     const signerAddress = address ?? (eoa ? signer.getAddress() : wc.account());
     if (!signerAddress || !isAddress(signerAddress)) {
-      return errorResult11(`Could not resolve a valid signer address (got: ${signerAddress ?? "none"}).`);
+      return errorResult12(`Could not resolve a valid signer address (got: ${signerAddress ?? "none"}).`);
     }
     const signerMode2 = eoa ? "eoa" : "walletconnect";
     try {
       const nonceRes = await authPost(`${base3}${NONCE_ENDPOINT}`, { data: { type: "auth_nonce_request", attributes: { address: signerAddress } } }, "Nonce request");
       if (!nonceRes.ok) {
-        return errorResult11(`Nonce request failed (HTTP ${nonceRes.status}): ${await safeBody(nonceRes)}`);
+        return errorResult12(`Nonce request failed (HTTP ${nonceRes.status}): ${await safeBody(nonceRes)}`);
       }
       const nonceJson = await nonceRes.json();
       const message = nonceJson.data?.attributes?.message;
       if (!message)
-        return errorResult11(`Nonce response missing message field: ${JSON.stringify(nonceJson)}`);
+        return errorResult12(`Nonce response missing message field: ${JSON.stringify(nonceJson)}`);
       const signature = eoa ? await signer.signMessage(message) : await wc.signMessage(message);
       const loginRes = await authPost(`${base3}${LOGIN_ENDPOINT}`, {
         data: { type: "login_request", attributes: { auth_pair: { address: signerAddress, signed_message: signature } } }
       }, "Login request");
       if (!loginRes.ok) {
-        return errorResult11(`Login failed (HTTP ${loginRes.status}): ${await safeBody(loginRes)}`);
+        return errorResult12(`Login failed (HTTP ${loginRes.status}): ${await safeBody(loginRes)}`);
       }
       const loginJson = await loginRes.json();
       const accessToken = loginJson.data?.relationships?.access_token?.data?.id;
       const refreshToken = loginJson.data?.relationships?.refresh_token?.data?.id;
       if (!accessToken)
-        return errorResult11(`Login response missing access_token: ${JSON.stringify(loginJson)}`);
+        return errorResult12(`Login response missing access_token: ${JSON.stringify(loginJson)}`);
       const expiresIn = loginJson.included?.find((i3) => i3.type === "access_jwt")?.attributes?.expires_in;
       return jsonResult({
         accessToken,
@@ -135563,8 +135576,8 @@ function registerAuthLoginComposite(server, signer, wc) {
         signerMode: signerMode2,
         note: "Logged in. Use `Authorization: Bearer <accessToken>` on off-chain requests (dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry."
       });
-    } catch (err14) {
-      return errorResult11(`Auth login failed: ${safeErrorMessage(err14)}`);
+    } catch (err16) {
+      return errorResult12(`Auth login failed: ${safeErrorMessage(err16)}`);
     }
   });
 }
@@ -135657,10 +135670,10 @@ function registerSingleOption(server) {
   }, async (input3) => {
     const poolAddress = resolvePool(input3);
     if (typeof poolAddress !== "string")
-      return errorResult11(poolAddress.error);
+      return errorResult12(poolAddress.error);
     const base3 = requireBase();
     if (typeof base3 !== "string")
-      return errorResult11(base3.error);
+      return errorResult12(base3.error);
     const body = buildProposalBody({ ...input3, poolAddress }, "one_of", {
       one_of_quorum: {
         general_closing_percent: pctToFraction(input3.generalClosingPercent),
@@ -135687,10 +135700,10 @@ function registerMultiOption(server) {
   }, async (input3) => {
     const poolAddress = resolvePool(input3);
     if (typeof poolAddress !== "string")
-      return errorResult11(poolAddress.error);
+      return errorResult12(poolAddress.error);
     const base3 = requireBase();
     if (typeof base3 !== "string")
-      return errorResult11(base3.error);
+      return errorResult12(base3.error);
     const body = buildProposalBody({ ...input3, poolAddress }, "multiple_of", {
       multiple_of_quorum: {
         boundary_percent: pctToFraction(input3.boundaryPercent),
@@ -135715,7 +135728,7 @@ function registerForAgainst(server) {
     },
     outputSchema: requestOutputSchema()
   }, async (_input) => {
-    return errorResult11(FOR_AGAINST_UNSUPPORTED);
+    return errorResult12(FOR_AGAINST_UNSUPPORTED);
   });
 }
 function registerSettingsProposal(server) {
@@ -135744,12 +135757,12 @@ function registerSettingsProposal(server) {
   }, async (input3) => {
     const poolAddress = resolvePool(input3);
     if (typeof poolAddress !== "string")
-      return errorResult11(poolAddress.error);
+      return errorResult12(poolAddress.error);
     if (input3.votingType === "for_against")
-      return errorResult11(FOR_AGAINST_UNSUPPORTED);
+      return errorResult12(FOR_AGAINST_UNSUPPORTED);
     const base3 = requireBase();
     if (typeof base3 !== "string")
-      return errorResult11(base3.error);
+      return errorResult12(base3.error);
     const body = {
       data: {
         type: "proposals",
@@ -135796,10 +135809,10 @@ function registerCastVote(server) {
     outputSchema: requestOutputSchema()
   }, async ({ proposalId, voterAddress, options }) => {
     if (!isAddress(voterAddress))
-      return errorResult11(`Invalid voterAddress: ${voterAddress}`);
+      return errorResult12(`Invalid voterAddress: ${voterAddress}`);
     const base3 = requireBase();
     if (typeof base3 !== "string")
-      return errorResult11(base3.error);
+      return errorResult12(base3.error);
     const body = {
       data: {
         type: "votes",
@@ -135827,10 +135840,10 @@ function registerCancelVote(server) {
     outputSchema: requestOutputSchema()
   }, async ({ proposalId, voterAddress }) => {
     if (!isAddress(voterAddress))
-      return errorResult11(`Invalid voterAddress: ${voterAddress}`);
+      return errorResult12(`Invalid voterAddress: ${voterAddress}`);
     const base3 = requireBase();
     if (typeof base3 !== "string")
-      return errorResult11(base3.error);
+      return errorResult12(base3.error);
     const url2 = `${base3}${VOTE_ENDPOINT}/${proposalId}/${voterAddress}`;
     return requestResult("DELETE", url2, null, {
       authRequired: true,
@@ -135846,7 +135859,7 @@ var VALIDATORS_EXEC_ABI = [
   "function changeSettings(uint64 duration, uint64 executionDelay, uint128 quorum)",
   "function monthlyWithdraw(address[] tokens, uint256[] amounts, address destination)"
 ];
-function errorResult12(message) {
+function errorResult13(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function internalResult(params) {
@@ -135917,7 +135930,7 @@ function registerChangeValidatorBalances(server) {
   }, async ({ changes: changes2, proposalName = "Change Validator Balances", proposalDescription = "" }) => {
     for (const c4 of changes2) {
       if (!isAddress(c4.user))
-        return errorResult12(`Invalid validator address: ${c4.user}`);
+        return errorResult13(`Invalid validator address: ${c4.user}`);
     }
     try {
       const iface = new Interface(VALIDATORS_EXEC_ABI);
@@ -135935,8 +135948,8 @@ function registerChangeValidatorBalances(server) {
         data: data4,
         title: `Change Validator Balances (${changes2.length} changes)`
       });
-    } catch (err14) {
-      return errorResult12(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult13(safeErrorMessage(err16));
     }
   });
 }
@@ -135972,8 +135985,8 @@ function registerChangeValidatorSettings(server) {
         data: data4,
         title: `Change Validator Settings (duration=${duration3}s, delay=${executionDelay}s, quorum=${quorum})`
       });
-    } catch (err14) {
-      return errorResult12(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult13(safeErrorMessage(err16));
     }
   });
 }
@@ -135994,10 +136007,10 @@ function registerMonthlyWithdraw(server) {
     outputSchema: outputSchema()
   }, async ({ withdrawals, destination, proposalName = "Monthly Withdraw", proposalDescription = "" }) => {
     if (!isAddress(destination))
-      return errorResult12(`Invalid destination: ${destination}`);
+      return errorResult13(`Invalid destination: ${destination}`);
     for (const w5 of withdrawals) {
       if (!isAddress(w5.token))
-        return errorResult12(`Invalid token: ${w5.token}`);
+        return errorResult13(`Invalid token: ${w5.token}`);
     }
     try {
       const iface = new Interface(VALIDATORS_EXEC_ABI);
@@ -136015,8 +136028,8 @@ function registerMonthlyWithdraw(server) {
         data: data4,
         title: `Monthly Withdraw (${withdrawals.length} tokens \u2192 ${destination})`
       });
-    } catch (err14) {
-      return errorResult12(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult13(safeErrorMessage(err16));
     }
   });
 }
@@ -136097,7 +136110,7 @@ function amountDesc(denomination, extra) {
   return `${denomination}. RAW base units, digits only ('1500000000000000000' = 1.5 at 18 dec); '1.5' is REJECTED \u2014 scale it, or use dexe_proposal_create` + (extra ? `. ${extra}` : "");
 }
 var B2 = "Builds calldata; does not broadcast. ";
-function errorResult13(message) {
+function errorResult14(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function payloadResult2(payload, ...advisories) {
@@ -136264,9 +136277,9 @@ function registerErc20Approve(server, ctx, rpc) {
     outputSchema: payloadOutputSchema3()
   }, async ({ token, spender, amount, govPool, chainId }) => {
     if (!isAddress(token))
-      return errorResult13(`Invalid token: ${token}`);
+      return errorResult14(`Invalid token: ${token}`);
     if (!isAddress(spender))
-      return errorResult13(`Invalid spender: ${spender}`);
+      return errorResult14(`Invalid spender: ${spender}`);
     try {
       const iface = new Interface(ERC20_WRITE_ABI);
       const payload = buildPayload({
@@ -136290,8 +136303,8 @@ function registerErc20Approve(server, ctx, rpc) {
         });
       }
       return payloadResultWith(payload, extra);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136331,7 +136344,7 @@ function registerDeposit(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, amount, nftIds = [], value = "0", chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const payload = buildPayload({
@@ -136349,8 +136362,8 @@ function registerDeposit(server, ctx) {
         description: `GovPool.deposit(${amount} wei, ${nftIds.length} NFTs)${value !== "0" ? ` + ${value} native` : ""}`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136368,9 +136381,9 @@ function registerWithdraw(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, receiver, amount, nftIds = [], chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     if (!isAddress(receiver))
-      return errorResult13(`Invalid receiver: ${receiver}`);
+      return errorResult14(`Invalid receiver: ${receiver}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const payload = buildPayload({
@@ -136383,8 +136396,8 @@ function registerWithdraw(server, ctx) {
         description: `GovPool.withdraw \u2192 ${receiver} (${amount} wei, ${nftIds.length} NFTs)`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136402,9 +136415,9 @@ function registerDelegate(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, delegatee, amount, nftIds = [], chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     if (!isAddress(delegatee))
-      return errorResult13(`Invalid delegatee: ${delegatee}`);
+      return errorResult14(`Invalid delegatee: ${delegatee}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const inner = iface.encodeFunctionData("delegate", [
@@ -136422,8 +136435,8 @@ function registerDelegate(server, ctx) {
         description: `GovPool.multicall([delegate \u2192 ${delegatee} (${amount} wei, ${nftIds.length} NFTs)])`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136466,9 +136479,9 @@ function registerUndelegate(server, ctx, rpc) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, delegatee, amount, nftIds = [], chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     if (!isAddress(delegatee))
-      return errorResult13(`Invalid delegatee: ${delegatee}`);
+      return errorResult14(`Invalid delegatee: ${delegatee}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const payload = buildPayload({
@@ -136487,8 +136500,8 @@ function registerUndelegate(server, ctx, rpc) {
         votedProposals: await delegateeVotesOnRecord(rpc, { govPool, delegatee, chainId: payload.chainId })
       }) : null;
       return payloadResult2(payload, advisory);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136508,7 +136521,7 @@ function registerVote(server, ctx, rpc) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, proposalId, isVoteFor, amount, nftIds = [], voter, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const inner = iface.encodeFunctionData("vote", [
@@ -136532,8 +136545,8 @@ function registerVote(server, ctx, rpc) {
         chainId: chainId ?? ctx.config.defaultChainId,
         fallback: DEPOSIT_LOCK_NOTE
       }));
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136549,7 +136562,7 @@ function registerCancelVote2(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, proposalId, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const payload = buildPayload({
@@ -136562,8 +136575,8 @@ function registerCancelVote2(server, ctx) {
         description: `GovPool.cancelVote(#${proposalId})`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136582,7 +136595,7 @@ function registerValidatorVote(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govValidators, scope, proposalId, amount, isVoteFor, chainId }) => {
     if (!isAddress(govValidators))
-      return errorResult13(`Invalid govValidators: ${govValidators}`);
+      return errorResult14(`Invalid govValidators: ${govValidators}`);
     try {
       const iface = new Interface(GOV_VALIDATORS_WRITE_ABI);
       const method = scope === "internal" ? "voteInternalProposal" : "voteExternalProposal";
@@ -136596,8 +136609,8 @@ function registerValidatorVote(server, ctx) {
         description: `GovValidators.${method}(#${proposalId}, ${amount}, ${isVoteFor ? "FOR" : "AGAINST"})`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136614,7 +136627,7 @@ function registerValidatorCancelVote(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govValidators, scope, proposalId, chainId }) => {
     if (!isAddress(govValidators))
-      return errorResult13(`Invalid govValidators: ${govValidators}`);
+      return errorResult14(`Invalid govValidators: ${govValidators}`);
     try {
       const iface = new Interface(GOV_VALIDATORS_WRITE_ABI);
       const method = scope === "internal" ? "cancelVoteInternalProposal" : "cancelVoteExternalProposal";
@@ -136628,8 +136641,8 @@ function registerValidatorCancelVote(server, ctx) {
         description: `GovValidators.${method}(#${proposalId})`
       });
       return payloadResult2(payload, VALIDATOR_CANCEL_VOTE_ADVISORY);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136645,7 +136658,7 @@ function registerMoveToValidators(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, proposalId, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const payload = buildPayload({
@@ -136658,8 +136671,8 @@ function registerMoveToValidators(server, ctx) {
         description: `GovPool.moveProposalToValidators(#${proposalId})`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136678,7 +136691,7 @@ function registerExecute(server, ctx, rpc) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, proposalId, scope = "external", govValidators, voter, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     const targetChain = chainId ?? ctx.config.defaultChainId;
     const lockAdvisory = await depositLockAdvisory(rpc, {
       govPool,
@@ -136689,7 +136702,7 @@ function registerExecute(server, ctx, rpc) {
     try {
       if (scope === "internal") {
         if (!govValidators || !isAddress(govValidators)) {
-          return errorResult13("scope:'internal' requires `govValidators` (get it from dexe_dao_info.helpers.validators).");
+          return errorResult14("scope:'internal' requires `govValidators` (get it from dexe_dao_info.helpers.validators).");
         }
         const vIface = new Interface(["function executeInternalProposal(uint256 proposalId)"]);
         const payload2 = buildPayload({
@@ -136714,8 +136727,8 @@ function registerExecute(server, ctx, rpc) {
         description: `GovPool.execute(#${proposalId})`
       });
       return payloadResult2(payload, executeAddSettingsAdvisory(targetChain), lockAdvisory);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136732,9 +136745,9 @@ function registerClaimRewards(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, proposalIds, user, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     if (!isAddress(user))
-      return errorResult13(`Invalid user: ${user}`);
+      return errorResult14(`Invalid user: ${user}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const payload = buildPayload({
@@ -136747,8 +136760,8 @@ function registerClaimRewards(server, ctx) {
         description: `GovPool.claimRewards([${proposalIds.join(",")}], ${user})`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136766,11 +136779,11 @@ function registerClaimMicropoolRewards(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, proposalIds, delegator, delegatee, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     if (!isAddress(delegator))
-      return errorResult13(`Invalid delegator: ${delegator}`);
+      return errorResult14(`Invalid delegator: ${delegator}`);
     if (!isAddress(delegatee))
-      return errorResult13(`Invalid delegatee: ${delegatee}`);
+      return errorResult14(`Invalid delegatee: ${delegatee}`);
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
       const payload = buildPayload({
@@ -136783,8 +136796,8 @@ function registerClaimMicropoolRewards(server, ctx) {
         description: `GovPool.claimMicropoolRewards([${proposalIds.join(",")}], ${delegator} \u2192 ${delegatee})`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136800,7 +136813,7 @@ function registerNftMultiplierLock(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ nftMultiplier, tokenId, chainId }) => {
     if (!isAddress(nftMultiplier))
-      return errorResult13(`Invalid nftMultiplier: ${nftMultiplier}`);
+      return errorResult14(`Invalid nftMultiplier: ${nftMultiplier}`);
     try {
       const iface = new Interface(NFT_MULTIPLIER_WRITE_ABI);
       const payload = buildPayload({
@@ -136812,8 +136825,8 @@ function registerNftMultiplierLock(server, ctx) {
         contractLabel: "ERC721Multiplier"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136828,7 +136841,7 @@ function registerNftMultiplierUnlock(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ nftMultiplier, chainId }) => {
     if (!isAddress(nftMultiplier))
-      return errorResult13(`Invalid nftMultiplier: ${nftMultiplier}`);
+      return errorResult14(`Invalid nftMultiplier: ${nftMultiplier}`);
     try {
       const iface = new Interface(NFT_MULTIPLIER_WRITE_ABI);
       const payload = buildPayload({
@@ -136840,8 +136853,8 @@ function registerNftMultiplierUnlock(server, ctx) {
         contractLabel: "ERC721Multiplier"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136861,9 +136874,9 @@ function registerTokenSaleBuy(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ tokenSaleProposal, tierId, tokenToBuyWith, amount, proof = [], value = "0", chainId }) => {
     if (!isAddress(tokenSaleProposal))
-      return errorResult13(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      return errorResult14(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     if (!isAddress(tokenToBuyWith))
-      return errorResult13(`Invalid tokenToBuyWith: ${tokenToBuyWith}`);
+      return errorResult14(`Invalid tokenToBuyWith: ${tokenToBuyWith}`);
     try {
       const iface = new Interface(TOKEN_SALE_WRITE_ABI);
       const native = isNativeSentinel(tokenToBuyWith);
@@ -136882,8 +136895,8 @@ function registerTokenSaleBuy(server, ctx) {
         contractLabel: "TokenSaleProposal"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136899,7 +136912,7 @@ function registerTokenSaleClaim(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ tokenSaleProposal, tierIds, chainId }) => {
     if (!isAddress(tokenSaleProposal))
-      return errorResult13(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      return errorResult14(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     try {
       const iface = new Interface(TOKEN_SALE_WRITE_ABI);
       const payload = buildPayload({
@@ -136911,8 +136924,8 @@ function registerTokenSaleClaim(server, ctx) {
         contractLabel: "TokenSaleProposal"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136928,7 +136941,7 @@ function registerTokenSaleVestingWithdraw(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ tokenSaleProposal, tierIds, chainId }) => {
     if (!isAddress(tokenSaleProposal))
-      return errorResult13(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      return errorResult14(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     try {
       const iface = new Interface(TOKEN_SALE_WRITE_ABI);
       const payload = buildPayload({
@@ -136940,8 +136953,8 @@ function registerTokenSaleVestingWithdraw(server, ctx) {
         contractLabel: "TokenSaleProposal"
       });
       return payloadResult2(payload, VESTING_WITHDRAW_ADVISORY);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136958,9 +136971,9 @@ function registerDistributionClaim(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ distributionProposal, voter, proposalIds, chainId }) => {
     if (!isAddress(distributionProposal))
-      return errorResult13(`Invalid distributionProposal: ${distributionProposal}`);
+      return errorResult14(`Invalid distributionProposal: ${distributionProposal}`);
     if (!isAddress(voter))
-      return errorResult13(`Invalid voter: ${voter}`);
+      return errorResult14(`Invalid voter: ${voter}`);
     try {
       const iface = new Interface(DISTRIBUTION_WRITE_ABI);
       const payload = buildPayload({
@@ -136972,8 +136985,8 @@ function registerDistributionClaim(server, ctx) {
         contractLabel: "DistributionProposal"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -136990,7 +137003,7 @@ function registerStakingStake(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ userKeeper, tierId, amount, chainId }) => {
     if (!isAddress(userKeeper))
-      return errorResult13(`Invalid userKeeper: ${userKeeper}`);
+      return errorResult14(`Invalid userKeeper: ${userKeeper}`);
     try {
       const iface = new Interface(USER_KEEPER_ABI2);
       const payload = buildPayload({
@@ -137002,8 +137015,8 @@ function registerStakingStake(server, ctx) {
         contractLabel: "GovUserKeeper"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -137019,7 +137032,7 @@ function registerStakingClaim(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ stakingProposal, stakingId, chainId }) => {
     if (!isAddress(stakingProposal))
-      return errorResult13(`Invalid stakingProposal: ${stakingProposal}`);
+      return errorResult14(`Invalid stakingProposal: ${stakingProposal}`);
     try {
       const iface = new Interface(STAKING_WRITE_ABI);
       const payload = buildPayload({
@@ -137031,8 +137044,8 @@ function registerStakingClaim(server, ctx) {
         contractLabel: "StakingProposal"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -137047,7 +137060,7 @@ function registerStakingClaimAll(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ stakingProposal, chainId }) => {
     if (!isAddress(stakingProposal))
-      return errorResult13(`Invalid stakingProposal: ${stakingProposal}`);
+      return errorResult14(`Invalid stakingProposal: ${stakingProposal}`);
     try {
       const iface = new Interface(STAKING_WRITE_ABI);
       const payload = buildPayload({
@@ -137059,8 +137072,8 @@ function registerStakingClaimAll(server, ctx) {
         contractLabel: "StakingProposal"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -137076,7 +137089,7 @@ function registerStakingReclaim(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ stakingProposal, stakingId, chainId }) => {
     if (!isAddress(stakingProposal))
-      return errorResult13(`Invalid stakingProposal: ${stakingProposal}`);
+      return errorResult14(`Invalid stakingProposal: ${stakingProposal}`);
     try {
       const iface = new Interface(STAKING_WRITE_ABI);
       const payload = buildPayload({
@@ -137088,8 +137101,8 @@ function registerStakingReclaim(server, ctx) {
         contractLabel: "StakingProposal"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -137104,9 +137117,9 @@ function registerPrivacyPolicySign(server, ctx) {
     }
   }, async ({ userRegistry, documentHash, chainId }) => {
     if (!isAddress(userRegistry))
-      return errorResult13(`Invalid userRegistry: ${userRegistry}`);
+      return errorResult14(`Invalid userRegistry: ${userRegistry}`);
     if (!documentHash.startsWith("0x") || documentHash.length !== 66) {
-      return errorResult13(`documentHash must be a bytes32 hex string (0x + 64 hex chars), got: ${documentHash}`);
+      return errorResult14(`documentHash must be a bytes32 hex string (0x + 64 hex chars), got: ${documentHash}`);
     }
     const resolvedChainId = chainId ?? ctx.config.defaultChainId;
     const typedData = {
@@ -137148,9 +137161,9 @@ function registerPrivacyPolicyAgree(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ userRegistry, signature, profileURL, chainId }) => {
     if (!isAddress(userRegistry))
-      return errorResult13(`Invalid userRegistry: ${userRegistry}`);
+      return errorResult14(`Invalid userRegistry: ${userRegistry}`);
     if (!signature.startsWith("0x"))
-      return errorResult13(`Signature must be 0x-prefixed hex`);
+      return errorResult14(`Signature must be 0x-prefixed hex`);
     try {
       const iface = new Interface(USER_REGISTRY_WRITE_ABI);
       const method = profileURL ? "changeProfileAndAgreeToPrivacyPolicy" : "agreeToPrivacyPolicy";
@@ -137164,8 +137177,8 @@ function registerPrivacyPolicyAgree(server, ctx) {
         contractLabel: "UserRegistry"
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -137182,10 +137195,10 @@ function registerMulticall2(server, ctx) {
     outputSchema: payloadOutputSchema3()
   }, async ({ govPool, calls, value = "0", chainId }) => {
     if (!isAddress(govPool))
-      return errorResult13(`Invalid govPool: ${govPool}`);
+      return errorResult14(`Invalid govPool: ${govPool}`);
     for (const c4 of calls) {
       if (!c4.startsWith("0x"))
-        return errorResult13(`call must be 0x-prefixed hex: ${c4.slice(0, 16)}\u2026`);
+        return errorResult14(`call must be 0x-prefixed hex: ${c4.slice(0, 16)}\u2026`);
     }
     try {
       const iface = new Interface(GOV_POOL_WRITE_ABI);
@@ -137200,8 +137213,8 @@ function registerMulticall2(server, ctx) {
         description: `GovPool.multicall(${calls.length} calls)`
       });
       return payloadResult2(payload);
-    } catch (err14) {
-      return errorResult13(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult14(safeErrorMessage(err16));
     }
   });
 }
@@ -137767,7 +137780,7 @@ function registerDaoDeployTools(server, ctx) {
   const rpc = new RpcProvider(ctx.config);
   registerBuildDeploy(server, ctx, rpc);
 }
-function errorResult14(message) {
+function errorResult15(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function payloadResult3(payload, extra) {
@@ -137826,8 +137839,8 @@ async function buildDeployGovPool(input3, ctx, rpc) {
     } else {
       votePowerInitData = encodeVotePowerInitData(params.votePowerParams.voteType, params.votePowerParams.polynomialCoefficients);
     }
-  } catch (err14) {
-    return fail2(`Failed to encode vote power initData: ${safeErrorMessage(err14)}`);
+  } catch (err16) {
+    return fail2(`Failed to encode vote power initData: ${safeErrorMessage(err16)}`);
   }
   const VT_SUFFIX = "-VT";
   const rawValidatorsParams = params.validatorsParams ?? {
@@ -137898,8 +137911,8 @@ ${pr2.remediation}`);
         registryOverride: chain2.registryOverride ?? ctx.config.registryOverride
       });
       factoryAddress = await book.resolve(CONTRACT_NAMES.POOL_FACTORY);
-    } catch (err14) {
-      return fail2(`poolFactory address needed: pass it explicitly, or configure DEXE_RPC_URL so the ContractsRegistry lookup works. (${safeErrorMessage(err14)})`);
+    } catch (err16) {
+      return fail2(`poolFactory address needed: pass it explicitly, or configure DEXE_RPC_URL so the ContractsRegistry lookup works. (${safeErrorMessage(err16)})`);
     }
   }
   let predictedGovPool;
@@ -137932,8 +137945,8 @@ ${pr2.remediation}`);
         return fail2(`votePowerParams.presetAddress ${params.votePowerParams.presetAddress} has no contract code on chain ${chain2.chainId}. CUSTOM_VOTES requires a deployed vote-power contract; the factory calls its init and reverts "PoolFactory: power init failed" otherwise.`);
       }
     }
-  } catch (err14) {
-    return fail2(`Failed to predict gov addresses / run pre-deploy checks: ${safeErrorMessage(err14)}`);
+  } catch (err16) {
+    return fail2(`Failed to predict gov addresses / run pre-deploy checks: ${safeErrorMessage(err16)}`);
   }
   const ZERO3 = "0x0000000000000000000000000000000000000000";
   const effectiveTokenAddress = isTokenCreation && predictedGovToken ? predictedGovToken : params.userKeeperParams.tokenAddress;
@@ -138061,9 +138074,9 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
           } else {
             expandedSettings[3] = { ...expandedSettings[3], executorDescription: cid };
           }
-        } catch (err14) {
+        } catch (err16) {
           pinataWarning += `
-\u26A0\uFE0F  Failed to upload ${label} executorDescription: ${safeErrorMessage(err14)}`;
+\u26A0\uFE0F  Failed to upload ${label} executorDescription: ${safeErrorMessage(err16)}`;
         }
       }
     }
@@ -138154,12 +138167,12 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
       iface = new Interface(FALLBACK_POOL_FACTORY_ABI);
       ifaceSource = "fallback (artifacts not loaded \u2014 run dexe_compile for strict parity)";
     }
-  } catch (err14) {
-    if (err14 instanceof ArtifactsMissingError) {
+  } catch (err16) {
+    if (err16 instanceof ArtifactsMissingError) {
       iface = new Interface(FALLBACK_POOL_FACTORY_ABI);
       ifaceSource = "fallback (no artifacts \u2014 run dexe_compile for strict parity)";
     } else {
-      return fail2(`Failed to load PoolFactory ABI: ${safeErrorMessage(err14)}`);
+      return fail2(`Failed to load PoolFactory ABI: ${safeErrorMessage(err16)}`);
     }
   }
   let payload;
@@ -138173,8 +138186,8 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
       contractLabel: "PoolFactory",
       description: `PoolFactory.deployGovPool("${params.name}") via ${ifaceSource}`
     });
-  } catch (err14) {
-    return fail2(`deployGovPool encoding failed: ${safeErrorMessage(err14)}`);
+  } catch (err16) {
+    return fail2(`deployGovPool encoding failed: ${safeErrorMessage(err16)}`);
   }
   {
     const expected = {
@@ -138209,8 +138222,8 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
     let rt3;
     try {
       rt3 = roundTripDeployCalldata(payload.data, iface, expected);
-    } catch (err14) {
-      return fail2(`deployGovPool calldata self-check could not decode the built calldata (${safeErrorMessage(err14)}). This is an ABI/encoding mismatch \u2014 run dexe_compile to refresh the PoolFactory ABI. Refusing to emit un-decodable calldata.`);
+    } catch (err16) {
+      return fail2(`deployGovPool calldata self-check could not decode the built calldata (${safeErrorMessage(err16)}). This is an ABI/encoding mismatch \u2014 run dexe_compile to refresh the PoolFactory ABI. Refusing to emit un-decodable calldata.`);
     }
     if (!rt3.ok) {
       const detail = rt3.mismatches.slice(0, 8).map((m3) => `${m3.field}: expected "${m3.expected}" got "${m3.got}"`).join("; ");
@@ -138260,7 +138273,7 @@ function registerBuildDeploy(server, ctx, rpc) {
   }, async ({ chainId, poolFactory, deployer, params, skipSimulation, previewOnly }) => {
     const res = await buildDeployGovPool({ chainId, poolFactory, deployer, params, dryRun: previewOnly }, ctx, rpc);
     if (!res.ok)
-      return errorResult14(res.error);
+      return errorResult15(res.error);
     let note = previewOnly ? "NOT BROADCASTABLE \u2014 previewOnly: the executorDescription CIDs were computed locally and nothing was pinned to IPFS. Re-run without previewOnly before sending this payload.\n" + res.note : res.note;
     if (!skipSimulation && !previewOnly) {
       const verdict = await simulateDeployGovPool({
@@ -138271,7 +138284,7 @@ function registerBuildDeploy(server, ctx, rpc) {
         config: ctx.config
       });
       if (verdict.status === "reverted") {
-        return errorResult14(`Refusing to emit a payload that provably reverts. ${verdict.summary} (pass skipSimulation: true only if you are certain the simulation is wrong)`);
+        return errorResult15(`Refusing to emit a payload that provably reverts. ${verdict.summary} (pass skipSimulation: true only if you are certain the simulation is wrong)`);
       }
       note = `${note}
 ${verdict.summary}`;
@@ -138315,14 +138328,14 @@ function humanDuration(sec) {
 }
 
 // dist/tools/subgraph.js
-function errorResult15(message) {
+function errorResult16(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function resolveEndpoint(ctx, kind, chainId) {
   try {
     return resolveSubgraphUrl(ctx.config, kind, chainId);
-  } catch (err14) {
-    return safeErrorMessage(err14);
+  } catch (err16) {
+    return safeErrorMessage(err16);
   }
 }
 function chainNote(ctx, kind) {
@@ -138661,10 +138674,10 @@ function registerGraphQuery(server, ctx) {
   }, async ({ subgraph, query, variables, chainId }) => {
     const guardError = graphQueryGuard(query);
     if (guardError)
-      return errorResult15(guardError);
+      return errorResult16(guardError);
     const sg = resolveEndpoint(ctx, subgraph, chainId);
     if (typeof sg === "string")
-      return errorResult15(sg);
+      return errorResult16(sg);
     try {
       const data4 = await gqlRequest(sg.url, query, variables);
       const json2 = JSON.stringify(data4);
@@ -138672,7 +138685,7 @@ function registerGraphQuery(server, ctx) {
         const rootArrays = Object.entries(data4).filter(([, v7]) => Array.isArray(v7));
         const rows2 = rootArrays.reduce((n4, [, v7]) => n4 + v7.length, 0);
         const suggested = rows2 > 0 ? Math.max(1, Math.floor(rows2 * GRAPH_QUERY_MAX_RESPONSE_CHARS / json2.length / 2)) : null;
-        return errorResult15(`Response too large: ${json2.length} chars (cap ${GRAPH_QUERY_MAX_RESPONSE_CHARS})` + (rows2 > 0 ? ` across ${rows2} row(s)` : "") + `. NO rows were returned \u2014 the query must be re-issued smaller; nothing was truncated for you. ` + (suggested ? `Re-run with first: ${suggested}${rootArrays.length > 1 ? ` on EACH of the ${rootArrays.length} list fields` : ""} and page with skip:, ` : `Add first:/skip: pagination, `) + `or drop fields from the selection set (nested entities dominate the size). Entity/field reference: dexe_graph_schema or the dexe://graph-schema resource.`);
+        return errorResult16(`Response too large: ${json2.length} chars (cap ${GRAPH_QUERY_MAX_RESPONSE_CHARS})` + (rows2 > 0 ? ` across ${rows2} row(s)` : "") + `. NO rows were returned \u2014 the query must be re-issued smaller; nothing was truncated for you. ` + (suggested ? `Re-run with first: ${suggested}${rootArrays.length > 1 ? ` on EACH of the ${rootArrays.length} list fields` : ""} and page with skip:, ` : `Add first:/skip: pagination, `) + `or drop fields from the selection set (nested entities dominate the size). Entity/field reference: dexe_graph_schema or the dexe://graph-schema resource.`);
       }
       const topLevel = Object.entries(data4).map(([k5, v7]) => `${renderUntrusted(k5, 60)}: ${Array.isArray(v7) ? `${v7.length} row(s)` : typeof v7}`).join(", ");
       return untrustedResult({
@@ -138680,8 +138693,8 @@ function registerGraphQuery(server, ctx) {
         label: `subgraph rows (${subgraph}, chain ${sg.chainId})`,
         structured: { subgraph, indexedChainId: sg.chainId, data: data4 }
       });
-    } catch (err14) {
-      return errorResult15(withSchemaRecoveryHint(toActionableError(err14, "dexe_graph_query").message, subgraph));
+    } catch (err16) {
+      return errorResult16(withSchemaRecoveryHint(toActionableError(err16, "dexe_graph_query").message, subgraph));
     }
   });
 }
@@ -138828,7 +138841,7 @@ function registerGraphSchema(server, ctx) {
   }, async ({ subgraph, entity, chainId }) => {
     const sg = resolveEndpoint(ctx, subgraph, chainId);
     if (typeof sg === "string")
-      return errorResult15(sg);
+      return errorResult16(sg);
     try {
       const data4 = await gqlRequest(sg.url, GRAPH_SCHEMA_QUERY, {
         name: entity ?? "",
@@ -138849,7 +138862,7 @@ function registerGraphSchema(server, ctx) {
       const t2 = data4.__type;
       if (!t2) {
         const candidates = suggestEntities(entity, rootFields.map((r2) => r2.entity));
-        return errorResult15(`No type named '${renderUntrusted(entity, 120)}' in the ${subgraph} subgraph (chain ${sg.chainId}). ` + (candidates.length ? `Did you mean: ${candidates.map((c4) => renderUntrusted(c4, 120)).join(", ")}? ` : "") + `Entity names are PascalCase \u2014 'daoPools' is the root query FIELD, 'DaoPool' is the type. Call dexe_graph_schema { subgraph: "${subgraph}" } with no entity for the full map.`);
+        return errorResult16(`No type named '${renderUntrusted(entity, 120)}' in the ${subgraph} subgraph (chain ${sg.chainId}). ` + (candidates.length ? `Did you mean: ${candidates.map((c4) => renderUntrusted(c4, 120)).join(", ")}? ` : "") + `Entity names are PascalCase \u2014 'daoPools' is the root query FIELD, 'DaoPool' is the type. Call dexe_graph_schema { subgraph: "${subgraph}" } with no entity for the full map.`);
       }
       const fields = (t2.fields ?? t2.inputFields ?? []).map((f3) => ({
         name: f3.name,
@@ -138875,8 +138888,8 @@ function registerGraphSchema(server, ctx) {
         },
         maxBodyChars: 12e3
       });
-    } catch (err14) {
-      return errorResult15(toActionableError(err14, "dexe_graph_schema").message);
+    } catch (err16) {
+      return errorResult16(toActionableError(err16, "dexe_graph_schema").message);
     }
   });
 }
@@ -138893,7 +138906,7 @@ function registerDaoList(server, ctx) {
   }, async ({ query = "", offset = 0, limit: limit2 = 20, chainId }) => {
     const sg = resolveEndpoint(ctx, "pools", chainId);
     if (typeof sg === "string")
-      return errorResult15(sg);
+      return errorResult16(sg);
     try {
       const data4 = await gqlRequest(sg.url, DAO_LIST_QUERY, {
         offset,
@@ -138914,8 +138927,8 @@ function registerDaoList(server, ctx) {
           daoPools: rows2
         }
       });
-    } catch (err14) {
-      return errorResult15(toActionableError(err14, "dexe_read_dao_list").message);
+    } catch (err16) {
+      return errorResult16(toActionableError(err16, "dexe_read_dao_list").message);
     }
   });
 }
@@ -138931,10 +138944,10 @@ function registerDaoMembers(server, ctx) {
     }
   }, async ({ govPool, offset = 0, limit: limit2 = 20, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult15(`Invalid govPool: ${govPool}`);
+      return errorResult16(`Invalid govPool: ${govPool}`);
     const sg = resolveEndpoint(ctx, "pools", chainId);
     if (typeof sg === "string")
-      return errorResult15(sg);
+      return errorResult16(sg);
     try {
       const { data: data4, degraded } = await withOrphanVoterFallback((withVoter) => gqlRequest(sg.url, DAO_MEMBERS_QUERY, {
         poolId: govPool.toLowerCase(),
@@ -138978,8 +138991,8 @@ function registerDaoMembers(server, ctx) {
           members: rows2
         }
       });
-    } catch (err14) {
-      return errorResult15(toActionableError(err14, "dexe_read_dao_members").message);
+    } catch (err16) {
+      return errorResult16(toActionableError(err16, "dexe_read_dao_members").message);
     }
   });
 }
@@ -138997,11 +139010,11 @@ function registerDelegationMap(server, ctx) {
   }, async ({ addresses, direction = "outgoing", offset = 0, limit: limit2 = 50, chainId }) => {
     const sg = resolveEndpoint(ctx, "pools", chainId);
     if (typeof sg === "string")
-      return errorResult15(sg);
+      return errorResult16(sg);
     const lc = addresses.map(toVoterAddress);
     const bad = lc.filter((a3) => !/^0x[0-9a-f]{40}$/.test(a3));
     if (bad.length) {
-      return errorResult15(`Not a voter wallet address (expected 0x + 40 hex, or a 'govPool-voter' / 80-hex composite id): ${bad.join(", ")}`);
+      return errorResult16(`Not a voter wallet address (expected 0x + 40 hex, or a 'govPool-voter' / 80-hex composite id): ${bad.join(", ")}`);
     }
     try {
       const query = direction === "outgoing" ? DELEGATION_MAP_QUERY : DELEGATION_INCOMING_QUERY;
@@ -139022,8 +139035,8 @@ function registerDelegationMap(server, ctx) {
           delegations: rows2
         }
       });
-    } catch (err14) {
-      return errorResult15(toActionableError(err14, "dexe_read_delegation_map").message);
+    } catch (err16) {
+      return errorResult16(toActionableError(err16, "dexe_read_delegation_map").message);
     }
   });
 }
@@ -139039,10 +139052,10 @@ function registerValidatorList(server, ctx) {
     }
   }, async ({ govPool, offset = 0, limit: limit2 = 50, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult15(`Invalid govPool: ${govPool}`);
+      return errorResult16(`Invalid govPool: ${govPool}`);
     const sg = resolveEndpoint(ctx, "validators", chainId);
     if (typeof sg === "string")
-      return errorResult15(sg);
+      return errorResult16(sg);
     try {
       const data4 = await gqlRequest(sg.url, VALIDATORS_QUERY, {
         offset,
@@ -139063,8 +139076,8 @@ function registerValidatorList(server, ctx) {
           validators: rows2
         }
       });
-    } catch (err14) {
-      return errorResult15(toActionableError(err14, "dexe_read_validator_list").message);
+    } catch (err16) {
+      return errorResult16(toActionableError(err16, "dexe_read_validator_list").message);
     }
   });
 }
@@ -139080,10 +139093,10 @@ function registerUserActivity(server, ctx) {
     }
   }, async ({ user, offset = 0, limit: limit2 = 50, chainId }) => {
     if (!isAddress(user))
-      return errorResult15(`Invalid user: ${user}`);
+      return errorResult16(`Invalid user: ${user}`);
     const sg = resolveEndpoint(ctx, "interactions", chainId);
     if (typeof sg === "string")
-      return errorResult15(sg);
+      return errorResult16(sg);
     try {
       const data4 = await gqlRequest(sg.url, USER_ACTIVITY_QUERY, {
         offset,
@@ -139100,8 +139113,8 @@ function registerUserActivity(server, ctx) {
         label: `transaction rows (chain ${sg.chainId})`,
         structured: { user, ...meta3, indexedChainId: sg.chainId, transactions: txs }
       });
-    } catch (err14) {
-      return errorResult15(toActionableError(err14, "dexe_read_user_activity").message);
+    } catch (err16) {
+      return errorResult16(toActionableError(err16, "dexe_read_user_activity").message);
     }
   });
 }
@@ -139117,10 +139130,10 @@ function registerDaoExperts(server, ctx) {
     }
   }, async ({ govPool, offset = 0, limit: limit2 = 50, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult15(`Invalid govPool: ${govPool}`);
+      return errorResult16(`Invalid govPool: ${govPool}`);
     const sg = resolveEndpoint(ctx, "pools", chainId);
     if (typeof sg === "string")
-      return errorResult15(sg);
+      return errorResult16(sg);
     try {
       const { data: data4, degraded } = await withOrphanVoterFallback((withVoter) => gqlRequest(sg.url, EXPERTS_QUERY, {
         offset,
@@ -139153,8 +139166,8 @@ function registerDaoExperts(server, ctx) {
           experts: rows2
         }
       });
-    } catch (err14) {
-      return errorResult15(toActionableError(err14, "dexe_read_dao_experts").message);
+    } catch (err16) {
+      return errorResult16(toActionableError(err16, "dexe_read_dao_experts").message);
     }
   });
 }
@@ -139180,17 +139193,17 @@ function registerOtcListSalesForDao(server, ctx, state) {
     }
   }, async ({ govPool, tokenSaleProposal: tspIn, chainId }) => {
     if (!isAddress(govPool))
-      return errorResult15(`Invalid govPool: ${govPool}`);
+      return errorResult16(`Invalid govPool: ${govPool}`);
     const tokenSaleProposal = tspIn ?? findKnownDao(state, rpc.resolveChainId(chainId), govPool)?.tokenSaleProposal;
     if (!tokenSaleProposal) {
-      return errorResult15(`tokenSaleProposal is required: ${govPool} on chain ${rpc.resolveChainId(chainId)} was not deployed by this install, so its TokenSaleProposal address is not on record. Pass it explicitly \u2014 from the deploy receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`);
+      return errorResult16(`tokenSaleProposal is required: ${govPool} on chain ${rpc.resolveChainId(chainId)} was not deployed by this install, so its TokenSaleProposal address is not on record. Pass it explicitly \u2014 from the deploy receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`);
     }
     if (!isAddress(tokenSaleProposal))
-      return errorResult15(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      return errorResult16(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     try {
       const pr2 = rpc.tryProvider(chainId);
       if ("error" in pr2)
-        return errorResult15(`${pr2.error}
+        return errorResult16(`${pr2.error}
 ${pr2.remediation}`);
       const provider = pr2.ok;
       const readChainId = rpc.resolveChainId(chainId);
@@ -139204,7 +139217,7 @@ ${pr2.remediation}`);
         }
       ]);
       if (!helpersR?.success) {
-        return errorResult15(`${govPool} does not look like a GovPool (getHelperContracts reverted): ${helpersR?.error ?? "unknown"}`);
+        return errorResult16(`${govPool} does not look like a GovPool (getHelperContracts reverted): ${helpersR?.error ?? "unknown"}`);
       }
       const [latestR] = await multicall(provider, [
         {
@@ -139216,7 +139229,7 @@ ${pr2.remediation}`);
         }
       ]);
       if (!latestR?.success) {
-        return errorResult15(`${tokenSaleProposal} does not look like a TokenSaleProposal (latestTierId reverted): ${latestR?.error ?? "unknown"}`);
+        return errorResult16(`${tokenSaleProposal} does not look like a TokenSaleProposal (latestTierId reverted): ${latestR?.error ?? "unknown"}`);
       }
       const latestTierId = Number(latestR.value);
       if (latestTierId === 0) {
@@ -139245,7 +139258,7 @@ ${pr2.remediation}`);
         }
       ]);
       if (!tiersR?.success) {
-        return errorResult15(`getTierViews(0, ${latestTierId}) reverted: ${tiersR?.error ?? "unknown"}`);
+        return errorResult16(`getTierViews(0, ${latestTierId}) reverted: ${tiersR?.error ?? "unknown"}`);
       }
       const block = await provider.getBlock("latest");
       const nowSec = BigInt(block?.timestamp ?? Math.floor(Date.now() / 1e3));
@@ -139294,7 +139307,7 @@ ${pr2.remediation}`);
         }
       });
     } catch (e2) {
-      return errorResult15(toActionableError(e2, "dexe_otc_list_sales_for_dao").message);
+      return errorResult16(toActionableError(e2, "dexe_otc_list_sales_for_dao").message);
     }
   });
 }
@@ -140324,8 +140337,8 @@ var ReportStore = class {
         return { raw, state: empty5 };
       }
       return { raw, state: { version: REPORT_STORE_VERSION, snapshots: parsed.snapshots } };
-    } catch (err14) {
-      debugLog("report", `could not read snapshots at ${this.path}`, err14);
+    } catch (err16) {
+      debugLog("report", `could not read snapshots at ${this.path}`, err16);
       return { raw: null, state: empty5 };
     }
   }
@@ -140346,12 +140359,12 @@ var ReportStore = class {
       }
       renameWithRetry(tmp, this.path);
       return "published";
-    } catch (err14) {
+    } catch (err16) {
       try {
         rmSync2(tmp, { force: true });
       } catch {
       }
-      process.stderr.write(`[dexe-mcp] could not persist report snapshot to ${this.path} (${safeErrorMessage(err14)}); the next \`since\` diff will have no baseline.
+      process.stderr.write(`[dexe-mcp] could not persist report snapshot to ${this.path} (${safeErrorMessage(err16)}); the next \`since\` diff will have no baseline.
 `);
       return "failed";
     }
@@ -140439,7 +140452,7 @@ var DAO_REPORT_OUTPUT_SHAPE = {
   followUps: external_exports.array(external_exports.string()),
   snapshotPersisted: external_exports.boolean()
 };
-function errorResult16(message) {
+function errorResult17(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var have = (source, data4) => ({
@@ -140496,10 +140509,10 @@ function resolveSource(config2, kind, chainId) {
   try {
     const sg = resolveSubgraphUrl(config2, kind, chainId);
     return { url: sg.url, source: { available: true, indexedChainId: sg.chainId } };
-  } catch (err14) {
+  } catch (err16) {
     return {
       url: null,
-      source: { available: false, indexedChainId: null, reason: safeErrorMessage(err14) }
+      source: { available: false, indexedChainId: null, reason: safeErrorMessage(err16) }
     };
   }
 }
@@ -140522,9 +140535,9 @@ function registerReportTools(server, ctx) {
     outputSchema: DAO_REPORT_OUTPUT_SHAPE
   }, async ({ govPool, chainId, since, sections, user, proposalLimit = 30, memberLimit = 50, persist = true }) => {
     if (!isAddress(govPool))
-      return errorResult16(`Invalid govPool: ${govPool}`);
+      return errorResult17(`Invalid govPool: ${govPool}`);
     if (user !== void 0 && !isAddress(user))
-      return errorResult16(`Invalid user: ${user}`);
+      return errorResult17(`Invalid user: ${user}`);
     const dao = getAddress(govPool);
     const daoLower = dao.toLowerCase();
     const userAddr = user ? getAddress(user) : null;
@@ -140543,7 +140556,7 @@ function registerReportTools(server, ctx) {
     const validatorsSg = resolveSource(ctx.config, "validators", resolvedChainId);
     const interactions = resolveSource(ctx.config, "interactions", resolvedChainId);
     if (!provider && !pools.url && !validatorsSg.url && !interactions.url) {
-      return errorResult16(`Cannot report on ${dao}: chain ${resolvedChainId} has neither an RPC nor any subgraph configured, so there is no source to read from.
+      return errorResult17(`Cannot report on ${dao}: chain ${resolvedChainId} has neither an RPC nor any subgraph configured, so there is no source to read from.
 
 RPC: ${rpcSource.reason}
 
@@ -140557,32 +140570,32 @@ Subgraph: ${pools.source.reason}`);
     if (since !== void 0) {
       const parsed = parseSince(since);
       if (parsed.kind === "error")
-        return errorResult16(parsed.message);
+        return errorResult17(parsed.message);
       if (parsed.kind === "timestamp") {
         sinceMode = "timestamp";
         sinceUnix = parsed.unix;
       } else if (parsed.kind === "lastRun") {
         if (!previous3) {
-          return errorResult16(`since: "last" needs a previous report for ${dao} on chain ${resolvedChainId}, and none is stored (this is the first run, or it ran with persist: false). Run dexe_dao_report once without \`since\` to lay down a baseline, or pass an explicit timestamp.`);
+          return errorResult17(`since: "last" needs a previous report for ${dao} on chain ${resolvedChainId}, and none is stored (this is the first run, or it ran with persist: false). Run dexe_dao_report once without \`since\` to lay down a baseline, or pass an explicit timestamp.`);
         }
         sinceMode = "lastRun";
         sinceUnix = previous3.at;
         sinceNote = `Anchored to the previous run at ${new Date(previous3.at * 1e3).toISOString()}.`;
       } else {
         if (!provider) {
-          return errorResult16(`since: "block:${parsed.block}" needs an RPC to turn a block number into a timestamp, and chain ${resolvedChainId} has none. ${rpcSource.reason ?? ""}
+          return errorResult17(`since: "block:${parsed.block}" needs an RPC to turn a block number into a timestamp, and chain ${resolvedChainId} has none. ${rpcSource.reason ?? ""}
 Pass an ISO timestamp or Unix seconds instead.`);
         }
         try {
           const blk = await provider.getBlock(parsed.block);
           if (!blk) {
-            return errorResult16(`Block ${parsed.block} was not found on chain ${resolvedChainId} \u2014 it may be ahead of the chain head, or pruned by this RPC. Pass an ISO timestamp instead.`);
+            return errorResult17(`Block ${parsed.block} was not found on chain ${resolvedChainId} \u2014 it may be ahead of the chain head, or pruned by this RPC. Pass an ISO timestamp instead.`);
           }
           sinceMode = "block";
           sinceUnix = Number(blk.timestamp);
           sinceNote = `Block ${parsed.block} \u2192 ${unixToUtc(sinceUnix)}.`;
-        } catch (err14) {
-          return errorResult16(toActionableError(err14, `dexe_dao_report since block lookup`).message);
+        } catch (err16) {
+          return errorResult17(toActionableError(err16, `dexe_dao_report since block lookup`).message);
         }
       }
     }
@@ -140717,8 +140730,8 @@ Pass an ISO timestamp or Unix seconds instead.`);
             };
           }
         }
-      } catch (err14) {
-        onchainError = toActionableError(err14, "dexe_dao_report on-chain reads").message;
+      } catch (err16) {
+        onchainError = toActionableError(err16, "dexe_dao_report on-chain reads").message;
       }
     }
     const personalItems = [];
@@ -140761,8 +140774,8 @@ Pass an ISO timestamp or Unix seconds instead.`);
           if (summary)
             personalItems.push({ kind: "claimableRewards", ...summary });
         }
-      } catch (err14) {
-        debugLog("report", "per-user deadline scan failed", err14);
+      } catch (err16) {
+        debugLog("report", "per-user deadline scan failed", err16);
       }
     }
     let poolsData = null;
@@ -140784,9 +140797,9 @@ Pass an ISO timestamp or Unix seconds instead.`);
           hydrateVoters(poolsData);
           poolsDegraded = orphanVoterNote();
         }
-      } catch (err14) {
+      } catch (err16) {
         poolsSource.available = false;
-        poolsSource.reason = toActionableError(err14, "dexe_dao_report pools subgraph").message;
+        poolsSource.reason = toActionableError(err16, "dexe_dao_report pools subgraph").message;
       }
     }
     let validatorRows = null;
@@ -140795,9 +140808,9 @@ Pass an ISO timestamp or Unix seconds instead.`);
       try {
         const d3 = await gqlRequest(validatorsSg.url, VALIDATORS_REPORT_QUERY, { pool: daoLower, first: 100 });
         validatorRows = d3.validatorInPools;
-      } catch (err14) {
+      } catch (err16) {
         validatorsSource.available = false;
-        validatorsSource.reason = toActionableError(err14, "dexe_dao_report validators subgraph").message;
+        validatorsSource.reason = toActionableError(err16, "dexe_dao_report validators subgraph").message;
       }
     }
     let activityData = null;
@@ -140805,9 +140818,9 @@ Pass an ISO timestamp or Unix seconds instead.`);
     if (interactions.url && want("activity")) {
       try {
         activityData = await gqlRequest(interactions.url, INTERACTIONS_ACTIVITY_QUERY, { pool: daoLower, since: String(activitySince), first: DELTA_ROW_CAP });
-      } catch (err14) {
+      } catch (err16) {
         interactionsSource.available = false;
-        interactionsSource.reason = toActionableError(err14, "dexe_dao_report interactions subgraph").message;
+        interactionsSource.reason = toActionableError(err16, "dexe_dao_report interactions subgraph").message;
       }
     }
     let deltaData2 = null;
@@ -140826,8 +140839,8 @@ Pass an ISO timestamp or Unix seconds instead.`);
           if (!poolsDegraded)
             poolsDegraded = orphanVoterNote();
         }
-      } catch (err14) {
-        deltaError = toActionableError(err14, "dexe_dao_report since-diff").message;
+      } catch (err16) {
+        deltaError = toActionableError(err16, "dexe_dao_report since-diff").message;
       }
     }
     const daoPool = poolsData?.daoPools?.[0] ?? null;
@@ -141630,8 +141643,8 @@ var AgentLedger = class {
     let entry;
     try {
       entry = normalizeAction(input3);
-    } catch (err14) {
-      debugLog("ledger", `could not normalize entry (${safeErrorMessage(err14)})`);
+    } catch (err16) {
+      debugLog("ledger", `could not normalize entry (${safeErrorMessage(err16)})`);
       return null;
     }
     const cap = maxLedgerEntries();
@@ -141689,8 +141702,8 @@ var AgentLedger = class {
       }
       const entries = Array.isArray(parsed.entries) ? parsed.entries.filter((e2) => !!e2 && typeof e2 === "object" && typeof e2.at === "string") : [];
       return { raw, entries };
-    } catch (err14) {
-      debugLog("ledger", `read failed at ${this.path}`, err14);
+    } catch (err16) {
+      debugLog("ledger", `read failed at ${this.path}`, err16);
       return { raw: null, entries: [] };
     }
   }
@@ -141719,8 +141732,8 @@ var AgentLedger = class {
         if (next)
           this.persist(next);
       });
-    } catch (err14) {
-      debugLog("ledger", `mutate failed (${safeErrorMessage(err14)})`);
+    } catch (err16) {
+      debugLog("ledger", `mutate failed (${safeErrorMessage(err16)})`);
     }
   }
   /** Atomic write: private temp file + rename, optionally compare-and-swapped. */
@@ -141738,12 +141751,12 @@ var AgentLedger = class {
       }
       renameWithRetry(tmp, this.path);
       return "published";
-    } catch (err14) {
+    } catch (err16) {
       try {
         rmSync3(tmp, { force: true });
       } catch {
       }
-      debugLog("ledger", `persist failed at ${this.path} (${safeErrorMessage(err14)})`);
+      debugLog("ledger", `persist failed at ${this.path} (${safeErrorMessage(err16)})`);
       return "failed";
     }
   }
@@ -141814,7 +141827,7 @@ function attachBroadcastRecorder(wallet, attribution, ledger = getAgentLedger())
     let sent;
     try {
       sent = await original(tx);
-    } catch (err14) {
+    } catch (err16) {
       try {
         ledger.record({
           signerKey: attribution.signerKey,
@@ -141824,12 +141837,12 @@ function attachBroadcastRecorder(wallet, attribution, ledger = getAgentLedger())
           action: ctx?.action ?? describeTx(req),
           outcome: "failed",
           valueWei: asBigInt(req.value),
-          note: safeErrorMessage(err14)
+          note: safeErrorMessage(err16)
         });
       } catch (logErr) {
         debugLog("ledger", `record(failed) threw (${safeErrorMessage(logErr)})`);
       }
-      throw err14;
+      throw err16;
     }
     const res = sent;
     let entryId;
@@ -141846,8 +141859,8 @@ function attachBroadcastRecorder(wallet, attribution, ledger = getAgentLedger())
         gasWei: estimatedFeeWei(res)
       });
       entryId = entry?.id;
-    } catch (err14) {
-      debugLog("ledger", `record(broadcast) threw (${safeErrorMessage(err14)})`);
+    } catch (err16) {
+      debugLog("ledger", `record(broadcast) threw (${safeErrorMessage(err16)})`);
     }
     if (entryId)
       attachSettlement(res, ledger, entryId);
@@ -141866,8 +141879,8 @@ function attachBroadcastRecorder(wallet, attribution, ledger = getAgentLedger())
       configurable: true,
       enumerable: false
     });
-  } catch (err14) {
-    debugLog("ledger", `could not attach recorder (${safeErrorMessage(err14)})`);
+  } catch (err16) {
+    debugLog("ledger", `could not attach recorder (${safeErrorMessage(err16)})`);
   }
   return wallet;
 }
@@ -141883,12 +141896,12 @@ function attachSettlement(res, ledger, entryId) {
           outcome: receipt && receipt.status === 0 ? "reverted" : "confirmed",
           gasWei: receiptFeeWei(receipt)
         });
-      } catch (err14) {
-        debugLog("ledger", `settle threw (${safeErrorMessage(err14)})`);
+      } catch (err16) {
+        debugLog("ledger", `settle threw (${safeErrorMessage(err16)})`);
       }
       return receipt;
-    } catch (err14) {
-      throw err14;
+    } catch (err16) {
+      throw err16;
     }
   };
   try {
@@ -141898,8 +141911,8 @@ function attachSettlement(res, ledger, entryId) {
       configurable: true,
       enumerable: false
     });
-  } catch (err14) {
-    debugLog("ledger", `could not wrap wait (${safeErrorMessage(err14)})`);
+  } catch (err16) {
+    debugLog("ledger", `could not wrap wait (${safeErrorMessage(err16)})`);
   }
 }
 function describeTx(tx) {
@@ -142056,14 +142069,14 @@ var SignerManager = class {
   trySigner(chainId, signerKey) {
     try {
       return { ok: this.requireSigner(chainId, signerKey) };
-    } catch (err14) {
+    } catch (err16) {
       return {
-        error: safeErrorMessage(err14),
+        error: safeErrorMessage(err16),
         // The no-key message already carries the full hintFor() remedy, so
         // repeating it here printed the same three sentences twice wherever a
         // caller joins `error` + `remediation` (sendOrCollect does). Every
         // OTHER cause (unknown signerKey, provider construction) still needs it.
-        remediation: err14 instanceof NoSignerKeyError ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it." : hintFor(["DEXE_PRIVATE_KEY"])
+        remediation: err16 instanceof NoSignerKeyError ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it." : hintFor(["DEXE_PRIVATE_KEY"])
       };
     }
   }
@@ -142212,27 +142225,27 @@ var DEFAULT_TX_WAIT_TIMEOUT_MS = 18e4;
 function timeoutMessage(txHash, chainId, ms2) {
   return `Transaction ${txHash} was broadcast but not mined within ${Math.round(ms2 / 1e3)}s \u2014 it may still land. Do NOT re-send blindly (risk of double-execution). Check it with dexe_tx_status {"txHash":"${txHash}"` + (chainId !== void 0 ? `,"chainId":${chainId}` : "") + `} and re-run this call only after it reports not_found.`;
 }
-function isEthersTimeout(err14) {
-  return err14?.code === "TIMEOUT";
+function isEthersTimeout(err16) {
+  return err16?.code === "TIMEOUT";
 }
 async function waitWithTimeout(tx, opts) {
   const ms2 = opts?.timeoutMs ?? DEFAULT_TX_WAIT_TIMEOUT_MS;
   try {
     return await tx.wait(opts?.confirmations ?? 1, ms2);
-  } catch (err14) {
-    if (isEthersTimeout(err14))
+  } catch (err16) {
+    if (isEthersTimeout(err16))
       throw new Error(timeoutMessage(tx.hash, tx.chainId, ms2));
-    throw err14;
+    throw err16;
   }
 }
 async function waitForHashWithTimeout(provider, txHash, chainId, opts) {
   const ms2 = opts?.timeoutMs ?? DEFAULT_TX_WAIT_TIMEOUT_MS;
   try {
     return await provider.waitForTransaction(txHash, opts?.confirmations ?? 1, ms2);
-  } catch (err14) {
-    if (isEthersTimeout(err14))
+  } catch (err16) {
+    if (isEthersTimeout(err16))
       throw new Error(timeoutMessage(txHash, chainId, ms2));
-    throw err14;
+    throw err16;
   }
 }
 function assertReceiptSuccess(receipt, label) {
@@ -144829,9 +144842,9 @@ function attachPairingQr(res, pairingContent) {
 }
 var RESUME_RECHECKS = 'On re-run this flow re-reads chain state first and skips what is already true: ERC20.approve (allowance already covers the deposit), GovPool.deposit (deposited power already covers the vote), createProposalAndVote (a still-live proposal with the same metadata URL already exists \u2014 no duplicate is minted), and GovPool.vote (this wallet already voted on this proposal; GovPool reverts a second vote with "Gov: need cancel"). NOT auto-skipped: GovPool.execute and the validator round (moveProposalToValidators / validator vote) \u2014 if one of those was the failing step, check dexe_proposal_state first so the re-run does not repeat a step that landed.';
 var DEPLOY_RESUME_RECHECKS = 'A DAO deploy is a SINGLE transaction \u2014 there are no earlier steps to skip. Re-running the same call is safe against a duplicate DAO: the pool address is derived from your wallet plus the DAO name (CREATE2), and the build refuses up-front with "PoolFactory: pool name is already taken" if a pool already has code at that address, so a re-run after a deploy that actually landed fails BEFORE broadcasting anything. Keep the SAME daoName on a re-run \u2014 changing it deploys a second, separate DAO. To inspect the existing one: dexe_dao_info.';
-function broadcastTimeout(err14) {
-  const raw = safeErrorMessage(err14);
-  const code6 = err14?.code;
+function broadcastTimeout(err16) {
+  const raw = safeErrorMessage(err16);
+  const code6 = err16?.code;
   if (code6 !== "TIMEOUT" && !/was broadcast but not mined within/i.test(raw))
     return null;
   const hash3 = /0x[0-9a-fA-F]{64}/.exec(raw);
@@ -147205,11 +147218,11 @@ function loadEnvFile(envFilePath, prevEnvSnapshot) {
       if (missingTrailingNewline) {
         lastLineKey = scan.assignments.find((a3) => a3.line === lines.length)?.key;
       }
-    } catch (err14) {
+    } catch (err16) {
       parseIssues.push({
         trap: "unreadable",
         severity: "fail",
-        message: `${envFilePath} could not be read: ${safeErrorMessage(err14)}`,
+        message: `${envFilePath} could not be read: ${safeErrorMessage(err16)}`,
         remediation: `Check the file's permissions and that it is a regular file, then restart Claude Code.`
       });
     }
@@ -147217,11 +147230,11 @@ function loadEnvFile(envFilePath, prevEnvSnapshot) {
     try {
       process.loadEnvFile(envFilePath);
       envFileLoaded = true;
-    } catch (err14) {
+    } catch (err16) {
       parseIssues.push({
         trap: "load-failed",
         severity: "fail",
-        message: `${envFilePath} was NOT loaded \u2014 process.loadEnvFile threw (Node < 21.7, or a syntax error): ${safeErrorMessage(err14)}`,
+        message: `${envFilePath} was NOT loaded \u2014 process.loadEnvFile threw (Node < 21.7, or a syntax error): ${safeErrorMessage(err16)}`,
         remediation: "Upgrade to Node 22 LTS, then check the file for lines that are not `KEY=value`. Restart Claude Code after fixing."
       });
     }
@@ -147350,6 +147363,7 @@ async function withDeadline(p4, ms2) {
 }
 async function runAllChecks(opts = {}) {
   const timeoutMs = opts.timeoutMs ?? 3e3;
+  const extra = opts.extraChecks ?? {};
   const results = [];
   const envSource = opts.envSource ?? getEnvLoadState();
   results.push(...startupIssueChecks(opts.config, envSource));
@@ -147358,8 +147372,7 @@ async function runAllChecks(opts = {}) {
   const networkBudgetMs = opts.networkBudgetMs ?? timeoutMs * 4;
   const network = await withDeadline(Promise.all([
     ...rpcReachabilityChecks(opts.config, timeoutMs),
-    pinataJwtCheck(timeoutMs),
-    pinataPinQuotaCheck(timeoutMs, opts.probePin === true),
+    ...extra.network?.(timeoutMs) ?? [],
     ipfsGatewayDnsCheck(timeoutMs),
     ...subgraphChecks(opts.config, timeoutMs),
     backendCheck(timeoutMs)
@@ -147379,9 +147392,9 @@ async function runAllChecks(opts = {}) {
     }
   }
   results.push(...subgraphCoverageCheck(opts.config));
-  results.push(...signerGuardConfigCheck(opts.config));
+  results.push(...extra.config?.(opts.config) ?? []);
   results.push(...chainConsistencyCheck(opts.config));
-  results.push(...sharedDefaultsCheck(opts.config));
+  results.push(...sharedDefaultsCheck(opts.config, extra.sharedDefaults));
   results.push(...stateStoreCheck(opts.config));
   return results;
 }
@@ -147608,90 +147621,6 @@ function rpcReachabilityChecks(config2, timeoutMs) {
     })());
   }
   return out;
-}
-async function pinataJwtCheck(timeoutMs) {
-  const jwt2 = process.env.DEXE_PINATA_JWT?.trim();
-  if (!jwt2)
-    return null;
-  const res = await fetchJsonWithTimeout("https://api.pinata.cloud/data/testAuthentication", { method: "GET", headers: { Authorization: `Bearer ${jwt2}` } }, timeoutMs);
-  if (res.kind === "timeout") {
-    return {
-      id: "pinata.jwt",
-      category: "ipfs",
-      status: "warn",
-      message: `Pinata auth check timed out (${timeoutMs}ms)`
-    };
-  }
-  if (res.kind === "error") {
-    return {
-      id: "pinata.jwt",
-      category: "ipfs",
-      status: "fail",
-      message: `Pinata reachability: ${res.error}`
-    };
-  }
-  if (res.status >= 400) {
-    return {
-      id: "pinata.jwt",
-      category: "ipfs",
-      status: "fail",
-      message: `Pinata testAuthentication returned HTTP ${res.status}`,
-      remediation: "Regenerate the JWT at https://app.pinata.cloud/developers/api-keys with `pinning` scope and update DEXE_PINATA_JWT."
-    };
-  }
-  return {
-    id: "pinata.jwt",
-    category: "ipfs",
-    status: "pass",
-    message: "authenticated (pin capability not exercised \u2014 probing it writes a pin to your account)",
-    // A `remediation` on a PASS row is printed by both renderers but is kept out
-    // of `remediationSummary`, so it informs without flagging anything broken.
-    // It carries the F3 pointer that the (now opt-in) pin probe used to carry.
-    remediation: "If an IPFS upload later fails with HTTP 403 while this row is green, the account is pin-blocked (usually the free-plan usage limit). Confirm with `npx dexe-mcp doctor --probe-pin` (or dexe_doctor {probePin:true}), then free up pins / upgrade at app.pinata.cloud, or rotate DEXE_PINATA_JWT."
-  };
-}
-async function pinataPinQuotaCheck(timeoutMs, enabled) {
-  const jwt2 = process.env.DEXE_PINATA_JWT?.trim();
-  if (!jwt2)
-    return null;
-  if (!enabled)
-    return null;
-  const res = await fetchJsonWithTimeout("https://api.pinata.cloud/pinning/pinJSONToIPFS", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${jwt2}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      pinataContent: { probe: "dexe-mcp-doctor-pin-quota" },
-      pinataMetadata: { name: "dexe-mcp-doctor-probe" }
-    })
-  }, timeoutMs);
-  if (res.kind === "timeout") {
-    return { id: "pinata.pinQuota", category: "ipfs", status: "warn", message: `Pin-quota probe timed out (${timeoutMs}ms)` };
-  }
-  if (res.kind === "error") {
-    return { id: "pinata.pinQuota", category: "ipfs", status: "warn", message: `Pin-quota probe unreachable: ${res.error}` };
-  }
-  if (res.status >= 400) {
-    const body = typeof res.body === "string" ? res.body.slice(0, 200) : JSON.stringify(res.body ?? "").slice(0, 200);
-    return {
-      id: "pinata.pinQuota",
-      category: "ipfs",
-      status: "fail",
-      message: `Pinata pin probe returned HTTP ${res.status}: ${body}`,
-      remediation: "The JWT authenticates but pinning is blocked (typically the free-plan usage limit). Free up pins / upgrade the plan at app.pinata.cloud, or rotate to a different account's JWT. Every IPFS-write flow (proposal creation, DAO deploy metadata, uploads) is down until this passes."
-    };
-  }
-  const cid = res.body?.IpfsHash;
-  let unpinned = false;
-  if (cid) {
-    const del = await fetchJsonWithTimeout(`https://api.pinata.cloud/pinning/unpin/${encodeURIComponent(cid)}`, { method: "DELETE", headers: { Authorization: `Bearer ${jwt2}` } }, Math.min(timeoutMs, 1500));
-    unpinned = del.kind === "ok" && del.status < 400;
-  }
-  return {
-    id: "pinata.pinQuota",
-    category: "ipfs",
-    status: "pass",
-    message: "pin capability verified \u2014 this wrote one tiny pin (dexe-mcp-doctor-probe) to your Pinata account" + (unpinned ? " and removed it again." : "; removing it failed (a pinning-only JWT cannot unpin) \u2014 delete it at app.pinata.cloud if you care.")
-  };
 }
 function gatewayHost(raw) {
   try {
@@ -147993,6 +147922,257 @@ async function backendCheck(timeoutMs) {
     message: `HTTP ${res.status}`
   };
 }
+function chainConsistencyCheck(config2) {
+  if (!config2)
+    return [];
+  const out = [];
+  if (config2.usingPublicRpcFallback) {
+    out.push({
+      id: "chain.publicRpcFallback",
+      category: "rpc",
+      status: "warn",
+      message: "No RPC configured \u2014 using public BSC fallback (chains 56 + 97, default 56). Reads work; public dataseed nodes rate-limit and lack archive history.",
+      remediation: "Set DEXE_RPC_URL_MAINNET (and DEXE_RPC_URL_TESTNET) for reliability, or DEXE_DISABLE_PUBLIC_RPC=1 to turn the fallback off."
+    });
+  }
+  if (config2.chains.size > 0) {
+    const ids = [...config2.chains.keys()].sort((a3, b7) => a3 - b7);
+    out.push({
+      id: "chain.consistency",
+      category: "rpc",
+      status: "pass",
+      message: `defaultChainId=${config2.defaultChainId} in configured=[${ids.join(", ")}]`
+    });
+  }
+  return out;
+}
+function sharedDefaultsCheck(config2, extra) {
+  if (!config2)
+    return [];
+  const shared2 = [];
+  if (config2.subgraphUrls.get(DEFAULT_SUBGRAPH_CHAIN_ID)?.pools === DEFAULTS.subgraphPoolsUrl) {
+    shared2.push("subgraph (shared Graph API key)");
+  }
+  if (extra)
+    shared2.push(...extra.inUse(config2));
+  if (config2.backendApiUrl === DEFAULTS.backendApiUrl)
+    shared2.push("backend API");
+  if (shared2.length === 0)
+    return [];
+  const fixes = ["your DEXE_SUBGRAPH_*_URL (with your Graph key, or DEXE_GRAPH_API_KEY)", ...extra ? [extra.fix] : []];
+  return [
+    {
+      id: "env.sharedDefaults",
+      category: "core",
+      status: "warn",
+      message: `Using shared public defaults for: ${shared2.join(", ")}. Fine for light use; rate-limited and billable-shared.`,
+      remediation: `For production / heavy use set your own: ${fixes.join(" and ")}. Run /dexe-setup for a guided walkthrough. See docs/ENVIRONMENT.md.`
+    }
+  ];
+}
+async function fetchJsonWithTimeout(url2, init2, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r2 = await fetch(url2, { ...init2, signal: ctrl.signal });
+    let body = void 0;
+    try {
+      body = await r2.json();
+    } catch {
+    }
+    return { kind: "ok", status: r2.status, body };
+  } catch (err16) {
+    if (err16.name === "AbortError")
+      return { kind: "timeout" };
+    return { kind: "error", error: safeErrorMessage(err16) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// dist/tools/doctor.js
+function tally(results) {
+  let passed = 0;
+  let warnings = 0;
+  let failures = 0;
+  for (const r2 of results) {
+    if (r2.status === "pass")
+      passed++;
+    else if (r2.status === "warn")
+      warnings++;
+    else
+      failures++;
+  }
+  const status = failures > 0 ? "fail" : warnings > 0 ? "warn" : "pass";
+  return { passed, warnings, failures, status, advisoryOnly: failures === 0 && warnings > 0 };
+}
+function registerDoctorTool(server, config2, extraChecks) {
+  server.tool("dexe_doctor", "Read-only. Diagnoses env setup: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. Call FIRST on an env-related failure. Warnings are advisories \u2014 a healthy zero-config install always has some. `probePin` is the one write: one tiny IPFS pin.", {
+    _placeholder: external_exports.boolean().optional().describe("Unused; tool takes no input."),
+    probePin: external_exports.boolean().optional().describe("Probe pin to Pinata (added, then removed) \u2014 use when an IPFS upload fails with HTTP 403.")
+  }, async (args) => {
+    const checks = await runAllChecks({
+      config: config2,
+      extraChecks: extraChecks?.({ probePin: args?.probePin === true })
+    });
+    const summary = tally(checks);
+    const remediationSummary = checks.filter((c4) => c4.status !== "pass" && c4.remediation).map((c4) => `${c4.id}: ${c4.remediation.split("\n")[0]}`);
+    const startupTime = new Date(Date.now() - process.uptime() * 1e3).toISOString();
+    const resolvedSets = resolveToolsets(config2.toolsets ?? [...DEFAULT_TOOLSETS]);
+    const toolsets = {
+      requested: resolvedSets.requested,
+      mode: resolvedSets.full ? "full" : "filtered",
+      loadedToolCount: resolvedSets.full ? null : resolvedSets.names.size,
+      availableSets: [...Object.keys(TOOLSETS), "full"],
+      remediation: "Set DEXE_TOOLSETS=full to load every tool, or add sets (read, vote, governor, dev). Restart Claude Code after editing .env.",
+      ...resolvedSets.unknown.length ? { unknownSets: resolvedSets.unknown } : {}
+    };
+    const envState = getEnvLoadState();
+    const loadedEnv = envState.reports.find((r2) => r2.envFileExists && r2.envFileLoaded);
+    const envFile = {
+      loadedPath: loadedEnv?.envFilePath ?? null,
+      candidatesTried: envState.candidates,
+      keysFromFile: loadedEnv?.keysApplied ?? [],
+      shadowedKeys: loadedEnv?.keysShadowed ?? []
+    };
+    const structured = {
+      summary,
+      checks,
+      remediationSummary,
+      startupTime,
+      uptimeSec: Math.round(process.uptime()),
+      envFile,
+      startupIssues: config2.startupIssues,
+      toolsets
+    };
+    return {
+      content: [{ type: "text", text: renderText(structured) }],
+      structuredContent: structured
+    };
+  });
+}
+function renderText(r2) {
+  const lines = [];
+  lines.push(r2.summary.advisoryOnly ? `dexe-mcp doctor \u2014 OK, no failures: ${r2.summary.passed} pass / ${r2.summary.warnings} advisory warning(s) / 0 fail. Advisories are optional upgrades, not errors.` : `dexe-mcp doctor \u2014 ${r2.summary.status.toUpperCase()}: ${r2.summary.passed} pass / ${r2.summary.warnings} warn / ${r2.summary.failures} fail`);
+  lines.push(`server started ${r2.startupTime} (uptime ${r2.uptimeSec}s). If you just edited .env, restart Claude Code so the new values load.`);
+  lines.push(r2.envFile.loadedPath ? `env file: ${r2.envFile.loadedPath} \u2014 ${r2.envFile.keysFromFile.length} key(s) applied` + (r2.envFile.shadowedKeys.length ? `, ${r2.envFile.shadowedKeys.length} SHADOWED by the MCP host env block (${r2.envFile.shadowedKeys.join(", ")})` : "") : `env file: none loaded \u2014 tried ${r2.envFile.candidatesTried.join(" \u2192 ") || "(not recorded)"}`);
+  if (r2.startupIssues.length) {
+    lines.push(`config: ${r2.startupIssues.length} env value(s) were rejected at startup and fell back to defaults \u2014 the server stayed up; see the startup.* rows below.`);
+  }
+  lines.push(r2.toolsets.mode === "full" ? `toolsets: full \u2014 all tools loaded${r2.toolsets.unknownSets?.length ? ` (unknown set(s): ${r2.toolsets.unknownSets.join(", ")})` : ""}.` : `toolsets: [${r2.toolsets.requested.join(", ")}] \u2192 ${r2.toolsets.loadedToolCount} tools loaded. Set DEXE_TOOLSETS=full for all.`);
+  lines.push("");
+  for (const c4 of r2.checks) {
+    const tag = c4.status === "pass" ? " OK " : c4.status === "warn" ? "WARN" : "FAIL";
+    lines.push(`  [${tag}] ${c4.id}  ${c4.message}`);
+    if (c4.remediation) {
+      for (const rl of c4.remediation.split("\n")) {
+        lines.push(`         \u2192 ${rl}`);
+      }
+    }
+  }
+  if (r2.remediationSummary.length) {
+    lines.push("");
+    lines.push("To fix:");
+    r2.remediationSummary.forEach((m3, i3) => lines.push(`  ${i3 + 1}) ${m3}`));
+  }
+  return lines.join("\n");
+}
+
+// dist/diag/writeChecks.js
+function writeDoctorChecks(opts = {}) {
+  return {
+    network: (timeoutMs) => [pinataJwtCheck(timeoutMs), pinataPinQuotaCheck(timeoutMs, opts.probePin === true)],
+    config: (config2) => [...signerGuardConfigCheck(config2), ...signerNeedsRpcCheck(config2)],
+    sharedDefaults: {
+      inUse: (config2) => config2.walletConnectProjectId === DEFAULTS.walletConnectProjectId ? ["WalletConnect project id"] : [],
+      fix: "DEXE_WALLETCONNECT_PROJECT_ID"
+    }
+  };
+}
+async function pinataJwtCheck(timeoutMs) {
+  const jwt2 = process.env.DEXE_PINATA_JWT?.trim();
+  if (!jwt2)
+    return null;
+  const res = await fetchJsonWithTimeout("https://api.pinata.cloud/data/testAuthentication", { method: "GET", headers: { Authorization: `Bearer ${jwt2}` } }, timeoutMs);
+  if (res.kind === "timeout") {
+    return {
+      id: "pinata.jwt",
+      category: "ipfs",
+      status: "warn",
+      message: `Pinata auth check timed out (${timeoutMs}ms)`
+    };
+  }
+  if (res.kind === "error") {
+    return {
+      id: "pinata.jwt",
+      category: "ipfs",
+      status: "fail",
+      message: `Pinata reachability: ${res.error}`
+    };
+  }
+  if (res.status >= 400) {
+    return {
+      id: "pinata.jwt",
+      category: "ipfs",
+      status: "fail",
+      message: `Pinata testAuthentication returned HTTP ${res.status}`,
+      remediation: "Regenerate the JWT at https://app.pinata.cloud/developers/api-keys with `pinning` scope and update DEXE_PINATA_JWT."
+    };
+  }
+  return {
+    id: "pinata.jwt",
+    category: "ipfs",
+    status: "pass",
+    message: "authenticated (pin capability not exercised \u2014 probing it writes a pin to your account)",
+    // A `remediation` on a PASS row is printed by both renderers but is kept out
+    // of `remediationSummary`, so it informs without flagging anything broken.
+    // It carries the F3 pointer that the (now opt-in) pin probe used to carry.
+    remediation: "If an IPFS upload later fails with HTTP 403 while this row is green, the account is pin-blocked (usually the free-plan usage limit). Confirm with `npx dexe-mcp doctor --probe-pin` (or dexe_doctor {probePin:true}), then free up pins / upgrade at app.pinata.cloud, or rotate DEXE_PINATA_JWT."
+  };
+}
+async function pinataPinQuotaCheck(timeoutMs, enabled) {
+  const jwt2 = process.env.DEXE_PINATA_JWT?.trim();
+  if (!jwt2)
+    return null;
+  if (!enabled)
+    return null;
+  const res = await fetchJsonWithTimeout("https://api.pinata.cloud/pinning/pinJSONToIPFS", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt2}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pinataContent: { probe: "dexe-mcp-doctor-pin-quota" },
+      pinataMetadata: { name: "dexe-mcp-doctor-probe" }
+    })
+  }, timeoutMs);
+  if (res.kind === "timeout") {
+    return { id: "pinata.pinQuota", category: "ipfs", status: "warn", message: `Pin-quota probe timed out (${timeoutMs}ms)` };
+  }
+  if (res.kind === "error") {
+    return { id: "pinata.pinQuota", category: "ipfs", status: "warn", message: `Pin-quota probe unreachable: ${res.error}` };
+  }
+  if (res.status >= 400) {
+    const body = typeof res.body === "string" ? res.body.slice(0, 200) : JSON.stringify(res.body ?? "").slice(0, 200);
+    return {
+      id: "pinata.pinQuota",
+      category: "ipfs",
+      status: "fail",
+      message: `Pinata pin probe returned HTTP ${res.status}: ${body}`,
+      remediation: "The JWT authenticates but pinning is blocked (typically the free-plan usage limit). Free up pins / upgrade the plan at app.pinata.cloud, or rotate to a different account's JWT. Every IPFS-write flow (proposal creation, DAO deploy metadata, uploads) is down until this passes."
+    };
+  }
+  const cid = res.body?.IpfsHash;
+  let unpinned = false;
+  if (cid) {
+    const del = await fetchJsonWithTimeout(`https://api.pinata.cloud/pinning/unpin/${encodeURIComponent(cid)}`, { method: "DELETE", headers: { Authorization: `Bearer ${jwt2}` } }, Math.min(timeoutMs, 1500));
+    unpinned = del.kind === "ok" && del.status < 400;
+  }
+  return {
+    id: "pinata.pinQuota",
+    category: "ipfs",
+    status: "pass",
+    message: "pin capability verified \u2014 this wrote one tiny pin (dexe-mcp-doctor-probe) to your Pinata account" + (unpinned ? " and removed it again." : "; removing it failed (a pinning-only JWT cannot unpin) \u2014 delete it at app.pinata.cloud if you care.")
+  };
+}
 function signerGuardConfigCheck(config2) {
   const out = [];
   const hotKeySet = process.env.DEXE_PRIVATE_KEY?.trim();
@@ -148100,165 +148280,21 @@ function signerGuardConfigCheck(config2) {
   }
   return out;
 }
-function chainConsistencyCheck(config2) {
+function signerNeedsRpcCheck(config2) {
   if (!config2)
     return [];
-  const out = [];
   if (process.env.DEXE_PRIVATE_KEY?.trim() && config2.chains.size === 0) {
-    out.push({
-      id: "chain.signerNeedsRpc",
-      category: "signer",
-      status: "fail",
-      message: "DEXE_PRIVATE_KEY is set but no RPC is configured \u2014 broadcasts will fail.",
-      remediation: "Set DEXE_RPC_URL_TESTNET or DEXE_RPC_URL_MAINNET in .env."
-    });
-  }
-  if (config2.usingPublicRpcFallback) {
-    out.push({
-      id: "chain.publicRpcFallback",
-      category: "rpc",
-      status: "warn",
-      message: "No RPC configured \u2014 using public BSC fallback (chains 56 + 97, default 56). Reads work; public dataseed nodes rate-limit and lack archive history.",
-      remediation: "Set DEXE_RPC_URL_MAINNET (and DEXE_RPC_URL_TESTNET) for reliability, or DEXE_DISABLE_PUBLIC_RPC=1 to turn the fallback off."
-    });
-  }
-  if (config2.chains.size > 0) {
-    const ids = [...config2.chains.keys()].sort((a3, b7) => a3 - b7);
-    out.push({
-      id: "chain.consistency",
-      category: "rpc",
-      status: "pass",
-      message: `defaultChainId=${config2.defaultChainId} in configured=[${ids.join(", ")}]`
-    });
-  }
-  return out;
-}
-function sharedDefaultsCheck(config2) {
-  if (!config2)
-    return [];
-  const shared2 = [];
-  if (config2.subgraphUrls.get(DEFAULT_SUBGRAPH_CHAIN_ID)?.pools === DEFAULTS.subgraphPoolsUrl) {
-    shared2.push("subgraph (shared Graph API key)");
-  }
-  if (config2.walletConnectProjectId === DEFAULTS.walletConnectProjectId)
-    shared2.push("WalletConnect project id");
-  if (config2.backendApiUrl === DEFAULTS.backendApiUrl)
-    shared2.push("backend API");
-  if (shared2.length === 0)
-    return [];
-  return [
-    {
-      id: "env.sharedDefaults",
-      category: "core",
-      status: "warn",
-      message: `Using shared public defaults for: ${shared2.join(", ")}. Fine for light use; rate-limited and billable-shared.`,
-      remediation: "For production / heavy use set your own: your DEXE_SUBGRAPH_*_URL (with your Graph key, or DEXE_GRAPH_API_KEY) and DEXE_WALLETCONNECT_PROJECT_ID. Run /dexe-setup for a guided walkthrough. See docs/ENVIRONMENT.md."
-    }
-  ];
-}
-async function fetchJsonWithTimeout(url2, init2, timeoutMs) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const r2 = await fetch(url2, { ...init2, signal: ctrl.signal });
-    let body = void 0;
-    try {
-      body = await r2.json();
-    } catch {
-    }
-    return { kind: "ok", status: r2.status, body };
-  } catch (err14) {
-    if (err14.name === "AbortError")
-      return { kind: "timeout" };
-    return { kind: "error", error: safeErrorMessage(err14) };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// dist/tools/doctor.js
-function tally(results) {
-  let passed = 0;
-  let warnings = 0;
-  let failures = 0;
-  for (const r2 of results) {
-    if (r2.status === "pass")
-      passed++;
-    else if (r2.status === "warn")
-      warnings++;
-    else
-      failures++;
-  }
-  const status = failures > 0 ? "fail" : warnings > 0 ? "warn" : "pass";
-  return { passed, warnings, failures, status, advisoryOnly: failures === 0 && warnings > 0 };
-}
-function registerDoctorTool(server, config2) {
-  server.tool("dexe_doctor", "Read-only. Diagnoses env setup: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. Call FIRST on an env-related failure. Warnings are advisories \u2014 a healthy zero-config install always has some. `probePin` is the one write: one tiny IPFS pin.", {
-    _placeholder: external_exports.boolean().optional().describe("Unused; tool takes no input."),
-    probePin: external_exports.boolean().optional().describe("Probe pin to Pinata (added, then removed) \u2014 use when an IPFS upload fails with HTTP 403.")
-  }, async (args) => {
-    const checks = await runAllChecks({ config: config2, probePin: args?.probePin === true });
-    const summary = tally(checks);
-    const remediationSummary = checks.filter((c4) => c4.status !== "pass" && c4.remediation).map((c4) => `${c4.id}: ${c4.remediation.split("\n")[0]}`);
-    const startupTime = new Date(Date.now() - process.uptime() * 1e3).toISOString();
-    const resolvedSets = resolveToolsets(config2.toolsets ?? [...DEFAULT_TOOLSETS]);
-    const toolsets = {
-      requested: resolvedSets.requested,
-      mode: resolvedSets.full ? "full" : "filtered",
-      loadedToolCount: resolvedSets.full ? null : resolvedSets.names.size,
-      availableSets: [...Object.keys(TOOLSETS), "full"],
-      remediation: "Set DEXE_TOOLSETS=full to load every tool, or add sets (read, vote, governor, dev). Restart Claude Code after editing .env.",
-      ...resolvedSets.unknown.length ? { unknownSets: resolvedSets.unknown } : {}
-    };
-    const envState = getEnvLoadState();
-    const loadedEnv = envState.reports.find((r2) => r2.envFileExists && r2.envFileLoaded);
-    const envFile = {
-      loadedPath: loadedEnv?.envFilePath ?? null,
-      candidatesTried: envState.candidates,
-      keysFromFile: loadedEnv?.keysApplied ?? [],
-      shadowedKeys: loadedEnv?.keysShadowed ?? []
-    };
-    const structured = {
-      summary,
-      checks,
-      remediationSummary,
-      startupTime,
-      uptimeSec: Math.round(process.uptime()),
-      envFile,
-      startupIssues: config2.startupIssues,
-      toolsets
-    };
-    return {
-      content: [{ type: "text", text: renderText(structured) }],
-      structuredContent: structured
-    };
-  });
-}
-function renderText(r2) {
-  const lines = [];
-  lines.push(r2.summary.advisoryOnly ? `dexe-mcp doctor \u2014 OK, no failures: ${r2.summary.passed} pass / ${r2.summary.warnings} advisory warning(s) / 0 fail. Advisories are optional upgrades, not errors.` : `dexe-mcp doctor \u2014 ${r2.summary.status.toUpperCase()}: ${r2.summary.passed} pass / ${r2.summary.warnings} warn / ${r2.summary.failures} fail`);
-  lines.push(`server started ${r2.startupTime} (uptime ${r2.uptimeSec}s). If you just edited .env, restart Claude Code so the new values load.`);
-  lines.push(r2.envFile.loadedPath ? `env file: ${r2.envFile.loadedPath} \u2014 ${r2.envFile.keysFromFile.length} key(s) applied` + (r2.envFile.shadowedKeys.length ? `, ${r2.envFile.shadowedKeys.length} SHADOWED by the MCP host env block (${r2.envFile.shadowedKeys.join(", ")})` : "") : `env file: none loaded \u2014 tried ${r2.envFile.candidatesTried.join(" \u2192 ") || "(not recorded)"}`);
-  if (r2.startupIssues.length) {
-    lines.push(`config: ${r2.startupIssues.length} env value(s) were rejected at startup and fell back to defaults \u2014 the server stayed up; see the startup.* rows below.`);
-  }
-  lines.push(r2.toolsets.mode === "full" ? `toolsets: full \u2014 all tools loaded${r2.toolsets.unknownSets?.length ? ` (unknown set(s): ${r2.toolsets.unknownSets.join(", ")})` : ""}.` : `toolsets: [${r2.toolsets.requested.join(", ")}] \u2192 ${r2.toolsets.loadedToolCount} tools loaded. Set DEXE_TOOLSETS=full for all.`);
-  lines.push("");
-  for (const c4 of r2.checks) {
-    const tag = c4.status === "pass" ? " OK " : c4.status === "warn" ? "WARN" : "FAIL";
-    lines.push(`  [${tag}] ${c4.id}  ${c4.message}`);
-    if (c4.remediation) {
-      for (const rl of c4.remediation.split("\n")) {
-        lines.push(`         \u2192 ${rl}`);
+    return [
+      {
+        id: "chain.signerNeedsRpc",
+        category: "signer",
+        status: "fail",
+        message: "DEXE_PRIVATE_KEY is set but no RPC is configured \u2014 broadcasts will fail.",
+        remediation: "Set DEXE_RPC_URL_TESTNET or DEXE_RPC_URL_MAINNET in .env."
       }
-    }
+    ];
   }
-  if (r2.remediationSummary.length) {
-    lines.push("");
-    lines.push("To fix:");
-    r2.remediationSummary.forEach((m3, i3) => lines.push(`  ${i3 + 1}) ${m3}`));
-  }
-  return lines.join("\n");
+  return [];
 }
 
 // dist/tools/walletconnectStatus.js
@@ -150074,7 +150110,7 @@ function registerGuideTools(server, config2, state) {
 
 // dist/tools/merkle.js
 init_lib2();
-function errorResult17(message) {
+function errorResult18(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function jsonResult2(value) {
@@ -150115,10 +150151,10 @@ function registerMerkleTools(server, _ctx) {
   }, async ({ addresses, entries, leafEncoding = ["address"] }) => {
     try {
       if (!addresses && !entries) {
-        return errorResult17("Must provide either `addresses` or `entries`.");
+        return errorResult18("Must provide either `addresses` or `entries`.");
       }
       if (addresses && entries) {
-        return errorResult17("Provide either `addresses` or `entries`, not both.");
+        return errorResult18("Provide either `addresses` or `entries`, not both.");
       }
       if (addresses) {
         const normalised = normaliseAddresses(addresses);
@@ -150136,8 +150172,8 @@ function registerMerkleTools(server, _ctx) {
         leafHashes: result.leafHashes,
         proofs: result.proofs
       });
-    } catch (err14) {
-      return errorResult17(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult18(safeErrorMessage(err16));
     }
   });
   server.registerTool("dexe_merkle_proof", {
@@ -150159,16 +150195,16 @@ function registerMerkleTools(server, _ctx) {
   }, async ({ addresses, entries, leafEncoding = ["address"], target, targetEntry }) => {
     try {
       if (!addresses && !entries) {
-        return errorResult17("Must provide either `addresses` or `entries`.");
+        return errorResult18("Must provide either `addresses` or `entries`.");
       }
       if (addresses) {
         if (!isAddress(target))
-          return errorResult17(`Invalid target address: ${target}`);
+          return errorResult18(`Invalid target address: ${target}`);
         const normalised = normaliseAddresses(addresses);
         const checksummed = getAddress(target);
         const idx2 = normalised.findIndex((a3) => a3.toLowerCase() === checksummed.toLowerCase());
         if (idx2 === -1) {
-          return errorResult17(`Target ${checksummed} not present in whitelist.`);
+          return errorResult18(`Target ${checksummed} not present in whitelist.`);
         }
         const tree2 = buildAddressMerkleTree(normalised);
         const leaf2 = computeLeafHash([checksummed], ["address"]);
@@ -150181,16 +150217,16 @@ function registerMerkleTools(server, _ctx) {
         });
       }
       if (!entries) {
-        return errorResult17("Must provide `entries` when not using `addresses`.");
+        return errorResult18("Must provide `entries` when not using `addresses`.");
       }
       if (!targetEntry) {
-        return errorResult17("Provide `targetEntry` when using `entries`.");
+        return errorResult18("Provide `targetEntry` when using `entries`.");
       }
       const tree = buildMerkleTree(entries, leafEncoding);
       const leaf = computeLeafHash(targetEntry, leafEncoding);
       const idx = tree.leafHashes.findIndex((h3) => h3.toLowerCase() === leaf.toLowerCase());
       if (idx === -1) {
-        return errorResult17("Target entry leaf not in tree.");
+        return errorResult18("Target entry leaf not in tree.");
       }
       let proof = [];
       for (let i3 = 0; i3 < entries.length; i3++) {
@@ -150206,8 +150242,8 @@ function registerMerkleTools(server, _ctx) {
         proof,
         verified: verifyProof(proof, tree.root, leaf)
       });
-    } catch (err14) {
-      return errorResult17(safeErrorMessage(err14));
+    } catch (err16) {
+      return errorResult18(safeErrorMessage(err16));
     }
   });
 }
@@ -150235,7 +150271,7 @@ function tokenSaleResult(data4) {
 }
 
 // dist/tools/otc.js
-function errorResult18(message) {
+function errorResult19(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var ERC20_ABI6 = new Interface([
@@ -150504,7 +150540,7 @@ function registerOtcBuyerTools(server, ctx, signer, wc) {
     const chainId = chain2.chainId;
     const pr2 = rpc.tryProvider(chainId);
     if ("error" in pr2)
-      return errorResult18(`${pr2.error}
+      return errorResult19(`${pr2.error}
 ${pr2.remediation}`);
     const provider = pr2.ok;
     const payloads = [];
@@ -150623,7 +150659,7 @@ ${pr2.remediation}`);
     const chainId = chain2.chainId;
     const pr2 = rpc.tryProvider(chainId);
     if ("error" in pr2)
-      return errorResult18(`${pr2.error}
+      return errorResult19(`${pr2.error}
 ${pr2.remediation}`);
     const provider = pr2.ok;
     let res;
@@ -150735,7 +150771,7 @@ ${pr2.remediation}`);
 
 // dist/tools/tokenSaleRead.js
 init_lib2();
-function errorResult19(message) {
+function errorResult20(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function err6(message) {
@@ -150768,7 +150804,7 @@ function registerTokenSaleReadTools(server, ctx) {
       return err6(`Invalid user: ${user}`);
     const pr2 = rpc.tryProvider(chainId);
     if ("error" in pr2)
-      return errorResult19(`${pr2.error}
+      return errorResult20(`${pr2.error}
 ${pr2.remediation}`);
     const provider = pr2.ok;
     const userAddr = getAddress(user);
@@ -151327,7 +151363,7 @@ function safeJsonParse(text5) {
 
 // dist/tools/simulate.js
 init_lib2();
-function errorResult20(message) {
+function errorResult21(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var GOV_POOL_ABI6 = new Interface([
@@ -151401,7 +151437,7 @@ function registerSimulateTools(server, ctx, signer) {
         return err8(`Invalid govPool: ${input3.govPool}`);
       const pr0 = rpc.tryProvider(input3.chainId);
       if ("error" in pr0)
-        return errorResult20(`${pr0.error}
+        return errorResult21(`${pr0.error}
 ${pr0.remediation}`);
       const provider = pr0.ok;
       const govAddr = getAddress(input3.govPool);
@@ -151469,7 +151505,7 @@ ${pr0.remediation}`);
         try {
           const pr0 = rpc.tryProvider(input3.chainId);
           if ("error" in pr0)
-            return errorResult20(`${pr0.error}
+            return errorResult21(`${pr0.error}
 ${pr0.remediation}`);
           const provider = pr0.ok;
           const allowanceData = ERC20_ABI7.encodeFunctionData("allowance", [
@@ -151512,7 +151548,7 @@ ${pr0.remediation}`);
 
 // dist/tools/predict.js
 init_lib2();
-function errorResult21(message) {
+function errorResult22(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -151591,7 +151627,7 @@ function registerPredictTools(server, ctx) {
     }
     const pr2 = rpc.tryProvider(chainId);
     if ("error" in pr2)
-      return errorResult21(`${pr2.error}
+      return errorResult22(`${pr2.error}
 ${pr2.remediation}`);
     const provider = pr2.ok;
     const [helpersR, latestIdR] = await multicall(provider, [
@@ -151786,7 +151822,7 @@ var ActionSchema2 = external_exports.object({
   value: external_exports.string().default("0").describe("Native coin sent with the call, in wei."),
   data: external_exports.string().default("0x").describe("ABI-encoded calldata, 0x-hex.")
 });
-function errorResult22(message) {
+function errorResult23(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function recommend(verdict, floorPct, treasuryTouching, governanceHits = [], treasuryVerdict = verdict) {
@@ -151867,23 +151903,23 @@ function registerRiskTools(server, ctx) {
   }, async ({ govPool, proposalId: proposalIdIn, actions, chainId }) => {
     const proposalId = proposalIdIn === void 0 ? void 0 : Number(proposalIdIn);
     if (proposalId !== void 0 && (!Number.isInteger(proposalId) || proposalId < 1)) {
-      return errorResult22(`Invalid proposalId: ${String(proposalIdIn)} \u2014 a positive integer (1-indexed), as a number or digits-only string.`);
+      return errorResult23(`Invalid proposalId: ${String(proposalIdIn)} \u2014 a positive integer (1-indexed), as a number or digits-only string.`);
     }
     if (!isAddress(govPool))
-      return errorResult22(`Invalid govPool: ${govPool}`);
+      return errorResult23(`Invalid govPool: ${govPool}`);
     if (proposalId === void 0 && (!actions || actions.length === 0)) {
-      return errorResult22("Provide either `proposalId` (on-chain) or a non-empty `actions` array (hypothetical).");
+      return errorResult23("Provide either `proposalId` (on-chain) or a non-empty `actions` array (hypothetical).");
     }
     const floorPct = ctx.config.minSafeQuorumPct;
     let chain2;
     try {
       chain2 = resolveChain(ctx.config, chainId);
     } catch (e2) {
-      return errorResult22(safeErrorMessage(e2));
+      return errorResult23(safeErrorMessage(e2));
     }
     const pr2 = rpc.tryProvider(chain2.chainId);
     if ("error" in pr2)
-      return errorResult22(`${pr2.error}
+      return errorResult23(`${pr2.error}
 ${pr2.remediation}`);
     const provider = pr2.ok;
     try {
@@ -151895,7 +151931,7 @@ ${pr2.remediation}`);
       }
       const resA = await multicall(provider, callsA);
       if (!resA[0]?.success)
-        return errorResult22("getHelperContracts reverted \u2014 is this a GovPool?");
+        return errorResult23("getHelperContracts reverted \u2014 is this a GovPool?");
       const helpers = resA[0].value;
       let assessedActions;
       let quorumRaw;
@@ -151903,10 +151939,10 @@ ${pr2.remediation}`);
       if (proposalId !== void 0) {
         const views = resA[1]?.success ? resA[1].value : null;
         if (!views || views.length === 0)
-          return errorResult22(`Proposal ${proposalId} not found at ${govPool}`);
+          return errorResult23(`Proposal ${proposalId} not found at ${govPool}`);
         const decoded = decodeProposalView(views[0]);
         if (!decoded)
-          return errorResult22("Failed to decode proposal view");
+          return errorResult23("Failed to decode proposal view");
         assessedActions = decoded.actionsOnFor;
         quorumRaw = decoded.quorumRaw;
         requiredWeight = decoded.requiredQuorum;
@@ -151916,7 +151952,7 @@ ${pr2.remediation}`);
           { target: helpers.settings, iface: SETTINGS_ABI2, method: "getDefaultSettings", args: [] }
         ]);
         if (!resS[0]?.success)
-          return errorResult22("getDefaultSettings reverted");
+          return errorResult23("getDefaultSettings reverted");
         quorumRaw = resS[0].value[6];
       }
       const quorumPct = quorumPctFromRaw(quorumRaw);
@@ -152042,8 +152078,8 @@ ${pr2.remediation}`);
         label: "treasury token symbols (chosen by each token's deployer)",
         structured
       });
-    } catch (err14) {
-      return errorResult22(toActionableError(err14, "dexe_proposal_risk_assess").message);
+    } catch (err16) {
+      return errorResult23(toActionableError(err16, "dexe_proposal_risk_assess").message);
     }
   });
 }
@@ -152929,6 +152965,196 @@ function registerGetProposalThreshold(server, rpc) {
   });
 }
 
+// dist/governor/tools/simulate.js
+function ok11(data4) {
+  return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
+}
+function err11(message) {
+  return { content: [{ type: "text", text: message }], isError: true };
+}
+var PID_GOV2 = "Proposal id from hashProposal, decimal or 0x-hex.";
+var governorIdSchema2 = external_exports.string().min(1).describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
+function registerGovernorSimulateTools(server, rpc) {
+  registerSimulateVoteImpact(server, rpc);
+}
+function registerSimulateVoteImpact(server, rpc) {
+  server.registerTool("dexe_gov_simulate_vote_impact", {
+    title: "Project proposal outcome after a hypothetical vote",
+    description: "Read-only. Reads the live tallies + quorum and projects the outcome if `weight` of voting power were cast with `support`. Returns currentTallies, projectedTallies, quorumMet, willPass. Quorum counting follows the governor's COUNTING_MODE (`quorum.counting`): Bravo and CompoundGovernor count For only, vanilla OZ counts For+Abstain, Optimism counts all three. `willPass` ignores any per-proposal-type approvalThreshold or voting module \u2014 see `caveats` when present.",
+    inputSchema: {
+      governor: governorIdSchema2,
+      proposalId: external_exports.string().describe(PID_GOV2),
+      support: external_exports.number().int().min(0).max(2).describe("0 = Against, 1 = For, 2 = Abstain."),
+      weight: external_exports.string().describe("Hypothetical vote weight, RAW base units (wei), decimal string.")
+    }
+  }, async ({ governor, proposalId, support, weight }) => {
+    let cfg;
+    let usedFallback = false;
+    try {
+      cfg = resolveGovernor(governor);
+      const pr2 = governorProvider(rpc, cfg);
+      if ("error" in pr2)
+        return err11(pr2.error);
+      usedFallback = pr2.fallback;
+      const provider = pr2.ok;
+      const c4 = governorContract(provider, cfg);
+      const pid = BigInt(proposalId);
+      const readout = await readProposal(c4, cfg, pid);
+      const { quorum, method: quorumMethod } = await readQuorum(c4, cfg, Number(readout.snapshotBlock));
+      const w5 = BigInt(weight);
+      const cur = {
+        against: BigInt(readout.votes.against),
+        for: BigInt(readout.votes.for),
+        abstain: BigInt(readout.votes.abstain)
+      };
+      const counting = quorumCountingOf(cfg);
+      const { projected: proj, quorumMet, willPass } = projectVoteImpact(counting, cur, support, w5, quorum);
+      const caveats = [];
+      if (cfg.quorumSource === "votable-supply") {
+        caveats.push("willPass models only quorum + (for > against). This governor applies a per-proposal-type approvalThreshold (Optimism: 5100 bps Default, 7600 bps Supermajority) and may route the proposal through a voting module (Optimistic type: quorum 0, module-defined passage), neither of which is modelled here. The quorum value is the votableSupply(snapshot) * numerator/denominator approximation, not the governor's own quorum(proposalId). Cross-check on Tally/Agora before acting.");
+      }
+      return ok11({
+        governor: cfg.id,
+        governorVersion: cfg.governorVersion,
+        proposalId,
+        currentState: readout.state,
+        quorum: { required: quorum.toString(), method: quorumMethod, counting },
+        currentTallies: {
+          against: cur.against.toString(),
+          for: cur.for.toString(),
+          abstain: cur.abstain.toString()
+        },
+        hypothetical: { support, weight },
+        projectedTallies: {
+          against: proj.against.toString(),
+          for: proj.for.toString(),
+          abstain: proj.abstain.toString()
+        },
+        projection: { quorumMet, willPass },
+        ...caveats.length > 0 ? { caveats } : {},
+        ...rpcNote(pr2)
+      });
+    } catch (e2) {
+      const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
+      const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+      return err11(`dexe_gov_simulate_vote_impact failed: ${detail}${hint}`);
+    }
+  });
+}
+
+// dist/governor/tools/extras.js
+init_lib2();
+function ok12(data4) {
+  return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
+}
+function err12(message) {
+  return { content: [{ type: "text", text: message }], isError: true };
+}
+var PID_GOV3 = "Proposal id from hashProposal, decimal or 0x-hex.";
+var governorIdSchema3 = external_exports.string().min(1).describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
+var addressArg2 = (desc) => external_exports.string().refine((s2) => isAddress(s2), { message: "must be a 0x-prefixed 20-byte address" }).describe(desc);
+var proposalIdArg2 = external_exports.string().refine((s2) => {
+  try {
+    BigInt(s2);
+    return true;
+  } catch {
+    return false;
+  }
+}, { message: "must be a uint256 (decimal or 0x-hex) string" }).describe(PID_GOV3);
+function registerGovernorExtraTools(server, rpc) {
+  registerGetState(server, rpc);
+  registerHasVoted(server, rpc);
+}
+function registerGetState(server, rpc) {
+  server.registerTool("dexe_gov_get_state", {
+    title: "Read Governor.state() \u2014 minimal proposal-state lookup",
+    description: "Read-only. `Governor.state(proposalId)` as {index, name} \u2014 one eth_call when the state is all you need.",
+    inputSchema: {
+      governor: governorIdSchema3,
+      proposalId: proposalIdArg2
+    }
+  }, async ({ governor, proposalId }) => {
+    let cfg;
+    let usedFallback = false;
+    try {
+      cfg = resolveGovernor(governor);
+      const pr2 = governorProvider(rpc, cfg);
+      if ("error" in pr2)
+        return err12(pr2.error);
+      usedFallback = pr2.fallback;
+      const provider = pr2.ok;
+      const c4 = governorContract(provider, cfg);
+      const idx = Number(await c4.getFunction("state").staticCall(BigInt(proposalId)));
+      return ok12({
+        governor: cfg.id,
+        governorVersion: cfg.governorVersion,
+        proposalId,
+        state: { index: idx, name: stateName(idx) },
+        ...rpcNote(pr2)
+      });
+    } catch (e2) {
+      const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
+      const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+      return err12(`dexe_gov_get_state failed: ${detail}${hint}`);
+    }
+  });
+}
+function registerHasVoted(server, rpc) {
+  server.registerTool("dexe_gov_has_voted", {
+    title: "Read whether an account has voted on a proposal",
+    description: "Read-only. Whether the account already voted. OZ reads hasVoted(proposalId, account); Bravo has no hasVoted, so it reads getReceipt(proposalId, voter).hasVoted.",
+    inputSchema: {
+      governor: governorIdSchema3,
+      proposalId: proposalIdArg2,
+      account: addressArg2("0x-prefixed account address.")
+    }
+  }, async ({ governor, proposalId, account }) => {
+    let cfg;
+    let usedFallback = false;
+    try {
+      cfg = resolveGovernor(governor);
+      const pr2 = governorProvider(rpc, cfg);
+      if ("error" in pr2)
+        return err12(pr2.error);
+      usedFallback = pr2.fallback;
+      const provider = pr2.ok;
+      const c4 = governorContract(provider, cfg);
+      let voted;
+      let method;
+      if (isBravo(cfg)) {
+        const receipt = await c4.getFunction("getReceipt").staticCall(BigInt(proposalId), account);
+        voted = Boolean(receipt.hasVoted);
+        method = "getReceipt";
+      } else {
+        voted = await c4.getFunction("hasVoted").staticCall(BigInt(proposalId), account);
+        method = "hasVoted";
+      }
+      return ok12({
+        governor: cfg.id,
+        proposalId,
+        account,
+        hasVoted: voted,
+        method,
+        ...rpcNote(pr2)
+      });
+    } catch (e2) {
+      const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
+      const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
+      return err12(`dexe_gov_has_voted failed: ${detail}${hint}`);
+    }
+  });
+}
+
+// dist/governor/index.js
+function registerGovernorTools(server, config2, write) {
+  const rpc = new RpcProvider(config2);
+  registerGovernorReadTools(server, rpc);
+  write?.afterLookups(server, rpc);
+  registerGovernorSimulateTools(server, rpc);
+  registerGovernorExtraTools(server, rpc);
+  write?.afterAnalysis(server, rpc);
+}
+
 // dist/governor/encoder.js
 init_lib2();
 var GOVERNOR_OZ_WRITE_ABI = [
@@ -153189,14 +153415,14 @@ function decodeGovernorWrite(cfg, data4) {
 }
 
 // dist/governor/tools/build.js
-function ok11(data4) {
+function ok13(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err11(message) {
+function err13(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-var PID_GOV2 = "Proposal id from hashProposal, decimal or 0x-hex.";
-var governorIdSchema2 = external_exports.string().min(1).describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
+var PID_GOV4 = "Proposal id from hashProposal, decimal or 0x-hex.";
+var governorIdSchema4 = external_exports.string().min(1).describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
 var uintLikeSchema = external_exports.union([external_exports.string(), external_exports.number()]);
 function registerGovernorBuildTools(server) {
   registerPropose(server);
@@ -153210,7 +153436,7 @@ function registerPropose(server) {
     title: "Encode Governor.propose calldata",
     description: "Builds calldata; does not broadcast. `Governor.propose`: OZ v4+ takes (targets, values, calldatas, description), Bravo takes (targets, values, signatures, calldatas, description) and defaults signatures to empty strings.",
     inputSchema: {
-      governor: governorIdSchema2,
+      governor: governorIdSchema4,
       targets: external_exports.array(external_exports.string()).min(1).describe("Contract address called by each action."),
       values: external_exports.array(uintLikeSchema).min(1).describe("Native value per target, RAW base units (wei), decimal string or number."),
       calldatas: external_exports.array(external_exports.string()).min(1).describe("0x-prefixed bytes per target."),
@@ -153221,9 +153447,9 @@ function registerPropose(server) {
     try {
       const cfg = resolveGovernor(governor);
       const built = buildPropose(cfg, { targets, values, calldatas, description, signatures });
-      return ok11({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
+      return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err11(`dexe_gov_build_propose failed: ${e2.message}`);
+      return err13(`dexe_gov_build_propose failed: ${e2.message}`);
     }
   });
 }
@@ -153232,8 +153458,8 @@ function registerVoteCast(server) {
     title: "Encode Governor.castVote / castVoteWithReason calldata",
     description: "Builds calldata; does not broadcast. `Governor.castVote`, or `castVoteWithReason` when `reason` is set. Identical signature on OZ and Bravo.",
     inputSchema: {
-      governor: governorIdSchema2,
-      proposalId: external_exports.string().describe(PID_GOV2),
+      governor: governorIdSchema4,
+      proposalId: external_exports.string().describe(PID_GOV4),
       support: external_exports.number().int().min(0).max(2).describe("0 = Against, 1 = For, 2 = Abstain."),
       reason: external_exports.string().optional().describe("Optional public reason string stored with the vote.")
     }
@@ -153241,9 +153467,9 @@ function registerVoteCast(server) {
     try {
       const cfg = resolveGovernor(governor);
       const built = buildVoteCast(cfg, proposalId, support, reason);
-      return ok11({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
+      return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err11(`dexe_gov_build_vote_cast failed: ${e2.message}`);
+      return err13(`dexe_gov_build_vote_cast failed: ${e2.message}`);
     }
   });
 }
@@ -153252,8 +153478,8 @@ function registerQueue(server) {
     title: "Encode Governor.queue calldata",
     description: "Builds calldata; does not broadcast. `Governor.queue`. OZ v4+: pass targets/values/calldatas plus description (hashed for you) or descriptionHash. Bravo: pass proposalId only.",
     inputSchema: {
-      governor: governorIdSchema2,
-      proposalId: external_exports.string().optional().describe("Bravo only. " + PID_GOV2),
+      governor: governorIdSchema4,
+      proposalId: external_exports.string().optional().describe("Bravo only. " + PID_GOV4),
       targets: external_exports.array(external_exports.string()).optional().describe("OZ only. Contract address per action."),
       values: external_exports.array(uintLikeSchema).optional().describe("OZ only. Native value per action, RAW base units (wei)."),
       calldatas: external_exports.array(external_exports.string()).optional().describe("OZ only. 0x-hex calldata per action."),
@@ -153264,9 +153490,9 @@ function registerQueue(server) {
     try {
       const cfg = resolveGovernor(args.governor);
       const built = buildQueue(cfg, args);
-      return ok11({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
+      return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err11(`dexe_gov_build_queue failed: ${e2.message}`);
+      return err13(`dexe_gov_build_queue failed: ${e2.message}`);
     }
   });
 }
@@ -153275,8 +153501,8 @@ function registerExecute2(server) {
     title: "Encode Governor.execute calldata",
     description: "Builds calldata; does not broadcast. `Governor.execute`. OZ v4+: pass targets/values/calldatas plus description or descriptionHash. Bravo: pass proposalId only.",
     inputSchema: {
-      governor: governorIdSchema2,
-      proposalId: external_exports.string().optional().describe("Bravo only. " + PID_GOV2),
+      governor: governorIdSchema4,
+      proposalId: external_exports.string().optional().describe("Bravo only. " + PID_GOV4),
       targets: external_exports.array(external_exports.string()).optional().describe("OZ only. Contract address per action."),
       values: external_exports.array(uintLikeSchema).optional().describe("OZ only. Native value per action, RAW base units (wei)."),
       calldatas: external_exports.array(external_exports.string()).optional().describe("OZ only. 0x-hex calldata per action."),
@@ -153288,9 +153514,9 @@ function registerExecute2(server) {
     try {
       const cfg = resolveGovernor(args.governor);
       const built = buildExecute(cfg, args, args.msgValue);
-      return ok11({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
+      return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err11(`dexe_gov_build_execute failed: ${e2.message}`);
+      return err13(`dexe_gov_build_execute failed: ${e2.message}`);
     }
   });
 }
@@ -153299,28 +153525,28 @@ function registerDelegate2(server) {
     title: "Encode IVotes.delegate calldata on the configured voting token",
     description: "Builds calldata; does not broadcast. `IVotes.delegate` \u2014 `to` is the voting token, NOT the Governor. The zero address revokes the delegation.",
     inputSchema: {
-      governor: governorIdSchema2,
+      governor: governorIdSchema4,
       delegatee: external_exports.string().describe("Address receiving the delegated voting power; zero revokes.")
     }
   }, async ({ governor, delegatee }) => {
     try {
       const cfg = resolveGovernor(governor);
       const built = buildDelegate(cfg, delegatee);
-      return ok11({ governor: cfg.id, votingToken: cfg.votingToken, ...built });
+      return ok13({ governor: cfg.id, votingToken: cfg.votingToken, ...built });
     } catch (e2) {
-      return err11(`dexe_gov_build_delegate failed: ${e2.message}`);
+      return err13(`dexe_gov_build_delegate failed: ${e2.message}`);
     }
   });
 }
 
-// dist/governor/tools/simulate.js
+// dist/governor/tools/simulateWrite.js
 init_lib2();
 var ERROR_STRING_SELECTOR2 = "0x08c379a0";
 var PANIC_SELECTOR2 = "0x4e487b71";
-function ok12(data4) {
+function ok14(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err12(message) {
+function err14(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function decodeRevert2(data4) {
@@ -153361,20 +153587,17 @@ function decodeRevert2(data4) {
   }
   return data4;
 }
-var PID_GOV3 = "Proposal id from hashProposal, decimal or 0x-hex.";
-var governorIdSchema3 = external_exports.string().min(1).describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
 var uintLikeSchema2 = external_exports.union([external_exports.string(), external_exports.number()]);
-function registerGovernorSimulateTools(server, rpc) {
+function registerGovernorSimulateWriteTools(server, rpc) {
   registerSimulateProposal(server, rpc);
-  registerSimulateVoteImpact(server, rpc);
 }
 function registerSimulateProposal(server, rpc) {
   server.registerTool("dexe_gov_simulate_proposal", {
     title: "Dry-run Governor.execute() via eth_call",
     description: "Read-only. eth_call dry-run of Governor.execute() (Bravo: proposalId; OZ: targets/values/calldatas + description or hash), returning {success, revertReason, decodedCall, currentState}. Single-block only, not a fork-and-time-warp: a Queued proposal whose timelock ETA has not elapsed reverts with the timelock error.",
     inputSchema: {
-      governor: governorIdSchema3,
-      proposalId: external_exports.string().optional().describe("Required on Bravo; on OZ optional, used for the state lookup. " + PID_GOV3),
+      governor: governorIdSchema2,
+      proposalId: external_exports.string().optional().describe("Required on Bravo; on OZ optional, used for the state lookup. " + PID_GOV2),
       targets: external_exports.array(external_exports.string()).optional().describe("OZ only. Contract address per action."),
       values: external_exports.array(uintLikeSchema2).optional().describe("OZ only. Native value per action, RAW base units (wei)."),
       calldatas: external_exports.array(external_exports.string()).optional().describe("OZ only. 0x-hex calldata per action."),
@@ -153390,7 +153613,7 @@ function registerSimulateProposal(server, rpc) {
       cfg = resolveGovernor(args.governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err12(pr2.error);
+        return err14(pr2.error);
       usedFallback = pr2.fallback;
       const note = rpcNote(pr2);
       const provider = pr2.ok;
@@ -153421,7 +153644,7 @@ function registerSimulateProposal(server, rpc) {
       }
       try {
         await provider.call(txReq);
-        return ok12({
+        return ok14({
           governor: cfg.id,
           governorVersion: cfg.governorVersion,
           success: true,
@@ -153431,7 +153654,7 @@ function registerSimulateProposal(server, rpc) {
         });
       } catch (e2) {
         const reason = decodeRevert2(e2?.data ?? e2?.info?.error?.data ?? e2?.error?.data);
-        return ok12({
+        return ok14({
           governor: cfg.id,
           governorVersion: cfg.governorVersion,
           success: false,
@@ -153444,189 +153667,33 @@ function registerSimulateProposal(server, rpc) {
     } catch (e2) {
       const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
       const hint = cfg && args.proposalId ? legacyIdHint(cfg, args.proposalId) : "";
-      return err12(`dexe_gov_simulate_proposal failed: ${detail}${hint}`);
-    }
-  });
-}
-function registerSimulateVoteImpact(server, rpc) {
-  server.registerTool("dexe_gov_simulate_vote_impact", {
-    title: "Project proposal outcome after a hypothetical vote",
-    description: "Read-only. Reads the live tallies + quorum and projects the outcome if `weight` of voting power were cast with `support`. Returns currentTallies, projectedTallies, quorumMet, willPass. Quorum counting follows the governor's COUNTING_MODE (`quorum.counting`): Bravo and CompoundGovernor count For only, vanilla OZ counts For+Abstain, Optimism counts all three. `willPass` ignores any per-proposal-type approvalThreshold or voting module \u2014 see `caveats` when present.",
-    inputSchema: {
-      governor: governorIdSchema3,
-      proposalId: external_exports.string().describe(PID_GOV3),
-      support: external_exports.number().int().min(0).max(2).describe("0 = Against, 1 = For, 2 = Abstain."),
-      weight: external_exports.string().describe("Hypothetical vote weight, RAW base units (wei), decimal string.")
-    }
-  }, async ({ governor, proposalId, support, weight }) => {
-    let cfg;
-    let usedFallback = false;
-    try {
-      cfg = resolveGovernor(governor);
-      const pr2 = governorProvider(rpc, cfg);
-      if ("error" in pr2)
-        return err12(pr2.error);
-      usedFallback = pr2.fallback;
-      const provider = pr2.ok;
-      const c4 = governorContract(provider, cfg);
-      const pid = BigInt(proposalId);
-      const readout = await readProposal(c4, cfg, pid);
-      const { quorum, method: quorumMethod } = await readQuorum(c4, cfg, Number(readout.snapshotBlock));
-      const w5 = BigInt(weight);
-      const cur = {
-        against: BigInt(readout.votes.against),
-        for: BigInt(readout.votes.for),
-        abstain: BigInt(readout.votes.abstain)
-      };
-      const counting = quorumCountingOf(cfg);
-      const { projected: proj, quorumMet, willPass } = projectVoteImpact(counting, cur, support, w5, quorum);
-      const caveats = [];
-      if (cfg.quorumSource === "votable-supply") {
-        caveats.push("willPass models only quorum + (for > against). This governor applies a per-proposal-type approvalThreshold (Optimism: 5100 bps Default, 7600 bps Supermajority) and may route the proposal through a voting module (Optimistic type: quorum 0, module-defined passage), neither of which is modelled here. The quorum value is the votableSupply(snapshot) * numerator/denominator approximation, not the governor's own quorum(proposalId). Cross-check on Tally/Agora before acting.");
-      }
-      return ok12({
-        governor: cfg.id,
-        governorVersion: cfg.governorVersion,
-        proposalId,
-        currentState: readout.state,
-        quorum: { required: quorum.toString(), method: quorumMethod, counting },
-        currentTallies: {
-          against: cur.against.toString(),
-          for: cur.for.toString(),
-          abstain: cur.abstain.toString()
-        },
-        hypothetical: { support, weight },
-        projectedTallies: {
-          against: proj.against.toString(),
-          for: proj.for.toString(),
-          abstain: proj.abstain.toString()
-        },
-        projection: { quorumMet, willPass },
-        ...caveats.length > 0 ? { caveats } : {},
-        ...rpcNote(pr2)
-      });
-    } catch (e2) {
-      const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
-      const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
-      return err12(`dexe_gov_simulate_vote_impact failed: ${detail}${hint}`);
+      return err14(`dexe_gov_simulate_proposal failed: ${detail}${hint}`);
     }
   });
 }
 
-// dist/governor/tools/extras.js
+// dist/governor/tools/extrasWrite.js
 init_lib2();
-function ok13(data4) {
+function ok15(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err13(message) {
+function err15(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-var PID_GOV4 = "Proposal id from hashProposal, decimal or 0x-hex.";
-var governorIdSchema4 = external_exports.string().min(1).describe("Governor id: 'uniswap' | 'compound' | 'optimism', or that DAO's own address. Nothing else resolves.");
 var uintLikeSchema3 = external_exports.union([external_exports.string(), external_exports.number()]);
-var addressArg2 = (desc) => external_exports.string().refine((s2) => isAddress(s2), { message: "must be a 0x-prefixed 20-byte address" }).describe(desc);
-var proposalIdArg2 = external_exports.string().refine((s2) => {
-  try {
-    BigInt(s2);
-    return true;
-  } catch {
-    return false;
-  }
-}, { message: "must be a uint256 (decimal or 0x-hex) string" }).describe(PID_GOV4);
-function registerGovernorExtraTools(server, rpc) {
-  registerGetState(server, rpc);
-  registerHasVoted(server, rpc);
+function registerGovernorExtraWriteTools(server, rpc) {
   registerBuildCancel(server);
   registerDecodeCalldata2(server);
   registerHashDescription(server);
   registerHashProposal(server, rpc);
-}
-function registerGetState(server, rpc) {
-  server.registerTool("dexe_gov_get_state", {
-    title: "Read Governor.state() \u2014 minimal proposal-state lookup",
-    description: "Read-only. `Governor.state(proposalId)` as {index, name} \u2014 one eth_call when the state is all you need.",
-    inputSchema: {
-      governor: governorIdSchema4,
-      proposalId: proposalIdArg2
-    }
-  }, async ({ governor, proposalId }) => {
-    let cfg;
-    let usedFallback = false;
-    try {
-      cfg = resolveGovernor(governor);
-      const pr2 = governorProvider(rpc, cfg);
-      if ("error" in pr2)
-        return err13(pr2.error);
-      usedFallback = pr2.fallback;
-      const provider = pr2.ok;
-      const c4 = governorContract(provider, cfg);
-      const idx = Number(await c4.getFunction("state").staticCall(BigInt(proposalId)));
-      return ok13({
-        governor: cfg.id,
-        governorVersion: cfg.governorVersion,
-        proposalId,
-        state: { index: idx, name: stateName(idx) },
-        ...rpcNote(pr2)
-      });
-    } catch (e2) {
-      const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
-      const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
-      return err13(`dexe_gov_get_state failed: ${detail}${hint}`);
-    }
-  });
-}
-function registerHasVoted(server, rpc) {
-  server.registerTool("dexe_gov_has_voted", {
-    title: "Read whether an account has voted on a proposal",
-    description: "Read-only. Whether the account already voted. OZ reads hasVoted(proposalId, account); Bravo has no hasVoted, so it reads getReceipt(proposalId, voter).hasVoted.",
-    inputSchema: {
-      governor: governorIdSchema4,
-      proposalId: proposalIdArg2,
-      account: addressArg2("0x-prefixed account address.")
-    }
-  }, async ({ governor, proposalId, account }) => {
-    let cfg;
-    let usedFallback = false;
-    try {
-      cfg = resolveGovernor(governor);
-      const pr2 = governorProvider(rpc, cfg);
-      if ("error" in pr2)
-        return err13(pr2.error);
-      usedFallback = pr2.fallback;
-      const provider = pr2.ok;
-      const c4 = governorContract(provider, cfg);
-      let voted;
-      let method;
-      if (isBravo(cfg)) {
-        const receipt = await c4.getFunction("getReceipt").staticCall(BigInt(proposalId), account);
-        voted = Boolean(receipt.hasVoted);
-        method = "getReceipt";
-      } else {
-        voted = await c4.getFunction("hasVoted").staticCall(BigInt(proposalId), account);
-        method = "hasVoted";
-      }
-      return ok13({
-        governor: cfg.id,
-        proposalId,
-        account,
-        hasVoted: voted,
-        method,
-        ...rpcNote(pr2)
-      });
-    } catch (e2) {
-      const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
-      const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
-      return err13(`dexe_gov_has_voted failed: ${detail}${hint}`);
-    }
-  });
 }
 function registerBuildCancel(server) {
   server.registerTool("dexe_gov_build_cancel", {
     title: "Encode Governor.cancel calldata",
     description: "Builds calldata; does not broadcast. `Governor.cancel`. OZ v4+: pass targets/values/calldatas + description or descriptionHash. Bravo: pass proposalId only.",
     inputSchema: {
-      governor: governorIdSchema4,
-      proposalId: external_exports.string().optional().describe("Bravo only. " + PID_GOV4),
+      governor: governorIdSchema3,
+      proposalId: external_exports.string().optional().describe("Bravo only. " + PID_GOV3),
       targets: external_exports.array(external_exports.string()).optional().describe("OZ only. Contract address per action."),
       values: external_exports.array(uintLikeSchema3).optional().describe("OZ only. Native value per action, RAW base units (wei)."),
       calldatas: external_exports.array(external_exports.string()).optional().describe("OZ only. 0x-hex calldata per action."),
@@ -153637,9 +153704,9 @@ function registerBuildCancel(server) {
     try {
       const cfg = resolveGovernor(args.governor);
       const built = buildCancel(cfg, args);
-      return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
+      return ok15({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err13(`dexe_gov_build_cancel failed: ${e2.message}`);
+      return err15(`dexe_gov_build_cancel failed: ${e2.message}`);
     }
   });
 }
@@ -153648,7 +153715,7 @@ function registerDecodeCalldata2(server) {
     title: "Decode any Governor write calldata back to its named args",
     description: "Read-only, local. Parses 0x-hex calldata against the configured Governor's write ABI (family-aware) into {method, args} \u2014 audit a tx before signing, or round-trip a dexe_gov_build_* payload.",
     inputSchema: {
-      governor: governorIdSchema4,
+      governor: governorIdSchema3,
       data: external_exports.string().describe("0x-prefixed calldata.")
     }
   }, async ({ governor, data: data4 }) => {
@@ -153656,7 +153723,7 @@ function registerDecodeCalldata2(server) {
       const cfg = resolveGovernor(governor);
       const decoded = decodeGovernorWrite(cfg, data4);
       const argsOut = decoded.args.map((v7) => typeof v7 === "bigint" ? v7.toString() : Array.isArray(v7) ? v7.map((x6) => typeof x6 === "bigint" ? x6.toString() : x6) : v7);
-      return ok13({
+      return ok15({
         governor: cfg.id,
         governorVersion: cfg.governorVersion,
         family: isBravo(cfg) ? "bravo" : "oz",
@@ -153664,7 +153731,7 @@ function registerDecodeCalldata2(server) {
         args: argsOut
       });
     } catch (e2) {
-      return err13(`dexe_gov_decode_calldata failed: ${e2.message}`);
+      return err15(`dexe_gov_decode_calldata failed: ${e2.message}`);
     }
   });
 }
@@ -153677,9 +153744,9 @@ function registerHashDescription(server) {
     }
   }, async ({ description }) => {
     try {
-      return ok13({ description, descriptionHash: keccak256(toUtf8Bytes(description)) });
+      return ok15({ description, descriptionHash: keccak256(toUtf8Bytes(description)) });
     } catch (e2) {
-      return err13(`dexe_gov_hash_description failed: ${e2.message}`);
+      return err15(`dexe_gov_hash_description failed: ${e2.message}`);
     }
   });
 }
@@ -153688,7 +153755,7 @@ function registerHashProposal(server, rpc) {
     title: "Call OZ Governor.hashProposal \u2014 preview the deterministic proposalId",
     description: "Read-only. OZ v4+ only: `Governor.hashProposal` gives the deterministic proposalId for a (targets, values, calldatas, descriptionHash) tuple before submission. Bravo has no hashProposal and is refused with that reason.",
     inputSchema: {
-      governor: governorIdSchema4,
+      governor: governorIdSchema3,
       targets: external_exports.array(external_exports.string()).describe("Contract address per action."),
       values: external_exports.array(uintLikeSchema3).describe("Native value per action, RAW base units (wei)."),
       calldatas: external_exports.array(external_exports.string()).describe("0x-hex calldata per action."),
@@ -153699,11 +153766,11 @@ function registerHashProposal(server, rpc) {
     try {
       const cfg = resolveGovernor(governor);
       if (isBravo(cfg)) {
-        return err13(`dexe_gov_hash_proposal: ${cfg.id} is Bravo (${cfg.governorVersion}); Bravo does not expose hashProposal. Use Bravo's on-chain proposalCount + propose-returned id instead.`);
+        return err15(`dexe_gov_hash_proposal: ${cfg.id} is Bravo (${cfg.governorVersion}); Bravo does not expose hashProposal. Use Bravo's on-chain proposalCount + propose-returned id instead.`);
       }
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err13(pr2.error);
+        return err15(pr2.error);
       const provider = pr2.ok;
       const c4 = governorContract(provider, cfg);
       const dh = descriptionHash ?? (description !== void 0 ? keccak256(toUtf8Bytes(description)) : void 0);
@@ -153711,7 +153778,7 @@ function registerHashProposal(server, rpc) {
         throw new Error("either description or descriptionHash is required");
       const vals = values.map((v7) => BigInt(v7));
       const id2 = await c4.getFunction("hashProposal").staticCall(targets, vals, calldatas, dh);
-      return ok13({
+      return ok15({
         governor: cfg.id,
         proposalIdHex: "0x" + id2.toString(16),
         proposalIdDecimal: id2.toString(),
@@ -153719,19 +153786,21 @@ function registerHashProposal(server, rpc) {
         ...rpcNote(pr2)
       });
     } catch (e2) {
-      return err13(`dexe_gov_hash_proposal failed: ${safeErrorMessage(e2)}`);
+      return err15(`dexe_gov_hash_proposal failed: ${safeErrorMessage(e2)}`);
     }
   });
 }
 
-// dist/governor/index.js
-function registerGovernorTools(server, config2) {
-  const rpc = new RpcProvider(config2);
-  registerGovernorReadTools(server, rpc);
-  registerGovernorBuildTools(server);
-  registerGovernorSimulateTools(server, rpc);
-  registerGovernorExtraTools(server, rpc);
-}
+// dist/governor/write.js
+var governorWriteTools = {
+  afterLookups(server, rpc) {
+    registerGovernorBuildTools(server);
+    registerGovernorSimulateWriteTools(server, rpc);
+  },
+  afterAnalysis(server, rpc) {
+    registerGovernorExtraWriteTools(server, rpc);
+  }
+};
 
 // dist/tools/annotations.js
 var READ_ONLY = { readOnlyHint: true };
@@ -154076,7 +154145,9 @@ function registerAll(server, config2) {
   registerProposalTools(server, ctx);
   registerVoteTools(server, ctx);
   registerReadTools(server, ctx);
-  registerIpfsTools(server, ctx);
+  registerIpfsUploadTools(server, ctx);
+  registerIpfsReadTools(server, ctx);
+  registerIpfsCidForJsonTool(server);
   registerProposalBuildTools(server, ctx);
   registerProposalBuildMoreTools(server, ctx);
   registerProposalBuildComplexTools(server, ctx);
@@ -154095,7 +154166,7 @@ function registerAll(server, config2) {
   registerTxTools(server, config2, signer, wc);
   registerAgentTools(server, config2, signer);
   registerGetConfigTool(server, config2, signer);
-  registerDoctorTool(server, config2);
+  registerDoctorTool(server, config2, writeDoctorChecks);
   registerWalletConnectTools(server, config2, signer, wc);
   registerProposalBuildOffchainTools(server, ctx, signer, wc);
   registerFlowTools(server, ctx, signer, wc, state);
@@ -154108,7 +154179,7 @@ function registerAll(server, config2) {
   registerOtcBuyerTools(server, ctx, signer, wc);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
-  registerGovernorTools(server, config2);
+  registerGovernorTools(server, config2, governorWriteTools);
 }
 
 // dist/lib/resumeContract.js
@@ -154196,15 +154267,15 @@ function doctorExitCode(t2, strict) {
     return 1;
   return 0;
 }
-async function run(argv = []) {
+async function run(argv = [], extraChecks) {
   const args = parseDoctorArgs(argv);
   if (args.unknown.length) {
     process.stderr.write(`[dexe-mcp doctor] unknown option(s): ${args.unknown.join(", ")}. Supported: --strict (exit 1 when there are warnings, for CI), --probe-pin (verify Pinata pin capability \u2014 writes one tiny pin).
 `);
     process.exit(2);
   }
-  const config2 = await loadConfig().catch((err14) => {
-    process.stderr.write(`[dexe-mcp doctor] config load failed: ${safeErrorMessage(err14)}
+  const config2 = await loadConfig().catch((err16) => {
+    process.stderr.write(`[dexe-mcp doctor] config load failed: ${safeErrorMessage(err16)}
 `);
     process.exit(2);
   });
@@ -154221,7 +154292,7 @@ async function run(argv = []) {
 `);
   }
   process.stdout.write("\n");
-  const checks = await runAllChecks({ config: config2, probePin: args.probePin });
+  const checks = await runAllChecks({ config: config2, extraChecks: extraChecks?.({ probePin: args.probePin }) });
   let pass2 = 0;
   let warn = 0;
   let fail2 = 0;
@@ -154353,7 +154424,7 @@ function loadEnvironment() {
 async function runSubcommand(name2) {
   if (name2 === "doctor") {
     const mod5 = doctor_exports;
-    await mod5.run(process.argv.slice(3));
+    await mod5.run(process.argv.slice(3), writeDoctorChecks);
     process.exit(0);
   }
   if (name2 === "init") {
@@ -154365,14 +154436,14 @@ async function runSubcommand(name2) {
   await mod4.run(process.argv.slice(3));
   process.exit(0);
 }
-function isTransportGoneError(err14) {
-  const code6 = err14?.code;
+function isTransportGoneError(err16) {
+  const code6 = err16?.code;
   return code6 === "EPIPE" || code6 === "ERR_STREAM_DESTROYED";
 }
-function formatCrashReport(kind, err14, fatal) {
+function formatCrashReport(kind, err16, fatal) {
   const verdict = fatal ? "the stdio channel is gone, so the server is shutting down" : "the server is STILL RUNNING \u2014 the call that triggered this already failed, so retry it";
   return `[dexe-mcp] ${kind} \u2014 ${verdict}.
-${formatDiagnostic(err14)}
+${formatDiagnostic(err16)}
 ` + debugHint();
 }
 var processGuardsInstalled = false;
@@ -154389,9 +154460,9 @@ function installProcessGuards(opts = {}) {
   emitter.on("unhandledRejection", ((reason) => {
     write(formatCrashReport("unhandled promise rejection", reason, false));
   }));
-  emitter.on("uncaughtException", ((err14) => {
-    const fatal = isTransportGoneError(err14);
-    write(formatCrashReport("uncaught exception", err14, fatal));
+  emitter.on("uncaughtException", ((err16) => {
+    const fatal = isTransportGoneError(err16);
+    write(formatCrashReport("uncaught exception", err16, fatal));
     if (fatal)
       exit3(0);
   }));
@@ -154402,9 +154473,9 @@ function installProcessGuards(opts = {}) {
 function installTransportGuards(transport, opts = {}) {
   const write = opts.write ?? ((line2) => void process.stderr.write(line2));
   const exit3 = opts.exit ?? ((code6) => process.exit(code6));
-  transport.onerror = (err14) => {
+  transport.onerror = (err16) => {
     write(`[dexe-mcp] transport error (session continues):
-${formatDiagnostic(err14)}
+${formatDiagnostic(err16)}
 ${debugHint()}`);
   };
   transport.onclose = () => {
@@ -154412,8 +154483,8 @@ ${debugHint()}`);
     setImmediate(() => exit3(0));
   };
 }
-function createDegradedServer(err14, envFiles = []) {
-  const detail = err14 instanceof Error ? err14.stack || err14.message : String(err14);
+function createDegradedServer(err16, envFiles = []) {
+  const detail = err16 instanceof Error ? err16.stack || err16.message : String(err16);
   const searched = envFiles.length ? ` (searched, in order: ${envFiles.join(", ")})` : "";
   const report = `dexe-mcp failed to start. Its DAO tools are NOT registered in this session.
 
@@ -154437,9 +154508,9 @@ Runtime: Node ${process.versions.node} (dexe-mcp requires >=${MIN_NODE_VERSION})
   }, () => ({ content: [{ type: "text", text: report }] }));
   return server;
 }
-async function startDegraded(err14, envFiles) {
+async function startDegraded(err16, envFiles) {
   try {
-    const server = createDegradedServer(err14, envFiles);
+    const server = createDegradedServer(err16, envFiles);
     const transport = new StdioServerTransport();
     installTransportGuards(transport);
     await server.connect(transport);
@@ -154491,8 +154562,8 @@ async function bootstrap() {
   let envCandidates = [];
   try {
     envCandidates = loadEnvironment();
-  } catch (err14) {
-    process.stderr.write(`[dexe-mcp] warn: .env loading failed (${safeErrorMessage(err14)}) \u2014 using process env only
+  } catch (err16) {
+    process.stderr.write(`[dexe-mcp] warn: .env loading failed (${safeErrorMessage(err16)}) \u2014 using process env only
 `);
   }
   if (intent.kind === "subcommand") {
@@ -154502,11 +154573,11 @@ async function bootstrap() {
   installProcessGuards();
   try {
     await main();
-  } catch (err14) {
+  } catch (err16) {
     process.stderr.write(`[dexe-mcp] startup failed:
-${formatDiagnostic(err14)}
+${formatDiagnostic(err16)}
 ${debugHint()}`);
-    await startDegraded(err14, envCandidates);
+    await startDegraded(err16, envCandidates);
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

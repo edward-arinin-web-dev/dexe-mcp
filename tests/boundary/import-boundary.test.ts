@@ -44,12 +44,6 @@ const SRC = join(REPO, "src");
 const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
   "config.ts -> bootstrap.ts":
     "protocolPath resolution for the dev toolchain. Gone when config splits into a read config and a write config.",
-  "governor/index.ts -> governor/tools/build.ts":
-    "one register function for both editions' governor tools. Gone when governor/index.ts splits per edition.",
-  "governor/tools/extras.ts -> governor/encoder.ts":
-    "gov_build_cancel / gov_hash_* sit beside the read tools gov_get_state / gov_has_voted. Gone when extras.ts splits.",
-  "governor/tools/simulate.ts -> governor/encoder.ts":
-    "gov_simulate_proposal (write) sits beside gov_simulate_vote_impact (read). Gone when simulate.ts splits.",
   "instructions.ts -> lib/resumeContract.ts":
     "the handshake text carries the write resume rule. Gone when each edition gets its own instructions.",
   "knowledge/index.ts -> knowledge/flows.ts":
@@ -62,20 +56,6 @@ const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
     "dexe_get_config reports signer mode. Gone when the signer half moves to a write-edition context tool.",
   "tools/guide.ts -> knowledge/nextSteps.ts":
     "dexe_guide follows the active write flow. Gone when activeFlow / nextAfter move to the write edition.",
-  "tools/ipfs.ts -> lib/avatarImage.ts":
-    "IPFS reads and uploads share one register file. Gone when tools/ipfs.ts splits into read and write files.",
-  "tools/ipfs.ts -> lib/avatarUpload.ts":
-    "IPFS reads and uploads share one register file. Gone when tools/ipfs.ts splits into read and write files.",
-  "tools/ipfs.ts -> lib/imageSniff.ts":
-    "IPFS reads and uploads share one register file. Gone when tools/ipfs.ts splits into read and write files.",
-  "tools/ipfs.ts -> lib/ipfsPin.ts":
-    "the Pinata client left lib/ipfs.ts for a write module; same cause as the other tools/ipfs.ts edges. Gone when tools/ipfs.ts splits.",
-  "tools/ipfs.ts -> lib/markdownToSlate.ts":
-    "IPFS reads and uploads share one register file. Gone when tools/ipfs.ts splits into read and write files.",
-  "tools/ipfs.ts -> lib/pinata.ts":
-    "the Pinata env guard left lib/requireEnv.ts for a write module; same cause as the other tools/ipfs.ts edges. Gone when tools/ipfs.ts splits.",
-  "tools/ipfs.ts -> lib/writeErrors.ts":
-    "the upload tools classify failures with the write remedy table; same cause as the other tools/ipfs.ts edges. Gone when tools/ipfs.ts splits.",
   "tools/operationalContext.ts -> lib/agentLedger.ts":
     "dexe_context reports the persona keyring. Gone when that moves to a write-edition context tool.",
   "tools/operationalContext.ts -> lib/signer.ts":

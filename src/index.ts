@@ -13,6 +13,7 @@ import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadRepo
 import { envKeys } from "./env/schema.js";
 import { debugHint, debugLog, formatDiagnostic } from "./runtime.js";
 import { safeErrorMessage } from "./lib/redact.js";
+import { writeDoctorChecks } from "./diag/writeChecks.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -203,7 +204,9 @@ async function runSubcommand(name: Subcommand): Promise<void> {
     // Forward argv[3..] the same way the skills branch does. `run()` calls
     // process.exit() itself with the graded code — do NOT "clean that up" into
     // a returned value, or every doctor run exits 0 and CI goes green forever.
-    await mod.run(process.argv.slice(3));
+    // The read checks plus the write ones (signer, Pinata incl. --probe-pin,
+    // WalletConnect): this binary carries both editions.
+    await mod.run(process.argv.slice(3), writeDoctorChecks);
     process.exit(0);
   }
   if (name === "init") {

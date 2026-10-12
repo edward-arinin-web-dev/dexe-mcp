@@ -151,7 +151,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 
 **Profiles: `core` + `proposals` + `read`.** Default session: `dexe_ipfs_upload_file`, `_upload_avatar`, `_upload_proposal_metadata`, `dexe_dao_generate_avatar`, `dexe_ipfs_fetch`. The DAO-metadata writes (`_upload_dao_metadata`, `_update_dao_metadata`) need `DEXE_TOOLSETS=core,proposals`; `_cid_info` / `_cid_for_json` need `core,read`.
 
-Source: `src/tools/ipfs.ts`. Pinata-backed; reads use the configured gateway with optional fallback chain.
+Sources: `src/tools/ipfsWrite.ts` (uploads, avatar, profile re-upload, `_cid_for_json`) and `src/tools/ipfsRead.ts` (`_fetch`, `_cid_info`). Pinata-backed; reads use the configured gateway with optional fallback chain.
 
 **`DEXE_PINATA_JWT` is required to BROADCAST, not to look.** Every upload tool here is a write, so it needs the key — but a preview never does: `dexe_ipfs_cid_for_json` hashes entirely offline, and the `dryRun` / preview paths of `dexe_dao_create`, `dexe_proposal_create` and `dexe_otc_dao_open_sale` construct no Pinata client at all. Those three composites also return an **`ipfs` envelope** — `{artifacts[], allPinned, note}` — naming every CID the run produced and whether it was actually pinned, so a dry run cannot be mistaken for a pinned one.
 
@@ -405,7 +405,8 @@ Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my 
 **Profile: `governor`** — not in a default session; set `DEXE_TOOLSETS=core,governor`.
 
 Sources: `src/governor/tools/read.ts`, `src/governor/tools/build.ts`,
-`src/governor/tools/simulate.ts`. Configs: `src/governor/configs/*.json`.
+`src/governor/tools/simulate.ts`, `src/governor/tools/simulateWrite.ts`, `src/governor/tools/extras.ts`,
+`src/governor/tools/extrasWrite.ts`. Configs: `src/governor/configs/*.json`.
 Family-branched internally — callers see normalized OZ-shaped output regardless
 of whether the target is OZ v4+ or Compound Bravo. See [`docs/GOVERNOR.md`](./GOVERNOR.md).
 
@@ -459,7 +460,7 @@ Source: `src/tools/walletconnectStatus.ts` + `src/lib/walletconnect.ts`. A fourt
 
 **Profile: `core`** — default-visible.
 
-Source: `src/tools/doctor.ts` + `src/diag/checks.ts`. First stop when an env-related failure shows up. Everything it does is a read except the opt-in `probePin` (one tiny IPFS pin, then unpinned).
+Source: `src/tools/doctor.ts` + `src/diag/checks.ts` (+ `src/diag/writeChecks.ts` for the signer, Pinata and WalletConnect rows). First stop when an env-related failure shows up. Everything it does is a read except the opt-in `probePin` (one tiny IPFS pin, then unpinned).
 
 Also runnable as a CLI: `npx dexe-mcp doctor`, with an exit-code contract worth wiring into CI — **0** when everything passes *or* only warns, **1** when `--strict` (or `DEXE_DOCTOR_STRICT=1`) is set and there are warnings, **2** on a real failure, a config that will not load, or an unknown flag. Warnings are advisories: a healthy zero-config install always has some, which is why warn-only is a 0 unless you ask for `--strict`.
 

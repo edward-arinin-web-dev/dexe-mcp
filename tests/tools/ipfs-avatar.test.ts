@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { registerIpfsTools } from "../../src/tools/ipfs.js";
+import { registerIpfsUploadTools } from "../../src/tools/ipfsWrite.js";
 import type { ToolContext } from "../../src/tools/context.js";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<{
@@ -36,7 +36,7 @@ describe("avatar tool pipeline", () => {
 
   beforeEach(() => {
     const captured = captureTools();
-    registerIpfsTools(captured.server, ctx);
+    registerIpfsUploadTools(captured.server, ctx);
     tools = captured.tools;
     fetchMock = vi.fn(async () => new Response(JSON.stringify(PIN_RESULT), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

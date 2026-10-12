@@ -8,7 +8,7 @@ import {
   type FetchOutcome,
   type GatewayProbeDeps,
 } from "../../src/diag/checks.js";
-import { gatewayHostname } from "../../src/tools/ipfs.js";
+import { gatewayHostname } from "../../src/tools/ipfsRead.js";
 
 /**
  * D8-3 — the gateway check used `dns.resolve()`, which bypasses the OS resolver
@@ -130,7 +130,7 @@ describe("ipfsGatewayDnsCheck", () => {
     },
   );
 
-  // O1: the READ path deliberately accepts a scheme-less host (src/tools/ipfs.ts
+  // O1: the READ path deliberately accepts a scheme-less host (src/tools/ipfsRead.ts
   // normalize()), so doctor must not hard-FAIL a setting that works.
   it("a scheme-less DEXE_IPFS_GATEWAY is valid, not 'not a valid URL'", async () => {
     process.env.DEXE_IPFS_GATEWAY = HOST;

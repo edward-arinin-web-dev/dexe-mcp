@@ -34,13 +34,24 @@ const READ = [
   "runtime.ts",
   "cli/doctor.ts",
   "cli/skills.ts",
+  // the read doctor checks + the ExtraChecks hook the write checks
+  // (diag/writeChecks.ts) come in through. Env presence still walks the whole
+  // ENV_SPEC until the env schema splits.
+  "diag/checks.ts",
   "env/loader.ts",
   "env/parse.ts",
   "governor/adapter.ts",
+  // registers the read governor tools; the write half (governor/write.ts) is
+  // passed in by the composition root
+  "governor/index.ts",
   "governor/loader.ts",
   "governor/rpc.ts",
   "governor/tally.ts",
+  // dexe_gov_get_state, dexe_gov_has_voted
+  "governor/tools/extras.ts",
   "governor/tools/read.ts",
+  // dexe_gov_simulate_vote_impact
+  "governor/tools/simulate.ts",
   "knowledge/topics.ts",
   "knowledge/types.ts",
   "lib/abi/tokenSale.ts",
@@ -87,6 +98,8 @@ const READ = [
   "tools/doctor.ts",
   "tools/gov.ts",
   "tools/inbox.ts",
+  // dexe_ipfs_fetch, dexe_ipfs_cid_info, the gateway chain and the IPFS error sink
+  "tools/ipfsRead.ts",
   "tools/predict.ts",
   "tools/proposal.ts",
   "tools/read.ts",
@@ -104,8 +117,17 @@ const WRITE = [
   "hardhat.ts",
   // npm / hardhat / git resolvers for the dev toolchain
   "runtimeDev.ts",
+  // Pinata JWT / pin probe, signer + keyring + broadcast guards, the
+  // WalletConnect shared default — handed to runAllChecks as ExtraChecks
+  "diag/writeChecks.ts",
   "governor/encoder.ts",
   "governor/tools/build.ts",
+  // dexe_gov_build_cancel, dexe_gov_decode_calldata, dexe_gov_hash_*
+  "governor/tools/extrasWrite.ts",
+  // dexe_gov_simulate_proposal (execute() dry-run)
+  "governor/tools/simulateWrite.ts",
+  // the write half of the governor surface, slotted in by governor/index.ts
+  "governor/write.ts",
   "knowledge/flows.ts",
   "knowledge/nextSteps.ts",
   "lib/agentLedger.ts",
@@ -154,6 +176,8 @@ const WRITE = [
   "tools/daoDeploy.ts",
   "tools/flow.ts",
   "tools/introspect.ts",
+  // the Pinata uploads, generated avatar, profile re-upload, dexe_ipfs_cid_for_json
+  "tools/ipfsWrite.ts",
   "tools/merkle.ts",
   // OTC composites; the read-only position view is tools/tokenSaleRead.ts
   "tools/otc.ts",
@@ -177,11 +201,7 @@ const MIXED = [
   "instructions.ts",
   // read wizard (RPC, subgraph, gateway) + write wizard (key, Pinata, WC)
   "cli/init.ts",
-  "diag/checks.ts",
   "env/schema.ts",
-  "governor/index.ts",
-  "governor/tools/extras.ts",
-  "governor/tools/simulate.ts",
   "knowledge/gotchas.ts",
   "knowledge/index.ts",
   "knowledge/render.ts",
@@ -190,7 +210,6 @@ const MIXED = [
   "tools/gate.ts",
   "tools/getConfig.ts",
   "tools/guide.ts",
-  "tools/ipfs.ts",
   "tools/operationalContext.ts",
 ];
 

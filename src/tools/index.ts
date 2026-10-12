@@ -11,7 +11,8 @@ import { registerDaoTools } from "./dao.js";
 import { registerProposalTools } from "./proposal.js";
 import { registerVoteTools } from "./vote.js";
 import { registerReadTools } from "./read.js";
-import { registerIpfsTools } from "./ipfs.js";
+import { registerIpfsReadTools } from "./ipfsRead.js";
+import { registerIpfsCidForJsonTool, registerIpfsUploadTools } from "./ipfsWrite.js";
 import { registerProposalBuildTools } from "./proposalBuild.js";
 import { registerProposalBuildMoreTools } from "./proposalBuildMore.js";
 import { registerProposalBuildComplexTools } from "./proposalBuildComplex.js";
@@ -25,6 +26,7 @@ import { registerTxTools } from "./txSend.js";
 import { registerAgentTools } from "./agents.js";
 import { registerGetConfigTool } from "./getConfig.js";
 import { registerDoctorTool } from "./doctor.js";
+import { writeDoctorChecks } from "../diag/writeChecks.js";
 import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
 import { registerDaoCreateTools } from "./daoCreate.js";
@@ -42,6 +44,7 @@ import { registerRiskTools } from "./risk.js";
 import { SignerManager } from "../lib/signer.js";
 import { WalletConnectManager } from "../lib/walletconnect.js";
 import { registerGovernorTools } from "../governor/index.js";
+import { governorWriteTools } from "../governor/write.js";
 import { applyToolGate } from "./gate.js";
 import { applyToolAnnotations } from "./annotations.js";
 import { installListToolsNormalizer } from "./schemaNormalize.js";
@@ -75,7 +78,11 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerProposalTools(server, ctx);
   registerVoteTools(server, ctx);
   registerReadTools(server, ctx);
-  registerIpfsTools(server, ctx);
+  // IPFS: uploads, then fetch / cid_info, then cid_for_json — the historical
+  // tools/list order across the write and read halves.
+  registerIpfsUploadTools(server, ctx);
+  registerIpfsReadTools(server, ctx);
+  registerIpfsCidForJsonTool(server);
   registerProposalBuildTools(server, ctx);
   registerProposalBuildMoreTools(server, ctx);
   registerProposalBuildComplexTools(server, ctx);
@@ -99,7 +106,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerAgentTools(server, config, signer);
   registerGetConfigTool(server, config, signer);
   // Diagnostics — call dexe_doctor first when env-related failures show up.
-  registerDoctorTool(server, config);
+  registerDoctorTool(server, config, writeDoctorChecks);
   registerWalletConnectTools(server, config, signer, wc);
   registerProposalBuildOffchainTools(server, ctx, signer, wc);
   registerFlowTools(server, ctx, signer, wc, state);
@@ -118,6 +125,8 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerSimulateTools(server, ctx, signer);
 
   // External OpenZeppelin Governor surface (research/06-execution-plan.md).
-  // Independent namespace; no DeXe Protocol dependency.
-  registerGovernorTools(server, config);
+  // Independent namespace; no DeXe Protocol dependency. The read half
+  // registers and slots the write half (governor/write.ts) in at its
+  // historical positions.
+  registerGovernorTools(server, config, governorWriteTools);
 }

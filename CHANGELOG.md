@@ -74,6 +74,13 @@ governance-call classifier, the upstream-advisory core, the `eth_call`
 simulation core), and `dexe_otc_buyer_status` is registered from its own file.
 No tool, schema or output changed.
 
+Modules that held both editions' code are now split in two, so read-side code no
+longer imports write code: the IPFS, env-guard, input-param, runtime,
+treasury-guard and error-remedy libraries, the IPFS and governor tool files, and
+the doctor checks, with the write halves (Pinata uploads, write remedies, signer
+and Pinata doctor checks) added by write code. The allowlisted crossings went
+from 16 to 9. No tool, schema, error text or doctor output changed.
+
 ## 0.35.0 — 2026-10-12
 
 ### Fixed — a third of the MCP handshake never reached the model

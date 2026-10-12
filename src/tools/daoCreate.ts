@@ -44,7 +44,7 @@ import {
 import { treasuryGate, treasuryGuardMode } from "../lib/treasuryGate.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
-import { resolveGateways } from "./ipfs.js";
+import { resolveGateways } from "./ipfsRead.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/writeErrors.js";
 

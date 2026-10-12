@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../../src/config.js";
 import type { ToolContext } from "../../src/tools/context.js";
-import { registerIpfsTools } from "../../src/tools/ipfs.js";
+import { registerIpfsReadTools } from "../../src/tools/ipfsRead.js";
 import { registerSubgraphTools } from "../../src/tools/subgraph.js";
 import { registerProposalTools } from "../../src/tools/proposal.js";
 import { registerReadTools } from "../../src/tools/read.js";
@@ -207,7 +207,7 @@ describe("attacker-controlled DAO text is neutralized on every read tool", () =>
     );
     process.env.DEXE_IPFS_GATEWAY = "https://gateway.invalid";
     const { tools, server } = captureTools();
-    registerIpfsTools(server, { config: { pinataJwt: "test-jwt" } } as unknown as ToolContext);
+    registerIpfsReadTools(server, { config: { pinataJwt: "test-jwt" } } as unknown as ToolContext);
 
     const res = await tools.get("dexe_ipfs_fetch")!({ cid: SOME_CID, timeoutMs: 500 });
     delete process.env.DEXE_IPFS_GATEWAY;

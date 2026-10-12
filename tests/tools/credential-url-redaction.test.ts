@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { registerIpfsTools } from "../../src/tools/ipfs.js";
+import { registerIpfsReadTools } from "../../src/tools/ipfsRead.js";
+import { registerIpfsCidForJsonTool, registerIpfsUploadTools } from "../../src/tools/ipfsWrite.js";
 import { registerSafeTools } from "../../src/tools/safe.js";
 import type { ToolContext } from "../../src/tools/context.js";
 import { SignerManager } from "../../src/lib/signer.js";
 import type { DexeConfig } from "../../src/config.js";
+
+/** Every IPFS tool, read and write halves, as src/tools/index.ts registers them. */
+function registerIpfsTools(server: McpServer, ctx: ToolContext): void {
+  registerIpfsUploadTools(server, ctx);
+  registerIpfsReadTools(server, ctx);
+  registerIpfsCidForJsonTool(server);
+}
 
 /**
  * W36, second surface: the IPFS and Safe tools.

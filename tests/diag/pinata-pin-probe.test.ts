@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAllChecks, type CheckResult } from "../../src/diag/checks.js";
+import { writeDoctorChecks } from "../../src/diag/writeChecks.js";
+
+/** The doctor as the single server runs it: read checks + the write checks, which own the probe. */
+const runWithWriteChecks = (opts: { timeoutMs: number; probePin?: boolean }) =>
+  runAllChecks({ timeoutMs: opts.timeoutMs, extraChecks: writeDoctorChecks({ probePin: opts.probePin }) });
 
 /**
  * D8-4 — `dexe_doctor` told the calling model "Read-only: never broadcasts,
@@ -56,7 +61,7 @@ describe("pinata pin-capability probe", () => {
 
   it("does not pin by default, and points at the flag from the jwt row", async () => {
     const calls = mockFetch(() => json({ message: "ok" }));
-    const rs = await runAllChecks({ timeoutMs: 100 });
+    const rs = await runWithWriteChecks({ timeoutMs: 100 });
 
     expect(calls.filter((c) => /pinJSONToIPFS/.test(c.url))).toEqual([]);
     expect(byId(rs, "pinata.pinQuota")).toBeUndefined();
@@ -70,7 +75,7 @@ describe("pinata pin-capability probe", () => {
   /** The assertion that would have caught the original defect. */
   it("performs no write of any kind against Pinata under the default options", async () => {
     const calls = mockFetch(() => json({ message: "ok" }));
-    await runAllChecks({ timeoutMs: 100 });
+    await runWithWriteChecks({ timeoutMs: 100 });
 
     const writes = calls.filter(
       (c) => /api\.pinata\.cloud/.test(c.url) && (c.method === "POST" || c.method === "DELETE"),
@@ -84,7 +89,7 @@ describe("pinata pin-capability probe", () => {
       if (/pinning\/unpin\//.test(url)) return new Response("OK", { status: 200 });
       return json({ message: "ok" });
     });
-    const rs = await runAllChecks({ timeoutMs: 100, probePin: true });
+    const rs = await runWithWriteChecks({ timeoutMs: 100, probePin: true });
 
     expect(calls.filter((c) => /pinJSONToIPFS/.test(c.url))).toHaveLength(1);
     const unpins = calls.filter((c) => /pinning\/unpin\/bafyprobe/.test(c.url));
@@ -103,7 +108,7 @@ describe("pinata pin-capability probe", () => {
       if (/pinning\/unpin\//.test(url)) return json({ error: "forbidden" }, 401);
       return json({ message: "ok" });
     });
-    const rs = await runAllChecks({ timeoutMs: 100, probePin: true });
+    const rs = await runWithWriteChecks({ timeoutMs: 100, probePin: true });
 
     const row = byId(rs, "pinata.pinQuota")!;
     expect(row.status).toBe("pass");
@@ -116,7 +121,7 @@ describe("pinata pin-capability probe", () => {
       if (/pinJSONToIPFS/.test(url)) return json({ error: "Account blocked due to plan usage limit" }, 403);
       return json({ message: "ok" });
     });
-    const rs = await runAllChecks({ timeoutMs: 100, probePin: true });
+    const rs = await runWithWriteChecks({ timeoutMs: 100, probePin: true });
 
     const row = byId(rs, "pinata.pinQuota")!;
     expect(row.status).toBe("fail");
@@ -126,7 +131,7 @@ describe("pinata pin-capability probe", () => {
   it("no JWT means no pinata row and no Pinata call, even with probePin", async () => {
     delete process.env.DEXE_PINATA_JWT;
     const calls = mockFetch(() => json({ message: "ok" }));
-    const rs = await runAllChecks({ timeoutMs: 100, probePin: true });
+    const rs = await runWithWriteChecks({ timeoutMs: 100, probePin: true });
 
     expect(rs.filter((r) => r.id.startsWith("pinata."))).toEqual([]);
     expect(calls.filter((c) => /api\.pinata\.cloud/.test(c.url))).toEqual([]);

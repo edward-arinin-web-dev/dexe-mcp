@@ -10,7 +10,7 @@ import { pinJsonOrPreview } from "../lib/ipfsPin.js";
 import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
-import { resolveGateways } from "./ipfs.js";
+import { resolveGateways } from "./ipfsRead.js";
 import { SignerManager, HOT_KEY_SAFETY, hotKeySafetyFields } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
