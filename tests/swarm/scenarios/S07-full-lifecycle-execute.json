@@ -20,14 +20,15 @@
       "args": {
         "govPool": "{{dao}}",
         "proposalType": "modify_dao_profile",
-        "title": "S07 full lifecycle marker",
+        "title": "S07 full lifecycle marker {{now}}",
         "description": "Phase 2 swarm — full execute path",
         "newDaoDescription": "Sentinel — S07 marker 2026-04-29",
         "category": "DAO Profile",
         "user": "{{agent:P:address}}"
       },
       "broadcast": true,
-      "captureAs": "createdProp"
+      "captureAs": "createdProp",
+      "expect": [{ "path": "createdProp.mode", "op": "ne", "value": "already-created" }]
     },
     {
       "step": 2,
