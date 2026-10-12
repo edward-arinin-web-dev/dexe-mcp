@@ -7,6 +7,7 @@ import { safeErrorMessage } from "../lib/redact.js";
 import { RequestCancelledError, runWithRequestSignal } from "../lib/requestScope.js";
 import { sanitizeErrorText } from "../lib/sanitize.js";
 import { createSecretScrubber, scrubDeep, scrubText, type Replacement } from "../lib/secretScrub.js";
+import { redactDeep, stripEnvAdvice, type RemoteRedactor } from "../lib/remoteLabels.js";
 
 /**
  * ── The read-tool result guard ─────────────────────────────────────────────
@@ -27,7 +28,14 @@ import { createSecretScrubber, scrubDeep, scrubText, type Replacement } from "..
  *   4. Error text is neutralized like other third-party prose (an upstream
  *      revert string or gateway body can carry bidi controls or a forged
  *      fence marker) and capped.
- *   5. A result larger than the response limit (`DEXE_MAX_RESPONSE_BYTES`,
+ *   5. REMOTE servers only (`opts.remote`): configured endpoint hosts become
+ *      stable labels (`rpc[56]`, `subgraph:pools`, `backend`,
+ *      `ipfs-gateway#1`), network-error peers and IP addresses are masked, an
+ *      error's remaining URLs and host:port go too, and error sentences that
+ *      tell the reader to set a server variable or restart are dropped
+ *      (src/lib/remoteLabels.ts). A caller of a hosted server learns nothing
+ *      about the operator's infrastructure and gets no advice it cannot act on.
+ *   6. A result larger than the response limit (`DEXE_MAX_RESPONSE_BYTES`,
  *      default 256 KB) is cut down to fit instead of failing: array rows are
  *      dropped from the end and long strings shortened, the first line says
  *      exactly what was cut and how to get the rest, and offset-paged tools
@@ -244,11 +252,34 @@ function scrubResult<R extends ToolResultLike>(result: R, reps: readonly Replace
 // The proxy
 // ---------------------------------------------------------------------------
 
+/** Remote mode (property 5): labels for hosts, masks for peers/IPs, no env advice in errors. */
+function redactForRemote<R extends ToolResultLike>(result: R, redactor: RemoteRedactor): R {
+  const error = result.isError === true;
+  const content = Array.isArray(result.content)
+    ? result.content.map((c) => {
+        if (c.type !== "text" || typeof c.text !== "string") return c;
+        let text = redactor.text(c.text, error);
+        if (error) text = stripEnvAdvice(text);
+        return text === c.text ? c : { ...c, text };
+      })
+    : result.content;
+  const sc =
+    result.structuredContent === undefined
+      ? undefined
+      : redactDeep(result.structuredContent, (s) => redactor.text(s, error));
+  if (content === result.content && sc === result.structuredContent) return result;
+  return { ...result, content, ...(sc !== undefined ? { structuredContent: sc } : {}) } as R;
+}
+
 /** Wrap one read-tool handler. Exported for tests. */
 export function guardReadHandler(
   cb: AnyFn,
-  opts: { outputKeys: ReadonlySet<string> | null; scrubber: () => Replacement[] },
+  opts: { outputKeys: ReadonlySet<string> | null; scrubber: () => Replacement[]; remote?: RemoteRedactor },
 ): AnyFn {
+  const finish = (r: ToolResultLike): ToolResultLike => {
+    const scrubbed = scrubResult(r, opts.scrubber());
+    return opts.remote ? redactForRemote(scrubbed, opts.remote) : scrubbed;
+  };
   return async (...args: unknown[]) => {
     const extra = args[args.length - 1] as { signal?: unknown } | undefined;
     const signal = extra && typeof extra === "object" && extra.signal instanceof AbortSignal ? extra.signal : undefined;
@@ -258,10 +289,10 @@ export function guardReadHandler(
       result = await runWithRequestSignal(signal, () => cb(...args));
     } catch (err) {
       if (err instanceof RequestCancelledError || signal?.aborted) return cancelledResult();
-      return scrubResult(errorResult(safeErrorMessage(err)), opts.scrubber());
+      return finish(errorResult(safeErrorMessage(err)));
     }
     if (!result || typeof result !== "object") return result;
-    const scrubbed = scrubResult(result as ToolResultLike, opts.scrubber());
+    const scrubbed = finish(result as ToolResultLike);
     if (scrubbed.isError) return capToolResult(scrubbed, ERROR_TEXT_MAX_CHARS * 2, null);
     return capToolResult(scrubbed, resolveMaxResponseBytes(), opts.outputKeys);
   };
@@ -270,13 +301,16 @@ export function guardReadHandler(
 /**
  * Wrap every READ_TOOLS registration on `server` with `guardReadHandler`.
  * `config` supplies the endpoints the scrub hides (env is read per call).
+ * `remote` (the read server over HTTP) adds property 5.
  */
 export function applyReadResultGuard(
   server: McpServer,
   config: Pick<ReadConfig, "chains" | "subgraphUrls" | "backendApiUrl">,
   tools: ReadonlySet<string> = new Set(READ_TOOLS),
+  opts: { remote?: RemoteRedactor } = {},
 ): McpServer {
   const scrubber = createSecretScrubber(config);
+  const remote = opts.remote;
   return new Proxy(server, {
     get(target, prop, receiver) {
       const v = Reflect.get(target, prop, receiver);
@@ -289,13 +323,13 @@ export function applyReadResultGuard(
         if (typeof name !== "string" || !tools.has(name)) return original(name, ...rest);
         if (prop === "registerTool") {
           if (typeof rest[1] === "function") {
-            rest[1] = guardReadHandler(rest[1] as AnyFn, { outputKeys: outputKeysOf(rest[0]), scrubber });
+            rest[1] = guardReadHandler(rest[1] as AnyFn, { outputKeys: outputKeysOf(rest[0]), scrubber, remote });
           }
           return original(name, ...rest);
         }
         const last = rest.length - 1;
         if (last >= 0 && typeof rest[last] === "function") {
-          rest[last] = guardReadHandler(rest[last] as AnyFn, { outputKeys: null, scrubber });
+          rest[last] = guardReadHandler(rest[last] as AnyFn, { outputKeys: null, scrubber, remote });
         }
         return original(name, ...rest);
       };

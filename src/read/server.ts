@@ -14,7 +14,8 @@ import {
 } from "../lib/errors.js";
 import { readInstructions } from "../instructions.js";
 import { createKnowledge, createToolLocator, type Knowledge } from "../knowledge/engine.js";
-import { READ_CORPUS } from "../knowledge/read/index.js";
+import { readServerCorpus } from "../knowledge/read/edition.js";
+import type { KnowledgeCorpus } from "../knowledge/types.js";
 import { renderErrorTable, renderGotchasSection, renderTopicsSection } from "../knowledge/render.js";
 import type { ToolContext } from "../tools/context.js";
 import { applyToolsetGate, READ_EDITION_TOOLSETS } from "../tools/toolsets.js";
@@ -26,7 +27,8 @@ import { registerGovTools } from "../tools/gov.js";
 import { registerProposalTools } from "../tools/proposal.js";
 import { registerVoteTools } from "../tools/vote.js";
 import { registerReadTools } from "../tools/read.js";
-import { registerIpfsReadTools } from "../tools/ipfsRead.js";
+import { registerIpfsReadTools, resolveGateways } from "../tools/ipfsRead.js";
+import { collectEndpointLabels, createRemoteRedactor, type RemoteRedactor } from "../lib/remoteLabels.js";
 import { registerSubgraphTools } from "../tools/subgraph.js";
 import { registerReportTools, type ReportSnapshotStore } from "../tools/report.js";
 import { registerInboxTools } from "../tools/inbox.js";
@@ -161,8 +163,11 @@ export const READ_RESOURCES = {
   },
 } as const;
 
-/** The read playbook: topics, pitfalls and the given failure table — rendered, never read from a file. */
-export function renderReadPlaybook(failures: readonly KnownFailure[]): string {
+/**
+ * The read playbook: the read server's topics and pitfalls and the given
+ * failure table — rendered, never read from a file.
+ */
+export function renderReadPlaybook(failures: readonly KnownFailure[], corpus: KnowledgeCorpus): string {
   return [
     "# Reading DeXe DAO data — playbook",
     "",
@@ -171,11 +176,11 @@ export function renderReadPlaybook(failures: readonly KnownFailure[]): string {
     "",
     "## Reference topics",
     "",
-    renderTopicsSection(READ_CORPUS),
+    renderTopicsSection(corpus),
     "",
     "## Pitfalls",
     "",
-    renderGotchasSection(READ_CORPUS),
+    renderGotchasSection(corpus),
     "",
     "## Errors",
     "",
@@ -229,6 +234,8 @@ export interface ReadServerKit {
   catalog: string | null;
   /** The normalized `tools/list` answer, computed once: every server from this kit lists the same tools. */
   readonly toolsList: ListToolsCache;
+  /** Remote only: the operator's hosts → stable labels, applied to every result (src/lib/remoteLabels.ts). */
+  readonly redactor: RemoteRedactor | undefined;
 }
 
 export function createReadServerKit(config: ReadConfig, options: ReadServerOptions): ReadServerKit {
@@ -241,19 +248,25 @@ export function createReadServerKit(config: ReadConfig, options: ReadServerOptio
   // gate would say so on every build (the binary says it once at startup).
   const cfg: ReadConfig = config.toolsets.length > 0 ? Object.freeze({ ...config, toolsets: [] }) : config;
   const artifacts = new NoLocalArtifacts();
+  const ctx: ToolContext = { config: cfg, artifacts, selectors: new SelectorIndex(artifacts) };
   const graphPath = resolve(options.packageRoot ?? defaultPackageRoot(), "docs", "GRAPH.md");
+  // What this server does, not what the full server does: no `since: "last"`,
+  // no profiles, and (remote) no env advice. src/knowledge/read/edition.ts.
+  const corpus = readServerCorpus({ remote: options.remote });
   return {
     config: cfg,
     options,
-    ctx: { config: cfg, artifacts, selectors: new SelectorIndex(artifacts) },
+    ctx,
     knowledge: createKnowledge(
-      READ_CORPUS,
+      corpus,
       createToolLocator({ toolsets: READ_EDITION_TOOLSETS.sets, defaultTools: READ_EDITION_TOOLSETS.sets.read! }),
     ),
-    playbook: renderReadPlaybook(options.remote ? REMOTE_KNOWN_FAILURES : READ_KNOWN_FAILURES),
+    playbook: renderReadPlaybook(options.remote ? REMOTE_KNOWN_FAILURES : READ_KNOWN_FAILURES, corpus),
     graphSchema: existsSync(graphPath) ? readFileSync(graphPath, "utf8") : null,
     catalog: null,
     toolsList: {},
+    // Labels read the env per call (cached by content), like the secret scrub.
+    redactor: options.remote ? createRemoteRedactor(() => collectEndpointLabels(cfg, resolveGateways(ctx))) : undefined,
   };
 }
 
@@ -273,6 +286,8 @@ export function createReadServerFromKit(kit: ReadServerKit): McpServer {
   const s = applyReadResultGuard(
     applyToolAnnotations(applyToolsetGate(server, config, READ_EDITION_TOOLSETS), READ_ANNOTATIONS),
     config,
+    undefined,
+    { remote: kit.redactor },
   );
 
   registerDaoTools(s, ctx);
@@ -280,7 +295,7 @@ export function createReadServerFromKit(kit: ReadServerKit): McpServer {
   registerProposalTools(s, ctx);
   registerVoteTools(s, ctx);
   registerReadTools(s, ctx);
-  registerIpfsReadTools(s, ctx);
+  registerIpfsReadTools(s, ctx, { remote });
   registerSubgraphTools(s, ctx);
   registerReportTools(s, ctx, { toolsets: READ_EDITION_TOOLSETS, store: options.reportStore });
   registerInboxTools(s, ctx);

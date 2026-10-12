@@ -7,6 +7,7 @@ import { base58btc } from "multiformats/bases/base58";
 import { safeErrorMessage } from "./redact.js";
 import { BodyTooLargeError, discardBody, formatBytes, readBodyCapped } from "./boundedBody.js";
 import { currentRequestSignal, deadlineSignal, RequestCancelledError } from "./requestScope.js";
+import { remoteAudience } from "./audience.js";
 
 /**
  * Public IPFS read gateways seeded as a zero-config default when the operator
@@ -102,7 +103,9 @@ export class IpfsTooLargeError extends Error {
         (declared !== undefined ? `${formatBytes(declared)} (${declared} bytes)` : `more than ${formatBytes(limit)}`) +
         `, over the ${formatBytes(limit)} read limit, so the fetch was stopped. DAO profiles and proposal ` +
         `descriptions are a few KB, so this CID is not DeXe metadata. Open it with an IPFS client or a gateway ` +
-        `directly; the server operator can raise the limit with DEXE_IPFS_MAX_BYTES.`,
+        (remoteAudience()
+          ? `directly.`
+          : `directly; the server operator can raise the limit with DEXE_IPFS_MAX_BYTES.`),
     );
     this.name = "IpfsTooLargeError";
   }
@@ -218,7 +221,9 @@ export async function fetchIpfs(
       const h = hostOf(g);
       return h != null && PUBLIC_READ_HOSTS.has(h);
     });
-  const hint = allPublic
+  const hint = allPublic && remoteAudience()
+    ? " — the public IPFS gateways this server reads through are failing; retry in a moment."
+    : allPublic
     ? " — the shared public IPFS gateways are failing. Set DEXE_IPFS_GATEWAY to a dedicated " +
       "gateway (a free Pinata dedicated gateway takes ~2 min; Filebase / Quicknode also work), " +
       "then restart. DEXE_IPFS_GATEWAYS_FALLBACK adds more, comma-separated."

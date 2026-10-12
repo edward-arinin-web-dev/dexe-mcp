@@ -41,6 +41,7 @@ const { readInstructions } = await import("../../src/instructions.js");
 const { READ_KNOWN_FAILURES } = await import("../../src/lib/errors.js");
 const server = await import("../../src/read/server.js");
 const { connectInMemory } = await import("../helpers/readEdition.js");
+const { readServerCorpus } = await import("../../src/knowledge/read/edition.js");
 
 // Hardhat's well-known test account #1 — public, never funded on a real chain.
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
@@ -233,7 +234,7 @@ describe("createReadServerFactory (the HTTP pool)", () => {
 
 describe("remote wording", () => {
   it("the remote playbook's remedies never ask the caller to edit .env", () => {
-    const remote = server.renderReadPlaybook(server.REMOTE_KNOWN_FAILURES);
+    const remote = server.renderReadPlaybook(server.REMOTE_KNOWN_FAILURES, readServerCorpus({ remote: true }));
     expect(remote).not.toMatch(/\.env\b/);
     for (const k of server.REMOTE_KNOWN_FAILURES) expect(k.remedy, k.slug).not.toMatch(/\.env\b|restart/);
     // Same slugs, same order as the read table: only the wording differs.

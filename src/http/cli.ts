@@ -3,6 +3,7 @@ import { parseHttpOptions, serveHttpUsage } from "./options.js";
 import { createRpcReadinessProbe, findSharedDefaults, loadRemoteReadConfig } from "./remoteEnv.js";
 import { createHttpApp } from "./server.js";
 import { createReadServerFactory, useRemoteFailureWording } from "../read/server.js";
+import { setRemoteAudience } from "../lib/audience.js";
 
 /**
  * `dexe-mcp-read serve-http` — the read edition over MCP Streamable HTTP
@@ -84,7 +85,9 @@ export async function runServeHttp(argv: readonly string[], version: string): Pr
     });
   }
 
-  // Error remedies a caller of a hosted server can act on (no "edit .env").
+  // Messages a caller of a hosted server can act on: no "set DEXE_… / edit
+  // .env / restart" (src/lib/audience.ts), and the remote remedy table.
+  setRemoteAudience();
   useRemoteFailureWording();
   let factory: ReturnType<typeof createReadServerFactory>;
   try {

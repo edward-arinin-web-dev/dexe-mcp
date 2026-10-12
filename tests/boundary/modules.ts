@@ -75,6 +75,8 @@ const READ = [
   // the read corpus: reference topics + the data-read gotchas
   "knowledge/read/gotchas.ts",
   "knowledge/read/index.ts",
+  // the read corpus as the read server tells it (no stored runs, no profiles)
+  "knowledge/read/edition.ts",
   "knowledge/read/topics.ts",
   "lib/abi/tokenSale.ts",
   "lib/abiSnapshot.ts",
@@ -82,6 +84,8 @@ const READ = [
   // A pure digits-only validator. Builders use it, but so does the read tool
   // dexe_read_token_sale_position (tier ids), so it is shared code, not write code.
   "lib/amount.ts",
+  // local vs hosted wording for messages that end in an env remedy
+  "lib/audience.ts",
   // byte-capped body reads for upstream responses
   "lib/boundedBody.ts",
   "lib/controllingVoters.ts",
@@ -109,6 +113,8 @@ const READ = [
   // pure quorum/treasury risk math; the gate and its advisories are lib/treasuryGate.ts
   "lib/quorumRisk.ts",
   "lib/redact.ts",
+  // remote mode: configured hosts -> stable labels, peers/IPs masked
+  "lib/remoteLabels.ts",
   // generic env guard; the Pinata guard is lib/pinata.ts
   // ambient per-request cancellation signal for read tools
   "lib/requestScope.ts",

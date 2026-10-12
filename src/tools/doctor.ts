@@ -61,17 +61,42 @@ function hostRow(id: string): boolean {
 
 const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s,;)'"]+/gi;
 const HOSTNAME_RE = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/gi;
+const IPV4_RE = /(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?::\d{1,5})?(?![\w.])/g;
+const IPV6_RE = /\[[0-9a-f.%]*:[0-9a-f:.%]*\](?::\d{1,5})?|(?<![\w:])(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?(?![\w:])/gi;
+const ENV_NAME_RE = /\bDEXE_[A-Z0-9_*<>]+/g;
 
-/** Endpoint URLs and hostnames out of a row message: an operator's RPC or gateway host is not public. */
+/**
+ * Endpoint URLs, IP addresses and hostnames out of a row message: an
+ * operator's RPC or gateway host — or the address it resolved to — is not
+ * public. Setting names go too: a remote caller cannot set them.
+ */
 export function redactEndpoints(text: string): string {
-  return text.replace(URL_RE, "<endpoint>").replace(HOSTNAME_RE, "<host>");
+  return text
+    .replace(URL_RE, "<endpoint>")
+    .replace(IPV6_RE, "<ip>")
+    .replace(IPV4_RE, "<ip>")
+    .replace(HOSTNAME_RE, "<host>")
+    .replace(ENV_NAME_RE, "a server setting");
 }
 
-/** The remote form of a check list: upstream rows only, no remediation, no hostnames. */
+/** The remote form of a check list: upstream rows only, no remediation, no hostnames or addresses. */
 export function remoteCheckRows(checks: readonly CheckResult[]): CheckResult[] {
   return checks
     .filter((c) => !hostRow(c.id))
-    .map((c) => ({ id: c.id, category: c.category, status: c.status, message: redactEndpoints(c.message) }));
+    .map((c) => ({ id: c.id, category: c.category, status: c.status, message: remoteMessage(c) }));
+}
+
+/**
+ * The gateway DNS row is ABOUT a host name — one without dots (`internal-gw`)
+ * would pass every hostname pattern — so remotely it says only the outcome.
+ */
+function remoteMessage(c: CheckResult): string {
+  if (c.id === "ipfs.gateway.dns") {
+    return c.status === "pass"
+      ? "the IPFS gateway's name resolves"
+      : "the IPFS gateway's name does not resolve, or the gateway does not answer";
+  }
+  return redactEndpoints(c.message);
 }
 
 interface Tally {

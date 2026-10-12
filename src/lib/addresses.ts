@@ -1,4 +1,5 @@
 import { Contract, JsonRpcProvider, ZeroAddress } from "ethers";
+import { remoteAudience } from "./audience.js";
 
 /**
  * Per-chain `ContractsRegistry` root addresses. Every other DeXe protocol
@@ -69,11 +70,12 @@ export class AddressBook {
     this.chainId = cfg.chainId;
     const addr = cfg.registryOverride ?? CONTRACTS_REGISTRY_BY_CHAIN[cfg.chainId];
     if (!addr) {
+      const supported = Object.keys(CONTRACTS_REGISTRY_BY_CHAIN).join(", ");
       throw new Error(
-        `No ContractsRegistry address known for chainId=${cfg.chainId}. ` +
-          `Set DEXE_CONTRACTS_REGISTRY or pick a supported chain (${Object.keys(
-            CONTRACTS_REGISTRY_BY_CHAIN,
-          ).join(", ")}).`,
+        remoteAudience()
+          ? `No DeXe ContractsRegistry is known for chainId=${cfg.chainId} on this server. Supported chains: ${supported}.`
+          : `No ContractsRegistry address known for chainId=${cfg.chainId}. ` +
+              `Set DEXE_CONTRACTS_REGISTRY or pick a supported chain (${supported}).`,
       );
     }
     this.registryAddress = addr;

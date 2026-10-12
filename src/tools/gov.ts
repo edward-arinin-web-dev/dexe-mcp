@@ -211,7 +211,7 @@ function registerDecodeProposal(server: McpServer, abis: DecodeAbis, rpc: RpcPro
     {
       title: "Read and decode a GovPool proposal",
       description:
-        "Read-only. Fetches a GovPool proposal via `getProposals(offset, limit)` and decodes its for/against actions. Works with the built-in public RPC; set DEXE_RPC_URL_MAINNET / _TESTNET for reliability.",
+        "Read-only. Fetches a GovPool proposal via `getProposals(offset, limit)` and decodes its for/against actions.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         proposalId: z.number().int().positive().describe("Proposal ID (1-indexed)"),
@@ -399,7 +399,7 @@ function registerReadGovState(
     {
       title: "Read aggregate GovPool state",
       description:
-        "Read-only. Reads `getHelperContracts()` and `getNftContracts()` on a GovPool. Works with the built-in public RPC; set DEXE_RPC_URL_MAINNET / _TESTNET for reliability.",
+        "Read-only. Reads `getHelperContracts()` and `getNftContracts()` on a GovPool.",
       inputSchema: {
         govPool: z.string().describe("GovPool contract address"),
         chainId: chainIdParam,

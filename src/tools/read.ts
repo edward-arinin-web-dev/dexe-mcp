@@ -29,6 +29,7 @@ import { backendChainIdParam, chainIdParam, govPoolParam } from "../lib/params.j
 import { toActionableError } from "../lib/errors.js";
 import { pageMeta, truncationNote } from "../lib/page.js";
 import { GOV_POWER_DECIMALS, formatUnitsWithSymbol, withFormatted } from "../lib/units.js";
+import { remoteAudience } from "../lib/audience.js";
 
 const GOV_POOL_ABI = [
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
@@ -671,7 +672,9 @@ async function backendGetJson<T>(path: string, timeoutMs = 8000): Promise<T> {
     if (deadline.timedOut()) {
       throw new Error(
         `DeXe backend request timed out after ${timeoutMs}ms (${path.split("?")[0]}) — usually transient, re-run the call. ` +
-          `If it persists: check network access to the DeXe backend (${maskUrl(base)}) or set DEXE_BACKEND_API_URL.`,
+          (remoteAudience()
+            ? `If it persists, the backend is not reachable from this server right now.`
+            : `If it persists: check network access to the DeXe backend (${maskUrl(base)}) or set DEXE_BACKEND_API_URL.`),
       );
     }
     if (err instanceof BodyTooLargeError) {
