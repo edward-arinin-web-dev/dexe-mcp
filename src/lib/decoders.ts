@@ -1,7 +1,17 @@
 import { Interface, type Result } from "ethers";
-import type { Artifacts } from "../artifacts.js";
-import type { SelectorIndex } from "./selectors.js";
+import type { AbiRecord } from "../artifacts.js";
+import type { SelectorHit } from "./selectors.js";
 import { findForbiddenSelector } from "./dangerousSelectors.js";
+
+/** Name → ABI lookup: the compiled `Artifacts` or the bundled `AbiSnapshot`. */
+export interface AbiLookup {
+  get(contractName: string): readonly AbiRecord[];
+}
+
+/** Selector → contracts lookup: a `SelectorIndex` over the same ABIs. */
+export interface SelectorLookup {
+  find(selector: string): readonly SelectorHit[];
+}
 
 export interface DecodedCall {
   /** Which contract's ABI produced this decode. May be `null` if we used a bare selector match. */
@@ -21,6 +31,34 @@ export interface DecodedCall {
    * reviewer see hidden privileged calls instead of just the wrapper.
    */
   nested?: DecodedCall[];
+  /** Which ABI set decoded this call. Set only by decoders built with a `sourceKind`. */
+  abiSource?: AbiSourceKind;
+}
+
+/** The compiled artifacts under DEXE_PROTOCOL_PATH, or the bundled ABI snapshot. */
+export type AbiSourceKind = "artifacts" | "snapshot";
+
+/**
+ * True when two decodes of the same calldata read its arguments the same way:
+ * same signature (types) and same parameter names. ERC20
+ * `approve(spender, amount)` and ERC721 `approve(to, tokenId)` share a selector
+ * and types but not names, and the difference is the one a reviewer must see:
+ * an amount versus a token id.
+ */
+export function sameArguments(a: DecodedCall, b: DecodedCall): boolean {
+  return a.signature === b.signature && Object.keys(a.args).join(",") === Object.keys(b.args).join(",");
+}
+
+export interface CalldataDecoderOptions {
+  /** Stamped on every call this decoder decodes, so a reader can tell the ABI sets apart. */
+  sourceKind?: AbiSourceKind;
+  /**
+   * Asked whenever this decoder's own ABIs have no answer for a lookup —
+   * top-level or nested. A partial or failed local compile (an empty
+   * `artifacts/contracts/`, a missing contract) then still decodes through the
+   * snapshot instead of returning nothing.
+   */
+  fallback?: CalldataDecoder;
 }
 
 export interface DecodedProposalAction {
@@ -34,8 +72,9 @@ export interface DecodedProposalAction {
 
 export class CalldataDecoder {
   constructor(
-    private readonly artifacts: Artifacts,
-    private readonly selectors: SelectorIndex,
+    private readonly artifacts: AbiLookup,
+    private readonly selectors: SelectorLookup,
+    private readonly options: CalldataDecoderOptions = {},
   ) {}
 
   /**
@@ -97,7 +136,19 @@ export class CalldataDecoder {
     if (!data || data.length < 10 || !data.startsWith("0x")) {
       return { primary: null, alternatives: [] };
     }
+    const own = this.decodeOwn(data, contractName);
+    if (own.primary || !this.options.fallback) return own;
+    return this.options.fallback.decodeOnce(data, contractName);
+  }
+
+  /** One decode against this decoder's own ABIs only. */
+  private decodeOwn(
+    data: string,
+    contractName?: string,
+  ): { primary: DecodedCall | null; alternatives: DecodedCall[] } {
     const selector = data.slice(0, 10).toLowerCase();
+    const stamp = (c: DecodedCall): DecodedCall =>
+      this.options.sourceKind ? { ...c, abiSource: this.options.sourceKind } : c;
 
     if (contractName) {
       const record = this.artifacts.get(contractName)[0];
@@ -105,11 +156,11 @@ export class CalldataDecoder {
       const hit = tryDecodeWith(record.abi, data);
       if (hit) {
         return {
-          primary: {
+          primary: stamp({
             contract: record.contractName,
             sourceName: record.sourceName,
             ...hit,
-          },
+          }),
           alternatives: [],
         };
       }
@@ -126,7 +177,7 @@ export class CalldataDecoder {
       for (const r of records) {
         const hit = tryDecodeWith(r.abi, data);
         if (hit) {
-          decoded.push({ contract: r.contractName, sourceName: r.sourceName, ...hit });
+          decoded.push(stamp({ contract: r.contractName, sourceName: r.sourceName, ...hit }));
           break;
         }
       }

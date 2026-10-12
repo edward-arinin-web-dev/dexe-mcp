@@ -1,5 +1,10 @@
 import { Interface } from "ethers";
-import type { Artifacts, ArtifactRecord } from "../artifacts.js";
+import type { AbiRecord } from "../artifacts.js";
+
+/** Anything that lists ABIs: the compiled `Artifacts` or the bundled snapshot. */
+export interface AbiRecordSource {
+  list(): readonly AbiRecord[];
+}
 
 export type SelectorKind = "function" | "event" | "error";
 
@@ -23,7 +28,7 @@ export class SelectorIndex {
   private byErrorSelector = new Map<string, SelectorHit[]>();
   private lastCacheStamp: unknown = null;
 
-  constructor(private readonly artifacts: Artifacts) {}
+  constructor(private readonly artifacts: AbiRecordSource) {}
 
   /** Build the index (idempotent). Called automatically by find/forContract. */
   private ensureBuilt(): void {
@@ -42,7 +47,7 @@ export class SelectorIndex {
     this.lastCacheStamp = stamp;
   }
 
-  private indexContract(record: ArtifactRecord): void {
+  private indexContract(record: AbiRecord): void {
     let iface: Interface;
     try {
       iface = new Interface(record.abi as readonly unknown[] as ReadonlyArray<string>);

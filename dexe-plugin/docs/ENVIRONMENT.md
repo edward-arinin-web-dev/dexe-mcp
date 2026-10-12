@@ -179,8 +179,8 @@ touches.
 |----------|-------|--------------|
 | Dev tooling — compile/test/coverage/lint | `dexe_compile`, `dexe_test`, `dexe_coverage`, `dexe_lint` | `DEXE_PROTOCOL_PATH` (optional — auto-managed if unset) |
 | Dev tooling — introspection | `dexe_list_contracts`, `dexe_get_abi`, `dexe_get_methods`, `dexe_get_selectors`, `dexe_find_selector`, `dexe_get_natspec`, `dexe_get_source` | (run `dexe_compile` first; reads artifacts) |
-| Dev tooling — decode | `dexe_decode_calldata`, `dexe_list_gov_contract_types` | (artifacts only) |
-| Dev tooling — decode (on-chain) | `dexe_decode_proposal` | `DEXE_RPC_URL` |
+| Dev tooling — decode | `dexe_decode_calldata`, `dexe_list_gov_contract_types` | (none — bundled ABI snapshot; a local compile under `DEXE_PROTOCOL_PATH` is tried first when present) |
+| Dev tooling — decode (on-chain) | `dexe_decode_proposal` | `DEXE_RPC_URL` (optional — built-in public RPC otherwise) |
 | DAO reads — on-chain multicall | `dexe_dao_info`, `dexe_dao_predict_addresses`, `dexe_dao_registry_lookup`, `dexe_proposal_state`, `dexe_proposal_list`, `dexe_vote_user_power`, `dexe_vote_get_votes`, `dexe_read_multicall`, `dexe_read_treasury`, `dexe_read_validators`, `dexe_read_settings`, `dexe_read_expert_status`, `dexe_read_gov_state`, `dexe_read_distribution_status`, `dexe_read_staking_info`, `dexe_read_token_sale_tiers`, `dexe_read_token_sale_user`, `dexe_read_privacy_policy_status` | `DEXE_RPC_URL`, `DEXE_CHAIN_ID`, `DEXE_CONTRACTS_REGISTRY` (fallback) |
 | DAO reads — subgraph (pools) | `dexe_read_dao_list`, `dexe_read_dao_members`, `dexe_read_delegation_map`, `dexe_read_dao_experts`, `dexe_proposal_voters` | `DEXE_SUBGRAPH_POOLS_URL` for chain 56 · `DEXE_SUBGRAPH_POOLS_URL_<chainId>` for any other |
 | DAO reads — subgraph (validators) | `dexe_read_validator_list` | `DEXE_SUBGRAPH_VALIDATORS_URL` / `..._URL_<chainId>` |

@@ -515,9 +515,14 @@ flows exists as a standalone builder returning one `TxPayload`:
   `dexe_ipfs_upload_dao_metadata` + `dexe_dao_build_deploy` — the manual path
   `dexe_dao_create` automates. The same coherence guards run.
 
-Decode/introspection (`dev` toolset): `dexe_decode_calldata`,
-`dexe_decode_proposal`, `dexe_find_selector`, `dexe_get_methods` — run
-`dexe_compile` once per session first.
+Decode (`dev` toolset): `dexe_decode_calldata`, `dexe_decode_proposal` need
+no setup — they decode against an ABI snapshot of DeXe-Protocol bundled with
+the server (the reply names its commit). A local compile is tried first when
+one exists; anything it lacks falls through to the snapshot (`abiSource` says
+which answered). Introspection (`dexe_find_selector`,
+`dexe_get_methods`, `dexe_get_abi`, …) reads the local compile: run
+`dexe_compile` once per session first. Maintainers refresh the snapshot with
+`npm run gen:abi-snapshot -- --protocol <compiled DeXe-Protocol checkout>`.
 
 ---
 
