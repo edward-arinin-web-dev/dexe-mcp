@@ -1,4 +1,4 @@
-# EXPERIMENTAL example for the remote read-only MCP server. See docs/REMOTE.md.
+# Example for the read edition over HTTP (`dexe-mcp-read serve-http`; pre-release). See docs/REMOTE.md.
 #
 #   cp docker-compose.example.yml docker-compose.yml   # then edit the values
 #   docker compose up -d --build

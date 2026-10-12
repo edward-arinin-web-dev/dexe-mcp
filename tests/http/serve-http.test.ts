@@ -1,30 +1,28 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";
+import { readInstructions } from "../../src/instructions.js";
 import { parseHttpOptions, type HttpServerOptions } from "../../src/http/options.js";
+import { READ_SERVER_NAME, createReadServerFactory, type ReadServerFactory } from "../../src/read/server.js";
 import {
-  REMOTE_READ_INSTRUCTIONS,
-  REMOTE_SERVER_NAME,
-  createInterimReadServerFactory,
   loadRemoteReadConfig,
-  remoteReadGuard,
   type RemoteReadConfig,
-} from "../../src/http/readServer.js";
+} from "../../src/http/remoteEnv.js";
 import { createHttpApp, type HttpApp, type McpServerFactory } from "../../src/http/server.js";
 
 /**
- * `serve-http` end to end: the real read factory behind the real HTTP app on
- * an ephemeral loopback port, driven by the SDK's own Streamable HTTP client
- * and by raw requests where the test needs exact headers.
+ * `serve-http` end to end: the read edition's server factory (src/read/server.ts,
+ * pooled as the binary runs it) behind the real HTTP app on an ephemeral
+ * loopback port, driven by the SDK's own Streamable HTTP client and by raw
+ * requests where the test needs exact headers.
  */
 
 // Hardhat's well-known test account #1 — public, never funded on a real chain.
@@ -41,9 +39,11 @@ async function start(
   factory: McpServerFactory,
   overrides: Partial<HttpServerOptions> = {},
   logs: Record<string, unknown>[] = [],
+  releaseServer?: (s: McpServer) => void,
 ): Promise<{ app: HttpApp; port: number }> {
   const app = createHttpApp(baseOptions(overrides), {
     serverFactory: factory,
+    releaseServer,
     version: "0.0.0-test",
     accessLog: (e) => logs.push(e),
     onError: () => undefined,
@@ -95,11 +95,12 @@ function rpc(method: string, params: Record<string, unknown> = {}, id = 1): stri
 
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
-describe("serve-http with the interim read factory", () => {
+describe("serve-http with the read edition's server factory", () => {
   const savedEnv = { ...process.env };
   let operatorStateDir: string;
   let remote: RemoteReadConfig;
   let toolNames: () => string[];
+  let factory: ReadServerFactory;
   let app: HttpApp;
   let port: number;
   const logs: Record<string, unknown>[] = [];
@@ -113,10 +114,9 @@ describe("serve-http with the interim read factory", () => {
     process.env.FOO_SECRET = "planted-foo";
     process.env.DEXE_TOOLSETS = "full";
     remote = await loadRemoteReadConfig();
-    const read = createInterimReadServerFactory(remote.config, "0.0.0-test");
-    toolNames = read.toolNames;
-    await read.factory(); // warm-up, fills toolNames
-    ({ app, port } = await start(read.factory, {}, logs));
+    factory = createReadServerFactory(remote.config, { remote: true, version: "0.0.0-test" });
+    toolNames = factory.toolNames;
+    ({ app, port } = await start(factory.acquire, {}, logs, factory.release));
   });
 
   afterAll(async () => {
@@ -131,13 +131,13 @@ describe("serve-http with the interim read factory", () => {
     for (const k of ["DEXE_PRIVATE_KEY", "DEXE_PINATA_JWT", "DEXE_SAFE_API_KEY", "FOO_SECRET"]) {
       expect(process.env[k], k).toBeUndefined();
     }
-    expect(JSON.stringify(remote.config)).not.toMatch(/planted-safe-key|planted-foo|test-jwt/);
-    expect(remote.config.privateKey).toBeUndefined();
-    expect(remote.config.pinataJwt).toBeUndefined();
-    expect(remote.config.walletConnectProjectId).toBeUndefined();
-    expect(remote.config.toolsets).toEqual(["read"]);
-    expect(remote.config.statePath).not.toBe(join(operatorStateDir, "state.json"));
-    // the config banner is kept for ops, minus lines about features this server lacks
+    expect(JSON.stringify(remote.config)).not.toMatch(/planted-safe-key|planted-foo|test-jwt|59c6995e/);
+    // The read config has no signer fields at all, and DEXE_TOOLSETS /
+    // DEXE_STATE_PATH were scrubbed: neither means anything to this server.
+    expect(Object.keys(remote.config)).not.toEqual(expect.arrayContaining(["privateKey"]));
+    expect(remote.config.toolsets).toEqual([]);
+    expect(process.env.DEXE_STATE_PATH).toBeUndefined();
+    // the config banner is kept for ops, and the read loader has nothing to say about signing
     expect(remote.configNotes.some((l) => /chains:/.test(l))).toBe(true);
     expect(remote.configNotes.filter((l) => /WalletConnect|signing/i.test(l))).toEqual([]);
   });
@@ -146,20 +146,32 @@ describe("serve-http with the interim read factory", () => {
     const client = new Client({ name: "http-test", version: "0.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
     try {
-      expect(client.getServerVersion()?.name).toBe(REMOTE_SERVER_NAME);
-      expect(client.getInstructions()).toBe(REMOTE_READ_INSTRUCTIONS);
+      expect(client.getServerVersion()?.name).toBe(READ_SERVER_NAME);
+      expect(client.getInstructions()).toBe(readInstructions());
 
       const caps = client.getServerCapabilities();
       expect(caps?.tools).toBeDefined();
       // stateless: no stream to deliver list_changed on, so it is not advertised
       expect(caps?.tools?.listChanged).not.toBe(true);
-      expect(caps?.prompts, "write-flow prompts must not be served").toBeUndefined();
-      expect(caps?.resources, "doc resources must not be served").toBeUndefined();
+      expect(caps?.resources?.listChanged).not.toBe(true);
+      expect(caps?.prompts, "no prompts: the write-flow prompts are the write edition's").toBeUndefined();
+
+      // The read resources: graph schema, the read tool catalog, the read playbook.
+      const { resources } = await client.listResources();
+      expect(resources.map((r) => r.uri).sort()).toEqual(["dexe://graph-schema", "dexe://playbook", "dexe://tools"]);
+      for (const r of resources) {
+        const body = await client.readResource({ uri: r.uri });
+        const text = body.contents.map((c) => ("text" in c ? c.text : "")).join("\n");
+        expect(text.length, r.uri).toBeGreaterThan(200);
+        for (const w of WRITE_TOOLS) expect(text, `${r.uri} names ${w}`).not.toMatch(new RegExp(`\\b${w}\\b`));
+        // Remote wording: a caller cannot edit this server's .env.
+        if (r.uri === "dexe://playbook") expect(text).not.toMatch(/\.env/);
+      }
 
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name).sort();
       expect(names).toEqual(toolNames());
-      expect(names.length).toBeGreaterThan(20);
+      expect(names).toEqual([...READ_TOOLS].sort());
       const read = new Set(READ_TOOLS);
       expect(names.filter((n) => !read.has(n)), "served but not in READ_TOOLS").toEqual([]);
       expect(tools.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name)).toEqual([]);
@@ -177,8 +189,49 @@ describe("serve-http with the interim read factory", () => {
   });
 
   it("the remote handshake instructions name no write tool", () => {
-    for (const w of WRITE_TOOLS) expect(REMOTE_READ_INSTRUCTIONS).not.toContain(w);
+    for (const w of WRITE_TOOLS) expect(readInstructions()).not.toMatch(new RegExp(`\\b${w}\\b`));
   });
+
+  it("serves every request from a pooled server: one built for serial traffic", () => {
+    // initialize, tools/list and tools/call above all went through the pool.
+    expect(factory.built()).toBe(1);
+  });
+
+  it("a reused server does not carry the previous caller's initialize", async () => {
+    const first = await raw(port, {
+      headers: JSON_HEADERS,
+      body: rpc("initialize", {
+        protocolVersion: "2025-11-25",
+        capabilities: { sampling: {} },
+        clientInfo: { name: "caller-a", version: "1" },
+      }),
+    });
+    expect(first.status).toBe(200);
+    await settle();
+    const s = factory.acquire();
+    try {
+      expect(s.server.getClientVersion()).toBeUndefined();
+      expect(s.server.getClientCapabilities()).toBeUndefined();
+    } finally {
+      factory.release(s);
+    }
+  });
+
+  // dexe_doctor's remote form is pinned without a network in tests/read/remote-diagnostics.test.ts.
+  it("remote orientation tools name no host, path or env file", async () => {
+    for (const name of ["dexe_context", "dexe_get_config"]) {
+      const r = await raw(port, {
+        headers: { ...JSON_HEADERS, "mcp-protocol-version": "2025-11-25" },
+        body: rpc("tools/call", { name, arguments: {} }),
+      });
+      expect(r.status, name).toBe(200);
+      const text = JSON.stringify(r.json().result);
+      expect(text, name).not.toMatch(/https?:\/\//);
+      expect(text, name).not.toMatch(/dataseed|bnbchain|thegraph|api\.dexe\.io/i);
+      expect(text, name).not.toMatch(/\.env\b|envFile|statePath|state\.json|startupTime|DEXE_[A-Z_]+_KEY/);
+      expect(text, name).not.toContain(operatorStateDir.replace(/\\/g, "\\\\"));
+    }
+  }, 30_000);
 
   it("answers GET and DELETE on /mcp with 405 (stateless: no SSE stream, no session)", async () => {
     for (const method of ["GET", "DELETE"]) {
@@ -317,9 +370,8 @@ describe("serve-http with the interim read factory", () => {
     expect(logs.some((e) => e.reason === "origin" && e.status === 403)).toBe(true);
   });
 
-  it("writes no state: the operator's DEXE_STATE_PATH dir is empty and the throwaway path was never created", () => {
+  it("writes no state: the operator's DEXE_STATE_PATH dir is still empty", () => {
     expect(readdirSync(operatorStateDir)).toEqual([]);
-    expect(existsSync(dirname(remote.statePath))).toBe(false);
   });
 });
 
@@ -495,38 +547,6 @@ describe("serve-http limits", () => {
       expect((await call(port, { "x-forwarded-for": "9.9.9.9:2000" })).status).toBe(429);
     } finally {
       await app.close(100);
-    }
-  });
-});
-
-describe("remoteReadGuard", () => {
-  it("drops write tools and prompts, and forces dexe_dao_report persist:false", async () => {
-    const real = new McpServer({ name: "guarded", version: "0" });
-    const served = new Set<string>();
-    const guarded = remoteReadGuard(real, served);
-    const seen: Array<Record<string, unknown>> = [];
-    guarded.registerTool(
-      "dexe_dao_report",
-      { description: "report", inputSchema: { persist: z.boolean().optional() } },
-      async (args) => {
-        seen.push(args);
-        return { content: [{ type: "text", text: "ok" }] };
-      },
-    );
-    guarded.registerTool("dexe_tx_send", { description: "write" }, async () => ({ content: [] }));
-    guarded.registerPrompt("create_dao", { description: "write flow" }, () => ({ messages: [] }));
-    expect([...served]).toEqual(["dexe_dao_report"]);
-
-    const client = new Client({ name: "t", version: "0" });
-    const [a, b] = InMemoryTransport.createLinkedPair();
-    await Promise.all([real.connect(b), client.connect(a)]);
-    try {
-      expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["dexe_dao_report"]);
-      expect(client.getServerCapabilities()?.prompts).toBeUndefined();
-      await client.callTool({ name: "dexe_dao_report", arguments: { persist: true } });
-      expect(seen[0]?.persist).toBe(false);
-    } finally {
-      await client.close();
     }
   });
 });

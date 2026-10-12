@@ -1,6 +1,7 @@
 import { resolveStatePath } from "./lib/stateStore.js";
 import { parseEnv } from "./env/parse.js";
 import { ENV_SPEC_READ, PER_CHAIN_SUBGRAPH_URL_RE, subgraphUrlStr, type EnvSpec } from "./env/schemaRead.js";
+import { remoteAudience } from "./lib/audience.js";
 
 /**
  * The READ edition's configuration: chains and RPC endpoints, subgraph and
@@ -730,6 +731,9 @@ export function resolveChain(config: ReadConfig, chainId?: number): ChainConfig 
   const chain = config.chains.get(target);
   if (!chain) {
     const configured = [...config.chains.keys()].sort().join(", ") || "none";
+    if (remoteAudience()) {
+      throw new Error(`Chain ${target} is not available on this server. Chains it serves: [${configured}].`);
+    }
     throw new Error(
       `No RPC configured for chainId=${target}. Configured chains: [${configured}]. ` +
         `Set DEXE_RPC_URL_${target === 97 ? "TESTNET" : target === 56 ? "MAINNET" : "<chain>"} in the MCP env block.`,

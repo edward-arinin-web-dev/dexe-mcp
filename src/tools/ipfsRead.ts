@@ -15,17 +15,28 @@ import { shrinkJson } from "../lib/jsonShrink.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { untrustedResult } from "../lib/sanitize.js";
 import { toActionableError, type ActionableError } from "../lib/errors.js";
+import { remoteAudience } from "../lib/audience.js";
 
 /**
  * The read half of the IPFS tools: `dexe_ipfs_fetch` and `dexe_ipfs_cid_info`,
  * plus the gateway chain and the error sink the upload tools in ./ipfsWrite.ts
  * share. Nothing here pins.
  */
-export function registerIpfsReadTools(server: McpServer, ctx: ToolContext): void {
+export interface IpfsReadOptions {
+  /**
+   * Served to many callers over HTTP: `dexe_ipfs_fetch` names the gateway that
+   * answered by its position in the chain (`ipfs-gateway#1`), never its host,
+   * and `dexe_ipfs_cid_info` links the public gateways only — an operator's
+   * dedicated gateway is theirs, not the caller's.
+   */
+  remote?: boolean;
+}
+
+export function registerIpfsReadTools(server: McpServer, ctx: ToolContext, opts: IpfsReadOptions = {}): void {
   const gateways = resolveGateways(ctx);
 
-  registerFetch(server, gateways);
-  registerCidInfo(server, gateways);
+  registerFetch(server, gateways, opts.remote === true);
+  registerCidInfo(server, opts.remote === true ? [...DEFAULT_PUBLIC_READ_GATEWAYS] : gateways);
 }
 
 function errorResult(message: string) {
@@ -168,13 +179,13 @@ export const NO_GATEWAY_HINT =
 
 // ---------- dexe_ipfs_fetch ----------
 
-function registerFetch(server: McpServer, defaultGateways: string[]): void {
+function registerFetch(server: McpServer, defaultGateways: string[], remote: boolean): void {
   server.registerTool(
     "dexe_ipfs_fetch",
     {
       title: "Fetch content by CID (dedicated gateway, optional fallback)",
       description:
-        "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (a dedicated gateway, e.g. Pinata's). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
+        "Read-only. Fetches IPFS content by CID through the server's gateway chain: its dedicated gateway first when it has one, then the configured or public fallbacks.",
       inputSchema: {
         cid: z.string().describe("CID (with or without ipfs:// prefix)"),
         timeoutMs: z.number().int().min(500).max(30_000).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000)."),
@@ -193,7 +204,7 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
       },
     },
     async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }, extra) => {
-      if (defaultGateways.length === 0) return errorResult(NO_GATEWAY_HINT);
+      if (defaultGateways.length === 0) return errorResult(remoteAudience() ? "IPFS reads are not available on this server (it has no gateway configured)." : NO_GATEWAY_HINT);
       try {
         const res = await fetchIpfs(cid, {
           gateways: defaultGateways,
@@ -201,7 +212,8 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
           maxBytes: resolveIpfsMaxBytes(),
           signal: extra?.signal,
         });
-        const gateway = gatewayLabel(res.gateway);
+        const position = defaultGateways.indexOf(res.gateway);
+        const gateway = remote ? `ipfs-gateway#${position >= 0 ? position + 1 : "?"}` : gatewayLabel(res.gateway);
         // A document past the cap is summarized, not dropped: the caller keeps
         // its shape and the head of every field, and `truncated` + `sizeBytes`
         // say how much was left out.

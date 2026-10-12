@@ -77,6 +77,19 @@ export const WRITE_KNOWN_FAILURES: KnownFailureRegistration = {
     },
   ],
   wording: {
+    // The single server gates tools by DEXE_TOOLSETS, so its wording says which
+    // profile each fallback read needs.
+    "subgraph-failed": {
+      remedy:
+        "Re-run once (429/5xx/timeouts are usually transient). If it persists, read the same facts on-chain instead — " +
+        "dexe_proposal_list / dexe_read_settings / dexe_dao_info need no indexer and are in the default profile; " +
+        "dexe_read_gov_state (needs DEXE_TOOLSETS=core,dev) and dexe_read_multicall (needs DEXE_TOOLSETS=core,read) " +
+        "cover the rest. " +
+        "A 401/403/429 on the shipped default endpoint means you are sharing the packaged Graph key: get a free one at " +
+        "thegraph.com/studio, set DEXE_SUBGRAPH_POOLS_URL / _VALIDATORS_URL / _INTERACTIONS_URL in .env, and restart. " +
+        "Entity/field names for a hand-written query: call dexe_graph_schema (live introspection, default profile) " +
+        "or read the dexe://graph-schema resource.",
+    },
     "backend-failed": {
       remedy:
         "For reads, re-run: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). " +

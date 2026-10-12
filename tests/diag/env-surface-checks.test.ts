@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { startupIssueChecks, envSourceChecks, type CheckResult } from "../../src/diag/checks.js";
 import { FULL_ENV_SURFACE } from "../../src/env/schema.js";
+import { WRITE_ENV_FILE_WORDING } from "../../src/diag/writeChecks.js";
 import type { EnvLoadReport, EnvSourceState } from "../../src/env/loader.js";
 import type { DexeConfig, StartupIssue } from "../../src/config.js";
 
@@ -88,14 +89,19 @@ describe("envSourceChecks", () => {
   });
 
   it("no .env anywhere → warn that lists every path tried", () => {
-    const r = byId(
-      envSourceChecks(state({ reports: [report({ envFileExists: false, envFileLoaded: false })] })),
-      "env.file",
-    )!;
+    const noFile = state({ reports: [report({ envFileExists: false, envFileLoaded: false })] });
+    const r = byId(envSourceChecks(noFile, WRITE_ENV_FILE_WORDING), "env.file")!;
     expect(r.status).toBe("warn");
     expect(r.message).toContain("/proj/.env");
     expect(r.message).toContain("/home/u/.dexe-mcp/.env");
     expect(r.remediation).toContain("npx dexe-mcp init");
+
+    // The read edition's wording: no wizard to run, nothing about signing.
+    const read = byId(envSourceChecks(noFile), "env.file")!;
+    expect(read.message).toContain("/home/u/.dexe-mcp/.env");
+    expect(read.message).toContain("Reads work zero-config");
+    expect(`${read.message} ${read.remediation}`).not.toMatch(/dexe-mcp init|signing|IPFS uploads/);
+    expect(read.remediation).toContain("DEXE_ENV_FILE");
   });
 
   it("shadowed keys are named, with the host env block as the fix", () => {

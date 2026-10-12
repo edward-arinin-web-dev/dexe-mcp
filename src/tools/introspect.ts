@@ -4,7 +4,7 @@ import { join, isAbsolute } from "node:path";
 import { FunctionFragment, id as keccakId } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { ArtifactsMissingError } from "../artifacts.js";
+import { ArtifactsMissingError, type Artifacts, type ArtifactRecord } from "../artifacts.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
 export function registerIntrospectTools(server: McpServer, ctx: WriteToolContext): void {
@@ -15,6 +15,33 @@ export function registerIntrospectTools(server: McpServer, ctx: WriteToolContext
   registerFindSelector(server, ctx);
   registerGetNatspec(server, ctx);
   registerGetSource(server, ctx);
+}
+
+/** Exactly one artifact by contract name, or a message naming the dev tool that lists them. */
+function getOneArtifact(artifacts: Artifacts, contractName: string): ArtifactRecord {
+  const list = artifacts.get(contractName);
+  if (list.length === 0) {
+    throw new Error(
+      `Unknown contract: ${contractName}. Call dexe_list_contracts to see what's available.`,
+    );
+  }
+  if (list.length > 1) {
+    const paths = list.map((r) => r.sourceName).join(", ");
+    throw new Error(
+      `Ambiguous contract name: ${contractName} exists in multiple sources (${paths}). ` +
+        `Pass a fully-qualified name like "${list[0]!.sourceName}:${contractName}" (not yet supported — open an issue).`,
+    );
+  }
+  return list[0]!;
+}
+
+/**
+ * The dev tools read the local compile itself — there is no snapshot to fall
+ * back to — so their remedy is the compile step (ArtifactsMissingError's own
+ * message is the decode tools' read wording).
+ */
+function compileFirstMessage(err: ArtifactsMissingError): string {
+  return `Hardhat artifacts not found at ${err.artifactsDir}. Run dexe_compile first to populate them.`;
 }
 
 // All tools here wrap their body in this guard so users get one consistent
@@ -31,7 +58,7 @@ async function guarded<T>(
     return { ok: true, value: await fn() };
   } catch (err) {
     if (err instanceof ArtifactsMissingError) {
-      return { ok: false, error: err.message };
+      return { ok: false, error: compileFirstMessage(err) };
     }
     return { ok: false, error: safeErrorMessage(err) };
   }
@@ -149,7 +176,7 @@ function registerGetAbi(server: McpServer, ctx: WriteToolContext): void {
       },
     },
     async ({ contract, kind, nameFilter }) => {
-      const res = await guarded(ctx, () => ctx.artifacts.getOne(contract));
+      const res = await guarded(ctx, () => getOneArtifact(ctx.artifacts, contract));
       if (!res.ok) return errorResult(res.error);
       const r = res.value;
       const all = r.abi as Array<{ type?: string; name?: string }>;
@@ -321,7 +348,7 @@ function registerGetMethods(server: McpServer, ctx: WriteToolContext): void {
     },
     async ({ contract, kind, includeEvents, includeErrors }) => {
       const wantKind: "read" | "write" | "all" = kind ?? "all";
-      const res = await guarded(ctx, () => ctx.artifacts.getOne(contract));
+      const res = await guarded(ctx, () => getOneArtifact(ctx.artifacts, contract));
       if (!res.ok) return errorResult(res.error);
       const record = res.value;
       const abi = record.abi as readonly unknown[];
@@ -642,7 +669,7 @@ function registerGetNatspec(server: McpServer, ctx: WriteToolContext): void {
     },
     async ({ contract, member }) => {
       const res = await guarded(ctx, () => {
-        const record = ctx.artifacts.getOne(contract);
+        const record = getOneArtifact(ctx.artifacts, contract);
         const info = ctx.artifacts.loadBuildInfoFor(record);
         if (!info) {
           throw new Error(
@@ -710,7 +737,7 @@ function registerGetSource(server: McpServer, ctx: WriteToolContext): void {
     },
     async ({ contract, symbol }) => {
       const res = await guarded(ctx, () => {
-        const record = ctx.artifacts.getOne(contract);
+        const record = getOneArtifact(ctx.artifacts, contract);
         const sourcePath = isAbsolute(record.sourceName)
           ? record.sourceName
           : join(ctx.config.protocolPath, record.sourceName);

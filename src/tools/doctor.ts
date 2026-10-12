@@ -27,11 +27,76 @@ export const READ_DOCTOR_TEXT: DoctorText = {
     "Warnings are advisories — a healthy zero-config install always has some.",
 };
 
+/** The read edition served remotely: upstream health only, nothing about the host. */
+export const REMOTE_DOCTOR_TEXT: DoctorText = {
+  description:
+    "Read-only. Reports whether this server's upstreams answer right now — the RPC per chain, the DeXe subgraphs, " +
+    "the DeXe backend and the IPFS gateway — as pass/warn/fail rows. A failing row explains failing reads.",
+};
+
 export interface DoctorOptions {
   /** The server's toolset table, for the `toolsets` report. Default: the read edition's (ungated). */
   toolsets?: ToolsetTable;
-  /** Default: READ_DOCTOR_TEXT. */
+  /** Default: READ_DOCTOR_TEXT (REMOTE_DOCTOR_TEXT with `remote`). */
   text?: DoctorText;
+  /**
+   * Served to many callers over HTTP. The report keeps the upstream rows and
+   * drops everything about the host: env files and paths, which vars are set,
+   * rejected values, the state path, start time, endpoint hostnames, and every
+   * remediation (only the operator can act on one).
+   */
+  remote?: boolean;
+}
+
+/** What a remote caller is told instead of remediation it cannot act on. */
+const REMOTE_NOTE =
+  "This is a hosted read-only server: its operator sets the RPC, subgraph, backend and IPFS endpoints. A failing " +
+  "row means that upstream is down or misconfigured right now — reads that depend on it fail until it recovers; " +
+  "retry later.";
+
+/** Rows about the host, its env and its files — never served remotely. */
+function hostRow(id: string): boolean {
+  return (id.startsWith("env.") && id !== "env.sharedDefaults") || id.startsWith("startup.") || id.startsWith("state.");
+}
+
+const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s,;)'"]+/gi;
+const HOSTNAME_RE = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/gi;
+const IPV4_RE = /(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?::\d{1,5})?(?![\w.])/g;
+const IPV6_RE = /\[[0-9a-f.%]*:[0-9a-f:.%]*\](?::\d{1,5})?|(?<![\w:])(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?(?![\w:])/gi;
+const ENV_NAME_RE = /\bDEXE_[A-Z0-9_*<>]+/g;
+
+/**
+ * Endpoint URLs, IP addresses and hostnames out of a row message: an
+ * operator's RPC or gateway host — or the address it resolved to — is not
+ * public. Setting names go too: a remote caller cannot set them.
+ */
+export function redactEndpoints(text: string): string {
+  return text
+    .replace(URL_RE, "<endpoint>")
+    .replace(IPV6_RE, "<ip>")
+    .replace(IPV4_RE, "<ip>")
+    .replace(HOSTNAME_RE, "<host>")
+    .replace(ENV_NAME_RE, "a server setting");
+}
+
+/** The remote form of a check list: upstream rows only, no remediation, no hostnames or addresses. */
+export function remoteCheckRows(checks: readonly CheckResult[]): CheckResult[] {
+  return checks
+    .filter((c) => !hostRow(c.id))
+    .map((c) => ({ id: c.id, category: c.category, status: c.status, message: remoteMessage(c) }));
+}
+
+/**
+ * The gateway DNS row is ABOUT a host name — one without dots (`internal-gw`)
+ * would pass every hostname pattern — so remotely it says only the outcome.
+ */
+function remoteMessage(c: CheckResult): string {
+  if (c.id === "ipfs.gateway.dns") {
+    return c.status === "pass"
+      ? "the IPFS gateway's name resolves"
+      : "the IPFS gateway's name does not resolve, or the gateway does not answer";
+  }
+  return redactEndpoints(c.message);
 }
 
 interface Tally {
@@ -81,7 +146,8 @@ export function registerDoctorTool<C extends ReadConfig>(
   opts: DoctorOptions = {},
 ): void {
   const table = opts.toolsets ?? READ_EDITION_TOOLSETS;
-  const text = opts.text ?? READ_DOCTOR_TEXT;
+  const remote = opts.remote === true;
+  const text = opts.text ?? (remote ? REMOTE_DOCTOR_TEXT : READ_DOCTOR_TEXT);
   server.tool(
     "dexe_doctor",
     text.description,
@@ -93,12 +159,27 @@ export function registerDoctorTool<C extends ReadConfig>(
       ...(text.probePin ? { probePin: z.boolean().optional().describe(text.probePin) } : {}),
     },
     async (args) => {
-      const checks = await runAllChecks({
+      const all = await runAllChecks({
         config,
         extraChecks: extraChecks?.({
           probePin: text.probePin !== undefined && (args as { probePin?: boolean } | undefined)?.probePin === true,
         }),
       });
+      if (remote) {
+        const rows = remoteCheckRows(all);
+        const structured = {
+          summary: tally(rows),
+          checks: rows,
+          note: REMOTE_NOTE,
+          // A count, not the values: a rejected value can be a credential.
+          rejectedSettings: config.startupIssues.length,
+        };
+        return {
+          content: [{ type: "text" as const, text: renderRemoteText(structured) }],
+          structuredContent: structured,
+        };
+      }
+      const checks = all;
       const summary = tally(checks);
       const remediationSummary = checks
         .filter(c => c.status !== "pass" && c.remediation)
@@ -152,6 +233,22 @@ export function registerDoctorTool<C extends ReadConfig>(
       };
     },
   );
+}
+
+function renderRemoteText(r: { summary: Tally; checks: CheckResult[]; note: string; rejectedSettings: number }): string {
+  const lines = [
+    `doctor — ${r.summary.status.toUpperCase()}: ${r.summary.passed} pass / ${r.summary.warnings} warn / ${r.summary.failures} fail`,
+    r.note,
+  ];
+  if (r.rejectedSettings > 0) {
+    lines.push(`${r.rejectedSettings} server setting(s) were rejected at startup and fell back to defaults.`);
+  }
+  lines.push("");
+  for (const c of r.checks) {
+    const tag = c.status === "pass" ? " OK " : c.status === "warn" ? "WARN" : "FAIL";
+    lines.push(`  [${tag}] ${c.id}  ${c.message}`);
+  }
+  return lines.join("\n");
 }
 
 function renderText(r: {

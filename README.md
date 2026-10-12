@@ -15,7 +15,7 @@
 
 An MCP (Model Context Protocol) server for [DeXe Protocol](https://dexe.io) governance on BNB Chain, with an additional generic surface for OpenZeppelin and Compound-Bravo Governor DAOs (Uniswap, Compound, Optimism).
 
-It exposes 169 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, one-call DAO reporting, IPFS metadata, transaction simulation, multi-agent orchestration, and diagnostics. Any MCP client that can launch a local command can use it — Claude Code, Claude Desktop, Cursor, Codex CLI, or a custom agent (the server speaks stdio; an experimental remote mode, `dexe-mcp serve-http`, is described in [docs/REMOTE.md](./docs/REMOTE.md)).
+It exposes 169 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, one-call DAO reporting, IPFS metadata, transaction simulation, multi-agent orchestration, and diagnostics. Any MCP client that can launch a local command can use it — Claude Code, Claude Desktop, Cursor, Codex CLI, or a custom agent. The package also ships a **read-only edition**, `dexe-mcp-read` (54 tools that only read, on stdio or over HTTP for remote clients) — see [Read-only edition](#read-only-edition-dexe-mcp-read).
 
 Writes are calldata-first: tools return a `{ to, data, value, chainId }` payload for your own wallet to sign. Broadcasting from the server is opt-in, either through WalletConnect (transactions are approved on your phone; no key on disk) or a private key you explicitly configure.
 
@@ -47,6 +47,20 @@ Reads work with no configuration: on-chain data, subgraphs, the DeXe backend, an
 To create DAOs or proposals, or to broadcast transactions, run `/dexe-setup` — it walks through the two keys that unlock those paths (a Pinata token for IPFS uploads, a signer) and writes them to the `.env` the server actually loads (`~/.dexe-mcp/.env` for a plugin install).
 
 Using Cursor, Claude Desktop, Codex CLI, another local MCP client, or the terminal? See [docs/INSTALL.md](./docs/INSTALL.md).
+
+## Read-only edition (`dexe-mcp-read`)
+
+A second binary in the same package serves only the 54 tools that read: DAOs, proposals, votes and voters, treasury, members, delegation, validators and experts, token sales, staking, protocol statistics, and external Governors. It cannot sign, send, upload or build transactions — that code is not even loaded into its process — and it keeps nothing between calls. It reads with zero configuration, and ignores and drops any signing or upload key it finds in a shared `.env`.
+
+```bash
+claude mcp add dexe-read -- npx -y -p dexe-mcp dexe-mcp-read      # Claude Code
+```
+
+```json
+{ "mcpServers": { "dexe-read": { "command": "npx", "args": ["-y", "-p", "dexe-mcp", "dexe-mcp-read"] } } }
+```
+
+`dexe-mcp-read serve-http` serves the same tools over MCP Streamable HTTP for remote clients (Claude.ai custom connectors, ChatGPT developer mode); it ships as a Docker image recipe and is pre-release. Operators: [docs/REMOTE.md](./docs/REMOTE.md).
 
 ## Quickstart (other MCP clients)
 
@@ -227,6 +241,7 @@ No variable is required to start the server; tools that need a missing one fail 
 - [docs/SIMULATOR.md](./docs/SIMULATOR.md) — preflight simulation with revert decoding.
 - [docs/INBOX.md](./docs/INBOX.md) — cross-DAO inbox and proposal forecast.
 - [docs/MIGRATION.md](./docs/MIGRATION.md) — per-version upgrade notes.
+- [docs/REMOTE.md](./docs/REMOTE.md) — the read-only edition `dexe-mcp-read`: stdio setup, and hosting it over HTTP (`serve-http`, Docker) for remote clients.
 
 ## Swarm test harness
 

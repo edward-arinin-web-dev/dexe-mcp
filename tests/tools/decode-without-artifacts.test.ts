@@ -6,7 +6,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Interface, type JsonRpcProvider } from "ethers";
-import { registerGovTools } from "../../src/tools/gov.js";
+import { registerGovTools, type GovToolOptions } from "../../src/tools/gov.js";
+import { LOCAL_COMPILE_DECODE_HINT } from "../../src/tools/index.js";
 import { Artifacts } from "../../src/artifacts.js";
 import { SelectorIndex } from "../../src/lib/selectors.js";
 import { bundledAbiSnapshot } from "../../src/lib/abiSnapshot.js";
@@ -63,7 +64,7 @@ afterEach(() => {
 });
 
 /** A server whose DEXE_PROTOCOL_PATH is an empty directory: no clone, no compile. */
-async function session(ctxOverride?: Partial<ToolContext>) {
+async function session(ctxOverride?: Partial<ToolContext>, govOpts?: GovToolOptions) {
   const config = {
     protocolPath,
     defaultChainId: 56,
@@ -74,7 +75,7 @@ async function session(ctxOverride?: Partial<ToolContext>) {
   const ctx = { config, artifacts, selectors: new SelectorIndex(artifacts), ...ctxOverride } as unknown as ToolContext;
 
   const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerGovTools(server, ctx);
+  registerGovTools(server, ctx, govOpts);
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
@@ -265,15 +266,22 @@ describe("a local compile still wins (dev flow unchanged)", () => {
     expect(text(res)).not.toContain("snapshot");
   });
 
-  it("an unknown selector against local artifacts keeps the dev hint", async () => {
+  it("an unknown selector against local artifacts keeps the dev hint where the server has the dev tools", async () => {
     writeArtifact();
-    const s = await session();
+    const s = await session(undefined, { localCompileHint: LOCAL_COMPILE_DECODE_HINT });
     const res = await s.call("dexe_decode_calldata", { data: "0xdeadbeef" });
     await s.close();
 
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("No matching ABI found for selector 0xdeadbeef in the compiled artifacts");
     expect(text(res)).toContain("dexe_find_selector");
+
+    // A server without the dev tools names none.
+    const bare = await session();
+    const res2 = await bare.call("dexe_decode_calldata", { data: "0xdeadbeef" });
+    await bare.close();
+    expect(text(res2)).toContain("No matching ABI found for selector 0xdeadbeef in the compiled artifacts");
+    expect(text(res2)).not.toContain("dexe_find_selector");
   });
 
   it("is decided per call: a compile that lands mid-session takes over on the next call", async () => {

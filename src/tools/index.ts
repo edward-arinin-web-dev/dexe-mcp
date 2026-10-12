@@ -56,6 +56,9 @@ import { applyReadResultGuard } from "./readGuard.js";
 import { applyToolAliases } from "./aliases.js";
 import { installListToolsNormalizer } from "./schemaNormalize.js";
 
+/** The decode tools' pointer at the dev tool that also searches a local compile's events and errors. */
+export const LOCAL_COMPILE_DECODE_HINT = "Try dexe_find_selector to search the local compile's events and errors too.";
+
 export interface RegisterAllOptions {
   /**
    * Where `dexe_dao_report` keeps run snapshots. Default: `reports.json` beside
@@ -105,7 +108,7 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
 
   registerBuildTools(server, ctx);
   registerIntrospectTools(server, ctx);
-  registerGovTools(server, ctx);
+  registerGovTools(server, ctx, { localCompileHint: LOCAL_COMPILE_DECODE_HINT });
   registerDaoTools(server, ctx);
   registerProposalTools(server, ctx);
   registerVoteTools(server, ctx);

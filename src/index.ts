@@ -12,48 +12,19 @@ import { homedir } from "node:os";
 import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadReport } from "./env/loader.js";
 import { envKeys, FULL_ENV_SURFACE } from "./env/schema.js";
 import { debugHint, debugLog, formatDiagnostic } from "./runtime.js";
+import {
+  MIN_NODE_VERSION,
+  installProcessGuards,
+  installTransportGuards,
+  isMainModule,
+  nodeVersionWarning,
+} from "./stdioRuntime.js";
 import { safeErrorMessage } from "./lib/redact.js";
-import { isMainModule } from "./stdioRuntime.js";
 import { writeDoctorChecks } from "./diag/writeChecks.js";
-import { runServeHttp } from "./http/cli.js";
+import { spawn } from "node:child_process";
+import { isReadServerEnvKey } from "./http/remoteEnv.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-/**
- * `process.loadEnvFile()` — the ONLY way this server reads a .env file —
- * landed in Node 20.12.0. On 20.0–20.11 it does not exist, the .env is skipped
- * without a word, and the user ends up with a fully unconfigured server and no
- * idea why. Keep in sync with `engines.node` in package.json.
- */
-const MIN_NODE_VERSION = "20.12.0";
-
-/**
- * Warning line for a runtime older than `min`, or null when it is new enough.
- * Compared component-by-component as numbers: as strings "20.9.0" sorts AFTER
- * "20.12.0", which is precisely the bug this guard exists to catch. A version
- * we cannot parse is treated as new enough — never nag on a runtime we can't read.
- */
-export function nodeVersionWarning(running: string, min: string = MIN_NODE_VERSION): string | null {
-  const parse = (v: string): number[] | null => {
-    const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(v.trim());
-    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
-  };
-  const have = parse(running);
-  const want = parse(min);
-  if (!have || !want) return null;
-  for (let i = 0; i < 3; i++) {
-    const delta = (have[i] ?? 0) - (want[i] ?? 0);
-    if (delta > 0) return null;
-    if (delta < 0) {
-      return (
-        `Node ${running} is older than the required ${min} — process.loadEnvFile() ` +
-        `does not exist before ${min}, so .env files are ignored on this runtime — ` +
-        `upgrade Node or set the vars in your MCP host env block.`
-      );
-    }
-  }
-  return null;
-}
 
 /** Real package version — the MCP handshake previously hardcoded "0.1.5". */
 function packageVersion(): string {
@@ -123,8 +94,8 @@ export function usageText(version: string): string {
     "  dexe-mcp init [--skills-only]   interactive onboarding wizard (writes ~/.dexe-mcp/.env)",
     "  dexe-mcp skills [--global]      copy the shipped Claude skills into ./.claude/skills (or ~ with --global)",
     "  dexe-mcp serve-http [--port <n>] [--host <addr>]",
-    "                                  EXPERIMENTAL: read-only tools over MCP Streamable HTTP for remote",
-    "                                  clients; process env only, no .env (`dexe-mcp serve-http --help`)",
+    "                                  the read edition over MCP Streamable HTTP for remote clients (runs",
+    "                                  `dexe-mcp-read serve-http`); process env only, no .env (`--help`)",
     "  dexe-mcp --help | --version",
     "",
     "ENV",
@@ -227,133 +198,16 @@ async function runSubcommand(name: Exclude<Subcommand, "serve-http">): Promise<v
 
 /* ─────────────────────── runtime crash safety (0.30.4) ───────────────────── */
 
-/**
- * Is this failure one we cannot serve through?
- *
- * The stdio pipe being gone is the whole list. Once stdout is closed there is
- * no channel left to explain anything over, and every subsequent write throws
- * the same error — staying up would just spin. Everything else keeps the
- * server alive: the request that triggered it has already failed on its own,
- * and the next call is far more likely to succeed than a dead server is.
- */
-export function isTransportGoneError(err: unknown): boolean {
-  const code = (err as { code?: unknown } | null | undefined)?.code;
-  return code === "EPIPE" || code === "ERR_STREAM_DESTROYED";
-}
-
-/**
- * The stderr block emitted for a process-level failure.
- *
- * An MCP host renders a dead server as "server disconnected" with no reason
- * attached — the user loses the tools AND the explanation. So we say what
- * happened, whether we survived it, and where to get more detail. The
- * diagnostic is redacted: `formatDiagnostic()` strips credentialed RPC URLs,
- * which ethers appends verbatim to error messages on any non-2xx response.
- */
-export function formatCrashReport(kind: string, err: unknown, fatal: boolean): string {
-  const verdict = fatal
-    ? "the stdio channel is gone, so the server is shutting down"
-    : "the server is STILL RUNNING — the call that triggered this already failed, so retry it";
-  return (
-    `[dexe-mcp] ${kind} — ${verdict}.\n` +
-    `${formatDiagnostic(err)}\n` +
-    debugHint()
-  );
-}
-
-/** Minimal shape of the emitter the guards attach to — `process`, or a fake in tests. */
-type GuardEmitter = { on(event: string, listener: (...args: never[]) => void): unknown };
-
-/** Guards are process-global; installing twice would double every report. */
-let processGuardsInstalled = false;
-
-/**
- * Keep the server alive through the failures that used to kill it silently.
- *
- * Node exits on an unhandled rejection (>= 15) and on an uncaught exception,
- * and neither prints anything the MCP host relays — the user just sees the
- * server vanish. This is the same silent-death class 0.30.1 removed from the
- * startup path; these handlers remove it from the *running* path.
- *
- * Deliberately install-once and only on the long-lived server path: the
- * `doctor`/`init` subcommands must keep Node's default "print and exit
- * non-zero" behaviour, or a broken CLI run would hang instead of failing.
- *
- * Every dependency is injectable so tests can drive the handlers without
- * touching the real process.
- */
-export function installProcessGuards(
-  opts: {
-    emitter?: GuardEmitter;
-    write?: (line: string) => void;
-    exit?: (code: number) => void;
-  } = {},
-): void {
-  const usingRealProcess = !opts.emitter;
-  if (usingRealProcess) {
-    if (processGuardsInstalled) return;
-    processGuardsInstalled = true;
-  }
-  const emitter = opts.emitter ?? (process as unknown as GuardEmitter);
-  const write = opts.write ?? ((line: string) => void process.stderr.write(line));
-  const exit = opts.exit ?? ((code: number) => process.exit(code));
-
-  emitter.on("unhandledRejection", ((reason: unknown) => {
-    // Always survivable: a rejected promise cannot have corrupted the
-    // interpreter, and whatever awaited it has already surfaced its own error.
-    write(formatCrashReport("unhandled promise rejection", reason, false));
-  }) as (...args: never[]) => void);
-
-  emitter.on("uncaughtException", ((err: unknown) => {
-    const fatal = isTransportGoneError(err);
-    write(formatCrashReport("uncaught exception", err, fatal));
-    // Exit 0, not 1: a closed pipe means the host went away, which is a normal
-    // end of session, not a dexe-mcp failure worth flagging in the host's UI.
-    if (fatal) exit(0);
-  }) as (...args: never[]) => void);
-
-  // Node's own warnings (deprecations, MaxListenersExceeded, unsettled
-  // promises) are invisible in most hosts. Surface them only under DEXE_DEBUG,
-  // where the user has already asked for noise.
-  emitter.on("warning", ((warning: unknown) => {
-    debugLog("node-warning", "node emitted a process warning", warning);
-  }) as (...args: never[]) => void);
-}
-
-/**
- * Wire the transport's out-of-band callbacks.
- *
- * The SDK reports transport-level trouble through `onerror`/`onclose` and does
- * nothing with them when they are unset: a malformed frame was swallowed, and
- * a host that closed stdin left this process running with nobody on the other
- * end — a stray WalletConnect socket or pending timer is enough to keep the
- * event loop alive forever, which is how orphaned `node` processes pile up.
- *
- * Safe to call before `server.connect()`: `Protocol.connect()` captures the
- * handlers already on the transport and chains its own behind them, so ours
- * run first and the SDK's still run.
- */
-export function installTransportGuards(
-  transport: { onerror?: (error: Error) => void; onclose?: () => void },
-  opts: { write?: (line: string) => void; exit?: (code: number) => void } = {},
-): void {
-  const write = opts.write ?? ((line: string) => void process.stderr.write(line));
-  const exit = opts.exit ?? ((code: number) => process.exit(code));
-
-  transport.onerror = (err: Error) => {
-    // Non-fatal by the SDK's own contract ("errors are not necessarily
-    // fatal") — one bad frame must not cost the user their session.
-    write(`[dexe-mcp] transport error (session continues):\n${formatDiagnostic(err)}\n${debugHint()}`);
-  };
-
-  transport.onclose = () => {
-    write("[dexe-mcp] stdio transport closed by the host — shutting down.\n");
-    // Deferred one loop turn: the SDK's own onclose is chained behind this one
-    // and is what rejects the in-flight requests. Exiting inline would skip
-    // that cleanup and truncate the line above on a piped stderr.
-    setImmediate(() => exit(0));
-  };
-}
+// The Node floor, the process guards and the transport guards live in
+// ./stdioRuntime.ts, shared with the read edition's binary (src/read/bin.ts).
+export {
+  MIN_NODE_VERSION,
+  formatCrashReport,
+  installProcessGuards,
+  installTransportGuards,
+  isTransportGoneError,
+  nodeVersionWarning,
+} from "./stdioRuntime.js";
 
 /**
  * Diagnostic-only server, served when startup failed.
@@ -461,6 +315,53 @@ async function main(): Promise<void> {
   );
 }
 
+/**
+ * `dexe-mcp serve-http` runs the read edition's HTTP server in a CHILD process
+ * (`dexe-mcp-read serve-http`, src/read/bin.ts). Not in this one: this process
+ * has already loaded every write module through its static imports, and a
+ * public endpoint must carry no code that signs, broadcasts or pins — nor the
+ * write wording of error remedies, which those modules register when they
+ * load. stdio is inherited (the JSON logs pass through untouched), signals are
+ * forwarded, and the child's exit code becomes this one's.
+ */
+async function delegateServeHttp(args: readonly string[]): Promise<void> {
+  // dist/index.js → dist/read/bin.js; under tsx, src/index.ts → src/read/bin.ts.
+  const ext = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
+  const bin = fileURLToPath(new URL(`./read/bin${ext}`, import.meta.url));
+  if (!existsSync(bin)) {
+    process.stderr.write(
+      `[dexe-mcp] serve-http is served by the read edition, which this install does not carry (${bin} is missing). ` +
+        "Run `npx -p dexe-mcp dexe-mcp-read serve-http` instead.\n",
+    );
+    process.exitCode = 2;
+    return;
+  }
+  // Process flags are not inherited: an `--inspect` port would clash with the
+  // parent's. Under tsx (development) the loader flags must come along.
+  const execArgv = ext === ".ts" ? process.execArgv.filter((a) => !/^--(inspect|debug)/.test(a)) : [];
+  // The child gets the read allowlist only — never this process's signing
+  // keys or unrelated secrets (it would drop them itself, but they would sit
+  // in its environment until then). The IPC channel is how the child notices
+  // this process is gone, even after a SIGKILL that runs no handler here.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => isReadServerEnvKey(k)));
+  const child = spawn(process.execPath, [...execArgv, bin, "serve-http", ...args], {
+    stdio: ["inherit", "inherit", "inherit", "ipc"],
+    env,
+  });
+  const forward = (signal: NodeJS.Signals) => () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+  };
+  process.on("SIGTERM", forward("SIGTERM"));
+  process.on("SIGINT", forward("SIGINT"));
+  process.exitCode = await new Promise<number>((done) => {
+    child.once("error", (err) => {
+      process.stderr.write(`[dexe-mcp] serve-http: could not start the read edition: ${safeErrorMessage(err)}\n`);
+      done(1);
+    });
+    child.once("exit", (code, signal) => done(code ?? (signal ? 1 : 0)));
+  });
+}
+
 /** Runtime check → .env → CLI subcommands → MCP server (degraded if it throws). */
 async function bootstrap(): Promise<void> {
   const intent = classifyArgv(process.argv);
@@ -491,13 +392,12 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  // The remote HTTP server is configured by process env ONLY — dispatched
-  // before loadEnvironment() so no .env file (cwd, home, package dir) can
-  // configure a public endpoint or put a signing key into its process. It
-  // installs its own process guards (the stdio ones treat a closed pipe as
-  // fatal, which has no meaning for a socket server).
+  // The remote HTTP server is the read edition's (`dexe-mcp-read serve-http`),
+  // configured by process env ONLY — dispatched before loadEnvironment() so no
+  // .env file (cwd, home, package dir) can configure a public endpoint or put a
+  // signing key into its process.
   if (intent.kind === "subcommand" && intent.name === "serve-http") {
-    await runServeHttp(process.argv.slice(3), packageVersion());
+    await delegateServeHttp(process.argv.slice(3));
     return;
   }
 

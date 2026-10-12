@@ -15,7 +15,7 @@ import {
   findSharedDefaults,
   isReadServerEnvKey,
   scrubEnvToReadAllowlist,
-} from "../../src/http/readServer.js";
+} from "../../src/http/remoteEnv.js";
 import { DEFAULTS, type DexeConfig } from "../../src/config.js";
 
 /**
@@ -88,9 +88,11 @@ describe("parseHttpOptions", () => {
     expect(all).toMatch(/DEXE_HTTP_ALLOWED_ORIGINS/);
   });
 
-  it("--help is a help request and the text says EXPERIMENTAL", () => {
+  it("--help is a help request and the text names the read binary and says PRE-RELEASE", () => {
     expect(parseHttpOptions(["--help"], {})).toEqual({ kind: "help" });
-    expect(serveHttpUsage("1.2.3").split("\n")[0]).toMatch(/EXPERIMENTAL/);
+    const text = serveHttpUsage("1.2.3");
+    expect(text.split("\n")[0]).toMatch(/^dexe-mcp-read 1\.2\.3 .*PRE-RELEASE/);
+    expect(text).toContain("dexe-mcp-read serve-http [--port <n>] [--host <addr>]");
   });
 
   it("0 disables the access log", () => {
@@ -282,6 +284,9 @@ describe("env allowlist", () => {
       "DEXE_SIGNER_ALLOWLIST",
       "DEXE_TREASURY_GUARD",
       "DEXE_ENV_FILE",
+      // nothing remote reads them: no state store, no profiles
+      "DEXE_STATE_PATH",
+      "DEXE_TOOLSETS",
       "DEXE_SOMETHING_NEW",
       "FOO_SECRET",
       "AWS_SECRET_ACCESS_KEY",

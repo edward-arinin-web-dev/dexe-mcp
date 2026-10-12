@@ -1,5 +1,5 @@
 /**
- * Options for `dexe-mcp serve-http` (EXPERIMENTAL remote mode).
+ * Options for `dexe-mcp-read serve-http` (the read edition over HTTP; pre-release).
  *
  * Everything comes from CLI flags or process env. Nothing is read from a .env
  * file: the remote server is configured by whoever runs the container, and a
@@ -340,18 +340,19 @@ export function parseHttpOptions(argv: readonly string[], env: Env): ParseResult
   };
 }
 
-/** `dexe-mcp serve-http --help`. Says EXPERIMENTAL in the first line on purpose. */
+/** `dexe-mcp-read serve-http --help`. Says PRE-RELEASE in the first line on purpose. */
 export function serveHttpUsage(version: string): string {
   return [
-    `dexe-mcp ${version} — serve-http (EXPERIMENTAL)`,
+    `dexe-mcp-read ${version} — serve-http (PRE-RELEASE)`,
     "",
-    "Serve the READ-ONLY tool profile over MCP Streamable HTTP, stateless, for remote",
-    "clients (Claude.ai custom connectors, ChatGPT developer mode, MCP Inspector).",
-    "No signing, no uploads, no .env file loading, no state written to disk.",
-    "This mode is experimental: flags, env names and the served tool set may change.",
+    "Serve the read edition (every tool read-only) over MCP Streamable HTTP, stateless, for",
+    "remote clients (Claude.ai custom connectors, ChatGPT developer mode, MCP Inspector).",
+    "No signing, no uploads, no .env file loading, nothing written to disk.",
+    "Pre-release until the connector-directory submission: flags and env names may still change.",
     "",
     "USAGE",
-    "  dexe-mcp serve-http [--port <n>] [--host <addr>]",
+    "  dexe-mcp-read serve-http [--port <n>] [--host <addr>]",
+    "  (dexe-mcp serve-http starts the same server)",
     "",
     "ENDPOINTS",
     "  POST /mcp      MCP Streamable HTTP (JSON responses, no sessions); GET/DELETE answer 405",

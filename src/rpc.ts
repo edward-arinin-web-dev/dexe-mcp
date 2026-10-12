@@ -2,6 +2,7 @@ import { FetchRequest, JsonRpcProvider, Network } from "ethers";
 import { resolveChain, type ChainConfig, type ReadConfig } from "./configRead.js";
 import type { EnvGuardResult } from "./lib/requireEnv.js";
 import { redactErrorInPlace, safeErrorMessage } from "./lib/redact.js";
+import { remoteAudience } from "./lib/audience.js";
 
 /**
  * Transport-layer failures (rate limits, timeouts, DNS, 5xx, network detect) —
@@ -209,7 +210,8 @@ export class ResilientRpcProvider extends JsonRpcProvider {
     // falls back on when the error carries no `code`.
     const transport = isTransportError(err);
     const safe = redactErrorInPlace(err);
-    if (this.#annotatePublicHint && transport && !safe.message.includes("[hint]")) {
+    // A remote caller cannot configure the server's RPC: no hint for them.
+    if (this.#annotatePublicHint && transport && !remoteAudience() && !safe.message.includes("[hint]")) {
       safe.message += PUBLIC_RPC_HINT;
     }
     return safe;
@@ -271,9 +273,10 @@ export class RpcProvider {
     } catch (err) {
       return {
         error: safeErrorMessage(err),
-        remediation:
-          "Set DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_<chainId> in .env, " +
-          "then restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify.",
+        remediation: remoteAudience()
+          ? "This server serves the chains dexe_get_config lists; pass one of them as chainId."
+          : "Set DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_<chainId> in .env, " +
+            "then restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify.",
       };
     }
   }

@@ -4,6 +4,8 @@
 
 > **Deprecated names (0.36.0).** `dexe_otc_buyer_status` is now `dexe_read_token_sale_position` and `dexe_otc_list_sales_for_dao` is now `dexe_read_token_sales`. The server still registers each old name as an alias of the new one (same input, output and annotations), so `tools/list` shows two more entries than the tool count here; aliases are not tools and are not counted. See [MIGRATION.md](./MIGRATION.md).
 
+> **Read-only edition (0.37.0).** The package also ships `dexe-mcp-read`, which serves only the 54 tools that read — the read sections below, without the builders, signers, uploads, simulators or dev tools — on stdio or over HTTP, with no profiles to pick. Its own catalog is its `dexe://tools` resource; the list is `READ_TOOLS` in `src/editions.ts`. See [REMOTE.md](./REMOTE.md).
+
 > **Not every tool below is loaded in your session.** A default session loads the **`core`** profile only — 45 of the 169. Each section names the profile it needs; `dexe_context` reports the active set. Calling a tool from a profile you have not loaded fails as "unknown tool", so check before you plan a flow around one.
 
 The server is **calldata-first**: most tools return a `TxPayload` (`{to, data, value, chainId, description}`) that the user's wallet signs and broadcasts. A subset (`dexe_dao_report`, `dexe_dao_info`, `dexe_proposal_state`, all `dexe_read_*`, `dexe_graph_query` / `dexe_graph_schema`, all `dexe_ipfs_*`, `dexe_decode_*`, all `dexe_get_*` / `dexe_list_*`) are pure reads. Four composite tools (`dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`) opt into auto-signing when `DEXE_PRIVATE_KEY` is configured.

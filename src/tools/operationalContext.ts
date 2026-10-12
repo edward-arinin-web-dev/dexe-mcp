@@ -164,7 +164,17 @@ export interface ContextOptions {
    * server names its write context tool here; a read-only server passes nothing.
    */
   hintSuffix?: string;
+  /**
+   * Served to many callers over HTTP: the chain list carries no RPC hostnames
+   * (an operator's endpoint is not public information).
+   */
+  remote?: boolean;
 }
+
+/** Without a state store there is nothing recorded to window or to look a wallet up in. */
+const STATELESS_DESCRIPTION =
+  "Read-only. Session orientation — configured chains and the default, env readiness (RPC/IPFS/subgraph/backend) " +
+  "and the tool set this server serves. Not needed once the DAO and chain are known.";
 
 export function registerOperationalContextTools(
   server: McpServer,
@@ -174,14 +184,7 @@ export function registerOperationalContextTools(
 ): void {
   const rpc = new RpcProvider(config);
 
-  server.tool(
-    "dexe_context",
-    "Read-only. Session orientation — configured chains and the default, env readiness (RPC/IPFS/subgraph/backend), " +
-      "which toolsets are on or hidden and what the hidden ones unlock, and the DAOs/proposals recorded in this " +
-      "install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Not " +
-      "needed once the DAO and chain are known. Persisted DAOs/proposals are WINDOWED; the *Total fields " +
-      "carry real counts.",
-    {
+  const recordedInputs = {
       user: z
         .string()
         .optional()
@@ -200,7 +203,19 @@ export function registerOperationalContextTools(
         .max(MAX_WINDOW)
         .default(DEFAULT_PROPOSAL_WINDOW)
         .describe("Recorded proposals to return, newest first."),
-    },
+  };
+
+  server.tool(
+    "dexe_context",
+    state
+      ? "Read-only. Session orientation — configured chains and the default, env readiness (RPC/IPFS/subgraph/backend), " +
+          "which toolsets are on or hidden and what the hidden ones unlock, and the DAOs/proposals recorded in this " +
+          "install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Not " +
+          "needed once the DAO and chain are known. Persisted DAOs/proposals are WINDOWED; the *Total fields " +
+          "carry real counts."
+      : STATELESS_DESCRIPTION,
+    // No state, no inputs: every one of them is about recorded DAOs/proposals.
+    (state ? recordedInputs : {}) as typeof recordedInputs,
     async ({ user, daoLimit = DEFAULT_DAO_WINDOW, proposalLimit = DEFAULT_PROPOSAL_WINDOW }) => {
       if (user !== undefined && !isAddress(user)) {
         return {
@@ -215,7 +230,7 @@ export function registerOperationalContextTools(
         .map((c) => ({
           chainId: c.chainId,
           name: CHAIN_NAMES[c.chainId] ?? `chain ${c.chainId}`,
-          rpcUrl: maskUrl(c.rpcUrl),
+          ...(opts.remote ? {} : { rpcUrl: maskUrl(c.rpcUrl) }),
           isDefault: c.chainId === config.defaultChainId,
         }));
 

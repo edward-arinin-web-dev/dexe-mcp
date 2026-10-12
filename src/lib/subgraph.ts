@@ -11,6 +11,7 @@ import {
 } from "./boundedBody.js";
 import { deadlineSignal, RequestCancelledError, throwIfCancelled } from "./requestScope.js";
 import { buildReplacements, scrubText } from "./secretScrub.js";
+import { remoteAudience } from "./audience.js";
 
 export type { SubgraphKind };
 
@@ -81,6 +82,12 @@ export function resolveSubgraphUrl(
   const queryMainnet = available.includes(DEFAULT_SUBGRAPH_CHAIN_ID)
     ? `pass chainId: ${DEFAULT_SUBGRAPH_CHAIN_ID} to query BSC mainnet, `
     : "";
+  if (remoteAudience()) {
+    throw new Error(
+      `The ${kind} subgraph is not available on this server for chain ${target}. ${where.replace(/ IS configured for/, " is available for").replace(/ is configured for ANY chain/, " is available for any chain")} ${whyStop}` +
+        `${queryMainnet ? `Pass chainId: ${DEFAULT_SUBGRAPH_CHAIN_ID} to query BSC mainnet, or read` : "Read"} chain ${target} on-chain instead with dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall (no subgraph needed).`,
+    );
+  }
   throw new Error(
     `No DeXe ${kind} subgraph is configured for chain ${target}. ${where} ${whyStop}` +
       `Either ${queryMainnet}read chain ${target} on-chain instead with dexe_read_gov_state / dexe_proposal_list / dexe_read_multicall (no subgraph needed), ` +
@@ -166,11 +173,13 @@ const SHIPPED_DEFAULT_HINT =
   "\n\n[hint] this query used the shared DEFAULT Graph endpoint baked into dexe-mcp — its API " +
   "key is billable and shared by every install, so it rate-limits and can be revoked. Get a free " +
   "key at thegraph.com/studio and set DEXE_SUBGRAPH_POOLS_URL / DEXE_SUBGRAPH_VALIDATORS_URL / " +
-  "DEXE_SUBGRAPH_INTERACTIONS_URL in .env, then restart (Claude Code: quit + relaunch). " +
-  "Run /dexe-setup for a guided walkthrough.";
+  "DEXE_SUBGRAPH_INTERACTIONS_URL in .env (each URL carries your key: " +
+  "https://gateway.thegraph.com/api/<key>/subgraphs/id/<id>), then restart (Claude Code: quit + relaunch).";
 
 /** Append the shipped-default nudge only where a different key would help. */
 function defaultEndpointHint(endpoint: string): string {
+  // A remote caller cannot pick the server's key.
+  if (remoteAudience()) return "";
   return isShippedDefaultSubgraph(endpoint) ? SHIPPED_DEFAULT_HINT : "";
 }
 
@@ -184,16 +193,19 @@ function httpRemediation(status: number, endpoint: string): { message: string; t
   if (status === 401 || status === 403) {
     return {
       transient: false,
-      message:
-        `Subgraph HTTP ${status} from ${where} — the configured Graph endpoint rejected the request. ` +
-        `Set DEXE_SUBGRAPH_*_URL to your own gateway key from thegraph.com/studio and restart.`,
+      message: remoteAudience()
+        ? `Subgraph HTTP ${status} from ${where} — the indexer refused this server's credentials, so subgraph reads are ` +
+          `not available on this server right now. On-chain reads (dexe_proposal_list, dexe_read_settings, dexe_dao_info) still work.`
+        : `Subgraph HTTP ${status} from ${where} — the configured Graph endpoint rejected the request. ` +
+          `Set DEXE_SUBGRAPH_*_URL to your own gateway key from thegraph.com/studio and restart.`,
     };
   }
   if (status === 429) {
     return {
       transient: true,
-      message:
-        `Subgraph HTTP 429 from ${where} — rate-limited. Set your own DEXE_SUBGRAPH_*_URL, or retry.`,
+      message: remoteAudience()
+        ? `Subgraph HTTP 429 from ${where} — rate-limited; retry in a moment.`
+        : `Subgraph HTTP 429 from ${where} — rate-limited. Set your own DEXE_SUBGRAPH_*_URL, or retry.`,
     };
   }
   if (status >= 500) {

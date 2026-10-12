@@ -34,7 +34,8 @@
     "calldata-builder"
   ],
   "bin": {
-    "dexe-mcp": "dist/index.js"
+    "dexe-mcp": "dist/index.js",
+    "dexe-mcp-read": "dist/read/bin.js"
   },
   "main": "dist/index.js",
   "files": [
@@ -52,6 +53,7 @@
   "scripts": {
     "build": "tsc",
     "bundle:plugin": "npm run gen:knowledge && npm run build && node scripts/bundle-plugin.mjs",
+    "bundle:read": "npm run build && node scripts/bundle-read.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "doctor": "node dist/index.js doctor",
