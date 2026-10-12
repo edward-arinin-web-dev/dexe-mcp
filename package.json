@@ -1,6 +1,7 @@
 {
   "name": "dexe-mcp",
   "version": "0.34.1",
+  "mcpName": "io.github.edward-arinin-web-dev/dexe-mcp",
   "description": "MCP server for the DeXe Protocol — full DAO operations coverage: deploy DAOs, build every proposal type, IPFS metadata, stake/vote/delegate/execute/claim calldata. Plus dev tooling (build/test/introspect/decode).",
   "type": "module",
   "license": "MIT",

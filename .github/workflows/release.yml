@@ -203,19 +203,23 @@ jobs:
         run: npm publish --access public --tag ${{ steps.disttag.outputs.tag }}
 
       # npm publish can return success before the new version is readable from
-      # the registry CDN. Poll so a green run really means "it is installable".
+      # the registry. Poll so a green run really means "it is installable".
+      # The window is 10 minutes: npm now answers "Your package is being
+      # processed and may take a few minutes to become available", and 0.34.1
+      # took ~2.5 minutes — the earlier 75 s window turned a good publish red.
       - name: Verify publish
         if: github.event_name == 'push'
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          for attempt in 1 2 3 4 5; do
+          ATTEMPTS=40
+          for attempt in $(seq 1 "$ATTEMPTS"); do
             PUBLISHED=$(npm view "dexe-mcp@${VERSION}" version 2>/dev/null || true)
             if [ "$PUBLISHED" = "$VERSION" ]; then
               echo "dexe-mcp@${VERSION} is live on the registry"
               exit 0
             fi
-            echo "attempt ${attempt}/5: dexe-mcp@${VERSION} not visible yet; waiting 15s"
+            echo "attempt ${attempt}/${ATTEMPTS}: dexe-mcp@${VERSION} not visible yet; waiting 15s"
             sleep 15
           done
-          echo "::error::dexe-mcp@${VERSION} did not appear on the registry after 5 attempts"
+          echo "::error::dexe-mcp@${VERSION} did not appear on the registry after ${ATTEMPTS} attempts (10 min). The publish step itself succeeded — check 'npm view dexe-mcp@${VERSION} version' by hand before re-tagging."
           exit 1

@@ -283,6 +283,32 @@ const TITLES: Record<string, string> = {
 };
 
 /**
+ * Tools a client should keep loaded instead of deferring behind tool search.
+ *
+ * Claude Code defers every MCP tool by default: only the tool NAMES and the
+ * server instructions reach the model at session start, and a schema is loaded
+ * when the model searches for it. The handshake tells the agent to call these
+ * two first, so a deferred copy costs a search round-trip on the very first
+ * step of every session. `"anthropic/alwaysLoad": true` in a tool's `_meta`
+ * exempts that one tool (code.claude.com/docs/en/mcp, "Configure tool search").
+ *
+ * Deliberately two, not the composites: every always-loaded schema is paid on
+ * every turn, and `dexe_proposal_create` alone is ~2 KB of description.
+ * Clients that do not know the key ignore it.
+ */
+const ALWAYS_LOADED: ReadonlySet<string> = new Set(["dexe_context", "dexe_guide"]);
+
+/** `_meta` to publish for `name`, or `undefined` when it carries none. */
+export function metaFor(name: string): Record<string, unknown> | undefined {
+  return ALWAYS_LOADED.has(name) ? { "anthropic/alwaysLoad": true } : undefined;
+}
+
+/** Every name published with `anthropic/alwaysLoad`. */
+export function alwaysLoadedToolNames(): ReadonlySet<string> {
+  return ALWAYS_LOADED;
+}
+
+/**
  * Annotations for `name`, or `undefined` when the tool is not classified.
  * Undefined is deliberate: an unannotated tool keeps the conservative spec
  * default (destructive, open world) instead of being wrongly advertised as a
@@ -329,15 +355,21 @@ export function applyToolAnnotations(server: McpServer): McpServer {
         if (typeof name !== "string") return original(name, ...rest);
         const ann = annotationsFor(name);
         const title = titleFor(name);
+        const meta = metaFor(name);
 
         // registerTool(name, config, cb) — merge into the config object. An
         // explicit field in the registration always wins.
         if (prop === "registerTool" && rest[0] !== null && typeof rest[0] === "object") {
-          const cfg = rest[0] as { annotations?: ToolAnnotations; title?: string };
+          const cfg = rest[0] as {
+            annotations?: ToolAnnotations;
+            title?: string;
+            _meta?: Record<string, unknown>;
+          };
           rest[0] = {
             ...cfg,
             ...(ann ? { annotations: { ...ann, ...cfg.annotations } } : {}),
             ...(cfg.title === undefined && title !== undefined ? { title } : {}),
+            ...(meta ? { _meta: { ...meta, ...cfg._meta } } : {}),
           };
           return original(name, ...rest);
         }
@@ -348,11 +380,12 @@ export function applyToolAnnotations(server: McpServer): McpServer {
         // it avoids the listChanged notification `update()` would fire during
         // startup. The gate returns undefined for a dropped name.
         const reg = original(name, ...rest) as
-          | { annotations?: ToolAnnotations; title?: string }
+          | { annotations?: ToolAnnotations; title?: string; _meta?: Record<string, unknown> }
           | undefined;
         if (reg && typeof reg === "object") {
           if (ann && reg.annotations === undefined) reg.annotations = ann;
           if (title !== undefined && reg.title === undefined) reg.title = title;
+          if (meta) reg._meta = { ...meta, ...reg._meta };
         }
         return reg;
       };

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { serverInstructions, SHIPPED_SKILLS } from "../src/instructions.js";
+import { serverInstructions, SHIPPED_SKILLS, INSTRUCTIONS_MAX_CHARS } from "../src/instructions.js";
 import { DEFAULT_TOOLSETS, TOOLSETS, defaultProfileToolNames } from "../src/tools/gate.js";
 import { ENV_SPEC } from "../src/env/schema.js";
 import { toolRefs, annotationAfter } from "./helpers/toolTokens.js";
@@ -18,6 +18,25 @@ import { toolRefs, annotationAfter } from "./helpers/toolTokens.js";
 const root = resolve(__dirname, "..");
 const pluginSkillsDir = resolve(root, "dexe-plugin", "skills");
 const text = serverInstructions();
+
+describe("server instructions — the budget", () => {
+  it("fits the 2,048 characters Claude Code keeps of a handshake", () => {
+    // Measured 2026-10-01: the 0.34.x handshake was 3,129 characters and reached
+    // the model cut at exactly 2,048 — the default profile, the resources and
+    // the skill roster were all in the part that was dropped.
+    expect(INSTRUCTIONS_MAX_CHARS).toBe(2048);
+    expect(
+      text.length,
+      `the handshake is ${text.length} characters; everything past ${INSTRUCTIONS_MAX_CHARS} is cut by the client — ` +
+        "shorten it, or move the detail to dexe_context / dexe://playbook",
+    ).toBeLessThanOrEqual(INSTRUCTIONS_MAX_CHARS);
+  });
+
+  it("keeps the last thing it says inside the budget too", () => {
+    // The roster is the tail: if it survives the cut, so did everything before it.
+    expect(text.slice(0, INSTRUCTIONS_MAX_CHARS)).toContain(SHIPPED_SKILLS[SHIPPED_SKILLS.length - 1]);
+  });
+});
 
 describe("server instructions — the default profile", () => {
   it("names the profile DEFAULT_TOOLSETS actually resolves to", () => {

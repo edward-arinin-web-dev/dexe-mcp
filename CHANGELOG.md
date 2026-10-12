@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.35.0 — unreleased
+
+### Fixed — a third of the MCP handshake never reached the model
+Claude Code keeps 2,048 characters of a server's `instructions` and drops the
+rest. Ours were 3,129: the text arrived ending "run the compile step once p…
+[truncated]", so the default toolset profile, the `dexe://` resources and the
+skill roster — everything after that point — were never read by any session.
+The handshake is rewritten to 2,022 characters in priority order (what to call
+first, the resume contract, units, then the profile and the roster), and a
+test fails the build if it grows past the cap. Detail that a tool reports on
+demand (`dexe_context`, `dexe://playbook`) is named instead of restated.
+
+The same cap applies to each tool description. None was over it; the lint's
+hard ceiling moved from 2,200 to 2,048 so none can be.
+
+### Added — `dexe_guide` and `dexe_context` stay loaded under tool search
+Claude Code now defers every MCP tool by default: only tool names and the
+handshake load at session start, and a schema is fetched when the model
+searches for it. The handshake sends every session to `dexe_guide` or
+`dexe_context` first, so those two carry `_meta["anthropic/alwaysLoad"]: true`
+and skip the search round-trip. Only those two — each always-loaded schema is
+paid on every turn. Clients that do not know the key ignore it.
+
+### Added — MCP Registry manifest
+`server.json` and `package.json#mcpName`
+(`io.github.edward-arinin-web-dev/dexe-mcp`), stamped with the version by
+`npm run bundle:plugin` and pinned by the version-sync test. A separate
+workflow (`.github/workflows/mcp-registry.yml`) publishes it after a green
+release — separate because npm's trusted publisher is bound to `release.yml`,
+and a downloaded third-party binary must not run inside a workflow npm trusts.
+The registry verifies `mcpName` in the published tarball, so the first listing
+happens with this release.
+
+### Fixed — a good publish turned the release run red
+npm now answers a publish with "Your package is being processed"; 0.34.1 took
+about 2.5 minutes to become visible and the 75-second verify window gave up
+first. The window is 10 minutes, and the failure message says the publish step
+itself succeeded.
+
 ## 0.34.1 — 2026-10-01
 
 **What a first live session after 0.34.0 hit.** A fresh DAO on BSC testnet

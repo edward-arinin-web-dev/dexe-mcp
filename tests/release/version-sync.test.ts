@@ -18,7 +18,9 @@ function readJson<T>(rel: string): T {
   return JSON.parse(readFileSync(resolve(ROOT, rel), "utf8")) as T;
 }
 
-const pkg = readJson<{ version: string; packageManager?: string }>("package.json");
+const pkg = readJson<{ name: string; version: string; mcpName?: string; packageManager?: string }>(
+  "package.json",
+);
 
 const REMEDY =
   "run `npm install` (lockfile) and `npm run bundle:plugin` (plugin files) after bumping the version";
@@ -69,6 +71,35 @@ describe("release version sync", () => {
       entry?.version,
       `.claude-plugin/marketplace.json plugins[0].version is ${entry?.version}, package.json is ${pkg.version} — ${REMEDY}`,
     ).toBe(pkg.version);
+  });
+
+  it("server.json (MCP Registry manifest) agrees, and names the package the registry will verify", () => {
+    const server = readJson<{
+      name: string;
+      description: string;
+      version: string;
+      packages: Array<{ registryType: string; identifier: string; version: string }>;
+    }>("server.json");
+    expect(
+      server.version,
+      `server.json is ${server.version}, package.json is ${pkg.version} — ${REMEDY}`,
+    ).toBe(pkg.version);
+    expect(server.packages).toHaveLength(1);
+    expect(
+      server.packages[0]?.version,
+      `server.json packages[0].version is ${server.packages[0]?.version}, package.json is ${pkg.version} — ${REMEDY}`,
+    ).toBe(pkg.version);
+    expect(server.packages[0]?.registryType).toBe("npm");
+    expect(server.packages[0]?.identifier).toBe(pkg.name);
+    // The registry reads `mcpName` out of the PUBLISHED tarball and refuses a
+    // manifest whose name differs from it.
+    expect(pkg.mcpName, "package.json has no mcpName — the MCP Registry cannot verify the package").toBe(server.name);
+    // Schema 2025-12-11: description is 1–100 characters.
+    expect(server.description.length).toBeGreaterThan(0);
+    expect(
+      server.description.length,
+      `server.json description is ${server.description.length} characters; the registry schema allows 100`,
+    ).toBeLessThanOrEqual(100);
   });
 
   it("package.json declares no pnpm packageManager", () => {
