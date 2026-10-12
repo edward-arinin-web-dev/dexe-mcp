@@ -44,10 +44,10 @@ import {
 } from "./protocolAdvisories.js";
 import {
   classifyTreasuryActions,
-  TREASURY_RISK_ADVISORY,
   type TreasuryGuardMode,
   type TreasuryHit,
 } from "./quorumRisk.js";
+import { TREASURY_RISK_ADVISORY } from "./treasuryGate.js";
 import { formatAmount } from "./units.js";
 import { renderUntrusted } from "./sanitize.js";
 import {

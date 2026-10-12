@@ -5,7 +5,8 @@ import type { ToolContext } from "./context.js";
 import type { TxPayload } from "../lib/calldata.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { fetchIpfs, toCidV1, pinJsonOrPreview } from "../lib/ipfs.js";
+import { fetchIpfs, toCidV1 } from "../lib/ipfs.js";
+import { pinJsonOrPreview } from "../lib/ipfsPin.js";
 import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
@@ -15,17 +16,16 @@ import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain, type DexeConfig } from "../config.js";
-import { pinataForWrites } from "../lib/requireEnv.js";
+import { pinataForWrites } from "../lib/pinata.js";
 import { runBroadcastGuards } from "../lib/broadcastGuards.js";
 import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import {
   classifyTreasuryActions,
   quorumPctFromRaw,
   judgeQuorum,
-  treasuryGate,
-  treasuryGuardMode,
   type TreasuryHit,
 } from "../lib/quorumRisk.js";
+import { treasuryGate, treasuryGuardMode } from "../lib/treasuryGate.js";
 import {
   executeAddSettingsAdvisory,
   findAddSettingsActions,
@@ -53,11 +53,12 @@ import { GOV_VALIDATORS_CREATE_ABI } from "./proposalBuild.js";
 import { PROPOSAL_CATALOG } from "../lib/proposalCatalog.js";
 import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
 import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/txWait.js";
-import { toActionableError } from "../lib/errors.js";
+import { toActionableError } from "../lib/writeErrors.js";
 import { flowChainFields, flowContextSchema, type FlowContext } from "../lib/flowChain.js";
 import { parseAmount, formatAmount, formatUnitsWithSymbol } from "../lib/units.js";
 import { unixToUtc } from "../lib/time.js";
-import { signerKeyParam, govPoolParam, PROPOSAL_ID_DESC, NFT_IDS_OWN_DESC } from "../lib/params.js";
+import { govPoolParam, PROPOSAL_ID_DESC, NFT_IDS_OWN_DESC } from "../lib/params.js";
+import { signerKeyParam } from "../lib/writeParams.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { withActionContext, currentActionContext } from "../lib/agentLedger.js";

@@ -10,7 +10,7 @@ import {
   readAvatarInput,
 } from "../../src/lib/avatarUpload.js";
 import { renderAvatarJpeg } from "../../src/lib/avatarImage.js";
-import type { PinataClient } from "../../src/lib/ipfs.js";
+import type { PinataClient } from "../../src/lib/ipfsPin.js";
 
 let dir: string;
 let jpegPath: string;

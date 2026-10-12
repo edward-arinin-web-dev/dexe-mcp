@@ -6,7 +6,7 @@ import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
 import { multicall } from "../lib/multicall.js";
 import { waitWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
-import { toActionableError } from "../lib/errors.js";
+import { toActionableError } from "../lib/writeErrors.js";
 import { chainIdParam } from "../lib/params.js";
 import { parseAmount } from "../lib/units.js";
 import { safeErrorMessage } from "../lib/redact.js";

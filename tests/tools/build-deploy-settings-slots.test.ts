@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AbiCoder, getAddress } from "ethers";
-import { PinataClient } from "../../src/lib/ipfs.js";
+import { PinataClient } from "../../src/lib/ipfsPin.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";

@@ -21,6 +21,7 @@ import {
   renderErrorTable,
   renderSkillRecipe,
 } from "../src/knowledge/render.js";
+import { COMBINED_KNOWN_FAILURES } from "../src/lib/writeErrors.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -32,7 +33,8 @@ const TARGETS: Array<{ file: string; regions: Record<string, () => string> }> = 
       flows: renderFlowsSection,
       topics: renderTopicsSection,
       gotchas: renderGotchasSection,
-      "error-slugs": renderErrorTable,
+      // PLAYBOOK documents the single server: the read table + the write table on top.
+      "error-slugs": () => renderErrorTable(COMBINED_KNOWN_FAILURES),
     },
   },
   { file: "dexe-plugin/skills/dexe-create-dao/SKILL.md", regions: { "flow-recipe": () => renderSkillRecipe("create_dao") } },

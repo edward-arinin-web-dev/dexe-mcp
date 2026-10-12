@@ -4,7 +4,8 @@ import {
   isShippedDefaultSubgraph,
   SUBGRAPH_TIMEOUT_MS,
 } from "../../src/lib/subgraph.js";
-import { PinataClient, fetchIpfs, cidForJson } from "../../src/lib/ipfs.js";
+import { fetchIpfs, cidForJson } from "../../src/lib/ipfs.js";
+import { PinataClient } from "../../src/lib/ipfsPin.js";
 import { fetchTallyProposals } from "../../src/governor/tally.js";
 import { postSafeTransaction } from "../../src/tools/safe.js";
 import { checkAvatarCidBytes } from "../../src/lib/imageSniff.js";

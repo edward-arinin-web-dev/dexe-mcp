@@ -25,33 +25,6 @@ export const backendChainIdParam = z
   .describe("Chain for the backend lookup: 1 Ethereum, 56 BSC. Testnets are not indexed. Default: the configured chain.");
 
 /**
- * `chainId` for CALLDATA BUILDERS, which only stamp the chain into the payload
- * envelope — they neither read from it nor require an RPC for it. Reusing
- * `chainIdParam` here published two false claims on 28 tools ("read from",
- * "rejects if no RPC"): a builder happily stamps an unconfigured chain, and the
- * mismatch is caught later by the B11 broadcast guard, not here.
- *
- * Deliberately terser than the read param: it is repeated across the whole
- * builder surface, where every character is paid on every `tools/list`.
- */
-export const buildChainIdParam = z
-  .number()
-  .int()
-  .positive()
-  .optional()
-  .describe("Chain this payload targets: 56 mainnet, 97 testnet. Default: the configured chain.");
-
-/**
- * Shared `signerKey` input param for broadcast tools. Optional — when omitted
- * the primary `DEXE_PRIVATE_KEY` signs (unchanged behavior). Selects a key
- * from the opt-in `DEXE_AGENT_PK_1..16` keyring for multi-persona/swarm flows.
- */
-export const signerKeyParam = z
-  .string()
-  .optional()
-  .describe("Keyring signer: omit = primary key; 'agent<n>' or address = a DEXE_AGENT_PK_* key.");
-
-/**
  * ── Shared param VOCABULARY ────────────────────────────────────────────────
  *
  * The same concept was re-declared as a bare `z.string()` in ~40 places, so
@@ -77,9 +50,6 @@ export const govPoolParam = z.string().describe(GOV_POOL_DESC);
 
 /** DeXe proposal ids are 1-indexed counters on the pool, not hashes. */
 export const PROPOSAL_ID_DESC = "On-chain proposal id, 1-indexed decimal (dexe_proposal_list).";
-
-/** The DeXe backend's own id space — serialized into JSON:API bodies as a number. */
-export const PROPOSAL_ID_DESC_OFFCHAIN = "Off-chain proposal id from the DeXe backend (JSON number).";
 
 /** OZ/Bravo ids are keccak-derived uint256s, NOT 1-indexed counters. */
 export const PROPOSAL_ID_DESC_GOVERNOR = "Proposal id from hashProposal, decimal or 0x-hex.";

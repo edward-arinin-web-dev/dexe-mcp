@@ -1,0 +1,131 @@
+import {
+  mergeKnownFailures,
+  READ_KNOWN_FAILURES,
+  registerKnownFailures,
+  toActionableError as classify,
+  type ActionableError,
+  type KnownFailure,
+  type KnownFailureRegistration,
+} from "./errors.js";
+
+/**
+ * The write edition's half of the actionable-error layer (src/lib/errors.ts):
+ * the failures only signing, broadcasting or pinning can raise, and the
+ * write-side wording of failures a read can hit too — a timed-out receipt wait
+ * is not a timed-out read, and the resume rule after a reverted or flaky
+ * broadcast has to be spelled out leg by leg.
+ *
+ * Write tools import `toActionableError` from HERE, which always classifies
+ * against the combined table. Loading this module also registers the write
+ * table for the whole process (`registerKnownFailures`), so wherever write
+ * code runs — the single server — the read tools beside it word every failure
+ * exactly as the one combined table did before the split. Read code never
+ * imports this file; a read-only server keeps the read table alone.
+ */
+export const WRITE_KNOWN_FAILURES: KnownFailureRegistration = {
+  // Matched before every read entry, in this order.
+  failures: [
+    {
+      match: /insufficient funds for (gas|intrinsic)/i,
+      slug: "no-gas",
+      what: "The signer wallet has no BNB to pay gas.",
+      remedy:
+        "Fund the signer address with BNB on the target chain (testnet 97: use a faucet, e.g. https://www.bnbchain.org/en/testnet-faucet), then re-run.",
+    },
+    {
+      match: /nonce (too low|has already been used)|already known|replacement transaction underpriced/i,
+      slug: "nonce-conflict",
+      what: "A transaction with this nonce is already pending or mined.",
+      remedy:
+        "A previous broadcast is still settling. Check it with dexe_tx_status FIRST: if it succeeded that step is done " +
+        "and a re-run continues after it; if it is still pending, wait ~15s and check again — do not re-send. " +
+        "On re-run ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain " +
+        "state and skipped; GovPool.execute and the validator round are NOT.",
+    },
+    {
+      match: /user rejected|user denied|rejected by user/i,
+      slug: "wallet-rejected",
+      what: "The transaction was rejected in the wallet.",
+      remedy: "Re-run the call and approve the request on the phone/wallet when it appears.",
+    },
+    {
+      // `Pinata JWT is required` is what PinataClient throws when constructed
+      // without a key — same root cause as a missing DEXE_PINATA_JWT, so it must
+      // land here and not on the transient `pinata-failed` entry below.
+      match: /DEXE_PINATA_JWT|Pinata JWT is required/i,
+      slug: "pinata-missing",
+      what: "IPFS uploads need a Pinata JWT and none is configured.",
+      remedy:
+        "1) Create a free API key at https://app.pinata.cloud/developers/api-keys with pinJSONToIPFS + pinFileToIPFS permissions. " +
+        "2) Add DEXE_PINATA_JWT=<jwt> to the .env at the dexe-mcp root (never .claude.json). " +
+        "3) Restart Claude Code (the .env is read once at startup). Or run /dexe-setup for a guided walkthrough.",
+    },
+    {
+      // Bounded gap so the IPFS-gateway message ("…set a dedicated Pinata
+      // gateway…") can't be mistaken for a pinning failure.
+      match: /Pinata [\w ]{0,24}(failed|timed out)/i,
+      slug: "pinata-failed",
+      what:
+        "Pinata (the IPFS pinning service) rejected or never answered the upload, so the metadata was NOT pinned.",
+      remedy:
+        "HTTP 401/403 means the DEXE_PINATA_JWT is wrong, revoked, or lacks the pinJSONToIPFS/pinFileToIPFS scopes — " +
+        "mint a fresh key at https://app.pinata.cloud/developers/api-keys, put it in .env, and restart. " +
+        "A 429 or a timeout is transient (check status.pinata.cloud): wait ~30s and re-run the SAME call — " +
+        "ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and " +
+        "skipped, so nothing is paid for twice. If a transaction was already broadcast (you have a hash), check " +
+        "dexe_tx_status first.",
+    },
+  ],
+  wording: {
+    "backend-failed": {
+      remedy:
+        "For reads, re-run: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). " +
+        "For off-chain proposals/votes there is no on-chain fallback — the backend is the system of record, so wait and retry. " +
+        "A 401 means the Bearer token expired: re-run dexe_auth_login (needs DEXE_TOOLSETS=core,proposals) to mint a new one. " +
+        "Point DEXE_BACKEND_API_URL at another host only if you run your own.",
+    },
+    "rpc-timeout": {
+      remedy:
+        "No state was changed by a timed-out READ — re-run it. If a WRITE timed out while waiting for a receipt, do NOT re-send blindly: " +
+        "check it with dexe_tx_status first, it may still land. A public endpoint that keeps stalling will not improve: set your own " +
+        "DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET (Alchemy/QuickNode/Ankr) in .env and restart. " +
+        "The receipt-wait budget is tunable via DEXE_TX_WAIT_TIMEOUT_MS.",
+    },
+    "rpc-flaky": {
+      remedy:
+        "Re-run the call; ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from " +
+        "chain state and skipped. If the failure came after a broadcast (you have a tx hash), check dexe_tx_status " +
+        "first — GovPool.execute and the validator round are NOT auto-skipped. For reliability set a private endpoint " +
+        "in .env (DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET, e.g. Alchemy/QuickNode/Ankr) and restart.",
+    },
+    "onchain-revert": {
+      what: "The transaction reverted on-chain (state was NOT changed by this step).",
+      remedy:
+        "Read the revert reason above if present. Common causes: proposal not in the required state " +
+        "(check dexe_proposal_state), tokens locked in an active proposal (withdraw between proposals), " +
+        "or a blacklisted recipient. Fix the cause and re-run — ERC20.approve / GovPool.deposit / " +
+        "createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round " +
+        "are NOT, so check dexe_proposal_state before re-running one of those.",
+    },
+  },
+};
+
+/**
+ * The read table with the write table on top — what the single server has
+ * always classified against, slug for slug and word for word, and what
+ * docs/PLAYBOOK.md renders.
+ */
+export const COMBINED_KNOWN_FAILURES: readonly KnownFailure[] = mergeKnownFailures(
+  READ_KNOWN_FAILURES,
+  WRITE_KNOWN_FAILURES,
+);
+
+registerKnownFailures(WRITE_KNOWN_FAILURES);
+
+/**
+ * `toActionableError` for write tools: classifies against the combined table
+ * whether or not anything else registered it.
+ */
+export function toActionableError(err: unknown, step?: string): ActionableError {
+  return classify(err, step, COMBINED_KNOWN_FAILURES);
+}

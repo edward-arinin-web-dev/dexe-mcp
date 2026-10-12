@@ -8,18 +8,18 @@ import {
   fetchIpfs,
   parseCid,
   pinataCidForJson,
-  PinataClient,
   toCidV1,
   DEFAULT_IPFS_HOP_TIMEOUT_MS,
 } from "../lib/ipfs.js";
+import { PinataClient } from "../lib/ipfsPin.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
-import { pinataUploadHint } from "../lib/requireEnv.js";
+import { pinataUploadHint } from "../lib/pinata.js";
 import { renderAvatarJpeg } from "../lib/avatarImage.js";
 import { assertRasterAvatar, checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
 import { redactUrlCredentials, safeErrorMessage } from "../lib/redact.js";
 import { untrustedResult } from "../lib/sanitize.js";
-import { toActionableError } from "../lib/errors.js";
+import { toActionableError } from "../lib/writeErrors.js";
 import { readFile } from "node:fs/promises";
 
 export function registerIpfsTools(server: McpServer, ctx: ToolContext): void {

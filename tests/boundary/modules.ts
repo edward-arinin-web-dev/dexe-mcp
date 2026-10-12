@@ -30,6 +30,8 @@ const READ = [
   "artifacts.ts",
   "resources.ts",
   "rpc.ts",
+  // DEXE_DEBUG diagnostics; the npm/hardhat/git resolvers are runtimeDev.ts
+  "runtime.ts",
   "cli/doctor.ts",
   "cli/skills.ts",
   "env/loader.ts",
@@ -51,15 +53,25 @@ const READ = [
   "lib/dangerousSelectors.ts",
   "lib/decoders.ts",
   "lib/decodeAbis.ts",
+  // the read remedy table + the registry write code adds its table to
+  "lib/errors.ts",
   "lib/govAddresses.ts",
   "lib/govEnums.ts",
   "lib/governanceHits.ts",
   "lib/govProposalView.ts",
   "lib/interactionTypes.ts",
+  // gateway fetch, CID parsing, offline CIDs; pinning is lib/ipfsPin.ts
+  "lib/ipfs.ts",
   "lib/merkleTree.ts",
   "lib/multicall.ts",
   "lib/page.ts",
+  // shared input-param vocabulary; write-only params are lib/writeParams.ts
+  "lib/params.ts",
+  // pure quorum/treasury risk math; the gate and its advisories are lib/treasuryGate.ts
+  "lib/quorumRisk.ts",
   "lib/redact.ts",
+  // generic env guard; the Pinata guard is lib/pinata.ts
+  "lib/requireEnv.ts",
   "lib/sanitize.ts",
   "lib/selectors.ts",
   // Persistence infrastructure. Read tools only call getState / findKnownDao;
@@ -90,6 +102,8 @@ const READ = [
 const WRITE = [
   "bootstrap.ts",
   "hardhat.ts",
+  // npm / hardhat / git resolvers for the dev toolchain
+  "runtimeDev.ts",
   "governor/encoder.ts",
   "governor/tools/build.ts",
   "knowledge/flows.ts",
@@ -109,8 +123,12 @@ const WRITE = [
   "lib/ethersProvider.ts",
   "lib/flowChain.ts",
   "lib/imageSniff.ts",
+  // Pinata client + the pin-or-preview fork
+  "lib/ipfsPin.ts",
   "lib/ipfsPreview.ts",
   "lib/markdownToSlate.ts",
+  // DEXE_PINATA_JWT guard and hint for upload sites
+  "lib/pinata.ts",
   "lib/preflight.ts",
   "lib/proposalBuilders.ts",
   "lib/proposalCatalog.ts",
@@ -121,8 +139,14 @@ const WRITE = [
   "lib/signer.ts",
   // eth_call simulation core: pre-checks for writes (sim tools, broadcast guard)
   "lib/simulate.ts",
+  // treasury-guard advisories + the build/deploy/execute gate
+  "lib/treasuryGate.ts",
   "lib/txWait.ts",
   "lib/walletconnect.ts",
+  // write remedy table, registered on top of lib/errors.ts by the composition root
+  "lib/writeErrors.ts",
+  // builder chainId, signerKey, off-chain proposal id
+  "lib/writeParams.ts",
   "tools/agents.ts",
   "tools/build.ts",
   "tools/buildResult.ts",
@@ -151,8 +175,6 @@ const MIXED = [
   // lists both editions' tools; each edition will carry its own list
   "editions.ts",
   "instructions.ts",
-  // debug/diagnostic helpers (read) + npm/hardhat/git resolvers (dev)
-  "runtime.ts",
   // read wizard (RPC, subgraph, gateway) + write wizard (key, Pinata, WC)
   "cli/init.ts",
   "diag/checks.ts",
@@ -163,11 +185,6 @@ const MIXED = [
   "knowledge/gotchas.ts",
   "knowledge/index.ts",
   "knowledge/render.ts",
-  "lib/errors.ts",
-  "lib/ipfs.ts",
-  "lib/params.ts",
-  "lib/quorumRisk.ts",
-  "lib/requireEnv.ts",
   "tools/annotations.ts",
   "tools/context.ts",
   "tools/gate.ts",

@@ -15,7 +15,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
-import { buildChainIdParam, govPoolParam } from "../lib/params.js";
+import { govPoolParam } from "../lib/params.js";
+import { buildChainIdParam } from "../lib/writeParams.js";
 import { parseUintString } from "../lib/amount.js";
 import { assessActions, withWarnings, legacyGovernanceAdvisories } from "./buildResult.js";
 import { assertStakingWindow } from "../lib/buildAdvisories.js";
@@ -25,7 +26,7 @@ import {
   findVestingTiers,
   vestingRefusalText,
 } from "../lib/protocolAdvisories.js";
-import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
+import { buildTimeTreasuryAdvisory } from "../lib/treasuryGate.js";
 import { RpcProvider } from "../rpc.js";
 import type { DexeConfig } from "../config.js";
 import { safeErrorMessage } from "../lib/redact.js";

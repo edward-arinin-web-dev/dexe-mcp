@@ -3,8 +3,9 @@ import { AGENT_PROTOCOL, GOTCHA_BY_ID } from "../../src/knowledge/index.js";
 import { serverInstructions } from "../../src/instructions.js";
 import { RESUME_SUMMARY } from "../../src/lib/resumeContract.js";
 import { RESUME_RECHECKS } from "../../src/tools/flow.js";
-import { KNOWN_FAILURES } from "../../src/lib/errors.js";
-import { PinataClient } from "../../src/lib/ipfs.js";
+import { READ_KNOWN_FAILURES } from "../../src/lib/errors.js";
+import { COMBINED_KNOWN_FAILURES as KNOWN_FAILURES } from "../../src/lib/writeErrors.js";
+import { PinataClient } from "../../src/lib/ipfsPin.js";
 
 /** The abort message, captured from the real deadline path rather than restated. */
 const PINATA_TIMEOUT_MESSAGE = await (async () => {
@@ -60,10 +61,13 @@ const SURFACES: Array<[string, string]> = [
  * The same promise reaches the agent from two more places that are NOT
  * standing instructions — the error→remedy table (rendered into
  * docs/PLAYBOOK.md by gen:knowledge) and the Pinata deadline message. Both are
- * read at the exact moment the agent decides whether to re-run.
+ * read at the exact moment the agent decides whether to re-run. The table is
+ * checked twice: as the single server words it (read + write), and as the read
+ * table alone words the shared failures for a server with no write code.
  */
 const REMEDY_SURFACES: Array<[string, string]> = [
   ...KNOWN_FAILURES.map((k) => [`the ${k.slug} remedy`, k.remedy] as [string, string]),
+  ...READ_KNOWN_FAILURES.map((k) => [`the read-only ${k.slug} remedy`, k.remedy] as [string, string]),
   ["the Pinata deadline message", PINATA_TIMEOUT_MESSAGE],
 ];
 

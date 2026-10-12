@@ -68,8 +68,14 @@ const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
     "IPFS reads and uploads share one register file. Gone when tools/ipfs.ts splits into read and write files.",
   "tools/ipfs.ts -> lib/imageSniff.ts":
     "IPFS reads and uploads share one register file. Gone when tools/ipfs.ts splits into read and write files.",
+  "tools/ipfs.ts -> lib/ipfsPin.ts":
+    "the Pinata client left lib/ipfs.ts for a write module; same cause as the other tools/ipfs.ts edges. Gone when tools/ipfs.ts splits.",
   "tools/ipfs.ts -> lib/markdownToSlate.ts":
     "IPFS reads and uploads share one register file. Gone when tools/ipfs.ts splits into read and write files.",
+  "tools/ipfs.ts -> lib/pinata.ts":
+    "the Pinata env guard left lib/requireEnv.ts for a write module; same cause as the other tools/ipfs.ts edges. Gone when tools/ipfs.ts splits.",
+  "tools/ipfs.ts -> lib/writeErrors.ts":
+    "the upload tools classify failures with the write remedy table; same cause as the other tools/ipfs.ts edges. Gone when tools/ipfs.ts splits.",
   "tools/operationalContext.ts -> lib/agentLedger.ts":
     "dexe_context reports the persona keyring. Gone when that moves to a write-edition context tool.",
   "tools/operationalContext.ts -> lib/signer.ts":

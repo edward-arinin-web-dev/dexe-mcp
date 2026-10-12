@@ -5,12 +5,12 @@ import type { ToolContext } from "./context.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { parseUintString } from "../lib/amount.js";
 import {
-  buildChainIdParam,
   govPoolParam,
   PROPOSAL_ID_DESC,
   NFT_IDS_OWN_DESC,
   DELEGATEE_DESC,
 } from "../lib/params.js";
+import { buildChainIdParam } from "../lib/writeParams.js";
 import { ETHEREUM_ADDRESS, isNativeSentinel } from "../lib/abi/tokenSale.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { RpcProvider } from "../rpc.js";

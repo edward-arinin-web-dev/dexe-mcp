@@ -5,15 +5,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import {
-  buildChainIdParam,
   govPoolParam,
   DELEGATEE_DESC,
   NFT_IDS_TREASURY_DESC,
 } from "../lib/params.js";
+import { buildChainIdParam } from "../lib/writeParams.js";
 import { settingsAdvisories } from "../lib/protocolAdvisories.js";
 import { assessActions, withWarnings, legacyGovernanceAdvisories } from "./buildResult.js";
 import { warningsOutputField } from "../lib/buildWarning.js";
-import { buildTimeTreasuryAdvisory } from "../lib/quorumRisk.js";
+import { buildTimeTreasuryAdvisory } from "../lib/treasuryGate.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
 /**

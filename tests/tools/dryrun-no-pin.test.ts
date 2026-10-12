@@ -59,7 +59,7 @@ vi.mock("../../src/rpc.js", () => ({
   },
 }));
 
-import { PinataClient } from "../../src/lib/ipfs.js";
+import { PinataClient } from "../../src/lib/ipfsPin.js";
 import { registerDaoCreateTools } from "../../src/tools/daoCreate.js";
 import { registerDaoDeployTools } from "../../src/tools/daoDeploy.js";
 import { renderAvatarJpeg } from "../../src/lib/avatarImage.js";

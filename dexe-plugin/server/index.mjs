@@ -102257,91 +102257,11 @@ import { homedir as homedir2, platform as platform2 } from "node:os";
 import { execFile as execFile2 } from "node:child_process";
 import { promisify } from "node:util";
 
-// dist/runtime.js
+// dist/runtimeDev.js
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir, platform } from "node:os";
 import { execFile } from "node:child_process";
-
-// dist/lib/redact.js
-var USERINFO_RE = /^([a-zA-Z][a-zA-Z0-9+.-]{0,31}:\/\/)[^/?#\s@]{1,256}@/;
-var URL_RE = /\b(?:https?|wss?):\/\/[^\s'"`)<>\]},;]+/gi;
-function maskUrl(raw) {
-  try {
-    const u4 = new URL(raw);
-    const path7 = u4.pathname && u4.pathname !== "/" ? "/***" : "";
-    const query = u4.search ? "?***" : "";
-    return `${u4.protocol}//${u4.host}${path7}${query}`;
-  } catch {
-    return raw.replace(USERINFO_RE, "$1***@");
-  }
-}
-function redactUrlCredentials(text5) {
-  return text5.replace(URL_RE, (m3) => maskUrl(m3));
-}
-function safeErrorMessage(err14) {
-  let msg;
-  if (err14 && typeof err14 === "object") {
-    const e2 = err14;
-    if (typeof e2.shortMessage === "string" && e2.shortMessage.length > 0) {
-      msg = e2.shortMessage;
-    } else if (typeof e2.message === "string") {
-      msg = e2.message;
-    } else {
-      msg = String(err14);
-    }
-  } else {
-    msg = String(err14);
-  }
-  return redactUrlCredentials(msg);
-}
-function trySet(obj, key, value) {
-  try {
-    obj[key] = value;
-    return obj[key] === value;
-  } catch {
-    return false;
-  }
-}
-var CLASSIFYING_FIELDS = ["code", "data", "reason"];
-function redactErrorInPlace(err14) {
-  const safe = safeErrorMessage(err14);
-  if (err14 instanceof Error) {
-    const e2 = err14;
-    const messageStuck = trySet(err14, "message", safe);
-    let shortMessageLeaks = false;
-    if (typeof e2.shortMessage === "string") {
-      const cleaned = redactUrlCredentials(e2.shortMessage);
-      if (cleaned !== e2.shortMessage && !trySet(err14, "shortMessage", cleaned)) {
-        shortMessageLeaks = true;
-      }
-    }
-    if (typeof e2.stack === "string")
-      trySet(err14, "stack", redactUrlCredentials(e2.stack));
-    const info = e2.info;
-    if (info && typeof info === "object") {
-      const requestUrl = info.requestUrl;
-      if (typeof requestUrl === "string")
-        trySet(info, "requestUrl", maskUrl(requestUrl));
-    }
-    if (messageStuck && !shortMessageLeaks)
-      return err14;
-  }
-  const copy4 = new Error(safe);
-  const src3 = err14;
-  const target = copy4;
-  for (const key of CLASSIFYING_FIELDS) {
-    const v7 = src3?.[key];
-    if (v7 !== void 0)
-      target[key] = typeof v7 === "string" ? redactUrlCredentials(v7) : v7;
-  }
-  if (typeof src3?.shortMessage === "string") {
-    target.shortMessage = redactUrlCredentials(src3.shortMessage);
-  }
-  return copy4;
-}
-
-// dist/runtime.js
 function resolveNpmCli() {
   const candidates = [...primaryNpmCandidates(), ...alternateNpmCandidates()];
   for (const c4 of candidates) {
@@ -102453,61 +102373,83 @@ function hardhatCommand(protocolPath) {
     return { command: process.execPath, prefixArgs: [cli] };
   return null;
 }
-var DEBUG_TRUTHY = /* @__PURE__ */ new Set(["1", "true", "yes", "on"]);
-function isDebugEnabled() {
-  const raw = process.env.DEXE_DEBUG?.trim().toLowerCase();
-  return raw !== void 0 && DEBUG_TRUTHY.has(raw);
+
+// dist/lib/redact.js
+var USERINFO_RE = /^([a-zA-Z][a-zA-Z0-9+.-]{0,31}:\/\/)[^/?#\s@]{1,256}@/;
+var URL_RE = /\b(?:https?|wss?):\/\/[^\s'"`)<>\]},;]+/gi;
+function maskUrl(raw) {
+  try {
+    const u4 = new URL(raw);
+    const path7 = u4.pathname && u4.pathname !== "/" ? "/***" : "";
+    const query = u4.search ? "?***" : "";
+    return `${u4.protocol}//${u4.host}${path7}${query}`;
+  } catch {
+    return raw.replace(USERINFO_RE, "$1***@");
+  }
 }
-var MAX_DIAGNOSTIC_CHARS = 4e3;
-function clampDiagnostic(text5) {
-  if (text5.length <= MAX_DIAGNOSTIC_CHARS)
-    return text5;
-  return `${text5.slice(0, MAX_DIAGNOSTIC_CHARS)}\u2026 [truncated, ${text5.length - MAX_DIAGNOSTIC_CHARS} more chars]`;
+function redactUrlCredentials(text5) {
+  return text5.replace(URL_RE, (m3) => maskUrl(m3));
 }
-function formatDiagnostic(err14) {
-  const parts = [];
-  if (err14 instanceof Error) {
-    parts.push(err14.stack || `${err14.name}: ${err14.message}`);
-    let cause = err14.cause;
-    for (let depth = 0; cause !== void 0 && cause !== null && depth < 3; depth++) {
-      parts.push(`  caused by: ${cause instanceof Error ? cause.stack || `${cause.name}: ${cause.message}` : safeErrorMessage(cause)}`);
-      cause = cause instanceof Error ? cause.cause : void 0;
+function safeErrorMessage(err14) {
+  let msg;
+  if (err14 && typeof err14 === "object") {
+    const e2 = err14;
+    if (typeof e2.shortMessage === "string" && e2.shortMessage.length > 0) {
+      msg = e2.shortMessage;
+    } else if (typeof e2.message === "string") {
+      msg = e2.message;
+    } else {
+      msg = String(err14);
     }
   } else {
-    parts.push(describeUnknown(err14));
+    msg = String(err14);
   }
-  return clampDiagnostic(redactUrlCredentials(parts.join("\n")));
+  return redactUrlCredentials(msg);
 }
-function describeUnknown(value) {
-  if (typeof value === "string")
-    return value;
-  if (value !== null && typeof value === "object") {
-    const e2 = value;
-    const hasMessage = typeof e2.shortMessage === "string" && e2.shortMessage.length > 0 || typeof e2.message === "string" && e2.message.length > 0;
-    if (!hasMessage) {
-      try {
-        return JSON.stringify(value) ?? String(value);
-      } catch {
-        return String(value);
+function trySet(obj, key, value) {
+  try {
+    obj[key] = value;
+    return obj[key] === value;
+  } catch {
+    return false;
+  }
+}
+var CLASSIFYING_FIELDS = ["code", "data", "reason"];
+function redactErrorInPlace(err14) {
+  const safe = safeErrorMessage(err14);
+  if (err14 instanceof Error) {
+    const e2 = err14;
+    const messageStuck = trySet(err14, "message", safe);
+    let shortMessageLeaks = false;
+    if (typeof e2.shortMessage === "string") {
+      const cleaned = redactUrlCredentials(e2.shortMessage);
+      if (cleaned !== e2.shortMessage && !trySet(err14, "shortMessage", cleaned)) {
+        shortMessageLeaks = true;
       }
     }
+    if (typeof e2.stack === "string")
+      trySet(err14, "stack", redactUrlCredentials(e2.stack));
+    const info = e2.info;
+    if (info && typeof info === "object") {
+      const requestUrl = info.requestUrl;
+      if (typeof requestUrl === "string")
+        trySet(info, "requestUrl", maskUrl(requestUrl));
+    }
+    if (messageStuck && !shortMessageLeaks)
+      return err14;
   }
-  return safeErrorMessage(value);
-}
-function describeDetail(detail) {
-  if (detail instanceof Error)
-    return formatDiagnostic(detail);
-  return describeUnknown(detail);
-}
-function debugLog(scope, message, detail) {
-  if (!isDebugEnabled())
-    return;
-  const suffix = detail === void 0 ? "" : ` ${describeDetail(detail)}`;
-  process.stderr.write(`${clampDiagnostic(redactUrlCredentials(`[dexe-mcp:debug] ${scope}: ${message}${suffix}`))}
-`);
-}
-function debugHint() {
-  return isDebugEnabled() ? "" : "[dexe-mcp] set DEXE_DEBUG=1 in your .env and restart for verbose diagnostics.\n";
+  const copy4 = new Error(safe);
+  const src3 = err14;
+  const target = copy4;
+  for (const key of CLASSIFYING_FIELDS) {
+    const v7 = src3?.[key];
+    if (v7 !== void 0)
+      target[key] = typeof v7 === "string" ? redactUrlCredentials(v7) : v7;
+  }
+  if (typeof src3?.shortMessage === "string") {
+    target.shortMessage = redactUrlCredentials(src3.shortMessage);
+  }
+  return copy4;
 }
 
 // dist/bootstrap.js
@@ -102629,6 +102571,66 @@ import { closeSync, existsSync as existsSync3, mkdirSync as mkdirSync2, openSync
 import { dirname as dirname2, join as join3 } from "node:path";
 import { homedir as homedir3, tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
+
+// dist/runtime.js
+var DEBUG_TRUTHY = /* @__PURE__ */ new Set(["1", "true", "yes", "on"]);
+function isDebugEnabled() {
+  const raw = process.env.DEXE_DEBUG?.trim().toLowerCase();
+  return raw !== void 0 && DEBUG_TRUTHY.has(raw);
+}
+var MAX_DIAGNOSTIC_CHARS = 4e3;
+function clampDiagnostic(text5) {
+  if (text5.length <= MAX_DIAGNOSTIC_CHARS)
+    return text5;
+  return `${text5.slice(0, MAX_DIAGNOSTIC_CHARS)}\u2026 [truncated, ${text5.length - MAX_DIAGNOSTIC_CHARS} more chars]`;
+}
+function formatDiagnostic(err14) {
+  const parts = [];
+  if (err14 instanceof Error) {
+    parts.push(err14.stack || `${err14.name}: ${err14.message}`);
+    let cause = err14.cause;
+    for (let depth = 0; cause !== void 0 && cause !== null && depth < 3; depth++) {
+      parts.push(`  caused by: ${cause instanceof Error ? cause.stack || `${cause.name}: ${cause.message}` : safeErrorMessage(cause)}`);
+      cause = cause instanceof Error ? cause.cause : void 0;
+    }
+  } else {
+    parts.push(describeUnknown(err14));
+  }
+  return clampDiagnostic(redactUrlCredentials(parts.join("\n")));
+}
+function describeUnknown(value) {
+  if (typeof value === "string")
+    return value;
+  if (value !== null && typeof value === "object") {
+    const e2 = value;
+    const hasMessage = typeof e2.shortMessage === "string" && e2.shortMessage.length > 0 || typeof e2.message === "string" && e2.message.length > 0;
+    if (!hasMessage) {
+      try {
+        return JSON.stringify(value) ?? String(value);
+      } catch {
+        return String(value);
+      }
+    }
+  }
+  return safeErrorMessage(value);
+}
+function describeDetail(detail) {
+  if (detail instanceof Error)
+    return formatDiagnostic(detail);
+  return describeUnknown(detail);
+}
+function debugLog(scope, message, detail) {
+  if (!isDebugEnabled())
+    return;
+  const suffix = detail === void 0 ? "" : ` ${describeDetail(detail)}`;
+  process.stderr.write(`${clampDiagnostic(redactUrlCredentials(`[dexe-mcp:debug] ${scope}: ${message}${suffix}`))}
+`);
+}
+function debugHint() {
+  return isDebugEnabled() ? "" : "[dexe-mcp] set DEXE_DEBUG=1 in your .env and restart for verbose diagnostics.\n";
+}
+
+// dist/lib/stateStore.js
 var STATE_VERSION = 1;
 function findKnownDao(state, chainId, govPool) {
   try {
@@ -103220,8 +103222,6 @@ function quorumConcentration(args) {
   const verdict = pctOfSupplyForQuorum === null ? "CAUTION" : judgeQuorum(pctOfSupplyForQuorum, floorPct);
   return { requiredWeight, totalSupply, pctOfSupplyForQuorum, verdict };
 }
-var ADVISORY_TAG = "[governance-safety advisory]";
-var GUARD_TAG = "[governance-safety guard: block]";
 var TREASURY_GUARD_MODES = ["off", "warn", "block"];
 var TREASURY_GUARD_DEFAULT = "warn";
 function resolveTreasuryGuardMode(raw) {
@@ -103238,48 +103238,6 @@ function resolveTreasuryGuardMode(raw) {
       fallback: `using the default '${TREASURY_GUARD_DEFAULT}' (advisories stay on; nothing is blocked)`
     }
   };
-}
-function treasuryGuardMode(args) {
-  const raw = (args?.env ?? process.env).DEXE_TREASURY_GUARD;
-  if (raw !== void 0 && raw.trim() !== "")
-    return resolveTreasuryGuardMode(raw).mode;
-  return resolveTreasuryGuardMode(args?.configured).mode;
-}
-function lowQuorumAdvisory(pct, floorPct) {
-  const shown2 = Number.isFinite(pct) ? `${pct}%` : "unparseable";
-  return `\u26A0 quorum=${shown2} is below the ${floorPct}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT). Low quorum reduces the participation required to pass a proposal. For a DAO that holds treasury assets, set quorum \u226550% (51%+ recommended) and verify stakeholder participation before executing treasury-moving proposals; the safe value is DAO-specific. ${ADVISORY_TAG}`;
-}
-var TREASURY_RISK_ADVISORY = `\u26A0 This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). Confirm the DAO's quorum is adequate (\u226550%) and that key stakeholders have participated before executing. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
-function buildTimeTreasuryAdvisory(actions, guard) {
-  if (guard === "off")
-    return null;
-  return classifyTreasuryActions(actions).length > 0 ? TREASURY_RISK_ADVISORY : null;
-}
-function treasuryExecuteAdvisory(reasons) {
-  return `\u26A0 Treasury-safety advisory: this proposal moves treasury value AND ${reasons.join("; ")}. Verify adequate quorum and stakeholder participation before executing \u2014 responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
-}
-function treasuryGate(input3) {
-  const none = { hits: [], triggered: false, blocked: false, advisory: null, refusal: null };
-  if (input3.mode === "off")
-    return none;
-  const hits = input3.hits ? [...input3.hits] : classifyTreasuryActions([...input3.actions ?? []]);
-  const reasons = [...input3.reasons ?? []];
-  const triggered = input3.stage === "deploy" ? reasons.length > 0 : hits.length > 0;
-  if (!triggered)
-    return none;
-  const advisory = reasons.length > 0 ? input3.stage === "deploy" ? `\u26A0 Treasury-safety advisory: ${reasons.join("; ")}. ${ADVISORY_TAG}` : treasuryExecuteAdvisory(reasons) : TREASURY_RISK_ADVISORY;
-  const blocked = input3.mode === "block" && input3.stage !== "build" && reasons.length > 0;
-  return {
-    hits,
-    triggered: true,
-    blocked,
-    advisory,
-    refusal: blocked ? treasuryBlockRefusal(reasons, input3.stage, input3.act) : null
-  };
-}
-function treasuryBlockRefusal(reasons, stage, act) {
-  const what = act ? `this ${stage} (${act})` : `this ${stage}`;
-  return `\u26D4 Refusing ${what}: DEXE_TREASURY_GUARD=block and the treasury-safety checks failed \u2014 ${reasons.join("; ")}. Nothing was broadcast. Fix the cause (raise the DAO's quorum, secure stakeholder participation, or shrink what the action moves), or set DEXE_TREASURY_GUARD=warn and restart the MCP server to make this an advisory again \u2014 the default posture, where the operator owns the outcome. ${GUARD_TAG}`;
 }
 
 // dist/env/schema.js
@@ -114173,42 +114131,7 @@ ${tail}` }],
 }
 
 // dist/lib/errors.js
-var KNOWN_FAILURES = [
-  {
-    match: /insufficient funds for (gas|intrinsic)/i,
-    slug: "no-gas",
-    what: "The signer wallet has no BNB to pay gas.",
-    remedy: "Fund the signer address with BNB on the target chain (testnet 97: use a faucet, e.g. https://www.bnbchain.org/en/testnet-faucet), then re-run."
-  },
-  {
-    match: /nonce (too low|has already been used)|already known|replacement transaction underpriced/i,
-    slug: "nonce-conflict",
-    what: "A transaction with this nonce is already pending or mined.",
-    remedy: "A previous broadcast is still settling. Check it with dexe_tx_status FIRST: if it succeeded that step is done and a re-run continues after it; if it is still pending, wait ~15s and check again \u2014 do not re-send. On re-run ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped; GovPool.execute and the validator round are NOT."
-  },
-  {
-    match: /user rejected|user denied|rejected by user/i,
-    slug: "wallet-rejected",
-    what: "The transaction was rejected in the wallet.",
-    remedy: "Re-run the call and approve the request on the phone/wallet when it appears."
-  },
-  {
-    // `Pinata JWT is required` is what PinataClient throws when constructed
-    // without a key — same root cause as a missing DEXE_PINATA_JWT, so it must
-    // land here and not on the transient `pinata-failed` entry below.
-    match: /DEXE_PINATA_JWT|Pinata JWT is required/i,
-    slug: "pinata-missing",
-    what: "IPFS uploads need a Pinata JWT and none is configured.",
-    remedy: "1) Create a free API key at https://app.pinata.cloud/developers/api-keys with pinJSONToIPFS + pinFileToIPFS permissions. 2) Add DEXE_PINATA_JWT=<jwt> to the .env at the dexe-mcp root (never .claude.json). 3) Restart Claude Code (the .env is read once at startup). Or run /dexe-setup for a guided walkthrough."
-  },
-  {
-    // Bounded gap so the IPFS-gateway message ("…set a dedicated Pinata
-    // gateway…") can't be mistaken for a pinning failure.
-    match: /Pinata [\w ]{0,24}(failed|timed out)/i,
-    slug: "pinata-failed",
-    what: "Pinata (the IPFS pinning service) rejected or never answered the upload, so the metadata was NOT pinned.",
-    remedy: "HTTP 401/403 means the DEXE_PINATA_JWT is wrong, revoked, or lacks the pinJSONToIPFS/pinFileToIPFS scopes \u2014 mint a fresh key at https://app.pinata.cloud/developers/api-keys, put it in .env, and restart. A 429 or a timeout is transient (check status.pinata.cloud): wait ~30s and re-run the SAME call \u2014 ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped, so nothing is paid for twice. If a transaction was already broadcast (you have a hash), check dexe_tx_status first."
-  },
+var READ_KNOWN_FAILURES = [
   {
     // MUST precede `subgraph-failed`: the orphan fault's message also matches
     // `Subgraph errors:`, and the generic remedy there says "re-run once
@@ -114248,7 +114171,7 @@ var KNOWN_FAILURES = [
     match: /backend HTTP \d{3}|backend request timed out|DeXe backend[^\n]{0,40}(failed|unreachable)/i,
     slug: "backend-failed",
     what: "The DeXe backend API (api.dexe.io) failed or timed out \u2014 the enriched answer (USD prices, token discovery, off-chain proposals) is unavailable.",
-    remedy: "For reads, re-run: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). For off-chain proposals/votes there is no on-chain fallback \u2014 the backend is the system of record, so wait and retry. A 401 means the Bearer token expired: re-run dexe_auth_login (needs DEXE_TOOLSETS=core,proposals) to mint a new one. Point DEXE_BACKEND_API_URL at another host only if you run your own."
+    remedy: "Re-run the call: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). Off-chain proposal data has no on-chain fallback \u2014 the backend is its system of record, so wait and retry. Point DEXE_BACKEND_API_URL at another host only if you run your own."
   },
   {
     // A deadline fired. Distinct from `rpc-flaky`: the endpoint did not refuse
@@ -114257,24 +114180,69 @@ var KNOWN_FAILURES = [
     match: /timed out after \d|\bETIMEDOUT\b|\bAbortError\b|operation was aborted|aborted due to timeout/i,
     slug: "rpc-timeout",
     what: "The endpoint accepted the connection and then went silent until the deadline fired. The call was abandoned, not answered.",
-    remedy: "No state was changed by a timed-out READ \u2014 re-run it. If a WRITE timed out while waiting for a receipt, do NOT re-send blindly: check it with dexe_tx_status first, it may still land. A public endpoint that keeps stalling will not improve: set your own DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET (Alchemy/QuickNode/Ankr) in .env and restart. The receipt-wait budget is tunable via DEXE_TX_WAIT_TIMEOUT_MS."
+    remedy: "No state was changed by a timed-out read \u2014 re-run it. A public endpoint that keeps stalling will not improve: set your own DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET (Alchemy/QuickNode/Ankr) in .env and restart."
   },
   {
     match: /rate.?limit|\b429\b|SERVER_ERROR|could not detect network|failed to fetch|fetch failed|ETIMEDOUT|ECONNRESET/i,
     slug: "rpc-flaky",
     what: "The RPC endpoint failed or rate-limited mid-call (retries were already attempted).",
-    remedy: "Re-run the call; ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped. If the failure came after a broadcast (you have a tx hash), check dexe_tx_status first \u2014 GovPool.execute and the validator round are NOT auto-skipped. For reliability set a private endpoint in .env (DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET, e.g. Alchemy/QuickNode/Ankr) and restart."
+    remedy: "Re-run the call \u2014 a read changes nothing, so a retry is safe. For reliability set a private endpoint in .env (DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET, e.g. Alchemy/QuickNode/Ankr) and restart."
   },
   {
     match: /execution reverted|CALL_EXCEPTION|transaction failed|status.*0\b/i,
     slug: "onchain-revert",
-    what: "The transaction reverted on-chain (state was NOT changed by this step).",
-    remedy: "Read the revert reason above if present. Common causes: proposal not in the required state (check dexe_proposal_state), tokens locked in an active proposal (withdraw between proposals), or a blacklisted recipient. Fix the cause and re-run \u2014 ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round are NOT, so check dexe_proposal_state before re-running one of those."
+    what: "The contract call reverted on-chain (nothing was changed).",
+    remedy: "Read the revert reason above if present. On a read the usual causes are an address that is not the contract the tool expects (check it with dexe_dao_registry_lookup or dexe_dao_info), a proposal id that does not exist yet or is in a state the call does not accept (check dexe_proposal_list / dexe_proposal_state), or the wrong chain (pass the DAO's chainId). Fix the input and re-run."
   }
 ];
-function toActionableError(err14, step) {
+function mergeKnownFailures(base3, reg) {
+  const baseSlugs = new Set(base3.map((k5) => k5.slug));
+  for (const f3 of reg.failures ?? []) {
+    if (baseSlugs.has(f3.slug)) {
+      throw new Error(`registerKnownFailures: '${f3.slug}' is already classified by the read table \u2014 pass its wording, not a second entry.`);
+    }
+  }
+  const wording = reg.wording ?? {};
+  for (const slug of Object.keys(wording)) {
+    if (!baseSlugs.has(slug)) {
+      throw new Error(`registerKnownFailures: no read failure '${slug}' to reword \u2014 register it as a failure instead.`);
+    }
+  }
+  return [
+    ...reg.failures ?? [],
+    ...base3.map((k5) => {
+      const w5 = wording[k5.slug];
+      return w5 ? { ...k5, what: w5.what ?? k5.what, remedy: w5.remedy } : k5;
+    })
+  ];
+}
+var registeredFailures = [];
+var registeredWording = /* @__PURE__ */ new Map();
+var activeTable = READ_KNOWN_FAILURES;
+function registerKnownFailures(reg) {
+  const failures = [...registeredFailures];
+  for (const f3 of reg.failures ?? []) {
+    const at3 = failures.findIndex((x6) => x6.slug === f3.slug);
+    if (at3 >= 0)
+      failures[at3] = f3;
+    else
+      failures.push(f3);
+  }
+  const wording = new Map(registeredWording);
+  for (const [slug, w5] of Object.entries(reg.wording ?? {}))
+    wording.set(slug, w5);
+  activeTable = mergeKnownFailures(READ_KNOWN_FAILURES, { failures, wording: Object.fromEntries(wording) });
+  registeredFailures.splice(0, registeredFailures.length, ...failures);
+  registeredWording.clear();
+  for (const [slug, w5] of wording)
+    registeredWording.set(slug, w5);
+}
+function knownFailures() {
+  return activeTable;
+}
+function toActionableError(err14, step, table = knownFailures()) {
   const raw = safeErrorMessage(err14);
-  const hit = KNOWN_FAILURES.find((k5) => k5.match.test(raw));
+  const hit = table.find((k5) => k5.match.test(raw));
   const prefix = step ? `${step} failed: ` : "";
   if (!hit)
     return { message: `${prefix}${raw}` };
@@ -114297,12 +114265,9 @@ function sanitizeRevertReason(raw, fallback = "unknown") {
 // dist/lib/params.js
 var chainIdParam = external_exports.number().int().positive().optional().describe("Chain to read from: 56 mainnet, 97 testnet. Needs an RPC for it. Default: the configured chain.");
 var backendChainIdParam = external_exports.number().int().positive().optional().describe("Chain for the backend lookup: 1 Ethereum, 56 BSC. Testnets are not indexed. Default: the configured chain.");
-var buildChainIdParam = external_exports.number().int().positive().optional().describe("Chain this payload targets: 56 mainnet, 97 testnet. Default: the configured chain.");
-var signerKeyParam = external_exports.string().optional().describe("Keyring signer: omit = primary key; 'agent<n>' or address = a DEXE_AGENT_PK_* key.");
 var GOV_POOL_DESC = "DAO GovPool address (dexe_dao_registry_lookup).";
 var govPoolParam = external_exports.string().describe(GOV_POOL_DESC);
 var PROPOSAL_ID_DESC = "On-chain proposal id, 1-indexed decimal (dexe_proposal_list).";
-var PROPOSAL_ID_DESC_OFFCHAIN = "Off-chain proposal id from the DeXe backend (JSON number).";
 var NFT_IDS_OWN_DESC = "Your governance NFT token ids, decimal; [] for ERC20-only DAOs.";
 var NFT_IDS_TREASURY_DESC = "DAO-treasury governance NFT token ids, decimal; [] if none.";
 var DELEGATEE_DESC = "Address receiving the delegated voting power.";
@@ -118336,17 +118301,6 @@ async function pinataCidForJson(value) {
     exact: bytes2.length <= UNIXFS_CHUNK_BYTES && bytes2.every((b7) => b7 < 128)
   };
 }
-async function pinJsonOrPreview(value, opts) {
-  if (opts.dryRun) {
-    const local = await pinataCidForJson(value);
-    return { uri: `ipfs://${local.cid}`, cid: local.cid, pinned: false, exact: local.exact };
-  }
-  if (!opts.pinata) {
-    throw new Error("Internal: a real (non-dryRun) pin was attempted without a Pinata client. Set DEXE_PINATA_JWT in .env and restart, then run dexe_doctor to verify.");
-  }
-  const res = await opts.pinata.pinJson(value, opts.name ? { name: opts.name } : void 0);
-  return { uri: `ipfs://${res.cid}`, cid: res.cid, pinned: true, exact: true };
-}
 function codecName(code6) {
   switch (code6) {
     case 85:
@@ -118362,6 +118316,19 @@ function codecName(code6) {
     default:
       return `0x${code6.toString(16)}`;
   }
+}
+
+// dist/lib/ipfsPin.js
+async function pinJsonOrPreview(value, opts) {
+  if (opts.dryRun) {
+    const local = await pinataCidForJson(value);
+    return { uri: `ipfs://${local.cid}`, cid: local.cid, pinned: false, exact: local.exact };
+  }
+  if (!opts.pinata) {
+    throw new Error("Internal: a real (non-dryRun) pin was attempted without a Pinata client. Set DEXE_PINATA_JWT in .env and restart, then run dexe_doctor to verify.");
+  }
+  const res = await opts.pinata.pinJson(value, opts.name ? { name: opts.name } : void 0);
+  return { uri: `ipfs://${res.cid}`, cid: res.cid, pinned: true, exact: true };
 }
 var PINATA_PIN_JSON_URL = "https://api.pinata.cloud/pinning/pinJSONToIPFS";
 var PINATA_PIN_FILE_URL = "https://api.pinata.cloud/pinning/pinFileToIPFS";
@@ -130266,19 +130233,7 @@ function flattenSlateNodes(nodes) {
   return result;
 }
 
-// dist/lib/requireEnv.js
-function hintFor(keys) {
-  const parts = [];
-  for (const k5 of keys) {
-    const spec = ENV_REGISTRY[k5];
-    if (!spec)
-      continue;
-    const flowHint = spec.enablesFlows?.length ? ` (enables: ${spec.enablesFlows.join(", ")})` : "";
-    parts.push(`Set ${k5} in .env \u2014 ${spec.doc}${flowHint}`);
-  }
-  parts.push("After editing .env, restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify the new values were picked up.");
-  return parts.join("\n");
-}
+// dist/lib/pinata.js
 function pinataUploadHint(context) {
   return `DEXE_PINATA_JWT is required ${context}. Reads work without it, but pinning metadata to IPFS needs a Pinata JWT. Three steps to fix (~2 minutes):
 1) Create a free API key at https://app.pinata.cloud \u2192 API Keys \u2192 New Key \u2014 grant it pinJSONToIPFS + pinFileToIPFS, copy the JWT (the long eyJ\u2026 string).
@@ -130636,6 +130591,68 @@ async function pinAvatarFromInput(input3) {
   };
 }
 
+// dist/lib/writeErrors.js
+var WRITE_KNOWN_FAILURES = {
+  // Matched before every read entry, in this order.
+  failures: [
+    {
+      match: /insufficient funds for (gas|intrinsic)/i,
+      slug: "no-gas",
+      what: "The signer wallet has no BNB to pay gas.",
+      remedy: "Fund the signer address with BNB on the target chain (testnet 97: use a faucet, e.g. https://www.bnbchain.org/en/testnet-faucet), then re-run."
+    },
+    {
+      match: /nonce (too low|has already been used)|already known|replacement transaction underpriced/i,
+      slug: "nonce-conflict",
+      what: "A transaction with this nonce is already pending or mined.",
+      remedy: "A previous broadcast is still settling. Check it with dexe_tx_status FIRST: if it succeeded that step is done and a re-run continues after it; if it is still pending, wait ~15s and check again \u2014 do not re-send. On re-run ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped; GovPool.execute and the validator round are NOT."
+    },
+    {
+      match: /user rejected|user denied|rejected by user/i,
+      slug: "wallet-rejected",
+      what: "The transaction was rejected in the wallet.",
+      remedy: "Re-run the call and approve the request on the phone/wallet when it appears."
+    },
+    {
+      // `Pinata JWT is required` is what PinataClient throws when constructed
+      // without a key — same root cause as a missing DEXE_PINATA_JWT, so it must
+      // land here and not on the transient `pinata-failed` entry below.
+      match: /DEXE_PINATA_JWT|Pinata JWT is required/i,
+      slug: "pinata-missing",
+      what: "IPFS uploads need a Pinata JWT and none is configured.",
+      remedy: "1) Create a free API key at https://app.pinata.cloud/developers/api-keys with pinJSONToIPFS + pinFileToIPFS permissions. 2) Add DEXE_PINATA_JWT=<jwt> to the .env at the dexe-mcp root (never .claude.json). 3) Restart Claude Code (the .env is read once at startup). Or run /dexe-setup for a guided walkthrough."
+    },
+    {
+      // Bounded gap so the IPFS-gateway message ("…set a dedicated Pinata
+      // gateway…") can't be mistaken for a pinning failure.
+      match: /Pinata [\w ]{0,24}(failed|timed out)/i,
+      slug: "pinata-failed",
+      what: "Pinata (the IPFS pinning service) rejected or never answered the upload, so the metadata was NOT pinned.",
+      remedy: "HTTP 401/403 means the DEXE_PINATA_JWT is wrong, revoked, or lacks the pinJSONToIPFS/pinFileToIPFS scopes \u2014 mint a fresh key at https://app.pinata.cloud/developers/api-keys, put it in .env, and restart. A 429 or a timeout is transient (check status.pinata.cloud): wait ~30s and re-run the SAME call \u2014 ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped, so nothing is paid for twice. If a transaction was already broadcast (you have a hash), check dexe_tx_status first."
+    }
+  ],
+  wording: {
+    "backend-failed": {
+      remedy: "For reads, re-run: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). For off-chain proposals/votes there is no on-chain fallback \u2014 the backend is the system of record, so wait and retry. A 401 means the Bearer token expired: re-run dexe_auth_login (needs DEXE_TOOLSETS=core,proposals) to mint a new one. Point DEXE_BACKEND_API_URL at another host only if you run your own."
+    },
+    "rpc-timeout": {
+      remedy: "No state was changed by a timed-out READ \u2014 re-run it. If a WRITE timed out while waiting for a receipt, do NOT re-send blindly: check it with dexe_tx_status first, it may still land. A public endpoint that keeps stalling will not improve: set your own DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET (Alchemy/QuickNode/Ankr) in .env and restart. The receipt-wait budget is tunable via DEXE_TX_WAIT_TIMEOUT_MS."
+    },
+    "rpc-flaky": {
+      remedy: "Re-run the call; ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped. If the failure came after a broadcast (you have a tx hash), check dexe_tx_status first \u2014 GovPool.execute and the validator round are NOT auto-skipped. For reliability set a private endpoint in .env (DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET, e.g. Alchemy/QuickNode/Ankr) and restart."
+    },
+    "onchain-revert": {
+      what: "The transaction reverted on-chain (state was NOT changed by this step).",
+      remedy: "Read the revert reason above if present. Common causes: proposal not in the required state (check dexe_proposal_state), tokens locked in an active proposal (withdraw between proposals), or a blacklisted recipient. Fix the cause and re-run \u2014 ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round are NOT, so check dexe_proposal_state before re-running one of those."
+    }
+  }
+};
+var COMBINED_KNOWN_FAILURES = mergeKnownFailures(READ_KNOWN_FAILURES, WRITE_KNOWN_FAILURES);
+registerKnownFailures(WRITE_KNOWN_FAILURES);
+function toActionableError2(err14, step) {
+  return toActionableError(err14, step, COMBINED_KNOWN_FAILURES);
+}
+
 // dist/tools/ipfs.js
 import { readFile as readFile2 } from "node:fs/promises";
 function registerIpfsTools(server, ctx) {
@@ -130657,7 +130674,7 @@ function ipfsToolError(err14, step) {
   const raw = safeErrorMessage(err14);
   if (/IPFS fetch failed/i.test(raw))
     return `${step} failed: ${raw}`;
-  return toActionableError(err14, step).message;
+  return toActionableError2(err14, step).message;
 }
 function stripUrlUserinfo(raw) {
   try {
@@ -131366,6 +131383,52 @@ function blacklistError(token, account) {
 
 // dist/lib/protocolAdvisories.js
 init_lib2();
+
+// dist/lib/treasuryGate.js
+var ADVISORY_TAG = "[governance-safety advisory]";
+var GUARD_TAG = "[governance-safety guard: block]";
+function treasuryGuardMode(args) {
+  const raw = (args?.env ?? process.env).DEXE_TREASURY_GUARD;
+  if (raw !== void 0 && raw.trim() !== "")
+    return resolveTreasuryGuardMode(raw).mode;
+  return resolveTreasuryGuardMode(args?.configured).mode;
+}
+function lowQuorumAdvisory(pct, floorPct) {
+  const shown2 = Number.isFinite(pct) ? `${pct}%` : "unparseable";
+  return `\u26A0 quorum=${shown2} is below the ${floorPct}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT). Low quorum reduces the participation required to pass a proposal. For a DAO that holds treasury assets, set quorum \u226550% (51%+ recommended) and verify stakeholder participation before executing treasury-moving proposals; the safe value is DAO-specific. ${ADVISORY_TAG}`;
+}
+var TREASURY_RISK_ADVISORY = `\u26A0 This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). Confirm the DAO's quorum is adequate (\u226550%) and that key stakeholders have participated before executing. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
+function buildTimeTreasuryAdvisory(actions, guard) {
+  if (guard === "off")
+    return null;
+  return classifyTreasuryActions(actions).length > 0 ? TREASURY_RISK_ADVISORY : null;
+}
+function treasuryExecuteAdvisory(reasons) {
+  return `\u26A0 Treasury-safety advisory: this proposal moves treasury value AND ${reasons.join("; ")}. Verify adequate quorum and stakeholder participation before executing \u2014 responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
+}
+function treasuryGate(input3) {
+  const none = { hits: [], triggered: false, blocked: false, advisory: null, refusal: null };
+  if (input3.mode === "off")
+    return none;
+  const hits = input3.hits ? [...input3.hits] : classifyTreasuryActions([...input3.actions ?? []]);
+  const reasons = [...input3.reasons ?? []];
+  const triggered = input3.stage === "deploy" ? reasons.length > 0 : hits.length > 0;
+  if (!triggered)
+    return none;
+  const advisory = reasons.length > 0 ? input3.stage === "deploy" ? `\u26A0 Treasury-safety advisory: ${reasons.join("; ")}. ${ADVISORY_TAG}` : treasuryExecuteAdvisory(reasons) : TREASURY_RISK_ADVISORY;
+  const blocked = input3.mode === "block" && input3.stage !== "build" && reasons.length > 0;
+  return {
+    hits,
+    triggered: true,
+    blocked,
+    advisory,
+    refusal: blocked ? treasuryBlockRefusal(reasons, input3.stage, input3.act) : null
+  };
+}
+function treasuryBlockRefusal(reasons, stage, act) {
+  const what = act ? `this ${stage} (${act})` : `this ${stage}`;
+  return `\u26D4 Refusing ${what}: DEXE_TREASURY_GUARD=block and the treasury-safety checks failed \u2014 ${reasons.join("; ")}. Nothing was broadcast. Fix the cause (raise the DAO's quorum, secure stakeholder participation, or shrink what the action moves), or set DEXE_TREASURY_GUARD=warn and restart the MCP server to make this an advisory again \u2014 the default posture, where the operator owns the outcome. ${GUARD_TAG}`;
+}
 
 // dist/lib/preflight.js
 init_lib2();
@@ -132529,6 +132592,11 @@ function legacyUpstreamAdvisories(existing = []) {
     return all2.length > 0 ? { advisories: all2 } : {};
   };
 }
+
+// dist/lib/writeParams.js
+var buildChainIdParam = external_exports.number().int().positive().optional().describe("Chain this payload targets: 56 mainnet, 97 testnet. Default: the configured chain.");
+var signerKeyParam = external_exports.string().optional().describe("Keyring signer: omit = primary key; 'agent<n>' or address = a DEXE_AGENT_PK_* key.");
+var PROPOSAL_ID_DESC_OFFCHAIN = "Off-chain proposal id from the DeXe backend (JSON number).";
 
 // dist/lib/proposalCatalog.js
 var INTERNAL_PROPOSAL_TYPE_LABELS = [
@@ -141310,6 +141378,20 @@ function renderReport(p4) {
 // dist/lib/signer.js
 init_lib2();
 
+// dist/lib/requireEnv.js
+function hintFor(keys) {
+  const parts = [];
+  for (const k5 of keys) {
+    const spec = ENV_REGISTRY[k5];
+    if (!spec)
+      continue;
+    const flowHint = spec.enablesFlows?.length ? ` (enables: ${spec.enablesFlows.join(", ")})` : "";
+    parts.push(`Set ${k5} in .env \u2014 ${spec.doc}${flowHint}`);
+  }
+  parts.push("After editing .env, restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify the new values were picked up.");
+  return parts.join("\n");
+}
+
 // dist/lib/agentLedger.js
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync9, mkdirSync as mkdirSync4, readFileSync as readFileSync8, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
@@ -144907,7 +144989,7 @@ ${sg.remediation}`);
       }
     } catch (e2) {
       const landed = steps.filter((s2) => s2.txHash);
-      const actionable = toActionableError(e2, p4.description);
+      const actionable = toActionableError2(e2, p4.description);
       const timedOut = broadcastTimeout(e2);
       return {
         mode: "failed",
@@ -144963,7 +145045,7 @@ Note: the backend indexes BSC mainnet (56) DAOs only.`);
   try {
     prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
   } catch (e2) {
-    const a3 = toActionableError(e2, "resolve DAO prerequisites");
+    const a3 = toActionableError2(e2, "resolve DAO prerequisites");
     return err2(a3.slug ? a3.message : `${a3.message}
 If this repeats, verify the govPool address is a DeXe GovPool on chain ${chainId} (dexe_dao_info) \u2014 a wrong address or chain yields exactly this read failure.`);
   }
@@ -145137,7 +145219,7 @@ ${pr2.remediation}`);
     try {
       built = await builder.build(parsed.data, { ctx, govPool, chainId });
     } catch (e2) {
-      return err2(toActionableError(e2, `build ${input3.proposalType} actions`).message);
+      return err2(toActionableError2(e2, `build ${input3.proposalType} actions`).message);
     }
     actionsOnFor = built.actionsOnFor.map((a3) => ({
       executor: a3.executor,
@@ -145447,7 +145529,7 @@ async function runInternalProposalCreate(inputRaw, deps, builder) {
   try {
     built = builder.build(parsed.data);
   } catch (e2) {
-    return err2(toActionableError(e2, `build ${input3.proposalType}`).message);
+    return err2(toActionableError2(e2, `build ${input3.proposalType}`).message);
   }
   const chain2 = resolveChain(ctx.config, input3.chainId);
   const chainId = chain2.chainId;
@@ -145472,7 +145554,7 @@ ${pr2.remediation}`);
     const helpers = res[0].value;
     validators = helpers[2];
   } catch (e2) {
-    return err2(toActionableError(e2, "resolve GovValidators").message);
+    return err2(toActionableError2(e2, "resolve GovValidators").message);
   }
   let creditWarning;
   if (built.internalType === 2) {
@@ -145520,7 +145602,7 @@ ${pr2.remediation}`);
       name: `proposal:${input3.title.slice(0, 30)}`
     });
   } catch (e2) {
-    return err2(toActionableError(e2, "upload internal-proposal metadata").message);
+    return err2(toActionableError2(e2, "upload internal-proposal metadata").message);
   }
   const cid = metaPin.cid;
   const descriptionURL = metaPin.uri;
@@ -146228,7 +146310,7 @@ function registerTxTools(server, config2, signer, wc) {
                 type: "text",
                 text: JSON.stringify({
                   status: "rejected",
-                  reason: toActionableError(e2, "WalletConnect pairing").message,
+                  reason: toActionableError2(e2, "WalletConnect pairing").message,
                   chainId: chain2.chainId
                 }, null, 2)
               }
@@ -146264,7 +146346,7 @@ function registerTxTools(server, config2, signer, wc) {
               type: "text",
               text: JSON.stringify({
                 status: "rejected",
-                reason: toActionableError(e2, "WalletConnect broadcast").message,
+                reason: toActionableError2(e2, "WalletConnect broadcast").message,
                 chainId: chain2.chainId
               }, null, 2)
             }
@@ -146291,7 +146373,7 @@ function registerTxTools(server, config2, signer, wc) {
         });
       } catch (e2) {
         return {
-          content: [{ type: "text", text: toActionableError(e2, "dexe_tx_send wait").message }],
+          content: [{ type: "text", text: toActionableError2(e2, "dexe_tx_send wait").message }],
           isError: true
         };
       }
@@ -146362,7 +146444,7 @@ function registerTxTools(server, config2, signer, wc) {
         ...gasLimit ? { gasLimit: BigInt(gasLimit) } : {}
       }), wallet.address));
     } catch (e2) {
-      const actionable = toActionableError(e2, "dexe_tx_send broadcast");
+      const actionable = toActionableError2(e2, "dexe_tx_send broadcast");
       return {
         content: [
           {
@@ -146405,7 +146487,7 @@ function registerTxTools(server, config2, signer, wc) {
       });
     } catch (e2) {
       return {
-        content: [{ type: "text", text: toActionableError(e2, "dexe_tx_send wait").message }],
+        content: [{ type: "text", text: toActionableError2(e2, "dexe_tx_send wait").message }],
         isError: true
       };
     }
@@ -146459,7 +146541,7 @@ function registerTxTools(server, config2, signer, wc) {
         pendingTx = await provider.getTransaction(txHash);
     } catch (e2) {
       return {
-        content: [{ type: "text", text: toActionableError(e2, "dexe_tx_status lookup").message }],
+        content: [{ type: "text", text: toActionableError2(e2, "dexe_tx_status lookup").message }],
         isError: true
       };
     }
@@ -146706,7 +146788,7 @@ function registerAgentTools(server, config2, signer) {
         agents: rows2
       });
     } catch (e2) {
-      return err3(`agents_list failed: ${toActionableError(e2, "read agent balances").message}`);
+      return err3(`agents_list failed: ${toActionableError2(e2, "read agent balances").message}`);
     }
   });
   server.registerTool("dexe_agents_fund", {
@@ -146757,7 +146839,7 @@ function registerAgentTools(server, config2, signer) {
           { target: token, iface: ERC20_ABI5, method: "symbol", args: [], allowFailure: true }
         ]);
       } catch (e2) {
-        return refuseDecimals(toActionableError(e2, "read token decimals").message);
+        return refuseDecimals(toActionableError2(e2, "read token decimals").message);
       }
       if (!dRes[0]?.success)
         return refuseDecimals("the decimals() call reverted or returned nothing");
@@ -146794,7 +146876,7 @@ function registerAgentTools(server, config2, signer) {
         allowFailure: true
       })))).map((r2) => r2?.success ? r2.value : 0n) : await Promise.all(targets.map((t2) => provider.getBalance(t2.address)));
     } catch (e2) {
-      return err3(`Could not read agent balances: ${toActionableError(e2, "read agent balances").message}`);
+      return err3(`Could not read agent balances: ${toActionableError2(e2, "read agent balances").message}`);
     }
     const plan = targets.map((t2, i3) => ({ ...t2, current: balances[i3], send: amountWei > balances[i3] ? amountWei - balances[i3] : 0n })).filter((t2) => t2.send > 0n);
     if (plan.length === 0) {
@@ -146920,7 +147002,7 @@ ${sg.remediation}`);
       } catch (e2) {
         return errJson({
           status: "rejected",
-          reason: `Funding ${p4.signerKey} failed: ${toActionableError(e2, "fund agent").message}. ${funded.length} transfer(s) already landed \u2014 re-run to top up the rest (already-funded agents are skipped).`,
+          reason: `Funding ${p4.signerKey} failed: ${toActionableError2(e2, "fund agent").message}. ${funded.length} transfer(s) already landed \u2014 re-run to top up the rest (already-funded agents are skipped).`,
           chainId: chain2.chainId,
           funded
         });
@@ -148893,7 +148975,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
         resumeRechecks: DEPLOY_RESUME_RECHECKS
       });
     } catch (e2) {
-      return err4(toActionableError(e2, "dexe_dao_create deploy broadcast").message);
+      return err4(toActionableError2(e2, "dexe_dao_create deploy broadcast").message);
     }
     if (result.mode === "failed") {
       const kb = mapDeployRevert(result.failure?.error);
@@ -150556,7 +150638,7 @@ ${pr2.remediation}`);
         }
       ]);
     } catch (e2) {
-      return err5(toActionableError(e2, "dexe_otc_buyer_claim_all getUserViews").message);
+      return err5(toActionableError2(e2, "dexe_otc_buyer_claim_all getUserViews").message);
     }
     if (!res[0].success)
       return err5(`getUserViews failed: ${res[0].error}`);
@@ -150627,7 +150709,7 @@ ${pr2.remediation}`);
     try {
       result = await sendOrCollect(signer, payloads, { dryRun: input3.dryRun, chainId, wc, signerKey: input3.signerKey });
     } catch (e2) {
-      return err5(toActionableError(e2, "dexe_otc_buyer_claim_all broadcast").message);
+      return err5(toActionableError2(e2, "dexe_otc_buyer_claim_all broadcast").message);
     }
     if (result.mode === "failed") {
       return flowFailureResult(result, { user: userAddr, tokenSaleProposal: input3.tokenSaleProposal });
@@ -150954,7 +151036,7 @@ function safeToolError(e2, step) {
   const raw = safeErrorMessage(e2);
   if (/Safe service POST/i.test(raw))
     return `${step} failed: ${raw}`;
-  return toActionableError(e2, step).message;
+  return toActionableError2(e2, step).message;
 }
 function ok7(data4) {
   return {

@@ -14,17 +14,20 @@ import {
   tierSchema,
   type TierSpec,
 } from "./proposalBuildComplex.js";
-import { PinataClient, pinataCidForJson } from "../lib/ipfs.js";
+import { pinataCidForJson } from "../lib/ipfs.js";
+import { PinataClient } from "../lib/ipfsPin.js";
 import type { IpfsArtifact } from "../lib/ipfsPreview.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { simulateCalldata } from "../lib/simulate.js";
 import { parseUintString } from "../lib/amount.js";
 import { parseAmount, formatAmount, from18 } from "../lib/units.js";
-import { signerKeyParam, NFT_IDS_OWN_DESC } from "../lib/params.js";
+import { NFT_IDS_OWN_DESC } from "../lib/params.js";
+import { signerKeyParam } from "../lib/writeParams.js";
 import { findKnownDao, type StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { safeErrorMessage } from "../lib/redact.js";
-import { toActionableError, sanitizeRevertReason } from "../lib/errors.js";
+import { sanitizeRevertReason } from "../lib/errors.js";
+import { toActionableError } from "../lib/writeErrors.js";
 import { tokenSaleResult as ok } from "../lib/tokenSaleResult.js";
 import {
   ETHEREUM_ADDRESS,

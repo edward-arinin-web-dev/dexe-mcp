@@ -6,7 +6,7 @@ import { resolveChain, type DexeConfig } from "../config.js";
 import { createChainProvider } from "../rpc.js";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
 import { waitWithTimeout, waitForHashWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
-import { toActionableError } from "../lib/errors.js";
+import { toActionableError } from "../lib/writeErrors.js";
 import { ENABLE_WRITES_HINT, describeBroadcaster } from "./flow.js";
 import { wcPairingContent } from "../lib/qr.js";
 import { withActionContext } from "../lib/agentLedger.js";
