@@ -42,12 +42,22 @@ export interface HttpServerOptions {
   rateLimit: RateLimitOptions;
   /** Concurrent MCP requests across all clients; over it the server answers 503. */
   maxInflight: number;
-  /** Wall-clock budget for one MCP request, body read to response. */
+  /**
+   * Budget to RECEIVE the body once headers are in (slow-body guard; 408).
+   * A request does not occupy an in-flight slot until its body is complete.
+   */
+  bodyTimeoutMs: number;
+  /** Budget for the MCP work, from a complete body to the response (504). */
   requestTimeoutMs: number;
   /** Budget for the RPC probe behind `/readyz`. */
   readyTimeoutMs: number;
   /** One JSON line per request on stdout. */
   accessLog: boolean;
+  /**
+   * Start even though the config falls back to the endpoints and API key that
+   * ship in the package (shared by every install). Local testing only.
+   */
+  allowSharedDefaults: boolean;
 }
 
 export const HTTP_DEFAULTS = {
@@ -58,8 +68,11 @@ export const HTTP_DEFAULTS = {
   rateLimitPerMinute: 300,
   rateLimitBurst: 60,
   maxInflight: 32,
+  bodyTimeoutMs: 10_000,
   requestTimeoutMs: 120_000,
   readyTimeoutMs: 3_000,
+  /** Node's own limit for receiving the request headers (slow-loris guard). */
+  headersTimeoutMs: 15_000,
 } as const;
 
 /** Env vars this mode reads. Listed once so the help text and docs cannot drift. */
@@ -74,8 +87,10 @@ export const HTTP_ENV_VARS = [
   "DEXE_HTTP_RATE_LIMIT_BURST",
   "DEXE_HTTP_MAX_INFLIGHT",
   "DEXE_HTTP_REQUEST_TIMEOUT_MS",
+  "DEXE_HTTP_BODY_TIMEOUT_MS",
   "DEXE_HTTP_READY_TIMEOUT_MS",
   "DEXE_HTTP_ACCESS_LOG",
+  "DEXE_HTTP_ALLOW_SHARED_DEFAULTS",
 ] as const;
 
 const LOOPBACK_BINDS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
@@ -283,6 +298,14 @@ export function parseHttpOptions(argv: readonly string[], env: Env): ParseResult
     600_000,
     errors,
   );
+  const bodyTimeoutMs = intIn(
+    "DEXE_HTTP_BODY_TIMEOUT_MS",
+    env.DEXE_HTTP_BODY_TIMEOUT_MS,
+    HTTP_DEFAULTS.bodyTimeoutMs,
+    100,
+    120_000,
+    errors,
+  );
   const readyTimeoutMs = intIn(
     "DEXE_HTTP_READY_TIMEOUT_MS",
     env.DEXE_HTTP_READY_TIMEOUT_MS,
@@ -293,6 +316,8 @@ export function parseHttpOptions(argv: readonly string[], env: Env): ParseResult
   );
   const logRaw = env.DEXE_HTTP_ACCESS_LOG?.trim().toLowerCase();
   const accessLog = !(logRaw === "0" || logRaw === "false" || logRaw === "off" || logRaw === "no");
+  const sharedRaw = env.DEXE_HTTP_ALLOW_SHARED_DEFAULTS?.trim().toLowerCase();
+  const allowSharedDefaults = sharedRaw === "1" || sharedRaw === "true" || sharedRaw === "yes";
 
   if (errors.length > 0) return { kind: "error", errors };
   return {
@@ -306,9 +331,11 @@ export function parseHttpOptions(argv: readonly string[], env: Env): ParseResult
       maxBodyBytes,
       rateLimit: { perMinute, burst },
       maxInflight,
+      bodyTimeoutMs,
       requestTimeoutMs,
       readyTimeoutMs,
       accessLog,
+      allowSharedDefaults,
     },
   };
 }
@@ -341,10 +368,15 @@ export function serveHttpUsage(version: string): string {
     `  DEXE_HTTP_RATE_LIMIT_PER_MIN  per-IP sustained rate (default ${HTTP_DEFAULTS.rateLimitPerMinute}; 0 = off)`,
     `  DEXE_HTTP_RATE_LIMIT_BURST    per-IP burst (default ${HTTP_DEFAULTS.rateLimitBurst})`,
     `  DEXE_HTTP_MAX_INFLIGHT        concurrent MCP requests before 503 (default ${HTTP_DEFAULTS.maxInflight})`,
-    `  DEXE_HTTP_REQUEST_TIMEOUT_MS  per-request budget (default ${HTTP_DEFAULTS.requestTimeoutMs})`,
+    `  DEXE_HTTP_BODY_TIMEOUT_MS     time to receive the body after the headers; 408 (default ${HTTP_DEFAULTS.bodyTimeoutMs})`,
+    `  DEXE_HTTP_REQUEST_TIMEOUT_MS  MCP work after the body is in; 504 (default ${HTTP_DEFAULTS.requestTimeoutMs})`,
     `  DEXE_HTTP_READY_TIMEOUT_MS    /readyz RPC budget (default ${HTTP_DEFAULTS.readyTimeoutMs})`,
     "  DEXE_HTTP_ACCESS_LOG          0 turns the JSON access log off",
-    "  RPC / subgraph / IPFS vars are the same as stdio mode (docs/ENVIRONMENT.md).",
+    "  DEXE_HTTP_ALLOW_SHARED_DEFAULTS  1 = start on the shared built-in RPC/subgraph/backend defaults",
+    "                                (LOCAL TESTING ONLY; otherwise set your own endpoints, see below)",
+    "  Data sources: DEXE_RPC_URL_MAINNET / _TESTNET, DEXE_SUBGRAPH_{POOLS,VALIDATORS,INTERACTIONS}_URL,",
+    "  DEXE_BACKEND_API_URL, IPFS vars — same names as stdio mode (docs/ENVIRONMENT.md).",
+    "  Env vars outside the read-server allowlist are removed from the process at startup.",
     "",
     "DOCS  docs/REMOTE.md",
     "",

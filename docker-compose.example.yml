@@ -26,12 +26,15 @@ services:
       # DEXE_HTTP_MAX_INFLIGHT: "32"
       # DEXE_HTTP_REQUEST_TIMEOUT_MS: "120000"
       #
-      # Data sources. Without these the server uses shared public defaults,
-      # which rate-limit under load. Use your own endpoints in production.
-      # DEXE_RPC_URL_MAINNET: https://your-bsc-mainnet-rpc
+      # Data sources — REQUIRED. The server refuses to start on the endpoints
+      # and Graph key built into the package (shared by every install).
+      DEXE_RPC_URL_MAINNET: https://your-bsc-mainnet-rpc
       # DEXE_RPC_URL_TESTNET: https://your-bsc-testnet-rpc
-      # DEXE_GRAPH_API_KEY: your-graph-api-key
-      # DEXE_DISABLE_PUBLIC_RPC: "1"
+      DEXE_SUBGRAPH_POOLS_URL: https://gateway.thegraph.com/api/<your-key>/subgraphs/id/<pools-id>
+      DEXE_SUBGRAPH_VALIDATORS_URL: https://gateway.thegraph.com/api/<your-key>/subgraphs/id/<validators-id>
+      DEXE_SUBGRAPH_INTERACTIONS_URL: https://gateway.thegraph.com/api/<your-key>/subgraphs/id/<interactions-id>
+      DEXE_BACKEND_API_URL: https://api.dexe.io
+      # DEXE_IPFS_GATEWAY: https://your-dedicated-gateway
     read_only: true
     tmpfs:
       - /tmp

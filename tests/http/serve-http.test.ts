@@ -109,6 +109,8 @@ describe("serve-http with the interim read factory", () => {
     process.env.DEXE_STATE_PATH = join(operatorStateDir, "state.json");
     process.env.DEXE_PRIVATE_KEY = TEST_KEY;
     process.env.DEXE_PINATA_JWT = "test-jwt";
+    process.env.DEXE_SAFE_API_KEY = "planted-safe-key";
+    process.env.FOO_SECRET = "planted-foo";
     process.env.DEXE_TOOLSETS = "full";
     remote = await loadRemoteReadConfig();
     const read = createInterimReadServerFactory(remote.config, "0.0.0-test");
@@ -124,9 +126,12 @@ describe("serve-http with the interim read factory", () => {
     rmSync(operatorStateDir, { recursive: true, force: true });
   });
 
-  it("removes write-side keys from the env and the config before anything uses them", () => {
-    expect(remote.scrubbedEnv).toEqual(expect.arrayContaining(["DEXE_PINATA_JWT", "DEXE_PRIVATE_KEY"]));
-    expect(process.env.DEXE_PRIVATE_KEY).toBeUndefined();
+  it("reduces the env to the read allowlist before config loads", () => {
+    expect(remote.removedEnvCount).toBeGreaterThanOrEqual(4);
+    for (const k of ["DEXE_PRIVATE_KEY", "DEXE_PINATA_JWT", "DEXE_SAFE_API_KEY", "FOO_SECRET"]) {
+      expect(process.env[k], k).toBeUndefined();
+    }
+    expect(JSON.stringify(remote.config)).not.toMatch(/planted-safe-key|planted-foo|test-jwt/);
     expect(remote.config.privateKey).toBeUndefined();
     expect(remote.config.pinataJwt).toBeUndefined();
     expect(remote.config.walletConnectProjectId).toBeUndefined();
@@ -146,6 +151,8 @@ describe("serve-http with the interim read factory", () => {
 
       const caps = client.getServerCapabilities();
       expect(caps?.tools).toBeDefined();
+      // stateless: no stream to deliver list_changed on, so it is not advertised
+      expect(caps?.tools?.listChanged).not.toBe(true);
       expect(caps?.prompts, "write-flow prompts must not be served").toBeUndefined();
       expect(caps?.resources, "doc resources must not be served").toBeUndefined();
 
@@ -280,6 +287,17 @@ describe("serve-http with the interim read factory", () => {
     expect((await raw(port, { method: "GET", path: "/nope" })).status).toBe(404);
   });
 
+  it("rejects JSON-RPC batches with a JSON-RPC error instead of running them", async () => {
+    const batch = JSON.stringify([
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "dexe_ipfs_cid_info", arguments: { cid: TEST_CID } } },
+    ]);
+    const r = await raw(port, { headers: { ...JSON_HEADERS, "mcp-protocol-version": "2025-11-25" }, body: batch });
+    expect(r.status).toBe(400);
+    expect(r.json()).toMatchObject({ jsonrpc: "2.0", id: null, error: { code: -32600 } });
+    expect(r.json().error.message).toMatch(/batch/i);
+  });
+
   it("wrong media type is 415, broken JSON is 400", async () => {
     const t = await raw(port, { headers: { "content-type": "text/plain" }, body: "{}" });
     expect(t.status).toBe(415);
@@ -394,17 +412,87 @@ describe("serve-http limits", () => {
     }
   });
 
-  it("a request past its budget is 504 and the slot is released", async () => {
+  it("a request past its budget is 504, the handler's abort signal fires, and the slot is released", async () => {
+    let aborted = false;
     const never: McpServerFactory = () => {
       const s = new McpServer({ name: "never", version: "0" });
-      s.registerTool("ping", { description: "hangs" }, () => new Promise(() => undefined));
+      s.registerTool(
+        "ping",
+        { description: "hangs until aborted" },
+        // no inputSchema → the SDK passes `extra` as the only argument
+        (extra) =>
+          new Promise((resolve) => {
+            extra.signal.addEventListener("abort", () => {
+              aborted = true;
+              resolve({ content: [] });
+            });
+          }),
+      );
       return s;
     };
     const { app, port } = await start(never, { requestTimeoutMs: 1000 });
     try {
       const r = await call(port);
       expect(r.status).toBe(504);
+      await settle();
+      expect(aborted, "per-request server torn down → SDK aborts extra.signal").toBe(true);
       expect(app.inflight()).toBe(0);
+    } finally {
+      await app.close(100);
+    }
+  });
+
+  /** Headers plus part of the body, then silence: the slow-body attack shape. */
+  function partialBody(port: number): Promise<RawResponse> {
+    const body = rpc("tools/call", { name: "ping", arguments: {} });
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port,
+          method: "POST",
+          path: "/mcp",
+          headers: { ...JSON_HEADERS, "mcp-protocol-version": "2025-11-25", "content-length": String(body.length) },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            const text = Buffer.concat(chunks).toString("utf8");
+            resolve({ status: res.statusCode ?? 0, headers: res.headers, text, json: () => JSON.parse(text) });
+          });
+        },
+      );
+      req.on("error", reject);
+      req.write(body.slice(0, 10)); // never finished
+    });
+  }
+
+  it("slow partial bodies hold no in-flight slot and are cut off with 408", async () => {
+    const { app, port } = await start(tinyFactory, { maxInflight: 2, bodyTimeoutMs: 400 });
+    try {
+      const slow = [partialBody(port), partialBody(port), partialBody(port)];
+      await settle();
+      expect(app.inflight(), "trickling bodies must not occupy slots").toBe(0);
+      expect((await call(port)).status, "a complete request still gets through").toBe(200);
+      const t0 = Date.now();
+      const results = await Promise.all(slow);
+      expect(results.map((r) => r.status)).toEqual([408, 408, 408]);
+      expect(results[0]!.json().error.message).toMatch(/did not arrive within 400 ms/);
+      expect(Date.now() - t0).toBeLessThan(3000);
+    } finally {
+      await app.close(100);
+    }
+  });
+
+  it("IPv6 clients share a bucket per /64 (ports stripped from X-Forwarded-For)", async () => {
+    const { app, port } = await start(tinyFactory, { rateLimit: { perMinute: 60, burst: 1 }, trustProxyHops: 1 });
+    try {
+      expect((await call(port, { "x-forwarded-for": "2001:db8:1:2::a" })).status).toBe(200);
+      expect((await call(port, { "x-forwarded-for": "[2001:db8:1:2::b]:5555" })).status).toBe(429);
+      expect((await call(port, { "x-forwarded-for": "2001:db8:1:3::a" })).status).toBe(200);
+      expect((await call(port, { "x-forwarded-for": "9.9.9.9:1000" })).status).toBe(200);
+      expect((await call(port, { "x-forwarded-for": "9.9.9.9:2000" })).status).toBe(429);
     } finally {
       await app.close(100);
     }

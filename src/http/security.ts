@@ -56,11 +56,56 @@ export function checkOrigin(header: string | undefined, allowed: readonly string
   return allowed.includes(origin) ? "allowed" : "rejected";
 }
 
-/** Strip an IPv4-mapped IPv6 prefix so one client does not get two buckets. */
-function canonicalIp(ip: string): string {
-  const t = ip.trim();
-  const m = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(t);
-  return m ? m[1]! : t.toLowerCase();
+/**
+ * One address in canonical form: no port (`1.2.3.4:5678`, `[2001:db8::1]:443`),
+ * no brackets, no zone id (`fe80::1%eth0`), IPv4-mapped IPv6 folded to IPv4,
+ * lowercase. Proxies write X-Forwarded-For entries in all of these shapes; left
+ * as-is, one client would get a fresh rate-limit bucket per source port.
+ */
+export function canonicalIp(ip: string): string {
+  let t = ip.trim();
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(t);
+  if (bracketed) t = bracketed[1]!;
+  else if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(t)) t = t.slice(0, t.lastIndexOf(":"));
+  const zone = t.indexOf("%");
+  if (zone !== -1) t = t.slice(0, zone);
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(t);
+  return mapped ? mapped[1]! : t.toLowerCase();
+}
+
+/** Eight 16-bit groups of an IPv6 address, or null when it does not parse. */
+function ipv6Groups(ip: string): number[] | null {
+  let s = ip;
+  // Trailing dotted IPv4 (e.g. 64:ff9b::1.2.3.4) becomes two groups.
+  const v4 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s);
+  if (v4) {
+    const b = v4.slice(1).map(Number);
+    s = `${s.slice(0, v4.index)}${((b[0]! << 8) | b[1]!).toString(16)}:${((b[2]! << 8) | b[3]!).toString(16)}`;
+  }
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (halves.length === 1 && head.length !== 8)) return null;
+  const groups = [...head, ...Array<string>(fill).fill("0"), ...tail].map((g) => parseInt(g, 16));
+  return groups.length === 8 && groups.every((g) => Number.isInteger(g) && g >= 0 && g <= 0xffff) ? groups : null;
+}
+
+/**
+ * The rate-limit bucket for an address. IPv4: the address. IPv6: its /64 —
+ * one subscriber is routinely handed a whole /64, so per-address buckets
+ * would give a single client 2^64 of them.
+ */
+export function rateLimitKey(ip: string): string {
+  const c = canonicalIp(ip);
+  if (isIP(c) !== 6) return c;
+  const g = ipv6Groups(c);
+  if (!g) return c;
+  return `${g
+    .slice(0, 4)
+    .map((x) => x.toString(16))
+    .join(":")}::/64`;
 }
 
 /**

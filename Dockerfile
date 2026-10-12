@@ -5,10 +5,16 @@
 #
 #   docker build -t dexe-mcp-read .
 #   docker run --rm -p 127.0.0.1:8080:8080 \
-#     -e DEXE_HTTP_ALLOWED_HOSTS=mcp.example.com dexe-mcp-read
+#     -e DEXE_HTTP_ALLOWED_HOSTS=mcp.example.com \
+#     -e DEXE_RPC_URL_MAINNET=… -e DEXE_SUBGRAPH_POOLS_URL=… (see docs/REMOTE.md) \
+#     dexe-mcp-read
+
+# node:22-slim, pinned by digest (multi-arch index, resolved 2026-10-12).
+# Bump deliberately: docker buildx imagetools inspect node:22-slim
+ARG NODE_IMAGE=node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 
 # ── build: compile TypeScript ───────────────────────────────────────────────
-FROM node:22-slim AS build
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Only devDependencies carry install scripts (esbuild, for the plugin bundle),
@@ -19,13 +25,16 @@ COPY src ./src
 RUN npm run build
 
 # ── deps: production node_modules only ──────────────────────────────────────
-FROM node:22-slim AS deps
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 # ── runtime ─────────────────────────────────────────────────────────────────
-FROM node:22-slim
+FROM ${NODE_IMAGE}
+# No package manager at runtime: nothing in the image installs or runs packages.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 ENV NODE_ENV=production \
     PORT=8080 \
     DEXE_HTTP_HOST=0.0.0.0

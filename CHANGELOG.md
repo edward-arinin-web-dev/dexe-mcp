@@ -5,12 +5,17 @@
 ### Added — experimental remote (HTTP) mode
 `dexe-mcp serve-http` serves the read-only tools over stateless MCP Streamable
 HTTP, so Claude.ai custom connectors, ChatGPT developer mode and other remote
-clients can connect by URL. It reads process env only (never a `.env` file),
-drops signing and upload keys at startup, writes nothing to disk, and checks
-Host and Origin. It also applies a body cap, a per-IP rate limit and a
-per-request timeout. A Dockerfile, a compose example and the operator runbook
-`docs/REMOTE.md` ship with it. The stdio server is unchanged, and so is the
-tool count.
+clients can connect by URL. It is not yet meant for public exposure; the
+runbook lists the hardening still to come.
+
+It reads process env only (never a `.env` file) and keeps only an allowlist of
+read-side variables. It refuses to start on the shared built-in RPC, subgraph
+and backend endpoints, and it writes nothing to disk. Requests are limited by
+Host and Origin checks, a body cap and a body deadline, a per-IP rate limit
+(per /64 for IPv6), a cap on in-flight requests and a per-request timeout.
+JSON-RPC batches are refused. A Dockerfile, a compose example and the operator
+runbook `docs/REMOTE.md` ship with it. The stdio server is unchanged, and so is
+the tool count.
 
 ### Changed — decoding works without compiling the protocol
 `dexe_decode_calldata` and `dexe_decode_proposal` used to fail with "Hardhat

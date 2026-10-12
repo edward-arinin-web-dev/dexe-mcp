@@ -1,6 +1,11 @@
 import { formatDiagnostic } from "../runtime.js";
 import { parseHttpOptions, serveHttpUsage } from "./options.js";
-import { createRpcReadinessProbe, createInterimReadServerFactory, loadRemoteReadConfig } from "./readServer.js";
+import {
+  createInterimReadServerFactory,
+  createRpcReadinessProbe,
+  findSharedDefaults,
+  loadRemoteReadConfig,
+} from "./readServer.js";
 import { createHttpApp } from "./server.js";
 
 /**
@@ -48,8 +53,37 @@ export async function runServeHttp(argv: readonly string[], version: string): Pr
   }
   const opts = parsed.options;
 
-  const { config, scrubbedEnv, configNotes } = await loadRemoteReadConfig();
+  const { config, removedEnvCount, configNotes } = await loadRemoteReadConfig();
   for (const msg of configNotes) logLine("info", "config", { msg });
+
+  if (config.chains.size === 0) {
+    process.stderr.write(
+      "[dexe-mcp] serve-http: no RPC endpoint is configured, so every read would fail. " +
+        "Set DEXE_RPC_URL_MAINNET (and DEXE_RPC_URL_TESTNET for chain 97).\n",
+    );
+    process.exitCode = 2;
+    return;
+  }
+  // A public server must not run on what ships in the package and is shared
+  // by every install (public RPCs, the baked Graph key, the default backend):
+  // its traffic would exhaust quotas and a billable key that are not the
+  // operator's. Refuse unless the operator explicitly opts in for local use.
+  const shared = findSharedDefaults(config);
+  if (shared.length > 0 && !opts.allowSharedDefaults) {
+    process.stderr.write("[dexe-mcp] serve-http: refusing to start on shared built-in defaults:\n");
+    for (const s of shared) process.stderr.write(`  - ${s.what} → set ${s.setVars.join(", ")}\n`);
+    process.stderr.write(
+      "Set your own endpoints/keys (docs/REMOTE.md), or DEXE_HTTP_ALLOW_SHARED_DEFAULTS=1 for LOCAL TESTING ONLY.\n",
+    );
+    process.exitCode = 2;
+    return;
+  }
+  if (shared.length > 0) {
+    logLine("warn", "shared_defaults", {
+      msg: "DEXE_HTTP_ALLOW_SHARED_DEFAULTS=1: running on shared built-in endpoints — local testing only",
+      using: shared.map((s) => s.what),
+    });
+  }
   const read = createInterimReadServerFactory(config, version);
   try {
     // Build once up front: a registration failure is a startup error, not a
@@ -100,9 +134,10 @@ export async function runServeHttp(argv: readonly string[], version: string): Pr
     trustProxyHops: opts.trustProxyHops,
     rateLimit: opts.rateLimit,
     maxInflight: opts.maxInflight,
+    bodyTimeoutMs: opts.bodyTimeoutMs,
     requestTimeoutMs: opts.requestTimeoutMs,
-    // Names only — these keys were present and have been removed from the env.
-    ignoredWriteSideEnv: scrubbedEnv,
+    // A count, not names: env var names alone can say what else runs on the box.
+    removedEnvVars: removedEnvCount,
   });
 
   let stopping = false;

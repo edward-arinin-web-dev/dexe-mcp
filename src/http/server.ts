@@ -9,8 +9,10 @@ import {
   checkOrigin,
   hostAllowed,
   makeIpHasher,
+  rateLimitKey,
   resolveClientIp,
 } from "./security.js";
+import { HTTP_DEFAULTS } from "./options.js";
 
 /**
  * EXPERIMENTAL remote mode: MCP Streamable HTTP, stateless, JSON responses.
@@ -140,10 +142,34 @@ function describeRpc(body: unknown): { rpc?: string; tool?: string } {
   return out;
 }
 
-class BodyTooLargeError extends Error {}
+/**
+ * A stateless server never sends `notifications/*\/list_changed` (there is no
+ * stream to send them on, and every request gets a fresh, identical server),
+ * so it must not advertise `listChanged: true`, which McpServer sets by
+ * default. `getCapabilities` is private in the SDK typings, hence the narrow
+ * cast; tests/http pins the outcome so an SDK change is noticed.
+ */
+function disableListChanged(mcp: McpServer): void {
+  const low = mcp.server as unknown as {
+    getCapabilities?: () => Record<string, { listChanged?: boolean } | undefined>;
+    registerCapabilities: (c: Record<string, { listChanged: boolean }>) => void;
+  };
+  const caps = low.getCapabilities?.() ?? {};
+  const patch: Record<string, { listChanged: boolean }> = {};
+  for (const kind of ["tools", "prompts", "resources"]) {
+    if (caps[kind]?.listChanged) patch[kind] = { listChanged: false };
+  }
+  if (Object.keys(patch).length > 0) low.registerCapabilities(patch);
+}
 
-/** Read the request body up to `maxBytes`; rejects with BodyTooLargeError past it. */
-function readBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+class BodyTooLargeError extends Error {}
+class BodyTimeoutError extends Error {}
+
+/**
+ * Read the request body up to `maxBytes` within `timeoutMs`. Rejects with
+ * BodyTooLargeError past the cap and BodyTimeoutError past the deadline.
+ */
+function readBody(req: IncomingMessage, maxBytes: number, timeoutMs: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const declared = Number(req.headers["content-length"]);
     if (Number.isFinite(declared) && declared > maxBytes) {
@@ -153,9 +179,14 @@ function readBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
     const chunks: Buffer[] = [];
     let received = 0;
     let done = false;
+    // A client that sends headers and then trickles (or never finishes) the
+    // body is cut off here, long before Node's own requestTimeout.
+    const timer = setTimeout(() => finish(new BodyTimeoutError()), timeoutMs);
+    timer.unref();
     const finish = (err?: Error, buf?: Buffer) => {
       if (done) return;
       done = true;
+      clearTimeout(timer);
       req.off("data", onData);
       req.off("end", onEnd);
       req.off("error", onErr);
@@ -316,51 +347,80 @@ export function createHttpApp(opts: HttpServerOptions, deps: HttpAppDeps): HttpA
       return;
     }
 
-    // ── admission: rate limit, global concurrency ───────────────────────────
-    const decision = limiter.take(ip);
+    // ── admission: rate limit, media type ───────────────────────────────────
+    const decision = limiter.take(rateLimitKey(ip));
     if (!decision.allowed) {
       reject(429, "rate", "Too Many Requests: slow down and retry", {
         "Retry-After": String(decision.retryAfterSeconds),
       });
       return;
     }
-    if (inflight >= opts.maxInflight) {
-      reject(503, "inflight", "Service busy: too many requests in flight, retry shortly", { "Retry-After": "1" });
+    if (!isJsonContentType(oneHeader(req.headers["content-type"]))) {
+      reject(415, "content-type", "Unsupported Media Type: Content-Type must be application/json");
       return;
     }
 
     // ── body ────────────────────────────────────────────────────────────────
-    if (!isJsonContentType(oneHeader(req.headers["content-type"]))) {
-      reject(415, "content-type", "Unsupported Media Type: Content-Type must be application/json");
+    // Read BEFORE taking an in-flight slot: a client that opens a request and
+    // trickles its body must cost nobody else a slot, only its own socket, and
+    // only until the body deadline.
+    let raw: Buffer;
+    try {
+      raw = await readBody(req, opts.maxBodyBytes, opts.bodyTimeoutMs);
+    } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        reject(413, "body", `Payload Too Large: request body must not exceed ${opts.maxBodyBytes} bytes`, {
+          Connection: "close",
+        });
+        return;
+      }
+      if (err instanceof BodyTimeoutError) {
+        res.once("finish", () => req.socket.destroy());
+        reject(408, "body-timeout", `Request Timeout: the body did not arrive within ${opts.bodyTimeoutMs} ms`, {
+          Connection: "close",
+        });
+        return;
+      }
+      onError("read-body", err);
+      reject(400, "body", "Bad Request: the request body could not be read", { Connection: "close" });
+      return;
+    }
+    log.bytesIn = raw.length;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw.toString("utf8"));
+    } catch {
+      log.reason = "parse";
+      send(400, jsonRpcError(-32700, "Parse error: Invalid JSON"));
+      return;
+    }
+    Object.assign(log, describeRpc(parsed));
+    // JSON-RPC batches left the spec in 2025-06-18, and one POST carrying a
+    // hundred tool calls would cost one rate-limit token. One message per POST.
+    if (Array.isArray(parsed)) {
+      log.reason = "batch";
+      send(400, jsonRpcError(-32600, "Invalid Request: JSON-RPC batches are not supported; send one message per POST"));
+      return;
+    }
+
+    // ── admission: global concurrency (complete requests only) ──────────────
+    if (inflight >= opts.maxInflight) {
+      reject(503, "inflight", "Service busy: too many requests in flight, retry shortly", { "Retry-After": "1" });
       return;
     }
     inflight++;
     let mcp: McpServer | undefined;
     let timer: NodeJS.Timeout | undefined;
+    let tornDown = false;
+    // Closing the per-request McpServer closes its transport, and the SDK then
+    // aborts every in-flight handler's `extra.signal`: this is how a timeout or
+    // a vanished client stops the work, not just the response.
+    const tearDown = (): void => {
+      if (tornDown || !mcp) return;
+      tornDown = true;
+      void mcp.close().catch(() => undefined);
+    };
     try {
-      let raw: Buffer;
-      try {
-        raw = await readBody(req, opts.maxBodyBytes);
-      } catch (err) {
-        if (err instanceof BodyTooLargeError) {
-          reject(413, "body", `Payload Too Large: request body must not exceed ${opts.maxBodyBytes} bytes`, {
-            Connection: "close",
-          });
-          return;
-        }
-        throw err;
-      }
-      log.bytesIn = raw.length;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw.toString("utf8"));
-      } catch {
-        log.reason = "parse";
-        send(400, jsonRpcError(-32700, "Parse error: Invalid JSON"));
-        return;
-      }
-      Object.assign(log, describeRpc(parsed));
-
       // The SDK transport speaks web-standard Request/Response. Build that
       // Request ourselves (body already parsed) instead of going through the
       // Node adapter, so the headers the SDK sees are exactly the ones we
@@ -388,16 +448,17 @@ export function createHttpApp(opts: HttpServerOptions, deps: HttpAppDeps): HttpA
         send(500, jsonRpcError(-32603, "Internal error: the server could not be initialised"));
         return;
       }
+      disableListChanged(mcp);
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
       });
       await mcp.connect(transport);
 
-      // Client went away mid-call: tear the per-request server down so its
-      // pending work is abandoned rather than kept alive by a dead socket.
+      // Client went away mid-call: abandon the work rather than finish it for
+      // a dead socket.
       res.once("close", () => {
-        if (!res.writableFinished) void mcp?.close().catch(() => undefined);
+        if (!res.writableFinished) tearDown();
       });
 
       const timedOut = Symbol("timeout");
@@ -408,6 +469,7 @@ export function createHttpApp(opts: HttpServerOptions, deps: HttpAppDeps): HttpA
       const response = await Promise.race([transport.handleRequest(webReq, { parsedBody: parsed }), timeout]);
       if (response === timedOut) {
         log.reason = "timeout";
+        tearDown();
         send(504, jsonRpcError(-32000, `Request timed out after ${opts.requestTimeoutMs} ms`));
         return;
       }
@@ -434,28 +496,43 @@ export function createHttpApp(opts: HttpServerOptions, deps: HttpAppDeps): HttpA
     } finally {
       if (timer) clearTimeout(timer);
       inflight--;
-      if (mcp) void mcp.close().catch(() => undefined);
+      tearDown();
     }
   };
 
-  const server = createServer((req, res) => {
-    handler(req, res).catch((err: unknown) => {
-      onError("http-handler", err);
-      if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(jsonRpcError(-32603, "Internal error"));
-      } else {
-        res.destroy();
-      }
-    });
-  });
-  // Above a typical load balancer's 60 s idle timeout, so the LB (not this
-  // server) closes idle keep-alive sockets — the usual cause of sporadic 502s.
+  // Timeouts, in the order a request meets them:
+  //   headersTimeout   Node: complete headers within 15 s, else Node answers 408.
+  //   bodyTimeoutMs    ours: complete body within DEXE_HTTP_BODY_TIMEOUT_MS of
+  //                    the handler starting, else 408 (no in-flight slot held).
+  //   requestTimeout   Node backstop for receiving the whole request; set just
+  //                    above the two so it never pre-empts our JSON 408.
+  //   requestTimeoutMs ours: MCP work after the body is in, else 504 and the
+  //                    per-request server is torn down (handlers are aborted).
+  //   keepAliveTimeout idle keep-alive sockets close after 65 s — above the
+  //                    usual 60 s load-balancer idle timeout, so the LB closes
+  //                    first (the classic cause of sporadic 502s otherwise).
+  // connectionsCheckingInterval makes Node enforce the first and third within
+  // ~1 s instead of its default 30 s sweep.
+  const headersTimeout = HTTP_DEFAULTS.headersTimeoutMs;
+  const server = createServer(
+    {
+      headersTimeout,
+      requestTimeout: headersTimeout + opts.bodyTimeoutMs + 5_000,
+      connectionsCheckingInterval: 1_000,
+    },
+    (req, res) => {
+      handler(req, res).catch((err: unknown) => {
+        onError("http-handler", err);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(jsonRpcError(-32603, "Internal error"));
+        } else {
+          res.destroy();
+        }
+      });
+    },
+  );
   server.keepAliveTimeout = 65_000;
-  server.headersTimeout = 66_000;
-  // Budget to RECEIVE a request (slow-loris guard); the MCP work itself is
-  // bounded separately by requestTimeoutMs.
-  server.requestTimeout = 60_000;
 
   return {
     server,

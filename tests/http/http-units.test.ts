@@ -2,14 +2,21 @@ import { describe, expect, it } from "vitest";
 import { HTTP_DEFAULTS, parseHttpOptions, serveHttpUsage } from "../../src/http/options.js";
 import {
   TokenBucketLimiter,
+  canonicalIp,
   checkOrigin,
   hostAllowed,
   hostnameFromHostHeader,
   makeIpHasher,
+  rateLimitKey,
   resolveClientIp,
 } from "../../src/http/security.js";
-import { createRpcReadinessProbe, isWriteSideEnvKey, scrubWriteSideEnv } from "../../src/http/readServer.js";
-import type { DexeConfig } from "../../src/config.js";
+import {
+  createRpcReadinessProbe,
+  findSharedDefaults,
+  isReadServerEnvKey,
+  scrubEnvToReadAllowlist,
+} from "../../src/http/readServer.js";
+import { DEFAULTS, type DexeConfig } from "../../src/config.js";
 
 /**
  * Pure parts of `serve-http`: option parsing, Host/Origin checks, client-IP
@@ -89,6 +96,13 @@ describe("parseHttpOptions", () => {
   it("0 disables the access log", () => {
     expect(ok([], { DEXE_HTTP_ACCESS_LOG: "0" }).accessLog).toBe(false);
   });
+
+  it("body timeout is tunable; the shared-defaults opt-in is off unless set", () => {
+    expect(ok([]).bodyTimeoutMs).toBe(HTTP_DEFAULTS.bodyTimeoutMs);
+    expect(ok([], { DEXE_HTTP_BODY_TIMEOUT_MS: "2500" }).bodyTimeoutMs).toBe(2500);
+    expect(ok([]).allowSharedDefaults).toBe(false);
+    expect(ok([], { DEXE_HTTP_ALLOW_SHARED_DEFAULTS: "1" }).allowSharedDefaults).toBe(true);
+  });
 });
 
 describe("Host and Origin checks", () => {
@@ -130,6 +144,32 @@ describe("resolveClientIp", () => {
   it("stops at garbage and folds IPv4-mapped IPv6", () => {
     expect(resolveClientIp("::ffff:10.0.0.5", undefined, 1)).toBe("10.0.0.5");
     expect(resolveClientIp("10.0.0.5", "1.1.1.1, not-an-ip", 2)).toBe("10.0.0.5");
+  });
+
+  it("strips ports, brackets and zone ids from X-Forwarded-For entries", () => {
+    expect(canonicalIp("1.2.3.4:5678")).toBe("1.2.3.4");
+    expect(canonicalIp("[2001:DB8::1]:443")).toBe("2001:db8::1");
+    expect(canonicalIp("[::1]")).toBe("::1");
+    expect(canonicalIp("fe80::1%eth0")).toBe("fe80::1");
+    expect(resolveClientIp("10.0.0.5", "1.1.1.1:40000", 1)).toBe("1.1.1.1");
+    expect(resolveClientIp("10.0.0.5", "[2001:db8::7]:1234", 1)).toBe("2001:db8::7");
+  });
+});
+
+describe("rateLimitKey", () => {
+  it("groups IPv6 by /64 so one subscriber gets one bucket", () => {
+    expect(rateLimitKey("2001:db8:aa:bb::1")).toBe("2001:db8:aa:bb::/64");
+    expect(rateLimitKey("2001:db8:aa:bb:ffff:1:2:3")).toBe("2001:db8:aa:bb::/64");
+    expect(rateLimitKey("[2001:db8:aa:bb::9]:443")).toBe("2001:db8:aa:bb::/64");
+    expect(rateLimitKey("2001:db8:aa:bc::1")).not.toBe(rateLimitKey("2001:db8:aa:bb::1"));
+    expect(rateLimitKey("::1")).toBe("0:0:0:0::/64");
+    expect(rateLimitKey("64:ff9b::1.2.3.4")).toBe("64:ff9b:0:0::/64");
+  });
+
+  it("leaves IPv4 alone (ports stripped)", () => {
+    expect(rateLimitKey("1.2.3.4")).toBe("1.2.3.4");
+    expect(rateLimitKey("1.2.3.4:99")).toBe("1.2.3.4");
+    expect(rateLimitKey("::ffff:1.2.3.4")).toBe("1.2.3.4");
   });
 
   it("hashes are stable per process, short, and not the address", () => {
@@ -228,29 +268,102 @@ describe("createRpcReadinessProbe", () => {
   });
 });
 
-describe("write-side env scrub", () => {
-  it("recognises signing, keyring, upload, WalletConnect and Safe keys", () => {
+describe("env allowlist", () => {
+  it("drops every write-side, unknown DeXe and unrelated secret var", () => {
     for (const k of [
       "DEXE_PRIVATE_KEY",
       "DEXE_AGENT_PK_3",
       "AGENT_PK_12",
       "DEXE_AGENT_FUNDER_PK",
-      "AGENT_FUNDER_PK",
       "DEXE_PINATA_JWT",
       "DEXE_WALLETCONNECT_PROJECT_ID",
-      "DEXE_SAFE_TX_SERVICE_API_KEY",
+      "DEXE_SAFE_API_KEY",
+      "DEXE_SAFE_TX_SERVICE_URL",
       "DEXE_SIGNER_ALLOWLIST",
+      "DEXE_TREASURY_GUARD",
+      "DEXE_ENV_FILE",
+      "DEXE_SOMETHING_NEW",
+      "FOO_SECRET",
+      "AWS_SECRET_ACCESS_KEY",
+      "GITHUB_TOKEN",
     ]) {
-      expect(isWriteSideEnvKey(k), k).toBe(true);
-    }
-    for (const k of ["DEXE_RPC_URL_MAINNET", "DEXE_GRAPH_API_KEY", "DEXE_PINATA_GATEWAY_TOKEN", "DEXE_IPFS_GATEWAY"]) {
-      expect(isWriteSideEnvKey(k), k).toBe(false);
+      expect(isReadServerEnvKey(k), k).toBe(false);
     }
   });
 
-  it("deletes them and returns names only", () => {
-    const env: NodeJS.ProcessEnv = { DEXE_PRIVATE_KEY: "0xabc", DEXE_RPC_URL_MAINNET: "https://x", AGENT_PK_1: "0xdef" };
-    expect(scrubWriteSideEnv(env)).toEqual(["AGENT_PK_1", "DEXE_PRIVATE_KEY"]);
-    expect(env).toEqual({ DEXE_RPC_URL_MAINNET: "https://x" });
+  it("keeps read data-source vars, DEXE_HTTP_* and the runtime basics", () => {
+    for (const k of [
+      "DEXE_RPC_URL_MAINNET",
+      "DEXE_RPC_URL_10",
+      "DEXE_SUBGRAPH_POOLS_URL",
+      "DEXE_SUBGRAPH_VALIDATORS_URL_97",
+      "DEXE_GRAPH_API_KEY",
+      "DEXE_BACKEND_API_URL",
+      "DEXE_PINATA_GATEWAY_TOKEN",
+      "DEXE_IPFS_GATEWAY",
+      "DEXE_HTTP_ALLOWED_HOSTS",
+      "DEXE_HTTP_ALLOW_SHARED_DEFAULTS",
+      "PATH",
+      "Path",
+      "HOME",
+      "TMPDIR",
+      "NODE_EXTRA_CA_CERTS",
+      "HTTPS_PROXY",
+      "LC_ALL",
+    ]) {
+      expect(isReadServerEnvKey(k), k).toBe(true);
+    }
+  });
+
+  it("deletes in place and reports a count, not names", () => {
+    const env: NodeJS.ProcessEnv = {
+      DEXE_SAFE_API_KEY: "safe",
+      FOO_SECRET: "foo",
+      DEXE_RPC_URL_MAINNET: "https://x",
+      PATH: "/bin",
+    };
+    expect(scrubEnvToReadAllowlist(env)).toBe(2);
+    expect(env).toEqual({ DEXE_RPC_URL_MAINNET: "https://x", PATH: "/bin" });
+  });
+});
+
+describe("findSharedDefaults", () => {
+  const bakedPools = DEFAULTS.subgraphPoolsUrl;
+  const own = "https://gateway.thegraph.com/api/0123456789abcdef0123456789abcdef/subgraphs/id/X";
+  const cfg = (over: Partial<Record<string, unknown>>) =>
+    ({
+      usingPublicRpcFallback: false,
+      subgraphUrls: new Map([[56, { pools: own, validators: own, interactions: own }]]),
+      ...over,
+    }) as unknown as DexeConfig;
+
+  it("flags the public RPC fallback, the baked Graph key per subgraph kind, and the default backend", () => {
+    const found = findSharedDefaults(
+      cfg({
+        usingPublicRpcFallback: true,
+        subgraphUrls: new Map([[56, { pools: bakedPools, validators: own, interactions: DEFAULTS.subgraphInteractionsUrl }]]),
+      }),
+      {},
+    );
+    const vars = found.flatMap((f) => f.setVars);
+    expect(vars).toEqual([
+      "DEXE_RPC_URL_MAINNET",
+      "DEXE_RPC_URL_TESTNET",
+      "DEXE_SUBGRAPH_INTERACTIONS_URL",
+      "DEXE_SUBGRAPH_POOLS_URL",
+      "DEXE_BACKEND_API_URL",
+    ]);
+  });
+
+  it("is empty once the operator set their own endpoints", () => {
+    expect(findSharedDefaults(cfg({}), { DEXE_BACKEND_API_URL: "https://api.dexe.io" })).toEqual([]);
+  });
+
+  it("a separate DEXE_GRAPH_API_KEY does not help while the URL still carries the baked key", () => {
+    const found = findSharedDefaults(
+      cfg({ subgraphUrls: new Map([[56, { pools: bakedPools }]]) }),
+      { DEXE_GRAPH_API_KEY: "mine", DEXE_BACKEND_API_URL: "https://b" },
+    );
+    expect(found.flatMap((f) => f.setVars)).toEqual(["DEXE_SUBGRAPH_POOLS_URL"]);
   });
 });
