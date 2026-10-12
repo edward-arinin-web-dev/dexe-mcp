@@ -20,14 +20,15 @@
       "args": {
         "govPool": "{{dao}}",
         "proposalType": "modify_dao_profile",
-        "title": "S02 validator chamber harness",
+        "title": "S02 validator chamber harness {{now}}",
         "description": "Phase 2 swarm — validator-vote-pass",
         "newDaoDescription": "Sentinel Validators — S02 marker 2026-04-29",
         "category": "DAO Profile",
         "user": "{{agent:P:address}}"
       },
       "broadcast": true,
-      "captureAs": "createdProp"
+      "captureAs": "createdProp",
+      "expect": [{ "path": "createdProp.mode", "op": "ne", "value": "already-created" }]
     },
     {
       "step": 2,
