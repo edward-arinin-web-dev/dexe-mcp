@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { startupIssueChecks, envSourceChecks, type CheckResult } from "../../src/diag/checks.js";
+import { FULL_ENV_SURFACE } from "../../src/env/schema.js";
 import type { EnvLoadReport, EnvSourceState } from "../../src/env/loader.js";
 import type { DexeConfig, StartupIssue } from "../../src/config.js";
 
@@ -71,6 +72,8 @@ describe("startupIssueChecks", () => {
   it("a signer-family issue is filed under the signer category", () => {
     const rs = startupIssueChecks(
       configWith([{ key: "DEXE_AGENT_PK_*", message: "bad key", fallback: "slot skipped" }]),
+      undefined,
+      FULL_ENV_SURFACE,
     );
     expect(rs[0]!.category).toBe("signer");
   });

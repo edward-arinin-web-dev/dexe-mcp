@@ -44,6 +44,10 @@ const SRC = join(REPO, "src");
 const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
   "config.ts -> bootstrap.ts":
     "protocolPath resolution for the dev toolchain. Gone when config splits into a read config and a write config.",
+  "config.ts -> env/schema.ts":
+    "the single loader validates the full env spec. Gone when config splits into a read config and a write config.",
+  "config.ts -> lib/treasuryGate.ts":
+    "the single loader resolves the treasury-guard posture. Gone when config splits into a read config and a write config.",
   "instructions.ts -> lib/resumeContract.ts":
     "the handshake text carries the write resume rule. Gone when each edition gets its own instructions.",
   "knowledge/index.ts -> knowledge/flows.ts":

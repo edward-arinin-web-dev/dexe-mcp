@@ -3,9 +3,9 @@ import { resolve } from "node:path";
 import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
 import { resolveStatePath } from "./lib/stateStore.js";
 import { parseEnv } from "./env/parse.js";
-import { PER_CHAIN_SUBGRAPH_URL_RE, subgraphUrlStr } from "./env/schema.js";
+import { ENV_SPEC, PER_CHAIN_SUBGRAPH_URL_RE, subgraphUrlStr } from "./env/schema.js";
 import { safeErrorMessage } from "./lib/redact.js";
-import { resolveTreasuryGuardMode, type TreasuryGuardMode } from "./lib/quorumRisk.js";
+import { resolveTreasuryGuardMode, type TreasuryGuardMode } from "./lib/treasuryGate.js";
 
 /**
  * Split an RPC env value into its endpoint list: `url` or `url1,url2,…`.
@@ -221,7 +221,7 @@ export interface DexeConfig {
    * made an operator who asked for the strictest posture get a startup warning
    * calling their value invalid — and two halves of the server behaving
    * differently. The value is produced by `resolveTreasuryGuardMode`, the ONE
-   * parser every surface funnels through. See src/lib/quorumRisk.ts.
+   * parser every surface funnels through. See src/lib/treasuryGate.ts.
    *
    * Harm-reduction only: the durable control is an adequate on-chain quorum
    * threshold configured per DAO.
@@ -442,7 +442,7 @@ export async function loadConfig(): Promise<DexeConfig> {
   // confusing late failure deep inside a tool call. Doctor performs the same
   // validation; this makes startup honest about it too.
   {
-    const { issues } = parseEnv();
+    const { issues } = parseEnv(process.env, ENV_SPEC);
     for (const issue of issues) {
       process.stderr.write(`[dexe-mcp] env ${issue.severity}: ${issue.message}\n`);
     }

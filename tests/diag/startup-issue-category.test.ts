@@ -2,6 +2,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAllChecks, startupIssueChecks } from "../../src/diag/checks.js";
+import { FULL_ENV_SURFACE } from "../../src/env/schema.js";
 import { DEFAULTS, loadConfig, type DexeConfig, type StartupIssue } from "../../src/config.js";
 
 /**
@@ -26,8 +27,9 @@ const issue = (key: string): StartupIssue => ({
   fallback: "that endpoint is ignored",
 });
 
+/** Categories as the single server files them: the full env surface (read + write + dev). */
 function categoryOf(key: string): string | undefined {
-  return startupIssueChecks(configWith([issue(key)]))[0]?.category;
+  return startupIssueChecks(configWith([issue(key)]), undefined, FULL_ENV_SURFACE)[0]?.category;
 }
 
 describe("startup-issue categories for the dynamic per-chain families", () => {

@@ -1,5 +1,6 @@
 import type { DexeConfig } from "../config.js";
 import { DEFAULTS } from "../config.js";
+import { FULL_ENV_SURFACE } from "../env/schema.js";
 import { fetchJsonWithTimeout, type CheckResult, type ExtraChecks } from "./checks.js";
 
 /**
@@ -21,6 +22,9 @@ export interface WriteDoctorOptions {
 
 export function writeDoctorChecks(opts: WriteDoctorOptions = {}): ExtraChecks {
   return {
+    // Presence rows and startup-issue categories over every var the server
+    // reads (read + write + dev), in the order they have always been listed.
+    env: FULL_ENV_SURFACE,
     network: (timeoutMs) => [pinataJwtCheck(timeoutMs), pinataPinQuotaCheck(timeoutMs, opts.probePin === true)],
     config: (config) => [...signerGuardConfigCheck(config), ...signerNeedsRpcCheck(config)],
     sharedDefaults: {

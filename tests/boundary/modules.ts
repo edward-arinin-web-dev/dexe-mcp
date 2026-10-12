@@ -35,11 +35,12 @@ const READ = [
   "cli/doctor.ts",
   "cli/skills.ts",
   // the read doctor checks + the ExtraChecks hook the write checks
-  // (diag/writeChecks.ts) come in through. Env presence still walks the whole
-  // ENV_SPEC until the env schema splits.
+  // (diag/writeChecks.ts) come in through, with the full env surface to walk
   "diag/checks.ts",
   "env/loader.ts",
   "env/parse.ts",
+  // the read env spec, the foreign (write) key names, the read env surface
+  "env/schemaRead.ts",
   "governor/adapter.ts",
   // registers the read governor tools; the write half (governor/write.ts) is
   // passed in by the composition root
@@ -125,6 +126,9 @@ const WRITE = [
   // Pinata JWT / pin probe, signer + keyring + broadcast guards, the
   // WalletConnect shared default — handed to runAllChecks as ExtraChecks
   "diag/writeChecks.ts",
+  // the write + dev env specs and the full ENV_SPEC (display order) the
+  // single server validates, loads and doctors
+  "env/schema.ts",
   "governor/encoder.ts",
   "governor/tools/build.ts",
   // dexe_gov_build_cancel, dexe_gov_decode_calldata, dexe_gov_hash_*
@@ -206,7 +210,6 @@ const MIXED = [
   "instructions.ts",
   // read wizard (RPC, subgraph, gateway) + write wizard (key, Pinata, WC)
   "cli/init.ts",
-  "env/schema.ts",
   "knowledge/gotchas.ts",
   "knowledge/index.ts",
   "knowledge/render.ts",

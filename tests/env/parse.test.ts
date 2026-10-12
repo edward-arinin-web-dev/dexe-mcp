@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseEnv } from "../../src/env/parse.js";
+import { parseEnv as parseWithSpec } from "../../src/env/parse.js";
+import { ENV_SPEC } from "../../src/env/schema.js";
+
+/** The single server's parse: the full env spec (read + write + dev). */
+const parseEnv = (env: NodeJS.ProcessEnv) => parseWithSpec(env, ENV_SPEC);
 
 /**
  * Unit coverage for the zod-driven env parser. Each test isolates one key

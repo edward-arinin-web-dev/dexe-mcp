@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { loadConfig } from "../../src/config.js";
-import { parseEnv } from "../../src/env/parse.js";
+import { parseEnv as parseWithSpec } from "../../src/env/parse.js";
 import { ENV_REGISTRY } from "../../src/env/schema.js";
-import { TREASURY_GUARD_MODES, resolveTreasuryGuardMode } from "../../src/lib/quorumRisk.js";
-import { treasuryGuardMode } from "../../src/lib/treasuryGate.js";
+import { TREASURY_GUARD_MODES, resolveTreasuryGuardMode, treasuryGuardMode } from "../../src/lib/treasuryGate.js";
+
+/** DEXE_TREASURY_GUARD is a write-edition var: validate against the full spec. */
+const parseEnv = (env: NodeJS.ProcessEnv) => parseWithSpec(env, ENV_REGISTRY);
 
 /**
  * 0.33.0 finding — two resolution paths disagreed about DEXE_TREASURY_GUARD.

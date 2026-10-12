@@ -1,32 +1,38 @@
-import { ENV_REGISTRY, type EnvKey, type EnvEntry } from "./schema.js";
+import { ENV_SPEC_READ, type EnvSpec } from "./schemaRead.js";
 
 export interface EnvIssue {
-  key: EnvKey;
+  key: string;
   severity: "error" | "warn";
   message: string;
 }
 
 export interface EnvParseResult {
   /** Trimmed raw values for every key that passed validation. */
-  values: Partial<Record<EnvKey, string>>;
+  values: Partial<Record<string, string>>;
   /** All validation failures + missing-required warnings. */
   issues: EnvIssue[];
 }
 
 /**
- * Walk ENV_SPEC, run each entry's zod schema against the provided env table,
+ * Walk `spec`, run each entry's zod schema against the provided env table,
  * and collect categorized issues. Pure — no I/O, no logging, no side effects.
  *
+ * Only `spec`'s keys are looked at: a var the spec does not list is neither
+ * validated nor returned. That is how a read-only load ignores the write
+ * edition's keys (signing keys, Pinata, WalletConnect) — it passes the read
+ * spec, the default here. The single server passes the full `ENV_SPEC` from
+ * ./schema.ts.
+ *
  * Callers:
- *   - src/config.ts (startup)
+ *   - src/configRead.ts / src/config.ts (startup)
  *   - src/diag/checks.ts (doctor)
  *   - tests (parity / regression)
  */
-export function parseEnv(env: NodeJS.ProcessEnv = process.env): EnvParseResult {
-  const values: Partial<Record<EnvKey, string>> = {};
+export function parseEnv(env: NodeJS.ProcessEnv = process.env, spec: EnvSpec = ENV_SPEC_READ): EnvParseResult {
+  const values: Partial<Record<string, string>> = {};
   const issues: EnvIssue[] = [];
 
-  for (const [key, entry] of Object.entries(ENV_REGISTRY) as [EnvKey, EnvEntry][]) {
+  for (const [key, entry] of Object.entries(spec)) {
     const raw = env[key]?.trim();
     if (!raw) {
       if (entry.required) {

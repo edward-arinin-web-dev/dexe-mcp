@@ -7,13 +7,13 @@ import { getServers } from "node:dns";
 import { existsSync, accessSync, constants } from "node:fs";
 import { dirname } from "node:path";
 import {
-  ENV_REGISTRY,
   DYNAMIC_PER_CHAIN_RPC_RE,
   PER_CHAIN_SUBGRAPH_URL_RE,
-  type EnvKey,
-  type EnvEntry,
+  READ_ENV_SURFACE,
   type EnvCategory,
-} from "../env/schema.js";
+  type EnvSpec,
+  type EnvSurface,
+} from "../env/schemaRead.js";
 import { parseEnv } from "../env/parse.js";
 import { getEnvLoadState, type EnvLoadReport, type EnvSourceState } from "../env/loader.js";
 import type { DexeConfig, SubgraphKind } from "../config.js";
@@ -76,6 +76,13 @@ export interface ExtraChecks {
     /** The env var(s) that replace them, named in the remediation after the read ones. */
     fix: string;
   };
+  /**
+   * The env surface the presence rows and the startup-issue categories walk,
+   * replacing the read edition's (`READ_ENV_SURFACE`). The write edition passes
+   * the full surface — read + write + dev vars, in the display order the single
+   * server has always listed them.
+   */
+  env?: EnvSurface;
 }
 
 /**
@@ -120,14 +127,15 @@ async function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | typeof TI
 export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult[]> {
   const timeoutMs = opts.timeoutMs ?? 3000;
   const extra = opts.extraChecks ?? {};
+  const env = extra.env ?? READ_ENV_SURFACE;
   const results: CheckResult[] = [];
 
   const envSource = opts.envSource ?? getEnvLoadState();
   // Loudest first: a degraded startup or an unloaded .env explains most of
   // what follows.
-  results.push(...startupIssueChecks(opts.config, envSource));
+  results.push(...startupIssueChecks(opts.config, envSource, env));
   results.push(...envSourceChecks(envSource));
-  results.push(...envPresenceChecks());
+  results.push(...envPresenceChecks(env.spec));
 
   // Every probe below already carries its own `timeoutMs`, but the number of
   // probes now scales with configuration — 0.30.2 made the subgraph check run
@@ -186,6 +194,7 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
 export function startupIssueChecks(
   config: DexeConfig | undefined,
   envSource?: EnvSourceState,
+  env: EnvSurface = READ_ENV_SURFACE,
 ): CheckResult[] {
   if (!config) return [];
   const where = loadedEnvPath(envSource) ?? "your .env";
@@ -201,27 +210,25 @@ export function startupIssueChecks(
   }
   return config.startupIssues.map(issue => ({
     id: `startup.${issue.key}`,
-    category: categoryForKey(issue.key),
+    category: categoryForKey(issue.key, env),
     status: "fail" as const,
     message: `${issue.message} The server did NOT exit: ${issue.fallback}.`,
     remediation: `Correct ${issue.key} in ${where}, then restart Claude Code — env is read once, at startup.`,
   }));
 }
 
-function categoryForKey(key: string): CheckCategory {
-  const entry = (ENV_REGISTRY as Record<string, EnvEntry | undefined>)[key];
+function categoryForKey(key: string, env: EnvSurface): CheckCategory {
+  const entry = Object.prototype.hasOwnProperty.call(env.spec, key) ? env.spec[key] : undefined;
   if (entry) return entry.category;
   // The per-chain families carry an open-ended chain-id suffix, so they cannot
-  // be enumerated in ENV_SPEC and have no entry to read a category from. Without
+  // be enumerated in the spec and have no entry to read a category from. Without
   // these, a rejected DEXE_SUBGRAPH_POOLS_URL_97 files under "process" — nowhere
   // near the subgraph rows the user is reading to work out what broke.
   if (PER_CHAIN_SUBGRAPH_URL_RE.test(key)) return "subgraph";
   if (DYNAMIC_PER_CHAIN_RPC_RE.test(key)) return "rpc";
-  // Family names (`DEXE_AGENT_PK_*`) have no registry entry of their own.
-  if (key.includes("SIGNER") || key.includes("AGENT_PK") || key.includes("PRIVATE_KEY")) {
-    return "signer";
-  }
-  return "process";
+  // Family names (the write edition's `DEXE_AGENT_PK_*`) have no spec entry of
+  // their own; the edition that reports them says where they file.
+  return env.categoryOf?.(key) ?? "process";
 }
 
 // ─── which .env was loaded, and what shadows it ────────────────────────────
@@ -380,10 +387,10 @@ function stateStoreCheck(config: DexeConfig | undefined): CheckResult[] {
 
 // ─── presence ───────────────────────────────────────────────────────────────
 
-function envPresenceChecks(): CheckResult[] {
+function envPresenceChecks(spec: EnvSpec): CheckResult[] {
   const out: CheckResult[] = [];
-  const parsed = parseEnv();
-  for (const [k, v] of Object.entries(ENV_REGISTRY) as [EnvKey, EnvEntry][]) {
+  const parsed = parseEnv(process.env, spec);
+  for (const [k, v] of Object.entries(spec)) {
     const set = !!process.env[k]?.trim();
     const issue = parsed.issues.find(i => i.key === k);
     if (issue) {
