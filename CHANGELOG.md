@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.37.1 — unreleased
+
+### Fixed — text that described a setup the server did not have
+- `DEXE_RPC_TIMEOUT_MS` documentation (the env spec `doc`, shown by
+  `dexe_doctor` and the startup banner) said the default is 15000 ms; the code
+  uses 10000 ms. The doc now says 10000.
+- `dexe_read_token_sales` and `dexe_user_inbox` told the caller that the
+  install's local state supplies the TokenSaleProposal address / the DAO list.
+  That is true for `dexe-mcp`, which records DAOs in `state.json`, and false
+  for `dexe-mcp-read`, which keeps no state. The descriptions, the `daos` and
+  `tokenSaleProposal` parameter descriptions and the two "required" errors now
+  depend on whether a state store is passed: `dexe-mcp` reads exactly as
+  before; `dexe-mcp-read` says the address / `daos[]` is required.
+
 ## 0.37.0 — 2026-10-12
 
 Tool count 169 → 170 for `dexe-mcp` (`dexe_tx_approval_status`); the new read-only edition `dexe-mcp-read` serves the 54 read tools. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0361--0370--read-this-if-you-sign-with-dexe_private_key-read-signermode-or-run-serve-http).

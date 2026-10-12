@@ -104217,7 +104217,7 @@ var ENV_SPEC_READ = {
     category: "rpc",
     required: false,
     example: "15000",
-    doc: "Per-request timeout (milliseconds) for a single JSON-RPC call. Without it a blackholing endpoint stalls the whole tool call until the OS gives up (~20 min) and the host shows a frozen tool. On timeout the request fails fast and rotates to the next URL in the fallback list. Default 15000."
+    doc: "Per-request timeout (milliseconds) for a single JSON-RPC call. Without it a blackholing endpoint stalls the whole tool call until the OS gives up (~20 min) and the host shows a frozen tool. On timeout the request fails fast and rotates to the next URL in the fallback list. Default 10000."
   },
   DEXE_DEFAULT_CHAIN_ID: {
     schema: intStr("an EVM chain id that has an RPC configured", "97 for BSC testnet"),
@@ -143804,10 +143804,10 @@ function registerTokenSalesList(server, ctx, state) {
   const rpc = new RpcProvider(ctx.config);
   server.registerTool("dexe_read_token_sales", {
     title: "List a DAO's token sale tiers",
-    description: "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with `totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's on-chain isOff flag. On-chain only \u2014 any chain with an RPC; the reply echoes the resolved `chainId`. `tokenSaleProposal` defaults to the address this install's local state records for the DAO; otherwise it is required.",
+    description: "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with `totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's on-chain isOff flag. On-chain only \u2014 any chain with an RPC; the reply echoes the resolved `chainId`. " + (state ? "`tokenSaleProposal` defaults to the address this install's local state records for the DAO; otherwise it is required." : "`tokenSaleProposal` is required."),
     inputSchema: {
       govPool: external_exports.string().describe("GovPool address"),
-      tokenSaleProposal: external_exports.string().optional().describe("TokenSaleProposal helper address. Omit when the local state records it; otherwise dexe_dao_predict_addresses or the deploy receipt."),
+      tokenSaleProposal: external_exports.string().optional().describe(state ? "TokenSaleProposal helper address. Omit when the local state records it; otherwise dexe_dao_predict_addresses or the deploy receipt." : "TokenSaleProposal helper address (required): dexe_dao_predict_addresses \u2192 govTokenSale, or the deploy receipt."),
       chainId: chainIdParam
     }
   }, async ({ govPool, tokenSaleProposal: tspIn, chainId }) => {
@@ -143815,7 +143815,7 @@ function registerTokenSalesList(server, ctx, state) {
       return errorResult16(`Invalid govPool: ${govPool}`);
     const tokenSaleProposal = tspIn ?? findKnownDao(state, rpc.resolveChainId(chainId), govPool)?.tokenSaleProposal;
     if (!tokenSaleProposal) {
-      return errorResult16(`tokenSaleProposal is required: no TokenSaleProposal address is on record for ${govPool} on chain ${rpc.resolveChainId(chainId)} in this install's local state. Pass it explicitly \u2014 the govTokenSale field of dexe_dao_predict_addresses(deployer, daoName), or the DAO's deploy receipt.`);
+      return errorResult16((state ? `tokenSaleProposal is required: no TokenSaleProposal address is on record for ${govPool} on chain ${rpc.resolveChainId(chainId)} in this install's local state. Pass it explicitly \u2014 ` : `tokenSaleProposal is required for ${govPool} on chain ${rpc.resolveChainId(chainId)}. Pass it \u2014 `) + `the govTokenSale field of dexe_dao_predict_addresses(deployer, daoName), or the DAO's deploy receipt.`);
     }
     if (!isAddress(tokenSaleProposal))
       return errorResult16(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
@@ -144347,10 +144347,10 @@ function registerInboxTools(server, ctx, state) {
   const discoveryNote = discoveryChains.length ? `chains that can auto-discover here: ${discoveryChains.join(", ")}` : "NO chain can auto-discover here (no pools subgraph configured)";
   server.registerTool("dexe_user_inbox", {
     title: "Pending items for a wallet across DAOs",
-    description: `Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that chain's pools subgraph (limit 50; ${discoveryNote}); on a chain with none the DAOs this install's local state records on that chain are scanned instead, else pass \`daos[]\` \u2014 the scan itself is pure on-chain. The reply echoes \`indexedChainId\` and \`daoSource\`.`,
+    description: `Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that chain's pools subgraph (limit 50; ${discoveryNote}); ` + (state ? "on a chain with none the DAOs this install's local state records on that chain are scanned instead, else pass `daos[]`" : "on a chain with none, pass `daos[]`") + " \u2014 the scan itself is pure on-chain. The reply echoes `indexedChainId` and `daoSource`.",
     inputSchema: {
       user: external_exports.string().describe("User wallet address"),
-      daos: external_exports.array(external_exports.string()).max(MAX_INBOX_DAOS).optional().describe("Optional explicit DAO list. On chains with no pools subgraph, omitting it scans this install's known DAOs."),
+      daos: external_exports.array(external_exports.string()).max(MAX_INBOX_DAOS).optional().describe(state ? "Optional explicit DAO list. On chains with no pools subgraph, omitting it scans this install's known DAOs." : "Optional explicit DAO list. Required on chains with no pools subgraph."),
       proposalScanLimit: external_exports.number().int().min(1).max(100).default(20).describe("Per-DAO recent-proposal scan window for unvoted/rewards detection"),
       chainId: chainIdParam
     }
@@ -144398,7 +144398,7 @@ ${pr2.remediation}`);
         if (known.length === 0) {
           return err(`${noSubgraph}
 
-dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself \u2014 pass \`daos: ["0x\u2026"]\`. Only auto-discovery needs the subgraph (no DAO on chain ${scanChainId} is recorded in this install's state either).`);
+dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself \u2014 pass \`daos: ["0x\u2026"]\`. Only auto-discovery needs the subgraph` + (state ? ` (no DAO on chain ${scanChainId} is recorded in this install's state either).` : "."));
         }
         resolvedDaos = known;
         daoSource = "state";

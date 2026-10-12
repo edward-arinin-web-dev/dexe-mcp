@@ -215,16 +215,22 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext, state?: 
       description:
         "Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked " +
         `deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that ` +
-        `chain's pools subgraph (limit 50; ${discoveryNote}); on a chain with none the DAOs this install's local ` +
-        "state records on that chain are scanned instead, else pass `daos[]` — the scan itself is pure " +
-        "on-chain. The reply echoes `indexedChainId` and `daoSource`.",
+        `chain's pools subgraph (limit 50; ${discoveryNote}); ` +
+        (state
+          ? "on a chain with none the DAOs this install's local state records on that chain are scanned instead, else pass `daos[]`"
+          : "on a chain with none, pass `daos[]`") +
+        " — the scan itself is pure on-chain. The reply echoes `indexedChainId` and `daoSource`.",
       inputSchema: {
         user: z.string().describe("User wallet address"),
         daos: z
           .array(z.string())
           .max(MAX_INBOX_DAOS)
           .optional()
-          .describe("Optional explicit DAO list. On chains with no pools subgraph, omitting it scans this install's known DAOs."),
+          .describe(
+            state
+              ? "Optional explicit DAO list. On chains with no pools subgraph, omitting it scans this install's known DAOs."
+              : "Optional explicit DAO list. Required on chains with no pools subgraph.",
+          ),
         proposalScanLimit: z
           .number()
           .int()
@@ -298,8 +304,8 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext, state?: 
             return err(
               `${noSubgraph}\n\n` +
                 `dexe_user_inbox can still scan chain ${scanChainId} if you name the DAOs yourself — ` +
-                `pass \`daos: ["0x…"]\`. Only auto-discovery needs the subgraph (no DAO on chain ${scanChainId} ` +
-                `is recorded in this install's state either).`,
+                `pass \`daos: ["0x…"]\`. Only auto-discovery needs the subgraph` +
+                (state ? ` (no DAO on chain ${scanChainId} is recorded in this install's state either).` : "."),
             );
           }
           resolvedDaos = known;

@@ -1223,14 +1223,18 @@ function registerTokenSalesList(server: McpServer, ctx: ToolContext, state?: Sta
         "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with " +
         "`totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's " +
         "on-chain isOff flag. On-chain only — any chain with an RPC; the reply echoes the resolved `chainId`. " +
-        "`tokenSaleProposal` defaults to the address this install's local state records for the DAO; otherwise it is required.",
+        (state
+          ? "`tokenSaleProposal` defaults to the address this install's local state records for the DAO; otherwise it is required."
+          : "`tokenSaleProposal` is required."),
       inputSchema: {
         govPool: z.string().describe("GovPool address"),
         tokenSaleProposal: z
           .string()
           .optional()
           .describe(
-            "TokenSaleProposal helper address. Omit when the local state records it; otherwise dexe_dao_predict_addresses or the deploy receipt.",
+            state
+              ? "TokenSaleProposal helper address. Omit when the local state records it; otherwise dexe_dao_predict_addresses or the deploy receipt."
+              : "TokenSaleProposal helper address (required): dexe_dao_predict_addresses → govTokenSale, or the deploy receipt.",
           ),
         chainId: chainIdParam,
       },
@@ -1240,9 +1244,11 @@ function registerTokenSalesList(server: McpServer, ctx: ToolContext, state?: Sta
       const tokenSaleProposal = tspIn ?? findKnownDao(state, rpc.resolveChainId(chainId), govPool)?.tokenSaleProposal;
       if (!tokenSaleProposal) {
         return errorResult(
-          `tokenSaleProposal is required: no TokenSaleProposal address is on record for ${govPool} on chain ` +
-            `${rpc.resolveChainId(chainId)} in this install's local state. Pass it explicitly — the govTokenSale field ` +
-            `of dexe_dao_predict_addresses(deployer, daoName), or the DAO's deploy receipt.`,
+          (state
+            ? `tokenSaleProposal is required: no TokenSaleProposal address is on record for ${govPool} on chain ` +
+              `${rpc.resolveChainId(chainId)} in this install's local state. Pass it explicitly — `
+            : `tokenSaleProposal is required for ${govPool} on chain ${rpc.resolveChainId(chainId)}. Pass it — `) +
+            `the govTokenSale field of dexe_dao_predict_addresses(deployer, daoName), or the DAO's deploy receipt.`,
         );
       }
       if (!isAddress(tokenSaleProposal))
