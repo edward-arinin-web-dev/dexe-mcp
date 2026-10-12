@@ -67,7 +67,11 @@ Want to also build and send transactions? That is the full server,
 
 `dexe-mcp-read serve-http` serves the same 54 tools over MCP Streamable HTTP.
 (`dexe-mcp serve-http` starts this same server in a child process, so the
-HTTP process never carries the full server's code either.)
+HTTP process never carries the full server's code either. The child gets only
+the env allowlist below, never the parent's flags such as `--inspect`, and it
+shuts down when the parent goes away — even on a SIGKILL — instead of keeping
+the port. SIGTERM / SIGINT drain in-flight requests (up to 10 s); a second
+signal during the drain does not cut it short.)
 
 - Stateless: no sessions, no `Mcp-Session-Id`, no `listChanged`, no sticky
   routing, and replicas need no coordination. One JSON-RPC message per POST;
@@ -77,11 +81,22 @@ HTTP process never carries the full server's code either.)
   (`initialize`, a `tools/list` of the 54 tools from a cache, a local tool
   call), against 8–11 ms when every request built its own server.
 - Nothing on disk, nothing remembered between requests.
+- Your infrastructure stays yours. Every result and error a caller gets names
+  your endpoints by stable labels — `rpc[56]`, `subgraph:pools`, `backend`,
+  `ipfs-gateway#1` — never by host, IP or port; a network error's peer reads
+  `<upstream>`, and an IP address `<ip>`. (Public IPFS gateways such as
+  `ipfs.io` keep their names, and a DAO's own links in its data are left
+  alone.) `dexe_ipfs_fetch` reports the gateway that answered by its label.
+  Labels are the same for every caller, so you can still match a user's report
+  ("rpc[97] timed out") against your config.
+- Nothing tells a caller to configure the server: a chain, subgraph or
+  gateway you have not configured is "not available on this server", error
+  remedies never mention a variable, a `.env` or a restart, and the guide and
+  playbook describe this server (explicit `since` anchors, no stored runs).
 - Diagnostics are redacted: `dexe_doctor` reports upstream health only (no env
   files or paths, which variables are set, rejected values, start time,
-  endpoint hostnames, or remediation the caller cannot act on);
-  `dexe_context` and `dexe_get_config` name no endpoint host. Error remedies
-  never ask the caller to edit a `.env`.
+  endpoint hostnames or addresses, or remediation the caller cannot act on);
+  `dexe_context` and `dexe_get_config` name no endpoint host.
 - Configured by **process env only**. `.env` files (working directory,
   `~/.dexe-mcp/.env`, `DEXE_ENV_FILE`) are never read. At startup the process
   env is cut down to an allowlist, which keeps:
@@ -91,7 +106,12 @@ HTTP process never carries the full server's code either.)
 
   Everything else is removed: signing keys, Pinata, WalletConnect and Safe keys,
   and unrelated secrets such as `AWS_*`. The startup log records only how many
-  variables were removed (`removedEnvVars`), not their names.
+  variables were removed (`removedEnvVars`), not their names. **Do not pass
+  write-edition keys to this container at all** (`DEXE_PRIVATE_KEY`,
+  `DEXE_AGENT_PK_*`, `DEXE_PINATA_JWT`, …): the server drops them at startup,
+  but anything in a container's environment is visible to whoever can run
+  `docker inspect` on the host, and a non-zero `removedEnvVars` is the sign to
+  clean the env file up.
 
 ### Data sources are required
 
@@ -213,7 +233,12 @@ IPFS gateways are named by host only.
 
 When a request is cancelled or hits `DEXE_HTTP_REQUEST_TIMEOUT_MS`, the tool
 stops: in-flight IPFS, subgraph and backend requests are aborted, and no
-further upstream calls are made.
+further upstream calls are made. RPC calls are the exception: ethers does not
+take an abort signal, so a JSON-RPC request already sent runs to its own
+timeout (`DEXE_RPC_TIMEOUT_MS`, with retries) even after the client has gone.
+The waste is bounded — the response is discarded, the request's slot is freed
+at `DEXE_HTTP_REQUEST_TIMEOUT_MS`, and `DEXE_HTTP_MAX_INFLIGHT` caps how many
+can be running — but size your RPC quota for it.
 
 ### Reverse proxy and TLS
 
@@ -253,10 +278,17 @@ requests. The SDK client sends `initialize`, `notifications/initialized`, a
 `server/discover`. After that, each tool call is one request. If those backends
 get a 429 while connecting, users see "couldn't reach the server".
 
-Start with generous limits (the defaults or higher) and watch the access log
-for `"reason":"rate"`. If you need per-user fairness, enforce it at the proxy.
-`DEXE_HTTP_MAX_INFLIGHT` is the backstop that protects your RPC and subgraph
-quotas.
+So the per-IP limit really limits *a client platform*, not a person: every
+Claude.ai user of your connector shares the buckets of Anthropic's egress
+addresses, every ChatGPT user OpenAI's. Size `DEXE_HTTP_RATE_LIMIT_PER_MIN` and
+`DEXE_HTTP_RATE_LIMIT_BURST` for the traffic of all their users together —
+roughly (concurrent users) × (tool calls a user makes per minute), plus a burst
+of 10–20 per connecting session — not for one person. A starting point for a
+public connector: `DEXE_HTTP_RATE_LIMIT_PER_MIN=3000`, `DEXE_HTTP_RATE_LIMIT_BURST=300`,
+raised when the access log shows `"reason":"rate"` for those address ranges.
+If you need per-user fairness, enforce it at the proxy (it sees more than an
+IP). `DEXE_HTTP_MAX_INFLIGHT` is the backstop that protects your RPC and
+subgraph quotas whatever the rate limit lets through.
 
 ### Protocol versions
 

@@ -9,7 +9,9 @@ something on your side.
 ## 0.36.1 → 0.37.0 — read this if you run `serve-http`
 
 Tool count unchanged (**169 tools** / 19 groups). No emitted calldata changed and
-no tool's input or output changed on the full server.
+no tool's input or output changed on the full server; three tool descriptions
+(`dexe_decode_proposal`, `dexe_read_gov_state`, `dexe_ipfs_fetch`) no longer
+name env variables.
 
 1. **New: `dexe-mcp-read`.** The read-only edition ships as a second binary in
    the same package (`npx -y -p dexe-mcp dexe-mcp-read`). Nothing to change if
@@ -21,7 +23,10 @@ no tool's input or output changed on the full server.
    ignored there. Log parsers: the `listening` line's `experimental: true` is now
    `preRelease: true`, with `server: "dexe-mcp-read"`. Remote `dexe_doctor`,
    `dexe_context` and `dexe_get_config` no longer return endpoint hosts, env
-   files or paths. **What to do:** update a Docker deployment to the new image
+   files or paths; every result names configured endpoints by label
+   (`rpc[56]`, `subgraph:pools`, `backend`, `ipfs-gateway#1` — also
+   `dexe_ipfs_fetch`'s `gateway` field), and network-error peers and IPs are
+   masked. **What to do:** update a Docker deployment to the new image
    (`ENTRYPOINT` is `node dist/read/bin.js serve-http`); nothing else.
 
 ---

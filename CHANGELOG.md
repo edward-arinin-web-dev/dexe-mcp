@@ -34,12 +34,26 @@ the handshake, with the read instructions. Docs: [docs/REMOTE.md](./docs/REMOTE.
   every write-edition variable from its process (signing and agent keys,
   Pinata, WalletConnect, Safe, the dev toolchain). `DEXE_TOOLSETS` is not used:
   all 54 tools are always served.
-- **Remote mode** (`remote: true`, what `serve-http` runs) redacts the
-  diagnostics: `dexe_doctor` returns upstream rows only — no env files, paths,
-  set variables, rejected values, start time, endpoint hostnames or
-  remediation — plus a `note` and a `rejectedSettings` count; `dexe_context` and
-  `dexe_get_config` name no RPC, backend or gateway host. Error remedies use
-  remote wording that never asks the caller to edit a `.env`.
+- **Remote mode** (`remote: true`, what `serve-http` runs) gives an anonymous
+  caller nothing about the operator's infrastructure: every result and error
+  names configured endpoints by stable labels (`rpc[56]`, `subgraph:pools`,
+  `backend`, `ipfs-gateway#1`), network-error peers read `<upstream>` and IP
+  addresses `<ip>`, and an error's other URLs and `host:port` are masked
+  (public IPFS gateways and a DAO's own links are kept). `dexe_ipfs_fetch`
+  reports its gateway by label. `dexe_doctor` returns upstream rows only — no
+  env files, paths, set variables, rejected values, start time, hostnames,
+  addresses or remediation — plus a `note` and a `rejectedSettings` count;
+  `dexe_context` and `dexe_get_config` name no RPC, backend or gateway host.
+- **No advice a caller cannot follow.** Remotely, an unconfigured chain,
+  subgraph or gateway is "not available on this server"; error remedies and
+  hints never name a server variable, a `.env` or a restart (the remaining ones
+  are stripped from errors as a net).
+- **Knowledge that matches the server.** The read server's guide and playbook
+  come from a variant of the read corpus (`src/knowledge/read/edition.ts`):
+  `since` takes an explicit time or block (pass the previous report's
+  `generatedAt`), with no `since: "last"`, `persist`, `/loop` / `/schedule`,
+  dexe-report skill or toolset-profile wording; remotely also no env-variable
+  advice. The full server's corpus is unchanged.
 - `npm run bundle:read` (`scripts/bundle-read.mjs`) bundles the binary and its
   five packages into one file — what the Docker image runs.
 
@@ -56,6 +70,12 @@ the handshake, with the read instructions. Docs: [docs/REMOTE.md](./docs/REMOTE.
   Per-request CPU: about 1 ms for `initialize`, `tools/list` and a local tool
   call, down from 8–11 ms; 400 concurrent `tools/list` 3.7 s → 0.9 s.
 - `DEXE_TOOLSETS` and `DEXE_STATE_PATH` no longer pass the env allowlist.
+- `dexe-mcp serve-http`'s child gets the env allowlist only (never the
+  parent's signing keys) and no inherited Node flags; it exits when the parent
+  dies, even by SIGKILL (IPC disconnect), and a second SIGINT/SIGTERM no longer
+  cuts the drain short.
+- Tool descriptions of `dexe_decode_proposal`, `dexe_read_gov_state` and
+  `dexe_ipfs_fetch` no longer name env variables (both servers).
 - The `listening` log line carries `server: "dexe-mcp-read"` and
   `preRelease: true` (was `experimental: true`); `--help` says PRE-RELEASE.
 - Docker: the image runs the bundled read binary — no `node_modules`, none of
