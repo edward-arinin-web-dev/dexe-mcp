@@ -160,13 +160,127 @@ const APPROVE_SEL = ERC20.getFunction("approve")!.selector;
 const TRANSFER_SEL = ERC20.getFunction("transfer")!.selector;
 const REGISTRY = new Interface(["function getContract(string name) view returns (address)"]);
 const POOL_REGISTRY = new Interface(["function isGovPool(address govPool) view returns (bool)"]);
-const USER_KEEPER = new Interface(["function tokenAddress() view returns (address)"]);
+const USER_KEEPER = new Interface([
+  "function tokenAddress() view returns (address)",
+  "function stakingProposalAddress() view returns (address)",
+]);
 const CREATE_SELS = new Set([
   GOV_POOL.getFunction("createProposalAndVote")!.selector,
   GOV_POOL.getFunction("createProposal")!.selector,
 ]);
 const MULTICALL_SEL = GOV_POOL.getFunction("multicall")!.selector;
 const UNLIMITED = 2n ** 255n;
+
+/** Contracts whose functions only make sense on a registry-confirmed DeXe deployment. */
+const PROTOCOL_CONTRACTS: ReadonlySet<string> = new Set([
+  "GovPool",
+  "GovUserKeeper",
+  "GovSettings",
+  "GovValidators",
+  "GovValidatorsToken",
+  "TokenSaleProposal",
+  "DistributionProposal",
+  "StakingProposal",
+  "PoolFactory",
+  "PoolRegistry",
+  "ContractsRegistry",
+  "UserRegistry",
+  "CoreProperties",
+  "PriceFeed",
+  "TokenAllocator",
+  "LinearPower",
+  "PolynomialPower",
+  "ERC721Multiplier",
+  "DexeERC721Multiplier",
+  "ERC721Expert",
+]);
+
+const SATELLITE = new Interface([
+  "function govAddress() view returns (address)",
+  "function govPoolAddress() view returns (address)",
+]);
+
+/** Calls that hand tokens, allowance, operator rights or votes to someone. */
+const HANDOVER = new Interface([
+  "function approve(address spender, uint256 amount)",
+  "function increaseAllowance(address spender, uint256 addedValue)",
+  "function setApprovalForAll(address operator, bool approved)",
+  "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)",
+  "function transfer(address to, uint256 amount)",
+  "function transferFrom(address from, address to, uint256 amount)",
+  "function safeTransferFrom(address from, address to, uint256 tokenId)",
+  "function safeTransferFrom(address from, address to, uint256 tokenId, bytes data)",
+  "function delegate(address delegatee, uint256 amount, uint256[] nftIds)",
+]);
+
+interface Handover {
+  kind: "spender" | "operator" | "recipient" | "delegatee" | "revoke";
+  party: string;
+  unlimited: boolean;
+  amount?: string;
+}
+
+/** Who a token-handover call gives something to, or null when `data` is not one. */
+export function decodeHandover(data: string): Handover | null {
+  if (!data || data.length < 10) return null;
+  let parsed;
+  try {
+    parsed = HANDOVER.parseTransaction({ data });
+  } catch {
+    return null;
+  }
+  if (!parsed) return null;
+  const a = parsed.args;
+  switch (parsed.name) {
+    case "approve":
+    case "increaseAllowance":
+      return { kind: "spender", party: String(a[0]), unlimited: BigInt(a[1]) >= UNLIMITED };
+    case "permit":
+      return { kind: "spender", party: String(a[1]), unlimited: BigInt(a[2]) >= UNLIMITED };
+    case "setApprovalForAll":
+      return a[1] ? { kind: "operator", party: String(a[0]), unlimited: true } : { kind: "revoke", party: String(a[0]), unlimited: false };
+    case "transfer":
+      return { kind: "recipient", party: String(a[0]), unlimited: false };
+    case "transferFrom":
+    case "safeTransferFrom":
+      return { kind: "recipient", party: String(a[1]), unlimited: false };
+    case "delegate":
+      return { kind: "delegatee", party: String(a[0]), unlimited: false, amount: `${BigInt(a[1]).toString()} (raw units)` };
+    default:
+      return null;
+  }
+}
+
+/** Proposal actions (for + against) of a create call, including creates nested in a GovPool multicall. */
+function proposalActionsOf(data: string): Array<{ executor: string; value: string; data: string }> {
+  const out: Array<{ executor: string; value: string; data: string }> = [];
+  const collect = (d: string) => {
+    const sel = d.slice(0, 10).toLowerCase();
+    if (!CREATE_SELS.has(sel)) return;
+    try {
+      const args = GOV_POOL.decodeFunctionData(GOV_POOL.getFunction(sel)!, d);
+      for (const x of [...(args[1] as unknown as unknown[][]), ...(args[2] as unknown as unknown[][])]) {
+        out.push({ executor: String(x[0]), value: String(x[1]), data: String(x[2]) });
+      }
+    } catch {
+      /* malformed */
+    }
+  };
+  collect(data);
+  if (data.slice(0, 10).toLowerCase() === MULTICALL_SEL) {
+    try {
+      for (const d of GOV_POOL.decodeFunctionData("multicall", data)[0] as unknown as string[]) collect(d);
+    } catch {
+      /* malformed */
+    }
+  }
+  return out;
+}
+
+/** The same decoded call, with every contract-name prefix removed (unvouched target). */
+function withoutContractNames(v: DecodedView): DecodedView {
+  return { ...v, contract: null, nested: v.nested.map(withoutContractNames) };
+}
 
 const MAX_ARG_CHARS = 160;
 const MAX_ARGS = 12;
@@ -314,6 +428,10 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
     const k = addr.toLowerCase();
     if (!labels.has(k)) labels.set(k, text);
   };
+  /** Addresses the registry vouches for: singletons, confirmed pools, their helpers. */
+  const confirmed = new Set<string>();
+  /** Satellites (TokenSale/Distribution/Staking) whose link to a confirmed pool is their own claim. */
+  const satellites = new Map<string, string>();
   /** step target (lowercase) → why it is NOT trustworthy, when it claims to be a GovPool. */
   const fakePools = new Map<string, string>();
   const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -324,13 +442,36 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
     const r = await withTimeout(provider.call({ to, data }), 6000);
     return r && r !== "0x" ? r : undefined;
   };
+  const readAddress = async (iface: Interface, to: string, fn: string): Promise<string | undefined> => {
+    const r = await rawCall(to, iface.encodeFunctionData(fn));
+    if (!r) return undefined;
+    try {
+      const a = String(iface.decodeFunctionResult(fn, r)[0]);
+      return /^0x0{40}$/i.test(a) ? undefined : a;
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Every address the batch hands control to: step targets, multicall inner
+  // targets (the step target itself), proposal-action executors.
+  const allActions = payloads.flatMap((pl) => proposalActionsOf(pl.data || "0x"));
+  const candidates = [...new Set([...payloads.map((pl) => pl.to), ...allActions.map((a) => a.executor)].map((a) => a.toLowerCase()))];
+
+  const registry =
+    cfg.chains?.get?.(ctx.chainId)?.registryOverride ?? cfg.registryOverride ?? CONTRACTS_REGISTRY_BY_CHAIN[ctx.chainId];
+  const builtInRegistry = CONTRACTS_REGISTRY_BY_CHAIN[ctx.chainId];
+  const registryNote =
+    registry && builtInRegistry && registry.toLowerCase() !== builtInRegistry.toLowerCase()
+      ? `this server uses a custom DeXe ContractsRegistry (${registry}, DEXE_CONTRACTS_REGISTRY) instead of the built-in ` +
+        `one for ${chainLabel(ctx.chainId)} — every "registered" label on this page is relative to it`
+      : null;
 
   if (provider) {
-    // Protocol singletons from the ContractsRegistry.
-    const registry = cfg.chains?.get?.(ctx.chainId)?.registryOverride ?? cfg.registryOverride ?? CONTRACTS_REGISTRY_BY_CHAIN[ctx.chainId];
     const named: Record<string, string> = {};
     if (registry) {
       label(registry, "DeXe ContractsRegistry");
+      confirmed.add(registry.toLowerCase());
       for (const name of [CONTRACT_NAMES.POOL_FACTORY, CONTRACT_NAMES.POOL_REGISTRY, CONTRACT_NAMES.USER_REGISTRY]) {
         const ret = await rawCall(registry, REGISTRY.encodeFunctionData("getContract", [name]));
         if (!ret) continue;
@@ -338,6 +479,7 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
           const addr = String(REGISTRY.decodeFunctionResult("getContract", ret)[0]);
           if (addr && !/^0x0{40}$/i.test(addr)) {
             named[name] = addr;
+            confirmed.add(addr.toLowerCase());
             label(addr, `DeXe ${name.replace(/_/g, " ").toLowerCase()} (registry)`);
           }
         } catch {
@@ -346,57 +488,141 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
       }
     }
     const poolRegistry = named[CONTRACT_NAMES.POOL_REGISTRY];
-
-    // A step target that answers getHelperContracts() CLAIMS to be a GovPool.
-    const targets = [...new Set(payloads.map((p) => p.to.toLowerCase()))];
-    for (const t of targets) {
-      const ret = await rawCall(t, GOV_POOL.encodeFunctionData("getHelperContracts"));
-      if (!ret) continue;
-      let helpers: [string, string, string];
+    const isGovPool = async (addr: string): Promise<boolean | null> => {
+      if (!poolRegistry) return null;
+      const r = await rawCall(poolRegistry, POOL_REGISTRY.encodeFunctionData("isGovPool", [addr]));
       try {
-        helpers = GOV_POOL.decodeFunctionResult("getHelperContracts", ret) as unknown as [string, string, string];
+        return r ? Boolean(POOL_REGISTRY.decodeFunctionResult("isGovPool", r)[0]) : null;
       } catch {
-        continue; // not a GovPool shape
+        return null;
       }
-      let registered: boolean | null = null;
-      if (poolRegistry) {
-        const r = await rawCall(poolRegistry, POOL_REGISTRY.encodeFunctionData("isGovPool", [t]));
+    };
+    const confirmPool = async (pool: string): Promise<string> => {
+      const name = daoName(pool);
+      const title = `GovPool ${short(getAddress(pool))}${name ? ` (recorded as "${renderUntrusted(name, 60)}")` : ""}`;
+      if (confirmed.has(pool.toLowerCase())) return title;
+      confirmed.add(pool.toLowerCase());
+      label(pool, `${title} — registered DeXe DAO`);
+      const ret = await rawCall(pool, GOV_POOL.encodeFunctionData("getHelperContracts"));
+      if (ret) {
         try {
-          registered = r ? Boolean(POOL_REGISTRY.decodeFunctionResult("isGovPool", r)[0]) : null;
+          const [settings, userKeeper, validators, , votePower] = GOV_POOL.decodeFunctionResult("getHelperContracts", ret) as unknown as string[];
+          for (const [a, what] of [
+            [userKeeper, "UserKeeper"],
+            [settings, "GovSettings"],
+            [validators, "GovValidators"],
+            [votePower, "vote-power contract"],
+          ] as const) {
+            if (!a || /^0x0{40}$/i.test(a)) continue;
+            confirmed.add(a.toLowerCase());
+            label(a, `${what} of ${title}`);
+          }
+          const tokenAddr = await readAddress(USER_KEEPER, userKeeper!, "tokenAddress");
+          if (tokenAddr) label(tokenAddr, `governance token of ${title}`);
+          const staking = await readAddress(USER_KEEPER, userKeeper!, "stakingProposalAddress");
+          if (staking) {
+            confirmed.add(staking.toLowerCase());
+            label(staking, `StakingProposal of ${title}`);
+          }
         } catch {
-          registered = null;
+          /* helpers unreadable — the pool itself stays confirmed */
         }
       }
-      if (registered !== true) {
-        fakePools.set(
-          t,
-          registered === false
-            ? "this contract answers like a GovPool but is NOT a registered DeXe DAO (PoolRegistry.isGovPool = false) — " +
-                "whatever helper addresses it reports are its own claims"
-            : "this contract answers like a GovPool but the DeXe PoolRegistry could not confirm it on this chain — " +
-                "its helper addresses are unverified",
-        );
+      return title;
+    };
+
+    for (const t of candidates) {
+      if (confirmed.has(t)) continue;
+      // Does it claim to be a GovPool?
+      const ret = await rawCall(t, GOV_POOL.encodeFunctionData("getHelperContracts"));
+      let looksLikePool = false;
+      if (ret) {
+        try {
+          GOV_POOL.decodeFunctionResult("getHelperContracts", ret);
+          looksLikePool = true;
+        } catch {
+          looksLikePool = false;
+        }
+      }
+      if (looksLikePool) {
+        const registered = await isGovPool(t);
+        if (registered === true) {
+          await confirmPool(t);
+        } else {
+          fakePools.set(
+            t,
+            registered === false
+              ? "this contract answers like a GovPool but is NOT a registered DeXe DAO (PoolRegistry.isGovPool = false) — " +
+                  "whatever helper addresses it reports are its own claims"
+              : "this contract answers like a GovPool but the DeXe PoolRegistry could not confirm it on this chain — " +
+                  "its helper addresses are unverified",
+          );
+        }
         continue;
       }
-      const [settings, userKeeper, validators] = helpers;
-      const name = daoName(t);
-      const pool = `GovPool ${short(getAddress(t))}${name ? ` (recorded as "${renderUntrusted(name, 60)}")` : ""}`;
-      label(t, `${pool} — registered DeXe DAO`);
-      label(userKeeper, `UserKeeper of ${pool}`);
-      label(settings, `GovSettings of ${pool}`);
-      label(validators, `GovValidators of ${pool}`);
-      // The DAO's governance token, read from its (registry-confirmed) UserKeeper.
-      const tok = await rawCall(userKeeper, USER_KEEPER.encodeFunctionData("tokenAddress"));
-      if (tok) {
-        try {
-          const tokenAddr = String(USER_KEEPER.decodeFunctionResult("tokenAddress", tok)[0]);
-          if (!/^0x0{40}$/i.test(tokenAddr)) label(tokenAddr, `governance token of ${pool}`);
-        } catch {
-          /* no token label */
+      // A satellite (TokenSale / Distribution / Staking proposal) names its pool itself.
+      const claimed = (await readAddress(SATELLITE, t, "govAddress")) ?? (await readAddress(SATELLITE, t, "govPoolAddress"));
+      if (claimed && (await isGovPool(claimed)) === true) {
+        const title = await confirmPool(claimed);
+        if (!confirmed.has(t)) {
+          satellites.set(t, title);
+          label(t, `contract that says it belongs to ${title} (its own claim)`);
         }
       }
     }
   }
+
+  /** Is `addr` vouched for by the registry (or a satellite of a confirmed pool)? */
+  const trust = (addr: string): "confirmed" | "satellite" | "none" =>
+    confirmed.has(addr.toLowerCase()) ? "confirmed" : satellites.has(addr.toLowerCase()) ? "satellite" : "none";
+
+  /** The spender / recipient checks, for any call that hands tokens or allowance to someone. */
+  const handoverRisks = async (data: string, where: string): Promise<RiskFlag[]> => {
+    const h = decodeHandover(data);
+    if (!h) return [];
+    const out: RiskFlag[] = [];
+    if (h.kind === "revoke") return [{ level: "info", text: `${where}revokes ${h.party}'s approval for all tokens` }];
+    if (h.unlimited) out.push({ level: "danger", text: `${where}UNLIMITED ${h.kind === "operator" ? "approval for ALL tokens of the collection" : "token allowance"}` });
+    if (h.kind === "delegatee") {
+      out.push({ level: "info", text: `${where}delegates ${h.amount ?? "votes"} to ${h.party} — that address votes with them until you undelegate` });
+      return out;
+    }
+    const partyCode = await codeAt(h.party);
+    const noCode = partyCode !== null && /^0x0*$/i.test(partyCode);
+    const known = labels.get(h.party.toLowerCase());
+    const role = h.kind === "recipient" ? "recipient" : h.kind === "operator" ? "operator" : "approval spender";
+    if (noCode) {
+      out.push({
+        level: "danger",
+        text:
+          h.kind === "recipient"
+            ? `${where}the tokens go to ${h.party}, an address with NO contract code (a plain wallet) — make sure that is the intended recipient`
+            : `${where}the ${role} is ${h.party}, an address with NO contract code (a plain wallet) — DeXe never asks you to approve one`,
+      });
+    } else if (known) {
+      out.push({ level: "info", text: `${where}${role}: ${known}` });
+    } else {
+      out.push({ level: "warn", text: `${where}${role} ${h.party} is not a contract the DeXe registry vouches for` });
+    }
+    return out;
+  };
+
+  /** A DeXe protocol function sent to something the registry does not vouch for. */
+  const protocolRisk = (call: DecodedView | null, target: string, where: string): RiskFlag | null => {
+    if (!call?.contract || !PROTOCOL_CONTRACTS.has(call.contract)) return null;
+    const t = trust(target);
+    if (t === "confirmed") return null;
+    if (t === "satellite") {
+      return {
+        level: "warn",
+        text: `${where}${target} says it belongs to ${satellites.get(target.toLowerCase())}; that link is its own claim (DeXe has no on-chain pointer to verify it)`,
+      };
+    }
+    return {
+      level: "danger",
+      text: `${where}this calls a DeXe protocol function (${call.signature.split("(")[0]}) on ${target}, which is NOT a registered DeXe contract`,
+    };
+  };
 
   const steps: ReviewStep[] = [];
   for (const [i, p] of payloads.entries()) {
@@ -405,6 +631,8 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
     const value = BigInt(p.value || "0");
     const data = p.data || "0x";
     const selector = data.length >= 10 ? data.slice(0, 10).toLowerCase() : null;
+
+    if (i === 0 && registryNote) risks.push({ level: "warn", text: registryNote });
 
     // Target label.
     let toLabel = labels.get(to.toLowerCase());
@@ -416,7 +644,7 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
     }
     if (!toLabel) {
       if (code !== null && /^0x0*$/i.test(code)) toLabel = "externally owned account (no contract code)";
-      else if ((selector === APPROVE_SEL || selector === TRANSFER_SEL) && provider) {
+      else if (decodeHandover(data) && provider) {
         const sym = await withTimeout(provider.call({ to, data: ERC20.encodeFunctionData("symbol") }), 6000);
         let symText: string | undefined;
         try {
@@ -429,7 +657,8 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
       } else toLabel = code === null ? "unlabelled address (code not checked)" : "unlabelled contract";
     }
 
-    // Decode.
+    // Decode. A protocol-looking call on an unvouched target loses the
+    // contract name: the bytes only say `deposit(...)`, not that it is a GovPool.
     let decoded: DecodedView | null = null;
     try {
       const r = decoder().decodeCalldata(data);
@@ -440,6 +669,11 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
     if (!decoded && data !== "0x") {
       risks.push({ level: "warn", text: "calldata could not be decoded with the bundled DeXe ABIs — check the raw bytes" });
     }
+    const pr = protocolRisk(decoded, to, "");
+    if (pr) {
+      if (!fake) risks.push(pr);
+      if (pr.level === "danger" && decoded) decoded = withoutContractNames(decoded);
+    }
 
     if (value > 0n) {
       risks.push({
@@ -448,61 +682,22 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
       });
     }
 
-    // Approvals and transfers: who gets the tokens / the allowance.
-    if (selector === APPROVE_SEL || selector === TRANSFER_SEL) {
-      const isApprove = selector === APPROVE_SEL;
-      try {
-        const [who, amount] = ERC20.decodeFunctionData(isApprove ? "approve" : "transfer", data) as unknown as [string, bigint];
-        if (isApprove && amount >= UNLIMITED) risks.push({ level: "danger", text: "UNLIMITED token approval" });
-        const whoCode = await codeAt(who);
-        const noCode = whoCode !== null && /^0x0*$/i.test(whoCode);
-        const wl = labels.get(who.toLowerCase());
-        if (noCode) {
-          risks.push({
-            level: "danger",
-            text: isApprove
-              ? `the approval goes to ${who}, an address with NO contract code (a plain wallet) — DeXe never asks you to approve one`
-              : `the tokens go to ${who}, an address with NO contract code (a plain wallet) — make sure that is the intended recipient`,
-          });
-        } else if (wl) {
-          risks.push({ level: "info", text: `${isApprove ? "approval spender" : "recipient"}: ${wl}` });
-        } else {
-          risks.push({
-            level: "warn",
-            text: `${isApprove ? "approval spender" : "recipient"} ${who} is not a contract the DeXe registry vouches for`,
-          });
-        }
-      } catch {
-        /* not a standard approve / transfer */
-      }
-    }
-
-    // Proposal actions: governance-changing calls and treasury moves.
-    const proposalActions: Array<{ executor: string; value: string; data: string }> = [];
-    const collectCreate = (d: string) => {
-      const sel = d.slice(0, 10).toLowerCase();
-      if (!CREATE_SELS.has(sel)) return;
-      try {
-        const fn = GOV_POOL.getFunction(sel)!;
-        const args = GOV_POOL.decodeFunctionData(fn, d);
-        for (const a of [...(args[1] as unknown as unknown[][]), ...(args[2] as unknown as unknown[][])]) {
-          proposalActions.push({ executor: String(a[0]), value: String(a[1]), data: String(a[2]) });
-        }
-      } catch {
-        /* malformed — the decode above shows what it can */
-      }
-    };
-    collectCreate(data);
+    // Who gets tokens / allowance / votes — top level, then inside a multicall.
+    risks.push(...(await handoverRisks(data, "")));
     if (selector === MULTICALL_SEL) {
       try {
         const inner = GOV_POOL.decodeFunctionData("multicall", data)[0] as unknown as string[];
-        for (const d of inner) collectCreate(d);
+        for (const [k, d] of inner.entries()) risks.push(...(await handoverRisks(d, `inner call ${k + 1}: `)));
       } catch {
-        /* ditto */
+        /* malformed — the decode above shows what it can */
       }
     }
+
+    // Proposal actions: governance-changing calls, treasury moves, handovers,
+    // protocol calls on unvouched executors.
+    const proposalActions = proposalActionsOf(data);
     if (proposalActions.length > 0) {
-      const hits = classifyGovernanceActions(proposalActions, { protocolAddresses: [...labels.keys()] });
+      const hits = classifyGovernanceActions(proposalActions, { protocolAddresses: [...confirmed] });
       for (const h of hits) {
         risks.push({
           level: "warn",
@@ -510,12 +705,23 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
         });
       }
       for (const [k, a] of proposalActions.entries()) {
+        const where = `proposal action #${k + 1}: `;
         if (BigInt(a.value || "0") > 0n) {
-          risks.push({ level: "warn", text: `proposal action #${k + 1} moves ${formatUnits(BigInt(a.value), 18)} native coin` });
+          risks.push({ level: "warn", text: `${where}moves ${formatUnits(BigInt(a.value), 18)} native coin` });
         }
-        if (a.data.slice(0, 10).toLowerCase() === ERC20.getFunction("transfer")!.selector) {
-          risks.push({ level: "warn", text: `proposal action #${k + 1} transfers tokens from the DAO treasury (${a.executor})` });
+        if (a.data.slice(0, 10).toLowerCase() === TRANSFER_SEL) {
+          risks.push({ level: "warn", text: `${where}transfers tokens from the DAO treasury (${a.executor})` });
         }
+        risks.push(...(await handoverRisks(a.data, where)));
+        let actionCall: DecodedView | null = null;
+        try {
+          const r = decoder().decodeCalldata(a.data);
+          if (r.primary) actionCall = viewOf(r.primary);
+        } catch {
+          actionCall = null;
+        }
+        const ar = protocolRisk(actionCall, a.executor, where);
+        if (ar) risks.push(ar);
       }
     }
 
