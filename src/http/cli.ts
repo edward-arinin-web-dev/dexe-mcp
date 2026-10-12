@@ -39,6 +39,9 @@ function installHttpProcessGuards(): void {
 }
 
 export async function runServeHttp(argv: readonly string[], version: string): Promise<void> {
+  // The IPC channel `dexe-mcp serve-http` opens must not keep this process
+  // alive on its own (`--help`, a refused start); its `disconnect` still fires.
+  process.channel?.unref();
   const parsed = parseHttpOptions(argv, process.env);
   if (parsed.kind === "help") {
     process.stdout.write(serveHttpUsage(version));
@@ -147,6 +150,10 @@ export async function runServeHttp(argv: readonly string[], version: string): Pr
     removedEnvVars: removedEnvCount,
   });
 
+  // Idempotent and kept installed: Ctrl+C in a terminal reaches this process
+  // twice when `dexe-mcp serve-http` started it (once from the terminal, once
+  // forwarded), and a one-shot handler would let the second one kill the
+  // process mid-drain.
   let stopping = false;
   const stop = (signal: string) => {
     if (stopping) return;
@@ -154,6 +161,9 @@ export async function runServeHttp(argv: readonly string[], version: string): Pr
     logLine("info", "shutdown", { signal, inflight: app.inflight() });
     void app.close(10_000).then(() => process.exit(0));
   };
-  process.once("SIGTERM", () => stop("SIGTERM"));
-  process.once("SIGINT", () => stop("SIGINT"));
+  process.on("SIGTERM", () => stop("SIGTERM"));
+  process.on("SIGINT", () => stop("SIGINT"));
+  // Started by `dexe-mcp serve-http` (an IPC channel is open): when that
+  // parent goes away — even by SIGKILL — stop too, instead of holding the port.
+  if (process.send) process.once("disconnect", () => stop("parent-exit"));
 }

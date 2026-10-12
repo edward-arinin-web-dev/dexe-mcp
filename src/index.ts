@@ -22,6 +22,7 @@ import {
 import { safeErrorMessage } from "./lib/redact.js";
 import { writeDoctorChecks } from "./diag/writeChecks.js";
 import { spawn } from "node:child_process";
+import { isReadServerEnvKey } from "./http/remoteEnv.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -335,9 +336,17 @@ async function delegateServeHttp(args: readonly string[]): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const child = spawn(process.execPath, [...process.execArgv, bin, "serve-http", ...args], {
-    stdio: "inherit",
-    env: process.env,
+  // Process flags are not inherited: an `--inspect` port would clash with the
+  // parent's. Under tsx (development) the loader flags must come along.
+  const execArgv = ext === ".ts" ? process.execArgv.filter((a) => !/^--(inspect|debug)/.test(a)) : [];
+  // The child gets the read allowlist only — never this process's signing
+  // keys or unrelated secrets (it would drop them itself, but they would sit
+  // in its environment until then). The IPC channel is how the child notices
+  // this process is gone, even after a SIGKILL that runs no handler here.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => isReadServerEnvKey(k)));
+  const child = spawn(process.execPath, [...execArgv, bin, "serve-http", ...args], {
+    stdio: ["inherit", "inherit", "inherit", "ipc"],
+    env,
   });
   const forward = (signal: NodeJS.Signals) => () => {
     if (child.exitCode === null && child.signalCode === null) child.kill(signal);

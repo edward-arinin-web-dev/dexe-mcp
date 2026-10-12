@@ -63,8 +63,8 @@ interface Running {
 }
 
 /** Spawn `serve-http --port 0` and resolve with its `listening` log line. */
-function startBin(env: NodeJS.ProcessEnv, cwd: string): Promise<Running> {
-  const child = spawn(process.execPath, [DIST, "serve-http", "--port", "0"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+function startBin(env: NodeJS.ProcessEnv, cwd: string, bin: string = DIST): Promise<Running> {
+  const child = spawn(process.execPath, [bin, "serve-http", "--port", "0"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   let out = "";
   let err = "";
   child.stdout!.on("data", (d) => (out += d));
@@ -250,4 +250,56 @@ describe.skipIf(!existsSync(FULL_BIN) || !existsSync(READ_BIN))("dexe-mcp serve-
     expect(shared.code).toBe(2);
     expect(shared.err).toMatch(/refusing to start on shared built-in defaults/);
   }, 45_000);
+
+  it("hands the child only the read allowlist, and the child exits when the parent is SIGKILLed", async () => {
+    const run = await startBin(
+      cleanEnv({
+        DEXE_HTTP_ALLOW_SHARED_DEFAULTS: "1",
+        DEXE_PRIVATE_KEY: TEST_KEY,
+        DEXE_PINATA_JWT: "planted-jwt-value",
+        FOO_SECRET: "planted-foo",
+      }),
+      work,
+      FULL_BIN,
+    );
+    const port = run.listening.port as number;
+    try {
+      expect(run.listening).toMatchObject({ server: "dexe-mcp-read", tools: READ_TOOLS.length });
+      // The parent filtered its env: nothing outside the allowlist reached the child to remove.
+      expect(run.listening.removedEnvVars).toBe(0);
+      expect((await fetch(`http://127.0.0.1:${port}/healthz`)).status).toBe(200);
+    } finally {
+      run.child.kill("SIGKILL"); // no handler runs in the parent
+    }
+    // The child sees its IPC channel close and shuts down, freeing the port.
+    const deadline = Date.now() + 15_000;
+    let up = true;
+    while (up && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+      up = await fetch(`http://127.0.0.1:${port}/healthz`).then(
+        () => true,
+        () => false,
+      );
+    }
+    expect(up, "orphaned serve-http child still holds the port").toBe(false);
+  }, 45_000);
+});
+
+describe.skipIf(!existsSync(READ_BIN) || process.platform === "win32")("serve-http signals (POSIX)", () => {
+  it("a second SIGINT during the drain does not kill the process: it still exits 0", async () => {
+    const work = mkdtempSync(join(tmpdir(), "dexe-serve-http-sig-"));
+    try {
+      const run = await startBin(cleanEnv({ DEXE_HTTP_ALLOW_SHARED_DEFAULTS: "1" }), work);
+      const exited = new Promise<{ code: number | null; signal: string | null }>((r) =>
+        run.child.once("exit", (code, signal) => r({ code, signal })),
+      );
+      run.child.kill("SIGINT");
+      run.child.kill("SIGINT");
+      const r = await exited;
+      expect(r).toEqual({ code: 0, signal: null });
+      expect(run.stderr().match(/"event":"shutdown"/g)).toHaveLength(1);
+    } finally {
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  }, 30_000);
 });

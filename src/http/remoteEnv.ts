@@ -88,6 +88,13 @@ const RUNTIME_ENV: ReadonlySet<string> = new Set([
   "PROGRAMDATA",
   "NUMBER_OF_PROCESSORS",
   "OS",
+  // Windows adds these to every child process (libuv's required set)
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "LOGONSERVER",
+  "SYSTEMDRIVE",
+  "USERDOMAIN",
+  "USERNAME",
 ]);
 
 export function isReadServerEnvKey(key: string): boolean {
