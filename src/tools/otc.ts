@@ -206,7 +206,24 @@ export async function resolveMerkleUris(
 
 // ---------- register ----------
 
+/**
+ * Every OTC write tool: open sale, buy, claim all. The read-only position view
+ * (dexe_otc_buyer_status) is ./tokenSaleRead.ts; registerAll registers it
+ * between the two halves below so `tools/list` keeps its historical order.
+ */
 export function registerOtcTools(
+  server: McpServer,
+  ctx: ToolContext,
+  signer: SignerManager,
+  wc: WalletConnectManager,
+  state?: StateStore,
+): void {
+  registerOtcSaleTools(server, ctx, signer, wc, state);
+  registerOtcBuyerTools(server, ctx, signer, wc);
+}
+
+/** dexe_otc_dao_open_sale. */
+export function registerOtcSaleTools(
   server: McpServer,
   ctx: ToolContext,
   signer: SignerManager,
@@ -441,6 +458,16 @@ export function registerOtcTools(
       }
     },
   );
+}
+
+/** dexe_otc_buyer_buy + dexe_otc_buyer_claim_all. */
+export function registerOtcBuyerTools(
+  server: McpServer,
+  ctx: ToolContext,
+  signer: SignerManager,
+  wc: WalletConnectManager,
+): void {
+  const rpc = new RpcProvider(ctx.config);
 
   // =============================================
   // dexe_otc_buyer_buy
