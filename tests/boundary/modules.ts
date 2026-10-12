@@ -74,6 +74,8 @@ const READ = [
   // A pure digits-only validator. Builders use it, but so does the read tool
   // dexe_otc_buyer_status (tier ids), so it is shared code, not write code.
   "lib/amount.ts",
+  // byte-capped body reads for upstream responses
+  "lib/boundedBody.ts",
   "lib/controllingVoters.ts",
   "lib/dangerousSelectors.ts",
   "lib/decoders.ts",
@@ -87,6 +89,8 @@ const READ = [
   "lib/interactionTypes.ts",
   // gateway fetch, CID parsing, offline CIDs; pinning is lib/ipfsPin.ts
   "lib/ipfs.ts",
+  // shrink a JSON value to a byte budget (response cap, IPFS JSON)
+  "lib/jsonShrink.ts",
   "lib/merkleTree.ts",
   "lib/multicall.ts",
   "lib/page.ts",
@@ -96,6 +100,8 @@ const READ = [
   "lib/quorumRisk.ts",
   "lib/redact.ts",
   // generic env guard; the Pinata guard is lib/pinata.ts
+  // ambient per-request cancellation signal for read tools
+  "lib/requestScope.ts",
   "lib/requireEnv.ts",
   "lib/sanitize.ts",
   "lib/selectors.ts",
