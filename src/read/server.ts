@@ -197,7 +197,9 @@ function renderCatalog(server: McpServer): string {
   // to see the finished title/description without a client round-trip.
   const registered = (server as unknown as { _registeredTools?: Record<string, RegisteredToolInfo> })._registeredTools ?? {};
   const entries = Object.entries(registered);
-  const cell = (s: string | undefined) => (s ?? "").replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
+  // A table cell: backslashes first, then the column separator, then one line.
+  const cell = (s: string | undefined) =>
+    (s ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
   return [
     "# dexe-mcp-read — tool catalog",
     "",
