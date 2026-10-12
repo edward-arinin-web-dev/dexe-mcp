@@ -14,7 +14,7 @@ import { CalldataDecoder, type DecodedCall } from "../decoders.js";
 import { SelectorIndex } from "../selectors.js";
 import { renderUntrusted } from "../sanitize.js";
 import { classifyGovernanceActions } from "../governanceHits.js";
-import { AddressBook, CONTRACT_NAMES } from "../addresses.js";
+import { CONTRACTS_REGISTRY_BY_CHAIN, CONTRACT_NAMES } from "../addresses.js";
 
 /**
  * ── What the human is shown before typing the password ─────────────────────
@@ -157,6 +157,10 @@ const GOV_POOL = new Interface([
   "function multicall(bytes[] data) returns (bytes[])",
 ]);
 const APPROVE_SEL = ERC20.getFunction("approve")!.selector;
+const TRANSFER_SEL = ERC20.getFunction("transfer")!.selector;
+const REGISTRY = new Interface(["function getContract(string name) view returns (address)"]);
+const POOL_REGISTRY = new Interface(["function isGovPool(address govPool) view returns (bool)"]);
+const USER_KEEPER = new Interface(["function tokenAddress() view returns (address)"]);
 const CREATE_SELS = new Set([
   GOV_POOL.getFunction("createProposalAndVote")!.selector,
   GOV_POOL.getFunction("createProposal")!.selector,
@@ -301,54 +305,95 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
   }
 
   // ---- labels ----------------------------------------------------------------
+  // Every label comes from the chain, and a contract's own answers are trusted
+  // only after the DeXe registry vouches for it: a fake "GovPool" can return
+  // any address as its UserKeeper, so helper labels are applied only to pools
+  // PoolRegistry.isGovPool() confirms on this chain.
   const labels = new Map<string, string>();
   const label = (addr: string, text: string) => {
     const k = addr.toLowerCase();
     if (!labels.has(k)) labels.set(k, text);
   };
+  /** step target (lowercase) → why it is NOT trustworthy, when it claims to be a GovPool. */
+  const fakePools = new Map<string, string>();
   const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
   const daoName = (pool: string) =>
     ctx.knownDaos?.find((d) => d.chainId === ctx.chainId && d.govPool.toLowerCase() === pool.toLowerCase())?.name;
+  const rawCall = async (to: string, data: string): Promise<string | undefined> => {
+    if (!provider) return undefined;
+    const r = await withTimeout(provider.call({ to, data }), 6000);
+    return r && r !== "0x" ? r : undefined;
+  };
 
   if (provider) {
     // Protocol singletons from the ContractsRegistry.
-    try {
-      const book = new AddressBook({
-        provider: provider as JsonRpcProvider,
-        chainId: ctx.chainId,
-        registryOverride: cfg.registryOverride,
-      });
-      label(book.registryAddress, "DeXe ContractsRegistry");
-      const names = [CONTRACT_NAMES.POOL_FACTORY, CONTRACT_NAMES.POOL_REGISTRY, CONTRACT_NAMES.USER_REGISTRY];
-      const got = await withTimeout(Promise.allSettled(names.map((n) => book.resolve(n))), 6000);
-      got?.forEach((r, i) => {
-        if (r.status === "fulfilled") label(r.value, `DeXe ${names[i]!.replace(/_/g, " ").toLowerCase()} (registry)`);
-      });
-    } catch {
-      /* no registry on this chain — fewer labels */
+    const registry = cfg.chains?.get?.(ctx.chainId)?.registryOverride ?? cfg.registryOverride ?? CONTRACTS_REGISTRY_BY_CHAIN[ctx.chainId];
+    const named: Record<string, string> = {};
+    if (registry) {
+      label(registry, "DeXe ContractsRegistry");
+      for (const name of [CONTRACT_NAMES.POOL_FACTORY, CONTRACT_NAMES.POOL_REGISTRY, CONTRACT_NAMES.USER_REGISTRY]) {
+        const ret = await rawCall(registry, REGISTRY.encodeFunctionData("getContract", [name]));
+        if (!ret) continue;
+        try {
+          const addr = String(REGISTRY.decodeFunctionResult("getContract", ret)[0]);
+          if (addr && !/^0x0{40}$/i.test(addr)) {
+            named[name] = addr;
+            label(addr, `DeXe ${name.replace(/_/g, " ").toLowerCase()} (registry)`);
+          }
+        } catch {
+          /* unreadable entry — fewer labels */
+        }
+      }
     }
-    // Any step target that answers getHelperContracts() is a GovPool; label it and its helpers.
+    const poolRegistry = named[CONTRACT_NAMES.POOL_REGISTRY];
+
+    // A step target that answers getHelperContracts() CLAIMS to be a GovPool.
     const targets = [...new Set(payloads.map((p) => p.to.toLowerCase()))];
     for (const t of targets) {
-      const ret = await withTimeout(
-        provider.call({ to: t, data: GOV_POOL.encodeFunctionData("getHelperContracts") }),
-        6000,
-      );
-      if (!ret || ret === "0x") continue;
+      const ret = await rawCall(t, GOV_POOL.encodeFunctionData("getHelperContracts"));
+      if (!ret) continue;
+      let helpers: [string, string, string];
       try {
-        const [settings, userKeeper, validators] = GOV_POOL.decodeFunctionResult("getHelperContracts", ret) as unknown as [
-          string,
-          string,
-          string,
-        ];
-        const name = daoName(t);
-        const pool = `GovPool ${short(getAddress(t))}${name ? ` (recorded as "${renderUntrusted(name, 60)}")` : ""}`;
-        label(t, pool);
-        label(userKeeper, `UserKeeper of ${pool}`);
-        label(settings, `GovSettings of ${pool}`);
-        label(validators, `GovValidators of ${pool}`);
+        helpers = GOV_POOL.decodeFunctionResult("getHelperContracts", ret) as unknown as [string, string, string];
       } catch {
-        /* not a GovPool */
+        continue; // not a GovPool shape
+      }
+      let registered: boolean | null = null;
+      if (poolRegistry) {
+        const r = await rawCall(poolRegistry, POOL_REGISTRY.encodeFunctionData("isGovPool", [t]));
+        try {
+          registered = r ? Boolean(POOL_REGISTRY.decodeFunctionResult("isGovPool", r)[0]) : null;
+        } catch {
+          registered = null;
+        }
+      }
+      if (registered !== true) {
+        fakePools.set(
+          t,
+          registered === false
+            ? "this contract answers like a GovPool but is NOT a registered DeXe DAO (PoolRegistry.isGovPool = false) — " +
+                "whatever helper addresses it reports are its own claims"
+            : "this contract answers like a GovPool but the DeXe PoolRegistry could not confirm it on this chain — " +
+                "its helper addresses are unverified",
+        );
+        continue;
+      }
+      const [settings, userKeeper, validators] = helpers;
+      const name = daoName(t);
+      const pool = `GovPool ${short(getAddress(t))}${name ? ` (recorded as "${renderUntrusted(name, 60)}")` : ""}`;
+      label(t, `${pool} — registered DeXe DAO`);
+      label(userKeeper, `UserKeeper of ${pool}`);
+      label(settings, `GovSettings of ${pool}`);
+      label(validators, `GovValidators of ${pool}`);
+      // The DAO's governance token, read from its (registry-confirmed) UserKeeper.
+      const tok = await rawCall(userKeeper, USER_KEEPER.encodeFunctionData("tokenAddress"));
+      if (tok) {
+        try {
+          const tokenAddr = String(USER_KEEPER.decodeFunctionResult("tokenAddress", tok)[0]);
+          if (!/^0x0{40}$/i.test(tokenAddr)) label(tokenAddr, `governance token of ${pool}`);
+        } catch {
+          /* no token label */
+        }
       }
     }
   }
@@ -364,9 +409,14 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
     // Target label.
     let toLabel = labels.get(to.toLowerCase());
     const code = await codeAt(to);
+    const fake = fakePools.get(to.toLowerCase());
+    if (fake) {
+      toLabel = "contract claiming to be a GovPool — NOT a registered DeXe DAO";
+      risks.push({ level: "danger", text: fake });
+    }
     if (!toLabel) {
       if (code !== null && /^0x0*$/i.test(code)) toLabel = "externally owned account (no contract code)";
-      else if (selector === APPROVE_SEL && provider) {
+      else if ((selector === APPROVE_SEL || selector === TRANSFER_SEL) && provider) {
         const sym = await withTimeout(provider.call({ to, data: ERC20.encodeFunctionData("symbol") }), 6000);
         let symText: string | undefined;
         try {
@@ -374,7 +424,8 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
         } catch {
           symText = undefined;
         }
-        toLabel = symText ? `ERC20 token "${renderUntrusted(symText, 24)}" (symbol from the token itself)` : "ERC20 token";
+        // Self-reported: a token can call itself anything.
+        toLabel = symText ? `token reporting symbol "${renderUntrusted(symText, 24)}" (self-reported, unverified)` : "unlabelled token contract";
       } else toLabel = code === null ? "unlabelled address (code not checked)" : "unlabelled contract";
     }
 
@@ -397,19 +448,32 @@ export async function buildReview(payloads: readonly ReviewPayload[], ctx: Revie
       });
     }
 
-    // Approvals.
-    if (selector === APPROVE_SEL) {
+    // Approvals and transfers: who gets the tokens / the allowance.
+    if (selector === APPROVE_SEL || selector === TRANSFER_SEL) {
+      const isApprove = selector === APPROVE_SEL;
       try {
-        const [spender, amount] = ERC20.decodeFunctionData("approve", data) as unknown as [string, bigint];
-        if (amount >= UNLIMITED) risks.push({ level: "danger", text: "UNLIMITED token approval" });
-        const sl = labels.get(spender.toLowerCase());
-        if (sl) {
-          risks.push({ level: "info", text: `approval spender: ${sl}` });
+        const [who, amount] = ERC20.decodeFunctionData(isApprove ? "approve" : "transfer", data) as unknown as [string, bigint];
+        if (isApprove && amount >= UNLIMITED) risks.push({ level: "danger", text: "UNLIMITED token approval" });
+        const whoCode = await codeAt(who);
+        const noCode = whoCode !== null && /^0x0*$/i.test(whoCode);
+        const wl = labels.get(who.toLowerCase());
+        if (noCode) {
+          risks.push({
+            level: "danger",
+            text: isApprove
+              ? `the approval goes to ${who}, an address with NO contract code (a plain wallet) — DeXe never asks you to approve one`
+              : `the tokens go to ${who}, an address with NO contract code (a plain wallet) — make sure that is the intended recipient`,
+          });
+        } else if (wl) {
+          risks.push({ level: "info", text: `${isApprove ? "approval spender" : "recipient"}: ${wl}` });
         } else {
-          risks.push({ level: "warn", text: `approval spender ${spender} is not a recognized DeXe contract` });
+          risks.push({
+            level: "warn",
+            text: `${isApprove ? "approval spender" : "recipient"} ${who} is not a contract the DeXe registry vouches for`,
+          });
         }
       } catch {
-        /* not a standard approve */
+        /* not a standard approve / transfer */
       }
     }
 
