@@ -251,7 +251,7 @@ export const ENV_SPEC_READ = {
     category: "rpc",
     required: false,
     example: "15000",
-    doc: "Per-request timeout (milliseconds) for a single JSON-RPC call. Without it a blackholing endpoint stalls the whole tool call until the OS gives up (~20 min) and the host shows a frozen tool. On timeout the request fails fast and rotates to the next URL in the fallback list. Default 15000.",
+    doc: "Per-request timeout (milliseconds) for a single JSON-RPC call. Without it a blackholing endpoint stalls the whole tool call until the OS gives up (~20 min) and the host shows a frozen tool. On timeout the request fails fast and rotates to the next URL in the fallback list. Default 10000.",
   },
   DEXE_DEFAULT_CHAIN_ID: {
     schema: intStr("an EVM chain id that has an RPC configured", "97 for BSC testnet"),
