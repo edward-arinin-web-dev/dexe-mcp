@@ -20,6 +20,8 @@
  *   5. global lockout: wrong guesses spread over three fresh approvals lock
  *      password entry everywhere (the right password is then refused), and a
  *      fourth approval is refused outright.
+ *   6. what the page says: an approval to a plain wallet and a DeXe protocol
+ *      call on a non-DeXe contract both render DANGER (then are declined).
  *
  * Funding: a funded testnet key from the swarm environment (`E2E_FUNDER_PK`,
  * else `AGENT_PK_8`) sends the throwaway a little tBNB and, if it holds the
@@ -346,6 +348,46 @@ export async function runApprovalE2E(o: E2EOptions): Promise<E2EResult> {
     );
   } finally {
     await a.close();
+  }
+
+  // ===== server C: what the page SAYS about dangerous batches (nothing is signed) =====
+  // 6a. approve(KRT → a plain wallet): the spender check must render DANGER.
+  // 6b. GovPool.deposit calldata sent to WBNB (has code, accepts any calldata
+  //     via its fallback, is no DeXe contract): DANGER "NOT a registered DeXe
+  //     contract", and the call is shown WITHOUT the "GovPool." prefix.
+  const c = new Server(dist, childEnv(0), work);
+  await c.start();
+  try {
+    const eoa = Wallet.createRandom().address;
+    const approveEoa = new Interface(["function approve(address,uint256)"]).encodeFunctionData("approve", [eoa, 1n]);
+    const r6a = await c.call("dexe_tx_send", { to: tokenAddr, data: approveEoa, chainId: CHAIN });
+    const u6a = String((r6a.json?.approval as Record<string, string> | undefined)?.url ?? "");
+    const page6a = u6a ? (await rawRequest(u6a)).body : "";
+    record(
+      "6a page renders DANGER for an approval to a plain wallet",
+      /risk r-danger[^<]*NO contract code/.test(page6a),
+      u6a ? "danger row present" : `no page: ${r6a.text.slice(0, 160)}`,
+    );
+    if (u6a) await declineAsHuman(u6a);
+
+    const WBNB_97 = "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd";
+    const wbnbCode = await provider.getCode(WBNB_97);
+    if (/^0x0*$/i.test(wbnbCode)) {
+      record("6b page renders DANGER for a DeXe call on a non-DeXe contract", false, "WBNB has no code on 97 — skipped");
+    } else {
+      const deposit = new Interface(["function deposit(uint256 amount, uint256[] nftIds)"]).encodeFunctionData("deposit", [1n, []]);
+      const r6b = await c.call("dexe_tx_send", { to: WBNB_97, data: deposit, chainId: CHAIN });
+      const u6b = String((r6b.json?.approval as Record<string, string> | undefined)?.url ?? "");
+      const page6b = u6b ? (await rawRequest(u6b)).body : "";
+      record(
+        "6b page renders DANGER for a DeXe call on a non-DeXe contract, without the GovPool. prefix",
+        /risk r-danger[^<]*NOT a registered DeXe contract/.test(page6b) && !/GovPool\.deposit/.test(page6b) && /<code>deposit\(/.test(page6b),
+        u6b ? "danger row present; call shown as deposit(…)" : `no page: ${r6b.text.slice(0, 160)}`,
+      );
+      if (u6b) await declineAsHuman(u6b);
+    }
+  } finally {
+    await c.close();
   }
 
   // ===== server B: blocking — the call waits while the owner approves =====
