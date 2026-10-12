@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.36.0 — unreleased
+## 0.36.0 — 2026-10-12
 
 Retitled from 0.35.1: the orientation split below changes what two existing
 tools return. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0350--0360--read-this-if-you-read-the-signer-from-dexe_context-or-dexe_get_config-or-call-the-otc-read-tools-by-name).

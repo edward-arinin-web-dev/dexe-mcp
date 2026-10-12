@@ -15,7 +15,7 @@
 
 An MCP (Model Context Protocol) server for [DeXe Protocol](https://dexe.io) governance on BNB Chain, with an additional generic surface for OpenZeppelin and Compound-Bravo Governor DAOs (Uniswap, Compound, Optimism).
 
-It exposes 169 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, one-call DAO reporting, IPFS metadata, transaction simulation, multi-agent orchestration, and diagnostics. Any MCP client that can launch a local command can use it — Claude Code, Claude Desktop, Cursor, Codex CLI, or a custom agent (the server speaks stdio, not HTTP).
+It exposes 169 typed tools in 19 groups: DAO deployment, all 33 DeXe proposal types, voting, delegation, execution, OTC token sales, treasury and subgraph reads, one-call DAO reporting, IPFS metadata, transaction simulation, multi-agent orchestration, and diagnostics. Any MCP client that can launch a local command can use it — Claude Code, Claude Desktop, Cursor, Codex CLI, or a custom agent (the server speaks stdio; an experimental remote mode, `dexe-mcp serve-http`, is described in [docs/REMOTE.md](./docs/REMOTE.md)).
 
 Writes are calldata-first: tools return a `{ to, data, value, chainId }` payload for your own wallet to sign. Broadcasting from the server is opt-in, either through WalletConnect (transactions are approved on your phone; no key on disk) or a private key you explicitly configure.
 
