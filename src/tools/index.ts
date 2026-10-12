@@ -33,6 +33,7 @@ import { registerGuideTools, registerKnowledgePrompts } from "./guide.js";
 import { StateStore } from "../lib/stateStore.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcTools } from "./otc.js";
+import { registerTokenSaleReadTools } from "./tokenSaleRead.js";
 import { registerSafeTools } from "./safe.js";
 import { registerSimulateTools } from "./simulate.js";
 import { registerInboxTools } from "./inbox.js";
@@ -109,6 +110,8 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   registerGuideTools(server, config, state);
   registerKnowledgePrompts(server);
   registerOtcTools(server, ctx, signer, wc, state);
+  // dexe_otc_buyer_status — the read-only position view, kept out of otc.ts
+  registerTokenSaleReadTools(server, ctx);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
 

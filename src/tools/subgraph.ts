@@ -19,7 +19,7 @@ import { pageMeta, truncationNote } from "../lib/page.js";
 import { GOV_POWER_DECIMALS, withFormatted } from "../lib/units.js";
 import { SUBGRAPH_KINDS } from "../config.js";
 import { unixToUtc } from "../lib/time.js";
-import { GET_TIER_VIEWS_FRAGMENT } from "./otc.js";
+import { GET_TIER_VIEWS_FRAGMENT } from "../lib/abi/tokenSale.js";
 import { chainIdParam } from "../lib/params.js";
 import { transactionTypeLabels } from "../lib/interactionTypes.js";
 import { safeErrorMessage } from "../lib/redact.js";

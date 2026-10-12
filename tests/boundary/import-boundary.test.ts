@@ -45,8 +45,6 @@ const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
     "the guide engine is wired to the write flow corpus. Gone when the corpus becomes a parameter.",
   "knowledge/render.ts -> knowledge/flows.ts":
     "renders flows next to topics and gotchas. Gone when knowledge/ splits into read and write halves.",
-  "lib/protocolAdvisories.ts -> lib/preflight.ts":
-    "the upstream-advisory helpers the read side needs share a file with build-time advisories. Gone once they move.",
   "tools/context.ts -> hardhat.ts":
     "type-only: ToolContext carries the dev-toolchain runner. Gone when the read ToolContext drops `runner`.",
   "tools/getConfig.ts -> lib/signer.ts":
@@ -65,22 +63,6 @@ const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
     "dexe_context reports the persona keyring. Gone when that moves to a write-edition context tool.",
   "tools/operationalContext.ts -> lib/signer.ts":
     "dexe_context reports signer mode and persona balances. Gone when that moves to a write-edition context tool.",
-  "tools/otc.ts -> lib/calldata.ts":
-    "dexe_otc_buyer_status shares a file with the OTC write composites. Gone when it moves to its own file.",
-  "tools/otc.ts -> lib/flowChain.ts":
-    "dexe_otc_buyer_status shares a file with the OTC write composites. Gone when it moves to its own file.",
-  "tools/otc.ts -> lib/ipfsPreview.ts":
-    "dexe_otc_buyer_status shares a file with the OTC write composites. Gone when it moves to its own file.",
-  "tools/otc.ts -> lib/signer.ts":
-    "dexe_otc_buyer_status shares a file with the OTC write composites. Gone when it moves to its own file.",
-  "tools/otc.ts -> lib/walletconnect.ts":
-    "dexe_otc_buyer_status shares a file with the OTC write composites. Gone when it moves to its own file.",
-  "tools/otc.ts -> tools/flow.ts":
-    "dexe_otc_buyer_status shares a file with the OTC write composites. Gone when it moves to its own file.",
-  "tools/otc.ts -> tools/proposalBuildComplex.ts":
-    "dexe_otc_buyer_status shares a file with the OTC write composites. Gone when it moves to its own file.",
-  "tools/otc.ts -> tools/simulate.ts":
-    "dexe_otc_buyer_status shares a file with the OTC write composites. Gone when it moves to its own file.",
 };
 
 /**

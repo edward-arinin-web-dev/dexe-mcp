@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Interface, ZeroAddress, ZeroHash, isAddress, getAddress } from "ethers";
+import { Interface, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { SignerManager, hotKeySafetyFields } from "../lib/signer.js";
@@ -16,21 +16,22 @@ import {
 } from "./proposalBuildComplex.js";
 import { PinataClient, pinataCidForJson } from "../lib/ipfs.js";
 import type { IpfsArtifact } from "../lib/ipfsPreview.js";
-import {
-  buildAddressMerkleTree,
-  computeLeafHash,
-  verifyProof,
-} from "../lib/merkleTree.js";
+import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { simulateCalldata } from "./simulate.js";
 import { parseUintString } from "../lib/amount.js";
 import { parseAmount, formatAmount, from18 } from "../lib/units.js";
-import { chainIdParam, signerKeyParam, NFT_IDS_OWN_DESC } from "../lib/params.js";
-import { unixToUtc } from "../lib/time.js";
+import { signerKeyParam, NFT_IDS_OWN_DESC } from "../lib/params.js";
 import { findKnownDao, type StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError, sanitizeRevertReason } from "../lib/errors.js";
-import { untrustedResult } from "../lib/sanitize.js";
+import { tokenSaleResult as ok } from "../lib/tokenSaleResult.js";
+import {
+  ETHEREUM_ADDRESS,
+  GET_TIER_VIEWS_FRAGMENT,
+  GET_USER_VIEWS_FRAGMENT,
+  isNativeSentinel,
+} from "../lib/abi/tokenSale.js";
 import {
   VESTING_WITHDRAW_ADVISORY,
   findVestingTiers,
@@ -38,6 +39,18 @@ import {
   vestingRefusalText,
   type VestingTierRisk,
 } from "../lib/protocolAdvisories.js";
+
+// The sale ABI fragments and the native-coin sentinel live in
+// src/lib/abi/tokenSale.ts (the token-sale reads decode the same shapes);
+// re-exported so existing importers keep working. dexe_otc_buyer_status is
+// registered from ./tokenSaleRead.ts.
+export {
+  ETHEREUM_ADDRESS,
+  GET_TIER_VIEWS_FRAGMENT,
+  GET_USER_VIEWS_FRAGMENT,
+  TIER_VIEW_TUPLE,
+  isNativeSentinel,
+} from "../lib/abi/tokenSale.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -53,27 +66,6 @@ const ERC20_ABI = new Interface([
   "function symbol() view returns (string)",
 ]);
 
-/**
- * Exact mirror of `ITokenSaleProposal.TierView` — a NESTED struct of
- * `{ tierInitParams, tierInfo, tierAdditionalInfo }`. The previous flat shape
- * (saleTokenAddress before claimLockDuration, reversed VestingSettings) was
- * the pre-Bug-#25 field order and decoded garbage against live tiers.
- * Field order verified against
- * `DeXe-Protocol/contracts/interfaces/gov/proposals/ITokenSaleProposal.sol`.
- */
-export const TIER_VIEW_TUPLE =
-  "tuple(" +
-  "tuple(tuple(string name, string description) metadata, uint256 totalTokenProvided, uint64 saleStartTime, uint64 saleEndTime, uint64 claimLockDuration, address saleTokenAddress, address[] purchaseTokenAddresses, uint256[] exchangeRates, uint256 minAllocationPerUser, uint256 maxAllocationPerUser, tuple(uint256 vestingPercentage, uint64 vestingDuration, uint64 cliffPeriod, uint64 unlockStep) vestingSettings, tuple(uint8 participationType, bytes data)[] participationDetails) tierInitParams, " +
-  "tuple(bool isOff, uint256 totalSold, string uri, tuple(uint64 vestingStartTime, uint64 vestingEndTime) vestingTierInfo) tierInfo, " +
-  "tuple(bytes32 merkleRoot, string merkleUri, uint256 lastModified) tierAdditionalInfo" +
-  ")";
-
-export const GET_TIER_VIEWS_FRAGMENT = `function getTierViews(uint256 offset, uint256 limit) view returns (${TIER_VIEW_TUPLE}[] tierViews)`;
-
-/** Authoritative `getUserViews` fragment — shared with read.ts so both decode the same nested UserView shape. */
-export const GET_USER_VIEWS_FRAGMENT =
-  "function getUserViews(address user, uint256[] tierIds, bytes32[][] proofs) view returns (tuple(bool canParticipate, tuple(bool isClaimed, bool canClaim, uint64 claimUnlockTime, uint256 claimTotalAmount, uint256 boughtTotalAmount, address[] lockedTokenAddresses, uint256[] lockedTokenAmounts, address[] lockedNftAddresses, uint256[][] lockedNftIds, address[] purchaseTokenAddresses, uint256[] purchaseTokenAmounts) purchaseView, tuple(uint64 latestVestingWithdraw, uint64 nextUnlockTime, uint256 nextUnlockAmount, uint256 vestingTotalAmount, uint256 vestingWithdrawnAmount, uint256 amountToWithdraw, uint256 lockedAmount) vestingUserView)[] userViews)";
-
 const TOKEN_SALE_ABI = new Interface([
   "function latestTierId() view returns (uint256)",
   GET_TIER_VIEWS_FRAGMENT,
@@ -83,74 +75,14 @@ const TOKEN_SALE_ABI = new Interface([
   "function vestingWithdraw(uint256[] tierIds)",
 ]);
 
-const PARTICIPATION_TYPE_NAMES = [
-  "DAOVotes",
-  "Whitelist",
-  "BABT",
-  "TokenLock",
-  "NftLock",
-  "MerkleWhitelist",
-] as const;
-
 // ---------- helpers ----------
 
 function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
-/**
- * What the untrusted half of an OTC payload actually is. Opening a sale is
- * permissionless, so `TierMetadata.name` / `.description` and `TierInfo.uri`
- * are free text chosen by whoever opened it — the same class of channel as a
- * DAO name, aimed at an agent that may be holding a signer.
- */
-const OTC_UNTRUSTED_LABEL =
-  "OTC tier metadata (name / description / uri authored by whoever opened the sale)";
-
-/**
- * Where the provenance sentence lives inside the JSON body. Written last on
- * purpose: a payload key of the same name would be attacker-influenced, and the
- * server-authored value must win the collision.
- */
-const PROVENANCE_KEY = "_untrustedContent";
-
-/**
- * THE result funnel for this file — every OTC tool that returns a payload
- * returns it through here, and none of them build a result any other way.
- *
- * All the sanitizing is `untrustedResult`'s, unchanged: NFKC, control-char
- * escaping, zero-width/bidi stripping and fence-marker defanging applied to
- * every string AND every key, plus the provenance sentence. Nothing here
- * reimplements any of it. Before 0.33.0 this helper was a raw `JSON.stringify`,
- * so `dexe_otc_buyer_status` handed back sale-opener text with its zero-width
- * characters and forged fence-closes intact — while `dexe_read_token_sale_tiers`
- * returned the SAME on-chain bytes neutralized.
- *
- * Both channels below are literally the one object `untrustedResult` produced,
- * so "sanitize the prose, leak the rows through `structuredContent`" is not
- * expressible here.
- *
- * The text block stays a single JSON document rather than
- * `untrustedResult`'s summary-above-payload prose: these results carry signable
- * `TxPayload`s and are consumed by `JSON.parse` on that block (scripts,
- * orchestrators, tests). So the provenance line is folded INTO the document as
- * `_untrustedContent` instead of being printed above it.
- */
-function ok(data: Record<string, unknown>) {
-  const funnelled = untrustedResult({
-    summary: "",
-    label: OTC_UNTRUSTED_LABEL,
-    structured: data,
-  });
-  const body = {
-    ...funnelled.structuredContent,
-    [PROVENANCE_KEY]: funnelled.content[0]!.text.trim(),
-  };
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(body, null, 2) }],
-    structuredContent: body,
-  };
-}
+// `ok` is the OTC result funnel (src/lib/tokenSaleResult.ts): every OTC tool
+// that returns a payload returns it through there, sanitized, in both channels.
 
 /**
  * F15 pre-block for sale creation. A tier with `vestingPercentage > 0` strands
@@ -170,21 +102,6 @@ function vestingTierGuard(
   // token-sale PROPOSAL surfaces refuse with the identical wording instead of
   // building the stranding tier silently.
   return { risks, refusal: vestingRefusalText(risks, "acknowledgeVestingBlocked: true") };
-}
-
-/**
- * Protocol-wide native-coin sentinel (`Globals.sol::ETHEREUM_ADDRESS`).
- * `TokenSaleProposalBuy` keys exchange rates by this address and checks
- * `tokenToBuyWith != ETHEREUM_ADDRESS` for the native path — passing the
- * zero address on-chain reverts with "TSP: incorrect token". We accept the
- * zero address as caller input for convenience, but calldata must always
- * carry ETHEREUM_ADDRESS.
- */
-export const ETHEREUM_ADDRESS = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
-
-export function isNativeSentinel(addr: string): boolean {
-  const a = addr.toLowerCase();
-  return a === ZeroAddress || a === ETHEREUM_ADDRESS.toLowerCase();
 }
 
 /**
@@ -521,252 +438,6 @@ export function registerOtcTools(
         return { content: [...qrBlocks, ...merged.content], structuredContent: merged.structuredContent };
       } catch (e) {
         return err(safeErrorMessage(e));
-      }
-    },
-  );
-
-  // =============================================
-  // dexe_otc_buyer_status
-  // =============================================
-  server.tool(
-    "dexe_otc_buyer_status",
-    "Read-only. Tier params + user state across N tiers: purchasable status, claimable amount, vesting " +
-      "withdrawable, lockup ETA, totalSold, merkle root. `whitelists` adds the user's proof, making " +
-      "`canParticipate` accurate for gated tiers.",
-    {
-      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
-      chainId: chainIdParam,
-      tierIds: z.array(z.string()).min(1).describe("Tier ids to report on, decimal strings."),
-      user: z.string().describe("Buyer address to report state for."),
-      whitelists: z
-        .array(
-          z.object({
-            tierId: z.string().describe("Tier the whitelist belongs to, decimal string."),
-            users: z.array(z.string()).min(1).describe("Whitelisted addresses, exactly as the merkle root was built."),
-          }),
-        )
-        .default([])
-        .describe("Optional per-tier whitelist (for MerkleWhitelist proof generation)."),
-    },
-    async ({ tokenSaleProposal, chainId, tierIds, user, whitelists }) => {
-      if (!isAddress(tokenSaleProposal)) return err(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
-      if (!isAddress(user)) return err(`Invalid user: ${user}`);
-      const pr = rpc.tryProvider(chainId);
-      if ("error" in pr) return errorResult(`${pr.error}\n${pr.remediation}`);
-      const provider = pr.ok;
-      const userAddr = getAddress(user);
-
-      // For tier params we need an offset-based getTierViews. The cheapest
-      // path is a single batch query with offset=min(tierIds)-1 and limit=range,
-      // then index into the result by (tierId - offset - 1).
-      const tierIdNums = tierIds.map((s) => parseUintString(s, "tierId"));
-      const minTier = tierIdNums.reduce((a, b) => (a < b ? a : b));
-      const maxTier = tierIdNums.reduce((a, b) => (a > b ? a : b));
-      const offset = (minTier - 1n).toString();
-      const limit = (maxTier - minTier + 1n).toString();
-
-      try {
-        // Pre-compute merkle proofs per tier BEFORE the reads — the contract's
-        // getUserViews takes bytes32[][] proofs, and canParticipate for
-        // MerkleWhitelist tiers is proof-dependent (empty proofs => false even
-        // for included users). Mirrors the frontend's useFetchMergedTierViews.
-        const whitelistByTier = new Map(whitelists.map((w) => [w.tierId, w.users]));
-        const merkleByTier = new Map<
-          string,
-          { root: string; proof: string[]; included: boolean }
-        >();
-        for (const [tierId, wlUsers] of whitelistByTier) {
-          if (!wlUsers || wlUsers.length === 0) continue;
-          const checksummed = wlUsers.map((u) => {
-            if (!isAddress(u)) throw new Error(`whitelist user invalid: ${u}`);
-            return getAddress(u);
-          });
-          const tree = buildAddressMerkleTree(checksummed);
-          const idx = checksummed.findIndex((a) => a.toLowerCase() === userAddr.toLowerCase());
-          if (idx >= 0) {
-            const leaf = computeLeafHash([userAddr], ["address"]);
-            const proof = tree.proofs[idx]!;
-            merkleByTier.set(tierId, {
-              root: tree.root,
-              proof,
-              included: verifyProof(proof, tree.root, leaf),
-            });
-          } else {
-            merkleByTier.set(tierId, { root: tree.root, proof: [], included: false });
-          }
-        }
-
-        const calls: Call[] = [
-          {
-            target: tokenSaleProposal,
-            iface: TOKEN_SALE_ABI,
-            method: "getTierViews",
-            args: [BigInt(offset), BigInt(limit)],
-            allowFailure: true,
-          },
-          {
-            target: tokenSaleProposal,
-            iface: TOKEN_SALE_ABI,
-            method: "getUserViews",
-            args: [userAddr, tierIdNums, tierIds.map((id) => merkleByTier.get(id)?.proof ?? [])],
-            allowFailure: true,
-          },
-        ];
-
-        const res = await multicall(provider, calls);
-        if (!res[0]!.success) return err(`getTierViews failed: ${res[0]!.error}`);
-        if (!res[1]!.success) return err(`getUserViews failed: ${res[1]!.error}`);
-
-        const tierViewsRange = res[0]!.value as unknown as unknown[];
-        const userViews = res[1]!.value as unknown as unknown[];
-
-        const summaries = tierIds.map((tierIdStr, i) => {
-          const tierIdx = Number(BigInt(tierIdStr) - minTier);
-          // Contract returns nested TierView { tierInitParams, tierInfo,
-          // tierAdditionalInfo } — see TIER_VIEW_TUPLE.
-          const tv = tierViewsRange[tierIdx] as
-            | undefined
-            | {
-                tierInitParams: {
-                  metadata: { name: string; description: string };
-                  totalTokenProvided: bigint;
-                  saleStartTime: bigint;
-                  saleEndTime: bigint;
-                  claimLockDuration: bigint;
-                  saleTokenAddress: string;
-                  purchaseTokenAddresses: string[];
-                  exchangeRates: bigint[];
-                  minAllocationPerUser: bigint;
-                  maxAllocationPerUser: bigint;
-                  vestingSettings: {
-                    vestingPercentage: bigint;
-                    vestingDuration: bigint;
-                    cliffPeriod: bigint;
-                    unlockStep: bigint;
-                  };
-                  participationDetails: { participationType: bigint; data: string }[];
-                };
-                tierInfo: {
-                  isOff: boolean;
-                  totalSold: bigint;
-                  uri: string;
-                  vestingTierInfo: { vestingStartTime: bigint; vestingEndTime: bigint };
-                };
-                tierAdditionalInfo: {
-                  merkleRoot: string;
-                  merkleUri: string;
-                  lastModified: bigint;
-                };
-              };
-          if (!tv) {
-            return { tierId: tierIdStr, error: "tier not found in range" };
-          }
-          const tier = tv.tierInitParams;
-
-          const uv = userViews[i] as
-            | undefined
-            | {
-                canParticipate: boolean;
-                purchaseView: {
-                  isClaimed: boolean;
-                  canClaim: boolean;
-                  claimUnlockTime: bigint;
-                  claimTotalAmount: bigint;
-                  boughtTotalAmount: bigint;
-                };
-                vestingUserView: {
-                  vestingTotalAmount: bigint;
-                  vestingWithdrawnAmount: bigint;
-                  amountToWithdraw: bigint;
-                  lockedAmount: bigint;
-                  nextUnlockTime: bigint;
-                  nextUnlockAmount: bigint;
-                };
-              };
-          if (!uv) {
-            return { tierId: tierIdStr, error: "user view missing" };
-          }
-
-          // Surface participation requirements; the merkle proof (if a
-          // whitelist was supplied) was already computed pre-read.
-          const participation = tier.participationDetails.map((p) => ({
-            type:
-              PARTICIPATION_TYPE_NAMES[Number(p.participationType)] ??
-              `Unknown(${p.participationType})`,
-            data: p.data,
-          }));
-
-          const onchainMerkleRoot =
-            tv.tierAdditionalInfo.merkleRoot === ZeroHash
-              ? null
-              : tv.tierAdditionalInfo.merkleRoot;
-          const merkleLocal = merkleByTier.get(tierIdStr);
-          const merkle = merkleLocal
-            ? {
-                ...merkleLocal,
-                onchainRoot: onchainMerkleRoot,
-                // Guards against a stale/foreign whitelist: the proof only
-                // works on-chain when the roots match.
-                rootMatchesOnchain:
-                  onchainMerkleRoot === null
-                    ? null
-                    : merkleLocal.root.toLowerCase() === onchainMerkleRoot.toLowerCase(),
-              }
-            : undefined;
-
-          return {
-            tierId: tierIdStr,
-            metadata: { name: tier.metadata.name, description: tier.metadata.description },
-            saleTokenAddress: tier.saleTokenAddress,
-            saleStartTime: tier.saleStartTime,
-            saleEndTime: tier.saleEndTime,
-            saleStartTimeUTC: unixToUtc(tier.saleStartTime),
-            saleEndTimeUTC: unixToUtc(tier.saleEndTime),
-            totalTokenProvided: tier.totalTokenProvided,
-            totalSold: tv.tierInfo.totalSold,
-            isOff: tv.tierInfo.isOff,
-            tierUri: tv.tierInfo.uri || null,
-            onchainMerkleRoot,
-            merkleUri: tv.tierAdditionalInfo.merkleUri || null,
-            purchaseTokenAddresses: [...tier.purchaseTokenAddresses],
-            exchangeRates: [...tier.exchangeRates],
-            minAllocationPerUser: tier.minAllocationPerUser,
-            maxAllocationPerUser: tier.maxAllocationPerUser,
-            claimLockDuration: tier.claimLockDuration,
-            vestingSettings: {
-              vestingPercentage: tier.vestingSettings.vestingPercentage,
-              vestingDuration: tier.vestingSettings.vestingDuration,
-              cliffPeriod: tier.vestingSettings.cliffPeriod,
-              unlockStep: tier.vestingSettings.unlockStep,
-            },
-            participation,
-            user: {
-              canParticipate: uv.canParticipate,
-              purchase: uv.purchaseView,
-              vesting: uv.vestingUserView,
-              claimable:
-                uv.purchaseView.canClaim && !uv.purchaseView.isClaimed
-                  ? uv.purchaseView.claimTotalAmount
-                  : 0n,
-              vestingWithdrawable: uv.vestingUserView.amountToWithdraw,
-            },
-            // F15: a non-zero vested leg is unrecoverable on current pools, so
-            // say so next to the number that claims to be withdrawable.
-            ...(tier.vestingSettings.vestingPercentage > 0n
-              ? {
-                  vestingWithdrawBlocked: {
-                    reason: VESTING_WITHDRAW_ADVISORY.text,
-                    upstream: VESTING_WITHDRAW_ADVISORY.upstream,
-                  },
-                }
-              : {}),
-            ...(merkle ? { merkle } : {}),
-          };
-        });
-
-        return ok({ tokenSaleProposal, user: userAddr, tiers: summaries });
-      } catch (e) {
-        return err(toActionableError(e, "dexe_otc_buyer_status").message);
       }
     },
   );

@@ -39,6 +39,7 @@ const READ = [
   "governor/tools/read.ts",
   "knowledge/topics.ts",
   "knowledge/types.ts",
+  "lib/abi/tokenSale.ts",
   "lib/addresses.ts",
   // A pure digits-only validator. Builders use it, but so does the read tool
   // dexe_otc_buyer_status (tier ids), so it is shared code, not write code.
@@ -62,6 +63,8 @@ const READ = [
   "lib/stateStore.ts",
   "lib/subgraph.ts",
   "lib/time.ts",
+  // the sanitizing result funnel shared by every OTC tool
+  "lib/tokenSaleResult.ts",
   "lib/units.ts",
   "lib/upstreamAdvisories.ts",
   "tools/dao.ts",
@@ -74,6 +77,7 @@ const READ = [
   "tools/report.ts",
   "tools/risk.ts",
   "tools/subgraph.ts",
+  "tools/tokenSaleRead.ts",
   "tools/vote.ts",
 ];
 
@@ -104,6 +108,8 @@ const WRITE = [
   "lib/preflight.ts",
   "lib/proposalBuilders.ts",
   "lib/proposalCatalog.ts",
+  // build-time advisories; the advisory core and F15 are lib/upstreamAdvisories.ts
+  "lib/protocolAdvisories.ts",
   "lib/qr.ts",
   "lib/resumeContract.ts",
   "lib/signer.ts",
@@ -117,6 +123,8 @@ const WRITE = [
   "tools/flow.ts",
   "tools/introspect.ts",
   "tools/merkle.ts",
+  // OTC composites; the read-only position view is tools/tokenSaleRead.ts
+  "tools/otc.ts",
   "tools/proposalBuild.ts",
   "tools/proposalBuildComplex.ts",
   "tools/proposalBuildInternal.ts",
@@ -150,7 +158,6 @@ const MIXED = [
   "lib/errors.ts",
   "lib/ipfs.ts",
   "lib/params.ts",
-  "lib/protocolAdvisories.ts",
   "lib/quorumRisk.ts",
   "lib/requireEnv.ts",
   "tools/annotations.ts",
@@ -160,7 +167,6 @@ const MIXED = [
   "tools/guide.ts",
   "tools/ipfs.ts",
   "tools/operationalContext.ts",
-  "tools/otc.ts",
 ];
 
 const ROOT = [
