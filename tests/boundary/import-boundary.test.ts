@@ -44,14 +44,8 @@ const SRC = join(REPO, "src");
 const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
   "instructions.ts -> lib/resumeContract.ts":
     "the handshake text carries the write resume rule. Gone when each edition gets its own instructions.",
-  "knowledge/index.ts -> knowledge/flows.ts":
-    "the guide engine is wired to the write flow corpus. Gone when the corpus becomes a parameter.",
-  "knowledge/render.ts -> knowledge/flows.ts":
-    "renders flows next to topics and gotchas. Gone when knowledge/ splits into read and write halves.",
   "tools/getConfig.ts -> lib/signer.ts":
     "dexe_get_config reports signer mode. Gone when the signer half moves to a write-edition context tool.",
-  "tools/guide.ts -> knowledge/nextSteps.ts":
-    "dexe_guide follows the active write flow. Gone when activeFlow / nextAfter move to the write edition.",
   "tools/operationalContext.ts -> lib/agentLedger.ts":
     "dexe_context reports the persona keyring. Gone when that moves to a write-edition context tool.",
   "tools/operationalContext.ts -> lib/signer.ts":

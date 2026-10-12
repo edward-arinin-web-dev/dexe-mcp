@@ -1,11 +1,13 @@
-import type { Topic } from "./types.js";
+import type { Topic } from "../types.js";
 
 /**
  * Reference topics — knowledge that is not a step journey. Flows answer
  * "how do I DO X"; topics answer "how do I FIND OUT X". Same authoring rules
  * as flows: self-contained text, tool names spelled out, corrected rules only.
+ *
+ * READ corpus: topics cite only read gotchas (../read/gotchas.ts).
  */
-export const TOPICS: readonly Topic[] = [
+export const READ_TOPICS: readonly Topic[] = [
   {
     id: "read_dao_data",
     title: "Read / query DAO data (subgraph, backend API, on-chain)",
@@ -221,6 +223,3 @@ export const TOPICS: readonly Topic[] = [
     gotchaIds: ["quorum-two-units", "subgraph-backend-mainnet-only", "graph-bound-first"],
   },
 ] as const;
-
-/** id → Topic map (validated unique + flow-disjoint in tests/knowledge/integrity.test.ts). */
-export const TOPIC_BY_ID: ReadonlyMap<string, Topic> = new Map(TOPICS.map((t) => [t.id, t]));

@@ -132,3 +132,49 @@ export interface Topic {
   tools: string[];
   gotchaIds?: string[];
 }
+
+/**
+ * One edition's knowledge: what its guide serves and its renderers print. The
+ * engine (./engine.ts) and the renderers (./render.ts) take a corpus as a
+ * parameter and never import one.
+ *
+ *   read   topics + the read gotchas (./read/index.ts)
+ *   write  the step journeys + every gotcha they cite, the read ones included
+ *          (./write/index.ts)
+ *
+ * The single server this repo ships serves the write flows next to the read
+ * topics (./index.ts).
+ */
+export interface KnowledgeCorpus {
+  readonly flows: readonly Flow[];
+  readonly topics: readonly Topic[];
+  /**
+   * Every gotcha a flow, step or topic of this corpus may cite. The order is
+   * the rendering order within one severity.
+   */
+  readonly gotchas: readonly Gotcha[];
+  /** Behavioural contract attached to every flow detail. Required when `flows` is non-empty. */
+  readonly agentProtocol?: string;
+  /** Composites that accept `flowContext`: their step templates get it pre-filled. */
+  readonly chainingTools?: ReadonlySet<string>;
+  /**
+   * The journey an intent spanning three or more matches resolves to, when it
+   * is one of them ("create + distribute + sale + staking" is one journey, not
+   * a menu).
+   */
+  readonly umbrellaFlow?: string;
+}
+
+/**
+ * Where a tool the corpus names comes from, as the guide reports it next to
+ * the tool. Both fields absent = the tool is in this server's default profile.
+ */
+export interface ToolLocation {
+  /** Toolset(s) on THIS server that expose the tool, when it is not in the default profile. */
+  requiresToolset?: string;
+  /** The server that provides the tool, when this one does not register it at all. */
+  providedBy?: string;
+}
+
+/** "Who provides this tool": the registry the engine asks for every tool a flow or topic names. */
+export type ToolLocator = (tool: string) => ToolLocation;

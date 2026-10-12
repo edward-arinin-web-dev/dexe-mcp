@@ -60,8 +60,14 @@ const READ = [
   "http/options.ts",
   "http/security.ts",
   "http/server.ts",
-  "knowledge/topics.ts",
+  // the knowledge engine and renderers, parameterized by corpus + tool locator
+  "knowledge/engine.ts",
+  "knowledge/render.ts",
   "knowledge/types.ts",
+  // the read corpus: reference topics + the data-read gotchas
+  "knowledge/read/gotchas.ts",
+  "knowledge/read/index.ts",
+  "knowledge/read/topics.ts",
   "lib/abi/tokenSale.ts",
   "lib/abiSnapshot.ts",
   "lib/addresses.ts",
@@ -107,6 +113,8 @@ const READ = [
   "tools/dao.ts",
   "tools/doctor.ts",
   "tools/gov.ts",
+  // dexe_guide over whatever Knowledge it is handed; write extras come in as a hook
+  "tools/guide.ts",
   "tools/inbox.ts",
   // dexe_ipfs_fetch, dexe_ipfs_cid_info, the gateway chain and the IPFS error sink
   "tools/ipfsRead.ts",
@@ -144,8 +152,12 @@ const WRITE = [
   "governor/tools/simulateWrite.ts",
   // the write half of the governor surface, slotted in by governor/index.ts
   "governor/write.ts",
-  "knowledge/flows.ts",
-  "knowledge/nextSteps.ts",
+  // the write corpus: the eight journeys, their gotchas (read ones cited by
+  // id), the agent protocol, next-step chaining
+  "knowledge/write/flows.ts",
+  "knowledge/write/gotchas.ts",
+  "knowledge/write/index.ts",
+  "knowledge/write/nextSteps.ts",
   "lib/agentLedger.ts",
   "lib/avatarImage.ts",
   "lib/avatarUpload.ts",
@@ -191,6 +203,8 @@ const WRITE = [
   "tools/daoCreate.ts",
   "tools/daoDeploy.ts",
   "tools/flow.ts",
+  // the write half of the guide: interrupted-flow context, flow prompts, flow wording
+  "tools/guideWrite.ts",
   "tools/introspect.ts",
   // the Pinata uploads, generated avatar, profile re-upload, dexe_ipfs_cid_for_json
   "tools/ipfsWrite.ts",
@@ -217,20 +231,18 @@ const MIXED = [
   "instructions.ts",
   // read wizard (RPC, subgraph, gateway) + write wizard (key, Pinata, WC)
   "cli/init.ts",
-  "knowledge/gotchas.ts",
-  "knowledge/index.ts",
-  "knowledge/render.ts",
   "tools/annotations.ts",
   "tools/gate.ts",
   // reports the write posture through a structural type, not the write config
   "tools/getConfig.ts",
-  "tools/guide.ts",
   "tools/operationalContext.ts",
 ];
 
 const ROOT = [
   // CLI dispatch + stdio server start
   "index.ts",
+  // the single server's knowledge: write flows + read topics, bound to the gate
+  "knowledge/index.ts",
   // registerAll(): every register function of both editions
   "tools/index.ts",
   // serve-http entry: wires the interim factory into the HTTP app
