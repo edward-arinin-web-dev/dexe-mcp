@@ -1,15 +1,18 @@
 # Remote mode (`serve-http`), experimental
 
-> **Experimental — do not expose publicly until the read-edition hardening
-> lands.** Still pending:
-> - a byte cap on IPFS fetches;
-> - `maxItems` limits on array inputs;
-> - a cap on tool response size;
-> - scrubbing hostnames and keys from tool output;
-> - a dedicated read server (`createReadServer`, step A9) instead of the
->   current read-filtered reuse of the full registration.
+> **Experimental — do not expose publicly yet.** The tools themselves are
+> hardened for anonymous callers (see [Tool-level limits](#tool-level-limits)).
+> What is still pending is the read server itself (step A9):
+> - a dedicated read server (`createReadServer`) that loads only read code.
+>   Today `serve-http` registers the full server and filters it down to the
+>   read tools, so write-side modules, such as the write-error remedy table,
+>   are still loaded into the process;
+> - one server instance reused across requests. Today every POST builds a
+>   fresh one, which costs about 19 ms of CPU per request;
+> - configuration through `loadReadConfig` instead of the stdio (write) loader.
 >
-> Run it on loopback, a private network, or behind authentication until then.
+> Until then, run it on loopback, on a private network, or behind
+> authentication.
 
 `dexe-mcp serve-http` serves the read-only tools over MCP Streamable HTTP. Remote
 clients such as Claude.ai custom connectors, ChatGPT developer mode and MCP
@@ -131,7 +134,30 @@ Data-source variables use the same names as stdio mode (see
 [ENVIRONMENT.md](ENVIRONMENT.md)): `DEXE_RPC_URL_*`, `DEXE_SUBGRAPH_*`,
 `DEXE_GRAPH_API_KEY`, `DEXE_BACKEND_API_URL`, `DEXE_IPFS_GATEWAY`,
 `DEXE_IPFS_GATEWAYS_FALLBACK`, `DEXE_PINATA_GATEWAY_TOKEN`,
-`DEXE_DEFAULT_CHAIN_ID`, `DEXE_RPC_TIMEOUT_MS`.
+`DEXE_DEFAULT_CHAIN_ID`, `DEXE_RPC_TIMEOUT_MS`, and the limits
+`DEXE_IPFS_MAX_BYTES` and `DEXE_MAX_RESPONSE_BYTES` (see
+[Tool-level limits](#tool-level-limits)).
+
+## Tool-level limits
+
+Every read tool has these limits, on stdio and over HTTP alike:
+
+| Limit | Default | Set with | What happens past it |
+| --- | --- | --- | --- |
+| IPFS body | 2 MB | `DEXE_IPFS_MAX_BYTES` | The body is streamed and the fetch stops at the limit with an error. No other gateway is asked for the same CID. `dexe_ipfs_fetch` also summarizes parsed JSON over 128 KB (`truncated: true`, `sizeBytes` is the real size). |
+| Tool result | 256 KB | `DEXE_MAX_RESPONSE_BYTES` | Rows are dropped from the end and long strings shortened until the result fits. The first line says `RESPONSE TRUNCATED`, what was cut and how to get the rest. Offset-paged tools report a corrected `returned` and `nextOffset`. |
+| Array inputs | per tool (for example 8 `chainIds`, 100 `calls`, 50 `daos`) | not configurable | Schema validation rejects the call before any upstream request. |
+| Third-party strings in `structuredContent` | 16,000 characters each | not configurable | The string is cut with a marker. Hex data is never cut. |
+| Subgraph and backend JSON | 16 MB | not configurable | The call fails with a hint to request fewer rows. |
+
+Tool results and errors never contain the configured RPC, subgraph, backend or
+gateway URLs or keys. A last-pass scrub replaces any of them, even one echoed
+back by an upstream, with a masked form such as `https://host/***`.
+IPFS gateways are named by host only.
+
+When a request is cancelled or hits `DEXE_HTTP_REQUEST_TIMEOUT_MS`, the tool
+stops: in-flight IPFS, subgraph and backend requests are aborted, and no
+further upstream calls are made.
 
 ## Reverse proxy and TLS
 
