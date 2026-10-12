@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.37.0 — unreleased
+## 0.37.0 — 2026-10-12
 
 Tool count 169 → 170 for `dexe-mcp` (`dexe_tx_approval_status`); the new read-only edition `dexe-mcp-read` serves the 54 read tools. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0361--0370--read-this-if-you-sign-with-dexe_private_key-read-signermode-or-run-serve-http).
 
