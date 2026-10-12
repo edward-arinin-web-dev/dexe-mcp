@@ -935,6 +935,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           ),
         sections: z
           .array(z.enum(REPORT_SECTIONS))
+          .max(REPORT_SECTIONS.length)
           .optional()
           .describe(`Narrow the report. Default: all of ${REPORT_SECTIONS.join(", ")}.`),
         user: z
@@ -2203,18 +2204,18 @@ export function renderReport(p: Record<string, unknown>): string {
   }
   const membership = data("membership");
   if (membership) {
-    out.push(`MEMBERS — ${membership.totalMembers ?? "?"} total (${membership.returned} listed)`);
+    out.push(`MEMBERS — ${renderUntrusted(membership.totalMembers ?? "?", 40)} total (${membership.returned} listed)`);
   }
   const delegation = data("delegation");
   if (delegation) {
     const pairs = (delegation.pairs ?? []) as Array<Record<string, unknown>>;
     out.push(
-      `DELEGATION — ${delegation.totalDelegatees ?? "?"} delegatee(s), ${pairs.length} pair(s) listed, ${delegation.totalTokenDelegated ?? "?"} tokens delegated`,
+      `DELEGATION — ${renderUntrusted(delegation.totalDelegatees ?? "?", 40)} delegatee(s), ${pairs.length} pair(s) listed, ${renderUntrusted(delegation.totalTokenDelegated ?? "?", 60)} tokens delegated`,
     );
     for (const d of pairs.slice(0, 5)) {
       out.push(
         `  ${renderUntrusted(String(d.delegator), 42)} -> ${renderUntrusted(String(d.delegatee), 42)}` +
-          `${d.delegateeIsExpert ? " (expert)" : ""}  ${d.delegatedAmount}`,
+          `${d.delegateeIsExpert ? " (expert)" : ""}  ${renderUntrusted(d.delegatedAmount ?? "?", 60)}`,
       );
     }
   }

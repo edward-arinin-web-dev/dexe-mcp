@@ -171,6 +171,13 @@ export const ENV_SPEC_READ = {
     example: "5",
     doc: "Top-N token holders (by voting weight) in the treasury-guard controlling set, alongside validators. The guard checks whether ≥1 member voted For. Needs a pools AND validators subgraph for the chain being analyzed; an unindexed chain yields 'unknown', never another chain's set. Default 5.",
   },
+  DEXE_MAX_RESPONSE_BYTES: {
+    schema: intStr("a size in bytes", "262144 for 256 KB"),
+    category: "core",
+    required: false,
+    example: "262144",
+    doc: "Size limit for one read-tool result (text + structuredContent). A larger result is cut to fit — rows dropped from the end, long strings shortened — with a first line saying what was cut and how to page or narrow; offset-paged tools get a corrected returned/nextOffset. Clamped to 16 KB–16 MB. Default 262144 (256 KB).",
+  },
   DEXE_TOOLSETS: {
     schema: z.string().optional(),
     category: "core",
@@ -290,6 +297,13 @@ export const ENV_SPEC_READ = {
     required: false,
     example: "1",
     doc: "Set to 1 to disable the built-in public IPFS read-gateway default (ipfs.io, dweb.link, cloudflare). Reads then require DEXE_IPFS_GATEWAY.",
+  },
+  DEXE_IPFS_MAX_BYTES: {
+    schema: intStr("a size in bytes", "2097152 for 2 MB"),
+    category: "ipfs",
+    required: false,
+    example: "2097152",
+    doc: "Byte limit for one IPFS read (dexe_ipfs_fetch and every internal metadata read). The body is streamed and the fetch stops at the limit with an actionable error. Clamped to 1 KB–256 MB. Default 2097152 (2 MB); DeXe metadata is a few KB.",
   },
   DEXE_PINATA_GATEWAY_TOKEN: {
     schema: z.string().optional(),

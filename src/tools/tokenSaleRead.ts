@@ -16,6 +16,7 @@ import { toActionableError } from "../lib/errors.js";
 import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "../lib/abi/tokenSale.js";
 import { tokenSaleResult as ok } from "../lib/tokenSaleResult.js";
 import { VESTING_WITHDRAW_ADVISORY } from "../lib/upstreamAdvisories.js";
+import { MAX_ID_LIST, MAX_WHITELISTS, MAX_WHITELIST_USERS } from "../lib/inputLimits.js";
 
 /**
  * dexe_otc_buyer_status — a buyer's position across tiers of a token sale.
@@ -60,15 +61,24 @@ export function registerTokenSaleReadTools(server: McpServer, ctx: ToolContext):
     {
       tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       chainId: chainIdParam,
-      tierIds: z.array(z.string()).min(1).describe("Tier ids to report on, decimal strings."),
+      tierIds: z
+        .array(z.string())
+        .min(1)
+        .max(MAX_ID_LIST)
+        .describe(`Tier ids to report on, decimal strings (1 to ${MAX_ID_LIST}).`),
       user: z.string().describe("Buyer address to report state for."),
       whitelists: z
         .array(
           z.object({
             tierId: z.string().describe("Tier the whitelist belongs to, decimal string."),
-            users: z.array(z.string()).min(1).describe("Whitelisted addresses, exactly as the merkle root was built."),
+            users: z
+              .array(z.string())
+              .min(1)
+              .max(MAX_WHITELIST_USERS)
+              .describe("Whitelisted addresses, exactly as the merkle root was built."),
           }),
         )
+        .max(MAX_WHITELISTS)
         .default([])
         .describe("Optional per-tier whitelist (for MerkleWhitelist proof generation)."),
     },

@@ -50,6 +50,7 @@ import { registerGovernorTools } from "../governor/index.js";
 import { governorWriteTools } from "../governor/write.js";
 import { applyToolGate, TOOLSET_CATALOG } from "./gate.js";
 import { applyToolAnnotations } from "./annotations.js";
+import { applyReadResultGuard } from "./readGuard.js";
 import { installListToolsNormalizer } from "./schemaNormalize.js";
 
 /**
@@ -66,8 +67,12 @@ export function registerAll(server: McpServer, config: WriteConfig): void {
   // The annotation layer wraps OUTSIDE the gate on purpose: applyToolGate
   // returns the bare server on `full`, so anything inside it would annotate
   // nothing on the one profile that registers every tool.
+  //
+  // The read-result guard wraps outermost: every read-edition handler runs
+  // with the request's cancellation signal, and its result is scrubbed of
+  // configured endpoints/keys and capped in size (src/tools/readGuard.ts).
   installListToolsNormalizer(server);
-  server = applyToolAnnotations(applyToolGate(server, config));
+  server = applyReadResultGuard(applyToolAnnotations(applyToolGate(server, config)), config);
 
   const artifacts = new Artifacts(config);
   const runner = new HardhatRunner(config);

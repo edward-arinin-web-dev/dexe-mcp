@@ -5,6 +5,8 @@ import { sha256 } from "multiformats/hashes/sha2";
 import { base32 } from "multiformats/bases/base32";
 import { base58btc } from "multiformats/bases/base58";
 import { safeErrorMessage } from "./redact.js";
+import { BodyTooLargeError, discardBody, formatBytes, readBodyCapped } from "./boundedBody.js";
+import { currentRequestSignal, deadlineSignal, RequestCancelledError } from "./requestScope.js";
 
 /**
  * Public IPFS read gateways seeded as a zero-config default when the operator
@@ -26,6 +28,19 @@ export interface IpfsFetchConfig {
   gateways: readonly string[];
   /** Per-hop timeout in ms. Default 10000 (a dedicated Pinata gateway answers a small JSON in 5–6 s; 4 s timed out on every read, 2026-09-24). */
   perRequestTimeoutMs?: number;
+  /**
+   * Byte ceiling for the body. Default: `resolveIpfsMaxBytes()` (2 MB, or
+   * `DEXE_IPFS_MAX_BYTES`). Over it the fetch stops and throws
+   * `IpfsTooLargeError` — no other gateway is tried, since the CID names the
+   * same bytes everywhere.
+   */
+  maxBytes?: number;
+  /**
+   * Caller cancellation. Default: the ambient request signal of the running
+   * read tool (src/lib/requestScope.ts). Once it aborts no further gateway is
+   * tried.
+   */
+  signal?: AbortSignal;
 }
 
 export interface IpfsFetchResult {
@@ -55,6 +70,57 @@ export interface IpfsFetchResult {
  */
 export const DEFAULT_IPFS_HOP_TIMEOUT_MS = 10_000;
 
+/**
+ * Default byte ceiling for one IPFS read. DeXe metadata — a DAO profile, a
+ * proposal description, a token-sale tier description — is a few KB. A CID is
+ * whatever anyone pinned, though, and a dag-pb (`Qm…`) body cannot be
+ * hash-checked here, so without a ceiling one call could pull a 600 MB file
+ * into memory.
+ */
+export const DEFAULT_IPFS_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Bounds on `DEXE_IPFS_MAX_BYTES`: 1 KB … 256 MB. */
+export const IPFS_MAX_BYTES_FLOOR = 1024;
+export const IPFS_MAX_BYTES_CEILING = 256 * 1024 * 1024;
+
+/**
+ * The IPFS byte ceiling: `DEXE_IPFS_MAX_BYTES` (digits only, clamped to
+ * 1 KB … 256 MB) or 2 MB. A malformed value falls back to the default; the
+ * env spec reports it at startup.
+ */
+export function resolveIpfsMaxBytes(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.DEXE_IPFS_MAX_BYTES?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_IPFS_MAX_BYTES;
+  return Math.min(IPFS_MAX_BYTES_CEILING, Math.max(IPFS_MAX_BYTES_FLOOR, Number(raw)));
+}
+
+/** The CID's content is larger than the byte ceiling. Not retried on another gateway. */
+export class IpfsTooLargeError extends Error {
+  constructor(cid: string, limit: number, declared?: number) {
+    super(
+      `IPFS content too large: ${cid} is ` +
+        (declared !== undefined ? `${formatBytes(declared)} (${declared} bytes)` : `more than ${formatBytes(limit)}`) +
+        `, over the ${formatBytes(limit)} read limit, so the fetch was stopped. DAO profiles and proposal ` +
+        `descriptions are a few KB, so this CID is not DeXe metadata. Open it with an IPFS client or a gateway ` +
+        `directly; the server operator can raise the limit with DEXE_IPFS_MAX_BYTES.`,
+    );
+    this.name = "IpfsTooLargeError";
+  }
+}
+
+/**
+ * How a gateway is named in messages and results: its host only. A configured
+ * gateway URL can carry a key in its path or query, and which dedicated
+ * gateway an operator pays for is the operator's business, not the caller's.
+ */
+export function gatewayLabel(gw: string): string {
+  try {
+    return new URL(/^https?:\/\//i.test(gw) ? gw : `https://${gw}`).host || "gateway";
+  } catch {
+    return "gateway";
+  }
+}
+
 export async function fetchIpfs(
   cid: string,
   cfg: IpfsFetchConfig,
@@ -62,16 +128,19 @@ export async function fetchIpfs(
   const parsed = CID.parse(stripIpfsPrefix(cid));
   const cidStr = parsed.toString();
   const timeout = cfg.perRequestTimeoutMs ?? DEFAULT_IPFS_HOP_TIMEOUT_MS;
+  const maxBytes = cfg.maxBytes ?? resolveIpfsMaxBytes();
+  const caller = cfg.signal ?? currentRequestSignal();
   const errors: string[] = [];
   let attempts = 0;
 
   const pinataGatewayToken = process.env.DEXE_PINATA_GATEWAY_TOKEN?.trim();
   for (const gw of cfg.gateways) {
+    if (caller?.aborted) throw new RequestCancelledError("IPFS fetch");
     attempts++;
     const base = gw.replace(/\/+$/, "").replace(/\/ipfs$/, "");
     const url = `${base}/ipfs/${cidStr}`;
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), timeout);
+    const label = gatewayLabel(gw);
+    const deadline = deadlineSignal(timeout, caller);
     // Pinata "dedicated gateways" (`*.mypinata.cloud`) in Restricted mode
     // reject anonymous GETs with HTTP 403. They authenticate via a separate
     // Gateway Key (NOT the API JWT used for pinning); pass it as either
@@ -82,13 +151,14 @@ export async function fetchIpfs(
       headers["x-pinata-gateway-token"] = pinataGatewayToken;
     }
     try {
-      const res = await fetch(url, { signal: controller.signal, headers });
+      const res = await fetch(url, { signal: deadline.signal, headers });
       if (!res.ok) {
-        errors.push(`${gw} → HTTP ${res.status}`);
+        await discardBody(res);
+        errors.push(`${label} → HTTP ${res.status}`);
         continue;
       }
       const contentType = res.headers.get("content-type") ?? "application/octet-stream";
-      const bytes = new Uint8Array(await res.arrayBuffer());
+      const bytes = await readBodyCapped(res, maxBytes);
       let parsedJson: unknown | null = null;
       if (contentType.includes("json") || contentType.includes("text")) {
         try {
@@ -101,7 +171,7 @@ export async function fetchIpfs(
       if (verdict === "mismatch") {
         // W20: a hostile / MitM gateway returned bytes that don't hash to the
         // requested CID. Don't trust it — try the next gateway.
-        errors.push(`${gw} → content-hash mismatch for ${cidStr}`);
+        errors.push(`${label} → content-hash mismatch for ${cidStr}`);
         continue;
       }
       return {
@@ -114,16 +184,20 @@ export async function fetchIpfs(
         verified: verdict === "verified",
       };
     } catch (err) {
+      // Same bytes on every gateway (that is what a CID is), so a body over the
+      // ceiling ends the read here instead of downloading it N more times.
+      if (err instanceof BodyTooLargeError) throw new IpfsTooLargeError(cidStr, maxBytes, err.declared);
+      if (deadline.cancelled()) throw new RequestCancelledError("IPFS fetch");
       // Name the deadline explicitly. "The operation was aborted" in the
       // aggregated list reads as a bug in us rather than as a slow gateway,
       // and hides the one number the user can act on.
       errors.push(
-        controller.signal.aborted
-          ? `${gw} → timed out after ${timeout}ms`
-          : `${gw} → ${safeErrorMessage(err)}`,
+        deadline.timedOut()
+          ? `${label} → timed out after ${timeout}ms`
+          : `${label} → ${safeErrorMessage(err)}`,
       );
     } finally {
-      clearTimeout(t);
+      deadline.clear();
     }
   }
 

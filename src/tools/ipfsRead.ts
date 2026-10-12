@@ -5,9 +5,13 @@ import {
   cidForBytes,
   DEFAULT_PUBLIC_READ_GATEWAYS,
   fetchIpfs,
+  gatewayLabel,
   parseCid,
+  resolveIpfsMaxBytes,
   DEFAULT_IPFS_HOP_TIMEOUT_MS,
 } from "../lib/ipfs.js";
+import { formatBytes } from "../lib/boundedBody.js";
+import { shrinkJson } from "../lib/jsonShrink.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { untrustedResult } from "../lib/sanitize.js";
 import { toActionableError, type ActionableError } from "../lib/errors.js";
@@ -56,34 +60,35 @@ export function ipfsToolError(
   classify: (err: unknown, step: string) => ActionableError = toActionableError,
 ): string {
   const raw = safeErrorMessage(err);
-  if (/IPFS fetch failed/i.test(raw)) return `${step} failed: ${raw}`;
+  if (/IPFS fetch failed|IPFS content too large|client cancelled/i.test(raw)) return `${step} failed: ${raw}`;
   return classify(err, step).message;
 }
 
 /**
- * Drop `user:pass@` from a gateway URL we DELIBERATELY print (the gateway list
- * in `dexe_ipfs_cid_info`), keeping scheme/host/path so the URL still names the
- * CID it resolves. `redactUrlCredentials` is the right tool for error text but
- * the wrong one here — it collapses the path to `/***`, which would erase the
- * `/ipfs/<cid>` the tool exists to show. Never throws.
- *
- * Mirrors the same helper in src/tools/safe.ts; both belong in lib/redact.ts
- * once that file is free to edit.
+ * The URL `dexe_ipfs_cid_info` prints for one gateway: scheme + host +
+ * `/ipfs/<cid>`, nothing else of the configured value. A gateway URL is
+ * operator-supplied and can carry credentials (`user:pass@`), a key in a path
+ * prefix or a query, none of which a caller needs to open the content — and
+ * under `serve-http` the caller is anyone. `redactUrlCredentials` is the wrong
+ * tool here: it collapses the path to `/***`, erasing the `/ipfs/<cid>` the
+ * tool exists to show. Never throws.
  */
-function stripUrlUserinfo(raw: string): string {
+export function gatewayContentUrl(gateway: string, cid: string): string {
   try {
-    const u = new URL(raw);
-    // Nothing to strip → return the original: URL.toString() normalizes (adds a
-    // trailing slash to a bare origin) and these strings are compared by eye
-    // against what the operator configured.
-    if (!u.username && !u.password) return raw;
-    u.username = "";
-    u.password = "";
-    return u.toString();
+    const u = new URL(/^https?:\/\//i.test(gateway) ? gateway : `https://${gateway}`);
+    return `${u.protocol}//${u.host}/ipfs/${cid}`;
   } catch {
-    return raw.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g, "$1");
+    return `https://${gatewayLabel(gateway)}/ipfs/${cid}`;
   }
 }
+
+/**
+ * Cap on the parsed JSON `dexe_ipfs_fetch` puts in structuredContent. DeXe
+ * metadata is a few KB; a document past this is summarized (arrays and long
+ * strings cut, markers left in place) with `truncated: true`, and `sizeBytes`
+ * still states the original size.
+ */
+export const IPFS_FETCH_JSON_MAX_BYTES = 128 * 1024;
 
 /**
  * Lowercased hostname of a gateway URL (scheme optional), or null if
@@ -176,41 +181,67 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
       },
       outputSchema: {
         cid: z.string(),
+        /** Host of the gateway that answered — never the configured URL. */
         gateway: z.string(),
         contentType: z.string(),
+        /** Size of the fetched content, whatever `json` shows. */
         sizeBytes: z.number(),
         attempts: z.number(),
         json: z.unknown().nullable().optional(),
+        /** True when `json` is a cut-down summary of a larger document. */
+        truncated: z.boolean().optional(),
       },
     },
-    async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }) => {
+    async ({ cid, timeoutMs = DEFAULT_IPFS_HOP_TIMEOUT_MS }, extra) => {
       if (defaultGateways.length === 0) return errorResult(NO_GATEWAY_HINT);
       try {
         const res = await fetchIpfs(cid, {
           gateways: defaultGateways,
           perRequestTimeoutMs: timeoutMs,
+          maxBytes: resolveIpfsMaxBytes(),
+          signal: extra?.signal,
         });
+        const gateway = gatewayLabel(res.gateway);
+        // A document past the cap is summarized, not dropped: the caller keeps
+        // its shape and the head of every field, and `truncated` + `sizeBytes`
+        // say how much was left out.
+        let json = res.json;
+        let truncated = false;
+        if (json != null) {
+          const shrunk = shrinkJson(json, IPFS_FETCH_JSON_MAX_BYTES, "free");
+          truncated = shrunk.value !== json;
+          json = shrunk.value;
+        }
         const structured = {
           cid: res.cid,
-          gateway: res.gateway,
+          gateway,
           contentType: res.contentType,
           sizeBytes: res.bytes.length,
           attempts: res.attempts,
-          json: res.json,
+          json,
+          ...(truncated ? { truncated: true } : {}),
         };
+        const truncNote = truncated
+          ? `\n⚠ The JSON is ${formatBytes(res.bytes.length)}; structuredContent.json is a summary cut to ` +
+            `${formatBytes(IPFS_FETCH_JSON_MAX_BYTES)} (arrays and long strings shortened, markers show where). ` +
+            `Open the CID from a gateway directly for the whole document.`
+          : "";
         // Whoever pinned this CID wrote every byte of it, and a descriptionURL
         // an agent follows is chosen by whoever created the DAO/proposal. So the
         // preview is fenced rather than pasted into the summary line, and the
         // parsed JSON in structuredContent is deep-sanitized on the way out.
         return untrustedResult({
-          summary: `CID ${res.cid} via ${res.gateway} (attempts=${res.attempts})`,
+          summary: `CID ${res.cid} via ${gateway} (attempts=${res.attempts})${truncNote}`,
           label: `IPFS content of ${res.cid}`,
           body:
-            res.json != null
-              ? res.json
+            json != null
+              ? json
               : `(${res.bytes.length} bytes of ${res.contentType})`,
           structured,
           maxBodyChars: 800,
+          // The document is what this tool is for: keep strings whole up to the
+          // JSON cap instead of the generic per-string cap.
+          limits: { maxStringChars: IPFS_FETCH_JSON_MAX_BYTES },
         });
       } catch (err) {
         return errorResult(ipfsToolError(err, "dexe_ipfs_fetch"));
@@ -243,11 +274,7 @@ function registerCidInfo(server: McpServer, gateways: string[]): void {
     async ({ cid }) => {
       try {
         const info = parseCid(cid);
-        const gatewayUrls = gateways.length
-          ? gateways.map((g) =>
-              stripUrlUserinfo(`${g.replace(/\/+$/, "").replace(/\/ipfs$/, "")}/ipfs/${info.cid}`),
-            )
-          : [];
+        const gatewayUrls = [...new Set(gateways.map((g) => gatewayContentUrl(g, info.cid)))];
         const structured = { ...info, gatewayUrls };
         return {
           content: [

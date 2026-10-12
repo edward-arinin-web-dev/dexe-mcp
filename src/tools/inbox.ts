@@ -11,6 +11,7 @@ import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
 import { GOV_POWER_DECIMALS, formatUnitsWithSymbol } from "../lib/units.js";
 import type { StateStore } from "../lib/stateStore.js";
+import { MAX_INBOX_DAOS } from "../lib/inputLimits.js";
 
 /**
  * dexe_user_inbox — multi-DAO attention aggregator.
@@ -221,6 +222,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext, state?: 
         user: z.string().describe("User wallet address"),
         daos: z
           .array(z.string())
+          .max(MAX_INBOX_DAOS)
           .optional()
           .describe("Optional explicit DAO list. On chains with no pools subgraph, omitting it scans this install's known DAOs."),
         proposalScanLimit: z

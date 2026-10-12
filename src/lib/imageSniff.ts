@@ -1,4 +1,6 @@
 import { safeErrorMessage } from "./redact.js";
+import { readBodyHead } from "./boundedBody.js";
+
 /**
  * Magic-byte sniffing for avatar uploads.
  *
@@ -138,7 +140,9 @@ export async function checkAvatarCidBytes(
         attempts.push(`${base} → HTTP ${res.status}`);
         continue;
       }
-      const head = new Uint8Array(await res.arrayBuffer());
+      // The Range header asks for 1 KB; a gateway that ignores it must not
+      // stream a whole (possibly huge) file into memory for a header sniff.
+      const head = await readBodyHead(res, 64 * 1024);
       try {
         assertRasterAvatar(head);
         return { ok: true };

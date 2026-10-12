@@ -99,9 +99,31 @@ export interface SanitizeDeepLimits {
   maxDepth?: number;
   /** Total values visited before the walk stops. Also bounds reference cycles. */
   maxNodes?: number;
+  /**
+   * Longest string kept whole; longer ones are cut with a visible marker.
+   * Hex strings (`0x…` calldata, return data) are never cut — a shortened one
+   * would decode to something else. Default: no cap.
+   */
+  maxStringChars?: number;
 }
 
 const DEEP_DEFAULTS = { maxDepth: 24, maxNodes: 200_000 } as const;
+
+/**
+ * Per-string cap `untrustedResult` applies to third-party text in
+ * structuredContent: a DAO or tier description, an NFT metadata blob, an
+ * IPFS document field. Far above any real name or description (the DeXe app
+ * caps a description well below this); it bounds what one hostile string can
+ * push into the model context.
+ */
+export const UNTRUSTED_STRING_MAX_CHARS = 16_000;
+
+const HEX_RE = /^0x[0-9a-fA-F]*$/;
+
+function capString(s: string, max: number | undefined): string {
+  if (max === undefined || s.length <= max || HEX_RE.test(s)) return s;
+  return `${s.slice(0, max)}… [${s.length - max} more characters truncated]`;
+}
 
 /** Stand-ins so a capped walk is visibly capped rather than silently lossy. */
 export const DEPTH_CAPPED = "[sanitizeDeep: depth cap]";
@@ -122,12 +144,13 @@ export const NODE_CAPPED = "[sanitizeDeep: node cap]";
 export function sanitizeDeep<T>(value: T, limits: SanitizeDeepLimits = {}): T {
   const maxDepth = limits.maxDepth ?? DEEP_DEFAULTS.maxDepth;
   const maxNodes = limits.maxNodes ?? DEEP_DEFAULTS.maxNodes;
+  const maxStr = limits.maxStringChars;
   let nodes = 0;
 
   const walk = (v: unknown, depth: number): unknown => {
     if (nodes++ > maxNodes) return NODE_CAPPED;
     if (v === null || v === undefined) return v;
-    if (typeof v === "string") return defangFenceMarkers(sanitizeUntrusted(v));
+    if (typeof v === "string") return capString(defangFenceMarkers(sanitizeUntrusted(v)), maxStr);
     if (typeof v === "bigint") return v.toString();
     if (typeof v !== "object") return v;
     if (depth >= maxDepth) return DEPTH_CAPPED;
@@ -189,6 +212,22 @@ export function defangFenceMarkers(s: string): string {
 export function sanitizeFenced(raw: unknown): string {
   const s = (typeof raw === "string" ? raw : String(raw)).normalize("NFKC");
   return defangFenceMarkers(s.replace(BLOCK_CONTROL_RE, escapeControl).replace(INVISIBLE_RE, ""));
+}
+
+/**
+ * Neutralize a tool ERROR message before it reaches the model.
+ *
+ * Error text is mostly server-written remediation, but it can carry an
+ * upstream's words: a revert string from an arbitrary contract
+ * (`execution reverted: "…"`), a gateway body, a subgraph error. Those get the
+ * block treatment — invisible/bidi characters dropped, control characters
+ * other than tab and newline escaped, fence markers defanged — and the whole
+ * message is capped. No NFKC: remediation text is ours and keeps its exact
+ * spelling (`0x…`, `→`).
+ */
+export function sanitizeErrorText(raw: string, maxLen = 8_000): string {
+  const s = defangFenceMarkers(raw.replace(BLOCK_CONTROL_RE, escapeControl).replace(INVISIBLE_RE, ""));
+  return s.length > maxLen ? `${s.slice(0, maxLen)}… [${s.length - maxLen} more characters truncated]` : s;
 }
 
 /**
@@ -285,6 +324,9 @@ export function untrustedResult<S extends Record<string, unknown>>(opts: {
       : fenceUntrusted(opts.label, opts.body, opts.maxBodyChars);
   return {
     content: [{ type: "text" as const, text: `${opts.summary}\n${tail}` }],
-    structuredContent: sanitizeDeep(opts.structured, opts.limits),
+    structuredContent: sanitizeDeep(opts.structured, {
+      maxStringChars: UNTRUSTED_STRING_MAX_CHARS,
+      ...opts.limits,
+    }),
   };
 }

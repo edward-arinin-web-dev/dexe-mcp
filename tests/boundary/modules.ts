@@ -74,6 +74,8 @@ const READ = [
   // A pure digits-only validator. Builders use it, but so does the read tool
   // dexe_otc_buyer_status (tier ids), so it is shared code, not write code.
   "lib/amount.ts",
+  // byte-capped body reads for upstream responses
+  "lib/boundedBody.ts",
   "lib/controllingVoters.ts",
   "lib/dangerousSelectors.ts",
   "lib/decoders.ts",
@@ -84,9 +86,13 @@ const READ = [
   "lib/govEnums.ts",
   "lib/governanceHits.ts",
   "lib/govProposalView.ts",
+  // maxItems ceilings for read-tool array inputs
+  "lib/inputLimits.ts",
   "lib/interactionTypes.ts",
   // gateway fetch, CID parsing, offline CIDs; pinning is lib/ipfsPin.ts
   "lib/ipfs.ts",
+  // shrink a JSON value to a byte budget (response cap, IPFS JSON)
+  "lib/jsonShrink.ts",
   "lib/merkleTree.ts",
   "lib/multicall.ts",
   "lib/page.ts",
@@ -96,8 +102,12 @@ const READ = [
   "lib/quorumRisk.ts",
   "lib/redact.ts",
   // generic env guard; the Pinata guard is lib/pinata.ts
+  // ambient per-request cancellation signal for read tools
+  "lib/requestScope.ts",
   "lib/requireEnv.ts",
   "lib/sanitize.ts",
+  // masks configured endpoints/keys in read-tool output
+  "lib/secretScrub.ts",
   "lib/selectors.ts",
   // Persistence infrastructure. Read tools only call getState / findKnownDao;
   // the writers are called by write flows.
@@ -125,6 +135,8 @@ const READ = [
   "tools/predict.ts",
   "tools/proposal.ts",
   "tools/read.ts",
+  // read-tool result guard: request signal, secret scrub, response-size cap
+  "tools/readGuard.ts",
   "tools/report.ts",
   "tools/risk.ts",
   // generic tools/list schema post-processing (oneOf → anyOf, closed objects)

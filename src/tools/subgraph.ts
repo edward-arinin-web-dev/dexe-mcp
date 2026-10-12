@@ -25,6 +25,7 @@ import { transactionTypeLabels } from "../lib/interactionTypes.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 import { toActionableError } from "../lib/errors.js";
+import { MAX_DELEGATION_ADDRESSES } from "../lib/inputLimits.js";
 
 /**
  * Subgraph-backed read tools. Each tool queries one of the three DeXe
@@ -969,6 +970,7 @@ function registerDelegationMap(server: McpServer, ctx: ToolContext): void {
         addresses: z
           .array(z.string())
           .min(1)
+          .max(MAX_DELEGATION_ADDRESSES)
           .describe(
             "Voter WALLET addresses (plain 0x…40-hex). Composite VoterInPool ids ('govPool-voter' or 80-hex 'voter+pool' concatenations) are also accepted — the voter part is extracted automatically.",
           ),

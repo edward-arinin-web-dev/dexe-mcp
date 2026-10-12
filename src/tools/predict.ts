@@ -13,6 +13,8 @@ import {
   requiredQuorumWeight,
 } from "../lib/quorumRisk.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { MAX_DRAFT_ACTIONS } from "../lib/inputLimits.js";
+import { sanitizeDeep } from "../lib/sanitize.js";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -126,6 +128,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
           .object({
             actionsOnFor: z
               .array(z.unknown())
+              .max(MAX_DRAFT_ACTIONS)
               .default([])
               .describe("Draft actionsOnFor; more than 5 flags complexityRisk."),
             voteAmount: z
@@ -295,7 +298,9 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
           // name that invited exactly the division D1-1 got wrong. Label it,
           // and add the human percentage. The original key is preserved so
           // existing consumers keep working.
-          subgraphHistory = data.proposals.map((row) => {
+          // Rows from the indexer are third-party data printed into the JSON
+          // text block, so they are escaped and length-capped like any other.
+          subgraphHistory = sanitizeDeep(data.proposals, { maxStringChars: 2_000 }).map((row) => {
             const r = row as Record<string, unknown>;
             const raw = r.quorum;
             const pct = raw == null ? NaN : quorumPctFromRaw(String(raw));
