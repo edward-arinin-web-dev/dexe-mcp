@@ -109,7 +109,7 @@ export const READ_TOOLS: readonly string[] = [
   "dexe_gov_simulate_vote_impact",
 ];
 
-/** 115 tools for the write edition. */
+/** 116 tools for the write edition. */
 export const WRITE_TOOLS: readonly string[] = [
   // ── composites that sign and broadcast
   "dexe_proposal_create",
@@ -127,6 +127,8 @@ export const WRITE_TOOLS: readonly string[] = [
   "dexe_tx_send",
   // the write edition's resume rule depends on it, so it stays beside tx_send
   "dexe_tx_status",
+  // keystore mode: read-only state of an owner approval (cannot approve)
+  "dexe_tx_approval_status",
   "dexe_wc_status",
   "dexe_wc_connect",
   "dexe_wc_disconnect",

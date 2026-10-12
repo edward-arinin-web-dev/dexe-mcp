@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { SignerManager } from "../lib/signer.js";
+import { KEYSTORE_NO_MESSAGE_SIGNING, SignerManager } from "../lib/signer.js";
 import { RpcProvider } from "../rpc.js";
 import { resolveChain } from "../config.js";
 import {
@@ -436,6 +436,15 @@ export function registerSafeTools(
         let signature: string | undefined;
         let sender = input.sender ? getAddress(input.sender) : undefined;
         let signHint: string | undefined;
+        if (signer.mode === "keystore" && produceSignature) {
+          // Phase B adds a `safeTx` approval kind. Until then the keystore never
+          // signs typed data: an EIP-712 Safe signature is as good as a
+          // transaction once the threshold is met.
+          return err(
+            `${KEYSTORE_NO_MESSAGE_SIGNING} For a Safe: re-run with dryRun:true (and sign:false) to get the unsigned ` +
+              "body + safeTxHash, then sign it in the Safe app or a wallet.",
+          );
+        }
         if (signer.hasSigner()) {
           if (produceSignature) {
             const sg = signer.trySigner(chainId);

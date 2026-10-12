@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import type { SignerManager } from "../lib/signer.js";
+import { KEYSTORE_NO_MESSAGE_SIGNING, type SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { DEFAULTS } from "../config.js";
@@ -282,9 +282,17 @@ function registerAuthLoginComposite(
       const base = requireBase();
       if (typeof base !== "string") return errorResult(base.error);
 
-      // Resolve which signer to use — EOA key takes precedence, else a live WC session.
-      const eoa = signer.hasSigner();
+      // Resolve which signer to use — an unattended hot key takes precedence,
+      // else a live WC session. Keystore mode signs transactions only (each
+      // batch approved on the local page); a message signature there needs WC.
+      const eoa = (signer.mode ?? "unattended") === "unattended" && signer.hasSigner();
       const wcConnected = wc.isConnected();
+      if (signer.mode === "keystore" && !wcConnected) {
+        return errorResult(
+          `${KEYSTORE_NO_MESSAGE_SIGNING} Or do it manually: dexe_auth_request_nonce → sign the returned \`message\` ` +
+            "in your own wallet → dexe_auth_login_request with the signature.",
+        );
+      }
       if (!eoa && !wcConnected) {
         return jsonResult({
           note:

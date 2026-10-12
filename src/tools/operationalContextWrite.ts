@@ -2,7 +2,14 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteConfig } from "../config.js";
 import { WRITE_DEFAULTS } from "../config.js";
-import type { SignerManager } from "../lib/signer.js";
+import {
+  HOT_KEY_SAFETY,
+  IMPLICIT_UNATTENDED_DEPRECATION,
+  humanConfirms,
+  signerDispatch,
+  type SignerManager,
+  type SignerMode,
+} from "../lib/signer.js";
 import type { StateStore } from "../lib/stateStore.js";
 import { RpcProvider } from "../rpc.js";
 import { maskUrl } from "../lib/redact.js";
@@ -18,26 +25,19 @@ import { depositedPowerFor } from "./operationalContext.js";
  * read-edition tools now (./operationalContext.ts, ./getConfig.ts).
  */
 
-type SignerMode = "readonly" | "eoa" | "safe" | "walletconnect";
-
 /**
- * How writes are dispatched:
- *   - "readonly": no key, no WalletConnect project → tools return unsigned TxPayloads only
- *   - "safe":     key + DEXE_SAFE_TX_SERVICE_URL → dexe_safe_* can queue txs
- *                 to the Safe multisig instead of broadcasting
- *   - "eoa":      key set, no Safe service → dexe_tx_send broadcasts directly
- *   - "walletconnect": no key, but a WalletConnect project id (the shared
- *                 default counts) → txs go to the operator's phone for
- *                 approval. WC wins only when no hot key is present.
+ * Signer posture for this session. `mode` is THE signer mode
+ * (src/lib/signerMode.ts - walletconnect | keystore | readonly | unattended),
+ * resolved once at startup; `dispatch` is the label this field carried before
+ * 0.37.0 (`eoa` / `safe` / `walletconnect` / `readonly`, plus `keystore`).
  */
-function signerMode(config: WriteConfig, signer: SignerManager, safeServiceUrl: string | undefined): SignerMode {
-  return signer.hasSigner()
-    ? safeServiceUrl
-      ? "safe"
-      : "eoa"
-    : config.walletConnectProjectId
-      ? "walletconnect"
-      : "readonly";
+export function signerPosture(signer: SignerManager, safeServiceUrl: string | undefined) {
+  return {
+    mode: signer.mode,
+    modeSource: signer.modeSource,
+    dispatch: signerDispatch(signer.mode, signer.hasSigner(), safeServiceUrl),
+    humanConfirmation: humanConfirms(signer.mode),
+  };
 }
 
 /**
@@ -163,21 +163,17 @@ export async function keyringReport(
   };
 }
 
-/** What to do next given the signer mode — one sentence, the mode's first move. */
+/** What to do next given the signer mode - one sentence, the mode's first move. */
 const SIGNER_NEXT: Record<SignerMode, string> = {
   walletconnect:
     "Writes sign on a phone over WalletConnect: dexe_wc_status says whether a wallet is paired, dexe_wc_connect " +
     "shows the pairing QR.",
-  eoa: "The hot key signs and broadcasts directly.",
-  safe:
-    "A Safe Transaction Service is configured: dexe_safe_propose_tx queues a transaction for the Safe owners " +
-    "instead of broadcasting it.",
+  keystore:
+    "Writes sign with the encrypted keystore: each batch returns `awaiting_approval` until the owner approves it with " +
+    "their password on the local page - never ask for the password; tell them to approve, then re-run the same call.",
+  unattended: "Hot keys sign and broadcast directly, with no human confirmation.",
   readonly: "No signer: write tools return unsigned payloads for an external wallet to sign.",
 };
-
-/** Flag a hot key as unsafe and steer toward WalletConnect (the phone signs, so the key never touches disk). */
-const HOT_KEY_WARNING =
-  "⚠️ NOT SAFE — hot key (DEXE_PRIVATE_KEY) in plaintext on disk. Recommended: unset it and run dexe_wc_connect so the phone signs.";
 
 export function registerWriteContextTool(
   server: McpServer,
@@ -189,7 +185,7 @@ export function registerWriteContextTool(
 
   server.tool(
     "dexe_write_context",
-    "Read-only. Write posture for this session — the signer mode + address (hot key, Safe, WalletConnect or none), " +
+    "Read-only. Write posture for this session — the signer mode + address (WalletConnect, keystore, hot key or none), " +
       "the agent KEYRING (signerKey, address, gas, 24h broadcasts per persona), Pinata / WalletConnect / Safe " +
       "readiness, the signer's deposited power in the newest recorded DAO, and a write journey a prior session " +
       "left unfinished. Chains, env readiness and recorded DAOs are dexe_context.",
@@ -206,7 +202,8 @@ export function registerWriteContextTool(
     async ({ includeDepositedPower = true, includeAgentBalances = true }) => {
       const st = state.getState();
       const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined;
-      const mode = signerMode(config, signer, safeServiceUrl);
+      const posture = signerPosture(signer, safeServiceUrl);
+      const mode = posture.mode;
       const address = signer.hasSigner() ? signer.getAddress() : null;
 
       let lastDaoPower: { govPool: string; chainId: number; depositedPower: string | null } | null = null;
@@ -229,6 +226,9 @@ export function registerWriteContextTool(
             `${st.activeFlow.chainId} — call dexe_guide {flow:"${st.activeFlow.flow}"} to resume. `
           : "") +
         SIGNER_NEXT[mode] +
+        (posture.dispatch === "safe"
+          ? " A Safe Transaction Service is configured: dexe_safe_propose_tx queues a transaction for the Safe owners."
+          : "") +
         (pinataConfigured
           ? ""
           : " DEXE_PINATA_JWT is unset: DAO and proposal creation can preview (dryRun) but cannot broadcast, " +
@@ -237,12 +237,25 @@ export function registerWriteContextTool(
           ? " No DAOs recorded yet — deploy one with dexe_dao_create (rehearse on testnet chain 97)."
           : "");
 
+      const approvals = signer.approvals;
       const result = {
         signer: {
-          mode,
+          ...posture,
           address,
           recommended: "walletconnect",
-          ...(mode === "eoa" || mode === "safe" ? { safety: HOT_KEY_WARNING } : {}),
+          ...(mode === "unattended"
+            ? {
+                unattendedChains: signer.unattendedChains,
+                ...(address ? { safety: HOT_KEY_SAFETY } : {}),
+                ...(signer.modeSource === "implicit-hot-key" ? { deprecation: IMPLICIT_UNATTENDED_DEPRECATION } : {}),
+              }
+            : {}),
+          ...(mode === "keystore"
+            ? {
+                keystore: address ? { address, file: config.keystore?.file ?? null } : null,
+                pendingApprovals: approvals?.openApprovals() ?? [],
+              }
+            : {}),
         },
         keyring,
         walletConnect: {

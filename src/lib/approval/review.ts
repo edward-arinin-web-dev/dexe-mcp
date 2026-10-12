@@ -1,0 +1,478 @@
+import { AbiCoder, getAddress, Interface, keccak256, formatUnits, type JsonRpcProvider } from "ethers";
+import type { DexeConfig } from "../../config.js";
+import { RpcProvider } from "../../rpc.js";
+import {
+  assertAllowlistAndValueCap,
+  assertChainCoherence,
+  assertNoForbiddenCalldata,
+  BroadcastGuardError,
+} from "../broadcastGuards.js";
+import { simulateCalldata } from "../simulate.js";
+import { sanitizeRevertReason } from "../errors.js";
+import { bundledAbiSnapshot } from "../abiSnapshot.js";
+import { CalldataDecoder, type DecodedCall } from "../decoders.js";
+import { SelectorIndex } from "../selectors.js";
+import { renderUntrusted } from "../sanitize.js";
+import { classifyGovernanceActions } from "../governanceHits.js";
+import { AddressBook, CONTRACT_NAMES } from "../addresses.js";
+
+/**
+ * ── What the human is shown before typing the password ─────────────────────
+ *
+ * Everything on the approval page is derived HERE, by the server, from the
+ * bytes that will be signed — never from text the model wrote. The model's
+ * own description of a step (`payload.description`, which can carry a
+ * proposal title or anything a prompt injection put there) is shown only as a
+ * clearly labelled, escaped, truncated "builder note".
+ *
+ *   - decode: the bundled DeXe ABI snapshot (no compile step), including the
+ *     calls nested inside multicall(bytes[]) and the actions of a proposal
+ *   - labels: from the chain — the ContractsRegistry, GovPool helper
+ *     contracts, ERC20 symbol (escaped: a symbol is token-deployer text),
+ *     "no contract code" for EOAs
+ *   - risk flags: unlimited approvals, native value, unlabelled spenders,
+ *     governance-changing proposal actions, undecodable calldata, mainnet
+ *   - prechecks: B6/B7/B11/B12 on every step, B9 (eth_call) on step 1 only —
+ *     later steps depend on earlier ones and are checked at send time
+ */
+
+export type RiskLevel = "danger" | "warn" | "info";
+export interface RiskFlag {
+  level: RiskLevel;
+  text: string;
+}
+
+export interface DecodedView {
+  signature: string;
+  contract: string | null;
+  args: Array<{ name: string; value: string }>;
+  nested: DecodedView[];
+}
+
+export interface ReviewStep {
+  index: number;
+  to: string;
+  toLabel: string;
+  /** Wei, decimal string. */
+  value: string;
+  valueHuman: string;
+  selector: string | null;
+  dataBytes: number;
+  dataHash: string;
+  /** First bytes of the calldata, for a reader who wants to check the raw hex. */
+  dataPreview: string;
+  decoded: DecodedView | null;
+  /** The builder's own description of the step — caller text, escaped and truncated, never authoritative. */
+  builderNote?: string;
+  risks: RiskFlag[];
+}
+
+export interface Prechecks {
+  /** B6/B7/B11/B12 on every step. */
+  guards: "pass";
+  /** B9 on step 1. */
+  simulation: "pass" | "skipped" | "unavailable";
+  simulationNote?: string;
+}
+
+export type ReviewResult =
+  | { ok: true; steps: ReviewStep[]; prechecks: Prechecks }
+  | { ok: false; guard: string; stepIndex: number; reason: string };
+
+export interface ReviewPayload {
+  to: string;
+  data: string;
+  value: string;
+  description?: string;
+}
+
+const CHAIN_NAMES: Record<number, string> = {
+  1: "Ethereum",
+  10: "Optimism",
+  56: "BNB Smart Chain",
+  97: "BSC Testnet",
+  137: "Polygon",
+  8453: "Base",
+  11155111: "Sepolia",
+};
+const NATIVE: Record<number, string> = { 56: "BNB", 97: "tBNB", 1: "ETH", 11155111: "SepoliaETH" };
+
+export function chainLabel(chainId: number): string {
+  return `${CHAIN_NAMES[chainId] ?? "chain"} (${chainId})`;
+}
+export function isMainnet(chainId: number): boolean {
+  return chainId === 56 || chainId === 1 || chainId === 10 || chainId === 137 || chainId === 8453;
+}
+
+/**
+ * keccak(chainId, from, ordered (to, value, keccak(data))). What an approval is
+ * bound to: a different order, recipient, amount or byte is a different batch.
+ */
+export function computeBatchHash(
+  chainId: number,
+  from: string,
+  steps: ReadonlyArray<{ to: string; value: string; data: string }>,
+): string {
+  const coder = AbiCoder.defaultAbiCoder();
+  return keccak256(
+    coder.encode(
+      ["uint256", "address", "tuple(address to, uint256 value, bytes32 dataHash)[]"],
+      [
+        BigInt(chainId),
+        getAddress(from),
+        steps.map((s) => [getAddress(s.to), BigInt(s.value || "0"), keccak256(s.data || "0x")]),
+      ],
+    ),
+  );
+}
+
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+/** Six base32 characters of the batch hash as `XXX-XXX` — easy to compare by eye between chat and page. */
+export function fingerprintOf(batchHash: string): string {
+  const n = BigInt(batchHash.slice(0, 2 + 8)); // first 32 bits
+  let out = "";
+  for (let i = 0; i < 6; i++) out += CROCKFORD[Number((n >> BigInt(27 - i * 5)) & 31n)];
+  return `${out.slice(0, 3)}-${out.slice(3)}`;
+}
+
+let snapshotDecoder: CalldataDecoder | undefined;
+function decoder(): CalldataDecoder {
+  if (!snapshotDecoder) {
+    const snap = bundledAbiSnapshot();
+    snapshotDecoder = new CalldataDecoder(snap, new SelectorIndex(snap), { sourceKind: "snapshot" });
+  }
+  return snapshotDecoder;
+}
+
+const ERC20 = new Interface([
+  "function approve(address spender, uint256 amount)",
+  "function transfer(address to, uint256 amount)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+]);
+const GOV_POOL = new Interface([
+  "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
+  "function createProposalAndVote(string _descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst, uint256 voteAmount, uint256[] voteNftIds)",
+  "function createProposal(string _descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst)",
+  "function multicall(bytes[] data) returns (bytes[])",
+]);
+const APPROVE_SEL = ERC20.getFunction("approve")!.selector;
+const CREATE_SELS = new Set([
+  GOV_POOL.getFunction("createProposalAndVote")!.selector,
+  GOV_POOL.getFunction("createProposal")!.selector,
+]);
+const MULTICALL_SEL = GOV_POOL.getFunction("multicall")!.selector;
+const UNLIMITED = 2n ** 255n;
+
+const MAX_ARG_CHARS = 160;
+const MAX_ARGS = 12;
+
+/** Render one decoded argument value as display text. Strings are caller/chain text: escaped by the page, capped here. */
+function renderValue(v: unknown, depth = 0): string {
+  if (depth > 3) return "…";
+  if (typeof v === "bigint") return v.toString();
+  if (typeof v === "boolean" || typeof v === "number") return String(v);
+  if (typeof v === "string") {
+    if (/^0x[0-9a-fA-F]*$/.test(v)) return v.length > 2 + 64 * 2 ? `${v.slice(0, 66)}… (${(v.length - 2) / 2} bytes)` : v;
+    return `"${renderUntrusted(v, MAX_ARG_CHARS)}" (text, unverified)`;
+  }
+  if (Array.isArray(v) || (v && typeof v === "object" && typeof (v as { length?: unknown }).length === "number")) {
+    const arr = Array.from(v as ArrayLike<unknown>);
+    const shown = arr.slice(0, 6).map((x) => renderValue(x, depth + 1));
+    const s = `[${shown.join(", ")}${arr.length > 6 ? `, … ${arr.length - 6} more` : ""}]`;
+    return s.length > MAX_ARG_CHARS * 2 ? `${s.slice(0, MAX_ARG_CHARS * 2)}…` : s;
+  }
+  return renderUntrusted(String(v), MAX_ARG_CHARS);
+}
+
+function viewOf(call: DecodedCall, depth = 0): DecodedView {
+  const entries = Object.entries(call.args);
+  return {
+    signature: call.signature,
+    contract: call.contract,
+    args: entries.slice(0, MAX_ARGS).map(([name, value]) => ({ name, value: renderValue(value) })),
+    nested: depth < 2 ? (call.nested ?? []).slice(0, 8).map((n) => viewOf(n, depth + 1)) : [],
+  };
+}
+
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<undefined>((r) => {
+        timer = setTimeout(() => r(undefined), ms);
+      }),
+    ]);
+  } catch {
+    return undefined;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export interface ReviewContext {
+  chainId: number;
+  from: string;
+  config: DexeConfig;
+  /** Simulate step 1 (B9). Composites and dexe_tx_send both do; tests turn it off. */
+  simulateFirst: boolean;
+  /** Recorded DAOs (state.json): govPool → name. Names are user text and shown escaped. */
+  knownDaos?: ReadonlyArray<{ govPool: string; name?: string; chainId: number }>;
+  /** Injected for tests; default builds one for `chainId` from the config. */
+  provider?: Pick<JsonRpcProvider, "getCode" | "call">;
+}
+
+/** The prechecks + review. Never signs, never broadcasts; RPC failures degrade to fewer labels. */
+export async function buildReview(payloads: readonly ReviewPayload[], ctx: ReviewContext): Promise<ReviewResult> {
+  const cfg = ctx.config;
+  // ---- B6/B7/B12 — free, every step, before any RPC --------------------------
+  for (const [i, p] of payloads.entries()) {
+    try {
+      assertAllowlistAndValueCap({ to: p.to, value: p.value || "0" }, cfg);
+      assertNoForbiddenCalldata({ to: p.to, data: p.data, value: p.value, chainId: ctx.chainId, from: ctx.from });
+    } catch (e) {
+      if (e instanceof BroadcastGuardError) return { ok: false, guard: e.guard, stepIndex: i, reason: e.message };
+      throw e;
+    }
+  }
+
+  let provider: Pick<JsonRpcProvider, "getCode" | "call"> | undefined = ctx.provider;
+  if (!provider) {
+    try {
+      provider = new RpcProvider(cfg).requireProvider(ctx.chainId);
+    } catch {
+      provider = undefined;
+    }
+  }
+
+  // ---- B11 — every step (getCode; fails open on transport errors) -----------
+  const codeCache = new Map<string, string | null>();
+  const codeAt = async (addr: string): Promise<string | null> => {
+    const k = addr.toLowerCase();
+    if (codeCache.has(k)) return codeCache.get(k)!;
+    const c = provider ? ((await withTimeout(provider.getCode(addr), 6000)) ?? null) : null;
+    codeCache.set(k, c);
+    return c;
+  };
+  for (const [i, p] of payloads.entries()) {
+    try {
+      await assertChainCoherence({ to: p.to, data: p.data, chainId: ctx.chainId }, async (to) => {
+        const c = await codeAt(to);
+        if (c === null) throw new Error("unknown");
+        return c;
+      });
+    } catch (e) {
+      if (e instanceof BroadcastGuardError) return { ok: false, guard: e.guard, stepIndex: i, reason: e.message };
+      throw e;
+    }
+  }
+
+  // ---- B9 — step 1 only ------------------------------------------------------
+  const prechecks: Prechecks = { guards: "pass", simulation: "skipped" };
+  if (ctx.simulateFirst && payloads.length > 0) {
+    const p = payloads[0]!;
+    const simCfg: DexeConfig =
+      ctx.chainId === cfg.defaultChainId ? cfg : { ...cfg, defaultChainId: ctx.chainId, chainId: ctx.chainId };
+    const sim = await simulateCalldata(new RpcProvider(simCfg), {
+      to: p.to,
+      data: p.data,
+      value: p.value,
+      from: ctx.from,
+      chainId: ctx.chainId,
+    });
+    if (!sim.success && !sim.networkError) {
+      return {
+        ok: false,
+        guard: "B9",
+        stepIndex: 0,
+        reason:
+          `Pre-approval simulation (eth_call) of step 1 reverted: ${sanitizeRevertReason(sim.revertReason)}. ` +
+          `Nothing was shown for approval and nothing was signed.`,
+      };
+    }
+    prechecks.simulation = sim.success ? "pass" : "unavailable";
+    if (!sim.success) prechecks.simulationNote = "the RPC could not run the simulation — it will be retried at send time";
+  }
+  if (payloads.length > 1) {
+    prechecks.simulationNote =
+      (prechecks.simulationNote ? `${prechecks.simulationNote}; ` : "") +
+      "steps after the first depend on earlier ones and are checked at send time";
+  }
+
+  // ---- labels ----------------------------------------------------------------
+  const labels = new Map<string, string>();
+  const label = (addr: string, text: string) => {
+    const k = addr.toLowerCase();
+    if (!labels.has(k)) labels.set(k, text);
+  };
+  const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+  const daoName = (pool: string) =>
+    ctx.knownDaos?.find((d) => d.chainId === ctx.chainId && d.govPool.toLowerCase() === pool.toLowerCase())?.name;
+
+  if (provider) {
+    // Protocol singletons from the ContractsRegistry.
+    try {
+      const book = new AddressBook({
+        provider: provider as JsonRpcProvider,
+        chainId: ctx.chainId,
+        registryOverride: cfg.registryOverride,
+      });
+      label(book.registryAddress, "DeXe ContractsRegistry");
+      const names = [CONTRACT_NAMES.POOL_FACTORY, CONTRACT_NAMES.POOL_REGISTRY, CONTRACT_NAMES.USER_REGISTRY];
+      const got = await withTimeout(Promise.allSettled(names.map((n) => book.resolve(n))), 6000);
+      got?.forEach((r, i) => {
+        if (r.status === "fulfilled") label(r.value, `DeXe ${names[i]!.replace(/_/g, " ").toLowerCase()} (registry)`);
+      });
+    } catch {
+      /* no registry on this chain — fewer labels */
+    }
+    // Any step target that answers getHelperContracts() is a GovPool; label it and its helpers.
+    const targets = [...new Set(payloads.map((p) => p.to.toLowerCase()))];
+    for (const t of targets) {
+      const ret = await withTimeout(
+        provider.call({ to: t, data: GOV_POOL.encodeFunctionData("getHelperContracts") }),
+        6000,
+      );
+      if (!ret || ret === "0x") continue;
+      try {
+        const [settings, userKeeper, validators] = GOV_POOL.decodeFunctionResult("getHelperContracts", ret) as unknown as [
+          string,
+          string,
+          string,
+        ];
+        const name = daoName(t);
+        const pool = `GovPool ${short(getAddress(t))}${name ? ` (recorded as "${renderUntrusted(name, 60)}")` : ""}`;
+        label(t, pool);
+        label(userKeeper, `UserKeeper of ${pool}`);
+        label(settings, `GovSettings of ${pool}`);
+        label(validators, `GovValidators of ${pool}`);
+      } catch {
+        /* not a GovPool */
+      }
+    }
+  }
+
+  const steps: ReviewStep[] = [];
+  for (const [i, p] of payloads.entries()) {
+    const to = getAddress(p.to);
+    const risks: RiskFlag[] = [];
+    const value = BigInt(p.value || "0");
+    const data = p.data || "0x";
+    const selector = data.length >= 10 ? data.slice(0, 10).toLowerCase() : null;
+
+    // Target label.
+    let toLabel = labels.get(to.toLowerCase());
+    const code = await codeAt(to);
+    if (!toLabel) {
+      if (code !== null && /^0x0*$/i.test(code)) toLabel = "externally owned account (no contract code)";
+      else if (selector === APPROVE_SEL && provider) {
+        const sym = await withTimeout(provider.call({ to, data: ERC20.encodeFunctionData("symbol") }), 6000);
+        let symText: string | undefined;
+        try {
+          if (sym && sym !== "0x") symText = String(ERC20.decodeFunctionResult("symbol", sym)[0]);
+        } catch {
+          symText = undefined;
+        }
+        toLabel = symText ? `ERC20 token "${renderUntrusted(symText, 24)}" (symbol from the token itself)` : "ERC20 token";
+      } else toLabel = code === null ? "unlabelled address (code not checked)" : "unlabelled contract";
+    }
+
+    // Decode.
+    let decoded: DecodedView | null = null;
+    try {
+      const r = decoder().decodeCalldata(data);
+      if (r.primary) decoded = viewOf(r.primary);
+    } catch {
+      decoded = null;
+    }
+    if (!decoded && data !== "0x") {
+      risks.push({ level: "warn", text: "calldata could not be decoded with the bundled DeXe ABIs — check the raw bytes" });
+    }
+
+    if (value > 0n) {
+      risks.push({
+        level: "warn",
+        text: `sends ${formatUnits(value, 18)} ${NATIVE[ctx.chainId] ?? "native coin"} with the call`,
+      });
+    }
+
+    // Approvals.
+    if (selector === APPROVE_SEL) {
+      try {
+        const [spender, amount] = ERC20.decodeFunctionData("approve", data) as unknown as [string, bigint];
+        if (amount >= UNLIMITED) risks.push({ level: "danger", text: "UNLIMITED token approval" });
+        const sl = labels.get(spender.toLowerCase());
+        if (sl) {
+          risks.push({ level: "info", text: `approval spender: ${sl}` });
+        } else {
+          risks.push({ level: "warn", text: `approval spender ${spender} is not a recognized DeXe contract` });
+        }
+      } catch {
+        /* not a standard approve */
+      }
+    }
+
+    // Proposal actions: governance-changing calls and treasury moves.
+    const proposalActions: Array<{ executor: string; value: string; data: string }> = [];
+    const collectCreate = (d: string) => {
+      const sel = d.slice(0, 10).toLowerCase();
+      if (!CREATE_SELS.has(sel)) return;
+      try {
+        const fn = GOV_POOL.getFunction(sel)!;
+        const args = GOV_POOL.decodeFunctionData(fn, d);
+        for (const a of [...(args[1] as unknown as unknown[][]), ...(args[2] as unknown as unknown[][])]) {
+          proposalActions.push({ executor: String(a[0]), value: String(a[1]), data: String(a[2]) });
+        }
+      } catch {
+        /* malformed — the decode above shows what it can */
+      }
+    };
+    collectCreate(data);
+    if (selector === MULTICALL_SEL) {
+      try {
+        const inner = GOV_POOL.decodeFunctionData("multicall", data)[0] as unknown as string[];
+        for (const d of inner) collectCreate(d);
+      } catch {
+        /* ditto */
+      }
+    }
+    if (proposalActions.length > 0) {
+      const hits = classifyGovernanceActions(proposalActions, { protocolAddresses: [...labels.keys()] });
+      for (const h of hits) {
+        risks.push({
+          level: "warn",
+          text: `proposal action #${h.index + 1} changes governance (${h.kind}) on ${h.executor}`,
+        });
+      }
+      for (const [k, a] of proposalActions.entries()) {
+        if (BigInt(a.value || "0") > 0n) {
+          risks.push({ level: "warn", text: `proposal action #${k + 1} moves ${formatUnits(BigInt(a.value), 18)} native coin` });
+        }
+        if (a.data.slice(0, 10).toLowerCase() === ERC20.getFunction("transfer")!.selector) {
+          risks.push({ level: "warn", text: `proposal action #${k + 1} transfers tokens from the DAO treasury (${a.executor})` });
+        }
+      }
+    }
+
+    if (isMainnet(ctx.chainId) && i === 0) {
+      risks.push({ level: "warn", text: `${chainLabel(ctx.chainId)} — real funds` });
+    }
+
+    steps.push({
+      index: i,
+      to,
+      toLabel,
+      value: value.toString(),
+      valueHuman: `${formatUnits(value, 18)} ${NATIVE[ctx.chainId] ?? "native"}`,
+      selector,
+      dataBytes: Math.max(0, (data.length - 2) / 2),
+      dataHash: keccak256(data),
+      dataPreview: data.length > 2 + 72 ? `${data.slice(0, 2 + 72)}…` : data,
+      decoded,
+      ...(p.description ? { builderNote: renderUntrusted(p.description, 160) } : {}),
+      risks,
+    });
+  }
+  return { ok: true, steps, prechecks };
+}

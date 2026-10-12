@@ -55,6 +55,8 @@ import { SINGLE_SERVER_ANNOTATIONS } from "./annotationsWrite.js";
 import { applyReadResultGuard } from "./readGuard.js";
 import { applyToolAliases } from "./aliases.js";
 import { installListToolsNormalizer } from "./schemaNormalize.js";
+import { applyApprovalScope } from "../lib/approval/scope.js";
+import { WRITE_TOOLS } from "../editions.js";
 
 /** The decode tools' pointer at the dev tool that also searches a local compile's events and errors. */
 export const LOCAL_COMPILE_DECODE_HINT = "Try dexe_find_selector to search the local compile's events and errors too.";
@@ -95,9 +97,15 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   // the annotations and the gate: it copies a target's finished config and
   // guarded handler, and registers the old name only when the gate let the
   // target through.
+  // The approval scope wraps every WRITE tool: it hands the keystore signing
+  // path the tool name + request (progress, cancellation) and renders an
+  // ApprovalHaltError as `awaiting_approval` / `declined` (src/lib/approval/scope.ts).
   installListToolsNormalizer(server);
   server = applyReadResultGuard(
-    applyToolAnnotations(applyToolAliases(applyToolGate(server, config), server), SINGLE_SERVER_ANNOTATIONS),
+    applyApprovalScope(
+      applyToolAnnotations(applyToolAliases(applyToolGate(server, config), server), SINGLE_SERVER_ANNOTATIONS),
+      new Set(WRITE_TOOLS),
+    ),
     config,
   );
 

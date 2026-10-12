@@ -87,6 +87,8 @@ const CORE = [
   // broadcast + walletconnect
   "dexe_tx_send",
   "dexe_tx_status",
+  // keystore mode: the awaiting_approval follow-up (read-only)
+  "dexe_tx_approval_status",
   "dexe_wc_status",
   "dexe_wc_connect",
   "dexe_wc_disconnect",

@@ -3,6 +3,7 @@ import { Interface, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { SignerManager, hotKeySafetyFields } from "../lib/signer.js";
+import { ApprovalHaltError } from "../lib/approval/scope.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
@@ -457,6 +458,7 @@ export function registerOtcSaleTools(
         // the asymmetry this release exists to remove.
         return { content: [...qrBlocks, ...merged.content], structuredContent: merged.structuredContent };
       } catch (e) {
+        if (e instanceof ApprovalHaltError) throw e; // awaiting_approval / declined — rendered by the approval scope
         return err(safeErrorMessage(e));
       }
     },
@@ -667,7 +669,7 @@ export function registerOtcBuyerTools(
         ...(simulation ? { simulation } : {}),
         steps: [...skipped, ...result.steps],
         ...(result.signer ? { signer: result.signer } : {}),
-        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
+        ...hotKeySafetyFields(result.signer?.safety),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);
@@ -822,6 +824,7 @@ export function registerOtcBuyerTools(
       try {
         result = await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
       } catch (e) {
+        if (e instanceof ApprovalHaltError) throw e; // awaiting_approval / declined — rendered by the approval scope
         return err(toActionableError(e, "dexe_otc_buyer_claim_all broadcast").message);
       }
       if (result.mode === "failed") {
@@ -840,7 +843,7 @@ export function registerOtcBuyerTools(
         summary,
         steps: [...skipped, ...result.steps],
         ...(result.signer ? { signer: result.signer } : {}),
-        ...hotKeySafetyFields(Boolean(result.signer?.safety)),
+        ...hotKeySafetyFields(result.signer?.safety),
         ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
         ...(result.pairing ? { pairing: result.pairing } : {}),
       }), result.pairingContent);

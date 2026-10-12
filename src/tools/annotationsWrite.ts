@@ -82,6 +82,8 @@ const WRITE_CLASSES: Record<string, ToolAnnotations> = {
   dexe_merkle_build: LOCAL_READ,
   dexe_merkle_proof: LOCAL_READ,
   dexe_proposal_catalog: LOCAL_READ,
+  // reads the in-memory approval store; cannot approve or decline anything
+  dexe_tx_approval_status: LOCAL_READ,
 
   // ── READ_ONLY — reads chain / subgraph / backend / IPFS and returns.
   // Calldata builders live here too: they return an unsigned payload and never
@@ -185,6 +187,7 @@ const WRITE_TITLES: Record<string, string> = {
   dexe_sim_buy: "Simulate an OTC buy",
   dexe_sim_calldata: "Simulate raw calldata",
   dexe_sim_proposal: "Simulate proposal execution",
+  dexe_tx_approval_status: "Keystore approval status",
   dexe_tx_send: "Sign and broadcast a transaction",
   dexe_tx_status: "Transaction status",
   dexe_wc_connect: "Connect a wallet by QR",
