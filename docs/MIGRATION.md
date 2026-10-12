@@ -6,6 +6,13 @@ something on your side.
 
 ---
 
+## 0.36.0 → 0.36.1 — no action
+
+On Linux and macOS, `npx dexe-mcp` and global installs now start (0.30.1–0.36.0
+exited silently there). If you switched to `node /path/to/dist/index.js` as a
+workaround, either form works now. Tool count unchanged (**169 tools** / 19
+groups); no emitted calldata changed.
+
 ## 0.35.0 → 0.36.0 — read this if you read the signer from dexe_context or dexe_get_config, or call the OTC read tools by name
 
 Tool count **169 tools** / 19 groups (was 168): new **`dexe_write_context`**,

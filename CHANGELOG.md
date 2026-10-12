@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.36.1 — 2026-10-12
+
+### Fixed — `dexe-mcp` did nothing when installed with npm on Linux or macOS
+npm installs a package's binaries on Linux and macOS as symlinks
+(`node_modules/.bin/dexe-mcp`, `/usr/local/bin/dexe-mcp`). Since 0.30.1 the
+server started only when the module's own path equalled `process.argv[1]` as a
+string — the resolved file never equals the link, so `npx dexe-mcp`, a global
+install, and `--version` / `--help` through either exited 0 without serving or
+printing anything. Reproduced with the published 0.36.0 in `node:22-slim`.
+The entrypoint check now compares real paths. Windows (`.cmd` shims) and the
+Claude Code plugin (`node <file>`) were not affected. Tool count unchanged
+(169 / 19 groups); no emitted calldata changed.
+
 ## 0.36.0 — 2026-10-12
 
 Retitled from 0.35.1: the orientation split below changes what two existing
