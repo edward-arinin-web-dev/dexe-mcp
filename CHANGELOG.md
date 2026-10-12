@@ -104,6 +104,48 @@ JSON-RPC batches are refused. A Dockerfile, a compose example and the operator
 runbook `docs/REMOTE.md` ship with it. The stdio server is unchanged, and
 serve-http itself adds no tool.
 
+### Security — read tools are safe to serve remotely
+Fixes from the security review of the HTTP mode, applied at the tool level, so
+they hold on stdio as well. Results under the new limits are unchanged; tool
+names are unchanged.
+
+- IPFS reads are streamed with a byte limit: 2 MB by default, set with
+  `DEXE_IPFS_MAX_BYTES`. A larger body stops the fetch with an error that says
+  what to do, and no other gateway is tried for the same CID. This covers
+  `dexe_ipfs_fetch` and every internal metadata read. Before, a 600 MB dag-pb
+  CID was buffered whole.
+- `dexe_ipfs_fetch` summarizes parsed JSON over 128 KB in `structuredContent`
+  and adds `truncated: true`. `sizeBytes` keeps the real size.
+- Every array input of every read tool now has `maxItems`. Examples:
+  `chainIds` 8, `calls` 100, `daos` 50, `addresses` 100. A test walks all read
+  tool schemas and fails on an unbounded array.
+- `dexe_read_protocol_stats` removes duplicate chain ids and sends at most 4
+  backend requests at a time. One call with 3,000 `chainIds` used to send
+  3,001 requests; now the schema rejects it before any request is made.
+- Read results over 256 KB (`DEXE_MAX_RESPONSE_BYTES`) are cut to fit instead
+  of failing. Rows are dropped from the end and long strings are shortened.
+  The first line says what was cut and how to get the rest. Offset-paged tools
+  report the corrected `returned` and `nextOffset` (`nextSkip` for
+  `dexe_proposal_voters`).
+- Read results and errors no longer show the configured RPC, subgraph, backend
+  or gateway URLs or keys. Masked forms are shown instead.
+  - `dexe_ipfs_fetch` and `dexe_ipfs_cid_info` name gateways by host only. The
+    `gateway` field is now a host.
+  - Gateway error bodies that echo the request path no longer leak the Graph
+    key.
+  - The backend timeout error no longer shows the backend URL.
+- Third-party text is escaped and length-capped in more places:
+  - backend and tracker figures printed in `dexe_read_token_holders`,
+    `_dao_stats`, `_protocol_stats` and `dexe_dao_report`;
+  - indexer rows in `dexe_proposal_forecast`;
+  - revert strings in read-tool errors;
+  - strings over 16,000 characters in `structuredContent` (hex data is never
+    cut).
+- Read tools stop when the request is cancelled or times out. IPFS, subgraph,
+  backend and multicall reads check the cancellation signal before each
+  upstream call, and in-flight HTTP requests are aborted.
+- Upstream JSON from the subgraph and the backend is read with a 16 MB limit.
+
 ### Changed — decoding works without compiling the protocol
 `dexe_decode_calldata` and `dexe_decode_proposal` used to fail with "Hardhat
 artifacts not found … Run dexe_compile first" on any install that had not

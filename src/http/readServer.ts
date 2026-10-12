@@ -71,6 +71,9 @@ const READ_DEXE_ENV: ReadonlySet<string> = new Set([
   "DEXE_IPFS_GATEWAYS_FALLBACK",
   "DEXE_IPFS_DISABLE_PUBLIC_FALLBACK",
   "DEXE_PINATA_GATEWAY_TOKEN",
+  "DEXE_IPFS_MAX_BYTES",
+  // read-tool result size limit
+  "DEXE_MAX_RESPONSE_BYTES",
   // analysis knobs used by read tools
   "DEXE_MIN_SAFE_QUORUM_PCT",
   "DEXE_CONTROLLING_TOPN",
