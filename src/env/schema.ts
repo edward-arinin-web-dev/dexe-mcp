@@ -204,6 +204,15 @@ export const ENV_SPEC_WRITE = {
     example: "900",
     doc: "Keystore mode: how long an approval link (and an approved-but-unused batch) stays valid. Default 900, range 60–3600.",
   },
+  DEXE_APPROVAL_USE_S: {
+    schema: intStr("a duration in seconds", "120 for 2 minutes"),
+    category: "signer",
+    required: false,
+    example: "120",
+    doc:
+      "Keystore mode: how long an APPROVED batch may wait for its tool call to start sending before the decrypted key " +
+      "is dropped (re-run within this window). Default 120, range 10 to DEXE_APPROVAL_TTL_S.",
+  },
   DEXE_APPROVAL_OPEN_BROWSER: {
     schema: enumStr(["1", "0", "true", "false"]),
     category: "signer",
@@ -365,6 +374,7 @@ export const ENV_DISPLAY_ORDER: readonly string[] = [
   "DEXE_KEYSTORE_ADDRESS",
   "DEXE_APPROVAL_WAIT_MS",
   "DEXE_APPROVAL_TTL_S",
+  "DEXE_APPROVAL_USE_S",
   "DEXE_APPROVAL_OPEN_BROWSER",
   "DEXE_KEYSTORE_PASSWORD_FILE",
   "DEXE_PINATA_JWT",

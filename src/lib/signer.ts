@@ -118,6 +118,7 @@ export class SignerManager {
         waitMs: this.config.approvalWaitMs ?? 120_000,
         ttlMs: (this.config.approvalTtlS ?? 900) * 1000,
         openBrowser: this.config.approvalOpenBrowser ?? true,
+        storeOptions: { useWindowMs: (this.config.approvalUseS ?? 120) * 1000 },
         connect: (pk, chainId) => this.walletFor(pk, chainId, "keystore"),
         lock: (chainId, task) => this.withBroadcastLock(chainId, task, ks.address),
         log: (line) => void process.stderr.write(`${line}\n`),
@@ -314,10 +315,21 @@ export class SignerManager {
    * extract the key into its own signing code. Chain-agnostic (no provider
    * needed for message signing). Throws if the key is not configured.
    */
-  async signMessage(message: string, signerKey?: string): Promise<string> {
+  async signMessage(message: string, signerKey?: string, forChainId?: number): Promise<string> {
     if (this.mode === "keystore") throw new SignerModeRefusal(KEYSTORE_NO_MESSAGE_SIGNING, "dexe_wc_connect");
     const key = this.resolveKey(signerKey);
     if (!key) this.failNoKey();
+    // The unattended fence covers signatures too: a backend login for chain 56
+    // is as much a mainnet act as a mainnet transaction. A message with no
+    // stated chain is refused while a fence is on (fail closed).
+    const fence = this.unattendedChains;
+    if (fence && (forChainId === undefined || !fence.includes(forChainId))) {
+      throw new SignerModeRefusal(
+        `Unattended signing is fenced to chain(s) ${fence.join(", ")} (DEXE_UNATTENDED_CHAINS) — refusing to sign a ` +
+          `message for ${forChainId === undefined ? "an unspecified chain" : `chain ${forChainId}`}. Nothing was signed.`,
+        `Add ${forChainId ?? "the chain"} to DEXE_UNATTENDED_CHAINS deliberately, or sign this with WalletConnect (dexe_wc_connect).`,
+      );
+    }
     return new Wallet(key).signMessage(message);
   }
 

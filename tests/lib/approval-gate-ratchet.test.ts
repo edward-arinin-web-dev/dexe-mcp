@@ -44,6 +44,7 @@ describe("the approval gate has no off switch", () => {
     expect(approvalVars.sort()).toEqual([
       "DEXE_APPROVAL_OPEN_BROWSER",
       "DEXE_APPROVAL_TTL_S",
+      "DEXE_APPROVAL_USE_S",
       "DEXE_APPROVAL_WAIT_MS",
       "DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS", // the phone's own timeout, not this gate
     ]);

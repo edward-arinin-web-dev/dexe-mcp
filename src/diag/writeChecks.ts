@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import type { WriteConfig } from "../config.js";
 import { DEFAULTS, hotKeyEnvNames } from "../config.js";
 import { IMPLICIT_UNATTENDED_DEPRECATION } from "../lib/signerMode.js";
-import { KEYSTORE_MIN_SAFE_N, keystorePermissionIssues, parseKeystoreMeta } from "../lib/keystore.js";
+import { keystorePermissionIssues, parseKeystoreMeta, weakKdfReason } from "../lib/keystore.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
 import { fetchJsonWithTimeout, type CheckResult, type EnvFileWording, type ExtraChecks } from "./checks.js";
@@ -278,13 +278,15 @@ export function signerModeChecks(config: WriteConfig | undefined, env: NodeJS.Pr
     let status: CheckResult["status"] = "pass";
     try {
       const meta = parseKeystoreMeta(readFileSync(config.keystore.file, "utf8"));
-      if (meta.kdf !== "scrypt" || meta.n === null || meta.n < KEYSTORE_MIN_SAFE_N) {
-        issues.push(`weak KDF (${meta.kdf}${meta.n ? ` N=${meta.n}` : ""}) — re-encrypt with \`dexe-mcp key change-password\``);
-        status = "warn";
+      const weak = weakKdfReason(meta);
+      if (weak) {
+        // Keystore mode refuses to sign with it (src/config.ts, approval/index.ts).
+        issues.push(weak);
+        status = "fail";
       }
       for (const p of keystorePermissionIssues(config.keystore.file)) {
         issues.push(p);
-        status = "warn";
+        if (status !== "fail") status = "warn";
       }
     } catch (e) {
       issues.push(`unreadable: ${safeErrorMessage(e)}`);

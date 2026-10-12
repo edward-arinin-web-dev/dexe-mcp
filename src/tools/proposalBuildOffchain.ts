@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { KEYSTORE_NO_MESSAGE_SIGNING, type SignerManager } from "../lib/signer.js";
+import { KEYSTORE_NO_MESSAGE_SIGNING, SignerModeRefusal, type SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { DEFAULTS } from "../config.js";
@@ -252,6 +252,9 @@ function registerAuthLogin(server: McpServer): void {
  * (that pattern is exactly what off-chain flows used to force). Falls back to
  * an instruction to use the manual build tools when no signer is available.
  */
+/** The chain the DeXe backend login is for (the unattended fence is checked against it). */
+const BACKEND_AUTH_CHAIN_ID = 56;
+
 function registerAuthLoginComposite(
   server: McpServer,
   signer: SignerManager,
@@ -328,7 +331,9 @@ function registerAuthLoginComposite(
         // that out would turn a working flow into a spurious failure; the WC
         // session has its own expiry. Machine-paced calls get deadlines,
         // human-paced ones do not.
-        const signature = eoa ? await signer.signMessage(message) : await wc.signMessage(message);
+        // The DeXe backend (api.dexe.io) authenticates mainnet (chain 56)
+        // accounts, so an unattended key signs it only if 56 is inside its fence.
+        const signature = eoa ? await signer.signMessage(message, undefined, BACKEND_AUTH_CHAIN_ID) : await wc.signMessage(message);
 
         // Step 3 — login.
         const loginRes = await authPost(
@@ -361,7 +366,9 @@ function registerAuthLoginComposite(
             "(dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry.",
         });
       } catch (err) {
-        return errorResult(`Auth login failed: ${safeErrorMessage(err)}`);
+        return errorResult(
+          `Auth login failed: ${safeErrorMessage(err)}${err instanceof SignerModeRefusal ? ` ${err.remediation}` : ""}`,
+        );
       }
     },
   );

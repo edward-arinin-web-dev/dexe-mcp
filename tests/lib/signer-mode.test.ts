@@ -97,6 +97,16 @@ describe("SignerManager per mode", () => {
     expect("error" in t && t.remediation).toMatch(/DEXE_UNATTENDED_CHAINS=97,56/);
   });
 
+  it("the fence covers message signatures too (backend login is a chain-56 act)", async () => {
+    const fenced = new SignerManager(cfg({ privateKey: PK, signerMode: "unattended", signerModeSource: "explicit", unattendedChains: [97] }));
+    await expect(fenced.signMessage("login", undefined, 56)).rejects.toThrow(SignerModeRefusal);
+    await expect(fenced.signMessage("login")).rejects.toThrow(/unspecified chain/);
+    const wide = new SignerManager(cfg({ privateKey: PK, signerMode: "unattended", signerModeSource: "explicit", unattendedChains: [97, 56] }));
+    expect(await wide.signMessage("login", undefined, 56)).toMatch(/^0x[0-9a-f]{130}$/);
+    const implicitMode = new SignerManager(cfg({ privateKey: PK }));
+    expect(await implicitMode.signMessage("login", undefined, 56)).toMatch(/^0x/);
+  });
+
   it("implicit (transitional) unattended keeps today's behaviour: every chain", () => {
     const s = new SignerManager(cfg({ privateKey: PK }));
     expect(s.mode).toBe("unattended");
@@ -162,7 +172,9 @@ const saved = new Map<string, string | undefined>();
 let ksDir: string;
 beforeAll(async () => {
   ksDir = mkdtempSync(join(tmpdir(), "dexe-mode-"));
-  writeKeystoreFile(join(ksDir, "ks"), await encryptPrivateKey(PK, "password123", { N: 1024, r: 8, p: 1 }));
+  writeKeystoreFile(join(ksDir, "ks"), await encryptPrivateKey(PK, "password123", { N: 2 ** 17, r: 8, p: 1 }));
+  // a keystore mode must refuse: scrypt N below 2^17
+  writeKeystoreFile(join(ksDir, "weak"), await encryptPrivateKey(PK, "password123", { N: 1024, r: 8, p: 1 }));
   writeFileSync(join(ksDir, "pw.txt"), "password123\n");
 });
 afterAll(() => rmSync(ksDir, { recursive: true, force: true }));
@@ -280,6 +292,15 @@ describe("loadConfig — signer modes", () => {
     expect(u.privateKey?.toLowerCase()).toBe(PK.toLowerCase());
     expect(u.unattendedChains).toEqual([97]);
   }, 30_000);
+
+  it("keystore mode refuses a keystore whose KDF is too cheap (N < 2^17) and says how to re-encrypt", async () => {
+    process.env.DEXE_SIGNER_MODE = "keystore";
+    process.env.DEXE_KEYSTORE_PATH = join(ksDir, "weak");
+    const c = await loadConfig();
+    expect(c.keystore).toBeUndefined();
+    expect(c.startupIssues.find((i) => i.key === "DEXE_KEYSTORE_PATH")?.message).toMatch(/change-password/);
+    expect(signerModeChecks(c, process.env).find((r) => r.id === "signer.mode")?.status).toBe("fail");
+  });
 
   it("keystore mode with no keystore degrades with the create hint", async () => {
     process.env.DEXE_SIGNER_MODE = "keystore";

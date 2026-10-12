@@ -164,6 +164,28 @@ export function parseKeystoreMeta(json: string): KeystoreMeta {
   };
 }
 
+/**
+ * Why this keystore's KDF is too cheap to sign with in keystore mode, or null.
+ * scrypt below N=2^17 (or pbkdf2 at any count) makes each password guess
+ * against a stolen file or the approval page cheap. `dexe-mcp key
+ * change-password` (or `key import --json`) re-encrypts at N=2^18.
+ */
+export function weakKdfReason(meta: KeystoreMeta): string | null {
+  if (meta.kdf !== "scrypt") {
+    return (
+      `The keystore for ${meta.address} uses ${meta.kdf || "an unknown KDF"}, not scrypt — refused. ` +
+      "Re-encrypt it: `npx dexe-mcp key change-password` (or `key import --json <file>`) writes scrypt N=2^18."
+    );
+  }
+  if (meta.n === null || meta.n < KEYSTORE_MIN_SAFE_N) {
+    return (
+      `The keystore for ${meta.address} uses scrypt N=${meta.n ?? "?"} (minimum 2^17) — refused. ` +
+      "Re-encrypt it: `npx dexe-mcp key change-password` writes scrypt N=2^18."
+    );
+  }
+  return null;
+}
+
 /** `~/.dexe-mcp/keystore`. */
 export function defaultKeystoreDir(): string {
   return join(homedir(), ".dexe-mcp", "keystore");

@@ -218,7 +218,9 @@ export function registerTxTools(
         let ktx;
         try {
           ktx = await withActionContext({ tool: "dexe_tx_send", action: `${selectorOf(data) ?? "0x"} → ${to}` }, () =>
-            approved.send({ to, data, value, chainId: chain.chainId, ...(gasLimit ? { gasLimit } : {}) }),
+            // gasLimit is NOT forwarded: the owner did not approve it. The
+            // ApprovedSigner estimates it server-side under a cap.
+            approved.send({ to, data, value, chainId: chain.chainId }),
           );
         } catch (e) {
           approved.revoke("broadcast failed");
@@ -232,7 +234,14 @@ export function registerTxTools(
         }
         approved.landed(0, ktx.hash);
         approved.finish();
-        const base = { txHash: ktx.hash, from, signerKey: "keystore", chainId: chain.chainId, signer: "keystore" };
+        const base = {
+          txHash: ktx.hash,
+          from,
+          signerKey: "keystore",
+          chainId: chain.chainId,
+          signer: "keystore",
+          ...(gasLimit ? { gasLimitNote: "gasLimit was ignored: in keystore mode gas is estimated server-side (capped)." } : {}),
+        };
         if (waitConfirmations === 0) {
           return {
             content: [

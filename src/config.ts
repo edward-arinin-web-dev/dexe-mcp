@@ -13,7 +13,7 @@ import {
   type SignerMode,
   type SignerModeSource,
 } from "./lib/signerMode.js";
-import { decryptKeystore, selectKeystore } from "./lib/keystore.js";
+import { decryptKeystore, parseKeystoreMeta, selectKeystore, weakKdfReason } from "./lib/keystore.js";
 import {
   DEFAULTS as READ_DEFAULTS,
   applyEnvSpec,
@@ -140,6 +140,8 @@ export interface WriteConfig extends ReadConfig, DevConfig {
   approvalTtlS?: number;
   /** keystore mode: open the approval page in the default browser (DEXE_APPROVAL_OPEN_BROWSER). */
   approvalOpenBrowser?: boolean;
+  /** keystore mode: seconds an approved batch may wait to be used before its key is dropped (DEXE_APPROVAL_USE_S). */
+  approvalUseS?: number;
 }
 
 /**
@@ -524,6 +526,12 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
         "keystore signing requires at least one of DEXE_RPC_URL / DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET (signing needs an RPC endpoint).",
         "keystore signing unavailable — set an RPC URL and restart",
       );
+    } else if (keystoreWeakness(sel.file)) {
+      degrade(
+        "DEXE_KEYSTORE_PATH",
+        keystoreWeakness(sel.file)!,
+        "keystore signing refused — write tools return unsigned payloads until the keystore is re-encrypted",
+      );
     } else {
       keystore = sel;
       process.stderr.write(
@@ -533,6 +541,7 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
   }
   const approvalWaitMs = boundedInt(process.env.DEXE_APPROVAL_WAIT_MS, 120_000, 0, 600_000);
   const approvalTtlS = boundedInt(process.env.DEXE_APPROVAL_TTL_S, 900, 60, 3600);
+  const approvalUseS = boundedInt(process.env.DEXE_APPROVAL_USE_S, 120, 10, approvalTtlS);
   const approvalOpenBrowser = !/^(0|false|no|off)$/i.test(process.env.DEXE_APPROVAL_OPEN_BROWSER?.trim() ?? "");
 
   const risk = resolveRiskSettings(sink);
@@ -634,6 +643,7 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
     approvalWaitMs,
     approvalTtlS,
     approvalOpenBrowser,
+    approvalUseS,
   });
 }
 
@@ -649,6 +659,15 @@ export function hotKeyEnvNames(env: NodeJS.ProcessEnv): string[] {
   if (has("DEXE_AGENT_FUNDER_PK")) out.push("DEXE_AGENT_FUNDER_PK");
   else if (has("AGENT_FUNDER_PK")) out.push("AGENT_FUNDER_PK");
   return out;
+}
+
+/** Why the keystore file is refused for keystore mode (weak KDF / unreadable), or null. */
+function keystoreWeakness(file: string): string | null {
+  try {
+    return weakKdfReason(parseKeystoreMeta(readFileSync(file, "utf8")));
+  } catch (err) {
+    return `the keystore ${file} could not be read: ${safeErrorMessage(err)}`;
+  }
 }
 
 /** Digits-only integer clamped to [min, max]; anything else → `fallback` (the env spec reports a bad value). */

@@ -17,7 +17,17 @@ export interface SendCapable {
     chainId: bigint;
     gasLimit?: bigint;
   }): Promise<TransactionResponse>;
+  /** Server-side gas estimate (an ethers Wallet has it). */
+  estimateGas?(tx: { to: string; data: string; value: bigint; chainId: bigint }): Promise<bigint>;
 }
+
+/**
+ * Ceiling on the gas an approved transaction may use. The gas limit is never
+ * taken from the caller in keystore mode (the owner did not approve it): it is
+ * estimated here, padded 20%, and refused above this cap. The largest DeXe
+ * write — a full DAO deploy — stays well under it.
+ */
+export const APPROVED_GAS_CAP = 30_000_000n;
 
 export interface ApprovedSignerDeps {
   store: ApprovalStore;
@@ -27,12 +37,12 @@ export interface ApprovedSignerDeps {
   lock<T>(task: () => Promise<T>): Promise<T>;
 }
 
+/** What a caller asks the ApprovedSigner to send. No gasLimit: see APPROVED_GAS_CAP. */
 export interface ApprovedTx {
   to: string;
   data: string;
   value: string;
   chainId: number;
-  gasLimit?: string;
 }
 
 /**
@@ -47,7 +57,8 @@ export interface ApprovedTx {
  * finished, revoked, superseded or expires (the store calls `drop()`).
  */
 export class ApprovedSigner implements KeyHolder {
-  private key: string | null;
+  /** ES private: not reachable by property access, Object.keys, JSON or spread. */
+  #key: string | null;
   private cursor = 0;
 
   constructor(
@@ -58,16 +69,25 @@ export class ApprovedSigner implements KeyHolder {
     private readonly expected: readonly ExpectedTx[],
     private readonly deps: ApprovedSignerDeps,
   ) {
-    this.key = privateKey;
+    this.#key = privateKey;
   }
 
   /** KeyHolder: forget the key. Idempotent. */
   drop(): void {
-    this.key = null;
+    this.#key = null;
   }
 
   get active(): boolean {
-    return this.key !== null;
+    return this.#key !== null;
+  }
+
+  /** Never serialize or print key material, even by accident. */
+  toJSON(): string {
+    return "[ApprovedSigner redacted]";
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return `ApprovedSigner { approvalId: ${this.approvalId}, address: ${this.address}, key: [redacted] }`;
   }
 
   /** Transactions approved but not yet sent. */
@@ -77,7 +97,7 @@ export class ApprovedSigner implements KeyHolder {
 
   /** Sign + broadcast the next approved transaction. Anything else revokes the approval. */
   async send(tx: ApprovedTx): Promise<TransactionResponse> {
-    if (this.key === null) {
+    if (this.#key === null) {
       throw new ApprovalDeviationError(
         "This approval is no longer active (used, revoked, superseded or expired) — nothing was signed.",
       );
@@ -98,17 +118,21 @@ export class ApprovedSigner implements KeyHolder {
           `under it. Re-run the call to request a fresh approval for what you actually want to send.`,
       );
     }
-    const key = this.key;
-    const wallet = this.deps.connect(key);
-    const sent = await this.deps.lock(() =>
-      wallet.sendTransaction({
-        to: tx.to,
-        data: tx.data,
-        value: BigInt(tx.value || "0"),
-        chainId: BigInt(tx.chainId),
-        ...(tx.gasLimit ? { gasLimit: BigInt(tx.gasLimit) } : {}),
-      }),
-    );
+    const wallet = this.deps.connect(this.#key);
+    const req = { to: tx.to, data: tx.data, value: BigInt(tx.value || "0"), chainId: BigInt(tx.chainId) };
+    let gasLimit: bigint | undefined;
+    if (wallet.estimateGas) {
+      const est = await wallet.estimateGas(req);
+      gasLimit = (est * 12n) / 10n;
+      if (gasLimit > APPROVED_GAS_CAP) {
+        this.revoke(`gas estimate ${est} is above the ${APPROVED_GAS_CAP} cap`);
+        throw new ApprovalDeviationError(
+          `Refused to sign: the gas estimate (${est}) is above the ${APPROVED_GAS_CAP} cap for an approved transaction. ` +
+            "The approval was revoked; nothing was signed.",
+        );
+      }
+    }
+    const sent = await this.deps.lock(() => wallet.sendTransaction({ ...req, ...(gasLimit ? { gasLimit } : {}) }));
     this.cursor += 1;
     return sent;
   }

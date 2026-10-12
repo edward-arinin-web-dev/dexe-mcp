@@ -33,7 +33,7 @@ const KEY = Wallet.createRandom();
 const PW = "keystore-send-test-password";
 let json: string;
 beforeAll(async () => {
-  json = await encryptPrivateKey(KEY.privateKey, PW, { N: 1024, r: 8, p: 1 });
+  json = await encryptPrivateKey(KEY.privateKey, PW, { N: 2 ** 17, r: 8, p: 1 }); // the minimum keystore mode accepts
 });
 
 const GUARD_CFG = {
