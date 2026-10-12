@@ -1,11 +1,28 @@
 import { z } from "zod";
 import { Contract, Interface, isAddress, ZeroAddress } from "ethers";
+import pLimit from "p-limit";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { safeErrorMessage } from "../lib/redact.js";
+import { maskUrl, safeErrorMessage } from "../lib/redact.js";
 import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
+import {
+  BodyTooLargeError,
+  discardBody,
+  formatBytes,
+  readJsonCapped,
+  UPSTREAM_JSON_MAX_BYTES,
+} from "../lib/boundedBody.js";
+import { deadlineSignal, RequestCancelledError, throwIfCancelled } from "../lib/requestScope.js";
+import {
+  MAX_CALL_ARGS,
+  MAX_ID_LIST,
+  MAX_MULTICALL_CALLS,
+  MAX_NFT_FILTER,
+  MAX_STATS_CHAINS,
+  MAX_TOKEN_LIST,
+} from "../lib/inputLimits.js";
 import { GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT } from "../lib/abi/tokenSale.js";
 import { DEFAULTS } from "../configRead.js";
 import { backendChainIdParam, chainIdParam, govPoolParam } from "../lib/params.js";
@@ -117,6 +134,7 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
               method: z.string().describe("Method name matching the signature"),
               args: z
                 .array(z.unknown())
+                .max(MAX_CALL_ARGS)
                 .default([])
                 .describe("Positional args; pass uint256 values as decimal strings."),
               allowFailure: z
@@ -126,7 +144,8 @@ function registerMulticall(server: McpServer, rpc: RpcProvider): void {
             }),
           )
           .min(1)
-          .describe("The view calls to batch (at least one)."),
+          .max(MAX_MULTICALL_CALLS)
+          .describe(`The view calls to batch (1 to ${MAX_MULTICALL_CALLS}).`),
       },
       outputSchema: {
         results: z.array(
@@ -213,20 +232,24 @@ async function fetchBackendBalances(
     );
     url.searchParams.set("page_size", String(BACKEND_MAX_PAGE_SIZE));
     if (pageToken) url.searchParams.set("page_token", pageToken);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
+    throwIfCancelled();
+    const deadline = deadlineSignal(8000);
     let json: { balances?: BackendBalanceRow[]; next_page_token?: string };
     try {
-      const res = await fetch(url, { signal: ctrl.signal, headers: { accept: "application/json" } });
-      if (!res.ok) throw new Error(`backend HTTP ${res.status}`);
-      json = (await res.json()) as typeof json;
+      const res = await fetch(url, { signal: deadline.signal, headers: { accept: "application/json" } });
+      if (!res.ok) {
+        await discardBody(res);
+        throw new Error(`backend HTTP ${res.status}`);
+      }
+      json = await readJsonCapped<typeof json>(res, UPSTREAM_JSON_MAX_BYTES);
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
+      if (deadline.cancelled()) throw new RequestCancelledError("backend request");
+      if (deadline.timedOut()) {
         throw new Error(`backend request timed out after 8000ms — usually transient, re-run the call`);
       }
       throw err;
     } finally {
-      clearTimeout(timer);
+      deadline.clear();
     }
     for (const row of json.balances ?? []) out.push(row);
     pageToken = json.next_page_token ?? "";
@@ -253,8 +276,9 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         govPool: z.string().optional().describe("Alias for `holder` — every other DAO read names the DAO this way"),
         tokens: z
           .array(z.string())
+          .max(MAX_TOKEN_LIST)
           .default([])
-          .describe("Optional explicit ERC20 addresses; forces on-chain RPC read of just these"),
+          .describe(`Optional explicit ERC20 addresses (at most ${MAX_TOKEN_LIST}); forces on-chain RPC read of just these`),
         chainId: chainIdParam,
       },
       outputSchema: {
@@ -396,6 +420,8 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
             structured,
           });
         } catch (err) {
+          // A cancelled call stops here rather than starting the RPC fallback.
+          if (err instanceof RequestCancelledError) throw err;
           // Actually fall through to the on-chain path. The tool description,
           // docs/PLAYBOOK.md and the knowledge corpus all promise this fallback;
           // returning an error here made the promise a lie and forced the caller
@@ -513,7 +539,7 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
         };
         const degradedNote =
           backendError != null
-            ? `\n  DEGRADED: the DeXe backend failed (${backendError}), so this is an on-chain read — ` +
+            ? `\n  DEGRADED: the DeXe backend failed (${renderUntrusted(backendError, 300)}), so this is an on-chain read — ` +
               `no USD prices and no token auto-discovery. Check DEXE_BACKEND_API_URL, or re-run with explicit \`tokens\`.`
             : "";
         const summary =
@@ -549,6 +575,18 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
  * again.
  */
 const BACKEND_MAX_PAGE_SIZE = 100;
+
+/**
+ * A tracker / backend figure rendered into prose. These are numbers in every
+ * real answer, but they arrive as JSON from an upstream, so a value is escaped
+ * and capped like any other third-party text before it is printed.
+ */
+function tv(v: unknown): string {
+  return v === undefined || v === null ? "?" : renderUntrusted(v, 40);
+}
+
+/** Backend requests one read tool may have in flight at once. */
+const BACKEND_FANOUT_CONCURRENCY = 4;
 
 /**
  * Ticker for a chain's native coin — used only to label the formatted native
@@ -602,11 +640,11 @@ function backendChainRefusal(chainId: number, tool: string): string {
  */
 async function backendGetJson<T>(path: string, timeoutMs = 8000): Promise<T> {
   const base = (process.env.DEXE_BACKEND_API_URL?.trim() || DEFAULTS.backendApiUrl).replace(/\/+$/, "");
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  throwIfCancelled();
+  const deadline = deadlineSignal(timeoutMs);
   try {
     const res = await fetch(`${base}${path}`, {
-      signal: ctrl.signal,
+      signal: deadline.signal,
       headers: { accept: "application/json" },
     });
     // The query string can carry a 300-700 char continuation cursor (a base64
@@ -620,20 +658,31 @@ async function backendGetJson<T>(path: string, timeoutMs = 8000): Promise<T> {
       // deterministic rejection of the caller's own argument.
       throw new Error(`DeXe backend rejected the request: HTTP 400 (bad request) for ${pathForError}`);
     }
-    if (!res.ok) throw new Error(`backend HTTP ${res.status} for ${pathForError}`);
-    return (await res.json()) as T;
+    if (!res.ok) {
+      await discardBody(res);
+      throw new Error(`backend HTTP ${res.status} for ${pathForError}`);
+    }
+    return await readJsonCapped<T>(res, UPSTREAM_JSON_MAX_BYTES);
   } catch (err) {
+    if (deadline.cancelled()) throw new RequestCancelledError("backend request");
     // A bare AbortError surfaces as "This operation was aborted" — useless to
-    // the caller. Translate to something actionable.
-    if (err instanceof Error && err.name === "AbortError") {
+    // the caller. Translate to something actionable. The base URL is the
+    // operator's; it is named by its host only.
+    if (deadline.timedOut()) {
       throw new Error(
         `DeXe backend request timed out after ${timeoutMs}ms (${path.split("?")[0]}) — usually transient, re-run the call. ` +
-          `If it persists: check network access to ${base} or set DEXE_BACKEND_API_URL.`,
+          `If it persists: check network access to the DeXe backend (${maskUrl(base)}) or set DEXE_BACKEND_API_URL.`,
+      );
+    }
+    if (err instanceof BodyTooLargeError) {
+      throw new Error(
+        `DeXe backend answer for ${path.split("?")[0]} is over ${formatBytes(UPSTREAM_JSON_MAX_BYTES)} — ` +
+          `ask for a smaller page (pageSize) or a shorter period.`,
       );
     }
     throw err;
   } finally {
-    clearTimeout(timer);
+    deadline.clear();
   }
 }
 
@@ -687,9 +736,16 @@ function registerTokenHolders(server: McpServer, rpc: RpcProvider): void {
           next_page_token?: string;
           holders_balances?: Record<string, string>;
         }>(`/integrations/api-proxy-cache/${chainId}/token-holders-balances/${token}?${qs.toString()}`);
-        const holders = Object.entries(json.holders_balances ?? {})
+        // The rows are printed into prose below, so only well-formed ones are
+        // kept: an address key and a decimal balance. Anything else is not a
+        // holder row (and a raw value would reach the model unescaped, or
+        // throw out of BigInt with the value in the message).
+        const entries = Object.entries(json.holders_balances ?? {});
+        const holders = entries
+          .filter(([holder, balance]) => isAddress(holder) && typeof balance === "string" && /^\d+$/.test(balance))
           .map(([holder, balance]) => ({ holder, balance }))
           .sort((a, b) => (BigInt(b.balance) > BigInt(a.balance) ? 1 : -1));
+        const malformed = entries.length - holders.length;
         // Truncation comes from the cursor the backend hands back, never from
         // `rows === pageSize`: a page of 1 row WITH a cursor is real (observed
         // live on nfts-by-wallet).
@@ -708,7 +764,9 @@ function registerTokenHolders(server: McpServer, rpc: RpcProvider): void {
             `nextPageToken. Do NOT report this page as the complete holder list.`
           : "";
         const text =
-          `Holders of ${token} (chain ${chainId}): ${holders.length} on this page${more}\n` +
+          `Holders of ${token} (chain ${chainId}): ${holders.length} on this page${more}` +
+          (malformed > 0 ? `\n  (${malformed} malformed backend row(s) skipped: not an address + decimal balance)` : "") +
+          "\n" +
           holders
             .slice(0, 20)
             .map((h, i) => `  ${String(i + 1).padStart(2)}. ${h.holder}  ${h.balance}`)
@@ -786,8 +844,8 @@ function registerDaoStats(server: McpServer, rpc: RpcProvider): void {
           (structured.downsampled ? ` → ${sampled.length} returned (downsampled; raise maxPoints for more)` : "") +
           "\n" +
           (latest
-            ? `  latest → tvl_usd: ${latest.tvl_usd ?? "?"}, active_members: ${latest.active_members_count ?? "?"}, ` +
-              `external_proposals: ${latest.external_proposals_count ?? "?"}`
+            ? `  latest → tvl_usd: ${tv(latest.tvl_usd)}, active_members: ${tv(latest.active_members_count)}, ` +
+              `external_proposals: ${tv(latest.external_proposals_count)}`
             : "  (no data — DAO may have no tracked activity in this window; freshly created DAOs take a while to appear in the tracker)");
         return untrustedResult({
           summary: text,
@@ -823,8 +881,9 @@ function registerProtocolStats(server: McpServer): void {
         chainIds: z
           .array(z.number().int().positive())
           .min(1)
+          .max(MAX_STATS_CHAINS)
           .default([1, 56])
-          .describe("Chains to aggregate over (backend supports 1 = Ethereum, 56 = BSC)"),
+          .describe(`Chains to aggregate over (backend supports 1 = Ethereum, 56 = BSC); at most ${MAX_STATS_CHAINS}.`),
         period: z.string().default("24 hours").describe("Change-percent window, e.g. '24 hours' (the value app.dexe.io uses)"),
         maxDots: z
           .number()
@@ -850,7 +909,10 @@ function registerProtocolStats(server: McpServer): void {
         top: z.array(z.record(z.string(), z.unknown())),
       },
     },
-    async ({ chainIds = [1, 56], period = "24 hours", maxDots = 30, topDaos = 10 }) => {
+    async ({ chainIds: chainIdsIn = [1, 56], period = "24 hours", maxDots = 30, topDaos = 10 }) => {
+      // One leaderboard request per distinct chain, a few at a time: a repeated
+      // id is the same request, and the schema's max bounds the rest.
+      const chainIds = [...new Set(chainIdsIn)];
       try {
         const json = await backendGetJson<{
           data?: { attributes?: Record<string, unknown> };
@@ -868,18 +930,20 @@ function registerProtocolStats(server: McpServer): void {
         // chains that failed instead.
         const topErrors: string[] = [];
         if (topDaos > 0) {
+          const limit = pLimit(BACKEND_FANOUT_CONCURRENCY);
           const perChain = await Promise.all(
-            chainIds.map(async (cid) => {
+            chainIds.map((cid) => limit(async () => {
               try {
                 const t = await backendGetJson<{ data?: Array<{ attributes?: Record<string, unknown> }> }>(
                   `/integrations/tracker/${cid}/pools/gov/top`,
                 );
                 return (t.data ?? []).map((d) => d.attributes ?? {});
               } catch (e) {
-                topErrors.push(`chain ${cid}: ${safeErrorMessage(e)}`);
+                if (e instanceof RequestCancelledError) throw e;
+                topErrors.push(`chain ${cid}: ${renderUntrusted(safeErrorMessage(e), 300)}`);
                 return [];
               }
-            }),
+            })),
           );
           top = perChain
             .flat()
@@ -910,12 +974,12 @@ function registerProtocolStats(server: McpServer): void {
         // is printed, and the whole payload is announced as third-party.
         const text =
           `Protocol stats (chains ${chainIds.join(",")}, period '${renderUntrusted(period, 40)}')\n` +
-          `  TVL: $${summary.tvl_usd ?? "?"} (${summary.tvl_changes_percent ?? "?"}% / ${renderUntrusted(period, 40)}) across ${summary.total_pools_count ?? "?"} DAOs\n` +
-          `  proposals: ${summary.total_proposals_count ?? "?"} total (${summary.proposals_changes_percent ?? "?"}%), voting-locked: $${summary.voting_locked_tokens ?? "?"}\n` +
+          `  TVL: $${tv(summary.tvl_usd)} (${tv(summary.tvl_changes_percent)}% / ${renderUntrusted(period, 40)}) across ${tv(summary.total_pools_count)} DAOs\n` +
+          `  proposals: ${tv(summary.total_proposals_count)} total (${tv(summary.proposals_changes_percent)}%), voting-locked: $${tv(summary.voting_locked_tokens)}\n` +
           (top.length
             ? `  top by TVL: ${top
                 .slice(0, 5)
-                .map((t) => `${renderUntrusted(t.name ?? "?", 60)} ($${String(t.tvlUsd).split(".")[0]})`)
+                .map((t) => `${renderUntrusted(t.name ?? "?", 60)} ($${tv(String(t.tvlUsd).split(".")[0])})`)
                 .join(", ")}${top.length > 5 ? ` … +${top.length - 5}` : ""}`
             : "") +
           (topErrors.length
@@ -944,7 +1008,11 @@ function registerNftsByWallet(server: McpServer, rpc: RpcProvider): void {
       inputSchema: {
         holder: z.string().describe("Address whose NFTs we read"),
         chainId: backendChainIdParam,
-        tokens: z.array(z.string()).default([]).describe("Optional NFT contract addresses to filter by"),
+        tokens: z
+          .array(z.string())
+          .max(MAX_NFT_FILTER)
+          .default([])
+          .describe(`Optional NFT contract addresses to filter by (at most ${MAX_NFT_FILTER})`),
         pageSize: z
           .number()
           .int()
@@ -1414,7 +1482,7 @@ function registerTokenSaleUser(server: McpServer, rpc: RpcProvider): void {
       inputSchema: {
         tokenSaleProposal: z.string().describe("TokenSaleProposal contract address"),
         user: z.string().describe("User address to query"),
-        tierIds: z.array(z.string()).min(1).describe("Tier IDs to check"),
+        tierIds: z.array(z.string()).min(1).max(MAX_ID_LIST).describe(`Tier IDs to check (1 to ${MAX_ID_LIST})`),
         chainId: chainIdParam,
       },
     },
@@ -1460,7 +1528,11 @@ function registerDistributionStatus(server: McpServer, rpc: RpcProvider): void {
       inputSchema: {
         distributionProposal: z.string().describe("DistributionProposal contract address"),
         voter: z.string().describe("Voter address to check"),
-        proposalIds: z.array(z.string()).min(1).describe("Proposal IDs to check"),
+        proposalIds: z
+          .array(z.string())
+          .min(1)
+          .max(MAX_ID_LIST)
+          .describe(`Proposal IDs to check (1 to ${MAX_ID_LIST})`),
         chainId: chainIdParam,
       },
     },

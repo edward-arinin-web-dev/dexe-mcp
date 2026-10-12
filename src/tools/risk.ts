@@ -22,6 +22,7 @@ import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalVi
 import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
+import { MAX_DRAFT_ACTIONS } from "../lib/inputLimits.js";
 import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
 
 /**
@@ -162,6 +163,7 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
           .describe("On-chain proposal id (1-indexed) to assess; a digits-only string is accepted too"),
         actions: z
           .array(ActionSchema)
+          .max(MAX_DRAFT_ACTIONS)
           .optional()
           .describe("Hypothetical actionsOnFor to assess instead of an on-chain proposal"),
         chainId: z.number().int().positive().optional().describe("Target chain id; defaults to the MCP default chain"),

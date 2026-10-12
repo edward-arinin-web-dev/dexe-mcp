@@ -86,6 +86,8 @@ const READ = [
   "lib/govEnums.ts",
   "lib/governanceHits.ts",
   "lib/govProposalView.ts",
+  // maxItems ceilings for read-tool array inputs
+  "lib/inputLimits.ts",
   "lib/interactionTypes.ts",
   // gateway fetch, CID parsing, offline CIDs; pinning is lib/ipfsPin.ts
   "lib/ipfs.ts",
