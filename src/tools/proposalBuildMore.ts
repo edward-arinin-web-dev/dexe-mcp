@@ -156,7 +156,7 @@ function makeWrapperResult(ctx: ToolContext) {
 
 function payloadOutputSchema() {
   return {
-    metadata: z.unknown(),
+    metadata: z.unknown().optional(),
     actions: z.array(
       z.object({
         executor: z.string(),

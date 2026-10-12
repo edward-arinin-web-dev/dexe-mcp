@@ -43,6 +43,7 @@ import { WalletConnectManager } from "../lib/walletconnect.js";
 import { registerGovernorTools } from "../governor/index.js";
 import { applyToolGate } from "./gate.js";
 import { applyToolAnnotations } from "./annotations.js";
+import { installListToolsNormalizer } from "./schemaNormalize.js";
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
@@ -58,6 +59,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   // The annotation layer wraps OUTSIDE the gate on purpose: applyToolGate
   // returns the bare server on `full`, so anything inside it would annotate
   // nothing on the one profile that registers every tool.
+  installListToolsNormalizer(server);
   server = applyToolAnnotations(applyToolGate(server, config));
 
   const artifacts = new Artifacts(config);

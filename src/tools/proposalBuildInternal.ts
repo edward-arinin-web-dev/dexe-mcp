@@ -85,7 +85,7 @@ function internalResult(params: {
 
 function outputSchema() {
   return {
-    metadata: z.unknown(),
+    metadata: z.unknown().optional(),
     proposalType: z.number(),
     data: z.string(),
     advisories: z

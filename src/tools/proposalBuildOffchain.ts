@@ -150,8 +150,8 @@ function requestOutputSchema() {
     request: z.object({
       method: z.string(),
       url: z.string(),
-      headers: z.record(z.string()),
-      body: z.unknown(),
+      headers: z.record(z.string(), z.string()),
+      body: z.unknown().optional(),
     }),
     authRequired: z.boolean(),
   };
@@ -646,7 +646,7 @@ function registerSettingsProposal(server: McpServer): void {
         voteOptions: z.array(z.string()).default([]).describe("Default choices for the template, as plain strings."),
         votingDurationSeconds: z.string().describe("How long voting stays open, in seconds."),
         quorum: z
-          .record(z.unknown())
+          .record(z.string(), z.unknown())
           .describe("Quorum object matching the chosen votingType (percent fields are 0-100)."),
         useDelegated: z.boolean().default(true).describe("Count delegated power toward a voter's weight."),
         minimalVotePower: z.string().default("0").describe("Minimum power to vote, RAW base units (wei)."),

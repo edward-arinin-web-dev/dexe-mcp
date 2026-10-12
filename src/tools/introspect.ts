@@ -223,7 +223,7 @@ type AbiError = {
 // Recursive Param shape — kept loose because zod's recursive inference doesn't
 // play well with output schemas exposed via MCP. Consumers should treat
 // `components` as `Param[] | undefined`.
-const paramSchema: z.ZodType<unknown> = z.lazy(() => z.record(z.unknown()));
+const paramSchema: z.ZodType<unknown> = z.lazy(() => z.record(z.string(), z.unknown()));
 
 function normalizeParam(p: AbiParam): {
   name: string;
@@ -303,7 +303,7 @@ function registerGetMethods(server: McpServer, ctx: ToolContext): void {
               signature: z.string(),
               topicHash: z.string(),
               anonymous: z.boolean(),
-              inputs: z.array(z.record(z.unknown())),
+              inputs: z.array(z.record(z.string(), z.unknown())),
             }),
           )
           .optional(),

@@ -50,6 +50,7 @@ function registerUserPower(server: McpServer, rpc: RpcProvider): void {
         user: z.string(),
         userKeeper: z.string(),
         power: z.record(
+          z.string(),
           z.object({
             tokenBalance: z.string(),
             tokenOwned: z.string(),
