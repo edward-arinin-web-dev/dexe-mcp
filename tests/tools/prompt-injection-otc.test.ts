@@ -16,7 +16,7 @@ import { registerRiskTools } from "../../src/tools/risk.js";
 /**
  * HIGH-4 / LOW-3 — identical on-chain bytes must not produce opposite outcomes.
  *
- * `dexe_read_token_sale_tiers` (read.ts) and `dexe_otc_buyer_status` (then in
+ * `dexe_read_token_sale_tiers` (read.ts) and `dexe_read_token_sale_position` (then in
  * otc.ts, now tokenSaleRead.ts) decode the SAME `getTierViews` return. Before 0.33.0 only read.ts routed it
  * through the sanitizing funnel; otc.ts had a local `ok()` doing a raw
  * `JSON.stringify`, so the same tier metadata came back with its zero-width
@@ -252,11 +252,11 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("HIGH-4 — sale-opener text is neutralized on the OTC read surface", () => {
-  it("dexe_otc_buyer_status: hostile tier metadata is escaped in BOTH channels", async () => {
+  it("dexe_read_token_sale_position: hostile tier metadata is escaped in BOTH channels", async () => {
     const { tools, server } = captureTools();
     registerTokenSaleReadTools(server, ctx());
 
-    const res = await tools.get("dexe_otc_buyer_status")!({
+    const res = await tools.get("dexe_read_token_sale_position")!({
       tokenSaleProposal: TSP,
       chainId: 56,
       tierIds: ["1"],
@@ -276,11 +276,11 @@ describe("HIGH-4 — sale-opener text is neutralized on the OTC read surface", (
     expectFieldNeutralized(tiers[0]!.tierUri);
   });
 
-  it("dexe_otc_list_sales_for_dao: the same hostile name is escaped in BOTH channels", async () => {
+  it("dexe_read_token_sales: the same hostile name is escaped in BOTH channels", async () => {
     const { tools, server } = captureTools();
     registerSubgraphTools(server, ctx());
 
-    const res = await tools.get("dexe_otc_list_sales_for_dao")!({
+    const res = await tools.get("dexe_read_token_sales")!({
       govPool: GOV_POOL,
       tokenSaleProposal: TSP,
       chainId: 56,
@@ -302,14 +302,14 @@ describe("HIGH-4 — sale-opener text is neutralized on the OTC read surface", (
     registerReadTools(readServer, ctx());
 
     const results = [
-      await otc.get("dexe_otc_buyer_status")!({
+      await otc.get("dexe_read_token_sale_position")!({
         tokenSaleProposal: TSP,
         chainId: 56,
         tierIds: ["1"],
         user: USER,
         whitelists: [],
       }),
-      await sub.get("dexe_otc_list_sales_for_dao")!({
+      await sub.get("dexe_read_token_sales")!({
         govPool: GOV_POOL,
         tokenSaleProposal: TSP,
         chainId: 56,

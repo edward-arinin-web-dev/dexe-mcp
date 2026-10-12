@@ -86,9 +86,8 @@ function chainNote(ctx: ToolContext, kind: SubgraphKind): string {
     : `no ${kind} endpoint configured`;
   return (
     ` Pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); the reply echoes ` +
-    `\`indexedChainId\`, never another chain's rows. No endpoint for a chain = an error; read it on-chain ` +
-    `with dexe_read_multicall (needs DEXE_TOOLSETS=core,read) or dexe_read_gov_state ` +
-    `(needs DEXE_TOOLSETS=core,dev).`
+    `\`indexedChainId\`, never another chain's rows. No endpoint for a chain = an error that names the ` +
+    `on-chain reads to use instead.`
   );
 }
 
@@ -292,7 +291,7 @@ export function registerSubgraphTools(server: McpServer, ctx: ToolContext, state
   registerValidatorList(server, ctx);
   registerUserActivity(server, ctx);
   registerDaoExperts(server, ctx);
-  registerOtcListSalesForDao(server, ctx, state);
+  registerTokenSalesList(server, ctx, state);
   registerGraphQuery(server, ctx);
   registerGraphSchema(server, ctx);
 }
@@ -430,8 +429,8 @@ function registerGraphQuery(server: McpServer, ctx: ToolContext): void {
       description:
         "Read-only. GraphQL against a DeXe subgraph: 'pools' (DAOs, proposals, voters, delegations, experts, sales), " +
         "'interactions' (per-user tx feed), 'validators'. Bound every list with `first:` (max 1000), page with `skip:`; " +
-        "oversized responses are rejected. NEVER guess a name — call dexe_graph_schema; root fields are not entity names " +
-        "(DaoPool -> `daoPools`). " +
+        "oversized responses are rejected. Entity and field names must match the subgraph schema exactly — root fields " +
+        "are not entity names (DaoPool -> `daoPools`), and a wrong name errors with where to look it up. " +
         graphQueryChainNote(ctx),
       inputSchema: {
         subgraph: z.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
@@ -694,9 +693,9 @@ function registerGraphSchema(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_graph_schema",
     {
-      title: "Introspect a DeXe subgraph schema (entities, fields, root query names)",
+      title: "Introspect a DeXe subgraph schema",
       description:
-        "Read-only. Live introspection of a DeXe subgraph schema — the recovery path when dexe_graph_query answers " +
+        "Read-only. Live introspection of a DeXe subgraph schema — the valid names for a GraphQL query, e.g. after " +
         "\"Type 'X' has no field 'Y'\". Omit `entity` for the root query field map (each entity -> the field name to query " +
         "it by); pass `entity` for that type's fields, '<Entity>_filter' for valid `where:` keys, '<Entity>_orderBy' for " +
         "valid `orderBy:` values. An unknown name returns ranked candidates. " +
@@ -1213,13 +1212,13 @@ const GOV_POOL_HELPERS_DISCOVERY_ABI = new Interface([
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)",
 ]);
 
-function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext, state?: StateStore): void {
+function registerTokenSalesList(server: McpServer, ctx: ToolContext, state?: StateStore): void {
   const rpc = new RpcProvider(ctx.config);
 
   server.registerTool(
-    "dexe_otc_list_sales_for_dao",
+    "dexe_read_token_sales",
     {
-      title: "List OTC sale tiers for a DAO",
+      title: "List a DAO's token sale tiers",
       description:
         "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with " +
         "`totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's " +
@@ -1381,7 +1380,7 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext, state?:
         });
       } catch (e) {
         return errorResult(
-          toActionableError(e, "dexe_otc_list_sales_for_dao").message,
+          toActionableError(e, "dexe_read_token_sales").message,
         );
       }
     },

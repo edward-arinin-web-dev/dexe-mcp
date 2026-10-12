@@ -1,7 +1,7 @@
 /**
  * The shape and constructor of an upstream-protocol advisory, plus the one
  * advisory a READ surface has to show: F15 (the vested leg of a token sale
- * cannot be withdrawn), which dexe_otc_buyer_status prints next to the
+ * cannot be withdrawn), which dexe_read_token_sale_position prints next to the
  * "withdrawable" number it would otherwise contradict.
  *
  * Every other advisory is about building or sending a transaction and lives in

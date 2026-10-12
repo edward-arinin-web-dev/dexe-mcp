@@ -150,7 +150,7 @@ export function registerRiskTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_proposal_risk_assess",
     {
-      title: "Treasury-safety risk readout for a proposal (or hypothetical actions)",
+      title: "Analyze treasury risk of a proposal",
       description:
         "Read-only. Assesses low-quorum treasury risk and privileged no-value governance calls (blacklist, pause, " +
         "changeVotePower, add/editSettings, changeExecutors, changeBalances). SAFE means 'no risk of the kinds this tool " +

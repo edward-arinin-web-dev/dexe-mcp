@@ -2,6 +2,19 @@ import type { WriteConfig } from "../config.js";
 import { DEFAULTS } from "../config.js";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
 import { fetchJsonWithTimeout, type CheckResult, type ExtraChecks } from "./checks.js";
+import type { DoctorText } from "../tools/doctor.js";
+
+/**
+ * The doctor's wording on a server that runs these checks: Pinata among the
+ * probes, and the opt-in pin probe as an input.
+ */
+export const WRITE_DOCTOR_TEXT: DoctorText = {
+  description:
+    "Read-only. Diagnoses env setup — the cause and the fix of an env-related failure: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. " +
+    "Warnings are advisories — a healthy zero-config install always has some. " +
+    "`probePin` is the one write: one tiny IPFS pin.",
+  probePin: "Probe pin to Pinata (added, then removed) — use when an IPFS upload fails with HTTP 403.",
+};
 
 /**
  * The doctor checks only a server that signs, broadcasts or pins needs: the

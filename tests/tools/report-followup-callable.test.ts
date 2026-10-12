@@ -7,7 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { multicall } from "../../src/lib/multicall.js";
-import { defaultProfileToolNames, resolveToolsets, TOOLSETS } from "../../src/tools/gate.js";
+import { defaultProfileToolNames, resolveToolsets, SINGLE_SERVER_TOOLSETS, TOOLSETS } from "../../src/tools/gate.js";
 import type { ToolContext } from "../../src/tools/context.js";
 import type { DexeConfig, SubgraphEndpoints } from "../../src/config.js";
 
@@ -342,7 +342,7 @@ interface ToolResult {
 async function callReport(cfg: DexeConfig, args: Record<string, unknown>): Promise<ToolResult> {
   const { registerReportTools } = await import("../../src/tools/report.js");
   const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerReportTools(server, { config: cfg } as unknown as ToolContext);
+  registerReportTools(server, { config: cfg } as unknown as ToolContext, { toolsets: SINGLE_SERVER_TOOLSETS });
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
@@ -562,10 +562,10 @@ describe("toolRef / toolsetHint", () => {
   it("annotates exactly the tools outside the default profile", async () => {
     const { toolRef, toolsetHint } = await import("../../src/tools/report.js");
     for (const tool of ALL_TOOLS) {
-      const hint = toolsetHint(tool);
+      const hint = toolsetHint(tool, SINGLE_SERVER_TOOLSETS);
       if (DEFAULT_PROFILE.has(tool)) {
         expect(hint, `${tool} is default-visible but was annotated`).toBeNull();
-        expect(toolRef(tool)).toBe(tool);
+        expect(toolRef(tool, undefined, SINGLE_SERVER_TOOLSETS)).toBe(tool);
         continue;
       }
       expect(hint, `${tool} is not default-visible but got no hint`).toMatch(/^DEXE_TOOLSETS=/);
@@ -575,14 +575,14 @@ describe("toolRef / toolsetHint", () => {
         profile.names?.has("dexe_dao_report") ?? profile.full,
         `${hint} would unregister dexe_dao_report itself`,
       ).toBe(true);
-      expect(toolRef(tool)).toBe(`${tool} (${hint})`);
-      expect(toolRef(tool, "why")).toBe(`${tool} (why; ${hint})`);
+      expect(toolRef(tool, undefined, SINGLE_SERVER_TOOLSETS)).toBe(`${tool} (${hint})`);
+      expect(toolRef(tool, "why", SINGLE_SERVER_TOOLSETS)).toBe(`${tool} (why; ${hint})`);
     }
   });
 
   it("falls back to `full` for a name no named set carries", async () => {
     const { toolsetHint } = await import("../../src/tools/report.js");
-    expect(toolsetHint("dexe_not_a_real_tool")).toBe("DEXE_TOOLSETS=full");
+    expect(toolsetHint("dexe_not_a_real_tool", SINGLE_SERVER_TOOLSETS)).toBe("DEXE_TOOLSETS=full");
   });
 });
 

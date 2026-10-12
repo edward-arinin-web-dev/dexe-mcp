@@ -39,7 +39,7 @@ export const MAX_DELEGATION_ADDRESSES = 100;
 /** Hypothetical actions for `dexe_proposal_risk_assess` / `dexe_proposal_forecast` drafts. */
 export const MAX_DRAFT_ACTIONS = 50;
 
-/** Whitelists passed to `dexe_otc_buyer_status` (one per tier). */
+/** Whitelists passed to `dexe_read_token_sale_position` (one per tier). */
 export const MAX_WHITELISTS = 50;
 
 /** Addresses in one whitelist — the merkle tree is rebuilt from them locally. */

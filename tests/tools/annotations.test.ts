@@ -5,8 +5,19 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
-import { serverInstructions } from "../../src/instructions.js";
-import { alwaysLoadedToolNames, classifiedToolNames, titledToolNames } from "../../src/tools/annotations.js";
+import { serverInstructions } from "../../src/instructionsWrite.js";
+import {
+  alwaysLoadedToolNames as alwaysLoadedIn,
+  classifiedToolNames as classifiedIn,
+  titledToolNames as titledIn,
+} from "../../src/tools/annotations.js";
+import { SINGLE_SERVER_ANNOTATIONS } from "../../src/tools/annotationsWrite.js";
+import { READ_TOOLS } from "../../src/editions.js";
+import { DEPRECATED_ALIASES } from "../../src/tools/aliases.js";
+
+const classifiedToolNames = () => classifiedIn(SINGLE_SERVER_ANNOTATIONS);
+const titledToolNames = () => titledIn(SINGLE_SERVER_ANNOTATIONS);
+const alwaysLoadedToolNames = () => alwaysLoadedIn(SINGLE_SERVER_ANNOTATIONS);
 
 /**
  * ── MCP annotations and titles, asserted on the WIRE ───────────────────────
@@ -168,13 +179,19 @@ describe("MCP tool annotations (wire shape)", () => {
     expect(contradictory).toEqual([]);
   });
 
-  it("emits only spec-meaningful fields — reads carry readOnlyHint alone", () => {
+  it("write-edition reads emit only spec-meaningful fields — readOnlyHint alone", () => {
     // destructiveHint / idempotentHint are defined as meaningful only when
     // readOnlyHint is false, and tools/list bytes are budgeted
-    // (tests/tools/gate.test.ts). A read that ships four keys is ~67 wasted
+    // (tests/tools/gate.test.ts). A builder that ships four keys is ~67 wasted
     // bytes per tool for nothing a client can act on.
+    //
+    // READ-edition tools are the exception (0.36.0): connector directories
+    // review every hint as an explicit boolean, so those 54 spell all four —
+    // pinned in tests/tools/read-edition-surface.test.ts.
+    // A deprecated alias (src/tools/aliases.ts) carries its read target's hints.
+    const read = new Set([...READ_TOOLS, ...Object.keys(DEPRECATED_ALIASES)]);
     for (const t of full) {
-      if (t.annotations?.readOnlyHint !== true) continue;
+      if (t.annotations?.readOnlyHint !== true || read.has(t.name)) continue;
       expect(t.annotations.destructiveHint, t.name).toBeUndefined();
       expect(t.annotations.idempotentHint, t.name).toBeUndefined();
     }

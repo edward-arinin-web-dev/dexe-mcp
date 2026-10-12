@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";
+import { DEPRECATED_ALIASES } from "../../src/tools/aliases.js";
 import { listTools, type ListedTools } from "../helpers/listTools.js";
 
 /**
@@ -32,10 +33,15 @@ describe("edition manifest", () => {
     expect(READ_TOOLS.filter((n) => write.has(n)), "in both editions").toEqual([]);
   });
 
-  it("read ∪ write is exactly the registered surface", () => {
-    const registered = new Set(full.names);
+  it("read ∪ write is exactly the registered surface (plus the deprecated aliases)", () => {
+    // An alias (src/tools/aliases.ts) is an old name for a renamed tool, not a
+    // tool: it is in neither edition and is registered only by the single
+    // server, next to its target.
+    const aliases = new Set(Object.keys(DEPRECATED_ALIASES));
+    const registered = new Set(full.names.filter((n) => !aliases.has(n)));
     const manifest = new Set([...READ_TOOLS, ...WRITE_TOOLS]);
-    const unclassified = full.names.filter((n) => !manifest.has(n));
+    for (const a of aliases) expect(manifest.has(a), `${a} is an alias, not a tool`).toBe(false);
+    const unclassified = [...registered].filter((n) => !manifest.has(n));
     const phantom = [...manifest].filter((n) => !registered.has(n)).sort();
     expect(
       unclassified,
@@ -45,11 +51,11 @@ describe("edition manifest", () => {
   });
 
   it("every read tool is annotated readOnlyHint: true", () => {
-    // dexe_dao_report passes this while still persisting reports.json beside
-    // state.json — the annotation is set, the behaviour is not yet read-only.
-    // An annotation check cannot see that, so the disk-write ratchet in
-    // import-boundary.test.ts pins src/tools/report.ts until the read edition
-    // makes snapshot persistence pluggable (off by default).
+    // dexe_dao_report's snapshot store is injected (A7): the single server hands
+    // it the reports.json file store from the write side, the read edition
+    // hands it none — so the read code itself writes no file, which the
+    // disk-write ratchet in import-boundary.test.ts holds it to. The full set
+    // of explicit hints is pinned in tests/tools/read-edition-surface.test.ts.
     const byName = new Map(full.tools.map((t) => [t.name, t]));
     const notReadOnly = READ_TOOLS.filter((n) => byName.get(n)?.annotations?.readOnlyHint !== true);
     expect(notReadOnly, "read-edition tools without readOnlyHint: true").toEqual([]);

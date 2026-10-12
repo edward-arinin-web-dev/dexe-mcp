@@ -14,6 +14,7 @@ import { registerGuideTool } from "../../src/tools/guide.js";
 import { createKnowledge, createToolLocator } from "../../src/knowledge/engine.js";
 import { READ_CORPUS } from "../../src/knowledge/read/index.js";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";
+import { READ_EDITION_TOOLSETS } from "../../src/tools/toolsets.js";
 import { toolRefs } from "../helpers/toolTokens.js";
 
 /**
@@ -44,9 +45,7 @@ async function readServer() {
   const artifacts = new Artifacts({ protocolPath: join(tmpdir(), "dexe-no-protocol") });
   const ctx: ToolContext = { config, artifacts, selectors: new SelectorIndex(artifacts) };
   const server = new McpServer({ name: "read-orientation", version: "0.0.0" }, {});
-  registerOperationalContextTools(server, config, null, {
-    toolsets: { unlocks: {}, defaultCovers: "the default profile already includes the reporting reads" },
-  });
+  registerOperationalContextTools(server, config, null, { toolsets: READ_EDITION_TOOLSETS });
   registerGetConfigTool(server, ctx);
   registerGuideTool(server, config, null, {
     knowledge: createKnowledge(

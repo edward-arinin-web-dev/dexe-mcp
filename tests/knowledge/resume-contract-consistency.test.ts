@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { AGENT_PROTOCOL, GOTCHA_BY_ID } from "../../src/knowledge/index.js";
-import { serverInstructions } from "../../src/instructions.js";
+import { serverInstructions } from "../../src/instructionsWrite.js";
 import { RESUME_SUMMARY } from "../../src/lib/resumeContract.js";
 import { RESUME_RECHECKS } from "../../src/tools/flow.js";
 import { READ_KNOWN_FAILURES } from "../../src/lib/errors.js";

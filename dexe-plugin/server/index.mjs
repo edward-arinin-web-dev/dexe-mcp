@@ -114974,7 +114974,7 @@ NFT contracts:
 }
 function registerListGovContractTypes(server) {
   server.registerTool("dexe_list_gov_contract_types", {
-    title: "Orientation: gov subsystem contract catalog",
+    title: "DeXe governance contract catalog",
     description: "Read-only, local. Catalog of the DeXe governance contracts: what each does and where its source lives.",
     inputSchema: {},
     outputSchema: {
@@ -116858,7 +116858,7 @@ async function fetchBackendBalances(base3, chainId, holder) {
 }
 function registerTreasury(server, rpc) {
   server.registerTool("dexe_read_treasury", {
-    title: "Native + ERC20 balances (with USD) for a DAO or arbitrary address",
+    title: "Treasury or wallet balances (native + ERC20, USD)",
     description: "Read-only. Treasury / wallet balances for any address; pass a GovPool address for a DAO treasury. Auto-discovers EVERY token via the DeXe backend with USD prices and a total. Falls back to an on-chain read (chain 97, explicit `tokens`, or a backend failure) \u2014 no token discovery there, and it reports `degraded: true`.",
     inputSchema: {
       holder: external_exports.string().optional().describe("Address whose balances we read (a GovPool for a DAO treasury)"),
@@ -119297,7 +119297,7 @@ var NO_GATEWAY_HINT = "No IPFS gateway available \u2014 the public read gateways
 function registerFetch(server, defaultGateways) {
   server.registerTool("dexe_ipfs_fetch", {
     title: "Fetch content by CID (dedicated gateway, optional fallback)",
-    description: "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (dedicated; Pinata issues one with the JWT). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
+    description: "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (a dedicated gateway, e.g. Pinata's). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
     inputSchema: {
       cid: external_exports.string().describe("CID (with or without ipfs:// prefix)"),
       timeoutMs: external_exports.number().int().min(500).max(3e4).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000).")
@@ -119360,7 +119360,7 @@ function registerFetch(server, defaultGateways) {
 }
 function registerCidInfo(server, gateways) {
   server.registerTool("dexe_ipfs_cid_info", {
-    title: "Parse a CID, show version/codec, compute the alternate version + gateway URLs",
+    title: "Parse an IPFS CID (version, codec, gateway URLs)",
     description: "Read-only, local. Parses a CIDv0/v1, reports codec + multihash, converts v0\u2194v1 when legal, and emits a URL per configured gateway.",
     inputSchema: {
       cid: external_exports.string().describe("CID (with or without ipfs:// prefix)")
@@ -139216,7 +139216,7 @@ function resolveEndpoint(ctx, kind, chainId) {
 function chainNote(ctx, kind) {
   const indexed = subgraphChains(ctx.config, kind);
   const where = indexed.length ? `chains with a ${kind} endpoint here: ${indexed.join(", ")}` : `no ${kind} endpoint configured`;
-  return ` Pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); the reply echoes \`indexedChainId\`, never another chain's rows. No endpoint for a chain = an error; read it on-chain with dexe_read_multicall (needs DEXE_TOOLSETS=core,read) or dexe_read_gov_state (needs DEXE_TOOLSETS=core,dev).`;
+  return ` Pass \`chainId\` (${where}; default ${ctx.config.defaultChainId}); the reply echoes \`indexedChainId\`, never another chain's rows. No endpoint for a chain = an error that names the on-chain reads to use instead.`;
 }
 var DAO_LIST_QUERY = (
   /* GraphQL */
@@ -139428,7 +139428,7 @@ function registerSubgraphTools(server, ctx, state) {
   registerValidatorList(server, ctx);
   registerUserActivity(server, ctx);
   registerDaoExperts(server, ctx);
-  registerOtcListSalesForDao(server, ctx, state);
+  registerTokenSalesList(server, ctx, state);
   registerGraphQuery(server, ctx);
   registerGraphSchema(server, ctx);
 }
@@ -139539,7 +139539,7 @@ function registerGraphQuery(server, ctx) {
     // used to live in this string is one dexe_graph_schema call away and also
     // ships as dexe://graph-schema — what stays is only what a caller cannot
     // recover after the fact: the traps that make a query silently wrong.
-    description: "Read-only. GraphQL against a DeXe subgraph: 'pools' (DAOs, proposals, voters, delegations, experts, sales), 'interactions' (per-user tx feed), 'validators'. Bound every list with `first:` (max 1000), page with `skip:`; oversized responses are rejected. NEVER guess a name \u2014 call dexe_graph_schema; root fields are not entity names (DaoPool -> `daoPools`). " + graphQueryChainNote(ctx),
+    description: "Read-only. GraphQL against a DeXe subgraph: 'pools' (DAOs, proposals, voters, delegations, experts, sales), 'interactions' (per-user tx feed), 'validators'. Bound every list with `first:` (max 1000), page with `skip:`; oversized responses are rejected. Entity and field names must match the subgraph schema exactly \u2014 root fields are not entity names (DaoPool -> `daoPools`), and a wrong name errors with where to look it up. " + graphQueryChainNote(ctx),
     inputSchema: {
       subgraph: external_exports.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to query"),
       query: external_exports.string().min(1).max(1e4).describe("GraphQL query document (read-only)"),
@@ -139706,8 +139706,8 @@ var GRAPH_SCHEMA_QUERY = (
 );
 function registerGraphSchema(server, ctx) {
   server.registerTool("dexe_graph_schema", {
-    title: "Introspect a DeXe subgraph schema (entities, fields, root query names)",
-    description: "Read-only. Live introspection of a DeXe subgraph schema \u2014 the recovery path when dexe_graph_query answers \"Type 'X' has no field 'Y'\". Omit `entity` for the root query field map (each entity -> the field name to query it by); pass `entity` for that type's fields, '<Entity>_filter' for valid `where:` keys, '<Entity>_orderBy' for valid `orderBy:` values. An unknown name returns ranked candidates. " + graphQueryChainNote(ctx),
+    title: "Introspect a DeXe subgraph schema",
+    description: "Read-only. Live introspection of a DeXe subgraph schema \u2014 the valid names for a GraphQL query, e.g. after \"Type 'X' has no field 'Y'\". Omit `entity` for the root query field map (each entity -> the field name to query it by); pass `entity` for that type's fields, '<Entity>_filter' for valid `where:` keys, '<Entity>_orderBy' for valid `orderBy:` values. An unknown name returns ranked candidates. " + graphQueryChainNote(ctx),
     inputSchema: {
       subgraph: external_exports.enum(["pools", "interactions", "validators"]).describe("Which DeXe subgraph to introspect"),
       entity: external_exports.string().min(1).max(120).optional().describe("Type name to expand, e.g. 'Proposal', 'VoterInPool', 'DaoPool_filter', 'Proposal_orderBy'. Omit for the root query field map."),
@@ -140056,10 +140056,10 @@ var GOV_POOL_HELPERS_DISCOVERY_ABI = new Interface([
   // the placeholder ABI for forward-compat.
   "function getHelperContracts() view returns (address settings, address userKeeper, address validators, address poolRegistry, address votePower)"
 ]);
-function registerOtcListSalesForDao(server, ctx, state) {
+function registerTokenSalesList(server, ctx, state) {
   const rpc = new RpcProvider(ctx.config);
-  server.registerTool("dexe_otc_list_sales_for_dao", {
-    title: "List OTC sale tiers for a DAO",
+  server.registerTool("dexe_read_token_sales", {
+    title: "List a DAO's token sale tiers",
     description: "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with `totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's on-chain isOff flag. On-chain only \u2014 any chain with an RPC; the reply echoes the resolved `chainId`. `tokenSaleProposal` defaults to the address this install's local state records for the DAO; otherwise it is required.",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool address"),
@@ -140182,135 +140182,34 @@ ${pr2.remediation}`);
         }
       });
     } catch (e2) {
-      return errorResult16(toActionableError(e2, "dexe_otc_list_sales_for_dao").message);
+      return errorResult16(toActionableError(e2, "dexe_read_token_sales").message);
     }
   });
 }
 
 // dist/tools/report.js
 init_lib2();
-import { dirname as dirname3, join as join8 } from "node:path";
-import { existsSync as existsSync8, mkdirSync as mkdirSync3, readFileSync as readFileSync7, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
 
-// dist/tools/gate.js
-var CORE = [
+// dist/editions.js
+var READ_TOOLS = [
+  // ── orientation / diagnostics
+  // chains, env readiness, toolsets, recorded DAOs; the signer half is dexe_write_context
   "dexe_context",
   "dexe_guide",
   "dexe_doctor",
+  // chains, subgraph coverage, backend, IPFS read gateways (D6)
   "dexe_get_config",
-  // signer, keyring and upload/WalletConnect/Safe posture — the write half of
-  // what dexe_context and dexe_get_config reported before 0.36.0
-  "dexe_write_context",
-  // composite signing flows
-  "dexe_proposal_create",
-  "dexe_proposal_vote_and_execute",
-  "dexe_dao_create",
-  // OTC composites
-  "dexe_otc_dao_open_sale",
-  "dexe_otc_buyer_status",
-  "dexe_otc_buyer_buy",
-  "dexe_otc_buyer_claim_all",
-  "dexe_otc_list_sales_for_dao",
-  // broadcast + walletconnect
-  "dexe_tx_send",
-  "dexe_tx_status",
-  "dexe_wc_status",
-  "dexe_wc_connect",
-  "dexe_wc_disconnect",
-  // key vote builders (deposit/withdraw/vote/execute/approve) + power read
-  "dexe_vote_build_deposit",
-  "dexe_vote_build_withdraw",
-  "dexe_vote_build_vote",
-  "dexe_vote_build_execute",
-  "dexe_vote_build_erc20_approve",
-  "dexe_vote_user_power",
-  // IPFS upload essentials + avatar
-  "dexe_ipfs_upload_file",
-  "dexe_ipfs_upload_avatar",
-  "dexe_ipfs_upload_proposal_metadata",
-  "dexe_dao_generate_avatar",
-  // on-chain reads + proposal-type discovery for dexe_proposal_create
-  "dexe_read_treasury",
-  "dexe_read_settings",
-  "dexe_proposal_state",
-  "dexe_proposal_list",
-  "dexe_proposal_catalog",
+  // ── DAO / proposal / vote reads
   "dexe_dao_info",
   "dexe_dao_registry_lookup",
+  // also the only way to find a DAO's TokenSaleProposal for the sale reads
   "dexe_dao_predict_addresses",
-  // reporting surface — subgraph + backend analytics, all key-free. These are
-  // what "pull a report about a DAO: activity, members, who voted, statistics"
-  // resolves to; dexe_dao_report is the one-call composite over them.
-  "dexe_dao_report",
-  "dexe_graph_query",
-  // The recovery path for the most common failure of a tool that IS in core.
-  // A bad field name in dexe_graph_query answers with "[recover] … call
-  // dexe_graph_schema" (src/tools/subgraph.ts withSchemaRecoveryHint); if the
-  // session cannot see that tool, the documented recovery is a 404 and the
-  // caller's only remaining move is to guess another field name. Pinned by
-  // tests/tools/default-profile-references.test.ts, which fails on ANY tool
-  // named from a default description that the default profile does not have.
-  "dexe_graph_schema",
-  "dexe_read_dao_list",
-  "dexe_read_dao_stats",
-  "dexe_read_dao_members",
-  "dexe_read_token_holders",
-  "dexe_read_delegation_map",
-  // reports resolve IPFS metadata pointers (DAO profile, proposal descriptions)
-  "dexe_ipfs_fetch"
-];
-var PROPOSALS = [
-  // proposalBuild.ts
-  "dexe_proposal_catalog",
-  "dexe_proposal_build_external",
-  "dexe_proposal_build_internal",
-  "dexe_proposal_build_custom_abi",
-  "dexe_proposal_build_offchain",
-  "dexe_proposal_build_token_transfer",
-  // proposalBuildComplex.ts
-  "dexe_proposal_build_token_distribution",
-  "dexe_proposal_build_token_sale_multi",
-  "dexe_proposal_build_token_sale",
-  "dexe_proposal_build_token_sale_whitelist",
-  "dexe_proposal_build_token_sale_recover",
-  "dexe_proposal_build_create_staking_tier",
-  "dexe_proposal_build_change_math_model",
-  "dexe_proposal_build_modify_dao_profile",
-  "dexe_proposal_build_blacklist",
-  "dexe_proposal_build_reward_multiplier",
-  "dexe_proposal_build_apply_to_dao",
-  "dexe_proposal_build_new_proposal_type",
-  // proposalBuildInternal.ts
-  "dexe_proposal_build_change_validator_balances",
-  "dexe_proposal_build_change_validator_settings",
-  "dexe_proposal_build_monthly_withdraw",
-  "dexe_proposal_build_offchain_internal_proposal",
-  // proposalBuildMore.ts
-  "dexe_proposal_build_change_voting_settings",
-  "dexe_proposal_build_manage_validators",
-  "dexe_proposal_build_add_expert",
-  "dexe_proposal_build_remove_expert",
-  "dexe_proposal_build_withdraw_treasury",
-  "dexe_proposal_build_delegate_to_expert",
-  "dexe_proposal_build_revoke_from_expert",
-  // proposalBuildOffchain.ts (+ backend auth)
-  "dexe_auth_request_nonce",
-  "dexe_auth_login_request",
-  "dexe_auth_login",
-  "dexe_proposal_build_offchain_single_option",
-  "dexe_proposal_build_offchain_multi_option",
-  "dexe_proposal_build_offchain_for_against",
-  "dexe_proposal_build_offchain_settings",
-  "dexe_offchain_build_vote",
-  "dexe_offchain_build_cancel_vote",
-  // IPFS writes proposals need
-  "dexe_ipfs_upload_proposal_metadata",
-  "dexe_ipfs_upload_dao_metadata",
-  "dexe_ipfs_upload_file",
-  "dexe_ipfs_update_dao_metadata"
-];
-var READ = [
-  // read.ts
+  "dexe_proposal_state",
+  "dexe_proposal_list",
+  "dexe_proposal_voters",
+  "dexe_vote_user_power",
+  "dexe_vote_get_votes",
+  // ── on-chain reads (src/tools/read.ts)
   "dexe_read_multicall",
   "dexe_read_treasury",
   "dexe_read_token_holders",
@@ -140325,48 +140224,77 @@ var READ = [
   "dexe_read_distribution_status",
   "dexe_read_staking_info",
   "dexe_read_privacy_policy_status",
-  // subgraph.ts
+  // ── subgraph reads (src/tools/subgraph.ts)
+  "dexe_graph_query",
+  "dexe_graph_schema",
   "dexe_read_dao_list",
   "dexe_read_dao_members",
-  "dexe_read_delegation_map",
-  "dexe_read_validator_list",
-  "dexe_read_user_activity",
   "dexe_read_dao_experts",
-  "dexe_otc_list_sales_for_dao",
-  "dexe_graph_query",
-  // Also in `core` (sets overlap) — it is the recovery path for a core tool's
-  // most common failure, so it cannot be gated behind an env var. The static
-  // dexe://graph-schema resource covers the same ground for anyone reading
-  // rather than calling, but a resource cannot be reached from an error string
-  // the model is acting on.
-  "dexe_graph_schema",
+  "dexe_read_delegation_map",
+  "dexe_read_user_activity",
+  "dexe_read_validator_list",
+  // ── token-sale reads (pure multicall + merkle proof, no signer). Named
+  // dexe_otc_list_sales_for_dao / dexe_otc_buyer_status before 0.36.0 (D4);
+  // the single server still answers to the old names (src/tools/aliases.ts).
+  "dexe_read_token_sales",
+  "dexe_read_token_sale_position",
+  // ── reporting and analysis
   "dexe_dao_report",
-  // proposal.ts
-  "dexe_proposal_state",
-  "dexe_proposal_list",
-  "dexe_proposal_voters",
-  // inbox / predict / risk
   "dexe_user_inbox",
   "dexe_proposal_forecast",
   "dexe_proposal_risk_assess",
-  // dao.ts
-  "dexe_dao_info",
-  "dexe_dao_registry_lookup",
-  "dexe_dao_predict_addresses",
-  // IPFS reads
+  // ── IPFS reads
   "dexe_ipfs_fetch",
   "dexe_ipfs_cid_info",
-  "dexe_ipfs_cid_for_json"
+  // ── decoding / gov-contract reads
+  "dexe_read_gov_state",
+  "dexe_list_gov_contract_types",
+  "dexe_decode_calldata",
+  "dexe_decode_proposal",
+  // ── external Governor reads
+  "dexe_gov_list_governors",
+  "dexe_gov_get_proposal",
+  "dexe_gov_get_voting_power",
+  "dexe_gov_get_quorum",
+  "dexe_gov_get_proposal_threshold",
+  "dexe_gov_get_state",
+  "dexe_gov_has_voted",
+  "dexe_gov_simulate_vote_impact"
 ];
-var AGENTS = [
+var WRITE_TOOLS = [
+  // ── composites that sign and broadcast
+  "dexe_proposal_create",
+  "dexe_proposal_vote_and_execute",
+  "dexe_dao_create",
+  "dexe_otc_dao_open_sale",
+  "dexe_otc_buyer_buy",
+  "dexe_otc_buyer_claim_all",
+  // the deploy calldata dexe_dao_create signs
+  "dexe_dao_build_deploy",
+  // ── signing, broadcast, wallets, personas
+  // signer mode, keyring, Pinata/WalletConnect/Safe posture, the unfinished flow
+  "dexe_write_context",
+  "dexe_tx_send",
+  // the write edition's resume rule depends on it, so it stays beside tx_send
+  "dexe_tx_status",
+  "dexe_wc_status",
+  "dexe_wc_connect",
+  "dexe_wc_disconnect",
   "dexe_agents_list",
   "dexe_agents_fund",
-  "dexe_agents_ledger"
-];
-var VOTE = [
-  // agent keyring (multi-persona/swarm signing surface) — also in `agents`
-  "dexe_agents_list",
-  "dexe_agents_fund",
+  "dexe_agents_ledger",
+  // reports whether the configured signer is an owner
+  "dexe_safe_info",
+  "dexe_safe_propose_tx",
+  // ── IPFS writes and the CID preview they share
+  "dexe_ipfs_upload_proposal_metadata",
+  "dexe_ipfs_upload_dao_metadata",
+  "dexe_ipfs_upload_file",
+  "dexe_ipfs_upload_avatar",
+  "dexe_ipfs_update_dao_metadata",
+  "dexe_dao_generate_avatar",
+  "dexe_ipfs_cid_for_json",
+  // ── vote / stake / claim calldata builders (src/tools/voteBuild.ts)
   "dexe_vote_build_erc20_approve",
   "dexe_vote_build_deposit",
   "dexe_vote_build_withdraw",
@@ -140393,142 +140321,146 @@ var VOTE = [
   "dexe_vote_build_privacy_policy_sign",
   "dexe_vote_build_privacy_policy_agree",
   "dexe_vote_build_multicall",
-  "dexe_vote_user_power",
-  "dexe_vote_get_votes"
-];
-var GOVERNOR = [
+  // ── proposal builders and their catalog
+  "dexe_proposal_catalog",
+  "dexe_proposal_build_external",
+  "dexe_proposal_build_internal",
+  "dexe_proposal_build_custom_abi",
+  "dexe_proposal_build_offchain",
+  "dexe_proposal_build_token_transfer",
+  "dexe_proposal_build_token_distribution",
+  "dexe_proposal_build_token_sale",
+  "dexe_proposal_build_token_sale_multi",
+  "dexe_proposal_build_token_sale_whitelist",
+  "dexe_proposal_build_token_sale_recover",
+  "dexe_proposal_build_create_staking_tier",
+  "dexe_proposal_build_change_math_model",
+  "dexe_proposal_build_modify_dao_profile",
+  "dexe_proposal_build_blacklist",
+  "dexe_proposal_build_reward_multiplier",
+  "dexe_proposal_build_apply_to_dao",
+  "dexe_proposal_build_new_proposal_type",
+  "dexe_proposal_build_change_voting_settings",
+  "dexe_proposal_build_manage_validators",
+  "dexe_proposal_build_add_expert",
+  "dexe_proposal_build_remove_expert",
+  "dexe_proposal_build_withdraw_treasury",
+  "dexe_proposal_build_delegate_to_expert",
+  "dexe_proposal_build_revoke_from_expert",
+  "dexe_proposal_build_change_validator_balances",
+  "dexe_proposal_build_change_validator_settings",
+  "dexe_proposal_build_monthly_withdraw",
+  "dexe_proposal_build_offchain_internal_proposal",
+  // ── off-chain proposals and the backend auth they need
+  "dexe_auth_request_nonce",
+  "dexe_auth_login_request",
+  "dexe_auth_login",
+  "dexe_proposal_build_offchain_single_option",
+  "dexe_proposal_build_offchain_multi_option",
+  "dexe_proposal_build_offchain_for_against",
+  "dexe_proposal_build_offchain_settings",
+  "dexe_offchain_build_vote",
+  "dexe_offchain_build_cancel_vote",
+  // ── pre-checks that exist to serve a write
+  "dexe_merkle_build",
+  "dexe_merkle_proof",
+  "dexe_sim_calldata",
+  "dexe_sim_proposal",
+  "dexe_sim_buy",
+  // ── external Governor writes and their previews
   "dexe_gov_build_propose",
   "dexe_gov_build_vote_cast",
   "dexe_gov_build_queue",
   "dexe_gov_build_execute",
   "dexe_gov_build_delegate",
-  "dexe_gov_get_state",
-  "dexe_gov_has_voted",
   "dexe_gov_build_cancel",
+  "dexe_gov_simulate_proposal",
   "dexe_gov_decode_calldata",
   "dexe_gov_hash_description",
   "dexe_gov_hash_proposal",
-  "dexe_gov_list_governors",
-  "dexe_gov_get_proposal",
-  "dexe_gov_get_voting_power",
-  "dexe_gov_get_quorum",
-  "dexe_gov_get_proposal_threshold",
-  "dexe_gov_simulate_proposal",
-  "dexe_gov_simulate_vote_impact"
-];
-var DEV = [
-  // build.ts
+  // ── dev toolchain: shells out to git / npm / hardhat, reads local artifacts
   "dexe_compile",
   "dexe_test",
   "dexe_coverage",
   "dexe_lint",
-  // introspect.ts
   "dexe_list_contracts",
   "dexe_get_abi",
   "dexe_get_methods",
   "dexe_get_selectors",
   "dexe_find_selector",
   "dexe_get_natspec",
-  "dexe_get_source",
-  // gov.ts (decode + gov-state read + introspection)
-  "dexe_decode_calldata",
-  "dexe_decode_proposal",
-  "dexe_read_gov_state",
-  "dexe_list_gov_contract_types",
-  // simulate.ts
-  "dexe_sim_calldata",
-  "dexe_sim_proposal",
-  "dexe_sim_buy",
-  // merkle.ts
-  "dexe_merkle_build",
-  "dexe_merkle_proof",
-  // safe.ts
-  "dexe_safe_info",
-  "dexe_safe_propose_tx",
-  // low-level deploy (dexe_dao_create is the recommended composite in `core`)
-  "dexe_dao_build_deploy"
+  "dexe_get_source"
 ];
-var TOOLSETS = {
-  core: new Set(CORE),
-  proposals: new Set(PROPOSALS),
-  read: new Set(READ),
-  vote: new Set(VOTE),
-  agents: new Set(AGENTS),
-  governor: new Set(GOVERNOR),
-  dev: new Set(DEV)
-};
-var TOOLSET_UNLOCKS = {
-  core: {
-    unlocks: "the default surface: dexe_context / dexe_write_context / dexe_doctor / dexe_guide, the composites (dexe_dao_create, dexe_proposal_create \u2014 all 33 catalog types \u2014 dexe_proposal_vote_and_execute), the OTC composites, dexe_tx_send/dexe_tx_status + WalletConnect, IPFS uploads, and the key-free reporting reads (dexe_dao_report, dexe_graph_query, dexe_graph_schema, dexe_read_dao_list, dexe_read_dao_stats, dexe_read_dao_members, dexe_read_token_holders, dexe_read_delegation_map, dexe_read_treasury, dexe_read_settings, dexe_proposal_list, dexe_proposal_state, dexe_dao_info)"
-  },
-  proposals: {
-    unlocks: "the ~30 single-purpose dexe_proposal_build_* calldata builders, the off-chain (backend API) proposal types, and dexe_auth_login \u2014 the pre-0.31.0 default, restored verbatim",
-    note: "NOT needed to create a proposal: dexe_proposal_create is already in the default profile and covers every on-chain catalog type."
-  },
-  read: {
-    unlocks: "the long-tail reads the default profile leaves out: dexe_read_multicall, dexe_read_nfts, dexe_read_validators, dexe_read_protocol_stats, dexe_read_expert_status, dexe_read_staking_info, the token-sale/distribution reads, dexe_read_user_activity, dexe_read_dao_experts, dexe_read_validator_list, dexe_proposal_voters, dexe_user_inbox, dexe_proposal_forecast, dexe_proposal_risk_assess, dexe_ipfs_cid_info",
-    note: "The zero-config reporting reads (dao list/stats/members, token_holders, delegation_map, graph_query) are ALREADY in the default profile \u2014 enable `read` only for the names above."
-  },
-  vote: {
-    unlocks: "delegate/undelegate to experts, claim_rewards, staking, NFT multiplier, cancel_vote, validator_vote"
-  },
-  agents: {
-    unlocks: "multi-agent keyring: dexe_agents_list (personas + addresses), dexe_agents_fund (guarded funding), dexe_agents_ledger (who did what, spend per persona)"
-  },
-  governor: {
-    unlocks: "dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs (Uniswap, Compound, Optimism\u2026)"
-  },
-  dev: {
-    unlocks: "dexe_compile + contract introspection (dexe_get_abi / dexe_get_methods / dexe_find_selector), dexe_dao_build_deploy, simulate/decode, merkle, safe"
-  }
-};
-var TOOLSET_CATALOG = {
-  unlocks: TOOLSET_UNLOCKS,
-  defaultCovers: "the default profile already includes dexe_proposal_create (all 33 proposal types) and the reporting reads"
-};
-var DEFAULT_TOOLSETS = ["core"];
-function defaultProfileToolNames() {
+
+// dist/tools/toolsets.js
+function listedCount(table, allow) {
+  const aliases = Object.values(table.aliases ?? {}).filter((target) => allow.has(target)).length;
+  return allow.size + aliases;
+}
+function tableSurface(table) {
   const names2 = /* @__PURE__ */ new Set();
-  for (const set2 of DEFAULT_TOOLSETS)
-    for (const n4 of TOOLSETS[set2])
+  for (const set2 of Object.values(table.sets))
+    for (const n4 of set2)
       names2.add(n4);
   return names2;
 }
-function resolveToolsets(requested) {
-  const req = requested.length > 0 ? [...requested] : [...DEFAULT_TOOLSETS];
-  const unknown2 = req.filter((s2) => s2 !== "full" && !(s2 in TOOLSETS));
+function defaultToolNames(table) {
+  if (table.ungated)
+    return tableSurface(table);
+  const names2 = /* @__PURE__ */ new Set();
+  for (const set2 of table.defaults)
+    for (const n4 of table.sets[set2] ?? [])
+      names2.add(n4);
+  return names2;
+}
+function resolveToolsetsIn(table, requested) {
+  if (table.ungated) {
+    return { names: new Set(tableSurface(table)), unknown: [], full: false, requested: [...table.defaults] };
+  }
+  const req = requested.length > 0 ? [...requested] : [...table.defaults];
+  const unknown2 = req.filter((s2) => s2 !== "full" && !(s2 in table.sets));
   if (req.includes("full")) {
     return { names: null, unknown: unknown2, full: true, requested: req };
   }
-  const known = req.filter((s2) => s2 in TOOLSETS);
-  const effective = known.length > 0 ? known : [...DEFAULT_TOOLSETS];
+  const known = req.filter((s2) => s2 in table.sets);
+  const effective = known.length > 0 ? known : [...table.defaults];
   const names2 = /* @__PURE__ */ new Set();
   for (const s2 of effective)
-    for (const n4 of TOOLSETS[s2])
+    for (const n4 of table.sets[s2])
       names2.add(n4);
   return { names: names2, unknown: unknown2, full: false, requested: effective };
 }
-var FULL_SURFACE_SIZE = new Set(Object.values(TOOLSETS).flatMap((s2) => [...s2])).size;
-var CLIENT_TOOL_CAP = 128;
-function capNote(loaded) {
-  if (loaded <= CLIENT_TOOL_CAP)
-    return "";
-  return ` NOTE: ${loaded} tools exceeds the ${CLIENT_TOOL_CAP}-enabled-tool cap some hosts (VS Code / GitHub Copilot) apply per chat request \u2014 see docs/PROFILES.md for a smaller profile if your client rejects requests.`;
+function restrictToolsetTable(table, keep, catalog) {
+  const allowed = new Set(keep);
+  const sets = {};
+  for (const [name2, members2] of Object.entries(table.sets)) {
+    const kept = [...members2].filter((n4) => allowed.has(n4));
+    if (kept.length > 0)
+      sets[name2] = new Set(kept);
+  }
+  return {
+    sets,
+    defaults: table.defaults.filter((s2) => s2 in sets),
+    ...table.ungated ? { ungated: true } : {},
+    ...catalog ? { catalog } : {}
+  };
 }
-function applyToolGate(server, config2) {
-  const resolved = resolveToolsets(config2.toolsets ?? [...DEFAULT_TOOLSETS]);
-  if (resolved.unknown.length > 0) {
-    process.stderr.write(`[dexe-mcp] unknown DEXE_TOOLSETS: [${resolved.unknown.join(", ")}] \u2014 ignored. Active: [${resolved.full ? "full" : resolved.requested.join(", ")}]. Valid sets: ${Object.keys(TOOLSETS).join(", ")}, full.
-`);
+var READ_EDITION_TOOLSETS = {
+  sets: { read: new Set(READ_TOOLS) },
+  defaults: ["read"],
+  ungated: true,
+  catalog: {
+    unlocks: { read: { unlocks: "every tool this server has" } },
+    defaultCovers: "every tool this server has is already registered"
   }
-  if (resolved.full) {
-    process.stderr.write(`[dexe-mcp] toolsets: full \u2014 all ${FULL_SURFACE_SIZE} tools loaded.${capNote(FULL_SURFACE_SIZE)}
-`);
-    return server;
-  }
-  const allow = resolved.names;
-  process.stderr.write(`[dexe-mcp] toolsets: [${resolved.requested.join(", ")}] \u2192 ${allow.size} tools loaded (set DEXE_TOOLSETS=full to load all, or add sets: ${Object.keys(TOOLSETS).join(", ")}).${capNote(allow.size)}
-`);
+};
+var CLIENT_TOOL_CAP = 128;
+function capNote(listed) {
+  if (listed <= CLIENT_TOOL_CAP)
+    return "";
+  return ` NOTE: ${listed} listed tools exceeds the ${CLIENT_TOOL_CAP}-enabled-tool cap some hosts (VS Code / GitHub Copilot) apply per chat request \u2014 see docs/PROFILES.md for a smaller profile if your client rejects requests.`;
+}
+function filterRegistrations(server, allow) {
   const wrap2 = (fn) => (name2, ...rest) => {
     if (typeof name2 === "string" && !allow.has(name2))
       return void 0;
@@ -140546,6 +140478,32 @@ function applyToolGate(server, config2) {
       return typeof v7 === "function" ? v7.bind(target) : v7;
     }
   });
+}
+function applyToolsetGate(server, config2, table) {
+  if (table.ungated) {
+    const surface = tableSurface(table);
+    if (config2.toolsets?.length) {
+      process.stderr.write(`[dexe-mcp] DEXE_TOOLSETS is not used by this server \u2014 all ${surface.size} tools are loaded.
+`);
+    }
+    return filterRegistrations(server, surface);
+  }
+  const resolved = resolveToolsetsIn(table, config2.toolsets ?? [...table.defaults]);
+  const setNames2 = Object.keys(table.sets);
+  if (resolved.unknown.length > 0) {
+    process.stderr.write(`[dexe-mcp] unknown DEXE_TOOLSETS: [${resolved.unknown.join(", ")}] \u2014 ignored. Active: [${resolved.full ? "full" : resolved.requested.join(", ")}]. Valid sets: ${setNames2.join(", ")}, full.
+`);
+  }
+  if (resolved.full) {
+    const surface = tableSurface(table);
+    process.stderr.write(`[dexe-mcp] toolsets: full \u2014 all ${surface.size} tools loaded.${capNote(listedCount(table, surface))}
+`);
+    return server;
+  }
+  const allow = resolved.names;
+  process.stderr.write(`[dexe-mcp] toolsets: [${resolved.requested.join(", ")}] \u2192 ${allow.size} tools loaded (set DEXE_TOOLSETS=full to load all, or add sets: ${setNames2.join(", ")}).${capNote(listedCount(table, allow))}
+`);
+  return filterRegistrations(server, allow);
 }
 
 // dist/tools/inbox.js
@@ -140639,8 +140597,8 @@ function registerInboxTools(server, ctx, state) {
   const discoveryChains = subgraphChains(ctx.config, "pools");
   const discoveryNote = discoveryChains.length ? `chains that can auto-discover here: ${discoveryChains.join(", ")}` : "NO chain can auto-discover here (no pools subgraph configured)";
   server.registerTool("dexe_user_inbox", {
-    title: "Multi-DAO attention aggregator",
-    description: `Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that chain's pools subgraph (limit 50; ${discoveryNote}); on a chain with none the DAOs this install's local state records on that chain (dexe_context's list) are scanned instead, else pass \`daos[]\` \u2014 the scan itself is pure on-chain. The reply echoes \`indexedChainId\` and \`daoSource\`.`,
+    title: "Pending items for a wallet across DAOs",
+    description: `Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that chain's pools subgraph (limit 50; ${discoveryNote}); on a chain with none the DAOs this install's local state records on that chain are scanned instead, else pass \`daos[]\` \u2014 the scan itself is pure on-chain. The reply echoes \`indexedChainId\` and \`daoSource\`.`,
     inputSchema: {
       user: external_exports.string().describe("User wallet address"),
       daos: external_exports.array(external_exports.string()).max(MAX_INBOX_DAOS).optional().describe("Optional explicit DAO list. On chains with no pools subgraph, omitting it scans this install's known DAOs."),
@@ -140858,7 +140816,6 @@ var REPORT_SECTIONS = [
 ];
 var DEFAULT_ACTIVITY_WINDOW_SEC = 7 * 24 * 60 * 60;
 var DELTA_ROW_CAP = 100;
-var MAX_SNAPSHOTS = 100;
 var GOV_POOL_EXTRA_ABI = new Interface([
   "function getNftContracts() view returns (address nftMultiplier, address expertNft, address dexeExpertNft, address babt)",
   "function descriptionURL() view returns (string)",
@@ -140996,7 +140953,7 @@ var POOLS_REPORT_QUERY = (
   }
 `
 );
-function orphanVoterNote() {
+function orphanVoterNote(toolRef) {
   return `Per-voter stats are missing for this DAO: the pools subgraph holds member rows whose Voter record is null, so this report re-ran without them. Everything below is REAL and complete except totalVotes / totalProposalsCreated / totalVotedProposals / currentVotesReceived / currentVotesDelegated on member rows (each flagged voterStatsUnavailable). This is an indexer data fault, not a timeout \u2014 re-running returns the identical error. For one wallet's power on-chain call ${toolRef("dexe_vote_user_power")}; for their history call ${toolRef("dexe_read_user_activity")}.`;
 }
 function hydrateVoter(row2) {
@@ -141197,89 +141154,6 @@ function parseSince(raw) {
     message: `Could not read \`since\`: "${renderUntrusted(s2, 60)}". Accepted: an ISO-8601 timestamp ("2026-08-01T00:00:00Z"), Unix seconds ("1785000000" or "unix:1785000000"), a block number ("block:62000000"), or "last" to diff against this DAO's previous report run.`
   };
 }
-var REPORT_STORE_VERSION = 1;
-var snapshotKey = (chainId, govPool) => `${chainId}:${govPool.toLowerCase()}`;
-var ReportStore = class {
-  path;
-  constructor(path7) {
-    this.path = path7;
-  }
-  get(chainId, govPool) {
-    const key = snapshotKey(chainId, govPool);
-    return this.read().state.snapshots.find((s2) => snapshotKey(s2.chainId, s2.govPool) === key) ?? null;
-  }
-  put(next) {
-    withWriteLock(this.path, () => {
-      const key = snapshotKey(next.chainId, next.govPool);
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const { raw, state: state2 } = this.read();
-        const merged = {
-          version: REPORT_STORE_VERSION,
-          snapshots: [
-            next,
-            ...state2.snapshots.filter((s2) => snapshotKey(s2.chainId, s2.govPool) !== key)
-          ].slice(0, MAX_SNAPSHOTS)
-        };
-        if (this.publish(merged, raw) !== "stale")
-          return;
-      }
-      const { state } = this.read();
-      this.publish({
-        version: REPORT_STORE_VERSION,
-        snapshots: [
-          next,
-          ...state.snapshots.filter((s2) => snapshotKey(s2.chainId, s2.govPool) !== key)
-        ].slice(0, MAX_SNAPSHOTS)
-      }, void 0);
-    });
-  }
-  read() {
-    const empty5 = { version: REPORT_STORE_VERSION, snapshots: [] };
-    try {
-      if (!existsSync8(this.path))
-        return { raw: null, state: empty5 };
-      const raw = readFileSync7(this.path, "utf8");
-      const parsed = JSON.parse(raw);
-      if (parsed?.version !== REPORT_STORE_VERSION || !Array.isArray(parsed.snapshots)) {
-        return { raw, state: empty5 };
-      }
-      return { raw, state: { version: REPORT_STORE_VERSION, snapshots: parsed.snapshots } };
-    } catch (err16) {
-      debugLog("report", `could not read snapshots at ${this.path}`, err16);
-      return { raw: null, state: empty5 };
-    }
-  }
-  /** `undefined` for `expect` skips the compare-and-swap (last-resort publish). */
-  publish(file2, expect) {
-    const tmp = tempStatePath(this.path);
-    try {
-      const dir = dirname3(this.path);
-      if (!existsSync8(dir))
-        mkdirSync3(dir, { recursive: true });
-      writeFileSync4(tmp, JSON.stringify(file2, null, 2), "utf8");
-      if (expect !== void 0) {
-        const now = existsSync8(this.path) ? readFileSync7(this.path, "utf8") : null;
-        if (now !== expect) {
-          rmSync2(tmp, { force: true });
-          return "stale";
-        }
-      }
-      renameWithRetry(tmp, this.path);
-      return "published";
-    } catch (err16) {
-      try {
-        rmSync2(tmp, { force: true });
-      } catch {
-      }
-      process.stderr.write(`[dexe-mcp] could not persist report snapshot to ${this.path} (${safeErrorMessage(err16)}); the next \`since\` diff will have no baseline.
-`);
-      return "failed";
-    }
-  }
-};
-function reportStorePath(config2) {
-  return join8(dirname3(config2.statePath), "reports.json");
-}
 var SECTION_ENVELOPE = external_exports.object({
   available: external_exports.boolean(),
   source: external_exports.enum(["onchain", "subgraph", "mixed", "none"]),
@@ -141374,16 +141248,15 @@ var missing = (reason, followUp) => ({
   ...followUp ? { followUp } : {},
   data: null
 });
-var DEFAULT_PROFILE_TOOLS = defaultProfileToolNames();
 var TOOLSET_PREFERENCE = ["read", "vote", "proposals", "governor", "dev"];
-function toolsetHint(tool) {
-  if (DEFAULT_PROFILE_TOOLS.has(tool))
+function toolsetHint(tool, table = READ_EDITION_TOOLSETS) {
+  if (table.ungated || defaultToolNames(table).has(tool))
     return null;
-  const owner = TOOLSET_PREFERENCE.find((s2) => TOOLSETS[s2]?.has(tool)) ?? Object.keys(TOOLSETS).find((s2) => TOOLSETS[s2].has(tool));
-  return `DEXE_TOOLSETS=${owner ? [...DEFAULT_TOOLSETS, owner].join(",") : "full"}`;
+  const owner = TOOLSET_PREFERENCE.find((s2) => table.sets[s2]?.has(tool)) ?? Object.keys(table.sets).find((s2) => table.sets[s2].has(tool));
+  return `DEXE_TOOLSETS=${owner ? [...table.defaults, owner].join(",") : "full"}`;
 }
-function toolRef(tool, note) {
-  const hint = toolsetHint(tool);
+function toolRefIn(tool, note, table) {
+  const hint = toolsetHint(tool, table);
   const inner = [note, hint].filter(Boolean).join("; ");
   return inner ? `${tool} (${inner})` : tool;
 }
@@ -141423,24 +141296,32 @@ function resolveSource(config2, kind, chainId) {
     };
   }
 }
-function registerReportTools(server, ctx) {
+function registerReportTools(server, ctx, opts = {}) {
   const rpc = new RpcProvider(ctx.config);
-  const store = new ReportStore(reportStorePath(ctx.config));
+  const store = opts.store ?? null;
+  const table = opts.toolsets ?? READ_EDITION_TOOLSETS;
+  const toolRef = (tool, note) => toolRefIn(tool, note, table);
   server.registerTool("dexe_dao_report", {
     title: "Full DAO report \u2014 one call, every section, with a since-diff",
-    description: "Read-only. The whole picture of one DAO in one call \u2014 every section named by `sections` (default all), plus everything with a DEADLINE: open votes, executable proposals and, with `user`, unvoted proposals and claimable rewards. Pass `since` (ISO timestamp, Unix seconds, `block:<n>`, or `last`) for ONLY what changed; each run stores a snapshot so the next `since` diff has a baseline. Sections degrade independently; unavailable ones are NAMED in `unavailable[]` with the reason.",
+    description: store ? "Read-only. The whole picture of one DAO in one call \u2014 every section named by `sections` (default all), plus everything with a DEADLINE: open votes, executable proposals and, with `user`, unvoted proposals and claimable rewards. Pass `since` (ISO timestamp, Unix seconds, `block:<n>`, or `last`) for ONLY what changed; each run stores a snapshot so the next `since` diff has a baseline. Sections degrade independently; unavailable ones are NAMED in `unavailable[]` with the reason." : "Read-only. The whole picture of one DAO in one call \u2014 every section named by `sections` (default all), plus everything with a DEADLINE: open votes, executable proposals and, with `user`, unvoted proposals and claimable rewards. Pass `since` (ISO timestamp, Unix seconds or `block:<n>`) for ONLY what changed since then. Sections degrade independently; unavailable ones are NAMED in `unavailable[]` with the reason.",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool / DAO address"),
       chainId: chainIdParam,
-      since: external_exports.string().optional().describe("Diff anchor: ISO-8601 ('2026-08-01T00:00:00Z'), Unix seconds ('1785000000' / 'unix:\u2026'), a block number ('block:62000000'; a bare integer below 1e9 is read as a block), or 'last' to diff against this DAO's previous report run. Omit for a full point-in-time report."),
+      since: external_exports.string().optional().describe(store ? "Diff anchor: ISO-8601 ('2026-08-01T00:00:00Z'), Unix seconds ('1785000000' / 'unix:\u2026'), a block number ('block:62000000'; a bare integer below 1e9 is read as a block), or 'last' to diff against this DAO's previous report run. Omit for a full point-in-time report." : "Diff anchor: ISO-8601 ('2026-08-01T00:00:00Z'), Unix seconds ('1785000000' / 'unix:\u2026') or a block number ('block:62000000'; a bare integer below 1e9 is read as a block). Omit for a full point-in-time report."),
       sections: external_exports.array(external_exports.enum(REPORT_SECTIONS)).max(REPORT_SECTIONS.length).optional().describe(`Narrow the report. Default: all of ${REPORT_SECTIONS.join(", ")}.`),
       user: external_exports.string().optional().describe("Optional wallet. Adds per-user deadline items: proposals in Voting this user has NOT voted on, and claimable rewards."),
       proposalLimit: external_exports.number().int().min(1).max(100).default(30).describe("How many of the NEWEST proposals to walk for state, outcomes and turnout."),
       memberLimit: external_exports.number().int().min(1).max(200).default(50).describe("Member/delegation rows to fetch (newest joiners first)."),
-      persist: external_exports.boolean().default(true).describe("Store this run's snapshot so a later `since` diff has a baseline. Full runs only \u2014 a `sections`-narrowed run never overwrites it.")
+      // Published only where runs are stored: a server with no store has
+      // nothing for the flag to switch.
+      ...store ? {
+        persist: external_exports.boolean().default(true).describe("Store this run's snapshot so a later `since` diff has a baseline. Full runs only \u2014 a `sections`-narrowed run never overwrites it.")
+      } : {}
     },
     outputSchema: DAO_REPORT_OUTPUT_SHAPE
-  }, async ({ govPool, chainId, since, sections, user, proposalLimit = 30, memberLimit = 50, persist = true }) => {
+  }, async (args) => {
+    const { govPool, chainId, since, sections, user, proposalLimit = 30, memberLimit = 50 } = args;
+    const persist = store !== null && args.persist !== false;
     if (!isAddress(govPool))
       return errorResult17(`Invalid govPool: ${govPool}`);
     if (user !== void 0 && !isAddress(user))
@@ -141470,7 +141351,7 @@ RPC: ${rpcSource.reason}
 Subgraph: ${pools.source.reason}`);
     }
     const nowWall = Math.floor(Date.now() / 1e3);
-    const previous3 = store.get(resolvedChainId, dao);
+    const previous3 = store ? store.get(resolvedChainId, dao) : null;
     let sinceUnix = null;
     let sinceMode = null;
     let sinceNote;
@@ -141482,6 +141363,9 @@ Subgraph: ${pools.source.reason}`);
         sinceMode = "timestamp";
         sinceUnix = parsed.unix;
       } else if (parsed.kind === "lastRun") {
+        if (!store) {
+          return errorResult17(`since: "last" needs a stored previous run, and this server keeps no report snapshots between calls. Pass an explicit anchor instead \u2014 an ISO-8601 timestamp ('2026-08-01T00:00:00Z'), Unix seconds or 'block:<n>' \u2014 for example the time the user last looked at this DAO.`);
+        }
         if (!previous3) {
           return errorResult17(`since: "last" needs a previous report for ${dao} on chain ${resolvedChainId}, and none is stored (this is the first run, or it ran with persist: false). Run dexe_dao_report once without \`since\` to lay down a baseline, or pass an explicit timestamp.`);
         }
@@ -141702,7 +141586,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
         poolsData = r2.data;
         if (r2.degraded) {
           hydrateVoters(poolsData);
-          poolsDegraded = orphanVoterNote();
+          poolsDegraded = orphanVoterNote(toolRef);
         }
       } catch (err16) {
         poolsSource.available = false;
@@ -141744,7 +141628,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
         if (r2.degraded) {
           hydrateDeltaVoters(deltaData2);
           if (!poolsDegraded)
-            poolsDegraded = orphanVoterNote();
+            poolsDegraded = orphanVoterNote(toolRef);
         }
       } catch (err16) {
         deltaError = toActionableError(err16, "dexe_dao_report since-diff").message;
@@ -142021,7 +141905,9 @@ Pass an ISO timestamp or Unix seconds instead.`);
       if (deltaError)
         notes.push(deltaError);
       const usable = previous3 && previous3.at <= nowWall ? previous3 : null;
-      if (!previous3) {
+      if (!store) {
+        notes.push("This server keeps no report snapshots between calls, so state changes and count deltas cannot be computed \u2014 only what the indexer can date since the anchor (new members, delegations, activity).");
+      } else if (!previous3) {
         notes.push("No stored snapshot for this DAO, so state changes and count deltas could not be computed \u2014 only what the indexer can date. This run lays down the baseline; the next `since` diff will be complete.");
       }
       const newProposals = onchainProposals.filter((p4) => {
@@ -142101,7 +141987,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
     }
     let snapshotPersisted = false;
     const fullRun = !sections?.length;
-    if (persist && fullRun && (onchainProposals.length > 0 || latestProposalId !== null || poolsData)) {
+    if (store && persist && fullRun && (onchainProposals.length > 0 || latestProposalId !== null || poolsData)) {
       const proposalStates = {};
       for (const p4 of onchainProposals)
         proposalStates[p4.proposalId] = p4.state;
@@ -142293,6 +142179,95 @@ function renderReport(p4) {
       out.push(`  ${f3}`);
   }
   return out.join("\n");
+}
+
+// dist/lib/reportStoreFile.js
+import { dirname as dirname3, join as join8 } from "node:path";
+import { existsSync as existsSync8, mkdirSync as mkdirSync3, readFileSync as readFileSync7, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+var MAX_SNAPSHOTS = 100;
+var REPORT_STORE_VERSION = 1;
+var snapshotKey = (chainId, govPool) => `${chainId}:${govPool.toLowerCase()}`;
+var FileReportStore = class {
+  path;
+  persistent = true;
+  constructor(path7) {
+    this.path = path7;
+  }
+  get(chainId, govPool) {
+    const key = snapshotKey(chainId, govPool);
+    return this.read().state.snapshots.find((s2) => snapshotKey(s2.chainId, s2.govPool) === key) ?? null;
+  }
+  put(next) {
+    withWriteLock(this.path, () => {
+      const key = snapshotKey(next.chainId, next.govPool);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { raw, state: state2 } = this.read();
+        const merged = {
+          version: REPORT_STORE_VERSION,
+          snapshots: [
+            next,
+            ...state2.snapshots.filter((s2) => snapshotKey(s2.chainId, s2.govPool) !== key)
+          ].slice(0, MAX_SNAPSHOTS)
+        };
+        if (this.publish(merged, raw) !== "stale")
+          return;
+      }
+      const { state } = this.read();
+      this.publish({
+        version: REPORT_STORE_VERSION,
+        snapshots: [
+          next,
+          ...state.snapshots.filter((s2) => snapshotKey(s2.chainId, s2.govPool) !== key)
+        ].slice(0, MAX_SNAPSHOTS)
+      }, void 0);
+    });
+  }
+  read() {
+    const empty5 = { version: REPORT_STORE_VERSION, snapshots: [] };
+    try {
+      if (!existsSync8(this.path))
+        return { raw: null, state: empty5 };
+      const raw = readFileSync7(this.path, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed?.version !== REPORT_STORE_VERSION || !Array.isArray(parsed.snapshots)) {
+        return { raw, state: empty5 };
+      }
+      return { raw, state: { version: REPORT_STORE_VERSION, snapshots: parsed.snapshots } };
+    } catch (err16) {
+      debugLog("report", `could not read snapshots at ${this.path}`, err16);
+      return { raw: null, state: empty5 };
+    }
+  }
+  /** `undefined` for `expect` skips the compare-and-swap (last-resort publish). */
+  publish(file2, expect) {
+    const tmp = tempStatePath(this.path);
+    try {
+      const dir = dirname3(this.path);
+      if (!existsSync8(dir))
+        mkdirSync3(dir, { recursive: true });
+      writeFileSync4(tmp, JSON.stringify(file2, null, 2), "utf8");
+      if (expect !== void 0) {
+        const now = existsSync8(this.path) ? readFileSync7(this.path, "utf8") : null;
+        if (now !== expect) {
+          rmSync2(tmp, { force: true });
+          return "stale";
+        }
+      }
+      renameWithRetry(tmp, this.path);
+      return "published";
+    } catch (err16) {
+      try {
+        rmSync2(tmp, { force: true });
+      } catch {
+      }
+      process.stderr.write(`[dexe-mcp] could not persist report snapshot to ${this.path} (${safeErrorMessage(err16)}); the next \`since\` diff will have no baseline.
+`);
+      return "failed";
+    }
+  }
+};
+function reportStorePath(config2) {
+  return join8(dirname3(config2.statePath), "reports.json");
 }
 
 // dist/lib/signer.js
@@ -144868,10 +144843,10 @@ var FLOWS = [
       },
       {
         id: "verify",
-        tool: "dexe_otc_list_sales_for_dao",
+        tool: "dexe_read_token_sales",
         purpose: "Confirm the tier is live and show its parameters (times are UTC).",
         paramsTemplate: { govPool: "{{govPool}}" },
-        reportOnSuccess: "Report tier id, price, remaining allocation, saleStartTimeUTC/saleEndTimeUTC. Buyers proceed with dexe_otc_buyer_status \u2192 dexe_otc_buyer_buy \u2192 (after sale end) dexe_otc_buyer_claim_all."
+        reportOnSuccess: "Report tier id, price, remaining allocation, saleStartTimeUTC/saleEndTimeUTC. Buyers proceed with dexe_read_token_sale_position \u2192 dexe_otc_buyer_buy \u2192 (after sale end) dexe_otc_buyer_claim_all."
       }
     ],
     gotchaIds: ["amount-conventions"]
@@ -148891,6 +148866,9 @@ async function fetchJsonWithTimeout(url2, init2, timeoutMs) {
 }
 
 // dist/tools/doctor.js
+var READ_DOCTOR_TEXT = {
+  description: "Read-only. Diagnoses env setup \u2014 the cause and the fix of an env-related failure: presence + reachability checks (RPC, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. Warnings are advisories \u2014 a healthy zero-config install always has some."
+};
 function tally(results) {
   let passed = 0;
   let warnings = 0;
@@ -148906,25 +148884,32 @@ function tally(results) {
   const status = failures > 0 ? "fail" : warnings > 0 ? "warn" : "pass";
   return { passed, warnings, failures, status, advisoryOnly: failures === 0 && warnings > 0 };
 }
-function registerDoctorTool(server, config2, extraChecks) {
-  server.tool("dexe_doctor", "Read-only. Diagnoses env setup: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. Call FIRST on an env-related failure. Warnings are advisories \u2014 a healthy zero-config install always has some. `probePin` is the one write: one tiny IPFS pin.", {
+function registerDoctorTool(server, config2, extraChecks, opts = {}) {
+  const table = opts.toolsets ?? READ_EDITION_TOOLSETS;
+  const text5 = opts.text ?? READ_DOCTOR_TEXT;
+  server.tool("dexe_doctor", text5.description, {
     _placeholder: external_exports.boolean().optional().describe("Unused; tool takes no input."),
-    probePin: external_exports.boolean().optional().describe("Probe pin to Pinata (added, then removed) \u2014 use when an IPFS upload fails with HTTP 403.")
+    ...text5.probePin ? { probePin: external_exports.boolean().optional().describe(text5.probePin) } : {}
   }, async (args) => {
     const checks = await runAllChecks({
       config: config2,
-      extraChecks: extraChecks?.({ probePin: args?.probePin === true })
+      extraChecks: extraChecks?.({
+        probePin: text5.probePin !== void 0 && args?.probePin === true
+      })
     });
     const summary = tally(checks);
     const remediationSummary = checks.filter((c4) => c4.status !== "pass" && c4.remediation).map((c4) => `${c4.id}: ${c4.remediation.split("\n")[0]}`);
     const startupTime = new Date(Date.now() - process.uptime() * 1e3).toISOString();
-    const resolvedSets = resolveToolsets(config2.toolsets ?? [...DEFAULT_TOOLSETS]);
+    const resolvedSets = resolveToolsetsIn(table, config2.toolsets ?? [...table.defaults]);
     const toolsets = {
       requested: resolvedSets.requested,
       mode: resolvedSets.full ? "full" : "filtered",
       loadedToolCount: resolvedSets.full ? null : resolvedSets.names.size,
-      availableSets: [...Object.keys(TOOLSETS), "full"],
-      remediation: "Set DEXE_TOOLSETS=full to load every tool, or add sets (read, vote, governor, dev). Restart Claude Code after editing .env.",
+      // An ungated server (the read edition) has nothing to switch on.
+      ...table.ungated ? { ungated: true, availableSets: Object.keys(table.sets) } : {
+        availableSets: [...Object.keys(table.sets), "full"],
+        remediation: "Set DEXE_TOOLSETS=full to load every tool, or add sets (read, vote, governor, dev). Restart Claude Code after editing .env."
+      },
       ...resolvedSets.unknown.length ? { unknownSets: resolvedSets.unknown } : {}
     };
     const envState = getEnvLoadState();
@@ -148959,7 +148944,7 @@ function renderText(r2) {
   if (r2.startupIssues.length) {
     lines.push(`config: ${r2.startupIssues.length} env value(s) were rejected at startup and fell back to defaults \u2014 the server stayed up; see the startup.* rows below.`);
   }
-  lines.push(r2.toolsets.mode === "full" ? `toolsets: full \u2014 all tools loaded${r2.toolsets.unknownSets?.length ? ` (unknown set(s): ${r2.toolsets.unknownSets.join(", ")})` : ""}.` : `toolsets: [${r2.toolsets.requested.join(", ")}] \u2192 ${r2.toolsets.loadedToolCount} tools loaded. Set DEXE_TOOLSETS=full for all.`);
+  lines.push(r2.toolsets.ungated ? `toolsets: all ${r2.toolsets.loadedToolCount} tools loaded (this server has no profiles to pick).` : r2.toolsets.mode === "full" ? `toolsets: full \u2014 all tools loaded${r2.toolsets.unknownSets?.length ? ` (unknown set(s): ${r2.toolsets.unknownSets.join(", ")})` : ""}.` : `toolsets: [${r2.toolsets.requested.join(", ")}] \u2192 ${r2.toolsets.loadedToolCount} tools loaded. Set DEXE_TOOLSETS=full for all.`);
   lines.push("");
   for (const c4 of r2.checks) {
     const tag = c4.status === "pass" ? " OK " : c4.status === "warn" ? "WARN" : "FAIL";
@@ -148979,6 +148964,10 @@ function renderText(r2) {
 }
 
 // dist/diag/writeChecks.js
+var WRITE_DOCTOR_TEXT = {
+  description: "Read-only. Diagnoses env setup \u2014 the cause and the fix of an env-related failure: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. Warnings are advisories \u2014 a healthy zero-config install always has some. `probePin` is the one write: one tiny IPFS pin.",
+  probePin: "Probe pin to Pinata (added, then removed) \u2014 use when an IPFS upload fails with HTTP 403."
+};
 function writeDoctorChecks(opts = {}) {
   return {
     // Presence rows and startup-issue categories over every var the server
@@ -150012,13 +150001,14 @@ ${simSummary}` : res.note,
 
 // dist/tools/operationalContext.js
 init_lib2();
-function describeToolsets(requested, catalog) {
-  const resolved = resolveToolsets(requested);
-  const enabled = resolved.full ? Object.keys(TOOLSETS) : resolved.requested;
+function describeToolsets(requested, table) {
+  const resolved = resolveToolsetsIn(table, requested);
+  const enabled = resolved.full ? Object.keys(table.sets) : resolved.requested;
   const have2 = resolved.full ? null : resolved.names;
-  const hidden3 = Object.keys(TOOLSETS).filter((s2) => !enabled.includes(s2)).map((s2) => {
-    const newToolCount = [...TOOLSETS[s2]].filter((n4) => !have2 || !have2.has(n4)).length;
-    const u4 = catalog.unlocks[s2];
+  const catalog = table.catalog;
+  const hidden3 = Object.keys(table.sets).filter((s2) => !enabled.includes(s2)).map((s2) => {
+    const newToolCount = [...table.sets[s2]].filter((n4) => !have2 || !have2.has(n4)).length;
+    const u4 = catalog?.unlocks[s2];
     return {
       set: s2,
       newToolCount,
@@ -150030,7 +150020,7 @@ function describeToolsets(requested, catalog) {
     enabled,
     hidden: hidden3,
     ...hidden3.length ? {
-      enableHint: `Check the \`enabled\` list first \u2014 ${catalog.defaultCovers}, so a missing capability is usually a wrong tool name, not a gated set. If a tool you actually need is absent: set DEXE_TOOLSETS=${enabled.join(",")},<set> (or =full) in .env \u2014 NEVER in .claude.json \u2014 and restart Claude Code.`
+      enableHint: `Check the \`enabled\` list first \u2014 ${catalog?.defaultCovers ?? "the default profile covers the common reads"}, so a missing capability is usually a wrong tool name, not a gated set. If a tool you actually need is absent: set DEXE_TOOLSETS=${enabled.join(",")},<set> (or =full) in .env \u2014 NEVER in .claude.json \u2014 and restart Claude Code.`
     } : {}
   };
 }
@@ -150079,7 +150069,7 @@ function windowNote(daos, daoLimit, proposals, proposalLimit) {
 }
 function registerOperationalContextTools(server, config2, state, opts) {
   const rpc = new RpcProvider(config2);
-  server.tool("dexe_context", "Read-only. Session orientation \u2014 configured chains and the default, env readiness (RPC/IPFS/subgraph/backend), which toolsets are on or hidden and what the hidden ones unlock, and the DAOs/proposals recorded in this install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Skip it when the user already named the DAO and chain. Persisted DAOs/proposals are WINDOWED; the *Total fields carry real counts.", {
+  server.tool("dexe_context", "Read-only. Session orientation \u2014 configured chains and the default, env readiness (RPC/IPFS/subgraph/backend), which toolsets are on or hidden and what the hidden ones unlock, and the DAOs/proposals recorded in this install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Not needed once the DAO and chain are known. Persisted DAOs/proposals are WINDOWED; the *Total fields carry real counts.", {
     user: external_exports.string().optional().describe("Wallet address: adds its deposited voting power in the newest recorded DAO (one extra RPC call)."),
     daoLimit: external_exports.number().int().min(0).max(MAX_WINDOW).default(DEFAULT_DAO_WINDOW).describe("Recorded DAOs to return, newest first."),
     proposalLimit: external_exports.number().int().min(0).max(MAX_WINDOW).default(DEFAULT_PROPOSAL_WINDOW).describe("Recorded proposals to return, newest first.")
@@ -150282,7 +150272,7 @@ function registerWriteContextTool(server, config2, signer, state) {
 
 // dist/tools/guide.js
 var READ_GUIDE_TEXT = {
-  description: "Read-only, local. Reference guide for reading DeXe DAO data \u2014 querying the subgraph, the backend and the chain, and pulling a whole DAO report \u2014 with the tools to call for each and the known pitfalls. No args or a free-text `intent` returns the menu; `flow` returns the full topic.",
+  description: "Read-only, local. Reference guide for reading DeXe DAO data \u2014 querying the subgraph, the backend and the chain, and pulling a whole DAO report \u2014 with the relevant tools for each and the known pitfalls. No args or a free-text `intent` returns the menu; `flow` returns the full topic.",
   intent: "The user's request in free text \u2014 matched against the topic triggers (e.g. 'weekly report on my DAO').",
   flow: "Exact topic id. Takes precedence over `intent`; omit both for the menu.",
   multiMatchNote: (candidates) => `The request matches several topics (${candidates.join(", ")}). Pick the single best fit.`
@@ -150812,7 +150802,7 @@ function renderSkillRecipe(corpus, flowId, guideTool = "dexe_guide") {
 
 // dist/tools/guideWrite.js
 var FLOW_GUIDE_TEXT = {
-  description: "Read-only, local. Call this FIRST for any multi-step or unfamiliar DeXe request \u2014 'create a DAO', 'launch a token with distribution/OTC/staking', 'open a sale', 'pass this proposal'. Returns the ordered plan (which tools, in what order, with what params), the questions to ask the user with per-parameter risk notes, and the known pitfalls for that journey. Never improvise a governance flow without it. Reference topics answer data questions the same way (flow:\"read_dao_data\" covers the whole read surface). No args or a free-text `intent` returns the menu; `flow` returns the full plan.",
+  description: "Read-only, local. The plan for a multi-step or unfamiliar DeXe request \u2014 'create a DAO', 'launch a token with distribution/OTC/staking', 'open a sale', 'pass this proposal': the ordered steps (which tools, in what order, with what params), the questions to ask the user with per-parameter risk notes, and the known pitfalls for that journey. Reference topics answer data questions the same way (flow:\"read_dao_data\" covers the whole read surface). No args or a free-text `intent` returns the menu; `flow` returns the full plan.",
   intent: "The user's request in free text \u2014 matched against the flow triggers (e.g. 'create a token and sell 20% via OTC').",
   flow: "Exact flow or topic id. Takes precedence over `intent`; omit both for the menu.",
   multiMatchNote: (candidates) => `The request matches several flows (${candidates.join(", ")}). If it genuinely spans more than one (create + distribute + sale + staking), pick launch_token_economy; otherwise pick the single best fit.`
@@ -151133,6 +151123,367 @@ var READ_CORPUS = {
   topics: READ_TOPICS,
   gotchas: READ_GOTCHAS
 };
+
+// dist/tools/aliases.js
+var DEPRECATED_ALIASES = {
+  dexe_otc_buyer_status: "dexe_read_token_sale_position",
+  dexe_otc_list_sales_for_dao: "dexe_read_token_sales"
+};
+var RENAMED_IN = "0.36.0";
+function effectMarker(description) {
+  const m3 = /^[^.]*\.(?=\s)/.exec(description);
+  return m3 ? `${m3[0]} ` : "";
+}
+function applyToolAliases(gated, bare, aliases = DEPRECATED_ALIASES) {
+  const byTarget = /* @__PURE__ */ new Map();
+  for (const [oldName, target] of Object.entries(aliases)) {
+    byTarget.set(target, [...byTarget.get(target) ?? [], oldName]);
+  }
+  return new Proxy(gated, {
+    get(target, prop, receiver) {
+      const v7 = Reflect.get(target, prop, receiver);
+      if (prop !== "registerTool" && prop !== "tool") {
+        return typeof v7 === "function" ? v7.bind(target) : v7;
+      }
+      if (typeof v7 !== "function")
+        return v7;
+      const original = v7.bind(target);
+      return (name2, ...rest) => {
+        const olds = typeof name2 === "string" ? byTarget.get(name2) : void 0;
+        if (!olds)
+          return original(name2, ...rest);
+        if (prop !== "registerTool" || rest[0] === null || typeof rest[0] !== "object") {
+          throw new Error(`${String(name2)} has a deprecated alias, so it must be registered with registerTool(name, config, cb)`);
+        }
+        const registered = original(name2, ...rest);
+        if (registered === void 0)
+          return registered;
+        const cfg = rest[0];
+        const cb = rest[1];
+        for (const oldName of olds) {
+          bare.registerTool(oldName, {
+            ...cfg,
+            ...cfg.title ? { title: `${cfg.title} (old name)` } : {},
+            description: `${effectMarker(cfg.description ?? "")}Deprecated alias of ${String(name2)} (renamed in ${RENAMED_IN}); same input and output.`
+          }, cb);
+        }
+        return registered;
+      };
+    }
+  });
+}
+
+// dist/tools/gate.js
+var CORE = [
+  "dexe_context",
+  "dexe_guide",
+  "dexe_doctor",
+  "dexe_get_config",
+  // signer, keyring and upload/WalletConnect/Safe posture — the write half of
+  // what dexe_context and dexe_get_config reported before 0.36.0
+  "dexe_write_context",
+  // composite signing flows
+  "dexe_proposal_create",
+  "dexe_proposal_vote_and_execute",
+  "dexe_dao_create",
+  // OTC composites, and the two token-sale reads they pair with (renamed from
+  // dexe_otc_buyer_status / dexe_otc_list_sales_for_dao in 0.36.0 — the old
+  // names follow these through the gate as aliases, src/tools/aliases.ts)
+  "dexe_otc_dao_open_sale",
+  "dexe_read_token_sale_position",
+  "dexe_otc_buyer_buy",
+  "dexe_otc_buyer_claim_all",
+  "dexe_read_token_sales",
+  // broadcast + walletconnect
+  "dexe_tx_send",
+  "dexe_tx_status",
+  "dexe_wc_status",
+  "dexe_wc_connect",
+  "dexe_wc_disconnect",
+  // key vote builders (deposit/withdraw/vote/execute/approve) + power read
+  "dexe_vote_build_deposit",
+  "dexe_vote_build_withdraw",
+  "dexe_vote_build_vote",
+  "dexe_vote_build_execute",
+  "dexe_vote_build_erc20_approve",
+  "dexe_vote_user_power",
+  // IPFS upload essentials + avatar
+  "dexe_ipfs_upload_file",
+  "dexe_ipfs_upload_avatar",
+  "dexe_ipfs_upload_proposal_metadata",
+  "dexe_dao_generate_avatar",
+  // on-chain reads + proposal-type discovery for dexe_proposal_create
+  "dexe_read_treasury",
+  "dexe_read_settings",
+  "dexe_proposal_state",
+  "dexe_proposal_list",
+  "dexe_proposal_catalog",
+  "dexe_dao_info",
+  "dexe_dao_registry_lookup",
+  "dexe_dao_predict_addresses",
+  // reporting surface — subgraph + backend analytics, all key-free. These are
+  // what "pull a report about a DAO: activity, members, who voted, statistics"
+  // resolves to; dexe_dao_report is the one-call composite over them.
+  "dexe_dao_report",
+  "dexe_graph_query",
+  // The recovery path for the most common failure of a tool that IS in core.
+  // A bad field name in dexe_graph_query answers with "[recover] … call
+  // dexe_graph_schema" (src/tools/subgraph.ts withSchemaRecoveryHint); if the
+  // session cannot see that tool, the documented recovery is a 404 and the
+  // caller's only remaining move is to guess another field name. Pinned by
+  // tests/tools/default-profile-references.test.ts, which fails on ANY tool
+  // named from a default description that the default profile does not have.
+  "dexe_graph_schema",
+  "dexe_read_dao_list",
+  "dexe_read_dao_stats",
+  "dexe_read_dao_members",
+  "dexe_read_token_holders",
+  "dexe_read_delegation_map",
+  // reports resolve IPFS metadata pointers (DAO profile, proposal descriptions)
+  "dexe_ipfs_fetch"
+];
+var PROPOSALS = [
+  // proposalBuild.ts
+  "dexe_proposal_catalog",
+  "dexe_proposal_build_external",
+  "dexe_proposal_build_internal",
+  "dexe_proposal_build_custom_abi",
+  "dexe_proposal_build_offchain",
+  "dexe_proposal_build_token_transfer",
+  // proposalBuildComplex.ts
+  "dexe_proposal_build_token_distribution",
+  "dexe_proposal_build_token_sale_multi",
+  "dexe_proposal_build_token_sale",
+  "dexe_proposal_build_token_sale_whitelist",
+  "dexe_proposal_build_token_sale_recover",
+  "dexe_proposal_build_create_staking_tier",
+  "dexe_proposal_build_change_math_model",
+  "dexe_proposal_build_modify_dao_profile",
+  "dexe_proposal_build_blacklist",
+  "dexe_proposal_build_reward_multiplier",
+  "dexe_proposal_build_apply_to_dao",
+  "dexe_proposal_build_new_proposal_type",
+  // proposalBuildInternal.ts
+  "dexe_proposal_build_change_validator_balances",
+  "dexe_proposal_build_change_validator_settings",
+  "dexe_proposal_build_monthly_withdraw",
+  "dexe_proposal_build_offchain_internal_proposal",
+  // proposalBuildMore.ts
+  "dexe_proposal_build_change_voting_settings",
+  "dexe_proposal_build_manage_validators",
+  "dexe_proposal_build_add_expert",
+  "dexe_proposal_build_remove_expert",
+  "dexe_proposal_build_withdraw_treasury",
+  "dexe_proposal_build_delegate_to_expert",
+  "dexe_proposal_build_revoke_from_expert",
+  // proposalBuildOffchain.ts (+ backend auth)
+  "dexe_auth_request_nonce",
+  "dexe_auth_login_request",
+  "dexe_auth_login",
+  "dexe_proposal_build_offchain_single_option",
+  "dexe_proposal_build_offchain_multi_option",
+  "dexe_proposal_build_offchain_for_against",
+  "dexe_proposal_build_offchain_settings",
+  "dexe_offchain_build_vote",
+  "dexe_offchain_build_cancel_vote",
+  // IPFS writes proposals need
+  "dexe_ipfs_upload_proposal_metadata",
+  "dexe_ipfs_upload_dao_metadata",
+  "dexe_ipfs_upload_file",
+  "dexe_ipfs_update_dao_metadata"
+];
+var READ = [
+  // read.ts
+  "dexe_read_multicall",
+  "dexe_read_treasury",
+  "dexe_read_token_holders",
+  "dexe_read_dao_stats",
+  "dexe_read_nfts",
+  "dexe_read_validators",
+  "dexe_read_settings",
+  "dexe_read_protocol_stats",
+  "dexe_read_expert_status",
+  "dexe_read_token_sale_tiers",
+  "dexe_read_token_sale_user",
+  "dexe_read_distribution_status",
+  "dexe_read_staking_info",
+  "dexe_read_privacy_policy_status",
+  // subgraph.ts
+  "dexe_read_dao_list",
+  "dexe_read_dao_members",
+  "dexe_read_delegation_map",
+  "dexe_read_validator_list",
+  "dexe_read_user_activity",
+  "dexe_read_dao_experts",
+  "dexe_read_token_sales",
+  "dexe_graph_query",
+  // Also in `core` (sets overlap) — it is the recovery path for a core tool's
+  // most common failure, so it cannot be gated behind an env var. The static
+  // dexe://graph-schema resource covers the same ground for anyone reading
+  // rather than calling, but a resource cannot be reached from an error string
+  // the model is acting on.
+  "dexe_graph_schema",
+  "dexe_dao_report",
+  // proposal.ts
+  "dexe_proposal_state",
+  "dexe_proposal_list",
+  "dexe_proposal_voters",
+  // inbox / predict / risk
+  "dexe_user_inbox",
+  "dexe_proposal_forecast",
+  "dexe_proposal_risk_assess",
+  // dao.ts
+  "dexe_dao_info",
+  "dexe_dao_registry_lookup",
+  "dexe_dao_predict_addresses",
+  // IPFS reads
+  "dexe_ipfs_fetch",
+  "dexe_ipfs_cid_info",
+  "dexe_ipfs_cid_for_json"
+];
+var AGENTS = [
+  "dexe_agents_list",
+  "dexe_agents_fund",
+  "dexe_agents_ledger"
+];
+var VOTE = [
+  // agent keyring (multi-persona/swarm signing surface) — also in `agents`
+  "dexe_agents_list",
+  "dexe_agents_fund",
+  "dexe_vote_build_erc20_approve",
+  "dexe_vote_build_deposit",
+  "dexe_vote_build_withdraw",
+  "dexe_vote_build_delegate",
+  "dexe_vote_build_undelegate",
+  "dexe_vote_build_vote",
+  "dexe_vote_build_cancel_vote",
+  "dexe_vote_build_validator_vote",
+  "dexe_vote_build_validator_cancel_vote",
+  "dexe_vote_build_move_to_validators",
+  "dexe_vote_build_execute",
+  "dexe_vote_build_claim_rewards",
+  "dexe_vote_build_claim_micropool_rewards",
+  "dexe_vote_build_nft_multiplier_lock",
+  "dexe_vote_build_nft_multiplier_unlock",
+  "dexe_vote_build_token_sale_buy",
+  "dexe_vote_build_token_sale_claim",
+  "dexe_vote_build_token_sale_vesting_withdraw",
+  "dexe_vote_build_distribution_claim",
+  "dexe_vote_build_staking_stake",
+  "dexe_vote_build_staking_claim",
+  "dexe_vote_build_staking_claim_all",
+  "dexe_vote_build_staking_reclaim",
+  "dexe_vote_build_privacy_policy_sign",
+  "dexe_vote_build_privacy_policy_agree",
+  "dexe_vote_build_multicall",
+  "dexe_vote_user_power",
+  "dexe_vote_get_votes"
+];
+var GOVERNOR = [
+  "dexe_gov_build_propose",
+  "dexe_gov_build_vote_cast",
+  "dexe_gov_build_queue",
+  "dexe_gov_build_execute",
+  "dexe_gov_build_delegate",
+  "dexe_gov_get_state",
+  "dexe_gov_has_voted",
+  "dexe_gov_build_cancel",
+  "dexe_gov_decode_calldata",
+  "dexe_gov_hash_description",
+  "dexe_gov_hash_proposal",
+  "dexe_gov_list_governors",
+  "dexe_gov_get_proposal",
+  "dexe_gov_get_voting_power",
+  "dexe_gov_get_quorum",
+  "dexe_gov_get_proposal_threshold",
+  "dexe_gov_simulate_proposal",
+  "dexe_gov_simulate_vote_impact"
+];
+var DEV = [
+  // build.ts
+  "dexe_compile",
+  "dexe_test",
+  "dexe_coverage",
+  "dexe_lint",
+  // introspect.ts
+  "dexe_list_contracts",
+  "dexe_get_abi",
+  "dexe_get_methods",
+  "dexe_get_selectors",
+  "dexe_find_selector",
+  "dexe_get_natspec",
+  "dexe_get_source",
+  // gov.ts (decode + gov-state read + introspection)
+  "dexe_decode_calldata",
+  "dexe_decode_proposal",
+  "dexe_read_gov_state",
+  "dexe_list_gov_contract_types",
+  // simulate.ts
+  "dexe_sim_calldata",
+  "dexe_sim_proposal",
+  "dexe_sim_buy",
+  // merkle.ts
+  "dexe_merkle_build",
+  "dexe_merkle_proof",
+  // safe.ts
+  "dexe_safe_info",
+  "dexe_safe_propose_tx",
+  // low-level deploy (dexe_dao_create is the recommended composite in `core`)
+  "dexe_dao_build_deploy"
+];
+var TOOLSETS = {
+  core: new Set(CORE),
+  proposals: new Set(PROPOSALS),
+  read: new Set(READ),
+  vote: new Set(VOTE),
+  agents: new Set(AGENTS),
+  governor: new Set(GOVERNOR),
+  dev: new Set(DEV)
+};
+var TOOLSET_UNLOCKS = {
+  core: {
+    unlocks: "the default surface: dexe_context / dexe_write_context / dexe_doctor / dexe_guide, the composites (dexe_dao_create, dexe_proposal_create \u2014 all 33 catalog types \u2014 dexe_proposal_vote_and_execute), the OTC composites, dexe_tx_send/dexe_tx_status + WalletConnect, IPFS uploads, and the key-free reporting reads (dexe_dao_report, dexe_graph_query, dexe_graph_schema, dexe_read_dao_list, dexe_read_dao_stats, dexe_read_dao_members, dexe_read_token_holders, dexe_read_delegation_map, dexe_read_treasury, dexe_read_settings, dexe_proposal_list, dexe_proposal_state, dexe_dao_info)"
+  },
+  proposals: {
+    unlocks: "the ~30 single-purpose dexe_proposal_build_* calldata builders, the off-chain (backend API) proposal types, and dexe_auth_login \u2014 the pre-0.31.0 default, restored verbatim",
+    note: "NOT needed to create a proposal: dexe_proposal_create is already in the default profile and covers every on-chain catalog type."
+  },
+  read: {
+    unlocks: "the long-tail reads the default profile leaves out: dexe_read_multicall, dexe_read_nfts, dexe_read_validators, dexe_read_protocol_stats, dexe_read_expert_status, dexe_read_staking_info, the token-sale/distribution reads, dexe_read_user_activity, dexe_read_dao_experts, dexe_read_validator_list, dexe_proposal_voters, dexe_user_inbox, dexe_proposal_forecast, dexe_proposal_risk_assess, dexe_ipfs_cid_info",
+    note: "The zero-config reporting reads (dao list/stats/members, token_holders, delegation_map, graph_query) are ALREADY in the default profile \u2014 enable `read` only for the names above."
+  },
+  vote: {
+    unlocks: "delegate/undelegate to experts, claim_rewards, staking, NFT multiplier, cancel_vote, validator_vote"
+  },
+  agents: {
+    unlocks: "multi-agent keyring: dexe_agents_list (personas + addresses), dexe_agents_fund (guarded funding), dexe_agents_ledger (who did what, spend per persona)"
+  },
+  governor: {
+    unlocks: "dexe_gov_* surface for external OpenZeppelin/Compound Governor DAOs (Uniswap, Compound, Optimism\u2026)"
+  },
+  dev: {
+    unlocks: "dexe_compile + contract introspection (dexe_get_abi / dexe_get_methods / dexe_find_selector), dexe_dao_build_deploy, simulate/decode, merkle, safe"
+  }
+};
+var TOOLSET_CATALOG = {
+  unlocks: TOOLSET_UNLOCKS,
+  defaultCovers: "the default profile already includes dexe_proposal_create (all 33 proposal types) and the reporting reads"
+};
+var DEFAULT_TOOLSETS = ["core"];
+var SINGLE_SERVER_TOOLSETS = {
+  sets: TOOLSETS,
+  defaults: DEFAULT_TOOLSETS,
+  catalog: TOOLSET_CATALOG,
+  aliases: DEPRECATED_ALIASES
+};
+var WRITE_EDITION_TOOLSETS = restrictToolsetTable(SINGLE_SERVER_TOOLSETS, WRITE_TOOLS);
+function defaultProfileToolNames() {
+  return defaultToolNames(SINGLE_SERVER_TOOLSETS);
+}
+var FULL_SURFACE_SIZE = tableSurface(SINGLE_SERVER_TOOLSETS).size;
+function applyToolGate(server, config2) {
+  return applyToolsetGate(server, config2, SINGLE_SERVER_TOOLSETS);
+}
 
 // dist/knowledge/index.js
 var SINGLE_SERVER_CORPUS = {
@@ -151834,15 +152185,19 @@ var PARTICIPATION_TYPE_NAMES = [
 ];
 function registerTokenSaleReadTools(server, ctx) {
   const rpc = new RpcProvider(ctx.config);
-  server.tool("dexe_otc_buyer_status", "Read-only. Tier params + user state across N tiers: purchasable status, claimable amount, vesting withdrawable, lockup ETA, totalSold, merkle root. `whitelists` adds the user's proof, making `canParticipate` accurate for gated tiers.", {
-    tokenSaleProposal: external_exports.string().describe("TokenSaleProposal helper address"),
-    chainId: chainIdParam,
-    tierIds: external_exports.array(external_exports.string()).min(1).max(MAX_ID_LIST).describe(`Tier ids to report on, decimal strings (1 to ${MAX_ID_LIST}).`),
-    user: external_exports.string().describe("Buyer address to report state for."),
-    whitelists: external_exports.array(external_exports.object({
-      tierId: external_exports.string().describe("Tier the whitelist belongs to, decimal string."),
-      users: external_exports.array(external_exports.string()).min(1).max(MAX_WHITELIST_USERS).describe("Whitelisted addresses, exactly as the merkle root was built.")
-    })).max(MAX_WHITELISTS).default([]).describe("Optional per-tier whitelist (for MerkleWhitelist proof generation).")
+  server.registerTool("dexe_read_token_sale_position", {
+    title: "Token sale position for a wallet",
+    description: "Read-only. Tier params + user state across N tiers: purchasable status, claimable amount, vesting withdrawable, lockup ETA, totalSold, merkle root. `whitelists` adds the user's proof, making `canParticipate` accurate for gated tiers.",
+    inputSchema: {
+      tokenSaleProposal: external_exports.string().describe("TokenSaleProposal helper address"),
+      chainId: chainIdParam,
+      tierIds: external_exports.array(external_exports.string()).min(1).max(MAX_ID_LIST).describe(`Tier ids to report on, decimal strings (1 to ${MAX_ID_LIST}).`),
+      user: external_exports.string().describe("Buyer address to report state for."),
+      whitelists: external_exports.array(external_exports.object({
+        tierId: external_exports.string().describe("Tier the whitelist belongs to, decimal string."),
+        users: external_exports.array(external_exports.string()).min(1).max(MAX_WHITELIST_USERS).describe("Whitelisted addresses, exactly as the merkle root was built.")
+      })).max(MAX_WHITELISTS).default([]).describe("Optional per-tier whitelist (for MerkleWhitelist proof generation).")
+    }
   }, async ({ tokenSaleProposal, chainId, tierIds, user, whitelists }) => {
     if (!isAddress(tokenSaleProposal))
       return err6(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
@@ -151977,7 +152332,7 @@ ${pr2.remediation}`);
       });
       return tokenSaleResult({ tokenSaleProposal, user: userAddr, tiers: summaries });
     } catch (e2) {
-      return err6(toActionableError(e2, "dexe_otc_buyer_status").message);
+      return err6(toActionableError(e2, "dexe_read_token_sale_position").message);
     }
   });
 }
@@ -152645,7 +153000,7 @@ function ok9(data4) {
 function registerPredictTools(server, ctx) {
   const rpc = new RpcProvider(ctx.config);
   server.registerTool("dexe_proposal_forecast", {
-    title: "Predictive proposal pass-rate forecaster",
+    title: "Forecast proposal pass rate and quorum",
     description: "Read-only. Reads the latest 10 proposals on a DAO and their final states and forecasts the pass-rate over DECIDED proposals (still-voting ones are `pending`, never failures), with the average For-vote weight. `quorum.requiredWeight` is an ABSOLUTE vote weight (getTotalPower x quorum / 1e27), not the 1e25 percentage setting. The history cross-check needs a pools subgraph for the chain being forecast; a chain with none is forecast on-chain only (`subgraphHistory: null`, `subgraphNote` says why) \u2014 never from another chain's index. `indexedChainId` reports whose index was used (null = none).",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool address"),
@@ -152909,7 +153264,7 @@ function recommendTreasury(verdict, floorPct) {
 function registerRiskTools(server, ctx) {
   const rpc = new RpcProvider(ctx.config);
   server.registerTool("dexe_proposal_risk_assess", {
-    title: "Treasury-safety risk readout for a proposal (or hypothetical actions)",
+    title: "Analyze treasury risk of a proposal",
     description: "Read-only. Assesses low-quorum treasury risk and privileged no-value governance calls (blacklist, pause, changeVotePower, add/editSettings, changeExecutors, changeBalances). SAFE means 'no risk of the kinds this tool classifies', never 'this proposal is safe'.",
     inputSchema: {
       govPool: external_exports.string().describe("GovPool contract address"),
@@ -154851,6 +155206,147 @@ var governorWriteTools = {
 // dist/tools/annotations.js
 var READ_ONLY = { readOnlyHint: true };
 var LOCAL_READ = { readOnlyHint: true, openWorldHint: false };
+var READ_PUBLIC = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true
+};
+var READ_LOCAL = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
+};
+var READ_CLASSES = {
+  // ── READ_LOCAL — no network at all: local artifacts / the bundled ABI
+  // snapshot, the bundled knowledge corpus, static catalogs, or pure parsing.
+  dexe_decode_calldata: READ_LOCAL,
+  dexe_get_config: READ_LOCAL,
+  dexe_guide: READ_LOCAL,
+  dexe_ipfs_cid_info: READ_LOCAL,
+  dexe_list_gov_contract_types: READ_LOCAL,
+  // ── READ_PUBLIC — reads chain / subgraph / backend / IPFS and returns.
+  dexe_context: READ_PUBLIC,
+  dexe_dao_info: READ_PUBLIC,
+  dexe_dao_predict_addresses: READ_PUBLIC,
+  dexe_dao_registry_lookup: READ_PUBLIC,
+  // The single server writes a snapshot under the state dir as a diff baseline
+  // — an internal cache, not user state; the read edition stores nothing.
+  dexe_dao_report: READ_PUBLIC,
+  dexe_decode_proposal: READ_PUBLIC,
+  dexe_doctor: READ_PUBLIC,
+  dexe_gov_get_proposal: READ_PUBLIC,
+  dexe_gov_get_proposal_threshold: READ_PUBLIC,
+  dexe_gov_get_quorum: READ_PUBLIC,
+  dexe_gov_get_state: READ_PUBLIC,
+  dexe_gov_get_voting_power: READ_PUBLIC,
+  dexe_gov_has_voted: READ_PUBLIC,
+  dexe_gov_list_governors: READ_PUBLIC,
+  dexe_gov_simulate_vote_impact: READ_PUBLIC,
+  dexe_graph_query: READ_PUBLIC,
+  // Live GraphQL introspection against the configured subgraph endpoint
+  // (src/tools/subgraph.ts gqlRequest(GRAPH_SCHEMA_QUERY)) — open world, not a
+  // bundled reference, whatever its position in the toolset profile.
+  dexe_graph_schema: READ_PUBLIC,
+  dexe_ipfs_fetch: READ_PUBLIC,
+  dexe_proposal_forecast: READ_PUBLIC,
+  dexe_proposal_list: READ_PUBLIC,
+  dexe_proposal_risk_assess: READ_PUBLIC,
+  dexe_proposal_state: READ_PUBLIC,
+  dexe_proposal_voters: READ_PUBLIC,
+  dexe_read_dao_experts: READ_PUBLIC,
+  dexe_read_dao_list: READ_PUBLIC,
+  dexe_read_dao_members: READ_PUBLIC,
+  dexe_read_dao_stats: READ_PUBLIC,
+  dexe_read_delegation_map: READ_PUBLIC,
+  dexe_read_distribution_status: READ_PUBLIC,
+  dexe_read_expert_status: READ_PUBLIC,
+  dexe_read_gov_state: READ_PUBLIC,
+  dexe_read_multicall: READ_PUBLIC,
+  dexe_read_nfts: READ_PUBLIC,
+  dexe_read_privacy_policy_status: READ_PUBLIC,
+  dexe_read_protocol_stats: READ_PUBLIC,
+  dexe_read_settings: READ_PUBLIC,
+  dexe_read_staking_info: READ_PUBLIC,
+  dexe_read_token_holders: READ_PUBLIC,
+  dexe_read_token_sale_position: READ_PUBLIC,
+  dexe_read_token_sale_tiers: READ_PUBLIC,
+  dexe_read_token_sale_user: READ_PUBLIC,
+  dexe_read_token_sales: READ_PUBLIC,
+  dexe_read_treasury: READ_PUBLIC,
+  dexe_read_user_activity: READ_PUBLIC,
+  dexe_read_validator_list: READ_PUBLIC,
+  dexe_read_validators: READ_PUBLIC,
+  dexe_user_inbox: READ_PUBLIC,
+  dexe_vote_get_votes: READ_PUBLIC,
+  dexe_vote_user_power: READ_PUBLIC
+};
+var READ_TITLES = {
+  dexe_context: "Session context",
+  dexe_doctor: "Diagnose env setup",
+  dexe_get_config: "Resolved server config",
+  // the read edition's guide serves reference topics only; the single server
+  // titles its flow-plan guide in ./annotationsWrite.ts
+  dexe_guide: "DAO data reading guide"
+};
+var READ_ALWAYS_LOADED = /* @__PURE__ */ new Set(["dexe_context", "dexe_guide"]);
+var READ_ANNOTATIONS = {
+  classes: READ_CLASSES,
+  titles: READ_TITLES,
+  alwaysLoaded: READ_ALWAYS_LOADED
+};
+function annotationsFor(table, name2) {
+  return table.classes[name2];
+}
+function titleFor(table, name2) {
+  return table.titles[name2];
+}
+function metaFor(table, name2) {
+  return table.alwaysLoaded.has(name2) ? { "anthropic/alwaysLoad": true } : void 0;
+}
+function applyToolAnnotations(server, table) {
+  return new Proxy(server, {
+    get(target, prop, receiver) {
+      const v7 = Reflect.get(target, prop, receiver);
+      if (prop !== "registerTool" && prop !== "tool") {
+        return typeof v7 === "function" ? v7.bind(target) : v7;
+      }
+      if (typeof v7 !== "function")
+        return v7;
+      const original = v7.bind(target);
+      return (name2, ...rest) => {
+        if (typeof name2 !== "string")
+          return original(name2, ...rest);
+        const ann = annotationsFor(table, name2);
+        const title = titleFor(table, name2);
+        const meta3 = metaFor(table, name2);
+        if (prop === "registerTool" && rest[0] !== null && typeof rest[0] === "object") {
+          const cfg = rest[0];
+          rest[0] = {
+            ...cfg,
+            ...ann ? { annotations: { ...ann, ...cfg.annotations } } : {},
+            ...cfg.title === void 0 && title !== void 0 ? { title } : {},
+            ...meta3 ? { _meta: { ...meta3, ...cfg._meta } } : {}
+          };
+          return original(name2, ...rest);
+        }
+        const reg = original(name2, ...rest);
+        if (reg && typeof reg === "object") {
+          if (ann && reg.annotations === void 0)
+            reg.annotations = ann;
+          if (title !== void 0 && reg.title === void 0)
+            reg.title = title;
+          if (meta3)
+            reg._meta = { ...meta3, ...reg._meta };
+        }
+        return reg;
+      };
+    }
+  });
+}
+
+// dist/tools/annotationsWrite.js
 var BROADCAST = { readOnlyHint: false, destructiveHint: true };
 var REMOTE_WRITE = { readOnlyHint: false, destructiveHint: false };
 var LOCAL_WRITE = {
@@ -154858,7 +155354,7 @@ var LOCAL_WRITE = {
   destructiveHint: false,
   openWorldHint: false
 };
-var TOOL_CLASSES = {
+var WRITE_CLASSES = {
   // ── BROADCAST — signs a transaction and sends it, or queues one others execute.
   dexe_agents_fund: BROADCAST,
   dexe_dao_create: BROADCAST,
@@ -154897,10 +155393,8 @@ var TOOL_CLASSES = {
   // returns an HTTP request; does not send it
   dexe_auth_request_nonce: LOCAL_READ,
   // same — only dexe_auth_login dispatches
-  dexe_decode_calldata: LOCAL_READ,
   dexe_find_selector: LOCAL_READ,
   dexe_get_abi: LOCAL_READ,
-  dexe_get_config: LOCAL_READ,
   dexe_get_methods: LOCAL_READ,
   dexe_get_natspec: LOCAL_READ,
   dexe_get_selectors: LOCAL_READ,
@@ -154908,11 +155402,8 @@ var TOOL_CLASSES = {
   dexe_gov_decode_calldata: LOCAL_READ,
   dexe_gov_hash_description: LOCAL_READ,
   dexe_gov_hash_proposal: LOCAL_READ,
-  dexe_guide: LOCAL_READ,
   dexe_ipfs_cid_for_json: LOCAL_READ,
-  dexe_ipfs_cid_info: LOCAL_READ,
   dexe_list_contracts: LOCAL_READ,
-  dexe_list_gov_contract_types: LOCAL_READ,
   dexe_merkle_build: LOCAL_READ,
   dexe_merkle_proof: LOCAL_READ,
   dexe_proposal_catalog: LOCAL_READ,
@@ -154922,41 +155413,16 @@ var TOOL_CLASSES = {
   // prerequisite resolution), so openWorldHint stays at its true default.
   dexe_agents_ledger: READ_ONLY,
   dexe_agents_list: READ_ONLY,
-  dexe_context: READ_ONLY,
   dexe_dao_build_deploy: READ_ONLY,
-  dexe_dao_info: READ_ONLY,
-  dexe_dao_predict_addresses: READ_ONLY,
-  dexe_dao_registry_lookup: READ_ONLY,
-  // writes a snapshot under the state dir as a diff baseline — an internal
-  // cache, not user state; the tool has always described itself as read-only.
-  dexe_dao_report: READ_ONLY,
-  dexe_decode_proposal: READ_ONLY,
-  dexe_doctor: READ_ONLY,
   dexe_gov_build_cancel: READ_ONLY,
   dexe_gov_build_delegate: READ_ONLY,
   dexe_gov_build_execute: READ_ONLY,
   dexe_gov_build_propose: READ_ONLY,
   dexe_gov_build_queue: READ_ONLY,
   dexe_gov_build_vote_cast: READ_ONLY,
-  dexe_gov_get_proposal: READ_ONLY,
-  dexe_gov_get_proposal_threshold: READ_ONLY,
-  dexe_gov_get_quorum: READ_ONLY,
-  dexe_gov_get_state: READ_ONLY,
-  dexe_gov_get_voting_power: READ_ONLY,
-  dexe_gov_has_voted: READ_ONLY,
-  dexe_gov_list_governors: READ_ONLY,
   dexe_gov_simulate_proposal: READ_ONLY,
-  dexe_gov_simulate_vote_impact: READ_ONLY,
-  dexe_graph_query: READ_ONLY,
-  // Live GraphQL introspection against the configured subgraph endpoint
-  // (src/tools/subgraph.ts gqlRequest(GRAPH_SCHEMA_QUERY)) — open world, not a
-  // bundled reference, whatever its position in the toolset profile.
-  dexe_graph_schema: READ_ONLY,
-  dexe_ipfs_fetch: READ_ONLY,
   dexe_offchain_build_cancel_vote: READ_ONLY,
   dexe_offchain_build_vote: READ_ONLY,
-  dexe_otc_buyer_status: READ_ONLY,
-  dexe_otc_list_sales_for_dao: READ_ONLY,
   dexe_proposal_build_add_expert: READ_ONLY,
   dexe_proposal_build_apply_to_dao: READ_ONLY,
   dexe_proposal_build_blacklist: READ_ONLY,
@@ -154989,38 +155455,11 @@ var TOOL_CLASSES = {
   dexe_proposal_build_token_sale_whitelist: READ_ONLY,
   dexe_proposal_build_token_transfer: READ_ONLY,
   dexe_proposal_build_withdraw_treasury: READ_ONLY,
-  dexe_proposal_forecast: READ_ONLY,
-  dexe_proposal_list: READ_ONLY,
-  dexe_proposal_risk_assess: READ_ONLY,
-  dexe_proposal_state: READ_ONLY,
-  dexe_proposal_voters: READ_ONLY,
-  dexe_read_dao_experts: READ_ONLY,
-  dexe_read_dao_list: READ_ONLY,
-  dexe_read_dao_members: READ_ONLY,
-  dexe_read_dao_stats: READ_ONLY,
-  dexe_read_delegation_map: READ_ONLY,
-  dexe_read_distribution_status: READ_ONLY,
-  dexe_read_expert_status: READ_ONLY,
-  dexe_read_gov_state: READ_ONLY,
-  dexe_read_multicall: READ_ONLY,
-  dexe_read_nfts: READ_ONLY,
-  dexe_read_privacy_policy_status: READ_ONLY,
-  dexe_read_protocol_stats: READ_ONLY,
-  dexe_read_settings: READ_ONLY,
-  dexe_read_staking_info: READ_ONLY,
-  dexe_read_token_holders: READ_ONLY,
-  dexe_read_token_sale_tiers: READ_ONLY,
-  dexe_read_token_sale_user: READ_ONLY,
-  dexe_read_treasury: READ_ONLY,
-  dexe_read_user_activity: READ_ONLY,
-  dexe_read_validator_list: READ_ONLY,
-  dexe_read_validators: READ_ONLY,
   dexe_safe_info: READ_ONLY,
   dexe_sim_buy: READ_ONLY,
   dexe_sim_calldata: READ_ONLY,
   dexe_sim_proposal: READ_ONLY,
   dexe_tx_status: READ_ONLY,
-  dexe_user_inbox: READ_ONLY,
   dexe_vote_build_cancel_vote: READ_ONLY,
   dexe_vote_build_claim_micropool_rewards: READ_ONLY,
   dexe_vote_build_claim_rewards: READ_ONLY,
@@ -155047,21 +155486,14 @@ var TOOL_CLASSES = {
   dexe_vote_build_validator_vote: READ_ONLY,
   dexe_vote_build_vote: READ_ONLY,
   dexe_vote_build_withdraw: READ_ONLY,
-  dexe_vote_get_votes: READ_ONLY,
-  dexe_vote_user_power: READ_ONLY,
   dexe_wc_status: READ_ONLY,
   // signer posture + keyring; probes each persona's balance over RPC, so open world
   dexe_write_context: READ_ONLY
 };
-var TITLES = {
-  dexe_context: "Session context",
+var WRITE_TITLES = {
   dexe_dao_create: "Deploy a new DAO",
-  dexe_doctor: "Diagnose env setup",
-  dexe_get_config: "Resolved server config",
-  dexe_guide: "Flow plans and pitfalls",
   dexe_otc_buyer_buy: "Buy from an OTC tier",
   dexe_otc_buyer_claim_all: "Claim all OTC purchases",
-  dexe_otc_buyer_status: "OTC buyer position",
   dexe_otc_dao_open_sale: "Open an OTC token sale",
   dexe_proposal_create: "Create a proposal",
   dexe_proposal_vote_and_execute: "Vote on and execute a proposal",
@@ -155077,126 +155509,16 @@ var TITLES = {
   dexe_wc_status: "WalletConnect session state",
   dexe_write_context: "Signer and write posture"
 };
-var ALWAYS_LOADED = /* @__PURE__ */ new Set(["dexe_context", "dexe_guide"]);
-function metaFor(name2) {
-  return ALWAYS_LOADED.has(name2) ? { "anthropic/alwaysLoad": true } : void 0;
-}
-function annotationsFor(name2) {
-  return TOOL_CLASSES[name2];
-}
-function titleFor(name2) {
-  return TITLES[name2];
-}
-function applyToolAnnotations(server) {
-  return new Proxy(server, {
-    get(target, prop, receiver) {
-      const v7 = Reflect.get(target, prop, receiver);
-      if (prop !== "registerTool" && prop !== "tool") {
-        return typeof v7 === "function" ? v7.bind(target) : v7;
-      }
-      if (typeof v7 !== "function")
-        return v7;
-      const original = v7.bind(target);
-      return (name2, ...rest) => {
-        if (typeof name2 !== "string")
-          return original(name2, ...rest);
-        const ann = annotationsFor(name2);
-        const title = titleFor(name2);
-        const meta3 = metaFor(name2);
-        if (prop === "registerTool" && rest[0] !== null && typeof rest[0] === "object") {
-          const cfg = rest[0];
-          rest[0] = {
-            ...cfg,
-            ...ann ? { annotations: { ...ann, ...cfg.annotations } } : {},
-            ...cfg.title === void 0 && title !== void 0 ? { title } : {},
-            ...meta3 ? { _meta: { ...meta3, ...cfg._meta } } : {}
-          };
-          return original(name2, ...rest);
-        }
-        const reg = original(name2, ...rest);
-        if (reg && typeof reg === "object") {
-          if (ann && reg.annotations === void 0)
-            reg.annotations = ann;
-          if (title !== void 0 && reg.title === void 0)
-            reg.title = title;
-          if (meta3)
-            reg._meta = { ...meta3, ...reg._meta };
-        }
-        return reg;
-      };
-    }
-  });
-}
-
-// dist/editions.js
-var READ_TOOLS = [
-  // ── orientation / diagnostics
-  // chains, env readiness, toolsets, recorded DAOs; the signer half is dexe_write_context
-  "dexe_context",
-  "dexe_guide",
-  "dexe_doctor",
-  // chains, subgraph coverage, backend, IPFS read gateways (D6)
-  "dexe_get_config",
-  // ── DAO / proposal / vote reads
-  "dexe_dao_info",
-  "dexe_dao_registry_lookup",
-  // also the only way to find a DAO's TokenSaleProposal for the sale reads
-  "dexe_dao_predict_addresses",
-  "dexe_proposal_state",
-  "dexe_proposal_list",
-  "dexe_proposal_voters",
-  "dexe_vote_user_power",
-  "dexe_vote_get_votes",
-  // ── on-chain reads (src/tools/read.ts)
-  "dexe_read_multicall",
-  "dexe_read_treasury",
-  "dexe_read_token_holders",
-  "dexe_read_dao_stats",
-  "dexe_read_nfts",
-  "dexe_read_validators",
-  "dexe_read_settings",
-  "dexe_read_protocol_stats",
-  "dexe_read_expert_status",
-  "dexe_read_token_sale_tiers",
-  "dexe_read_token_sale_user",
-  "dexe_read_distribution_status",
-  "dexe_read_staking_info",
-  "dexe_read_privacy_policy_status",
-  // ── subgraph reads (src/tools/subgraph.ts)
-  "dexe_graph_query",
-  "dexe_graph_schema",
-  "dexe_read_dao_list",
-  "dexe_read_dao_members",
-  "dexe_read_dao_experts",
-  "dexe_read_delegation_map",
-  "dexe_read_user_activity",
-  "dexe_read_validator_list",
-  // ── token-sale position reads (pure multicall + merkle proof, no signer)
-  "dexe_otc_list_sales_for_dao",
-  "dexe_otc_buyer_status",
-  // ── reporting and analysis
-  "dexe_dao_report",
-  "dexe_user_inbox",
-  "dexe_proposal_forecast",
-  "dexe_proposal_risk_assess",
-  // ── IPFS reads
-  "dexe_ipfs_fetch",
-  "dexe_ipfs_cid_info",
-  // ── decoding / gov-contract reads
-  "dexe_read_gov_state",
-  "dexe_list_gov_contract_types",
-  "dexe_decode_calldata",
-  "dexe_decode_proposal",
-  // ── external Governor reads
-  "dexe_gov_list_governors",
-  "dexe_gov_get_proposal",
-  "dexe_gov_get_voting_power",
-  "dexe_gov_get_quorum",
-  "dexe_gov_get_proposal_threshold",
-  "dexe_gov_get_state",
-  "dexe_gov_has_voted",
-  "dexe_gov_simulate_vote_impact"
-];
+var WRITE_ANNOTATIONS = {
+  classes: WRITE_CLASSES,
+  titles: WRITE_TITLES,
+  alwaysLoaded: /* @__PURE__ */ new Set()
+};
+var SINGLE_SERVER_ANNOTATIONS = {
+  classes: { ...READ_ANNOTATIONS.classes, ...WRITE_ANNOTATIONS.classes },
+  titles: { ...READ_ANNOTATIONS.titles, ...WRITE_ANNOTATIONS.titles, dexe_guide: "Flow plans and pitfalls" },
+  alwaysLoaded: READ_ANNOTATIONS.alwaysLoaded
+};
 
 // dist/tools/readGuard.js
 var DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
@@ -155445,9 +155767,9 @@ function installListToolsNormalizer(server) {
 }
 
 // dist/tools/index.js
-function registerAll(server, config2) {
+function registerAll(server, config2, opts = {}) {
   installListToolsNormalizer(server);
-  server = applyReadResultGuard(applyToolAnnotations(applyToolGate(server, config2)), config2);
+  server = applyReadResultGuard(applyToolAnnotations(applyToolAliases(applyToolGate(server, config2), server), SINGLE_SERVER_ANNOTATIONS), config2);
   const artifacts = new Artifacts(config2);
   const runner = new HardhatRunner(config2);
   const selectors = new SelectorIndex(artifacts);
@@ -155468,7 +155790,10 @@ function registerAll(server, config2) {
   registerProposalBuildInternalTools(server, ctx);
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
-  registerReportTools(server, ctx);
+  registerReportTools(server, ctx, {
+    store: opts.reportStore === void 0 ? new FileReportStore(reportStorePath(config2)) : opts.reportStore ?? void 0,
+    toolsets: SINGLE_SERVER_TOOLSETS
+  });
   registerMerkleTools(server, ctx);
   registerPredictTools(server, ctx);
   registerRiskTools(server, ctx);
@@ -155480,13 +155805,16 @@ function registerAll(server, config2) {
   registerTxTools(server, config2, signer, wc);
   registerAgentTools(server, config2, signer);
   registerGetConfigTool(server, ctx);
-  registerDoctorTool(server, config2, writeDoctorChecks);
+  registerDoctorTool(server, config2, writeDoctorChecks, {
+    toolsets: SINGLE_SERVER_TOOLSETS,
+    text: WRITE_DOCTOR_TEXT
+  });
   registerWalletConnectTools(server, config2, signer, wc);
   registerProposalBuildOffchainTools(server, ctx, signer, wc);
   registerFlowTools(server, ctx, signer, wc, state);
   registerDaoCreateTools(server, ctx, signer, wc, state);
   registerOperationalContextTools(server, config2, state, {
-    toolsets: TOOLSET_CATALOG,
+    toolsets: SINGLE_SERVER_TOOLSETS,
     hintSuffix: "Signer, agent keyring, Pinata/WalletConnect/Safe posture and an unfinished flow: dexe_write_context."
   });
   registerWriteContextTool(server, config2, signer, state);
@@ -155508,6 +155836,9 @@ function registerAll(server, config2) {
 var RESUME_SUMMARY = "On re-run, ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped; GovPool.execute and the validator round are NOT \u2014 and a receipt-wait TIMEOUT means the transaction was already broadcast, so check dexe_tx_status before any re-run and never re-send blindly.";
 
 // dist/instructions.js
+var READ_SKILLS = ["dexe-report"];
+
+// dist/instructionsWrite.js
 var SHIPPED_SKILLS = [
   "dexe-agent-team",
   "dexe-create-dao",
@@ -155518,6 +155849,7 @@ var SHIPPED_SKILLS = [
   "dexe-staking",
   "dexe-vote-execute"
 ];
+var WRITE_SKILLS = SHIPPED_SKILLS.filter((s2) => !READ_SKILLS.includes(s2));
 function serverInstructions() {
   const defaultCount = defaultProfileToolNames().size;
   return "Tools for DeXe Protocol governance DAOs, plus dexe_gov_* (needs DEXE_TOOLSETS=core,governor) for external OpenZeppelin/Compound Governors. For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_guide FIRST: it returns the plan, the questions to ask the user, and the known pitfalls. Orientation: dexe_context (chain, env readiness, known DAOs, toolsets off); dexe_write_context (signer, keyring, upload posture). Skip both when the user already named the DAO and chain. Prefer the composites over hand-sequenced calldata: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types \u2014 proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). On partial failure they return the landed-steps ledger \u2014 fix the cause and re-run the same call. " + RESUME_SUMMARY + ` Amounts: composites and proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. Images: pass a LOCAL FILE PATH, never base64 through the conversation. ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). The tool surface is gated by DEXE_TOOLSETS (default '${DEFAULT_TOOLSETS.join(",")}' \u2014 ${defaultCount} tools). dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) are off and not needed: dexe_proposal_create covers every type. dexe_compile, dexe_get_abi, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): compile once before the reads. Recipes and error remedies: resource dexe://playbook; full catalog: dexe://tools. Skills: ${SHIPPED_SKILLS.join(", ")}; dexe-agent-team needs DEXE_TOOLSETS=core,agents plus hot keys.`;
@@ -155970,7 +156302,7 @@ function createInterimReadServerFactory(config2, version5) {
   const build = () => {
     const server = new McpServer({ name: REMOTE_SERVER_NAME, version: version5 }, { instructions: REMOTE_READ_INSTRUCTIONS });
     const served = /* @__PURE__ */ new Set();
-    const { captured } = withStderrCaptured(() => registerAll(remoteReadGuard(server, served), config2));
+    const { captured } = withStderrCaptured(() => registerAll(remoteReadGuard(server, served), config2, { reportStore: null }));
     if (first) {
       first = false;
       names2 = [...served].sort();

@@ -312,15 +312,15 @@ Five composites cover the whole journey (deep dive: [`OTC.md`](./OTC.md)):
 | Tool | Role |
 |------|------|
 | `dexe_otc_dao_open_sale` | multi-tier `createTiers` envelope + IPFS metadata + deposit + `createProposalAndVote` |
-| `dexe_otc_list_sales_for_dao` | list a DAO's tiers (prices, `totalSold`, `isOff`, UTC times) |
-| `dexe_otc_buyer_status` | render-ready buyer view: prices, claimable, vesting, auto-merkle proof |
+| `dexe_read_token_sales` | list a DAO's tiers (prices, `totalSold`, `isOff`, UTC times) |
+| `dexe_read_token_sale_position` | render-ready buyer view: prices, claimable, vesting, auto-merkle proof |
 | `dexe_otc_buyer_buy` | preflight balance/allowance + approve + `buy()` |
 | `dexe_otc_buyer_claim_all` | claims every tier with `canClaim && !isClaimed` |
 
 Owner flow: `dexe_dao_create` (executors pre-wired since v0.19) →
 `dexe_otc_dao_open_sale` → `dexe_proposal_vote_and_execute` → sale is live.
 
-Buyer flow: `dexe_otc_buyer_status` → `dexe_otc_buyer_buy` → (after the sale
+Buyer flow: `dexe_read_token_sale_position` → `dexe_otc_buyer_buy` → (after the sale
 window closes) `dexe_otc_buyer_claim_all`.
 
 **Buyer amounts are decimals-safe.** `dexe_otc_buyer_buy` accepts human units
@@ -431,7 +431,7 @@ read testnet and mainnet without a restart. This covers `dexe_proposal_state` /
 `_list` / `_voters`, `dexe_vote_user_power` / `_get_votes`, the `dexe_read_*`
 family (validators, settings, expert status, token-sale tiers/user,
 distribution, staking, privacy policy, gov state), `dexe_decode_proposal`,
-`dexe_user_inbox`, `dexe_otc_buyer_status` / `dexe_otc_list_sales_for_dao`,
+`dexe_user_inbox`, `dexe_read_token_sale_position` / `dexe_read_token_sales`,
 `dexe_dao_info` / `_registry_lookup` / `_predict_addresses`, and
 `dexe_proposal_forecast`.
 
@@ -564,7 +564,7 @@ Changes require a Claude Code restart.
 | Deploy a DAO (preview → confirm) | `dexe_dao_create` |
 | Create any of the 33 proposal types | `dexe_proposal_create` |
 | Vote + execute (auto-deposit) | `dexe_proposal_vote_and_execute` |
-| Open / inspect / buy / claim an OTC sale | `dexe_otc_dao_open_sale`, `dexe_otc_list_sales_for_dao`, `dexe_otc_buyer_status`, `dexe_otc_buyer_buy`, `dexe_otc_buyer_claim_all` |
+| Open / inspect / buy / claim an OTC sale | `dexe_otc_dao_open_sale`, `dexe_read_token_sales`, `dexe_read_token_sale_position`, `dexe_otc_buyer_buy`, `dexe_otc_buyer_claim_all` |
 | Read DAO/proposal state | `dexe_dao_info`, `dexe_proposal_state`, `dexe_proposal_list`, `dexe_vote_user_power` |
 | Pin metadata / avatars | `dexe_ipfs_upload_proposal_metadata`, `dexe_ipfs_upload_dao_metadata`, `dexe_ipfs_upload_avatar` (or just pass `newAvatarPath` / `avatarPath`) |
 | Build one action / one tx | `dexe_proposal_build_*`, `dexe_vote_build_*` |

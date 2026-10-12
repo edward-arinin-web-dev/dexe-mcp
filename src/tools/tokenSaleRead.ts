@@ -19,7 +19,7 @@ import { VESTING_WITHDRAW_ADVISORY } from "../lib/upstreamAdvisories.js";
 import { MAX_ID_LIST, MAX_WHITELISTS, MAX_WHITELIST_USERS } from "../lib/inputLimits.js";
 
 /**
- * dexe_otc_buyer_status — a buyer's position across tiers of a token sale.
+ * dexe_read_token_sale_position — a buyer's position across tiers of a token sale.
  * One multicall plus a merkle proof computed locally: no signer, no writes.
  *
  * Kept apart from the OTC composites in ./otc.ts (open sale / buy / claim),
@@ -51,36 +51,41 @@ export function registerTokenSaleReadTools(server: McpServer, ctx: ToolContext):
   const rpc = new RpcProvider(ctx.config);
 
   // =============================================
-  // dexe_otc_buyer_status
+  // dexe_read_token_sale_position (was dexe_otc_buyer_status before 0.36.0;
+  // the single server still answers to the old name — src/tools/aliases.ts)
   // =============================================
-  server.tool(
-    "dexe_otc_buyer_status",
-    "Read-only. Tier params + user state across N tiers: purchasable status, claimable amount, vesting " +
-      "withdrawable, lockup ETA, totalSold, merkle root. `whitelists` adds the user's proof, making " +
-      "`canParticipate` accurate for gated tiers.",
+  server.registerTool(
+    "dexe_read_token_sale_position",
     {
-      tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
-      chainId: chainIdParam,
-      tierIds: z
-        .array(z.string())
-        .min(1)
-        .max(MAX_ID_LIST)
-        .describe(`Tier ids to report on, decimal strings (1 to ${MAX_ID_LIST}).`),
-      user: z.string().describe("Buyer address to report state for."),
-      whitelists: z
-        .array(
-          z.object({
-            tierId: z.string().describe("Tier the whitelist belongs to, decimal string."),
-            users: z
-              .array(z.string())
-              .min(1)
-              .max(MAX_WHITELIST_USERS)
-              .describe("Whitelisted addresses, exactly as the merkle root was built."),
-          }),
-        )
-        .max(MAX_WHITELISTS)
-        .default([])
-        .describe("Optional per-tier whitelist (for MerkleWhitelist proof generation)."),
+      title: "Token sale position for a wallet",
+      description:
+        "Read-only. Tier params + user state across N tiers: purchasable status, claimable amount, vesting " +
+        "withdrawable, lockup ETA, totalSold, merkle root. `whitelists` adds the user's proof, making " +
+        "`canParticipate` accurate for gated tiers.",
+      inputSchema: {
+        tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
+        chainId: chainIdParam,
+        tierIds: z
+          .array(z.string())
+          .min(1)
+          .max(MAX_ID_LIST)
+          .describe(`Tier ids to report on, decimal strings (1 to ${MAX_ID_LIST}).`),
+        user: z.string().describe("Buyer address to report state for."),
+        whitelists: z
+          .array(
+            z.object({
+              tierId: z.string().describe("Tier the whitelist belongs to, decimal string."),
+              users: z
+                .array(z.string())
+                .min(1)
+                .max(MAX_WHITELIST_USERS)
+                .describe("Whitelisted addresses, exactly as the merkle root was built."),
+            }),
+          )
+          .max(MAX_WHITELISTS)
+          .default([])
+          .describe("Optional per-tier whitelist (for MerkleWhitelist proof generation)."),
+      },
     },
     async ({ tokenSaleProposal, chainId, tierIds, user, whitelists }) => {
       if (!isAddress(tokenSaleProposal)) return err(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
@@ -300,7 +305,7 @@ export function registerTokenSaleReadTools(server: McpServer, ctx: ToolContext):
 
         return ok({ tokenSaleProposal, user: userAddr, tiers: summaries });
       } catch (e) {
-        return err(toActionableError(e, "dexe_otc_buyer_status").message);
+        return err(toActionableError(e, "dexe_read_token_sale_position").message);
       }
     },
   );

@@ -155,7 +155,7 @@ rule of the form "SAFE ⇒ vote FOR" is a bug.
 your policy. Advisories (`treasuryRisk`) fire automatically on execute paths.
 
 ### 19. Token-sale monitor
-> `/loop 12h — dexe_otc_list_sales_for_dao for DAO X; alert me when a new tier opens or one I follow crosses 80% sold.`
+> `/loop 12h — dexe_read_token_sales for DAO X; alert me when a new tier opens or one I follow crosses 80% sold.`
 
 ---
 

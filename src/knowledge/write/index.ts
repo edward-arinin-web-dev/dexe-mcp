@@ -9,7 +9,7 @@ import { WRITE_CORPUS_GOTCHAS } from "./gotchas.js";
  * calling agent must follow while running one.
  *
  * Steps also call read tools (dexe_proposal_state, dexe_dao_predict_addresses,
- * dexe_read_staking_info, dexe_otc_list_sales_for_dao, dexe_dao_report). The
+ * dexe_read_staking_info, dexe_read_token_sales, dexe_dao_report). The
  * corpus only names them; where they come from is the tool locator's answer
  * (a toolset here, or `providedBy` the read server).
  */

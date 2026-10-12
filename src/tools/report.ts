@@ -1,7 +1,5 @@
 import { z } from "zod";
 import { Interface, isAddress, getAddress } from "ethers";
-import { dirname, join } from "node:path";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import type { ReadConfig, SubgraphKind } from "../configRead.js";
@@ -10,7 +8,6 @@ import { multicall, type Call } from "../lib/multicall.js";
 import { gqlRequest, resolveSubgraphUrl } from "../lib/subgraph.js";
 import { proposalStateLabel } from "../lib/govEnums.js";
 import { quorumAttainmentPct, quorumPctFromRaw, votesShortOfQuorum } from "../lib/quorumRisk.js";
-import { renameWithRetry, tempStatePath, withWriteLock } from "../lib/stateStore.js";
 import { chainIdParam } from "../lib/params.js";
 import { unixToUtc } from "../lib/time.js";
 import { renderUntrusted, untrustedResult } from "../lib/sanitize.js";
@@ -18,7 +15,7 @@ import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/errors.js";
 import { toVoterAddress, withOrphanVoterFallback } from "../lib/subgraph.js";
 import { debugLog } from "../runtime.js";
-import { DEFAULT_TOOLSETS, TOOLSETS, defaultProfileToolNames } from "./gate.js";
+import { defaultToolNames, READ_EDITION_TOOLSETS, type ToolsetTable } from "./toolsets.js";
 import { labelProposalSettings } from "./read.js";
 import {
   GOV_POOL_ABI as GOV_POOL_INBOX_ABI,
@@ -91,9 +88,6 @@ const DEFAULT_ACTIVITY_WINDOW_SEC = 7 * 24 * 60 * 60;
 
 /** Rows kept per delta list — a diff is a summary, not a data dump. */
 const DELTA_ROW_CAP = 100;
-
-/** Snapshots retained in the report store (one per chain+DAO, newest first). */
-const MAX_SNAPSHOTS = 100;
 
 // ---------- ABIs ----------
 
@@ -258,7 +252,7 @@ const POOLS_REPORT_QUERY = /* GraphQL */ `
  * other unavailability string in this file — "indexer data fault" alone states
  * a problem and names no way forward.
  */
-function orphanVoterNote(): string {
+function orphanVoterNote(toolRef: (tool: string) => string): string {
   return (
     "Per-voter stats are missing for this DAO: the pools subgraph holds member rows whose Voter record " +
     "is null, so this report re-ran without them. Everything below is REAL and complete except " +
@@ -533,125 +527,31 @@ export interface ReportSnapshot {
   expertCount: number | null;
 }
 
-interface ReportStoreFile {
-  version: number;
-  snapshots: ReportSnapshot[];
-}
-
-const REPORT_STORE_VERSION = 1;
-
-const snapshotKey = (chainId: number, govPool: string) =>
-  `${chainId}:${govPool.toLowerCase()}`;
-
 /**
- * Per-DAO report snapshots, stored beside `state.json`.
- *
- * Kept OUT of `PersistedState` on purpose: that file is the record of DAOs the
- * user paid gas for, and pushing a growing per-DAO blob through the same
- * read-modify-write would make every deploy re-serialize report history.
- *
- * Same write discipline as `StateStore` — private temp file, cross-process lock
- * (`withWriteLock`), atomic publish (`renameWithRetry`), and a compare-and-swap
- * on the bytes we computed from, so a writer that could not take the lock still
- * cannot erase another window's snapshots. Tolerant at every layer: a missing,
- * corrupt or unwritable store degrades to "no previous run", never to a failed
- * report.
+ * Where run snapshots live between calls — the baseline `since: "last"` and
+ * the state-change diff read. Injected by the composition root: the single
+ * server passes a file store (src/lib/reportStoreFile.ts, `reports.json`
+ * beside `state.json`); the read edition passes none and keeps nothing.
+ * Implementations must degrade to "no previous run", never throw.
  */
-export class ReportStore {
-  constructor(private readonly path: string) {}
-
-  get(chainId: number, govPool: string): ReportSnapshot | null {
-    const key = snapshotKey(chainId, govPool);
-    return (
-      this.read().state.snapshots.find((s) => snapshotKey(s.chainId, s.govPool) === key) ?? null
-    );
-  }
-
-  put(next: ReportSnapshot): void {
-    withWriteLock(this.path, () => {
-      const key = snapshotKey(next.chainId, next.govPool);
-      // Three tries against a concurrent writer, then publish anyway: losing a
-      // snapshot costs one noisier report, so blocking longer buys nothing.
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const { raw, state } = this.read();
-        const merged: ReportStoreFile = {
-          version: REPORT_STORE_VERSION,
-          snapshots: [
-            next,
-            ...state.snapshots.filter((s) => snapshotKey(s.chainId, s.govPool) !== key),
-          ].slice(0, MAX_SNAPSHOTS),
-        };
-        if (this.publish(merged, raw) !== "stale") return;
-      }
-      const { state } = this.read();
-      this.publish(
-        {
-          version: REPORT_STORE_VERSION,
-          snapshots: [
-            next,
-            ...state.snapshots.filter((s) => snapshotKey(s.chainId, s.govPool) !== key),
-          ].slice(0, MAX_SNAPSHOTS),
-        },
-        undefined,
-      );
-    });
-  }
-
-  private read(): { raw: string | null; state: ReportStoreFile } {
-    const empty: ReportStoreFile = { version: REPORT_STORE_VERSION, snapshots: [] };
-    try {
-      if (!existsSync(this.path)) return { raw: null, state: empty };
-      const raw = readFileSync(this.path, "utf8");
-      const parsed = JSON.parse(raw) as Partial<ReportStoreFile>;
-      if (parsed?.version !== REPORT_STORE_VERSION || !Array.isArray(parsed.snapshots)) {
-        return { raw, state: empty };
-      }
-      return { raw, state: { version: REPORT_STORE_VERSION, snapshots: parsed.snapshots } };
-    } catch (err) {
-      debugLog("report", `could not read snapshots at ${this.path}`, err);
-      return { raw: null, state: empty };
-    }
-  }
-
-  /** `undefined` for `expect` skips the compare-and-swap (last-resort publish). */
-  private publish(
-    file: ReportStoreFile,
-    expect: string | null | undefined,
-  ): "published" | "stale" | "failed" {
-    const tmp = tempStatePath(this.path);
-    try {
-      const dir = dirname(this.path);
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      writeFileSync(tmp, JSON.stringify(file, null, 2), "utf8");
-      if (expect !== undefined) {
-        const now = existsSync(this.path) ? readFileSync(this.path, "utf8") : null;
-        if (now !== expect) {
-          rmSync(tmp, { force: true });
-          return "stale";
-        }
-      }
-      renameWithRetry(tmp, this.path);
-      return "published";
-    } catch (err) {
-      try {
-        rmSync(tmp, { force: true });
-      } catch {
-        // Same permission problem that failed the write; nothing more to do.
-      }
-      // stderr only — stdout is the MCP protocol channel. A store that cannot be
-      // written costs future diffs, never this report.
-      process.stderr.write(
-        `[dexe-mcp] could not persist report snapshot to ${this.path} ` +
-          `(${safeErrorMessage(err)}); the next \`since\` diff will have no baseline.\n`,
-      );
-      return "failed";
-    }
-  }
+export interface ReportSnapshotStore {
+  get(chainId: number, govPool: string): ReportSnapshot | null;
+  put(snapshot: ReportSnapshot): void;
 }
 
-/** Sibling of `state.json` — same directory, same lifecycle, separate file. */
-export function reportStorePath(config: ReadConfig): string {
-  return join(dirname(config.statePath), "reports.json");
+export interface ReportToolOptions {
+  /**
+   * Snapshot persistence. Omitted (the read edition): nothing is stored, the
+   * `persist` input is not published, and `since: "last"` is refused with
+   * an explicit-anchor remedy.
+   */
+  store?: ReportSnapshotStore;
+  /**
+   * The server's toolset table, so a followUp that names a tool this session
+   * cannot see says which `DEXE_TOOLSETS` value unlocks it. Default: the read
+   * edition's (ungated — every tool is local, names stay bare).
+   */
+  toolsets?: ToolsetTable;
 }
 
 // ---------- output schema ----------
@@ -805,15 +705,6 @@ const missing = (reason: string, followUp?: string): Section => ({
 // ---------- naming a follow-up tool the caller can actually call ----------
 
 /**
- * The tools a session HAS when `DEXE_TOOLSETS` is unset. Read from the gate,
- * never hand-listed: 0.31.0 moved this boundary (core+proposals → core), and
- * every followUp below is emitted BY that default profile. A name that has
- * quietly left it turns this tool's degradation advice into a confident 404 —
- * which is worse than no advice, because the user follows it.
- */
-const DEFAULT_PROFILE_TOOLS: ReadonlySet<string> = defaultProfileToolNames();
-
-/**
  * Which set to name when a tool lives in several. `read` first because that is
  * where the reads a report signposts live; `dev` last because loading the
  * Solidity dev surface to answer a governance question is the biggest ask.
@@ -829,12 +720,17 @@ const TOOLSET_PREFERENCE = ["read", "vote", "proposals", "governor", "dev"] as c
  * `DEXE_TOOLSETS=read` would take away `dexe_dao_report` itself — the tool that
  * printed the advice.
  */
-export function toolsetHint(tool: string): string | null {
-  if (DEFAULT_PROFILE_TOOLS.has(tool)) return null;
+export function toolsetHint(tool: string, table: ToolsetTable = READ_EDITION_TOOLSETS): string | null {
+  // The tools a session HAS when `DEXE_TOOLSETS` is unset — read from the
+  // table, never hand-listed: 0.31.0 moved this boundary (core+proposals →
+  // core), and every followUp below is emitted BY that default profile. A name
+  // that has quietly left it turns this tool's degradation advice into a
+  // confident 404 — which is worse than no advice, because the user follows it.
+  if (table.ungated || defaultToolNames(table).has(tool)) return null;
   const owner =
-    TOOLSET_PREFERENCE.find((s) => TOOLSETS[s]?.has(tool)) ??
-    Object.keys(TOOLSETS).find((s) => TOOLSETS[s]!.has(tool));
-  return `DEXE_TOOLSETS=${owner ? [...DEFAULT_TOOLSETS, owner].join(",") : "full"}`;
+    TOOLSET_PREFERENCE.find((s) => table.sets[s]?.has(tool)) ??
+    Object.keys(table.sets).find((s) => table.sets[s]!.has(tool));
+  return `DEXE_TOOLSETS=${owner ? [...table.defaults, owner].join(",") : "full"}`;
 }
 
 /**
@@ -843,10 +739,15 @@ export function toolsetHint(tool: string): string | null {
  * every followUp below names a default-profile tool first whenever one can
  * answer the same question.
  */
-export function toolRef(tool: string, note?: string): string {
-  const hint = toolsetHint(tool);
+export function toolRefIn(tool: string, note: string | undefined, table: ToolsetTable): string {
+  const hint = toolsetHint(tool, table);
   const inner = [note, hint].filter(Boolean).join("; ");
   return inner ? `${tool} (${inner})` : tool;
+}
+
+/** `toolRefIn` over the read edition's table (every tool local, names bare). */
+export function toolRef(tool: string, note?: string, table: ToolsetTable = READ_EDITION_TOOLSETS): string {
+  return toolRefIn(tool, note, table);
 }
 
 const str = (v: unknown): string | null =>
@@ -908,20 +809,27 @@ function resolveSource(
 
 // ---------- register ----------
 
-export function registerReportTools(server: McpServer, ctx: ToolContext): void {
+export function registerReportTools(server: McpServer, ctx: ToolContext, opts: ReportToolOptions = {}): void {
   const rpc = new RpcProvider(ctx.config);
-  const store = new ReportStore(reportStorePath(ctx.config));
+  const store = opts.store ?? null;
+  const table = opts.toolsets ?? READ_EDITION_TOOLSETS;
+  // Every followUp below names its tool through this server's own table.
+  const toolRef = (tool: string, note?: string): string => toolRefIn(tool, note, table);
 
   server.registerTool(
     "dexe_dao_report",
     {
       title: "Full DAO report — one call, every section, with a since-diff",
-      description:
-        "Read-only. The whole picture of one DAO in one call — every section named by `sections` (default all), plus " +
-        "everything with a DEADLINE: open votes, executable proposals and, with `user`, unvoted proposals and claimable " +
-        "rewards. Pass `since` (ISO timestamp, Unix seconds, `block:<n>`, or `last`) for ONLY what changed; each run stores " +
-        "a snapshot so the next `since` diff has a baseline. Sections degrade independently; unavailable ones are NAMED in " +
-        "`unavailable[]` with the reason.",
+      description: store
+        ? "Read-only. The whole picture of one DAO in one call — every section named by `sections` (default all), plus " +
+          "everything with a DEADLINE: open votes, executable proposals and, with `user`, unvoted proposals and claimable " +
+          "rewards. Pass `since` (ISO timestamp, Unix seconds, `block:<n>`, or `last`) for ONLY what changed; each run stores " +
+          "a snapshot so the next `since` diff has a baseline. Sections degrade independently; unavailable ones are NAMED in " +
+          "`unavailable[]` with the reason."
+        : "Read-only. The whole picture of one DAO in one call — every section named by `sections` (default all), plus " +
+          "everything with a DEADLINE: open votes, executable proposals and, with `user`, unvoted proposals and claimable " +
+          "rewards. Pass `since` (ISO timestamp, Unix seconds or `block:<n>`) for ONLY what changed since then. Sections " +
+          "degrade independently; unavailable ones are NAMED in `unavailable[]` with the reason.",
       inputSchema: {
         govPool: z.string().describe("GovPool / DAO address"),
         chainId: chainIdParam,
@@ -929,9 +837,13 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           .string()
           .optional()
           .describe(
-            "Diff anchor: ISO-8601 ('2026-08-01T00:00:00Z'), Unix seconds ('1785000000' / 'unix:…'), a block " +
-              "number ('block:62000000'; a bare integer below 1e9 is read as a block), or 'last' to diff against " +
-              "this DAO's previous report run. Omit for a full point-in-time report.",
+            store
+              ? "Diff anchor: ISO-8601 ('2026-08-01T00:00:00Z'), Unix seconds ('1785000000' / 'unix:…'), a block " +
+                  "number ('block:62000000'; a bare integer below 1e9 is read as a block), or 'last' to diff against " +
+                  "this DAO's previous report run. Omit for a full point-in-time report."
+              : "Diff anchor: ISO-8601 ('2026-08-01T00:00:00Z'), Unix seconds ('1785000000' / 'unix:…') or a block " +
+                  "number ('block:62000000'; a bare integer below 1e9 is read as a block). Omit for a full " +
+                  "point-in-time report.",
           ),
         sections: z
           .array(z.enum(REPORT_SECTIONS))
@@ -958,25 +870,25 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           .max(200)
           .default(50)
           .describe("Member/delegation rows to fetch (newest joiners first)."),
-        persist: z
-          .boolean()
-          .default(true)
-          .describe(
-            "Store this run's snapshot so a later `since` diff has a baseline. Full runs only — a `sections`-narrowed run never overwrites it.",
-          ),
+        // Published only where runs are stored: a server with no store has
+        // nothing for the flag to switch.
+        ...(store
+          ? {
+              persist: z
+                .boolean()
+                .default(true)
+                .describe(
+                  "Store this run's snapshot so a later `since` diff has a baseline. Full runs only — a `sections`-narrowed run never overwrites it.",
+                ),
+            }
+          : {}),
       },
       outputSchema: DAO_REPORT_OUTPUT_SHAPE,
     },
-    async ({
-      govPool,
-      chainId,
-      since,
-      sections,
-      user,
-      proposalLimit = 30,
-      memberLimit = 50,
-      persist = true,
-    }) => {
+    async (args) => {
+      const { govPool, chainId, since, sections, user, proposalLimit = 30, memberLimit = 50 } = args;
+      // No store, nothing to persist to — whatever a caller sends.
+      const persist = store !== null && (args as { persist?: boolean }).persist !== false;
       if (!isAddress(govPool)) return errorResult(`Invalid govPool: ${govPool}`);
       if (user !== undefined && !isAddress(user)) return errorResult(`Invalid user: ${user}`);
       const dao = getAddress(govPool);
@@ -1014,7 +926,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
       }
 
       const nowWall = Math.floor(Date.now() / 1000);
-      const previous = store.get(resolvedChainId, dao);
+      const previous = store ? store.get(resolvedChainId, dao) : null;
 
       // ----- `since` resolution -----
       let sinceUnix: number | null = null;
@@ -1027,6 +939,13 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           sinceMode = "timestamp";
           sinceUnix = parsed.unix;
         } else if (parsed.kind === "lastRun") {
+          if (!store) {
+            return errorResult(
+              `since: "last" needs a stored previous run, and this server keeps no report snapshots between ` +
+                `calls. Pass an explicit anchor instead — an ISO-8601 timestamp ('2026-08-01T00:00:00Z'), Unix ` +
+                `seconds or 'block:<n>' — for example the time the user last looked at this DAO.`,
+            );
+          }
           if (!previous) {
             return errorResult(
               `since: "last" needs a previous report for ${dao} on chain ${resolvedChainId}, and none is stored ` +
@@ -1337,7 +1256,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           poolsData = r.data;
           if (r.degraded) {
             hydrateVoters(poolsData);
-            poolsDegraded = orphanVoterNote();
+            poolsDegraded = orphanVoterNote(toolRef);
           }
         } catch (err) {
           poolsSource.available = false;
@@ -1414,7 +1333,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
           deltaData = r.data;
           if (r.degraded) {
             hydrateDeltaVoters(deltaData);
-            if (!poolsDegraded) poolsDegraded = orphanVoterNote();
+            if (!poolsDegraded) poolsDegraded = orphanVoterNote(toolRef);
           }
         } catch (err) {
           deltaError = toActionableError(err, "dexe_dao_report since-diff").message;
@@ -1881,7 +1800,12 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
         const notes: string[] = [];
         if (deltaError) notes.push(deltaError);
         const usable = previous && previous.at <= nowWall ? previous : null;
-        if (!previous) {
+        if (!store) {
+          notes.push(
+            "This server keeps no report snapshots between calls, so state changes and count deltas cannot be " +
+              "computed — only what the indexer can date since the anchor (new members, delegations, activity).",
+          );
+        } else if (!previous) {
           notes.push(
             "No stored snapshot for this DAO, so state changes and count deltas could not be computed — " +
               "only what the indexer can date. This run lays down the baseline; the next `since` diff will be complete.",
@@ -1997,6 +1921,7 @@ export function registerReportTools(server: McpServer, ctx: ToolContext): void {
       //    report the untouched fields as having reset to empty.
       const fullRun = !sections?.length;
       if (
+        store &&
         persist &&
         fullRun &&
         (onchainProposals.length > 0 || latestProposalId !== null || poolsData)

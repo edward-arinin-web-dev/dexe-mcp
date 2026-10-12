@@ -4,8 +4,11 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { listTools, collectParams, type ParamEntry } from "../helpers/listTools.js";
-import { annotationsFor } from "../../src/tools/annotations.js";
+import { annotationsFor as annotationsIn } from "../../src/tools/annotations.js";
+import { SINGLE_SERVER_ANNOTATIONS } from "../../src/tools/annotationsWrite.js";
 import { FLOWS, TOPICS } from "../../src/knowledge/index.js";
+
+const annotationsFor = (name: string) => annotationsIn(SINGLE_SERVER_ANNOTATIONS, name);
 
 /**
  * ── Tool description & schema style guide, mechanically enforced ───────────

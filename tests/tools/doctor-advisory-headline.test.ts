@@ -42,11 +42,17 @@ function doctorHandler(): ToolHandler {
       handler = rest[rest.length - 1] as ToolHandler;
     },
   } as unknown as McpServer;
-  // The single server hands the write checks in; probePin is forwarded to them.
-  registerDoctorTool(server, { startupIssues: [], toolsets: ["core"] } as unknown as DexeConfig, (opts) => {
-    extraChecksMock.opts = opts;
-    return extraChecksMock.checks;
-  });
+  // The single server hands the write checks in, and the wording that publishes
+  // the probePin input; probePin is forwarded to them.
+  registerDoctorTool(
+    server,
+    { startupIssues: [], toolsets: ["core"] } as unknown as DexeConfig,
+    (opts) => {
+      extraChecksMock.opts = opts;
+      return extraChecksMock.checks;
+    },
+    { text: { description: "Read-only. Diagnoses env setup.", probePin: "Probe pin to Pinata." } },
+  );
   return handler!;
 }
 

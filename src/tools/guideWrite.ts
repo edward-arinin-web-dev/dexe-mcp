@@ -18,12 +18,12 @@ import { renderSkillRecipe } from "../knowledge/render.js";
  */
 export const FLOW_GUIDE_TEXT: GuideText = {
   description:
-    "Read-only, local. Call this FIRST for any multi-step or unfamiliar DeXe request — 'create a DAO', " +
-    "'launch a token with distribution/OTC/staking', 'open a sale', 'pass this proposal'. Returns the ordered " +
-    "plan (which tools, in what order, with what params), the questions to ask the user with per-parameter risk " +
-    "notes, and the known pitfalls for that journey. Never improvise a governance flow without it. Reference " +
-    "topics answer data questions the same way (flow:\"read_dao_data\" covers the whole read surface). No args " +
-    "or a free-text `intent` returns the menu; `flow` returns the full plan.",
+    "Read-only, local. The plan for a multi-step or unfamiliar DeXe request — 'create a DAO', " +
+    "'launch a token with distribution/OTC/staking', 'open a sale', 'pass this proposal': the ordered steps " +
+    "(which tools, in what order, with what params), the questions to ask the user with per-parameter risk " +
+    "notes, and the known pitfalls for that journey. Reference topics answer data questions the same way " +
+    "(flow:\"read_dao_data\" covers the whole read surface). No args or a free-text `intent` returns the menu; " +
+    "`flow` returns the full plan.",
   intent:
     "The user's request in free text — matched against the flow triggers (e.g. 'create a token and sell 20% via OTC').",
   flow: "Exact flow or topic id. Takes precedence over `intent`; omit both for the menu.",

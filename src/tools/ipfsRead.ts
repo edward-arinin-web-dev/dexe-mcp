@@ -174,7 +174,7 @@ function registerFetch(server: McpServer, defaultGateways: string[]): void {
     {
       title: "Fetch content by CID (dedicated gateway, optional fallback)",
       description:
-        "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (dedicated; Pinata issues one with the JWT). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
+        "Read-only. Fetches IPFS content via DEXE_IPFS_GATEWAY (a dedicated gateway, e.g. Pinata's). Public gateways are opt-in via DEXE_IPFS_GATEWAYS_FALLBACK, tried after the primary.",
       inputSchema: {
         cid: z.string().describe("CID (with or without ipfs:// prefix)"),
         timeoutMs: z.number().int().min(500).max(30_000).default(DEFAULT_IPFS_HOP_TIMEOUT_MS).describe("Per-gateway timeout in ms (default 10000)."),
@@ -256,7 +256,7 @@ function registerCidInfo(server: McpServer, gateways: string[]): void {
   server.registerTool(
     "dexe_ipfs_cid_info",
     {
-      title: "Parse a CID, show version/codec, compute the alternate version + gateway URLs",
+      title: "Parse an IPFS CID (version, codec, gateway URLs)",
       description:
         "Read-only, local. Parses a CIDv0/v1, reports codec + multihash, converts v0↔v1 when legal, and emits a URL per configured gateway.",
       inputSchema: {

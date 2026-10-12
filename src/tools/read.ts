@@ -266,7 +266,7 @@ function registerTreasury(server: McpServer, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_read_treasury",
     {
-      title: "Native + ERC20 balances (with USD) for a DAO or arbitrary address",
+      title: "Treasury or wallet balances (native + ERC20, USD)",
       description:
         "Read-only. Treasury / wallet balances for any address; pass a GovPool address for a DAO treasury. Auto-discovers " +
         "EVERY token via the DeXe backend with USD prices and a total. Falls back to an on-chain read (chain 97, explicit " +

@@ -7,7 +7,7 @@ import type { StateStore, KnownDao } from "../lib/stateStore.js";
 import { RpcProvider } from "../rpc.js";
 import { subgraphChains } from "../lib/subgraph.js";
 import { maskUrl } from "../lib/redact.js";
-import { resolveToolsets, TOOLSETS, type ToolsetCatalog } from "./gate.js";
+import { resolveToolsetsIn, type ToolsetTable } from "./toolsets.js";
 
 /**
  * `dexe_context` (Phase 3 / v0.14.0) — the "where am I" call. One read that
@@ -28,26 +28,31 @@ import { resolveToolsets, TOOLSETS, type ToolsetCatalog } from "./gate.js";
  * Report enabled vs hidden toolsets + what each hidden set unlocks, so the
  * model can tell the user exactly which DEXE_TOOLSETS value fixes a missing
  * capability instead of dead-ending on an invisible tool.
+ *
+ * `table` is the server's own toolset table (src/tools/toolsets.ts): the
+ * single server's gated profiles, or the read edition's one ungated set, which
+ * reports a single enabled set and nothing hidden.
  */
 export function describeToolsets(
   requested: readonly string[],
-  catalog: ToolsetCatalog,
+  table: ToolsetTable,
 ): {
   enabled: string[];
   hidden: { set: string; newToolCount: number; unlocks: string; note?: string }[];
   enableHint?: string;
 } {
-  const resolved = resolveToolsets(requested);
-  const enabled = resolved.full ? Object.keys(TOOLSETS) : resolved.requested;
+  const resolved = resolveToolsetsIn(table, requested);
+  const enabled = resolved.full ? Object.keys(table.sets) : resolved.requested;
   const have: ReadonlySet<string> | null = resolved.full ? null : resolved.names;
-  const hidden = Object.keys(TOOLSETS)
+  const catalog = table.catalog;
+  const hidden = Object.keys(table.sets)
     .filter((s) => !enabled.includes(s))
     .map((s) => {
       // How many tools this set would ADD. A set whose every tool is already
       // registered is not "hidden" in any useful sense — listing it is how an
       // agent ends up telling the user to restart for a tool they already have.
-      const newToolCount = [...TOOLSETS[s]!].filter((n) => !have || !have.has(n)).length;
-      const u = catalog.unlocks[s];
+      const newToolCount = [...table.sets[s]!].filter((n) => !have || !have.has(n)).length;
+      const u = catalog?.unlocks[s];
       return {
         set: s,
         newToolCount,
@@ -62,7 +67,7 @@ export function describeToolsets(
     ...(hidden.length
       ? {
           enableHint:
-            `Check the \`enabled\` list first — ${catalog.defaultCovers}, so a missing capability is usually a wrong ` +
+            `Check the \`enabled\` list first — ${catalog?.defaultCovers ?? "the default profile covers the common reads"}, so a missing capability is usually a wrong ` +
             "tool name, not a gated set. If a tool you actually need is absent: set " +
             `DEXE_TOOLSETS=${enabled.join(",")},<set> (or =full) in .env — NEVER in .claude.json — ` +
             "and restart Claude Code.",
@@ -152,8 +157,8 @@ function windowNote(
 }
 
 export interface ContextOptions {
-  /** What each toolset unlocks, for `env.toolsets` — the server's own gate catalog. */
-  toolsets: ToolsetCatalog;
+  /** The server's own toolset table, for `env.toolsets`: which sets exist and what each unlocks. */
+  toolsets: ToolsetTable;
   /**
    * Appended to `hint`: where the rest of the session posture lives. The single
    * server names its write context tool here; a read-only server passes nothing.
@@ -173,8 +178,8 @@ export function registerOperationalContextTools(
     "dexe_context",
     "Read-only. Session orientation — configured chains and the default, env readiness (RPC/IPFS/subgraph/backend), " +
       "which toolsets are on or hidden and what the hidden ones unlock, and the DAOs/proposals recorded in this " +
-      "install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Skip it " +
-      "when the user already named the DAO and chain. Persisted DAOs/proposals are WINDOWED; the *Total fields " +
+      "install's local state. Pass `user` to add that wallet's deposited power in the newest recorded DAO. Not " +
+      "needed once the DAO and chain are known. Persisted DAOs/proposals are WINDOWED; the *Total fields " +
       "carry real counts.",
     {
       user: z

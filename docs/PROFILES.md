@@ -24,20 +24,25 @@ themselves; this one is about the shape of the surface.
 `DEXE_TOOLSETS=full` is the union: **169 tools**. The sets overlap, so a
 combination is a union and not a sum.
 
-Measured sizes (real `McpServer` + `InMemoryTransport` `tools/list`, 0.36.0):
+Measured sizes (real `McpServer` + `InMemoryTransport` `tools/list`, 0.36.0).
+The numbers are for the tools. Every profile listed here also carries the two
+**deprecated aliases** of the token-sale reads renamed in 0.36.0
+(`dexe_otc_buyer_status`, `dexe_otc_list_sales_for_dao` — see
+[MIGRATION.md](./MIGRATION.md)): **+2 `tools/list` entries and +2,448 bytes**
+on top of each row, until the aliases are removed in a future major.
 
 | `DEXE_TOOLSETS` | Tools | `tools/list` bytes |
 | --- | ---: | ---: |
-| *(unset — `core`)* | 45 | 93,928 (~92 KB) |
-| `core,agents` | 48 | 98,180 |
-| `core,read` | 64 | 121,048 |
-| `core,vote` | 69 | 139,494 |
-| `core,proposals` | 84 | 189,042 (~185 KB) |
-| `core,read,vote` | 88 | 166,614 |
-| `core,proposals,read,vote` | 127 | 261,728 |
-| `core,proposals,read,vote,agents` | 128 | 263,106 |
-| `core,proposals,read,vote,agents,governor` | 146 | 281,417 |
-| `full` | 169 | 322,440 (~315 KB) |
+| *(unset — `core`)* | 45 | 95,284 (~93 KB) |
+| `core,agents` | 48 | 99,536 |
+| `core,read` | 64 | 123,425 |
+| `core,vote` | 69 | 140,917 |
+| `core,proposals` | 84 | 190,398 (~186 KB) |
+| `core,read,vote` | 88 | 169,058 |
+| `core,proposals,read,vote` | 127 | 264,172 |
+| `core,proposals,read,vote,agents` | 128 | 265,550 |
+| `core,proposals,read,vote,agents,governor` | 146 | 284,397 |
+| `full` | 169 | 325,635 (~318 KB) |
 
 The default profile is held under a hard 96,000-byte ceiling by
 `tests/tools/gate.test.ts`. That is a budget, not a debt line: anything that
@@ -46,8 +51,10 @@ raised it once, from 95,000, for the ~2.5 KB that MCP tool annotations
 (`readOnlyHint` and friends) and the 21 previously missing titles cost —
 bytes the spec asks for, not description bloat. The description-style pass then
 won the headroom back, which is why the default measured 86,742 B against a
-96,000 B line at 0.34.0; it is 93,928 B at 0.36.0, which added
-`dexe_write_context` to `core`. Every tool that was in `core` in 0.33 is still in `core`.
+96,000 B line at 0.34.0; it is 95,284 B at 0.36.0, which added
+`dexe_write_context` to `core` and spells all four MCP hints on every read
+tool. The two deprecated aliases are budgeted separately (under 3,000 B) so
+they cannot crowd out tools. Every tool that was in `core` in 0.33 is still in `core`.
 
 ## If your client caps enabled tools per request
 
@@ -57,30 +64,31 @@ MCP server you have connected, not just this one. `full` (169) is over that on i
 Copilot user who follows an escalation hint to `full` breaks every request
 instead of gaining tools. Claude Code and Claude Desktop have no such cap.
 
-dexe-mcp prints a note on stderr at startup whenever the loaded count exceeds
-that cap, so the mistake is visible in the server log rather than only as an
-opaque client-side error.
+dexe-mcp prints a note on stderr at startup whenever the listed count — tools
+plus the two deprecated aliases — exceeds that cap, so the mistake is visible
+in the server log rather than only as an opaque client-side error.
 
 Recommended combinations when your client has the cap — pick the smallest one
-that covers what you are doing:
+that covers what you are doing. The counts in brackets are what `tools/list`
+carries, aliases included:
 
-- **`core`** (45, the default) — create a DAO, create/vote/execute proposals,
-  run an OTC sale, query the subgraph, pull a DAO report. This is the whole
-  product for most sessions; there is no reason to escalate until a tool is
-  actually missing.
-- **`core,read`** (64) — adds the full analytics surface: validators, experts,
-  staking, distributions, per-user activity, token-sale tiers.
-- **`core,proposals`** (84) — adds every single-purpose proposal builder plus
-  the off-chain voting and IPFS-write tools. Use it when you want the raw
-  unsigned calldata instead of the `dexe_proposal_create` composite.
-- **`core,read,vote`** (88) — the largest "do everything on DeXe" profile with
-  ~40 tools of headroom left for the host's own built-ins and other servers.
-- **`core,proposals,read,vote`** (127) — everything DeXe, no governor/dev.
-  Technically under the cap, but it leaves **one** tool of headroom, so it
-  will trip the moment any other server is connected. Prefer `core,read,vote`.
+- **`core`** (45 tools, 47 listed — the default) — create a DAO,
+  create/vote/execute proposals, run an OTC sale, query the subgraph, pull a
+  DAO report. This is the whole product for most sessions; there is no reason
+  to escalate until a tool is actually missing.
+- **`core,read`** (64, 66 listed) — adds the full analytics surface:
+  validators, experts, staking, distributions, per-user activity, token-sale
+  tiers.
+- **`core,proposals`** (84, 86 listed) — adds every single-purpose proposal
+  builder plus the off-chain voting and IPFS-write tools. Use it when you want
+  the raw unsigned calldata instead of the `dexe_proposal_create` composite.
+- **`core,read,vote`** (88, 90 listed) — the largest "do everything on DeXe"
+  profile with ~38 entries of headroom left for the host's own built-ins and
+  other servers.
 
-`full` (169) and `core,proposals,read,vote,agents,governor` (146) are over the
-cap. Use them on Claude Code / Claude Desktop only.
+`core,proposals,read,vote` (127 tools, **129 listed** since the 0.36.0
+aliases), `full` (169) and `core,proposals,read,vote,agents,governor` (146) are
+over the cap. Use them on Claude Code / Claude Desktop only.
 
 No profile is ever removed or renamed: any `DEXE_TOOLSETS` value that worked
 before still works. Restart the client after editing `.env` —
@@ -94,13 +102,21 @@ to false, `destructiveHint` to true and `openWorldHint` to true — so a
 conformant client has to treat `dexe_read_treasury` as exactly as dangerous as
 `dexe_tx_send`, and may prompt for confirmation on every read.
 
-Classification lives in one file, `src/tools/annotations.ts`, and is applied by
-a single wrapper at registration. It is **exhaustive**: a tool that is not
+Classification lives in one table per edition — the read tools in
+`src/tools/annotations.ts`, the write tools in `src/tools/annotationsWrite.ts`
+(which also merges both for the single server) — and is applied by a single
+wrapper at registration. It is **exhaustive**: a tool that is not
 classified ships with no annotations at all (so the conservative spec default
-still applies) and fails `tests/tools/annotations.test.ts` by name. Only
-spec-meaningful fields are emitted — `destructiveHint` and `idempotentHint` are
-defined as meaningful only when `readOnlyHint` is false, so a read carries one
-key and not four.
+still applies) and fails `tests/tools/annotations.test.ts` by name.
+
+The 54 tools of the read edition (`READ_TOOLS` in `src/editions.ts`) spell all
+four hints as explicit booleans — `readOnlyHint: true`,
+`destructiveHint: false`, `idempotentHint: true`, and `openWorldHint` (true for
+public chain / subgraph / backend / IPFS data, false for the five that compute
+locally) — because connector directories review them that way. Every other
+read emits only the spec-meaningful field: `destructiveHint` and
+`idempotentHint` are defined as meaningful only when `readOnlyHint` is false,
+so a builder carries one key and not four (`tools/list` bytes are budgeted).
 
 The five classes:
 

@@ -6,11 +6,12 @@ something on your side.
 
 ---
 
-## 0.35.0 → 0.36.0 — read this if you read the signer from dexe_context or dexe_get_config
+## 0.35.0 → 0.36.0 — read this if you read the signer from dexe_context or dexe_get_config, or call the OTC read tools by name
 
 Tool count **169 tools** / 19 groups (was 168): new **`dexe_write_context`**,
-in the default `core` profile (45 tools). No emitted calldata changed, no tool
-was renamed, and no write tool's input changed.
+in the default `core` profile (45 tools). No emitted calldata changed and no
+write tool's input changed. Two read tools were renamed; their old names still
+work (item 5).
 
 Orientation is split the way the server itself is being split. `dexe_context`
 and `dexe_get_config` report read-side state only; everything about signing
@@ -59,11 +60,38 @@ moved to `dexe_write_context`.
    no action.
 
 4. **Wording changes in read tools** (no field changed): the `read_dao_data`
-   guide topic, the `multicall-signature-form` gotcha, the
-   `dexe_otc_list_sales_for_dao` description and error, the `dexe_user_inbox`
-   description and the public-RPC hint no longer send an agent to a write tool.
-   The full list is in the CHANGELOG. If you snapshot those texts, or the
-   handshake instructions (now 2,041 characters), re-baseline them.
+   guide topic, the `multicall-signature-form` gotcha, the token-sale list's
+   description and error, the `dexe_user_inbox` description and the public-RPC
+   hint no longer send an agent to a write tool. No read tool's description
+   tells the model to call another tool any more (the subgraph list tools, the
+   GraphQL pair, `dexe_doctor`, `dexe_context`, `dexe_guide`), and seven read
+   titles are shorter. Every read tool now publishes all four MCP hints
+   (`readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`,
+   `openWorldHint`). The full list is in the CHANGELOG. If you snapshot those
+   texts or `tools/list`, or the handshake instructions (2,041 characters,
+   unchanged), re-baseline them.
+
+5. **Two read tools were renamed — the old names keep working.**
+
+   | Old name (deprecated alias) | New name |
+   |---|---|
+   | `dexe_otc_buyer_status` | `dexe_read_token_sale_position` |
+   | `dexe_otc_list_sales_for_dao` | `dexe_read_token_sales` |
+
+   Same input, output and annotations. The `dexe-mcp` server registers each
+   old name as an alias of the new one, so `tools/list` shows 171 entries under
+   `DEXE_TOOLSETS=full` (47 by default) while the tool count stays 169 (45);
+   an alias is listed exactly when its new name is. The aliases' descriptions
+   say "Deprecated alias of …". **What to do:** switch scripts, saved prompts
+   and swarm scenarios to the new names now; the aliases will be removed in a
+   future major release, announced here. The read-only server split out of
+   this package will only know the new names.
+
+6. **`serve-http` (experimental remote read server): `dexe_dao_report` keeps
+   nothing.** It no longer publishes the `persist` input, and `since: "last"`
+   answers with an error asking for an explicit anchor (ISO timestamp, Unix
+   seconds or `block:<n>`). The stdio server is unchanged: it still stores a
+   snapshot per run in `reports.json` and honours `since: "last"`.
 
 ---
 
