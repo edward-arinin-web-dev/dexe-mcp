@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { resolveChain } from "../config.js";
 import { ArtifactsMissingError } from "../artifacts.js";
@@ -241,7 +241,7 @@ export function computeRewardEconomicsAdvisory(
 
 // ---------- register ----------
 
-export function registerDaoDeployTools(server: McpServer, ctx: ToolContext): void {
+export function registerDaoDeployTools(server: McpServer, ctx: WriteToolContext): void {
   const rpc = new RpcProvider(ctx.config);
   registerBuildDeploy(server, ctx, rpc);
 }
@@ -354,7 +354,7 @@ export type DeployBuildResult =
  */
 export async function buildDeployGovPool(
   input: DeployBuildInput,
-  ctx: ToolContext,
+  ctx: WriteToolContext,
   rpc: RpcProvider,
 ): Promise<DeployBuildResult> {
   const { chainId, poolFactory, deployer, params, dryRun = false } = input;
@@ -918,7 +918,7 @@ export async function buildDeployGovPool(
 
 function registerBuildDeploy(
   server: McpServer,
-  ctx: ToolContext,
+  ctx: WriteToolContext,
   rpc: RpcProvider,
 ): void {
   server.registerTool(

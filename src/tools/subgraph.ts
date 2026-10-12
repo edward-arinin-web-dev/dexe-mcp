@@ -17,7 +17,7 @@ import {
 } from "../lib/subgraph.js";
 import { pageMeta, truncationNote } from "../lib/page.js";
 import { GOV_POWER_DECIMALS, withFormatted } from "../lib/units.js";
-import { SUBGRAPH_KINDS } from "../config.js";
+import { SUBGRAPH_KINDS } from "../configRead.js";
 import { unixToUtc } from "../lib/time.js";
 import { GET_TIER_VIEWS_FRAGMENT } from "../lib/abi/tokenSale.js";
 import { chainIdParam } from "../lib/params.js";

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
-import type { DexeConfig, SubgraphKind } from "../config.js";
+import type { ReadConfig, SubgraphKind } from "../configRead.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
 import { gqlRequest, resolveSubgraphUrl } from "../lib/subgraph.js";
@@ -650,7 +650,7 @@ export class ReportStore {
 }
 
 /** Sibling of `state.json` — same directory, same lifecycle, separate file. */
-export function reportStorePath(config: DexeConfig): string {
+export function reportStorePath(config: ReadConfig): string {
   return join(dirname(config.statePath), "reports.json");
 }
 
@@ -891,7 +891,7 @@ interface SubgraphSource {
 
 /** Resolve one subgraph endpoint, keeping the resolver's remediation verbatim. */
 function resolveSource(
-  config: DexeConfig,
+  config: ReadConfig,
   kind: SubgraphKind,
   chainId: number,
 ): { url: string; source: SubgraphSource } | { url: null; source: SubgraphSource } {

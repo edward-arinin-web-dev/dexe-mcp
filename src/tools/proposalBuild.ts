@@ -2,7 +2,7 @@ import { z } from "zod";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { Interface, isAddress, ZeroAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
@@ -61,7 +61,7 @@ function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
-export function registerProposalBuildTools(server: McpServer, ctx: ToolContext): void {
+export function registerProposalBuildTools(server: McpServer, ctx: WriteToolContext): void {
   registerCatalog(server);
   registerBuildExternal(server, ctx);
   registerBuildInternal(server, ctx);
@@ -138,7 +138,7 @@ function registerCatalog(server: McpServer): void {
 
 // ---------- dexe_proposal_build_external ----------
 
-function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
+function registerBuildExternal(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_proposal_build_external",
     {
@@ -240,7 +240,7 @@ function registerBuildExternal(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_proposal_build_internal ----------
 
-function registerBuildInternal(server: McpServer, ctx: ToolContext): void {
+function registerBuildInternal(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_proposal_build_internal",
     {
@@ -286,7 +286,7 @@ function registerBuildInternal(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_proposal_build_custom_abi ----------
 
-function registerBuildCustomAbi(server: McpServer, ctx: ToolContext): void {
+function registerBuildCustomAbi(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_proposal_build_custom_abi",
     {
@@ -361,7 +361,7 @@ function registerBuildCustomAbi(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_proposal_build_offchain ----------
 
-function registerBuildOffchain(server: McpServer, ctx: ToolContext): void {
+function registerBuildOffchain(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_proposal_build_offchain",
     {
@@ -409,7 +409,7 @@ function registerBuildOffchain(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_proposal_build_token_transfer (Layer-3 named wrapper) ----------
 
-function registerBuildTokenTransfer(server: McpServer, ctx: ToolContext): void {
+function registerBuildTokenTransfer(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_proposal_build_token_transfer",
     {

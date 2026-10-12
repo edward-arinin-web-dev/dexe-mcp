@@ -1,5 +1,5 @@
 import { FetchRequest, JsonRpcProvider, Network } from "ethers";
-import { resolveChain, type ChainConfig, type DexeConfig } from "./config.js";
+import { resolveChain, type ChainConfig, type ReadConfig } from "./configRead.js";
 import type { EnvGuardResult } from "./lib/requireEnv.js";
 import { redactErrorInPlace, safeErrorMessage } from "./lib/redact.js";
 
@@ -222,7 +222,7 @@ export class ResilientRpcProvider extends JsonRpcProvider {
  * dexe_tx_send / dexe_tx_status lookups), so retry + failover + the public-RPC
  * hint behave identically everywhere (the old signer path bypassed both).
  */
-export function createChainProvider(chain: ChainConfig, config: DexeConfig): JsonRpcProvider {
+export function createChainProvider(chain: ChainConfig, config: ReadConfig): JsonRpcProvider {
   return new ResilientRpcProvider(
     chain.rpcUrls ?? [chain.rpcUrl],
     chain.chainId,
@@ -241,7 +241,7 @@ export function createChainProvider(chain: ChainConfig, config: DexeConfig): Jso
 export class RpcProvider {
   private readonly cache = new Map<number, JsonRpcProvider>();
 
-  constructor(private readonly config: DexeConfig) {}
+  constructor(private readonly config: ReadConfig) {}
 
   requireProvider(chainId?: number): JsonRpcProvider {
     try {

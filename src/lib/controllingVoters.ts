@@ -30,7 +30,7 @@ import {
   toVoterAddress,
   withOrphanVoterFallback,
 } from "./subgraph.js";
-import type { DexeConfig } from "../config.js";
+import type { ReadConfig } from "../configRead.js";
 
 /**
  * Identical to the fragment in src/tools/vote.ts / src/tools/inbox.ts. Kept
@@ -146,7 +146,7 @@ export async function resolveControllingHoldersVotedFor(args: {
   provider: JsonRpcProvider;
   govPool: string;
   proposalId: number;
-  cfg: DexeConfig;
+  cfg: ReadConfig;
   chainId: number;
   topN?: number;
 }): Promise<boolean | null> {

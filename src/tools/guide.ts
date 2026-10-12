@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DexeConfig } from "../config.js";
+import type { ReadConfig } from "../configRead.js";
 import type { StateStore } from "../lib/stateStore.js";
 import {
   flowIndex,
@@ -61,7 +61,7 @@ const GUIDE_IDS = [...FLOWS.map((f) => f.id), ...TOPICS.map((t) => t.id)] as [st
 
 export function registerGuideTools(
   server: McpServer,
-  config: DexeConfig,
+  config: ReadConfig,
   state: StateStore,
 ): void {
   server.tool(

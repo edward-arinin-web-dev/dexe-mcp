@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DexeConfig } from "../config.js";
+import type { WriteConfig } from "../config.js";
 import { Artifacts } from "../artifacts.js";
 import { HardhatRunner } from "../hardhat.js";
 import { SelectorIndex } from "../lib/selectors.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { registerBuildTools } from "./build.js";
 import { registerIntrospectTools } from "./introspect.js";
 import { registerGovTools } from "./gov.js";
@@ -51,10 +51,10 @@ import { installListToolsNormalizer } from "./schemaNormalize.js";
 
 /**
  * Wire every dexe-mcp tool onto the given server instance. Builds the shared
- * ToolContext (artifacts cache, hardhat runner, selector index) once so all
+ * WriteToolContext (artifacts cache, hardhat runner, selector index) once so all
  * tools share state.
  */
-export function registerAll(server: McpServer, config: DexeConfig): void {
+export function registerAll(server: McpServer, config: WriteConfig): void {
   // Phase 2: gate tool registration by the active DEXE_TOOLSETS profile. The
   // wrapped server drops any tool name not in the active allowlist; `full`
   // returns the server unchanged. Every register* call below sees the gate, so
@@ -69,7 +69,7 @@ export function registerAll(server: McpServer, config: DexeConfig): void {
   const artifacts = new Artifacts(config);
   const runner = new HardhatRunner(config);
   const selectors = new SelectorIndex(artifacts);
-  const ctx: ToolContext = { config, artifacts, runner, selectors };
+  const ctx: WriteToolContext = { config, artifacts, runner, selectors };
 
   registerBuildTools(server, ctx);
   registerIntrospectTools(server, ctx);

@@ -2,10 +2,10 @@ import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import type { RunResult } from "../hardhat.js";
 
-export function registerBuildTools(server: McpServer, ctx: ToolContext): void {
+export function registerBuildTools(server: McpServer, ctx: WriteToolContext): void {
   registerCompile(server, ctx);
   registerTest(server, ctx);
   registerCoverage(server, ctx);
@@ -14,7 +14,7 @@ export function registerBuildTools(server: McpServer, ctx: ToolContext): void {
 
 // ---------- dexe_compile ----------
 
-function registerCompile(server: McpServer, ctx: ToolContext): void {
+function registerCompile(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_compile",
     {
@@ -135,7 +135,7 @@ export function parseSolcDiagnostics(raw: string): Array<{
 
 // ---------- dexe_test ----------
 
-function registerTest(server: McpServer, ctx: ToolContext): void {
+function registerTest(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_test",
     {
@@ -233,7 +233,7 @@ function stripAnsi(s: string): string {
 
 // ---------- dexe_coverage ----------
 
-function registerCoverage(server: McpServer, ctx: ToolContext): void {
+function registerCoverage(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_coverage",
     {
@@ -337,7 +337,7 @@ function readCoverageSummary(protocolPath: string): CoverageSummary | null {
 
 // ---------- dexe_lint ----------
 
-function registerLint(server: McpServer, ctx: ToolContext): void {
+function registerLint(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_lint",
     {

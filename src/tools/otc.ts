@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Interface, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { SignerManager, hotKeySafetyFields } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { RpcProvider } from "../rpc.js";
@@ -216,7 +216,7 @@ export async function resolveMerkleUris(
  */
 export function registerOtcTools(
   server: McpServer,
-  ctx: ToolContext,
+  ctx: WriteToolContext,
   signer: SignerManager,
   wc: WalletConnectManager,
   state?: StateStore,
@@ -228,7 +228,7 @@ export function registerOtcTools(
 /** dexe_otc_dao_open_sale. */
 export function registerOtcSaleTools(
   server: McpServer,
-  ctx: ToolContext,
+  ctx: WriteToolContext,
   signer: SignerManager,
   wc: WalletConnectManager,
   state?: StateStore,
@@ -466,7 +466,7 @@ export function registerOtcSaleTools(
 /** dexe_otc_buyer_buy + dexe_otc_buyer_claim_all. */
 export function registerOtcBuyerTools(
   server: McpServer,
-  ctx: ToolContext,
+  ctx: WriteToolContext,
   signer: SignerManager,
   wc: WalletConnectManager,
 ): void {

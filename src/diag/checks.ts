@@ -16,14 +16,14 @@ import {
 } from "../env/schemaRead.js";
 import { parseEnv } from "../env/parse.js";
 import { getEnvLoadState, type EnvLoadReport, type EnvSourceState } from "../env/loader.js";
-import type { DexeConfig, SubgraphKind } from "../config.js";
+import type { ReadConfig, SubgraphKind } from "../configRead.js";
 import {
   DEFAULTS,
   DEFAULT_SUBGRAPH_CHAIN_ID,
   SUBGRAPH_KINDS,
   resolveSubgraphEndpoints,
   subgraphEnvVar,
-} from "../config.js";
+} from "../configRead.js";
 import { extractGraphApiKey, isTrustedGraphHost } from "../lib/subgraph.js";
 import { maskUrl, redactUrlCredentials } from "../lib/redact.js";
 import { safeErrorMessage } from "../lib/redact.js";
@@ -39,9 +39,9 @@ export interface CheckResult {
   remediation?: string;
 }
 
-export interface RunCheckOpts {
+export interface RunCheckOpts<C extends ReadConfig = ReadConfig> {
   /** When omitted, checks that depend on resolved config are skipped. */
-  config?: DexeConfig;
+  config?: C;
   /** Per-network-check timeout. Defaults to 3000ms. */
   timeoutMs?: number;
   /**
@@ -56,7 +56,7 @@ export interface RunCheckOpts {
    * WalletConnect checks (src/diag/writeChecks.ts, which also owns the opt-in
    * Pinata pin probe). Omitted: the read checks alone.
    */
-  extraChecks?: ExtraChecks;
+  extraChecks?: ExtraChecks<C>;
 }
 
 /**
@@ -64,15 +64,15 @@ export interface RunCheckOpts {
  * server has always listed it, so a report with the write checks added reads
  * exactly as it did before the read/write split.
  */
-export interface ExtraChecks {
+export interface ExtraChecks<C extends ReadConfig = ReadConfig> {
   /** Network probes. Run inside the network budget, listed right after the RPC probes. */
   network?(timeoutMs: number): Promise<CheckResult | null>[];
   /** Config rows, listed after subgraph coverage and before the chain rows. */
-  config?(config: DexeConfig | undefined): CheckResult[];
+  config?(config: C | undefined): CheckResult[];
   /** More shared public defaults for the `env.sharedDefaults` row. */
   sharedDefaults?: {
     /** Labels of the shared defaults this config runs on; listed after the subgraph entry. */
-    inUse(config: DexeConfig): string[];
+    inUse(config: C): string[];
     /** The env var(s) that replace them, named in the remediation after the read ones. */
     fix: string;
   };
@@ -90,7 +90,7 @@ export interface ExtraChecks {
  * `npx dexe-mcp doctor` take them. `probePin` carries the doctor's opt-in
  * Pinata pin probe flag through to the write checks that own the probe.
  */
-export type DoctorExtraChecks = (opts: { probePin: boolean }) => ExtraChecks;
+export type DoctorExtraChecks<C extends ReadConfig = ReadConfig> = (opts: { probePin: boolean }) => ExtraChecks<C>;
 
 /**
  * Run every diagnostic check in parallel, gather results.
@@ -124,9 +124,11 @@ async function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | typeof TI
   }
 }
 
-export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult[]> {
+export async function runAllChecks<C extends ReadConfig = ReadConfig>(
+  opts: RunCheckOpts<C> = {},
+): Promise<CheckResult[]> {
   const timeoutMs = opts.timeoutMs ?? 3000;
-  const extra = opts.extraChecks ?? {};
+  const extra: ExtraChecks<C> = opts.extraChecks ?? {};
   const env = extra.env ?? READ_ENV_SURFACE;
   const results: CheckResult[] = [];
 
@@ -192,7 +194,7 @@ export async function runAllChecks(opts: RunCheckOpts = {}): Promise<CheckResult
  * here. A degraded config and a green doctor must not be reachable.
  */
 export function startupIssueChecks(
-  config: DexeConfig | undefined,
+  config: ReadConfig | undefined,
   envSource?: EnvSourceState,
   env: EnvSurface = READ_ENV_SURFACE,
 ): CheckResult[] {
@@ -361,7 +363,7 @@ export function envSourceChecks(state: EnvSourceState | undefined): CheckResult[
 
 // ─── persistent state path writability ─────────────────────────────────────
 
-function stateStoreCheck(config: DexeConfig | undefined): CheckResult[] {
+function stateStoreCheck(config: ReadConfig | undefined): CheckResult[] {
   if (!config) return [];
   const p = config.statePath;
   // Probe the nearest existing ancestor for write permission — the default
@@ -425,7 +427,7 @@ function envPresenceChecks(spec: EnvSpec): CheckResult[] {
 // ─── rpc reachability ──────────────────────────────────────────────────────
 
 function rpcReachabilityChecks(
-  config: DexeConfig | undefined,
+  config: ReadConfig | undefined,
   timeoutMs: number,
 ): Promise<CheckResult | null>[] {
   if (!config || config.chains.size === 0) return [];
@@ -668,7 +670,7 @@ export interface SubgraphProbeTarget {
  * configures a second chain: each result names the chain it speaks for.
  */
 function subgraphChecks(
-  config: DexeConfig | undefined,
+  config: ReadConfig | undefined,
   timeoutMs: number,
 ): Promise<CheckResult | null>[] {
   // Without a config (doctor run outside the server's startup path) resolve the
@@ -694,7 +696,7 @@ function subgraphChecks(
  * answering from BSC mainnet, which is the right behavior and also a surprise:
  * doctor names it up front, with the two ways out.
  */
-export function subgraphCoverageCheck(config: DexeConfig | undefined): CheckResult[] {
+export function subgraphCoverageCheck(config: ReadConfig | undefined): CheckResult[] {
   if (!config) return [];
   const target = config.defaultChainId;
   const endpoints = config.subgraphUrls.get(target);
@@ -772,7 +774,7 @@ function graphProbeHeaders(url: string): Record<string, string> {
 
 /** Current head of `chainId`, or undefined when it can't be established. */
 async function chainHeadBlock(
-  config: DexeConfig | undefined,
+  config: ReadConfig | undefined,
   chainId: number,
   timeoutMs: number,
 ): Promise<bigint | undefined> {
@@ -976,7 +978,7 @@ async function backendCheck(timeoutMs: number): Promise<CheckResult | null> {
 
 // ─── chain consistency ───────────────────────────────────────────────────
 
-function chainConsistencyCheck(config: DexeConfig | undefined): CheckResult[] {
+function chainConsistencyCheck(config: ReadConfig | undefined): CheckResult[] {
   if (!config) return [];
   const out: CheckResult[] = [];
   // `chain.signerNeedsRpc` (a hot key with no RPC) is a write check — it comes
@@ -1013,9 +1015,9 @@ function chainConsistencyCheck(config: DexeConfig | undefined): CheckResult[] {
  * their own. Purely advisory. Another edition's shared defaults (the write
  * edition's WalletConnect project id) come in through `extra`.
  */
-function sharedDefaultsCheck(
-  config: DexeConfig | undefined,
-  extra?: ExtraChecks["sharedDefaults"],
+function sharedDefaultsCheck<C extends ReadConfig>(
+  config: C | undefined,
+  extra?: ExtraChecks<C>["sharedDefaults"],
 ): CheckResult[] {
   if (!config) return [];
   const shared: string[] = [];

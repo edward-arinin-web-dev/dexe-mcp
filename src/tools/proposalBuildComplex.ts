@@ -12,7 +12,7 @@ import {
   type JsonRpcProvider,
 } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
 import { govPoolParam } from "../lib/params.js";
@@ -483,7 +483,7 @@ function payloadOutputSchema() {
  * in-process (the chain-threading tests register the module twice with
  * different default chains).
  */
-function makeWrapperResult(ctx: ToolContext) {
+function makeWrapperResult(ctx: WriteToolContext) {
   return function wrapperResult(params: {
     metadata: unknown;
     actions: Action[];
@@ -530,7 +530,7 @@ function makeWrapperResult(ctx: ToolContext) {
 
 export function registerProposalBuildComplexTools(
   server: McpServer,
-  _ctx: ToolContext,
+  _ctx: WriteToolContext,
 ): void {
   registerTokenDistribution(server, _ctx);
   registerTokenSale(server, _ctx);
@@ -548,7 +548,7 @@ export function registerProposalBuildComplexTools(
 
 // ---------- 1. token_distribution ----------
 
-function registerTokenDistribution(server: McpServer, ctx: ToolContext): void {
+function registerTokenDistribution(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_token_distribution",
@@ -1042,7 +1042,7 @@ export function buildTokenSaleMultiActions(input: {
   };
 }
 
-function registerTokenSaleMulti(server: McpServer, ctx: ToolContext): void {
+function registerTokenSaleMulti(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_token_sale_multi",
@@ -1099,7 +1099,7 @@ function registerTokenSaleMulti(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerTokenSale(server: McpServer, ctx: ToolContext): void {
+function registerTokenSale(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   // Back-compat shim around the multi-tier builder. Same single-tier API as
   // before, plus an optional `participation` field. Delegates encoding to
@@ -1189,7 +1189,7 @@ function registerTokenSale(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerTokenSaleWhitelist(server: McpServer, ctx: ToolContext): void {
+function registerTokenSaleWhitelist(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_token_sale_whitelist",
@@ -1264,7 +1264,7 @@ function registerTokenSaleWhitelist(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 3. token_sale_recover ----------
 
-function registerTokenSaleRecover(server: McpServer, ctx: ToolContext): void {
+function registerTokenSaleRecover(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_token_sale_recover",
@@ -1317,7 +1317,7 @@ function registerTokenSaleRecover(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 4. create_staking_tier ----------
 
-function registerCreateStakingTier(server: McpServer, ctx: ToolContext): void {
+function registerCreateStakingTier(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_create_staking_tier",
@@ -1412,7 +1412,7 @@ function registerCreateStakingTier(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 5. change_math_model ----------
 
-function registerChangeMathModel(server: McpServer, ctx: ToolContext): void {
+function registerChangeMathModel(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_change_math_model",
@@ -1466,7 +1466,7 @@ function registerChangeMathModel(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 6. modify_dao_profile ----------
 
-function registerModifyDaoProfile(server: McpServer, ctx: ToolContext): void {
+function registerModifyDaoProfile(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_modify_dao_profile",
@@ -1527,7 +1527,7 @@ function registerModifyDaoProfile(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 7. blacklist_management ----------
 
-function registerBlacklistManagement(server: McpServer, ctx: ToolContext): void {
+function registerBlacklistManagement(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_blacklist",
@@ -1613,7 +1613,7 @@ function registerBlacklistManagement(server: McpServer, ctx: ToolContext): void 
 
 // ---------- 8. reward_multiplier ----------
 
-function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
+function registerRewardMultiplier(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_reward_multiplier",
@@ -1822,7 +1822,7 @@ function registerRewardMultiplier(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 9. apply_to_dao ----------
 
-function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
+function registerApplyToDao(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_apply_to_dao",
@@ -1924,7 +1924,7 @@ function registerApplyToDao(server: McpServer, ctx: ToolContext): void {
 
 // ---------- 10. new_proposal_type (also: enable_staking) ----------
 
-function registerNewProposalType(server: McpServer, ctx: ToolContext): void {
+function registerNewProposalType(server: McpServer, ctx: WriteToolContext): void {
   const wrapperResult = makeWrapperResult(ctx);
   server.registerTool(
     "dexe_proposal_build_new_proposal_type",

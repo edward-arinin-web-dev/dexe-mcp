@@ -209,8 +209,9 @@ async function runSubcommand(name: Exclude<Subcommand, "serve-http">): Promise<v
     // process.exit() itself with the graded code — do NOT "clean that up" into
     // a returned value, or every doctor run exits 0 and CI goes green forever.
     // The read checks plus the write ones (signer, Pinata incl. --probe-pin,
-    // WalletConnect): this binary carries both editions.
-    await mod.run(process.argv.slice(3), writeDoctorChecks);
+    // WalletConnect), over the full config and env surface: this binary
+    // carries both editions.
+    await mod.run(process.argv.slice(3), writeDoctorChecks, loadConfig);
     process.exit(0);
   }
   if (name === "init") {

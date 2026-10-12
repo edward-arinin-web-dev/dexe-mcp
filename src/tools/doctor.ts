@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DexeConfig } from "../config.js";
+import type { ReadConfig } from "../configRead.js";
 import {
   runAllChecks,
   type CheckResult,
@@ -49,10 +49,10 @@ function tally(results: CheckResult[]): Tally {
  * single server passes the write checks, src/diag/writeChecks.ts, which own the
  * pin probe — `probePin` is handed through to them).
  */
-export function registerDoctorTool(
+export function registerDoctorTool<C extends ReadConfig>(
   server: McpServer,
-  config: DexeConfig,
-  extraChecks?: DoctorExtraChecks,
+  config: C,
+  extraChecks?: DoctorExtraChecks<C>,
 ): void {
   server.tool(
     "dexe_doctor",

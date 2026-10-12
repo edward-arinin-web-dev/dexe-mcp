@@ -28,6 +28,8 @@ const READ = [
   // bundled protocol ABI snapshot the decode tools fall back to (no compile step)
   "abi/protocolSnapshot.generated.ts",
   "artifacts.ts",
+  // ReadConfig + loadReadConfig and the loader phases the write loader reuses
+  "configRead.ts",
   "resources.ts",
   "rpc.ts",
   // DEXE_DEBUG diagnostics; the npm/hardhat/git resolvers are runtimeDev.ts
@@ -100,6 +102,8 @@ const READ = [
   "lib/tokenSaleResult.ts",
   "lib/units.ts",
   "lib/upstreamAdvisories.ts",
+  // ToolContext over the read config; write tools take tools/writeContext.ts
+  "tools/context.ts",
   "tools/dao.ts",
   "tools/doctor.ts",
   "tools/gov.ts",
@@ -120,6 +124,9 @@ const READ = [
 
 const WRITE = [
   "bootstrap.ts",
+  // WriteConfig + the single server's loadConfig; re-exports configRead.ts so
+  // pre-split importers keep compiling (read code imports configRead.ts)
+  "config.ts",
   "hardhat.ts",
   // npm / hardhat / git resolvers for the dev toolchain
   "runtimeDev.ts",
@@ -200,11 +207,11 @@ const WRITE = [
   "tools/txSend.ts",
   "tools/voteBuild.ts",
   "tools/walletconnectStatus.ts",
+  // ToolContext with the write config and the hardhat runner
+  "tools/writeContext.ts",
 ];
 
 const MIXED = [
-  // read config + write config (keys, WalletConnect, guards) in one loader
-  "config.ts",
   // lists both editions' tools; each edition will carry its own list
   "editions.ts",
   "instructions.ts",
@@ -214,8 +221,8 @@ const MIXED = [
   "knowledge/index.ts",
   "knowledge/render.ts",
   "tools/annotations.ts",
-  "tools/context.ts",
   "tools/gate.ts",
+  // reports the write posture through a structural type, not the write config
   "tools/getConfig.ts",
   "tools/guide.ts",
   "tools/operationalContext.ts",

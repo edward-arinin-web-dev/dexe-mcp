@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Contract, Interface, JsonRpcProvider } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import type { TxPayload } from "../lib/calldata.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
@@ -1410,7 +1410,7 @@ export interface ProposalCreateInput {
 }
 
 export interface ProposalCreateDeps {
-  ctx: ToolContext;
+  ctx: WriteToolContext;
   signer: SignerManager;
   rpc: RpcProvider;
   /** Phase 3 — when present, a broadcast proposal is recorded for dexe_context. */
@@ -2631,7 +2631,7 @@ async function driveValidatorRound(args: {
 
 export function registerFlowTools(
   server: McpServer,
-  ctx: ToolContext,
+  ctx: WriteToolContext,
   signer: SignerManager,
   wc: WalletConnectManager,
   state?: StateStore,

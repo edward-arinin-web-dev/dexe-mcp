@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "./context.js";
+import type { WriteToolContext } from "./writeContext.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { parseUintString } from "../lib/amount.js";
 import {
@@ -356,7 +356,7 @@ function payloadOutputSchema() {
 
 // ---------- register ----------
 
-export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): void {
+export function registerVoteBuildTools(server: McpServer, ctx: WriteToolContext): void {
   // Only the advisory reads use it — the deposit-lock builders when the caller
   // names a `voter`, and undelegate on a chain where F23 is measured;
   // construction is lazy (no connection is opened here).
@@ -395,7 +395,7 @@ export function registerVoteBuildTools(server: McpServer, ctx: ToolContext): voi
 
 // ---------- ERC20 approve ----------
 
-function registerErc20Approve(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
+function registerErc20Approve(server: McpServer, ctx: WriteToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_erc20_approve",
     {
@@ -504,7 +504,7 @@ async function resolveUserKeeper(
 
 // ---------- deposit ----------
 
-function registerDeposit(server: McpServer, ctx: ToolContext): void {
+function registerDeposit(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_deposit",
     {
@@ -561,7 +561,7 @@ function registerDeposit(server: McpServer, ctx: ToolContext): void {
 
 // ---------- withdraw ----------
 
-function registerWithdraw(server: McpServer, ctx: ToolContext): void {
+function registerWithdraw(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_withdraw",
     {
@@ -606,7 +606,7 @@ function registerWithdraw(server: McpServer, ctx: ToolContext): void {
 
 // ---------- delegate (user-level) ----------
 
-function registerDelegate(server: McpServer, ctx: ToolContext): void {
+function registerDelegate(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_delegate",
     {
@@ -693,7 +693,7 @@ async function delegateeVotesOnRecord(
   }
 }
 
-function registerUndelegate(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
+function registerUndelegate(server: McpServer, ctx: WriteToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_undelegate",
     {
@@ -747,7 +747,7 @@ function registerUndelegate(server: McpServer, ctx: ToolContext, rpc: RpcProvide
 
 // ---------- vote ----------
 
-function registerVote(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
+function registerVote(server: McpServer, ctx: WriteToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_vote",
     {
@@ -813,7 +813,7 @@ function registerVote(server: McpServer, ctx: ToolContext, rpc: RpcProvider): vo
 
 // ---------- cancel vote ----------
 
-function registerCancelVote(server: McpServer, ctx: ToolContext): void {
+function registerCancelVote(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_cancel_vote",
     {
@@ -851,7 +851,7 @@ function registerCancelVote(server: McpServer, ctx: ToolContext): void {
 
 // ---------- validator vote ----------
 
-function registerValidatorVote(server: McpServer, ctx: ToolContext): void {
+function registerValidatorVote(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_validator_vote",
     {
@@ -899,7 +899,7 @@ function registerValidatorVote(server: McpServer, ctx: ToolContext): void {
 
 // ---------- validator cancel vote ----------
 
-function registerValidatorCancelVote(server: McpServer, ctx: ToolContext): void {
+function registerValidatorCancelVote(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_validator_cancel_vote",
     {
@@ -942,7 +942,7 @@ function registerValidatorCancelVote(server: McpServer, ctx: ToolContext): void 
 
 // ---------- move to validators ----------
 
-function registerMoveToValidators(server: McpServer, ctx: ToolContext): void {
+function registerMoveToValidators(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_move_to_validators",
     {
@@ -980,7 +980,7 @@ function registerMoveToValidators(server: McpServer, ctx: ToolContext): void {
 
 // ---------- execute ----------
 
-function registerExecute(server: McpServer, ctx: ToolContext, rpc: RpcProvider): void {
+function registerExecute(server: McpServer, ctx: WriteToolContext, rpc: RpcProvider): void {
   server.registerTool(
     "dexe_vote_build_execute",
     {
@@ -1054,7 +1054,7 @@ function registerExecute(server: McpServer, ctx: ToolContext, rpc: RpcProvider):
 
 // ---------- claim rewards ----------
 
-function registerClaimRewards(server: McpServer, ctx: ToolContext): void {
+function registerClaimRewards(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_claim_rewards",
     {
@@ -1094,7 +1094,7 @@ function registerClaimRewards(server: McpServer, ctx: ToolContext): void {
 
 // ---------- claim micropool rewards ----------
 
-function registerClaimMicropoolRewards(server: McpServer, ctx: ToolContext): void {
+function registerClaimMicropoolRewards(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_claim_micropool_rewards",
     {
@@ -1136,7 +1136,7 @@ function registerClaimMicropoolRewards(server: McpServer, ctx: ToolContext): voi
 
 // ---------- NFT multiplier ----------
 
-function registerNftMultiplierLock(server: McpServer, ctx: ToolContext): void {
+function registerNftMultiplierLock(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_nft_multiplier_lock",
     {
@@ -1170,7 +1170,7 @@ function registerNftMultiplierLock(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerNftMultiplierUnlock(server: McpServer, ctx: ToolContext): void {
+function registerNftMultiplierUnlock(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_nft_multiplier_unlock",
     {
@@ -1205,7 +1205,7 @@ function registerNftMultiplierUnlock(server: McpServer, ctx: ToolContext): void 
 
 // ---------- token sale participation ----------
 
-function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
+function registerTokenSaleBuy(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_token_sale_buy",
     {
@@ -1272,7 +1272,7 @@ function registerTokenSaleBuy(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerTokenSaleClaim(server: McpServer, ctx: ToolContext): void {
+function registerTokenSaleClaim(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_token_sale_claim",
     {
@@ -1306,7 +1306,7 @@ function registerTokenSaleClaim(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): void {
+function registerTokenSaleVestingWithdraw(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_token_sale_vesting_withdraw",
     {
@@ -1345,7 +1345,7 @@ function registerTokenSaleVestingWithdraw(server: McpServer, ctx: ToolContext): 
 
 // ---------- distribution participation ----------
 
-function registerDistributionClaim(server: McpServer, ctx: ToolContext): void {
+function registerDistributionClaim(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_distribution_claim",
     {
@@ -1383,7 +1383,7 @@ function registerDistributionClaim(server: McpServer, ctx: ToolContext): void {
 
 // ---------- staking participation ----------
 
-function registerStakingStake(server: McpServer, ctx: ToolContext): void {
+function registerStakingStake(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_staking_stake",
     {
@@ -1422,7 +1422,7 @@ function registerStakingStake(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerStakingClaim(server: McpServer, ctx: ToolContext): void {
+function registerStakingClaim(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_staking_claim",
     {
@@ -1456,7 +1456,7 @@ function registerStakingClaim(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerStakingClaimAll(server: McpServer, ctx: ToolContext): void {
+function registerStakingClaimAll(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_staking_claim_all",
     {
@@ -1489,7 +1489,7 @@ function registerStakingClaimAll(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerStakingReclaim(server: McpServer, ctx: ToolContext): void {
+function registerStakingReclaim(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_staking_reclaim",
     {
@@ -1525,7 +1525,7 @@ function registerStakingReclaim(server: McpServer, ctx: ToolContext): void {
 
 // ---------- privacy policy ----------
 
-function registerPrivacyPolicySign(server: McpServer, ctx: ToolContext): void {
+function registerPrivacyPolicySign(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_privacy_policy_sign",
     {
@@ -1575,7 +1575,7 @@ function registerPrivacyPolicySign(server: McpServer, ctx: ToolContext): void {
   );
 }
 
-function registerPrivacyPolicyAgree(server: McpServer, ctx: ToolContext): void {
+function registerPrivacyPolicyAgree(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_privacy_policy_agree",
     {
@@ -1616,7 +1616,7 @@ function registerPrivacyPolicyAgree(server: McpServer, ctx: ToolContext): void {
 
 // ---------- multicall wrapper ----------
 
-function registerMulticall(server: McpServer, ctx: ToolContext): void {
+function registerMulticall(server: McpServer, ctx: WriteToolContext): void {
   server.registerTool(
     "dexe_vote_build_multicall",
     {

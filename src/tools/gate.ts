@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { DexeConfig } from "../config.js";
+import type { ReadConfig } from "../configRead.js";
 
 /**
  * Toolset gating (Phase 2 / v0.13.0). Registering every tool unconditionally
@@ -432,7 +432,7 @@ function capNote(loaded: number): string {
  * are dropped. Returns the original server unchanged when the active profile is
  * `full`. Emits a one-line stderr banner. Call once in `registerAll`.
  */
-export function applyToolGate(server: McpServer, config: DexeConfig): McpServer {
+export function applyToolGate(server: McpServer, config: ReadConfig): McpServer {
   const resolved = resolveToolsets(config.toolsets ?? [...DEFAULT_TOOLSETS]);
 
   if (resolved.unknown.length > 0) {

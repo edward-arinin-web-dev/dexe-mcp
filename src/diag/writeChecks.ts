@@ -1,4 +1,4 @@
-import type { DexeConfig } from "../config.js";
+import type { WriteConfig } from "../config.js";
 import { DEFAULTS } from "../config.js";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
 import { fetchJsonWithTimeout, type CheckResult, type ExtraChecks } from "./checks.js";
@@ -20,7 +20,7 @@ export interface WriteDoctorOptions {
   probePin?: boolean;
 }
 
-export function writeDoctorChecks(opts: WriteDoctorOptions = {}): ExtraChecks {
+export function writeDoctorChecks(opts: WriteDoctorOptions = {}): ExtraChecks<WriteConfig> {
   return {
     // Presence rows and startup-issue categories over every var the server
     // reads (read + write + dev), in the order they have always been listed.
@@ -162,7 +162,7 @@ async function pinataPinQuotaCheck(timeoutMs: number, enabled: boolean): Promise
 
 // ─── signer broadcast guards ─────────────────────────────────────────────
 
-function signerGuardConfigCheck(config?: DexeConfig): CheckResult[] {
+function signerGuardConfigCheck(config?: WriteConfig): CheckResult[] {
   const out: CheckResult[] = [];
 
   // Report the RESOLVED signer, not the raw env. Since 0.30.1 a malformed
@@ -292,7 +292,7 @@ function signerGuardConfigCheck(config?: DexeConfig): CheckResult[] {
 // ─── a signer with no RPC ────────────────────────────────────────────────
 
 /** Listed first among the chain rows: a hot key the server cannot broadcast with. */
-function signerNeedsRpcCheck(config: DexeConfig | undefined): CheckResult[] {
+function signerNeedsRpcCheck(config: WriteConfig | undefined): CheckResult[] {
   if (!config) return [];
   if (process.env.DEXE_PRIVATE_KEY?.trim() && config.chains.size === 0) {
     return [

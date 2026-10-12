@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
 import { RpcProvider } from "../rpc.js";
 import { multicall, type Call } from "../lib/multicall.js";
-import { resolveChain } from "../config.js";
+import { resolveChain } from "../configRead.js";
 import {
   classifyTreasuryActions,
   quorumPctFromRaw,

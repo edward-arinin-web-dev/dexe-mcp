@@ -42,20 +42,12 @@ const SRC = join(REPO, "src");
  * paths relative to src/. Value: why it exists and what removes it.
  */
 const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {
-  "config.ts -> bootstrap.ts":
-    "protocolPath resolution for the dev toolchain. Gone when config splits into a read config and a write config.",
-  "config.ts -> env/schema.ts":
-    "the single loader validates the full env spec. Gone when config splits into a read config and a write config.",
-  "config.ts -> lib/treasuryGate.ts":
-    "the single loader resolves the treasury-guard posture. Gone when config splits into a read config and a write config.",
   "instructions.ts -> lib/resumeContract.ts":
     "the handshake text carries the write resume rule. Gone when each edition gets its own instructions.",
   "knowledge/index.ts -> knowledge/flows.ts":
     "the guide engine is wired to the write flow corpus. Gone when the corpus becomes a parameter.",
   "knowledge/render.ts -> knowledge/flows.ts":
     "renders flows next to topics and gotchas. Gone when knowledge/ splits into read and write halves.",
-  "tools/context.ts -> hardhat.ts":
-    "type-only: ToolContext carries the dev-toolchain runner. Gone when the read ToolContext drops `runner`.",
   "tools/getConfig.ts -> lib/signer.ts":
     "dexe_get_config reports signer mode. Gone when the signer half moves to a write-edition context tool.",
   "tools/guide.ts -> knowledge/nextSteps.ts":

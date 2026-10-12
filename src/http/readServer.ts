@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { DEFAULTS, loadConfig, type DexeConfig } from "../config.js";
+import { loadConfig, type WriteConfig } from "../config.js";
+import { DEFAULTS, type ReadConfig } from "../configRead.js";
 import { READ_TOOLS } from "../editions.js";
 import { registerAll } from "../tools/index.js";
 import { debugLog } from "../runtime.js";
@@ -139,7 +140,7 @@ export function scrubEnvToReadAllowlist(env: NodeJS.ProcessEnv = process.env): n
 }
 
 export interface RemoteReadConfig {
-  config: DexeConfig;
+  config: WriteConfig;
   /** How many env vars outside the allowlist were removed (count only — names can be telling). */
   removedEnvCount: number;
   /**
@@ -177,7 +178,7 @@ export async function loadRemoteReadConfig(env: NodeJS.ProcessEnv = process.env)
     .split("\n")
     .map((l) => l.replace(/^\[dexe-mcp\]\s*/, "").trim())
     .filter((l) => l && !STDIO_ONLY_NOTE.test(l));
-  const config: DexeConfig = Object.freeze({
+  const config: WriteConfig = Object.freeze({
     ...loaded,
     toolsets: ["read"],
     statePath,
@@ -205,7 +206,7 @@ export interface SharedDefaultUse {
  * `env` is the post-scrub process env (an explicit DEXE_BACKEND_API_URL counts
  * as the operator's choice even when it names the default host).
  */
-export function findSharedDefaults(config: DexeConfig, env: NodeJS.ProcessEnv = process.env): SharedDefaultUse[] {
+export function findSharedDefaults(config: ReadConfig, env: NodeJS.ProcessEnv = process.env): SharedDefaultUse[] {
   const found: SharedDefaultUse[] = [];
   if (config.usingPublicRpcFallback) {
     found.push({
@@ -295,7 +296,7 @@ export interface InterimReadServer {
   toolNames(): string[];
 }
 
-export function createInterimReadServerFactory(config: DexeConfig, version: string): InterimReadServer {
+export function createInterimReadServerFactory(config: WriteConfig, version: string): InterimReadServer {
   let names: string[] = [];
   let first = true;
   const build = (): McpServer => {
@@ -322,7 +323,7 @@ export function createInterimReadServerFactory(config: DexeConfig, version: stri
  * into RPC load. Never returns or logs the RPC URL (it may carry an API key).
  */
 export function createRpcReadinessProbe(
-  config: DexeConfig,
+  config: ReadConfig,
   timeoutMs: number,
   opts: { cacheMs?: number; now?: () => number; fetchImpl?: typeof fetch } = {},
 ): ReadinessProbe {
