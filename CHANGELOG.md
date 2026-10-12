@@ -23,9 +23,14 @@ Tool count 169 → 170 for `dexe-mcp` (`dexe_tx_approval_status`); the new read-
   the bytes (bundled ABIs, nested multicall and proposal actions), labels
   addresses from the chain — a GovPool and its helpers only when
   `PoolRegistry.isGovPool()` confirms it, "NOT a registered DeXe DAO" otherwise —
-  flags unlimited approvals, approvals / transfers to code-less addresses,
-  value, unknown spenders and governance actions, and runs B6/B7/B11/B12 on
-  every step and B9 on step 1.
+  a DeXe protocol function on an unvouched target is DANGER "NOT a registered
+  DeXe contract" (shown without a contract name); every handover —
+  approve / increaseAllowance / permit / setApprovalForAll / transfer /
+  transferFrom / safeTransferFrom / delegate, at the top level, inside a
+  multicall and inside proposal actions — gets the same checks (code-less
+  party DANGER, unknown contract warn, unlimited DANGER); a custom
+  `DEXE_CONTRACTS_REGISTRY` is noted; value, governance actions flagged; and
+  B6/B7/B11/B12 run on every step and B9 on step 1.
   Approvals are bound to `keccak(chainId, from, ordered (to, value,
   keccak(data)))`, single-use, 15-minute TTL; an approved key is dropped if
   sending has not started within `DEXE_APPROVAL_USE_S` (120 s); the signer

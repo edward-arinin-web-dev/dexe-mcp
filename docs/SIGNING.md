@@ -250,11 +250,22 @@ expensive to brute-force.
   1 h) and is checked again inside the queue, so guesses queued before a
   lockout never run after it. At most 3 approvals wait at once, 6 per minute.
 - Labels come from the chain and are only trusted through the DeXe registry:
-  a contract is called a GovPool — and its UserKeeper / settings / token are
-  labelled — only if `PoolRegistry.isGovPool()` confirms it. A contract that
-  merely answers like a GovPool is flagged **"NOT a registered DeXe DAO"**, and
-  an approval or token transfer to an address with no contract code is
-  flagged as DANGER.
+  a contract is called a GovPool — and its UserKeeper / settings / token /
+  staking contract are labelled — only if `PoolRegistry.isGovPool()` confirms
+  it. A contract that merely answers like a GovPool is flagged **"NOT a
+  registered DeXe DAO"**; a DeXe protocol function (deposit, vote, delegate, …)
+  sent to anything the registry does not vouch for is flagged **"NOT a
+  registered DeXe contract"** and shown without a contract name.
+  Token-sale / distribution contracts that name a confirmed pool themselves
+  get a warning that the link is their own claim.
+- Every way of handing something over is checked the same way — `approve`,
+  `increaseAllowance`, `permit`, `setApprovalForAll`, `transfer`,
+  `transferFrom`, `safeTransferFrom`, and `delegate` (the delegatee is shown) —
+  at the top level, inside a `multicall` and inside proposal actions: a
+  code-less spender or recipient is DANGER, an unknown contract a warning,
+  an unlimited allowance or approval-for-all DANGER.
+- When `DEXE_CONTRACTS_REGISTRY` points somewhere other than the built-in
+  registry for chain 56 / 97, the page says so: "registered" is relative to it.
 
 ### Residual risks, stated plainly
 
@@ -268,6 +279,12 @@ expensive to brute-force.
 - **The decline cooldown is keyed to the exact batch.** A 1-wei variation is a
   new batch and gets a new page — it still needs your password, and the
   3-open / 6-per-minute limits bound how often you can be asked.
+- **An agent can lock you out on purpose.** Wrong guesses on the page lock
+  password entry for everyone — during a lockout even the correct password is
+  refused (HTTP 429), for up to an hour as the lockout doubles. That is a
+  deliberate trade-off: it costs you time, never funds. Restarting the server
+  clears the counter (approvals live in memory only), which takes the MCP
+  host, you, or a shell able to kill the process.
 - **A decrypted key lives in this process** from your approval until the
   batch is sent (at most `DEXE_APPROVAL_USE_S` before sending starts), and
   JavaScript cannot wipe a string. An agent with a shell can read process
