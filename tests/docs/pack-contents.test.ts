@@ -43,6 +43,8 @@ const CRITICAL = [
   ".mcp.example.json",
   ".env.example",
   "dist/index.js",
+  // The ABI snapshot the decode tools fall back to without a local compile (A10).
+  "dist/abi/protocolSnapshot.generated.js",
 ];
 
 /**

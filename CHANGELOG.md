@@ -2,6 +2,23 @@
 
 ## 0.35.1 — unreleased
 
+### Changed — decoding works without compiling the protocol
+`dexe_decode_calldata` and `dexe_decode_proposal` used to fail with "Hardhat
+artifacts not found … Run dexe_compile first" on any install that had not
+cloned and compiled DeXe-Protocol. They now fall back to an ABI-only snapshot
+bundled with the server: 39 contracts from DeXe-Protocol `f09a3ba` (GovPool and
+its helpers, the proposal executors, factory and registry, the DeXe token and
+NFT contracts, OpenZeppelin ERC20/ERC721, BABT), about 280 KiB, no bytecode.
+A local compile is still tried first; when it is missing, empty, or has no ABI
+for the call being decoded, the snapshot answers instead. Both tools report
+which set they used in a new `abiSource` field (`artifacts` or `snapshot`).
+`dexe_decode_calldata` also sets `ambiguous: true` when contracts disagree on
+what the selector's arguments are (ERC20 vs ERC721 `approve`, for example). An
+unknown selector or contract name returns an error that says where to look next.
+
+Maintainers regenerate the snapshot with `npm run gen:abi-snapshot -- --protocol
+<compiled checkout>`; `gen:abi-snapshot:check` fails when it is stale.
+
 ### Dependencies
 October Dependabot triage, consolidated into one change. No tool behaviour
 changes; the one wording change is below.

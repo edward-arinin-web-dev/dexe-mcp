@@ -81,7 +81,7 @@ Source: `src/tools/build.ts`. All four operate on a DeXe-Protocol Hardhat worksp
 
 **Profile: `dev`** — not in a default session; set `DEXE_TOOLSETS=core,dev`.
 
-Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. All require `dexe_compile` to have run at least once. Reads compiled artifacts from `DEXE_PROTOCOL_PATH/artifacts/`.
+Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. The introspection tools require `dexe_compile` to have run at least once and read compiled artifacts from `DEXE_PROTOCOL_PATH/artifacts/`. The two decode tools use those artifacts when present and otherwise a DeXe-Protocol ABI snapshot bundled with the server, so they need no setup.
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
@@ -92,8 +92,8 @@ Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. All require `dexe_compil
 | `dexe_find_selector` | Reverse lookup: 4-byte selector or 32-byte event topic → matching contracts/signatures. Handles collisions. | `DEXE_PROTOCOL_PATH` |
 | `dexe_get_natspec` | Reads devdoc/userdoc from build-info. Optionally scoped to a single member. | `DEXE_PROTOCOL_PATH` |
 | `dexe_get_source` | Returns the source file path for a contract; optionally slices around a symbol via a naive regex scan (naive: it matches text, not syntax). | `DEXE_PROTOCOL_PATH` |
-| `dexe_decode_calldata` | Decodes raw `0x…` calldata against loaded ABIs. Tries every artifact whose selector matches if `contract` omitted. | `DEXE_PROTOCOL_PATH` |
-| `dexe_decode_proposal` | Fetches a GovPool proposal via `getProposals(offset, limit)` and decodes its for/against actions. Works with the built-in public RPC; set `DEXE_RPC_URL_MAINNET` / `_TESTNET` for reliability. | `DEXE_PROTOCOL_PATH` |
+| `dexe_decode_calldata` | Decodes raw `0x…` calldata against the DeXe Protocol ABIs. Tries every ABI whose selector matches if `contract` omitted. Uses the local compile when one exists, else the bundled ABI snapshot (no compile needed); `abiSource` says which. | (none) |
+| `dexe_decode_proposal` | Fetches a GovPool proposal via `getProposals(offset, limit)` and decodes its for/against actions, against the same ABIs as `dexe_decode_calldata`. Works with the built-in public RPC; set `DEXE_RPC_URL_MAINNET` / `_TESTNET` for reliability. | (none) |
 | `dexe_list_gov_contract_types` | Static catalog of governance subsystem contracts: what each does, where source lives. Cheap orientation. | (none) |
 
 ---

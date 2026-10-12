@@ -2,3 +2,7 @@
 # server (see scripts/bundle-plugin.mjs). Suppress diffs and mark as generated
 # so it doesn't drown code review — regenerate with `npm run bundle:plugin`.
 dexe-plugin/server/index.mjs -text -diff linguist-generated
+
+# Generated ABI snapshot (scripts/gen-abi-snapshot.ts). Collapsed in review;
+# the diff stays available, one ABI entry per line.
+src/abi/protocolSnapshot.generated.ts linguist-generated

@@ -1,7 +1,17 @@
 import { Interface, type Result } from "ethers";
-import type { Artifacts } from "../artifacts.js";
-import type { SelectorIndex } from "./selectors.js";
+import type { AbiRecord } from "../artifacts.js";
+import type { SelectorHit } from "./selectors.js";
 import { findForbiddenSelector } from "./dangerousSelectors.js";
+
+/** Name → ABI lookup: the compiled `Artifacts` or the bundled `AbiSnapshot`. */
+export interface AbiLookup {
+  get(contractName: string): readonly AbiRecord[];
+}
+
+/** Selector → contracts lookup: a `SelectorIndex` over the same ABIs. */
+export interface SelectorLookup {
+  find(selector: string): readonly SelectorHit[];
+}
 
 export interface DecodedCall {
   /** Which contract's ABI produced this decode. May be `null` if we used a bare selector match. */
@@ -34,8 +44,8 @@ export interface DecodedProposalAction {
 
 export class CalldataDecoder {
   constructor(
-    private readonly artifacts: Artifacts,
-    private readonly selectors: SelectorIndex,
+    private readonly artifacts: AbiLookup,
+    private readonly selectors: SelectorLookup,
   ) {}
 
   /**

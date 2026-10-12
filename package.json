@@ -63,6 +63,8 @@
     "typecheck": "tsc --noEmit",
     "gen:knowledge": "tsx scripts/gen-knowledge.ts",
     "gen:knowledge:check": "tsx scripts/gen-knowledge.ts --check",
+    "gen:abi-snapshot": "tsx scripts/gen-abi-snapshot.ts",
+    "gen:abi-snapshot:check": "tsx scripts/gen-abi-snapshot.ts --check",
     "prepublishOnly": "npm run typecheck && npm run gen:knowledge:check && npm run build",
     "swarm:preflight": "tsx scripts/swarm/preflight.ts",
     "swarm:fund": "tsx scripts/swarm/fund-pool.ts",

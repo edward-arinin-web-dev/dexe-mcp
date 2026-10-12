@@ -20,6 +20,13 @@ export interface ArtifactRecord {
   kind: "contract" | "interface" | "library";
 }
 
+/**
+ * The part of an artifact the decoders and the selector index read. Both the
+ * compiled `Artifacts` and the bundled ABI snapshot (src/lib/abiSnapshot.ts)
+ * provide it.
+ */
+export type AbiRecord = Pick<ArtifactRecord, "contractName" | "sourceName" | "abi">;
+
 /** Structured error thrown when introspection tools run before `dexe_compile`. */
 export class ArtifactsMissingError extends Error {
   constructor(public readonly artifactsDir: string) {
