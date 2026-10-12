@@ -25,6 +25,8 @@
 export type ModuleClass = "read" | "write" | "mixed" | "root";
 
 const READ = [
+  // bundled protocol ABI snapshot the decode tools fall back to (no compile step)
+  "abi/protocolSnapshot.generated.ts",
   "artifacts.ts",
   "resources.ts",
   "rpc.ts",
@@ -40,6 +42,7 @@ const READ = [
   "knowledge/topics.ts",
   "knowledge/types.ts",
   "lib/abi/tokenSale.ts",
+  "lib/abiSnapshot.ts",
   "lib/addresses.ts",
   // A pure digits-only validator. Builders use it, but so does the read tool
   // dexe_otc_buyer_status (tier ids), so it is shared code, not write code.
@@ -47,6 +50,7 @@ const READ = [
   "lib/controllingVoters.ts",
   "lib/dangerousSelectors.ts",
   "lib/decoders.ts",
+  "lib/decodeAbis.ts",
   "lib/govAddresses.ts",
   "lib/govEnums.ts",
   "lib/governanceHits.ts",
