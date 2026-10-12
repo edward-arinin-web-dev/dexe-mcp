@@ -1,6 +1,6 @@
 # dexe-mcp Roadmap
 
-Living backlog. Rewritten 2026-07-23 (the previous version was frozen several
+Living backlog. Rewritten 2026-07-23; editions section added 2026-10-12 (the previous version was frozen several
 release cycles ago; per-release history now lives entirely in `CHANGELOG.md` and
 `docs/MIGRATION.md` — this file only tracks what is NOT done yet).
 
@@ -20,6 +20,46 @@ are the primary interface; the full-surface frontend-parity audit was green on
 2026-07-23 (`internal/PARITY-AUDIT-2026-07-23.md`). Per-release detail lives in
 `CHANGELOG.md` and `docs/MIGRATION.md` — this file only tracks what is NOT done
 yet.
+
+## Now — read and write editions
+
+The server is being split into two packages that run side by side:
+
+- **Read edition** — `@dexe-network/dexe-mcp`, in a new repository under
+  `github.com/dexe-network`. Reads only: on-chain DAO state, proposals, votes,
+  treasury, token sales, staking, subgraph and IPFS metadata. No calldata
+  builders, no signer, no uploads. Runs over stdio or as a stateless remote
+  (Streamable HTTP) server, and is the edition submitted to the Anthropic and
+  OpenAI app directories, whose rules exclude software that executes crypto
+  transactions.
+- **Write edition** — `dexe-mcp` (this repository). Composites, builders,
+  broadcasting, WalletConnect, Safe, the agent keyring and IPFS uploads. It
+  depends on the read package as a library and pairs with the read server in
+  the same client.
+
+Progress (each step is its own PR; the single server keeps working throughout):
+
+- [x] Edition manifest + ratcheting import-boundary test (`src/editions.ts`,
+      `tests/boundary/`) — #92
+- [x] Split mixed libraries and tool files — #94
+- [x] Read/write config and env spec (`loadReadConfig` never parses keys) — #95
+- [x] Knowledge, `dexe_guide`, `dexe_context`, `dexe_get_config` by edition;
+      `dexe_write_context` — #96
+- [x] Decode tools work without compiling the protocol (bundled ABI snapshot) — #91
+- [x] Experimental remote mode `dexe-mcp serve-http` (not for public exposure
+      yet — see `docs/REMOTE.md`) — #93
+- [ ] Read tools safe to serve remotely (IPFS byte cap, array limits, response
+      cap, output scrubbing)
+- [ ] Per-edition gate, annotations and handshake; report snapshots off in the
+      read edition
+- [ ] Physical move to `src/read/**` and `src/write/**`
+- [ ] Read entry point (`dexe-mcp-read`, stdio + HTTP) with its own server factory
+- [ ] Extract the read edition into its new repository; this repository depends
+      on the published package
+- [ ] Write edition: WalletConnect as the default signer (the wallet confirms
+      every transaction); hot keys opt-in with an encrypted keystore
+- [ ] Hosted read server, MCP Registry entries for both editions, directory
+      submissions
 
 ## Reference projects
 
@@ -99,23 +139,21 @@ These live only in session memory today; tracked here so they survive rotation.
       deprecated` is empty; the C-2/Q-1 advisory recipes remain reachable in git
       history (`git show 6afdc36:docs/ESCALATION-DEXE.md`) and in merged public
       PR #36. Needs `npm deprecate` (OTP) + a history-rewrite/force-push decision.
-- [ ] **Open Dependabot alerts on GitHub** — 0.32.1 raised the stale `overrides`
-      floors and made `npm audit --omit=dev` a required CI gate; 0.33.1 raised
-      them again and added a daily scheduled audit. The alerts themselves were
-      never dismissed (Dependabot security updates are disabled). Dismiss them
-      or enable auto-updates before the announcement raises the repo's profile.
+- [x] **Open Dependabot alerts on GitHub** — 0 open as of 2026-10-12; the
+      October update (#90) consolidated the pending Dependabot PRs.
 - [ ] **F15 responsible disclosure** — `docs/UPSTREAM-ISSUES.md` documents an
       unfixed P1 funds-loss (vestingWithdraw) with repro in a PUBLIC repo. Send
       the private report to the DeXe security team before any announcement drives
       traffic; move the exploit detail behind the same "on request" treatment C-2 has.
 - [ ] **Graph API key rotation** — a live gateway key (`b860428…`) is baked into
       `src/config.ts` and ships to npm as a shared default; rotate/proxy it.
-- [ ] **main branch protection** is non-enforcing (0 required reviews, no
-      required status checks, admins bypass) — require CI/CodeQL before merge.
-      Re-check against 0.33.1's release-gate changes before the next tag.
-- [ ] **npm publish auth** — decide between the 90-day `NPM_TOKEN` secret and
-      OIDC trusted publishing. `release.yml` supports both and picks at runtime;
-      nothing rotates the token today.
+      `serve-http` already refuses to start on the shared defaults (#93); the
+      stdio default still carries the key.
+- [x] **main branch protection** — six required status checks (build on
+      Node 20/22, lockfile, CodeQL, dependency review), admins included. No
+      required reviews (single maintainer).
+- [x] **npm publish auth** — OIDC trusted publishing since 2026-10-01 (first
+      used for 0.34.1); the `NPM_TOKEN` secret was removed.
 - [ ] **Disclosure wording in `docs/UPSTREAM-ISSUES.md`** — the doc still tells
       the reader to treat the content as embargoed while shipping publicly on
       GitHub and npm. Either de-embargo it (and say so in `SECURITY.md`) or split
