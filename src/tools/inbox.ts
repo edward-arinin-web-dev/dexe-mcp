@@ -211,7 +211,7 @@ export function registerInboxTools(server: McpServer, ctx: ToolContext, state?: 
   server.registerTool(
     "dexe_user_inbox",
     {
-      title: "Multi-DAO attention aggregator",
+      title: "Pending items for a wallet across DAOs",
       description:
         "Read-only. Pending items across N DAOs for a user: unvoted proposals in Voting state, claimable rewards, locked " +
         `deposits. Discovery and scan both run on \`chainId\` (default ${ctx.config.defaultChainId}). Omit \`daos\` to auto-discover from that ` +

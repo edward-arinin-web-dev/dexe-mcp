@@ -256,7 +256,7 @@ function registerCidInfo(server: McpServer, gateways: string[]): void {
   server.registerTool(
     "dexe_ipfs_cid_info",
     {
-      title: "Parse a CID, show version/codec, compute the alternate version + gateway URLs",
+      title: "Parse an IPFS CID (version, codec, gateway URLs)",
       description:
         "Read-only, local. Parses a CIDv0/v1, reports codec + multihash, converts v0↔v1 when legal, and emits a URL per configured gateway.",
       inputSchema: {

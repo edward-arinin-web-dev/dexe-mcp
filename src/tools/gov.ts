@@ -446,7 +446,7 @@ function registerListGovContractTypes(server: McpServer): void {
   server.registerTool(
     "dexe_list_gov_contract_types",
     {
-      title: "Orientation: gov subsystem contract catalog",
+      title: "DeXe governance contract catalog",
       description:
         "Read-only, local. Catalog of the DeXe governance contracts: what each does and where its source lives.",
       inputSchema: {},

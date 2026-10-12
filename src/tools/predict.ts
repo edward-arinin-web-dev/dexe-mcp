@@ -114,7 +114,7 @@ export function registerPredictTools(server: McpServer, ctx: ToolContext): void 
   server.registerTool(
     "dexe_proposal_forecast",
     {
-      title: "Predictive proposal pass-rate forecaster",
+      title: "Forecast proposal pass rate and quorum",
       description:
         "Read-only. Reads the latest 10 proposals on a DAO and their final states and forecasts the pass-rate over DECIDED " +
         "proposals (still-voting ones are `pending`, never failures), with the average For-vote weight. " +

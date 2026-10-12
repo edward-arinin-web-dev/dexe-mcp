@@ -694,7 +694,7 @@ function registerGraphSchema(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     "dexe_graph_schema",
     {
-      title: "Introspect a DeXe subgraph schema (entities, fields, root query names)",
+      title: "Introspect a DeXe subgraph schema",
       description:
         "Read-only. Live introspection of a DeXe subgraph schema — the recovery path when dexe_graph_query answers " +
         "\"Type 'X' has no field 'Y'\". Omit `entity` for the root query field map (each entity -> the field name to query " +
@@ -1219,7 +1219,7 @@ function registerOtcListSalesForDao(server: McpServer, ctx: ToolContext, state?:
   server.registerTool(
     "dexe_otc_list_sales_for_dao",
     {
-      title: "List OTC sale tiers for a DAO",
+      title: "List a DAO's token sale tiers",
       description:
         "Read-only. Reads `latestTierId()` then `getTierViews(0, latestTierId)` on the DAO's TokenSaleProposal: tiers with " +
         "`totalSold` and status (`upcoming`/`active`/`ended`/`off`) computed from the current block timestamp and the tier's " +

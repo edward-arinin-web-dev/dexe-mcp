@@ -203,10 +203,11 @@ export const WRITE_ANNOTATIONS: AnnotationTable = {
 /**
  * The single server's table: both editions' classes and titles, and the read
  * edition's always-loaded pair (`dexe_context`, `dexe_guide`) — the two tools
- * its handshake sends every session to first.
+ * its handshake sends every session to first. Its `dexe_guide` serves the write
+ * flows next to the read topics, so it keeps the flow-plan title.
  */
 export const SINGLE_SERVER_ANNOTATIONS: AnnotationTable = {
   classes: { ...READ_ANNOTATIONS.classes, ...WRITE_ANNOTATIONS.classes },
-  titles: { ...READ_ANNOTATIONS.titles, ...WRITE_ANNOTATIONS.titles },
+  titles: { ...READ_ANNOTATIONS.titles, ...WRITE_ANNOTATIONS.titles, dexe_guide: "Flow plans and pitfalls" },
   alwaysLoaded: READ_ANNOTATIONS.alwaysLoaded,
 };

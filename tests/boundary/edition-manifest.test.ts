@@ -45,11 +45,11 @@ describe("edition manifest", () => {
   });
 
   it("every read tool is annotated readOnlyHint: true", () => {
-    // dexe_dao_report passes this while still persisting reports.json beside
-    // state.json — the annotation is set, the behaviour is not yet read-only.
-    // An annotation check cannot see that, so the disk-write ratchet in
-    // import-boundary.test.ts pins src/tools/report.ts until the read edition
-    // makes snapshot persistence pluggable (off by default).
+    // dexe_dao_report's snapshot store is injected (A7): the single server hands
+    // it the reports.json file store from the write side, the read edition
+    // hands it none — so the read code itself writes no file, which the
+    // disk-write ratchet in import-boundary.test.ts holds it to. The full set
+    // of explicit hints is pinned in tests/tools/read-edition-surface.test.ts.
     const byName = new Map(full.tools.map((t) => [t.name, t]));
     const notReadOnly = READ_TOOLS.filter((n) => byName.get(n)?.annotations?.readOnlyHint !== true);
     expect(notReadOnly, "read-edition tools without readOnlyHint: true").toEqual([]);

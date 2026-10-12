@@ -99,10 +99,16 @@ Classification lives in one table per edition — the read tools in
 (which also merges both for the single server) — and is applied by a single
 wrapper at registration. It is **exhaustive**: a tool that is not
 classified ships with no annotations at all (so the conservative spec default
-still applies) and fails `tests/tools/annotations.test.ts` by name. Only
-spec-meaningful fields are emitted — `destructiveHint` and `idempotentHint` are
-defined as meaningful only when `readOnlyHint` is false, so a read carries one
-key and not four.
+still applies) and fails `tests/tools/annotations.test.ts` by name.
+
+The 54 tools of the read edition (`READ_TOOLS` in `src/editions.ts`) spell all
+four hints as explicit booleans — `readOnlyHint: true`,
+`destructiveHint: false`, `idempotentHint: true`, and `openWorldHint` (true for
+public chain / subgraph / backend / IPFS data, false for the five that compute
+locally) — because connector directories review them that way. Every other
+read emits only the spec-meaningful field: `destructiveHint` and
+`idempotentHint` are defined as meaningful only when `readOnlyHint` is false,
+so a builder carries one key and not four (`tools/list` bytes are budgeted).
 
 The five classes:
 
