@@ -4,11 +4,11 @@ import { resolve } from "node:path";
 
 /**
  * Drift guard for the tool count quoted in user-facing docs. The registered
- * surface is 169 tools (asserted structurally in tests/tools/gate.test.ts);
+ * surface is 170 tools (asserted structurally in tests/tools/gate.test.ts);
  * every three-digit "<N> tools" mention in the docs must quote that number,
  * and known stale literals from past releases must not reappear.
  */
-const REAL_COUNT = "169";
+const REAL_COUNT = "170";
 const STALE_LITERALS = [
   "153 tools",
   "155 tools",
@@ -19,6 +19,7 @@ const STALE_LITERALS = [
   "165-tool",
   "167 tools",
   "168 tools",
+  "169 tools",
   "all 155",
   "all-155",
 ];

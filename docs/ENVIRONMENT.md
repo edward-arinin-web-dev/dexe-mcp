@@ -36,7 +36,7 @@ overridable: set the matching var and your value wins.
 | Subgraph reads (**chain 56 only**) | shared DeXe gateway URLs (The Graph decentralized network, key in path) | `DEXE_SUBGRAPH_*_URL` (+ `DEXE_GRAPH_API_KEY`); other chains need `DEXE_SUBGRAPH_<KIND>_URL_<chainId>` |
 | Backend API | `https://api.dexe.io` | `DEXE_BACKEND_API_URL` |
 | IPFS reads | public gateways (ipfs.io, dweb.link, cloudflare) | `DEXE_IPFS_GATEWAY` (or `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK=1`) |
-| Signing | WalletConnect (shared project id) — connect via `dexe_wc_connect` | `DEXE_WALLETCONNECT_PROJECT_ID` (your own) or `DEXE_PRIVATE_KEY` |
+| Signing | WalletConnect (shared project id) — connect via `dexe_wc_connect` | `DEXE_WALLETCONNECT_PROJECT_ID` (your own), or `DEXE_SIGNER_MODE=keystore` + `npx dexe-mcp key create` ([SIGNING.md](./SIGNING.md)) |
 
 **Not defaulted — you must provide:**
 
@@ -45,7 +45,8 @@ overridable: set the matching var and your value wins.
   **broadcast** a DAO/proposal creation, not to build one. A `dryRun` needs no
   key — the CIDs are computed locally and nothing is pinned. This is the only
   hard blocker for the create flows once you actually broadcast.
-- `DEXE_PRIVATE_KEY` — hot-key signing (opt-in; WalletConnect is the safer default).
+- `DEXE_SIGNER_MODE` — `walletconnect` (default) · `keystore` · `readonly` · `unattended`. See [SIGNING.md](./SIGNING.md).
+- `DEXE_PRIVATE_KEY` — hot-key signing, `DEXE_SIGNER_MODE=unattended` only (bots / CI; testnet by default).
 
 **Shared defaults are billable-shared / rate-limited.** The default Graph API
 key and WalletConnect project id ship publicly; fine for light use, but heavy
@@ -117,7 +118,7 @@ That covers reads + IPFS fetch/upload + DAO/proposal/voter discovery. Adding
 write tools (deploy, proposal builders, vote) does not require any new env
 var — those tools return `TxPayload` calldata your wallet signs externally.
 
-To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
+To enable in-server signing (optional, see §4): WalletConnect works out of the box; for an encrypted local key run `npx dexe-mcp key create` and add `DEXE_SIGNER_MODE=keystore`.
 
 ---
 
@@ -154,17 +155,25 @@ To enable in-server signing (optional, see §4): add `DEXE_PRIVATE_KEY`.
 | `DEXE_TREASURY_GUARD` | treasury-safety advisory | Posture: `off` \| `warn`. `warn` (default) = advisories/alerts everywhere (build, deploy, execute, risk_assess); `off` = silent. **Advisory only — it never blocks.** The durable control is an adequate on-chain quorum threshold configured per DAO. | `warn`, `off` |
 | `DEXE_CONTROLLING_TOPN` | treasury-safety advisory | Top-N token holders (by voting weight) in the "controlling set" alongside validators. `dexe_proposal_risk_assess` and the execute advisory **flag** a treasury proposal where **no** controlling member voted For (even at healthy quorum). Needs a **pools _and_ validators** endpoint for the chain being analyzed (chain 56 out of the box; other chains via `DEXE_SUBGRAPH_<KIND>_URL_<chainId>`) — an unindexed chain yields *unknown*, never another chain's controlling set. **Informational, never blocks.** Positive integer, default `5`. | `5`, `3`, `10` |
 | `DEXE_MAX_RESPONSE_BYTES` | read-tool results (optional) | Size limit for one read-tool result (`content` text + `structuredContent`, serialized). A larger result is **cut to fit, not refused**: rows are dropped from the end and long strings shortened, the first text line says `RESPONSE TRUNCATED`, what was cut and how to get the rest, and offset-paged tools report a corrected `returned` / `nextOffset` (`nextSkip` for `dexe_proposal_voters`). Under the limit nothing changes. Applies to stdio and `serve-http` alike. Clamped to 16 KB–16 MB. Default `262144` (256 KB). | `262144`, `1048576` |
-| `DEXE_TOOLSETS` | tool gating (`tools/list` size) | Comma list of tool profiles to register: `core`, `proposals`, `read`, `vote`, `agents`, `governor`, `dev`, or `full`. **Default `core`** since v0.31.0 (45 of 169 tools, ~92 KB of `tools/list`) — it carries the composites plus the zero-config reporting reads; the ~30 single-purpose `dexe_proposal_build_*` tools moved to `proposals`, since `dexe_proposal_create` already covers every catalog type. `DEXE_TOOLSETS=core,proposals` restores the pre-0.31 surface; `core,agents` adds the multi-agent keyring tools (v0.32.0). `full` loads everything; an **unknown name is dropped** (the recognized sets still apply) rather than escalating to `full`. `dexe_doctor` reports the active set; restart Claude Code after editing. See [TOOLS.md § Toolset profiles](./TOOLS.md#toolset-profiles). | `core,proposals`, `full`, `core,proposals,vote,read` |
+| `DEXE_TOOLSETS` | tool gating (`tools/list` size) | Comma list of tool profiles to register: `core`, `proposals`, `read`, `vote`, `agents`, `governor`, `dev`, or `full`. **Default `core`** since v0.31.0 (46 of 170 tools, ~94 KB of `tools/list`) — it carries the composites plus the zero-config reporting reads; the ~30 single-purpose `dexe_proposal_build_*` tools moved to `proposals`, since `dexe_proposal_create` already covers every catalog type. `DEXE_TOOLSETS=core,proposals` restores the pre-0.31 surface; `core,agents` adds the multi-agent keyring tools (v0.32.0). `full` loads everything; an **unknown name is dropped** (the recognized sets still apply) rather than escalating to `full`. `dexe_doctor` reports the active set; restart Claude Code after editing. See [TOOLS.md § Toolset profiles](./TOOLS.md#toolset-profiles). | `core,proposals`, `full`, `core,proposals,vote,read` |
 | `DEXE_STATE_PATH` | `dexe_context` persistence | Override path for the persistent operational-state JSON (DAOs deployed and proposals broadcast, surfaced by `dexe_context` across sessions). Default `~/.dexe-mcp/state.json`. Must be in a writable directory — `dexe_doctor` warns if not. Tools still work without persistence. | `~/.dexe-mcp/state.json`, `/data/dexe-state.json` |
 | `DEXE_ENV_FILE` | env-file location | Absolute path to a `.env` loaded **first**, before the default cwd/home search. For CI/containers/hosts that can inject one variable but not a working directory. Must be set in the real process environment (it is read before any file loads), not inside a `.env`. | `/etc/dexe/prod.env`, `C:\config\dexe.env` |
-| `DEXE_PRIVATE_KEY` | `dexe_tx_send`, signed branch of `dexe_proposal_create` / `dexe_proposal_vote_and_execute` | 0x-prefixed 64-hex EOA key. Requires `DEXE_RPC_URL`. **Process-resident — see §4.** | `0xabc...` |
+| `DEXE_SIGNER_MODE` | how the server signs (0.37.0) | `walletconnect` (default — the phone wallet signs) · `keystore` (encrypted local key; the owner approves every batch with its password on a local page) · `readonly` (never signs) · `unattended` (hot keys, **no human confirmation**, only on `DEXE_UNATTENDED_CHAINS`). Unset with a hot key present = `unattended` by a **deprecated implicit default** with no chain fence; it flips in the next major. A malformed value falls back to `walletconnect` (never to `unattended`). See [SIGNING.md](./SIGNING.md). | `keystore` |
+| `DEXE_PRIVATE_KEY` | `dexe_tx_send`, signed branch of the composites — **unattended mode only** | 0x-prefixed 64-hex EOA key, read only when `DEXE_SIGNER_MODE=unattended` (or the deprecated implicit default). Ignored — with a doctor warning — in every other mode. Requires `DEXE_RPC_URL`. Move it into the encrypted keystore with `npx dexe-mcp key import --from-env`. **Process-resident — see §4.** | `0xabc...` |
 | `DEXE_AGENT_PK_1` … `DEXE_AGENT_PK_16` | agent keyring (v0.28, optional) | Extra hot EOA keys for multi-persona/swarm flows. Selected per call via `signerKey: "agent<n>"` (or the address) on `dexe_tx_send`, `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, and the OTC buyer composites. The primary key stays the default — agent keys are never used implicitly. Same RPC requirement and plaintext-on-disk caveats as `DEXE_PRIVATE_KEY`; per-signer nonce queues let distinct agents broadcast concurrently. `dexe_agents_list` shows the roster. **Alias (0.29):** the swarm naming `AGENT_PK_1..16` is read as a fallback (the `DEXE_`-prefixed var wins if both are set). | `0xabc...` |
 | `DEXE_AGENT_FUNDER_PK` (alias `AGENT_FUNDER_PK`) | agent keyring (0.29, optional) | Gas-funder wallet, keyring slot `funder` — usable as `signerKey:"funder"` anywhere and as `source:'funder'` on `dexe_agents_fund`. | `0xabc...` |
 | `DEXE_AGENT_FUND_MAX_WEI` | `dexe_agents_fund` (optional) | Per-agent cap (wei) on a single funding transfer from the primary signer to a keyring wallet. Default 0.1 native when unset. Recipients are hard-restricted to keyring addresses regardless of this cap. | `100000000000000000` |
 | `DEXE_SIGNER_ALLOWLIST` | `dexe_tx_send` (signer mode, optional) | **B6 guard.** Comma-separated destination addresses; `dexe_tx_send` rejects any `to` not on the list. Unset = no restriction. Validated + lowercased at startup; invalid address aborts startup. | `0xAbc...,0xDef...` |
 | `DEXE_SIGNER_MAX_VALUE_WEI` | `dexe_tx_send` (signer mode, optional) | **B7 guard.** Hard cap on the `value` (wei) of any single broadcast; over-cap is rejected. Unset = no cap. | `100000000000000000` (0.1 BNB) |
 | `DEXE_SIGNER_MAX_BROADCASTS_PER_MIN` | `dexe_tx_send` (signer mode, optional) | **B10 guard.** Max broadcasts per rolling 60s window across the process; over-limit is rejected with a retry hint. Unset = no limit. | `10` |
-| `DEXE_WALLETCONNECT_PROJECT_ID` | WalletConnect signer mode (C12) | Free project id from <https://cloud.reown.com>. **Defaults** to a shared project id, so `signerMode` is `walletconnect` (not `readonly`) out of the box when `DEXE_PRIVATE_KEY` is absent — connect via `dexe_wc_connect`. Set your own to stop sharing the default. Hot key wins when both are set. | `abc123...` |
+| `DEXE_UNATTENDED_CHAINS` | unattended mode (0.37.0) | Comma-separated chain ids hot keys may sign on. Default `97` (BSC testnet) when `DEXE_SIGNER_MODE=unattended` is explicit; list `56` deliberately for mainnet, with B6/B7 caps (doctor warns without them). A malformed value fences to `97`. | `97`, `97,56` |
+| `DEXE_KEYSTORE_PATH` | keystore mode (0.37.0) | Keystore directory, or one keystore file. Default `~/.dexe-mcp/keystore`. Files are keystore v3 (scrypt N=2^18), written 0600 by `dexe-mcp key`. | `/home/me/.dexe-mcp/keystore` |
+| `DEXE_KEYSTORE_ADDRESS` | keystore mode (0.37.0) | Which keystore to use when the directory holds several. | `0xAbc...` |
+| `DEXE_APPROVAL_WAIT_MS` | keystore mode (0.37.0) | How long a tool call blocks waiting for the owner (progress notifications while it waits) before returning `awaiting_approval`. Default `120000`, max `600000`; `0` returns at once. | `120000` |
+| `DEXE_APPROVAL_TTL_S` | keystore mode (0.37.0) | Lifetime of an approval link and of an approved-but-unused batch. Default `900`, range 60–3600. | `900` |
+| `DEXE_APPROVAL_OPEN_BROWSER` | keystore mode (0.37.0) | `1` (default) opens the approval page in your default browser; `0` only prints the link (stderr + tool result). | `0` |
+| `DEXE_KEYSTORE_PASSWORD_FILE` | unattended / CI only (0.37.0) | A file with the keystore password, so `DEXE_SIGNER_MODE=unattended` signs with the keystore instead of a plaintext `DEXE_PRIVATE_KEY`. **Ignored in keystore mode**, which never reads a password from env or a file. | `/run/secrets/keystore-pw` |
+| `DEXE_WALLETCONNECT_PROJECT_ID` | WalletConnect signer mode (C12) | Free project id from <https://cloud.reown.com>. **Defaults** to a shared project id, so `DEXE_SIGNER_MODE` resolves to `walletconnect` out of the box — connect via `dexe_wc_connect`. Set your own to stop sharing the default. | `abc123...` |
 | `DEXE_WALLETCONNECT_RELAY_URL` | WalletConnect (optional) | Override the relay websocket. | `wss://relay.walletconnect.com` (default) |
 | `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS` | WalletConnect (optional) | Per-tx phone-approval timeout; over-timeout returns `{status:'timeout'}` instead of hanging the MCP request. Validated `> 0`. | `120000` (default) |
 | `DEXE_PRIVACY_POLICY_HASH` | `dexe_vote_build_privacy_policy_*` (optional) | Default privacy-policy bytes32 hash. Otherwise read live from `UserRegistry.documentHash()`. | `0x...` |
@@ -202,7 +211,7 @@ touches.
 | Proposal builders — off-chain | `dexe_proposal_build_offchain*`, `dexe_offchain_build_vote`, `dexe_offchain_build_cancel_vote`, `dexe_auth_request_nonce`, `dexe_auth_login_request` | `DEXE_BACKEND_API_URL` |
 | Vote / stake / execute / claim | `dexe_vote_build_*` (entire group) | (none — pure ABI encoding; chainId comes from `DEXE_CHAIN_ID`) |
 | Composite flows | `dexe_proposal_create`, `dexe_proposal_vote_and_execute` | `DEXE_RPC_URL`; `DEXE_PINATA_JWT` to broadcast (a `dryRun` needs none); **either** `user` arg **or** `DEXE_PRIVATE_KEY` |
-| Tx layer | `dexe_tx_send` | `DEXE_PRIVATE_KEY`, `DEXE_RPC_URL` |
+| Tx layer | `dexe_tx_send` | a signer (WalletConnect session, keystore, or unattended `DEXE_PRIVATE_KEY`), `DEXE_RPC_URL` |
 | Tx layer (read) | `dexe_tx_status` | `DEXE_RPC_URL` |
 
 When in doubt, run the tool with no env set — the error will name the missing
@@ -223,7 +232,7 @@ var.
 Your wallet (MetaMask, Safe, hardware, multisig, custom signer) signs and
 broadcasts. No private key ever touches the MCP server.
 
-**Signer mode** is opt-in by setting `DEXE_PRIVATE_KEY`. With a key configured:
+**Signer mode** — how the server itself signs — is `DEXE_SIGNER_MODE` (0.37.0; [SIGNING.md](./SIGNING.md) has the full comparison and threat model): `walletconnect` (default, the phone signs), `keystore` (encrypted key, the owner approves each batch with its password on a local page), `readonly`, or `unattended` (hot keys, no confirmation, testnet by default). With a signer:
 
 - `dexe_tx_send` becomes callable (broadcasts arbitrary `TxPayload`s).
 - `dexe_proposal_create` / `dexe_proposal_vote_and_execute` gain a signed
@@ -231,7 +240,7 @@ broadcasts. No private key ever touches the MCP server.
   and broadcasts the prepared transactions end-to-end.
 - All other write tools still return calldata; signing is opt-in **per call**.
 
-**Security trade-off.** The key lives in the MCP server process for the
+**Security trade-off (unattended mode).** The key lives in the MCP server process for the
 session lifetime. The MCP host (Claude Code, Claude Desktop, etc.) can
 arbitrarily invoke any tool. Treat `DEXE_PRIVATE_KEY` like a hot wallet:
 
@@ -332,16 +341,18 @@ Endpoint resolution: with no override, `chainId` maps to
 `https://api.safe.global/tx-service/<shortname>/api/v2` (eth, bnb, matic, base,
 arb1, sep, …). `DEXE_SAFE_TX_SERVICE_URL` always wins when set.
 
-`dexe_write_context` reports the effective signer mode (`signer.mode`):
+`dexe_write_context` reports the signer mode (`signer.mode`: `walletconnect` |
+`keystore` | `readonly` | `unattended`) and, as `signer.dispatch`, the label this
+field carried before 0.37.0:
 
-- `readonly` — no `DEXE_PRIVATE_KEY`; tools return unsigned `TxPayload`s only.
-- `eoa` — key set, no Safe service; `dexe_tx_send` broadcasts directly.
-- `safe` — key set **and** `DEXE_SAFE_TX_SERVICE_URL` set; `dexe_safe_*` can
-  queue to the multisig.
-- `walletconnect` — **no** `DEXE_PRIVATE_KEY`, but `DEXE_WALLETCONNECT_PROJECT_ID`
-  set; broadcasts are forwarded to the operator's phone wallet for approval (no
-  hot key). Precedence: `safe` → `eoa` → `walletconnect` → `readonly`. Phase A is
-  config-only — see [`WALLETCONNECT.md`](./WALLETCONNECT.md).
+- `readonly` — nothing can sign; tools return unsigned `TxPayload`s only.
+- `eoa` — unattended hot key, no Safe service; `dexe_tx_send` broadcasts directly.
+- `safe` — unattended hot key **and** `DEXE_SAFE_TX_SERVICE_URL` set; `dexe_safe_*`
+  can queue to the multisig. (Keystore mode does not sign Safe transactions yet.)
+- `walletconnect` — broadcasts are forwarded to the operator's phone wallet for
+  approval — see [`WALLETCONNECT.md`](./WALLETCONNECT.md).
+- `keystore` — the encrypted key signs after the owner approves each batch — see
+  [`SIGNING.md`](./SIGNING.md).
 
 ---
 

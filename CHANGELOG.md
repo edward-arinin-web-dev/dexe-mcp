@@ -2,7 +2,80 @@
 
 ## 0.37.0 — unreleased
 
-Tool count unchanged for `dexe-mcp` (169 tools). Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0361--0370--read-this-if-you-run-serve-http).
+Tool count 169 → 170 for `dexe-mcp` (`dexe_tx_approval_status`); the new read-only edition `dexe-mcp-read` serves the 54 read tools. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0361--0370--read-this-if-you-sign-with-dexe_private_key-read-signermode-or-run-serve-http).
+
+### Added — signer modes, an encrypted keystore, and a human approval page (170 tools)
+- **`DEXE_SIGNER_MODE`** — `walletconnect` (default) | `keystore` | `readonly`
+  | `unattended`, resolved once (`src/lib/signerMode.ts`) instead of three
+  separate guesses. Only `unattended` reads hot keys; an explicit unattended
+  mode signs only on **`DEXE_UNATTENDED_CHAINS`** (default `97`).
+- **Keystore mode.** One key in a keystore v3 file (scrypt N=2^18 r=8 p=1 via
+  Node's native scrypt, address checked after decrypt, atomic `0600` writes in
+  `~/.dexe-mcp/keystore`). Every batch — `dexe_tx_send` or a composite's whole
+  approve → deposit → create sequence — waits for the owner to type the
+  keystore password on a page served on `127.0.0.1` (exact Host, same-origin
+  JSON + per-approval CSRF, one random path token per approval, no-store /
+  no-referrer / nonce-only CSP, 5 wrong passwords → auto-decline + growing
+  lockout, automated browsers refused). The page decodes the calldata from the
+  bytes (bundled ABIs, nested multicall and proposal actions), labels addresses
+  from the chain, flags unlimited approvals / value / unknown spenders /
+  governance actions, and runs B6/B7/B11/B12 on every step and B9 on step 1.
+  Approvals are bound to `keccak(chainId, from, ordered (to, value,
+  keccak(data)))`, single-use, 15-minute TTL; the signer signs only the
+  approved transactions in order and drops the key when done; a declined batch
+  is refused without a page for 10 minutes. Calls block up to
+  `DEXE_APPROVAL_WAIT_MS` (progress notifications while waiting), else return
+  **`mode: "awaiting_approval"`** with the link and a fingerprint — re-run the
+  same call after approving. No tool, parameter or env var can approve (ratchet
+  test).
+- **`dexe_tx_approval_status`** (`core`, read-only): approval state + landed
+  hashes, with a `waitMs` long-poll. Tool count 169 → 170; the default profile
+  is 46 tools (95,987 B of `tools/list`, under the 96,000 B budget).
+- **`dexe-mcp key`** — `create`, `import` (hidden paste, `--from-env` which
+  also removes the plaintext line, `--json <file>`), `list`,
+  `export-address`, `change-password`, `remove`. Secret commands refuse without
+  a TTY. No `export-private-key`.
+- **`dexe-mcp init`** offers WalletConnect (default) → encrypted key →
+  read-only; a hot key only with `init --unattended`.
+- Env: `DEXE_SIGNER_MODE`, `DEXE_UNATTENDED_CHAINS`, `DEXE_KEYSTORE_PATH`,
+  `DEXE_KEYSTORE_ADDRESS`, `DEXE_APPROVAL_WAIT_MS`, `DEXE_APPROVAL_TTL_S`,
+  `DEXE_APPROVAL_OPEN_BROWSER`, `DEXE_KEYSTORE_PASSWORD_FILE` (unattended/CI
+  only; never read in keystore mode).
+- Doctor rows `signer.mode`, `signer.keystore` (KDF strength, permissions),
+  `signer.hotKeyIgnored`, `signer.unattendedMainnet`, `approval.browser`,
+  `signer.passwordFile`.
+- [docs/SIGNING.md](./docs/SIGNING.md): the modes, setup, the approval flow and
+  an honest threat model — the keystore stops prompt injection and mistakes,
+  not an agent that can drive your browser or shell; for those, WalletConnect.
+
+### Changed
+- **Transitional default (deprecated):** `DEXE_SIGNER_MODE` unset + a hot key
+  still signs `unattended` on every configured chain, as before, with a startup
+  deprecation line and a doctor warning. The next major drops it.
+- `dexe_write_context`: `signer.mode` is the signer mode (`walletconnect` /
+  `keystore` / `readonly` / `unattended`); the old label is `signer.dispatch`.
+  New `modeSource`, `humanConfirmation`, `unattendedChains`, `deprecation`,
+  `keystore`, `pendingApprovals`. `dexe_wc_status.signerMode` uses the same values.
+- In keystore mode, message and typed-data signatures (`dexe_auth_login`
+  without a WalletConnect session, `dexe_safe_propose_tx` signing) are refused
+  with a WalletConnect pointer; `dexe_agents_fund` runs only unattended;
+  `signerKey` is refused outside unattended mode.
+- Every keystore broadcast carries `safety: KEYSTORE_SAFETY` (what the password
+  does and does not protect against) where hot-key broadcasts carry the
+  NOT-SAFE note.
+- The swarm orchestrator starts its MCP child with `DEXE_SIGNER_MODE=unattended`
+  and `DEXE_UNATTENDED_CHAINS=<the run's chain>`.
+- Handshake instructions (both editions) add: never ask for the password; on
+  `awaiting_approval` ask the user to approve, then re-run (2,046 / 2,042
+  characters).
+
+### Tests
+Keystore round trip, the approval state machine (replay, expiry, deviation,
+lockout, decline cooldown, batch binding), loopback HTTP admission, mode
+resolution + fence incl. the transitional path, the composite keystore leg, the
+no-off-switch ratchet; E2E on BSC testnet 97
+(`scripts/e2e-approval-testnet.mjs`, not shipped) plays the human for
+`dexe_tx_send`, `dexe_proposal_create`, a decline and a tampered batch.
 
 ### Added — `dexe-mcp-read`, the read-only edition
 A second binary in the package: `dexe-mcp-read` (stdio) and

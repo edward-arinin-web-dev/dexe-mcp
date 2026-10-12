@@ -63,6 +63,7 @@ In scope:
 
 - Calldata-builder tools (`dexe_proposal_build_*`, `dexe_vote_build_*`, `dexe_dao_build_deploy`) that produce calldata that does not match the intended action.
 - Signer mode (`dexe_tx_send`, auto-broadcast in `dexe_proposal_create` / `dexe_proposal_vote_and_execute`) leaking or misusing the configured private key.
+- Keystore mode: any way to get a batch signed without the owner typing the keystore password on the loopback approval page, to sign something other than the approved batch, to reuse an approval, or to reach the approval server from another origin or host.
 - IPFS upload paths that exfiltrate non-public data or accept unsafe input.
 - Hardhat bridge (`dexe_compile`, `dexe_test`, etc.) executing unintended shell commands.
 - Dependency vulnerabilities reachable through `dexe-mcp`'s exposed tool surface.
@@ -75,9 +76,9 @@ Out of scope:
 
 ## Threat Model
 
-`dexe-mcp` runs **locally** alongside an MCP client (Claude Desktop, Claude Code, etc.). It does not bind a network port and does not expose itself to the public internet. The interesting attack surfaces are:
+`dexe-mcp` runs **locally** alongside an MCP client (Claude Desktop, Claude Code, etc.). It does not expose itself to the public internet; the only port it opens is the keystore approval page, on `127.0.0.1` only, in `DEXE_SIGNER_MODE=keystore`. The interesting attack surfaces are:
 
-1. The operator's private key in signer mode — never logged, never sent off-host, only used by `ethers.Wallet` to sign payloads the operator has already approved at the agent level.
+1. The operator's key. `DEXE_SIGNER_MODE` decides how it is held ([docs/SIGNING.md](./docs/SIGNING.md)): on a phone (`walletconnect`, the default), encrypted on disk and unlocked per batch by the owner's password (`keystore`), or as a plaintext hot key that signs with no human confirmation (`unattended`, testnet-only by default). Keys are never logged and never sent off-host.
 2. Calldata correctness — every `_build_*` tool emits a `TxPayload` the operator can decode (`dexe_decode_calldata`, `dexe_decode_proposal`) and sign-verify before broadcasting.
 3. IPFS pinning credentials — keep `PINATA_JWT` scoped to a project-specific key.
 
@@ -99,6 +100,14 @@ When signer mode is enabled (`DEXE_PRIVATE_KEY`), `dexe_tx_send` runs six guards
 
 These are defense-in-depth, **not** a substitute for keeping the key off-host. For prod governance/treasury actions, prefer calldata mode + Safe Multisig / Ledger. See `docs/ENVIRONMENT.md` §4 for the recommended config block.
 
+## Keystore signer mode (0.37.0)
+
+`DEXE_SIGNER_MODE=keystore` keeps one key in a keystore v3 file (scrypt N=2^18) and signs only after the owner approves the exact batch — chain, sender and the ordered `(to, value, keccak(data))` list, bound by hash — by typing the keystore password on a page served on `127.0.0.1`. The page decodes the calldata from the bytes and labels addresses from the chain; it is admitted only with the exact `Host`, a same-origin JSON POST carrying a per-approval CSRF token, and refuses automated browsers (`navigator.webdriver`); five wrong passwords decline the approval and lock entry with a growing backoff. The decrypted key exists only inside the signer for that batch, which refuses any other transaction and is dropped when the batch is sent, fails, is superseded or expires. No tool, parameter or env var can approve (a test enforces it).
+
+Threat model, plainly: this stops prompt injection and mistakes. It does **not** stop an AI agent that can drive your browser (it can read the password as typed) or run shell commands (it can fake the page or read process memory) — for such agents use WalletConnect. Local malware is out of scope. Details: [docs/SIGNING.md](./docs/SIGNING.md#threat-model).
+
+Unattended mode (`DEXE_SIGNER_MODE=unattended`) is the only mode that reads `DEXE_PRIVATE_KEY` / the agent keyring, and signs only on `DEXE_UNATTENDED_CHAINS` (default `97`). In 0.37 an unset mode with a hot key present still signs unattended on every chain, with a deprecation warning; the next major removes that default.
+
 ## WalletConnect signer mode (C12)
 
-`signerMode: walletconnect` (activated by `DEXE_WALLETCONNECT_PROJECT_ID` when **no** `DEXE_PRIVATE_KEY` is set) removes the hot key from the threat model entirely: the signing key never leaves the operator's phone wallet, and **every** transaction is gated by an explicit per-tx approval on that device. The MCP process holds only a relay session, never key material. The broadcast guards above still run on the `tx` *before* it is forwarded to the relay — the phone approval is an **additional** human gate, not a replacement. A hard approval timeout (`DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`, default 120 s) bounds how long a request can block. The live relay session shipped in **v0.7.0** and QR pairing in **v0.18.0**: `dexe_wc_connect` opens the session and renders a scannable QR, `dexe_wc_status` reports it, `dexe_wc_disconnect` tears it down, and `dexe_tx_send` plus the composite flows auto-print the QR when a write needs a wallet. This adds one runtime dependency, `@walletconnect/universal-provider` (WalletConnect v2 / Reown); it is **lazily imported** inside `src/lib/walletconnect.ts`, so `readonly` / `eoa` / `safe` sessions never load it, and it is covered by the dependency-review and `npm audit --omit=dev` gates above. See `docs/WALLETCONNECT.md`.
+`DEXE_SIGNER_MODE=walletconnect` (the default; a shared `DEXE_WALLETCONNECT_PROJECT_ID` ships) removes the hot key from the threat model entirely: the signing key never leaves the operator's phone wallet, and **every** transaction is gated by an explicit per-tx approval on that device. The MCP process holds only a relay session, never key material. The broadcast guards above still run on the `tx` *before* it is forwarded to the relay — the phone approval is an **additional** human gate, not a replacement. A hard approval timeout (`DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS`, default 120 s) bounds how long a request can block. The live relay session shipped in **v0.7.0** and QR pairing in **v0.18.0**: `dexe_wc_connect` opens the session and renders a scannable QR, `dexe_wc_status` reports it, `dexe_wc_disconnect` tears it down, and `dexe_tx_send` plus the composite flows auto-print the QR when a write needs a wallet. This adds one runtime dependency, `@walletconnect/universal-provider` (WalletConnect v2 / Reown); it is **lazily imported** inside `src/lib/walletconnect.ts`, so `readonly` / `eoa` / `safe` sessions never load it, and it is covered by the dependency-review and `npm audit --omit=dev` gates above. See `docs/WALLETCONNECT.md`.
