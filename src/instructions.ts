@@ -41,7 +41,7 @@ export function readInstructions(): string {
     "and protocol statistics — plus external OpenZeppelin/Compound Governors (dexe_gov_get_*, dexe_gov_list_governors). " +
     "Sources: the chain (BNB Smart Chain mainnet 56 by default, testnet 97), the DeXe subgraph and backend, and IPFS. " +
     "Reads work with zero configuration: a public RPC, subgraph endpoints and IPFS gateways are built in; " +
-    "dexe_doctor reports what an own RPC, Graph key or gateway would improve. " +
+    "dexe_doctor reports what your own RPC, Graph key or gateway would improve. " +
     "For an overview of one DAO start with dexe_dao_report — every section in one call, each one degrading on its " +
     "own and naming why; pass `since` for only what changed. " +
     "For a question no dedicated tool answers, query the subgraph with dexe_graph_query; take entity and field " +
