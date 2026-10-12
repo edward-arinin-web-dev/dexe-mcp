@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline/promises";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { getAddress, isAddress, Wallet } from "ethers";
 import {
@@ -15,6 +15,7 @@ import {
   writeKeystoreFile,
 } from "../lib/keystore.js";
 import { safeErrorMessage } from "../lib/redact.js";
+import { renameWithRetry, tempStatePath } from "../lib/stateStore.js";
 
 /**
  * `dexe-mcp key` — manage the encrypted keystore the `keystore` signer mode
@@ -58,35 +59,136 @@ export function keyUsage(): string {
   ].join("\n");
 }
 
-/** Remove `KEY=value` lines from .env text (keeps everything else, line endings preserved). */
-export function stripEnvKey(content: string, key: string): { content: string; removed: number } {
-  const eol = /\r\n/.test(content) ? "\r\n" : "\n";
-  const lines = content.split(/\r?\n/);
-  const re = new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=`);
-  const kept = lines.filter((l) => !re.test(l));
-  return { content: kept.join(eol), removed: lines.length - kept.length };
+// ─── .env editing for `import --from-env` ─────────────────────────────────
+//
+// Byte-preserving: every line the edit does not target is re-emitted exactly
+// as read — its own line ending (CRLF / LF / none), the BOM, spacing, comments.
+
+interface EnvLine {
+  text: string;
+  /** The terminator this line had: "\r\n", "\n" or "" (last line without one). */
+  eol: string;
 }
 
-/** Set `KEY=value` in .env text: replace an existing assignment or append one (trailing newline kept). */
-export function upsertEnvKey(content: string, key: string, value: string): string {
-  const eol = /\r\n/.test(content) ? "\r\n" : "\n";
-  const lines = content.split(/\r?\n/);
-  const re = new RegExp(`^\\s*${key}\\s*=`);
-  let found = false;
-  const out = lines.map((l) => {
-    if (re.test(l)) {
-      found = true;
-      return `${key}=${value}`;
+function splitEnvLines(content: string): { bom: string; lines: EnvLine[] } {
+  const bom = content.startsWith("﻿") ? "﻿" : "";
+  const body = content.slice(bom.length);
+  const lines: EnvLine[] = [];
+  let i = 0;
+  while (i < body.length) {
+    const j = body.indexOf("\n", i);
+    if (j < 0) {
+      lines.push({ text: body.slice(i), eol: "" });
+      break;
     }
-    return l;
-  });
-  if (!found) {
-    while (out.length > 0 && out[out.length - 1] === "") out.pop();
-    out.push(`${key}=${value}`, "");
-  } else if (out[out.length - 1] !== "") {
-    out.push("");
+    const crlf = j > i && body[j - 1] === "\r";
+    lines.push({ text: body.slice(i, crlf ? j - 1 : j), eol: crlf ? "\r\n" : "\n" });
+    i = j + 1;
   }
-  return out.join(eol);
+  return { bom, lines };
+}
+
+function joinEnvLines(bom: string, lines: readonly EnvLine[]): string {
+  return bom + lines.map((l) => l.text + l.eol).join("");
+}
+
+/**
+ * The value of an ACTIVE `KEY=value` line (optionally `export KEY=…`), or null.
+ * Handles `"…"` / `'…'` quoting and a trailing ` # comment` on an unquoted
+ * value — the shapes dotenv files actually contain.
+ */
+export function parseEnvAssignment(line: string, key: string): string | null {
+  const m = new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=(.*)$`).exec(line);
+  if (!m) return null;
+  const raw = m[1]!.trim();
+  const q = raw[0];
+  if (q === '"' || q === "'") {
+    const close = raw.indexOf(q, 1);
+    return close > 0 ? raw.slice(1, close) : raw.slice(1);
+  }
+  return raw.replace(/\s+#.*$/, "").replace(/^#.*$/, "").trim();
+}
+
+/** A commented-out line that still holds what looks like a private key for `key`. */
+export function isCommentedKeyLine(line: string, key: string): boolean {
+  return new RegExp(`^\\s*#+\\s*(?:export\\s+)?${key}\\s*=\\s*["']?(?:0x)?[0-9a-fA-F]{64}`).test(line);
+}
+
+const normKey = (v: string) => v.trim().toLowerCase().replace(/^0x/, "");
+
+/**
+ * Remove the active `key` assignments whose value IS `privateKey` (any quoting
+ * / comment / export form). Lines holding a different value are left alone;
+ * commented-out key lines are never touched but are counted so the caller can
+ * warn — a commented plaintext key is still a plaintext key on disk.
+ */
+export function removeEnvKeyValue(
+  content: string,
+  key: string,
+  privateKey: string,
+): { content: string; removed: number; commented: number } {
+  const { bom, lines } = splitEnvLines(content);
+  const want = normKey(privateKey);
+  let removed = 0;
+  let commented = 0;
+  const kept: EnvLine[] = [];
+  for (const l of lines) {
+    const v = parseEnvAssignment(l.text, key);
+    if (v !== null && normKey(v) === want) {
+      removed += 1;
+      continue;
+    }
+    if (isCommentedKeyLine(l.text, key)) commented += 1;
+    kept.push(l);
+  }
+  return { content: joinEnvLines(bom, kept), removed, commented };
+}
+
+/**
+ * Set `key=value`: rewrite the first active assignment in place (keeping its
+ * line ending) or append one, giving a final line that lacks a newline the
+ * file's own line ending first (process.loadEnvFile drops an unterminated
+ * last line).
+ */
+export function setEnvValue(content: string, key: string, value: string): string {
+  const { bom, lines } = splitEnvLines(content);
+  const idx = lines.findIndex((l) => parseEnvAssignment(l.text, key) !== null);
+  if (idx >= 0) {
+    lines[idx] = { text: `${key}=${value}`, eol: lines[idx]!.eol || (content.includes("\r\n") ? "\r\n" : "\n") };
+    return joinEnvLines(bom, lines);
+  }
+  const eol = content.includes("\r\n") ? "\r\n" : "\n";
+  const last = lines[lines.length - 1];
+  if (last && last.eol === "") last.eol = eol;
+  lines.push({ text: `${key}=${value}`, eol });
+  return joinEnvLines(bom, lines);
+}
+
+/** Replace `path` atomically (private temp in the same dir + rename), keeping its permission bits. */
+export function writeFileAtomic(path: string, content: string): void {
+  let mode = 0o600;
+  try {
+    mode = statSync(path).mode & 0o777;
+  } catch {
+    /* new file */
+  }
+  const tmp = tempStatePath(path);
+  const fd = openSync(tmp, "wx", mode);
+  try {
+    writeSync(fd, content);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    renameWithRetry(tmp, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* best effort */
+    }
+    throw err;
+  }
 }
 
 function flag(argv: readonly string[], name: string): string | undefined {
@@ -398,36 +500,38 @@ export async function run(argv: readonly string[], opts: KeyRunOptions = {}): Pr
  * be edited from here; say where to delete it.
  */
 async function stripFromEnvFiles(files: readonly string[], privateKey: string): Promise<void> {
-  const norm = privateKey.toLowerCase().replace(/^0x/, "");
-  const holders = files.filter((f) => {
-    if (!existsSync(f)) return false;
-    try {
-      return readFileSync(f, "utf8")
-        .split(/\r?\n/)
-        .some((l) => {
-          const m = /^\s*(?:export\s+)?DEXE_PRIVATE_KEY\s*=\s*["']?(0x)?([0-9a-fA-F]{64})["']?\s*$/.exec(l);
-          return !!m && m[2]!.toLowerCase() === norm;
-        });
-    } catch {
-      return false;
-    }
-  });
+  const scanned = files
+    .filter((f) => existsSync(f))
+    .map((f) => {
+      try {
+        const content = readFileSync(f, "utf8");
+        // `content` below is the file WITHOUT the key line(s).
+        return { f, ...removeEnvKeyValue(content, "DEXE_PRIVATE_KEY", privateKey) };
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+  for (const s of scanned.filter((x) => x.commented > 0)) {
+    out("");
+    out(`⚠ ${s.f} has ${s.commented} commented-out DEXE_PRIVATE_KEY line(s) that still hold a plaintext key.`);
+    out("  They were not imported and are left untouched — delete them yourself.");
+  }
+  const holders = scanned.filter((x) => x.removed > 0);
   if (holders.length === 0) {
     out("");
     out("DEXE_PRIVATE_KEY did not come from a .env file this server reads — it is probably set in your MCP host");
     out("config (e.g. the `env` block in .claude.json). Delete it there yourself, then set DEXE_SIGNER_MODE=keystore.");
     return;
   }
-  for (const f of holders) {
+  for (const h of holders) {
     out("");
-    if (!(await confirm(`Remove the plaintext DEXE_PRIVATE_KEY line from ${f} and set DEXE_SIGNER_MODE=keystore there?`, true))) {
-      out(`  Left ${f} unchanged — the hot key is still on disk there. Remove it yourself.`);
+    if (!(await confirm(`Remove the plaintext DEXE_PRIVATE_KEY line from ${h.f} and set DEXE_SIGNER_MODE=keystore there?`, true))) {
+      out(`  Left ${h.f} unchanged — the hot key is still on disk there. Remove it yourself.`);
       continue;
     }
-    const before = readFileSync(f, "utf8");
-    const stripped = stripEnvKey(before, "DEXE_PRIVATE_KEY");
-    writeFileSync(f, upsertEnvKey(stripped.content, "DEXE_SIGNER_MODE", "keystore"), "utf8");
-    out(`  ✔ ${f}: removed ${stripped.removed} line(s), DEXE_SIGNER_MODE=keystore set.`);
+    writeFileAtomic(h.f, setEnvValue(h.content, "DEXE_SIGNER_MODE", "keystore"));
+    out(`  ✔ ${h.f}: removed ${h.removed} line(s), DEXE_SIGNER_MODE=keystore set (every other line unchanged).`);
   }
   out("  Old copies may survive in backups, shell history or editor swap files — the key itself is unchanged, so");
   out("  if it ever sat anywhere shared, move the funds to a fresh `dexe-mcp key create` address.");
