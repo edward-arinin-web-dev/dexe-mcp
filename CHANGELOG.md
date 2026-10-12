@@ -15,15 +15,25 @@ Tool count 169 → 170 for `dexe-mcp` (`dexe_tx_approval_status`); the new read-
   approve → deposit → create sequence — waits for the owner to type the
   keystore password on a page served on `127.0.0.1` (exact Host, same-origin
   JSON + per-approval CSRF, one random path token per approval, no-store /
-  no-referrer / nonce-only CSP, 5 wrong passwords → auto-decline + growing
-  lockout, automated browsers refused). The page decodes the calldata from the
-  bytes (bundled ABIs, nested multicall and proposal actions), labels addresses
-  from the chain, flags unlimited approvals / value / unknown spenders /
-  governance actions, and runs B6/B7/B11/B12 on every step and B9 on step 1.
+  no-referrer / nonce-only CSP, automated browsers refused). Wrong passwords
+  are counted globally across approvals (5 per hour → lockout of 1 min,
+  doubling to 1 h, for the process lifetime; re-checked inside the attempt
+  queue); at most 3 approvals wait at once and 6 are created per minute
+  (`mode: "approval_refused"` beyond that). The page decodes the calldata from
+  the bytes (bundled ABIs, nested multicall and proposal actions), labels
+  addresses from the chain — a GovPool and its helpers only when
+  `PoolRegistry.isGovPool()` confirms it, "NOT a registered DeXe DAO" otherwise —
+  flags unlimited approvals, approvals / transfers to code-less addresses,
+  value, unknown spenders and governance actions, and runs B6/B7/B11/B12 on
+  every step and B9 on step 1.
   Approvals are bound to `keccak(chainId, from, ordered (to, value,
-  keccak(data)))`, single-use, 15-minute TTL; the signer signs only the
-  approved transactions in order and drops the key when done; a declined batch
-  is refused without a page for 10 minutes. Calls block up to
+  keccak(data)))`, single-use, 15-minute TTL; an approved key is dropped if
+  sending has not started within `DEXE_APPROVAL_USE_S` (120 s); the signer
+  signs only the approved transactions in order (gas estimated server-side,
+  capped — a caller's `gasLimit` is ignored), keeps the key in an ES-private
+  field that never serializes, and drops it when done; a declined batch is
+  refused without a page for 10 minutes. Keystores weaker than scrypt N=2^17
+  (or pbkdf2) are refused. Calls block up to
   `DEXE_APPROVAL_WAIT_MS` (progress notifications while waiting), else return
   **`mode: "awaiting_approval"`** with the link and a fingerprint — re-run the
   same call after approving. No tool, parameter or env var can approve (ratchet
@@ -32,14 +42,16 @@ Tool count 169 → 170 for `dexe-mcp` (`dexe_tx_approval_status`); the new read-
   hashes, with a `waitMs` long-poll. Tool count 169 → 170; the default profile
   is 46 tools (95,987 B of `tools/list`, under the 96,000 B budget).
 - **`dexe-mcp key`** — `create`, `import` (hidden paste, `--from-env` which
-  also removes the plaintext line, `--json <file>`), `list`,
+  also removes the plaintext line — any `export` / quoted / commented-suffix
+  form, every other line kept byte-for-byte, written atomically; commented-out
+  key lines are reported, never imported — `--json <file>`), `list`,
   `export-address`, `change-password`, `remove`. Secret commands refuse without
   a TTY. No `export-private-key`.
 - **`dexe-mcp init`** offers WalletConnect (default) → encrypted key →
   read-only; a hot key only with `init --unattended`.
 - Env: `DEXE_SIGNER_MODE`, `DEXE_UNATTENDED_CHAINS`, `DEXE_KEYSTORE_PATH`,
   `DEXE_KEYSTORE_ADDRESS`, `DEXE_APPROVAL_WAIT_MS`, `DEXE_APPROVAL_TTL_S`,
-  `DEXE_APPROVAL_OPEN_BROWSER`, `DEXE_KEYSTORE_PASSWORD_FILE` (unattended/CI
+  `DEXE_APPROVAL_USE_S`, `DEXE_APPROVAL_OPEN_BROWSER`, `DEXE_KEYSTORE_PASSWORD_FILE` (unattended/CI
   only; never read in keystore mode).
 - Doctor rows `signer.mode`, `signer.keystore` (KDF strength, permissions),
   `signer.hotKeyIgnored`, `signer.unattendedMainnet`, `approval.browser`,
@@ -56,6 +68,8 @@ Tool count 169 → 170 for `dexe-mcp` (`dexe_tx_approval_status`); the new read-
   `keystore` / `readonly` / `unattended`); the old label is `signer.dispatch`.
   New `modeSource`, `humanConfirmation`, `unattendedChains`, `deprecation`,
   `keystore`, `pendingApprovals`. `dexe_wc_status.signerMode` uses the same values.
+- The unattended chain fence covers message signatures too: `dexe_auth_login`
+  (a chain-56 backend login) is refused unless 56 is in `DEXE_UNATTENDED_CHAINS`.
 - In keystore mode, message and typed-data signatures (`dexe_auth_login`
   without a WalletConnect session, `dexe_safe_propose_tx` signing) are refused
   with a WalletConnect pointer; `dexe_agents_fund` runs only unattended;

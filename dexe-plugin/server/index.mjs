@@ -36922,6 +36922,15 @@ function parseKeystoreMeta(json2) {
     p: kdf === "scrypt" ? num(kp.p) : null
   };
 }
+function weakKdfReason(meta3) {
+  if (meta3.kdf !== "scrypt") {
+    return `The keystore for ${meta3.address} uses ${meta3.kdf || "an unknown KDF"}, not scrypt \u2014 refused. Re-encrypt it: \`npx dexe-mcp key change-password\` (or \`key import --json <file>\`) writes scrypt N=2^18.`;
+  }
+  if (meta3.n === null || meta3.n < KEYSTORE_MIN_SAFE_N) {
+    return `The keystore for ${meta3.address} uses scrypt N=${meta3.n ?? "?"} (minimum 2^17) \u2014 refused. Re-encrypt it: \`npx dexe-mcp key change-password\` writes scrypt N=2^18.`;
+  }
+  return null;
+}
 function defaultKeystoreDir() {
   return join4(homedir4(), ".dexe-mcp", "keystore");
 }
@@ -73771,14 +73780,17 @@ var init_init = __esm({
 // dist/cli/key.js
 var key_exports = {};
 __export(key_exports, {
+  isCommentedKeyLine: () => isCommentedKeyLine,
   keyUsage: () => keyUsage,
+  parseEnvAssignment: () => parseEnvAssignment,
   promptHidden: () => promptHidden,
+  removeEnvKeyValue: () => removeEnvKeyValue,
   run: () => run3,
-  stripEnvKey: () => stripEnvKey,
-  upsertEnvKey: () => upsertEnvKey
+  setEnvValue: () => setEnvValue,
+  writeFileAtomic: () => writeFileAtomic
 });
 import { createInterface as createInterface2 } from "node:readline/promises";
-import { existsSync as existsSync15, readFileSync as readFileSync16, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
+import { closeSync as closeSync3, existsSync as existsSync15, openSync as openSync3, readFileSync as readFileSync16, statSync as statSync6, unlinkSync as unlinkSync2, writeSync as writeSync3 } from "node:fs";
 import { basename as basename2, dirname as dirname8 } from "node:path";
 function keyUsage() {
   return [
@@ -73800,33 +73812,95 @@ function keyUsage() {
     ""
   ].join("\n");
 }
-function stripEnvKey(content3, key) {
-  const eol = /\r\n/.test(content3) ? "\r\n" : "\n";
-  const lines = content3.split(/\r?\n/);
-  const re5 = new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=`);
-  const kept = lines.filter((l2) => !re5.test(l2));
-  return { content: kept.join(eol), removed: lines.length - kept.length };
-}
-function upsertEnvKey(content3, key, value) {
-  const eol = /\r\n/.test(content3) ? "\r\n" : "\n";
-  const lines = content3.split(/\r?\n/);
-  const re5 = new RegExp(`^\\s*${key}\\s*=`);
-  let found = false;
-  const out2 = lines.map((l2) => {
-    if (re5.test(l2)) {
-      found = true;
-      return `${key}=${value}`;
+function splitEnvLines(content3) {
+  const bom = content3.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const body = content3.slice(bom.length);
+  const lines = [];
+  let i3 = 0;
+  while (i3 < body.length) {
+    const j5 = body.indexOf("\n", i3);
+    if (j5 < 0) {
+      lines.push({ text: body.slice(i3), eol: "" });
+      break;
     }
-    return l2;
-  });
-  if (!found) {
-    while (out2.length > 0 && out2[out2.length - 1] === "")
-      out2.pop();
-    out2.push(`${key}=${value}`, "");
-  } else if (out2[out2.length - 1] !== "") {
-    out2.push("");
+    const crlf = j5 > i3 && body[j5 - 1] === "\r";
+    lines.push({ text: body.slice(i3, crlf ? j5 - 1 : j5), eol: crlf ? "\r\n" : "\n" });
+    i3 = j5 + 1;
   }
-  return out2.join(eol);
+  return { bom, lines };
+}
+function joinEnvLines(bom, lines) {
+  return bom + lines.map((l2) => l2.text + l2.eol).join("");
+}
+function parseEnvAssignment(line2, key) {
+  const m3 = new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=(.*)$`).exec(line2);
+  if (!m3)
+    return null;
+  const raw = m3[1].trim();
+  const q6 = raw[0];
+  if (q6 === '"' || q6 === "'") {
+    const close = raw.indexOf(q6, 1);
+    return close > 0 ? raw.slice(1, close) : raw.slice(1);
+  }
+  return raw.replace(/\s+#.*$/, "").replace(/^#.*$/, "").trim();
+}
+function isCommentedKeyLine(line2, key) {
+  return new RegExp(`^\\s*#+\\s*(?:export\\s+)?${key}\\s*=\\s*["']?(?:0x)?[0-9a-fA-F]{64}`).test(line2);
+}
+function removeEnvKeyValue(content3, key, privateKey) {
+  const { bom, lines } = splitEnvLines(content3);
+  const want = normKey(privateKey);
+  let removed = 0;
+  let commented = 0;
+  const kept = [];
+  for (const l2 of lines) {
+    const v7 = parseEnvAssignment(l2.text, key);
+    if (v7 !== null && normKey(v7) === want) {
+      removed += 1;
+      continue;
+    }
+    if (isCommentedKeyLine(l2.text, key))
+      commented += 1;
+    kept.push(l2);
+  }
+  return { content: joinEnvLines(bom, kept), removed, commented };
+}
+function setEnvValue(content3, key, value) {
+  const { bom, lines } = splitEnvLines(content3);
+  const idx = lines.findIndex((l2) => parseEnvAssignment(l2.text, key) !== null);
+  if (idx >= 0) {
+    lines[idx] = { text: `${key}=${value}`, eol: lines[idx].eol || (content3.includes("\r\n") ? "\r\n" : "\n") };
+    return joinEnvLines(bom, lines);
+  }
+  const eol = content3.includes("\r\n") ? "\r\n" : "\n";
+  const last = lines[lines.length - 1];
+  if (last && last.eol === "")
+    last.eol = eol;
+  lines.push({ text: `${key}=${value}`, eol });
+  return joinEnvLines(bom, lines);
+}
+function writeFileAtomic(path7, content3) {
+  let mode = 384;
+  try {
+    mode = statSync6(path7).mode & 511;
+  } catch {
+  }
+  const tmp = tempStatePath(path7);
+  const fd = openSync3(tmp, "wx", mode);
+  try {
+    writeSync3(fd, content3);
+  } finally {
+    closeSync3(fd);
+  }
+  try {
+    renameWithRetry(tmp, path7);
+  } catch (err16) {
+    try {
+      unlinkSync2(tmp);
+    } catch {
+    }
+    throw err16;
+  }
 }
 function flag(argv, name2) {
   const i3 = argv.indexOf(name2);
@@ -74125,48 +74199,49 @@ ${keyUsage()}`);
   return 2;
 }
 async function stripFromEnvFiles(files, privateKey) {
-  const norm = privateKey.toLowerCase().replace(/^0x/, "");
-  const holders = files.filter((f3) => {
-    if (!existsSync15(f3))
-      return false;
+  const scanned = files.filter((f3) => existsSync15(f3)).map((f3) => {
     try {
-      return readFileSync16(f3, "utf8").split(/\r?\n/).some((l2) => {
-        const m3 = /^\s*(?:export\s+)?DEXE_PRIVATE_KEY\s*=\s*["']?(0x)?([0-9a-fA-F]{64})["']?\s*$/.exec(l2);
-        return !!m3 && m3[2].toLowerCase() === norm;
-      });
+      const content3 = readFileSync16(f3, "utf8");
+      return { f: f3, ...removeEnvKeyValue(content3, "DEXE_PRIVATE_KEY", privateKey) };
     } catch {
-      return false;
+      return null;
     }
-  });
+  }).filter((x6) => x6 !== null);
+  for (const s2 of scanned.filter((x6) => x6.commented > 0)) {
+    out("");
+    out(`\u26A0 ${s2.f} has ${s2.commented} commented-out DEXE_PRIVATE_KEY line(s) that still hold a plaintext key.`);
+    out("  They were not imported and are left untouched \u2014 delete them yourself.");
+  }
+  const holders = scanned.filter((x6) => x6.removed > 0);
   if (holders.length === 0) {
     out("");
     out("DEXE_PRIVATE_KEY did not come from a .env file this server reads \u2014 it is probably set in your MCP host");
     out("config (e.g. the `env` block in .claude.json). Delete it there yourself, then set DEXE_SIGNER_MODE=keystore.");
     return;
   }
-  for (const f3 of holders) {
+  for (const h3 of holders) {
     out("");
-    if (!await confirm(`Remove the plaintext DEXE_PRIVATE_KEY line from ${f3} and set DEXE_SIGNER_MODE=keystore there?`, true)) {
-      out(`  Left ${f3} unchanged \u2014 the hot key is still on disk there. Remove it yourself.`);
+    if (!await confirm(`Remove the plaintext DEXE_PRIVATE_KEY line from ${h3.f} and set DEXE_SIGNER_MODE=keystore there?`, true)) {
+      out(`  Left ${h3.f} unchanged \u2014 the hot key is still on disk there. Remove it yourself.`);
       continue;
     }
-    const before = readFileSync16(f3, "utf8");
-    const stripped = stripEnvKey(before, "DEXE_PRIVATE_KEY");
-    writeFileSync7(f3, upsertEnvKey(stripped.content, "DEXE_SIGNER_MODE", "keystore"), "utf8");
-    out(`  \u2714 ${f3}: removed ${stripped.removed} line(s), DEXE_SIGNER_MODE=keystore set.`);
+    writeFileAtomic(h3.f, setEnvValue(h3.content, "DEXE_SIGNER_MODE", "keystore"));
+    out(`  \u2714 ${h3.f}: removed ${h3.removed} line(s), DEXE_SIGNER_MODE=keystore set (every other line unchanged).`);
   }
   out("  Old copies may survive in backups, shell history or editor swap files \u2014 the key itself is unchanged, so");
   out("  if it ever sat anywhere shared, move the funds to a fresh `dexe-mcp key create` address.");
 }
-var SECRET_COMMANDS, COMMANDS;
+var SECRET_COMMANDS, COMMANDS, normKey;
 var init_key = __esm({
   "dist/cli/key.js"() {
     "use strict";
     init_lib2();
     init_keystore();
     init_redact();
+    init_stateStore();
     SECRET_COMMANDS = /* @__PURE__ */ new Set(["create", "import", "change-password", "remove"]);
     COMMANDS = ["create", "import", "list", "export-address", "change-password", "remove"];
+    normKey = (v7) => v7.trim().toLowerCase().replace(/^0x/, "");
   }
 });
 
@@ -104386,6 +104461,7 @@ var FOREIGN_WRITE_ENV_KEYS = /* @__PURE__ */ new Set([
   "DEXE_KEYSTORE_ADDRESS",
   "DEXE_APPROVAL_WAIT_MS",
   "DEXE_APPROVAL_TTL_S",
+  "DEXE_APPROVAL_USE_S",
   "DEXE_APPROVAL_OPEN_BROWSER",
   "DEXE_KEYSTORE_PASSWORD_FILE",
   "DEXE_PRIVATE_KEY",
@@ -104546,6 +104622,13 @@ var ENV_SPEC_WRITE = {
     example: "900",
     doc: "Keystore mode: how long an approval link (and an approved-but-unused batch) stays valid. Default 900, range 60\u20133600."
   },
+  DEXE_APPROVAL_USE_S: {
+    schema: intStr("a duration in seconds", "120 for 2 minutes"),
+    category: "signer",
+    required: false,
+    example: "120",
+    doc: "Keystore mode: how long an APPROVED batch may wait for its tool call to start sending before the decrypted key is dropped (re-run within this window). Default 120, range 10 to DEXE_APPROVAL_TTL_S."
+  },
   DEXE_APPROVAL_OPEN_BROWSER: {
     schema: enumStr(["1", "0", "true", "false"]),
     category: "signer",
@@ -104688,6 +104771,7 @@ var ENV_DISPLAY_ORDER = [
   "DEXE_KEYSTORE_ADDRESS",
   "DEXE_APPROVAL_WAIT_MS",
   "DEXE_APPROVAL_TTL_S",
+  "DEXE_APPROVAL_USE_S",
   "DEXE_APPROVAL_OPEN_BROWSER",
   "DEXE_KEYSTORE_PASSWORD_FILE",
   "DEXE_PINATA_JWT",
@@ -105299,6 +105383,8 @@ async function loadWriteConfig() {
       degrade("DEXE_KEYSTORE_PATH", `DEXE_SIGNER_MODE=keystore but ${sel.error}.`, "keystore signing unavailable \u2014 write tools return unsigned payloads until a keystore exists");
     } else if (chains.size === 0) {
       degrade("DEXE_KEYSTORE_PATH", "keystore signing requires at least one of DEXE_RPC_URL / DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET (signing needs an RPC endpoint).", "keystore signing unavailable \u2014 set an RPC URL and restart");
+    } else if (keystoreWeakness(sel.file)) {
+      degrade("DEXE_KEYSTORE_PATH", keystoreWeakness(sel.file), "keystore signing refused \u2014 write tools return unsigned payloads until the keystore is re-encrypted");
     } else {
       keystore = sel;
       process.stderr.write(`[dexe-mcp] signer mode: keystore (${sel.address}) \u2014 every batch waits for the owner's password on a local approval page
@@ -105307,6 +105393,7 @@ async function loadWriteConfig() {
   }
   const approvalWaitMs = boundedInt(process.env.DEXE_APPROVAL_WAIT_MS, 12e4, 0, 6e5);
   const approvalTtlS = boundedInt(process.env.DEXE_APPROVAL_TTL_S, 900, 60, 3600);
+  const approvalUseS = boundedInt(process.env.DEXE_APPROVAL_USE_S, 120, 10, approvalTtlS);
   const approvalOpenBrowser = !/^(0|false|no|off)$/i.test(process.env.DEXE_APPROVAL_OPEN_BROWSER?.trim() ?? "");
   const risk = resolveRiskSettings(sink);
   const treasuryGuard = resolveTreasuryGuardMode(process.env.DEXE_TREASURY_GUARD).mode;
@@ -105370,7 +105457,8 @@ async function loadWriteConfig() {
     keystore,
     approvalWaitMs,
     approvalTtlS,
-    approvalOpenBrowser
+    approvalOpenBrowser,
+    approvalUseS
   });
 }
 function hotKeyEnvNames(env) {
@@ -105389,6 +105477,13 @@ function hotKeyEnvNames(env) {
   else if (has("AGENT_FUNDER_PK"))
     out2.push("AGENT_FUNDER_PK");
   return out2;
+}
+function keystoreWeakness(file2) {
+  try {
+    return weakKdfReason(parseKeystoreMeta(readFileSync3(file2, "utf8")));
+  } catch (err16) {
+    return `the keystore ${file2} could not be read: ${safeErrorMessage(err16)}`;
+  }
 }
 function boundedInt(raw, fallback, min, max) {
   const t2 = raw?.trim();
@@ -137923,6 +138018,11 @@ var ApprovalDeviationError = class extends Error {
 var DEFAULT_DECLINE_COOLDOWN_MS = 10 * 6e4;
 var DEFAULT_MAX_FAILURES = 5;
 var DEFAULT_BASE_LOCKOUT_MS = 6e4;
+var DEFAULT_USE_WINDOW_MS = 12e4;
+var DEFAULT_MAX_PENDING = 3;
+var DEFAULT_MAX_CREATES_PER_MINUTE = 6;
+var DEFAULT_GLOBAL_FAILURE_THRESHOLD = 5;
+var FAILURE_WINDOW_MS = 60 * 6e4;
 var MAX_LOCKOUT_MS = 60 * 6e4;
 function token(bytes2 = 24) {
   return randomBytes7(bytes2).toString("base64url");
@@ -137943,8 +138043,18 @@ var ApprovalStore = class {
   cooldownMs;
   maxFailures;
   baseLockoutMs;
+  useWindowMs;
+  maxPending;
+  maxCreatesPerMinute;
+  globalThreshold;
+  /** Lockouts so far — for the process lifetime; each one doubles the next. */
   lockouts = 0;
   lockedUntilMs = 0;
+  /** Wrong passwords since the last lockout, across every approval (timestamps). */
+  failureTimes = [];
+  /** Approval creations in the last minute (timestamps). */
+  createTimes = [];
+  useTimers = /* @__PURE__ */ new Map();
   /** tool|from|chain → steps that landed before a revoke, for the next approval's page. */
   resumeNotes = /* @__PURE__ */ new Map();
   constructor(opts) {
@@ -137953,11 +138063,43 @@ var ApprovalStore = class {
     this.cooldownMs = opts.declineCooldownMs ?? DEFAULT_DECLINE_COOLDOWN_MS;
     this.maxFailures = opts.maxFailures ?? DEFAULT_MAX_FAILURES;
     this.baseLockoutMs = opts.baseLockoutMs ?? DEFAULT_BASE_LOCKOUT_MS;
+    this.useWindowMs = Math.min(opts.useWindowMs ?? DEFAULT_USE_WINDOW_MS, opts.ttlMs);
+    this.maxPending = opts.maxPending ?? DEFAULT_MAX_PENDING;
+    this.maxCreatesPerMinute = opts.maxCreatesPerMinute ?? DEFAULT_MAX_CREATES_PER_MINUTE;
+    this.globalThreshold = opts.globalFailureThreshold ?? DEFAULT_GLOBAL_FAILURE_THRESHOLD;
     this.events.setMaxListeners(0);
+  }
+  /**
+   * May a NEW approval be created now? Bounds two things an agent could
+   * otherwise use against the owner: guessing passwords across a stream of
+   * fresh approvals (each with its own per-approval counter), and nagging the
+   * owner with a page per 1-wei variation of a declined batch.
+   */
+  admitCreate() {
+    const t2 = this.now();
+    this.createTimes = this.createTimes.filter((x6) => x6 > t2 - 6e4);
+    const pending = this.open().filter((r2) => r2.status === "pending");
+    if (pending.length >= this.maxPending) {
+      return {
+        ok: false,
+        reason: `${pending.length} approvals are already waiting for the owner (limit ${this.maxPending}) \u2014 approve or decline those first; nothing new is put up for approval until then.`,
+        retryAfterMs: Math.max(1e3, Math.min(...pending.map((r2) => r2.expiresAt - t2)))
+      };
+    }
+    if (this.createTimes.length >= this.maxCreatesPerMinute) {
+      const retry = this.createTimes[0] + 6e4 - t2;
+      return {
+        ok: false,
+        reason: `${this.createTimes.length} approvals were requested in the last minute (limit ${this.maxCreatesPerMinute}).`,
+        retryAfterMs: Math.max(1e3, retry)
+      };
+    }
+    return { ok: true };
   }
   create(input3) {
     const t2 = this.now();
     this.prune(t2);
+    this.createTimes.push(t2);
     const rec = {
       approvalId: `apr_${token(9)}`,
       pathToken: token(24),
@@ -138028,22 +138170,35 @@ var ApprovalStore = class {
     return Math.max(0, this.lockedUntilMs - this.now());
   }
   /**
-   * Count a wrong password. The fifth on one approval declines it and locks
-   * every password attempt out for a growing period (1 min, 2, 4, … ≤ 1 h).
+   * Count a wrong password.
+   *
+   * The lockout is GLOBAL: wrong passwords are counted across every approval
+   * (a fresh approval does not get a fresh counter), and every
+   * `globalFailureThreshold` of them within an hour locks ALL password entry
+   * for 1 min, 2, 4, … ≤ 1 h — doubling for the process lifetime; a correct
+   * password does not reset it. Separately, the fifth wrong password on one
+   * approval declines that approval.
    */
   recordFailure(approvalId) {
+    const t2 = this.now();
+    this.failureTimes = this.failureTimes.filter((x6) => x6 > t2 - FAILURE_WINDOW_MS);
+    this.failureTimes.push(t2);
+    let lockedMs = 0;
+    if (this.failureTimes.length >= this.globalThreshold) {
+      this.lockouts += 1;
+      lockedMs = Math.min(MAX_LOCKOUT_MS, this.baseLockoutMs * 2 ** (this.lockouts - 1));
+      this.lockedUntilMs = t2 + lockedMs;
+      this.failureTimes = [];
+    }
     const r2 = this.records.get(approvalId);
     if (!r2 || r2.status !== "pending")
-      return { declined: false, remaining: 0 };
+      return { declined: false, remaining: 0, lockedMs };
     r2.failures += 1;
     if (r2.failures >= this.maxFailures) {
-      this.lockouts += 1;
-      const ms2 = Math.min(MAX_LOCKOUT_MS, this.baseLockoutMs * 2 ** (this.lockouts - 1));
-      this.lockedUntilMs = this.now() + ms2;
-      this.decline(approvalId, `${r2.failures} wrong passwords \u2014 auto-declined; password entry locked for ${Math.round(ms2 / 1e3)} s`);
-      return { declined: true, remaining: 0 };
+      this.decline(approvalId, `${r2.failures} wrong passwords \u2014 auto-declined`);
+      return { declined: true, remaining: 0, lockedMs };
     }
-    return { declined: false, remaining: this.maxFailures - r2.failures };
+    return { declined: false, remaining: this.maxFailures - r2.failures, lockedMs };
   }
   // ---- transitions -------------------------------------------------------------
   /** pending → approved, holding the key. Supersedes any other approved-unused batch for the same tool/sender/chain. */
@@ -138061,8 +138216,20 @@ var ApprovalStore = class {
     r2.status = "approved";
     r2.decidedAt = this.now();
     this.holders.set(approvalId, holder);
+    const useTimer = setTimeout(() => {
+      const cur = this.records.get(approvalId);
+      if (cur && cur.status === "approved") {
+        this.close(cur, "expired", `approved but not used within ${Math.round(this.useWindowMs / 1e3)} s \u2014 the key was dropped`);
+      }
+    }, this.useWindowMs);
+    useTimer.unref?.();
+    this.useTimers.set(approvalId, useTimer);
     this.emit(r2);
     return true;
+  }
+  /** How long an approved batch may wait to be used (ms). */
+  get approvedUseWindowMs() {
+    return this.useWindowMs;
   }
   decline(approvalId, reason = "declined by the owner") {
     const r2 = this.records.get(approvalId);
@@ -138080,6 +138247,11 @@ var ApprovalStore = class {
     if (!h3)
       return void 0;
     r2.status = "executing";
+    const useTimer = this.useTimers.get(approvalId);
+    if (useTimer) {
+      clearTimeout(useTimer);
+      this.useTimers.delete(approvalId);
+    }
     this.emit(r2);
     return h3;
   }
@@ -138187,8 +138359,11 @@ var ApprovalStore = class {
       this.close(r2, "expired", "the approval window ended");
   }
   expireIfDue(r2) {
-    if ((r2.status === "pending" || r2.status === "approved") && this.now() >= r2.expiresAt) {
+    const t2 = this.now();
+    if ((r2.status === "pending" || r2.status === "approved") && t2 >= r2.expiresAt) {
       this.close(r2, "expired", "the approval window ended");
+    } else if (r2.status === "approved" && r2.decidedAt !== void 0 && t2 >= r2.decidedAt + this.useWindowMs) {
+      this.close(r2, "expired", `approved but not used within ${Math.round(this.useWindowMs / 1e3)} s \u2014 the key was dropped`);
     }
   }
   close(r2, status, reason) {
@@ -138207,6 +138382,11 @@ var ApprovalStore = class {
     if (timer) {
       clearTimeout(timer);
       this.timers.delete(r2.approvalId);
+    }
+    const useTimer = this.useTimers.get(r2.approvalId);
+    if (useTimer) {
+      clearTimeout(useTimer);
+      this.useTimers.delete(r2.approvalId);
     }
     this.emit(r2);
   }
@@ -138435,6 +138615,10 @@ var GOV_POOL = new Interface([
   "function multicall(bytes[] data) returns (bytes[])"
 ]);
 var APPROVE_SEL = ERC20.getFunction("approve").selector;
+var TRANSFER_SEL = ERC20.getFunction("transfer").selector;
+var REGISTRY = new Interface(["function getContract(string name) view returns (address)"]);
+var POOL_REGISTRY = new Interface(["function isGovPool(address govPool) view returns (bool)"]);
+var USER_KEEPER = new Interface(["function tokenAddress() view returns (address)"]);
 var CREATE_SELS = /* @__PURE__ */ new Set([
   GOV_POOL.getFunction("createProposalAndVote").selector,
   GOV_POOL.getFunction("createProposal").selector
@@ -138563,38 +138747,74 @@ async function buildReview(payloads, ctx) {
     if (!labels.has(k5))
       labels.set(k5, text5);
   };
+  const fakePools = /* @__PURE__ */ new Map();
   const short = (a3) => `${a3.slice(0, 6)}\u2026${a3.slice(-4)}`;
   const daoName = (pool) => ctx.knownDaos?.find((d3) => d3.chainId === ctx.chainId && d3.govPool.toLowerCase() === pool.toLowerCase())?.name;
+  const rawCall = async (to, data4) => {
+    if (!provider)
+      return void 0;
+    const r2 = await withTimeout(provider.call({ to, data: data4 }), 6e3);
+    return r2 && r2 !== "0x" ? r2 : void 0;
+  };
   if (provider) {
-    try {
-      const book = new AddressBook({
-        provider,
-        chainId: ctx.chainId,
-        registryOverride: cfg.registryOverride
-      });
-      label(book.registryAddress, "DeXe ContractsRegistry");
-      const names2 = [CONTRACT_NAMES.POOL_FACTORY, CONTRACT_NAMES.POOL_REGISTRY, CONTRACT_NAMES.USER_REGISTRY];
-      const got = await withTimeout(Promise.allSettled(names2.map((n4) => book.resolve(n4))), 6e3);
-      got?.forEach((r2, i3) => {
-        if (r2.status === "fulfilled")
-          label(r2.value, `DeXe ${names2[i3].replace(/_/g, " ").toLowerCase()} (registry)`);
-      });
-    } catch {
+    const registry2 = cfg.chains?.get?.(ctx.chainId)?.registryOverride ?? cfg.registryOverride ?? CONTRACTS_REGISTRY_BY_CHAIN[ctx.chainId];
+    const named = {};
+    if (registry2) {
+      label(registry2, "DeXe ContractsRegistry");
+      for (const name2 of [CONTRACT_NAMES.POOL_FACTORY, CONTRACT_NAMES.POOL_REGISTRY, CONTRACT_NAMES.USER_REGISTRY]) {
+        const ret = await rawCall(registry2, REGISTRY.encodeFunctionData("getContract", [name2]));
+        if (!ret)
+          continue;
+        try {
+          const addr = String(REGISTRY.decodeFunctionResult("getContract", ret)[0]);
+          if (addr && !/^0x0{40}$/i.test(addr)) {
+            named[name2] = addr;
+            label(addr, `DeXe ${name2.replace(/_/g, " ").toLowerCase()} (registry)`);
+          }
+        } catch {
+        }
+      }
     }
+    const poolRegistry = named[CONTRACT_NAMES.POOL_REGISTRY];
     const targets = [...new Set(payloads.map((p4) => p4.to.toLowerCase()))];
     for (const t2 of targets) {
-      const ret = await withTimeout(provider.call({ to: t2, data: GOV_POOL.encodeFunctionData("getHelperContracts") }), 6e3);
-      if (!ret || ret === "0x")
+      const ret = await rawCall(t2, GOV_POOL.encodeFunctionData("getHelperContracts"));
+      if (!ret)
         continue;
+      let helpers;
       try {
-        const [settings, userKeeper, validators] = GOV_POOL.decodeFunctionResult("getHelperContracts", ret);
-        const name2 = daoName(t2);
-        const pool = `GovPool ${short(getAddress(t2))}${name2 ? ` (recorded as "${renderUntrusted(name2, 60)}")` : ""}`;
-        label(t2, pool);
-        label(userKeeper, `UserKeeper of ${pool}`);
-        label(settings, `GovSettings of ${pool}`);
-        label(validators, `GovValidators of ${pool}`);
+        helpers = GOV_POOL.decodeFunctionResult("getHelperContracts", ret);
       } catch {
+        continue;
+      }
+      let registered = null;
+      if (poolRegistry) {
+        const r2 = await rawCall(poolRegistry, POOL_REGISTRY.encodeFunctionData("isGovPool", [t2]));
+        try {
+          registered = r2 ? Boolean(POOL_REGISTRY.decodeFunctionResult("isGovPool", r2)[0]) : null;
+        } catch {
+          registered = null;
+        }
+      }
+      if (registered !== true) {
+        fakePools.set(t2, registered === false ? "this contract answers like a GovPool but is NOT a registered DeXe DAO (PoolRegistry.isGovPool = false) \u2014 whatever helper addresses it reports are its own claims" : "this contract answers like a GovPool but the DeXe PoolRegistry could not confirm it on this chain \u2014 its helper addresses are unverified");
+        continue;
+      }
+      const [settings, userKeeper, validators] = helpers;
+      const name2 = daoName(t2);
+      const pool = `GovPool ${short(getAddress(t2))}${name2 ? ` (recorded as "${renderUntrusted(name2, 60)}")` : ""}`;
+      label(t2, `${pool} \u2014 registered DeXe DAO`);
+      label(userKeeper, `UserKeeper of ${pool}`);
+      label(settings, `GovSettings of ${pool}`);
+      label(validators, `GovValidators of ${pool}`);
+      const tok = await rawCall(userKeeper, USER_KEEPER.encodeFunctionData("tokenAddress"));
+      if (tok) {
+        try {
+          const tokenAddr = String(USER_KEEPER.decodeFunctionResult("tokenAddress", tok)[0]);
+          if (!/^0x0{40}$/i.test(tokenAddr))
+            label(tokenAddr, `governance token of ${pool}`);
+        } catch {
+        }
       }
     }
   }
@@ -138607,10 +138827,15 @@ async function buildReview(payloads, ctx) {
     const selector = data4.length >= 10 ? data4.slice(0, 10).toLowerCase() : null;
     let toLabel = labels.get(to.toLowerCase());
     const code6 = await codeAt(to);
+    const fake = fakePools.get(to.toLowerCase());
+    if (fake) {
+      toLabel = "contract claiming to be a GovPool \u2014 NOT a registered DeXe DAO";
+      risks.push({ level: "danger", text: fake });
+    }
     if (!toLabel) {
       if (code6 !== null && /^0x0*$/i.test(code6))
         toLabel = "externally owned account (no contract code)";
-      else if (selector === APPROVE_SEL && provider) {
+      else if ((selector === APPROVE_SEL || selector === TRANSFER_SEL) && provider) {
         const sym = await withTimeout(provider.call({ to, data: ERC20.encodeFunctionData("symbol") }), 6e3);
         let symText;
         try {
@@ -138619,7 +138844,7 @@ async function buildReview(payloads, ctx) {
         } catch {
           symText = void 0;
         }
-        toLabel = symText ? `ERC20 token "${renderUntrusted(symText, 24)}" (symbol from the token itself)` : "ERC20 token";
+        toLabel = symText ? `token reporting symbol "${renderUntrusted(symText, 24)}" (self-reported, unverified)` : "unlabelled token contract";
       } else
         toLabel = code6 === null ? "unlabelled address (code not checked)" : "unlabelled contract";
     }
@@ -138640,16 +138865,27 @@ async function buildReview(payloads, ctx) {
         text: `sends ${formatUnits(value, 18)} ${NATIVE[ctx.chainId] ?? "native coin"} with the call`
       });
     }
-    if (selector === APPROVE_SEL) {
+    if (selector === APPROVE_SEL || selector === TRANSFER_SEL) {
+      const isApprove = selector === APPROVE_SEL;
       try {
-        const [spender, amount] = ERC20.decodeFunctionData("approve", data4);
-        if (amount >= UNLIMITED)
+        const [who, amount] = ERC20.decodeFunctionData(isApprove ? "approve" : "transfer", data4);
+        if (isApprove && amount >= UNLIMITED)
           risks.push({ level: "danger", text: "UNLIMITED token approval" });
-        const sl = labels.get(spender.toLowerCase());
-        if (sl) {
-          risks.push({ level: "info", text: `approval spender: ${sl}` });
+        const whoCode = await codeAt(who);
+        const noCode = whoCode !== null && /^0x0*$/i.test(whoCode);
+        const wl = labels.get(who.toLowerCase());
+        if (noCode) {
+          risks.push({
+            level: "danger",
+            text: isApprove ? `the approval goes to ${who}, an address with NO contract code (a plain wallet) \u2014 DeXe never asks you to approve one` : `the tokens go to ${who}, an address with NO contract code (a plain wallet) \u2014 make sure that is the intended recipient`
+          });
+        } else if (wl) {
+          risks.push({ level: "info", text: `${isApprove ? "approval spender" : "recipient"}: ${wl}` });
         } else {
-          risks.push({ level: "warn", text: `approval spender ${spender} is not a recognized DeXe contract` });
+          risks.push({
+            level: "warn",
+            text: `${isApprove ? "approval spender" : "recipient"} ${who} is not a contract the DeXe registry vouches for`
+          });
         }
       } catch {
       }
@@ -138998,10 +139234,13 @@ var ApprovalServer = class {
       });
       return;
     }
+    const locked429 = (ms2) => {
+      const s2 = Math.max(1, Math.ceil(ms2 / 1e3));
+      this.json(res, 429, { status: "locked", message: `Too many wrong passwords \u2014 password entry is locked; try again in ${s2} s.` }, { "Retry-After": String(s2) });
+    };
     const locked7 = this.deps.store.lockedForMs();
     if (locked7 > 0) {
-      const s2 = Math.ceil(locked7 / 1e3);
-      this.json(res, 429, { status: "locked", message: `Too many wrong passwords \u2014 try again in ${s2} s.` }, { "Retry-After": String(s2) });
+      locked429(locked7);
       return;
     }
     const password = typeof body.password === "string" ? body.password : "";
@@ -139009,7 +139248,12 @@ var ApprovalServer = class {
       this.json(res, 400, { status: "refused", message: "enter the keystore password" });
       return;
     }
-    const attempt = this.attemptChain.then(() => record2.status === "pending" ? this.deps.attemptApprove(record2, password) : Promise.resolve({ kind: "error", message: `this approval is already ${record2.status}` }));
+    const attempt = this.attemptChain.then(() => {
+      const lockedNow = this.deps.store.lockedForMs();
+      if (lockedNow > 0)
+        return Promise.resolve({ kind: "locked", retryAfterMs: lockedNow });
+      return record2.status === "pending" ? this.deps.attemptApprove(record2, password) : Promise.resolve({ kind: "error", message: `this approval is already ${record2.status}` });
+    });
     this.attemptChain = attempt.catch(() => void 0);
     let out2;
     try {
@@ -139018,16 +139262,22 @@ var ApprovalServer = class {
       out2 = { kind: "error", message: "could not check the password" };
     }
     if (out2.kind === "approved") {
+      const mins = Math.max(1, Math.round(this.deps.store.approvedUseWindowMs / 6e4));
       this.json(res, 200, {
         status: "approved",
-        message: "Approved. Signing now \u2014 keep this tab open to watch the transactions land."
+        message: `Approved. If the tool call is still waiting it signs now \u2014 keep this tab open to watch the transactions land. If it already returned, re-run it within ${mins} min; after that the key is dropped and you approve again.`
       });
       return;
     }
+    if (out2.kind === "locked") {
+      locked429(out2.retryAfterMs);
+      return;
+    }
     if (out2.kind === "wrong-password") {
+      const lock2 = out2.lockedMs > 0 ? ` Password entry is now locked for ${Math.ceil(out2.lockedMs / 1e3)} s.` : "";
       this.json(res, 401, {
         status: out2.declined ? "declined" : "wrong-password",
-        message: out2.declined ? "Too many wrong passwords \u2014 this approval was declined and password entry is locked for a while." : `Wrong password. ${out2.remaining} attempt(s) left for this approval.`
+        message: (out2.declined ? "Too many wrong passwords \u2014 this approval was declined." : `Wrong password. ${out2.remaining} attempt(s) left for this approval.`) + lock2
       });
       return;
     }
@@ -139057,13 +139307,15 @@ function readBody(req, max) {
 }
 
 // dist/lib/approval/approvedSigner.js
+var APPROVED_GAS_CAP = 30000000n;
 var ApprovedSigner = class {
   approvalId;
   address;
   chainId;
   expected;
   deps;
-  key;
+  /** ES private: not reachable by property access, Object.keys, JSON or spread. */
+  #key;
   cursor = 0;
   constructor(approvalId, address, privateKey, chainId, expected, deps) {
     this.approvalId = approvalId;
@@ -139071,14 +139323,21 @@ var ApprovedSigner = class {
     this.chainId = chainId;
     this.expected = expected;
     this.deps = deps;
-    this.key = privateKey;
+    this.#key = privateKey;
   }
   /** KeyHolder: forget the key. Idempotent. */
   drop() {
-    this.key = null;
+    this.#key = null;
   }
   get active() {
-    return this.key !== null;
+    return this.#key !== null;
+  }
+  /** Never serialize or print key material, even by accident. */
+  toJSON() {
+    return "[ApprovedSigner redacted]";
+  }
+  [/* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom")]() {
+    return `ApprovedSigner { approvalId: ${this.approvalId}, address: ${this.address}, key: [redacted] }`;
   }
   /** Transactions approved but not yet sent. */
   get remaining() {
@@ -139086,7 +139345,7 @@ var ApprovedSigner = class {
   }
   /** Sign + broadcast the next approved transaction. Anything else revokes the approval. */
   async send(tx) {
-    if (this.key === null) {
+    if (this.#key === null) {
       throw new ApprovalDeviationError("This approval is no longer active (used, revoked, superseded or expired) \u2014 nothing was signed.");
     }
     const exp = this.expected[this.cursor];
@@ -139095,15 +139354,18 @@ var ApprovedSigner = class {
       this.revoke(`deviation: ${deviation}`);
       throw new ApprovalDeviationError(`Refused to sign: ${deviation}. The approval was revoked and the key dropped; nothing further is signed under it. Re-run the call to request a fresh approval for what you actually want to send.`);
     }
-    const key = this.key;
-    const wallet = this.deps.connect(key);
-    const sent = await this.deps.lock(() => wallet.sendTransaction({
-      to: tx.to,
-      data: tx.data,
-      value: BigInt(tx.value || "0"),
-      chainId: BigInt(tx.chainId),
-      ...tx.gasLimit ? { gasLimit: BigInt(tx.gasLimit) } : {}
-    }));
+    const wallet = this.deps.connect(this.#key);
+    const req = { to: tx.to, data: tx.data, value: BigInt(tx.value || "0"), chainId: BigInt(tx.chainId) };
+    let gasLimit;
+    if (wallet.estimateGas) {
+      const est = await wallet.estimateGas(req);
+      gasLimit = est * 12n / 10n;
+      if (gasLimit > APPROVED_GAS_CAP) {
+        this.revoke(`gas estimate ${est} is above the ${APPROVED_GAS_CAP} cap`);
+        throw new ApprovalDeviationError(`Refused to sign: the gas estimate (${est}) is above the ${APPROVED_GAS_CAP} cap for an approved transaction. The approval was revoked; nothing was signed.`);
+      }
+    }
+    const sent = await this.deps.lock(() => wallet.sendTransaction({ ...req, ...gasLimit ? { gasLimit } : {} }));
     this.cursor += 1;
     return sent;
   }
@@ -139193,9 +139455,26 @@ var ApprovalHaltError = class extends Error {
     this.name = "ApprovalHaltError";
   }
 };
-var AWAITING_APPROVAL_NEXT = 'Nothing was signed yet. Tell the user to open the approval page (url) in their own browser, check the fingerprint matches, and approve with their keystore password there \u2014 never ask for the password in chat. Then re-run this same call (the approved batch is signed without asking again), or wait with dexe_tx_approval_status {"approvalId":"<approvalId>","waitMs":60000} first.';
+var AWAITING_APPROVAL_NEXT = 'Nothing was signed yet. Tell the user to open the approval page (url) in their own browser, check the fingerprint matches, and approve with their keystore password there \u2014 never ask for the password in chat. Then re-run this same call promptly \u2014 an approved batch is held only ~2 minutes (DEXE_APPROVAL_USE_S) and is signed without asking again \u2014 or wait with dexe_tx_approval_status {"approvalId":"<approvalId>","waitMs":60000} first.';
 var DECLINED_MESSAGE = "Owner declined; nothing signed. Do not retry unless the user asks.";
 function approvalHaltResult(halt, landedThisCall = []) {
+  if (halt.status === "throttled") {
+    const body2 = {
+      mode: "approval_refused",
+      status: "throttled",
+      guard: "approval-rate",
+      message: halt.message,
+      fingerprint: halt.fingerprint,
+      chainId: halt.chainId,
+      from: halt.from,
+      steps: halt.steps,
+      ...halt.retryAfter ? { retryAfter: halt.retryAfter } : {},
+      ...halt.open?.length ? { waitingApprovals: halt.open } : {},
+      ...landedThisCall.length ? { landedThisCall } : {},
+      next: "Nothing was signed and no new page was opened. Ask the user to approve or decline the approvals already waiting (dexe_tx_approval_status shows them), then re-run this call \u2014 do not retry in a loop."
+    };
+    return { content: [{ type: "text", text: JSON.stringify(body2, null, 2) }], isError: true };
+  }
   const body = halt.status === "declined" ? {
     mode: "declined",
     status: "declined",
@@ -139292,11 +139571,21 @@ var ApprovalManager = class {
   }
   /** Approve with the password typed on the page. The only path from `pending` to `approved`. */
   async attemptApprove(record2, password) {
+    const locked7 = this.store.lockedForMs();
+    if (locked7 > 0)
+      return { kind: "locked", retryAfterMs: locked7 };
     let json2;
     try {
       json2 = this.opts.readKeystore ? this.opts.readKeystore() : readFileSync10(this.opts.keystoreFile, "utf8");
     } catch {
       return { kind: "error", message: "The keystore file could not be read \u2014 nothing was signed." };
+    }
+    try {
+      const weak = weakKdfReason(parseKeystoreMeta(json2));
+      if (weak)
+        return { kind: "error", message: `${weak} Nothing was signed.` };
+    } catch {
+      return { kind: "error", message: "The keystore file is not a keystore v3 file \u2014 nothing was signed." };
     }
     let account;
     try {
@@ -139305,7 +139594,7 @@ var ApprovalManager = class {
       if (isWrongPasswordError(e2)) {
         const f3 = this.store.recordFailure(record2.approvalId);
         this.opts.log?.(`[dexe-mcp] approval ${record2.approvalId}: wrong password${f3.declined ? " \u2014 auto-declined" : ""}`);
-        return { kind: "wrong-password", remaining: f3.remaining, declined: f3.declined };
+        return { kind: "wrong-password", remaining: f3.remaining, declined: f3.declined, lockedMs: f3.lockedMs };
       }
       if (e2 instanceof KeystoreAddressMismatchError) {
         this.store.decline(record2.approvalId, e2.message);
@@ -139369,6 +139658,25 @@ var ApprovalManager = class {
     }
     let record2 = this.store.findByBatch(batchHash, "pending");
     if (!record2) {
+      const admit = this.store.admitCreate();
+      if (!admit.ok) {
+        const open2 = this.store.open().filter((r3) => r3.status === "pending");
+        throw new ApprovalHaltError({
+          status: "throttled",
+          approvalId: "",
+          fingerprint: fingerprintOf(batchHash),
+          chainId: req.chainId,
+          from: req.from,
+          steps: stepLabels(req.steps),
+          message: `Not put up for approval: ${admit.reason}`,
+          retryAfter: new Date(Date.now() + admit.retryAfterMs).toISOString(),
+          open: open2.map((r3) => ({
+            approvalId: r3.approvalId,
+            fingerprint: r3.fingerprint,
+            ...this.server.started ? { url: this.server.urlFor(r3) } : {}
+          }))
+        });
+      }
       const resumeNote = this.store.resumeNoteFor(req.tool, req.from, req.chainId);
       record2 = this.store.create({
         tool: req.tool,
@@ -139425,7 +139733,7 @@ var ApprovalManager = class {
       return void 0;
     const next = {
       pending: "Waiting for the owner. Ask them to approve on the page (never for the password in chat), then re-run the original call.",
-      approved: "Approved and not used yet \u2014 re-run the ORIGINAL call with the same arguments now; it signs without asking again.",
+      approved: "Approved and not used yet \u2014 re-run the ORIGINAL call with the same arguments now (the approved batch is held only briefly); it signs without asking again.",
       executing: "Being signed and sent right now \u2014 check again shortly.",
       consumed: "Done \u2014 every approved transaction was sent (see landed).",
       declined: "The owner declined. Do not retry unless the user asks.",
@@ -139531,6 +139839,7 @@ var SignerManager = class {
         waitMs: this.config.approvalWaitMs ?? 12e4,
         ttlMs: (this.config.approvalTtlS ?? 900) * 1e3,
         openBrowser: this.config.approvalOpenBrowser ?? true,
+        storeOptions: { useWindowMs: (this.config.approvalUseS ?? 120) * 1e3 },
         connect: (pk, chainId) => this.walletFor(pk, chainId, "keystore"),
         lock: (chainId, task) => this.withBroadcastLock(chainId, task, ks2.address),
         log: (line2) => void process.stderr.write(`${line2}
@@ -139704,12 +140013,16 @@ var SignerManager = class {
    * extract the key into its own signing code. Chain-agnostic (no provider
    * needed for message signing). Throws if the key is not configured.
    */
-  async signMessage(message, signerKey) {
+  async signMessage(message, signerKey, forChainId) {
     if (this.mode === "keystore")
       throw new SignerModeRefusal(KEYSTORE_NO_MESSAGE_SIGNING, "dexe_wc_connect");
     const key = this.resolveKey(signerKey);
     if (!key)
       this.failNoKey();
+    const fence = this.unattendedChains;
+    if (fence && (forChainId === void 0 || !fence.includes(forChainId))) {
+      throw new SignerModeRefusal(`Unattended signing is fenced to chain(s) ${fence.join(", ")} (DEXE_UNATTENDED_CHAINS) \u2014 refusing to sign a message for ${forChainId === void 0 ? "an unspecified chain" : `chain ${forChainId}`}. Nothing was signed.`, `Add ${forChainId ?? "the chain"} to DEXE_UNATTENDED_CHAINS deliberately, or sign this with WalletConnect (dexe_wc_connect).`);
+    }
     return new Wallet(key).signMessage(message);
   }
   /**
@@ -139914,6 +140227,7 @@ function registerAuthLogin(server) {
     });
   });
 }
+var BACKEND_AUTH_CHAIN_ID = 56;
 function registerAuthLoginComposite(server, signer, wc) {
   server.registerTool("dexe_auth_login", {
     title: "Off-chain auth \u2014 one call: fetch nonce, sign, log in, return Bearer token",
@@ -139957,7 +140271,7 @@ function registerAuthLoginComposite(server, signer, wc) {
       const message = nonceJson.data?.attributes?.message;
       if (!message)
         return errorResult12(`Nonce response missing message field: ${JSON.stringify(nonceJson)}`);
-      const signature = eoa ? await signer.signMessage(message) : await wc.signMessage(message);
+      const signature = eoa ? await signer.signMessage(message, void 0, BACKEND_AUTH_CHAIN_ID) : await wc.signMessage(message);
       const loginRes = await authPost(`${base3}${LOGIN_ENDPOINT}`, {
         data: { type: "login_request", attributes: { auth_pair: { address: signerAddress, signed_message: signature } } }
       }, "Login request");
@@ -139979,7 +140293,7 @@ function registerAuthLoginComposite(server, signer, wc) {
         note: "Logged in. Use `Authorization: Bearer <accessToken>` on off-chain requests (dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry."
       });
     } catch (err16) {
-      return errorResult12(`Auth login failed: ${safeErrorMessage(err16)}`);
+      return errorResult12(`Auth login failed: ${safeErrorMessage(err16)}${err16 instanceof SignerModeRefusal ? ` ${err16.remediation}` : ""}`);
     }
   });
 }
@@ -149957,7 +150271,11 @@ function registerTxTools(server, config2, signer, wc) {
       }
       let ktx;
       try {
-        ktx = await withActionContext({ tool: "dexe_tx_send", action: `${selectorOf(data4) ?? "0x"} \u2192 ${to}` }, () => approved.send({ to, data: data4, value, chainId: chain2.chainId, ...gasLimit ? { gasLimit } : {} }));
+        ktx = await withActionContext({ tool: "dexe_tx_send", action: `${selectorOf(data4) ?? "0x"} \u2192 ${to}` }, () => (
+          // gasLimit is NOT forwarded: the owner did not approve it. The
+          // ApprovedSigner estimates it server-side under a cap.
+          approved.send({ to, data: data4, value, chainId: chain2.chainId })
+        ));
       } catch (e2) {
         approved.revoke("broadcast failed");
         const actionable = toActionableError2(e2, "dexe_tx_send broadcast");
@@ -149970,7 +150288,14 @@ function registerTxTools(server, config2, signer, wc) {
       }
       approved.landed(0, ktx.hash);
       approved.finish();
-      const base3 = { txHash: ktx.hash, from: from10, signerKey: "keystore", chainId: chain2.chainId, signer: "keystore" };
+      const base3 = {
+        txHash: ktx.hash,
+        from: from10,
+        signerKey: "keystore",
+        chainId: chain2.chainId,
+        signer: "keystore",
+        ...gasLimit ? { gasLimitNote: "gasLimit was ignored: in keystore mode gas is estimated server-side (capped)." } : {}
+      };
       if (waitConfirmations === 0) {
         return {
           content: [
@@ -152006,13 +152331,15 @@ function signerModeChecks(config2, env = process.env) {
     let status = "pass";
     try {
       const meta3 = parseKeystoreMeta(readFileSync13(config2.keystore.file, "utf8"));
-      if (meta3.kdf !== "scrypt" || meta3.n === null || meta3.n < KEYSTORE_MIN_SAFE_N) {
-        issues.push(`weak KDF (${meta3.kdf}${meta3.n ? ` N=${meta3.n}` : ""}) \u2014 re-encrypt with \`dexe-mcp key change-password\``);
-        status = "warn";
+      const weak = weakKdfReason(meta3);
+      if (weak) {
+        issues.push(weak);
+        status = "fail";
       }
       for (const p4 of keystorePermissionIssues(config2.keystore.file)) {
         issues.push(p4);
-        status = "warn";
+        if (status !== "fail")
+          status = "warn";
       }
     } catch (e2) {
       issues.push(`unreadable: ${safeErrorMessage(e2)}`);

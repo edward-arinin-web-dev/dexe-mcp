@@ -75,8 +75,9 @@ the key. There is no command that prints the private key.
 4. You compare the fingerprint with the one in the chat, type the password,
    and press **Approve and sign**. The key is decrypted for exactly that batch:
    it signs those transactions, in that order, once each — anything else is
-   refused and the approval is revoked. The page shows the transaction hashes
-   as they land.
+   refused and the approval is revoked. The gas limit is never taken from the
+   AI (you did not approve one): it is estimated by the server and refused
+   above a 30M-gas cap. The page shows the transaction hashes as they land.
 
 The tool call waits up to `DEXE_APPROVAL_WAIT_MS` (default 2 minutes; it sends
 MCP progress notifications while it waits). If you approve in time it returns
@@ -108,11 +109,19 @@ hashes. It is read-only: no tool can approve or decline anything.
 - **Decline** → the tool reports `declined` ("Owner declined; nothing
   signed. Do not retry unless the user asks."). The same batch is refused,
   without a new page, for 10 minutes.
-- **Wrong password** five times → the approval is declined and password entry
-  is locked for a minute, doubling each time it happens again.
-- **Expiry** → an approval (and an approved-but-unused batch) lives
-  `DEXE_APPROVAL_TTL_S` (default 15 minutes). The server keeps approvals in
-  memory only; a restart forgets them.
+- **Wrong passwords** are counted across **all** approvals, not per page:
+  five within an hour lock password entry everywhere for a minute, then 2,
+  4, … up to an hour — doubling for the life of the server; a correct password
+  does not reset it. Five on one approval also decline that approval.
+- **At most 3 approvals wait at once**, and at most 6 are created per minute.
+  Beyond that a write returns `mode: "approval_refused"` (nothing signed, no
+  new page) until you approve or decline the open ones.
+- **Expiry** → an approval link lives `DEXE_APPROVAL_TTL_S` (default 15
+  minutes). Once you approve, the decrypted key is held only
+  `DEXE_APPROVAL_USE_S` (default 2 minutes) for the call to start sending — a
+  blocking call takes it at once; on the re-run path, re-run within that
+  window or approve again. The server keeps approvals in memory only; a
+  restart forgets them.
 - **A step fails mid-batch** → the approval is revoked and the key dropped.
   Re-running the call re-reads the chain, skips what landed, and asks for a new
   approval for the rest; the new page lists what already landed.
@@ -128,6 +137,10 @@ refused with a pointer to WalletConnect (`dexe_wc_connect`); a connected
 WalletConnect session is used for `dexe_auth_login`. `dexe_agents_fund` runs
 only in unattended mode. `signerKey` (the agent keyring) does not apply: a
 keystore server has one key.
+
+A keystore whose KDF is weaker than scrypt N=2^17 (or uses pbkdf2) is
+**refused** at startup and again at every unlock; `npx dexe-mcp key
+change-password` (or `key import --json`) re-encrypts it at N=2^18.
 
 ### Headless machines and SSH
 
@@ -146,6 +159,7 @@ result) instead of opening a browser.
 | `DEXE_KEYSTORE_ADDRESS` | — | Which key, when the directory holds several. |
 | `DEXE_APPROVAL_WAIT_MS` | `120000` | How long a call blocks for you (max 600000; `0` returns at once). |
 | `DEXE_APPROVAL_TTL_S` | `900` | Approval lifetime (60–3600). |
+| `DEXE_APPROVAL_USE_S` | `120` | How long an approved batch may wait to be sent before its key is dropped (10 – TTL). |
 | `DEXE_APPROVAL_OPEN_BROWSER` | `1` | `0` prints the link instead of opening it. |
 
 ### `dexe-mcp key` reference
@@ -212,7 +226,7 @@ by retries (10-minute cooldown).
 - **Limitation: an AI that can run shell commands can fake the page** — start
   its own server, send you a look-alike link, and capture what you type — or
   read this process's memory while a decrypted key is held (from approval
-  until the batch is sent, at most the approval lifetime; JavaScript cannot
+  until the batch is sent, at most `DEXE_APPROVAL_USE_S` before sending starts; JavaScript cannot
   wipe a string).
 - **So: for agents with shell or browser access, use WalletConnect.** The
   signature then happens on a separate device the agent cannot reach.
@@ -231,8 +245,33 @@ expensive to brute-force.
 - Every response is `Cache-Control: no-store`, `Referrer-Policy: no-referrer`,
   `X-Frame-Options: DENY`; the HTML has a nonce-only Content-Security-Policy
   and loads nothing from the network.
-- Password attempts run one at a time (scrypt is ~1 s each); five wrong ones
-  decline the approval and lock entry with a growing lockout.
+- Password attempts run one at a time (scrypt is ~0.5–1 s each). The lockout
+  is global (five wrong passwords across any approvals → 1 min, doubling to
+  1 h) and is checked again inside the queue, so guesses queued before a
+  lockout never run after it. At most 3 approvals wait at once, 6 per minute.
+- Labels come from the chain and are only trusted through the DeXe registry:
+  a contract is called a GovPool — and its UserKeeper / settings / token are
+  labelled — only if `PoolRegistry.isGovPool()` confirms it. A contract that
+  merely answers like a GovPool is flagged **"NOT a registered DeXe DAO"**, and
+  an approval or token transfer to an address with no contract code is
+  flagged as DANGER.
+
+### Residual risks, stated plainly
+
+- **The TTY check on `dexe-mcp key` can be bypassed** with a pseudo-terminal.
+  That gains an agent nothing: it can only create or import keys it already
+  holds, and none of them owns your funds or voting power. Your keystore's
+  password never passes through it.
+- **`navigator.webdriver` is reported by the browser** and an agent that
+  controls the browser (or crafts its own request) can lie about it. It only
+  catches standard automation; the password is the real gate.
+- **The decline cooldown is keyed to the exact batch.** A 1-wei variation is a
+  new batch and gets a new page — it still needs your password, and the
+  3-open / 6-per-minute limits bound how often you can be asked.
+- **A decrypted key lives in this process** from your approval until the
+  batch is sent (at most `DEXE_APPROVAL_USE_S` before sending starts), and
+  JavaScript cannot wipe a string. An agent with a shell can read process
+  memory — use WalletConnect for such agents (see the threat model).
 
 See also [SECURITY.md](./SECURITY.md) (guards, posture) and
 [WALLETCONNECT.md](./WALLETCONNECT.md) (the default mode).
