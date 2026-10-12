@@ -73395,7 +73395,7 @@ import { stdin as input2, stdout as output3 } from "node:process";
 import { existsSync as existsSync14, readFileSync as readFileSync15, writeFileSync as writeFileSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync4, statSync as statSync5, copyFileSync } from "node:fs";
 import { resolve as resolve6, dirname as dirname7, join as join13 } from "node:path";
 import { homedir as homedir5 } from "node:os";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 async function run2() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     output3.write("dexe-mcp init [--skills-only] [--unattended]\n\n  interactive wizard; writes ~/.dexe-mcp/.env and can install the skills\n  --skills-only   skip the env interview, just install the skills\n  --unattended    also offer a plaintext hot key that signs with no confirmation (bots / CI)\n\nNeeds a TTY. For a non-interactive setup, copy .env.example by hand.\n");
@@ -73732,7 +73732,7 @@ async function deriveAddress(pk) {
   return new Wallet2(pk).address;
 }
 function findRepoRoot() {
-  const here = dirname7(fileURLToPath4(import.meta.url));
+  const here = dirname7(fileURLToPath5(import.meta.url));
   let cur = here;
   for (let i3 = 0; i3 < 6; i3++) {
     if (existsSync14(resolve6(cur, "package.json")))
@@ -74212,7 +74212,7 @@ var init_skills = __esm({
 // dist/index.js
 import { existsSync as existsSync17, readFileSync as readFileSync17 } from "node:fs";
 import { resolve as resolve8, dirname as dirname9 } from "node:path";
-import { fileURLToPath as fileURLToPath5, pathToFileURL } from "node:url";
+import { fileURLToPath as fileURLToPath6 } from "node:url";
 
 // node_modules/zod/v3/helpers/util.js
 var util;
@@ -158942,6 +158942,21 @@ import { homedir as homedir7 } from "node:os";
 init_runtime();
 init_redact();
 
+// dist/stdioRuntime.js
+import { realpathSync } from "node:fs";
+import { fileURLToPath as fileURLToPath4, pathToFileURL } from "node:url";
+function isMainModule(moduleUrl, argv1 = process.argv[1]) {
+  if (!argv1)
+    return false;
+  if (moduleUrl === pathToFileURL(argv1).href)
+    return true;
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath4(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
 // dist/http/cli.js
 init_runtime();
 
@@ -160853,7 +160868,7 @@ Pass --strict (or set DEXE_DOCTOR_STRICT=1) to exit 1 on warnings in CI.
 }
 
 // dist/index.js
-var __dirname = dirname9(fileURLToPath5(import.meta.url));
+var __dirname = dirname9(fileURLToPath6(import.meta.url));
 var MIN_NODE_VERSION = "20.12.0";
 function nodeVersionWarning(running, min = MIN_NODE_VERSION) {
   const parse4 = (v7) => {
@@ -161122,7 +161137,7 @@ ${debugHint()}`);
     await startDegraded(err16, envCandidates);
   }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMainModule(import.meta.url)) {
   await bootstrap();
 }
 export {
