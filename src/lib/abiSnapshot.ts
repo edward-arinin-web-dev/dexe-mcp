@@ -63,7 +63,7 @@ export class AbiSnapshot {
     return [...this.byName.keys()];
   }
 
-  /** Plain-language name for messages, e.g. "the bundled DeXe-Protocol ABI snapshot (38 contracts, commit f09a3ba98c)". */
+  /** Plain-language name for messages, e.g. "the bundled DeXe-Protocol ABI snapshot (39 contracts, commit f09a3ba98c)". */
   describe(): string {
     return `the bundled DeXe-Protocol ABI snapshot (${this.records.length} contracts, commit ${this.protocol.commit.slice(0, 10)})`;
   }

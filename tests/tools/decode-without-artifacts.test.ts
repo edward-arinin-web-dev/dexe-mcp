@@ -289,3 +289,142 @@ describe("a local compile still wins (dev flow unchanged)", () => {
     expect((after.structuredContent as { primary: Decoded }).primary.contract).toBe("LocalToken");
   });
 });
+
+describe("an empty or partial local compile falls back to the snapshot", () => {
+  /** What a failed or interrupted `npm run compile` can leave behind. */
+  function emptyArtifactsDir() {
+    mkdirSync(join(protocolPath, "artifacts", "contracts"), { recursive: true });
+  }
+
+  function writeLocal(name: string, abi: unknown[]) {
+    const dir = join(protocolPath, "artifacts", "contracts", `${name}.sol`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${name}.json`),
+      JSON.stringify({ contractName: name, sourceName: `contracts/${name}.sol`, abi, bytecode: "0x60" }),
+    );
+  }
+
+  const MULTICALL_ONLY = [
+    {
+      type: "function",
+      name: "multicall",
+      stateMutability: "nonpayable",
+      inputs: [{ name: "data", type: "bytes[]" }],
+      outputs: [{ name: "results", type: "bytes[]" }],
+    },
+  ];
+
+  it("an empty artifacts/contracts/ counts as no compile", async () => {
+    emptyArtifactsDir();
+    const s = await session();
+    const res = await s.call("dexe_decode_calldata", { data: golden.external.token_transfer!.actions[0]!.data });
+    await s.close();
+
+    expect(res.isError).toBeFalsy();
+    const sc = res.structuredContent as { abiSource: string; primary: Decoded };
+    expect(sc.abiSource).toBe("snapshot");
+    expect(sc.primary.contract).toBe("ERC20");
+    expect(text(res)).not.toMatch(/dexe_compile|dexe_find_selector/);
+  });
+
+  it("a selector the partial compile lacks is decoded by the snapshot, and says so", async () => {
+    writeLocal("LocalPool", MULTICALL_ONLY);
+    const s = await session();
+    const res = await s.call("dexe_decode_calldata", { data: mainnet.proposals[0]!.actionsOnFor[1]!.data });
+    await s.close();
+
+    expect(res.isError).toBeFalsy();
+    const sc = res.structuredContent as { abiSource: string; primary: Decoded & { abiSource?: string } };
+    expect(sc.abiSource).toBe("snapshot");
+    expect(sc.primary.contract).toBe("TokenSaleProposal");
+    expect(sc.primary.abiSource).toBe("snapshot");
+    expect(text(res)).toContain("The local compile has no ABI for some of these calls");
+  });
+
+  it("a `contract` the partial compile lacks is looked up in the snapshot", async () => {
+    writeLocal("LocalPool", MULTICALL_ONLY);
+    const s = await session();
+    const res = await s.call("dexe_decode_calldata", {
+      data: mainnet.proposals[0]!.actionsOnFor[1]!.data,
+      contract: "TokenSaleProposal",
+    });
+    await s.close();
+
+    expect(res.isError).toBeFalsy();
+    expect((res.structuredContent as { primary: Decoded }).primary.contract).toBe("TokenSaleProposal");
+  });
+
+  it("nested calls fall back too: local wrapper, snapshot inner call → abiSource mixed", async () => {
+    writeLocal("LocalPool", MULTICALL_ONLY);
+    const keeper = new Interface(bundledAbiSnapshot().get("GovUserKeeper")[0]!.abi as never);
+    const inner = keeper.encodeFunctionData("withdrawTokens", [
+      "0x1111111111111111111111111111111111111111",
+      "0x2222222222222222222222222222222222222222",
+      1n,
+    ]);
+    const outer = GOVPOOL_IFACE.encodeFunctionData("multicall", [[inner]]);
+
+    const s = await session();
+    const res = await s.call("dexe_decode_calldata", { data: outer });
+    await s.close();
+
+    const sc = res.structuredContent as { abiSource: string; primary: Decoded & { abiSource?: string; nested?: Array<Decoded & { abiSource?: string }> } };
+    expect(sc.abiSource).toBe("mixed");
+    expect(sc.primary.contract).toBe("LocalPool");
+    expect(sc.primary.abiSource).toBe("artifacts");
+    expect(sc.primary.nested?.[0]?.contract).toBe("GovUserKeeper");
+    expect(sc.primary.nested?.[0]?.abiSource).toBe("snapshot");
+    expect(sc.primary.nested?.[0]?.privileged).toBe(true);
+  });
+
+  it("dexe_decode_proposal decodes every action through the snapshot when the compile lacks them", async () => {
+    writeLocal("LocalPool", MULTICALL_ONLY);
+    const p = mainnet.proposals[0]!;
+    vi.spyOn(RpcProvider.prototype, "tryProvider").mockReturnValue({
+      ok: {
+        async call(): Promise<string> {
+          const settings = [true, false, false, 1n, 1n, 0n, 1n, 0n, 0n, 0n, [`0x${"0".repeat(40)}`, 0n, 0n, 0n], ""];
+          const core = [settings, 1n, 1n, true, 1n, 0n, 1n, 0n, 0n];
+          const actions = p.actionsOnFor.map((a) => [a.executor, BigInt(a.value), a.data]);
+          return GOVPOOL_IFACE.encodeFunctionResult("getProposals", [
+            [[[core, p.descriptionURL, actions, []], [[false, 0n, 0n, 0n, 0n, 0n, 0n]], p.state, 1n, 0n]],
+          ]);
+        },
+      } as unknown as JsonRpcProvider,
+    });
+    const s = await session();
+    const res = await s.call("dexe_decode_proposal", { govPool: mainnet.govPool, proposalId: 1 });
+    await s.close();
+
+    expect(res.isError).toBeFalsy();
+    const sc = res.structuredContent as { abiSource: string; forActions: Array<{ decoded: Decoded | null }> };
+    expect(sc.abiSource).toBe("snapshot");
+    expect(sc.forActions.map((a) => a.decoded?.contract)).toEqual(["ERC20", "TokenSaleProposal"]);
+  });
+});
+
+describe("ambiguous selectors", () => {
+  it("ERC20 vs ERC721 approve: same selector and types, different meaning → ambiguous", async () => {
+    // The approve leg of mainnet proposal 1: an ERC20 allowance, but ERC721
+    // reads the same bytes as approve(to, tokenId).
+    const s = await session();
+    const res = await s.call("dexe_decode_calldata", { data: mainnet.proposals[0]!.actionsOnFor[0]!.data });
+    await s.close();
+
+    const sc = res.structuredContent as { ambiguous: boolean; primary: Decoded; alternatives: Array<{ contract: string }> };
+    expect(sc.ambiguous).toBe(true);
+    expect(sc.primary.contract).toBe("ERC20");
+    expect(sc.alternatives.map((a) => a.contract)).toContain("ERC721");
+    expect(text(res)).toContain("AMBIGUOUS");
+    expect(text(res)).toContain("tokenId");
+  });
+
+  it("alternatives that read the arguments identically are not ambiguous", async () => {
+    const s = await session();
+    const res = await s.call("dexe_decode_calldata", { data: mainnet.proposals[0]!.actionsOnFor[1]!.data });
+    await s.close();
+    expect((res.structuredContent as { ambiguous: boolean }).ambiguous).toBe(false);
+    expect(text(res)).not.toContain("AMBIGUOUS");
+  });
+});

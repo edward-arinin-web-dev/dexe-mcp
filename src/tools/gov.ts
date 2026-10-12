@@ -2,7 +2,12 @@ import { z } from "zod";
 import { Contract, isAddress, type InterfaceAbi } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ToolContext } from "./context.js";
-import type { DecodedProposalAction, DecodedCall } from "../lib/decoders.js";
+import {
+  sameArguments,
+  type AbiSourceKind,
+  type DecodedProposalAction,
+  type DecodedCall,
+} from "../lib/decoders.js";
 import { DecodeAbis, type DecodeAbiSource } from "../lib/decodeAbis.js";
 import { GovAddressResolver } from "../lib/govAddresses.js";
 import { RpcProvider } from "../rpc.js";
@@ -28,10 +33,32 @@ function errorResult(message: string) {
   };
 }
 
-/** One line naming the ABI set, printed only when it is the bundled snapshot. */
-function snapshotNote(source: DecodeAbiSource): string {
-  return source.kind === "snapshot" ? `\n\nDecoded with ${source.label}.` : "";
+/** Which ABI sets decoded a call tree (the call and everything nested in it). */
+function collectSources(call: DecodedCall | null, out: Set<AbiSourceKind>): Set<AbiSourceKind> {
+  if (!call) return out;
+  if (call.abiSource) out.add(call.abiSource);
+  for (const n of call.nested ?? []) collectSources(n, out);
+  return out;
 }
+
+/**
+ * One line naming the snapshot when it decoded anything: on its own (no usable
+ * local compile), or as the fallback for calls the local compile lacks.
+ */
+function snapshotNote(used: Set<AbiSourceKind>, source: DecodeAbiSource, abis: DecodeAbis): string {
+  if (!used.has("snapshot")) return "";
+  return source.kind === "snapshot"
+    ? `\n\nDecoded with ${source.label}.`
+    : `\n\nThe local compile has no ABI for some of these calls; they were decoded with ${abis.bundled().label}.`;
+}
+
+/** Overall source for a reply: the one set used, or "mixed" when both were. */
+function overallSource(used: Set<AbiSourceKind>, source: DecodeAbiSource): AbiSourceKind | "mixed" {
+  if (used.size > 1) return "mixed";
+  return [...used][0] ?? source.kind;
+}
+
+const argNames = (c: DecodedCall) => Object.keys(c.args).join(", ");
 
 /** Caps a list of contract names so an unknown-name error stays short. */
 function knownNames(source: DecodeAbiSource, max = 50): string {
@@ -53,19 +80,17 @@ function noMatchMessage(data: string, contract: string | undefined, source: Deco
       "Omit `contract` to search every ABI."
     );
   }
-  if (source.kind === "snapshot") {
-    return (
-      `No matching ABI found for selector ${selector} in ${source.label}. ` +
-      "The target is most likely not a DeXe Protocol contract or a plain ERC20/ERC721 — decode it " +
-      "with that contract's verified ABI (block explorer), or look the selector up in a public " +
-      "signature database such as 4byte.directory. A DeXe contract upgraded after the snapshot's " +
-      "commit can also carry selectors the snapshot does not know."
-    );
-  }
-  return (
+  const base =
     `No matching ABI found for selector ${selector} in ${source.label}. ` +
-    "Try dexe_find_selector, or decode against the target contract's own verified ABI."
-  );
+    "The target is most likely not a DeXe Protocol contract or a plain ERC20/ERC721 — decode it " +
+    "with that contract's verified ABI (block explorer), or look the selector up in a public " +
+    "signature database such as 4byte.directory. A DeXe contract upgraded after the snapshot's " +
+    "commit can also carry selectors the snapshot does not know.";
+  // Both sets were searched by now (the local decoder falls back to the
+  // snapshot); the dev hint only applies where a local compile exists.
+  return source.kind === "artifacts"
+    ? `${base} Try dexe_find_selector to search the local compile's events and errors too.`
+    : base;
 }
 
 // ---------- dexe_decode_calldata ----------
@@ -96,6 +121,7 @@ function registerDecodeCalldata(server: McpServer, abis: DecodeAbis): void {
             argsArray: z.array(z.unknown()),
             privileged: z.boolean().optional(),
             nested: z.array(z.unknown()).optional(),
+            abiSource: z.enum(["artifacts", "snapshot"]).optional(),
           })
           .nullable(),
         alternativeCount: z.number(),
@@ -105,14 +131,19 @@ function registerDecodeCalldata(server: McpServer, abis: DecodeAbis): void {
             signature: z.string(),
           }),
         ),
+        ambiguous: z
+          .boolean()
+          .describe(
+            "True when another contract reads this selector's arguments differently (other names or types, e.g. ERC20 vs ERC721 approve)",
+          ),
         abiSource: z
-          .enum(["artifacts", "snapshot"])
-          .describe("ABIs used: the local compile, or the bundled DeXe-Protocol snapshot"),
+          .enum(["artifacts", "snapshot", "mixed"])
+          .describe("ABIs used: the local compile, the bundled DeXe-Protocol snapshot, or both (nested calls)"),
       },
     },
     async ({ data, contract }) => {
       const source = abis.resolve();
-      if (contract && source.get(contract).length === 0) {
+      if (contract && !source.has(contract)) {
         return errorResult(
           `No ABI named "${renderUntrusted(contract, 80)}" in ${source.label}. Known contracts: ${knownNames(source)}. ` +
             "Omit `contract` to search every ABI by selector.",
@@ -120,12 +151,17 @@ function registerDecodeCalldata(server: McpServer, abis: DecodeAbis): void {
       }
 
       const result = source.decoder.decodeCalldata(data, contract);
+      const used = collectSources(result.primary, new Set());
+      const differing = result.primary
+        ? result.alternatives.find((a) => !sameArguments(a, result.primary!))
+        : undefined;
       const structured = {
         matched: result.primary !== null,
         primary: result.primary,
         alternativeCount: result.alternatives.length,
         alternatives: result.alternatives.map((a) => ({ contract: a.contract, signature: a.signature })),
-        abiSource: source.kind,
+        ambiguous: differing !== undefined,
+        abiSource: overallSource(used, source),
       };
 
       const text = result.primary
@@ -133,7 +169,11 @@ function registerDecodeCalldata(server: McpServer, abis: DecodeAbis): void {
           (result.alternatives.length > 0
             ? `\n\n${result.alternatives.length} alternative match(es): ${result.alternatives.map((a) => `${a.contract}.${a.signature}`).join(", ")}`
             : "") +
-          snapshotNote(source)
+          (differing
+            ? `\n\n⚠ AMBIGUOUS: ${result.primary.contract} reads the arguments as (${argNames(result.primary)}), ` +
+              `${differing.contract} as (${argNames(differing)}). Check which contract the target is before trusting the names.`
+            : "") +
+          snapshotNote(used, source, abis)
         : noMatchMessage(data, contract, source);
 
       // The spread is mandatory: `untrustedResult` returns only content +
@@ -186,8 +226,10 @@ function registerDecodeProposal(server: McpServer, abis: DecodeAbis, rpc: RpcPro
         forActions: z.array(z.unknown()),
         againstActions: z.array(z.unknown()),
         abiSource: z
-          .enum(["artifacts", "snapshot"])
-          .describe("ABIs used to decode the actions: the local compile, or the bundled DeXe-Protocol snapshot"),
+          .enum(["artifacts", "snapshot", "mixed"])
+          .describe(
+            "ABIs used to decode the actions: the local compile, the bundled DeXe-Protocol snapshot, or both (each decoded call says which)",
+          ),
       },
     },
     async ({ govPool, proposalId, chainId }) => {
@@ -234,6 +276,9 @@ function registerDecodeProposal(server: McpServer, abis: DecodeAbis, rpc: RpcPro
         decoder.decodeProposalAction({ executor: a[0], value: a[1], data: a[2], side: "against" }),
       );
 
+      const used = new Set<AbiSourceKind>();
+      for (const a of [...forActions, ...againstActions]) collectSources(a.decoded, used);
+
       const structured = {
         govPool,
         proposalId,
@@ -254,7 +299,7 @@ function registerDecodeProposal(server: McpServer, abis: DecodeAbis, rpc: RpcPro
         },
         forActions,
         againstActions,
-        abiSource: source.kind,
+        abiSource: overallSource(used, source),
       };
 
       // Deliberately NO `body`: a fence caps at 4000 chars, and an attacker
@@ -264,7 +309,7 @@ function registerDecodeProposal(server: McpServer, abis: DecodeAbis, rpc: RpcPro
       // fields already escaped above, and `structured` (which carried the raw
       // descriptionURL and decoded args) is now deep-sanitized and announced.
       const text =
-        `Proposal ${proposalId} @ ${govPool}\nState: ${PROPOSAL_STATE_NAMES[proposalState] ?? proposalState}\nDescription: ${renderUntrusted(descriptionURL)}\nActions on For: ${forActions.length}\nActions on Against: ${againstActions.length}\n${formatActions(forActions)}${formatActions(againstActions)}${snapshotNote(source)}`;
+        `Proposal ${proposalId} @ ${govPool}\nState: ${PROPOSAL_STATE_NAMES[proposalState] ?? proposalState}\nDescription: ${renderUntrusted(descriptionURL)}\nActions on For: ${forActions.length}\nActions on Against: ${againstActions.length}\n${formatActions(forActions)}${formatActions(againstActions)}${snapshotNote(used, source, abis)}`;
       return untrustedResult({
         summary: text,
         label: `descriptionURL and decoded action arguments of proposal ${proposalId} on GovPool ${govPool} (author-controlled)`,
