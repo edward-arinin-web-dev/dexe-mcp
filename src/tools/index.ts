@@ -47,11 +47,11 @@ import { registerFlowTools } from "./flow.js";
 import { registerDaoCreateTools } from "./daoCreate.js";
 import { registerWriteContextTool } from "./operationalContextWrite.js";
 import { FLOW_GUIDE_TEXT, activeFlowContext, registerKnowledgePrompts, registerWriteGuideTool } from "./guideWrite.js";
-import { SINGLE_SERVER_KNOWLEDGE, writeGuideKnowledge, writeToolLocator } from "../knowledge/index.js";
+import { SINGLE_SERVER_KNOWLEDGE, WRITE_ONLY_CORPUS, writeGuideKnowledge, writeToolLocator } from "../knowledge/index.js";
 import { useNextStepLocator } from "../knowledge/write/nextSteps.js";
 import { registerWriteDoctorTool } from "../diag/writeDoctor.js";
 import { useWriteFailureWording } from "../lib/writeErrors.js";
-import { installReadServerMarks } from "./readServerMarks.js";
+import { installReadServerMarks, markReadTools } from "./readServerMarks.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcSaleTools, registerOtcBuyerTools } from "./otc.js";
 import { withVestingWithdrawAdvisory } from "./tokenSaleF15.js";
@@ -238,7 +238,7 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
       extraContext: activeFlowContext,
     });
   }
-  registerKnowledgePrompts(server);
+  registerKnowledgePrompts(server, standalone ? {} : { corpus: WRITE_ONLY_CORPUS, transform: markReadTools });
   // The write checks: signer, keystore, approval page, Pinata, WalletConnect,
   // this process's .env. In both modes; standalone's dexe_doctor runs them too.
   registerWriteDoctorTool(server, config, { toolsets: serverToolsets(config) });

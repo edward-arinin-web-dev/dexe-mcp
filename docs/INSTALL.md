@@ -50,7 +50,7 @@ You need [Node.js 20.12 or newer](https://nodejs.org) — the server reads your 
 
 ```sh
 claude mcp add dexe -s user -- npx -y dexe-mcp@latest
-claude mcp add dexe-read -s user -- npx -y -p @dexe-network/dexe-mcp dexe-mcp-read
+claude mcp add dexe-read -s user -- npx -y -p @dexe-network/dexe-mcp@1.0.0-rc.1 dexe-mcp-read
 ```
 
 Two lines on every OS. `-s user` registers it for **every** project — local scope is the default, and it makes the server appear to vanish the moment you open another project. Verify with `claude mcp list`.
@@ -71,7 +71,7 @@ Config file:
     },
     "dexe-read": {
       "command": "npx",
-      "args": ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"]
+      "args": ["-y", "-p", "@dexe-network/dexe-mcp@1.0.0-rc.1", "dexe-mcp-read"]
     }
   }
 }
@@ -109,7 +109,7 @@ Same JSON as B2, and the same Windows `node` + `dist/index.js` fallback.
 
 ```sh
 codex mcp add dexe -- npx -y dexe-mcp@latest
-codex mcp add dexe-read -- npx -y -p @dexe-network/dexe-mcp dexe-mcp-read
+codex mcp add dexe-read -- npx -y -p @dexe-network/dexe-mcp@1.0.0-rc.1 dexe-mcp-read
 ```
 
 Or edit `~/.codex/config.toml` by hand — note the **UNDERSCORE**; `mcp-servers` with a hyphen is silently ignored:
@@ -122,7 +122,7 @@ startup_timeout_sec = 60
 
 [mcp_servers.dexe-read]
 command = "npx"
-args = ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"]
+args = ["-y", "-p", "@dexe-network/dexe-mcp@1.0.0-rc.1", "dexe-mcp-read"]
 startup_timeout_sec = 60
 ```
 

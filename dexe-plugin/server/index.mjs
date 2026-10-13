@@ -3000,7 +3000,7 @@ var require_compile = __commonJS({
       const schOrFunc = root2.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve9.call(this, root2, ref);
+      let _sch = resolve11.call(this, root2, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root2.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -3027,7 +3027,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve9(root2, ref) {
+    function resolve11(root2, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -4148,7 +4148,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve9(baseURI, relativeURI, options) {
+    function resolve11(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -4532,7 +4532,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve9,
+      resolve: resolve11,
       resolveComponent,
       equal,
       serialize: serialize3,
@@ -8318,7 +8318,7 @@ function createGetUrl(options) {
       request.write(Buffer.from(body));
     }
     request.end();
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve11, reject) => {
       if (signal) {
         signal.addListener(() => {
           if (abort) {
@@ -8364,7 +8364,7 @@ function createGetUrl(options) {
             if (headers2["content-encoding"] === "gzip" && body2) {
               body2 = getBytes(gunzipSync(body2));
             }
-            resolve9({ statusCode, statusMessage, headers: headers2, body: body2 });
+            resolve11({ statusCode, statusMessage, headers: headers2, body: body2 });
           } catch (error62) {
             reject(makeError("bad response data", "SERVER_ERROR", {
               request: req,
@@ -8437,7 +8437,7 @@ function unpercent(value) {
   }));
 }
 function wait(delay) {
-  return new Promise((resolve9) => setTimeout(resolve9, delay));
+  return new Promise((resolve11) => setTimeout(resolve11, delay));
 }
 var MAX_ATTEMPTS, SLOT_INTERVAL, defaultGetUrlFunc, reData, reIpfs, locked, Gateways, fetchSignals, FetchCancelSignal, FetchRequest, FetchResponse;
 var init_fetch = __esm({
@@ -21582,7 +21582,7 @@ var init_provider = __esm({
             return null;
           }
         }
-        const waiter = new Promise((resolve9, reject) => {
+        const waiter = new Promise((resolve11, reject) => {
           const cancellers = [];
           const cancel = () => {
             cancellers.forEach((c4) => c4());
@@ -21603,7 +21603,7 @@ var init_provider = __esm({
             if (await receipt2.confirmations() >= confirms) {
               cancel();
               try {
-                resolve9(checkReceipt(receipt2));
+                resolve11(checkReceipt(receipt2));
               } catch (error62) {
                 reject(error62);
               }
@@ -22522,12 +22522,12 @@ var init_contract = __esm({
         }
         const provider = getProvider(this.runner);
         assert2(provider != null, "contract runner does not support .provider", "UNSUPPORTED_OPERATION", { operation: "waitForDeployment" });
-        return new Promise((resolve9, reject) => {
+        return new Promise((resolve11, reject) => {
           const checkCode = async () => {
             try {
               const code7 = await this.getDeployedCode();
               if (code7 != null) {
-                return resolve9(this);
+                return resolve11(this);
               }
               provider.once("block", checkCode);
             } catch (error62) {
@@ -24455,8 +24455,8 @@ var init_subscriber_polling = __esm({
 
 // node_modules/ethers/lib.esm/providers/abstract-provider.js
 function stall(duration3) {
-  return new Promise((resolve9) => {
-    setTimeout(resolve9, duration3);
+  return new Promise((resolve11) => {
+    setTimeout(resolve11, duration3);
   });
 }
 function isPromise(value) {
@@ -25042,7 +25042,7 @@ var init_abstract_provider = __esm({
           return t2.toLowerCase();
         });
         const blockHash = "blockHash" in filter ? filter.blockHash : void 0;
-        const resolve9 = (_address, fromBlock2, toBlock2) => {
+        const resolve11 = (_address, fromBlock2, toBlock2) => {
           let address2 = void 0;
           switch (_address.length) {
             case 0:
@@ -25097,10 +25097,10 @@ var init_abstract_provider = __esm({
         }
         if (address.filter((a3) => typeof a3 !== "string").length || fromBlock != null && typeof fromBlock !== "string" || toBlock != null && typeof toBlock !== "string") {
           return Promise.all([Promise.all(address), fromBlock, toBlock]).then((result) => {
-            return resolve9(result[0], result[1], result[2]);
+            return resolve11(result[0], result[1], result[2]);
           });
         }
-        return resolve9(address, fromBlock, toBlock);
+        return resolve11(address, fromBlock, toBlock);
       }
       /**
        *  Returns or resolves to a transaction for %%request%%, resolving
@@ -25449,14 +25449,14 @@ var init_abstract_provider = __esm({
         if (confirms === 0) {
           return this.getTransactionReceipt(hash3);
         }
-        return new Promise(async (resolve9, reject) => {
+        return new Promise(async (resolve11, reject) => {
           let timer = null;
           const listener = (async (blockNumber) => {
             try {
               const receipt = await this.getTransactionReceipt(hash3);
               if (receipt != null) {
                 if (blockNumber - receipt.blockNumber + 1 >= confirms) {
-                  resolve9(receipt);
+                  resolve11(receipt);
                   if (timer) {
                     clearTimeout(timer);
                     timer = null;
@@ -26218,8 +26218,8 @@ function deepCopy(value) {
   throw new Error(`should not happen: ${value} (${typeof value})`);
 }
 function stall2(duration3) {
-  return new Promise((resolve9) => {
-    setTimeout(resolve9, duration3);
+  return new Promise((resolve11) => {
+    setTimeout(resolve11, duration3);
   });
 }
 function getLowerCase(value) {
@@ -26356,14 +26356,14 @@ var init_provider_jsonrpc = __esm({
       async sendTransaction(tx) {
         const blockNumber = await this.provider.getBlockNumber();
         const hash3 = await this.sendUncheckedTransaction(tx);
-        return await new Promise((resolve9, reject) => {
+        return await new Promise((resolve11, reject) => {
           const timeouts = [1e3, 100];
           let invalids = 0;
           const checkTx = async () => {
             try {
               const tx2 = await this.provider.getTransaction(hash3);
               if (tx2 != null) {
-                resolve9(tx2.replaceableTransaction(blockNumber));
+                resolve11(tx2.replaceableTransaction(blockNumber));
                 return;
               }
             } catch (error62) {
@@ -26480,7 +26480,7 @@ var init_provider_jsonrpc = __esm({
               try {
                 const result = await this._send(payload);
                 this.emit("debug", { action: "receiveRpcResult", result });
-                for (const { resolve: resolve9, reject, payload: payload2 } of batch) {
+                for (const { resolve: resolve11, reject, payload: payload2 } of batch) {
                   if (this.destroyed) {
                     reject(makeError("provider destroyed; cancelled request", "UNSUPPORTED_OPERATION", { operation: payload2.method }));
                     continue;
@@ -26499,7 +26499,7 @@ var init_provider_jsonrpc = __esm({
                     reject(this.getRpcError(payload2, resp));
                     continue;
                   }
-                  resolve9(resp.result);
+                  resolve11(resp.result);
                 }
               } catch (error62) {
                 this.emit("debug", { action: "receiveRpcError", error: error62 });
@@ -26520,11 +26520,11 @@ var init_provider_jsonrpc = __esm({
         this.#network = null;
         this.#pendingDetectNetwork = null;
         {
-          let resolve9 = null;
+          let resolve11 = null;
           const promise2 = new Promise((_resolve) => {
-            resolve9 = _resolve;
+            resolve11 = _resolve;
           });
-          this.#notReady = { promise: promise2, resolve: resolve9 };
+          this.#notReady = { promise: promise2, resolve: resolve11 };
         }
         const staticNetwork = this._getOption("staticNetwork");
         if (typeof staticNetwork === "boolean") {
@@ -26937,9 +26937,9 @@ var init_provider_jsonrpc = __esm({
           return Promise.reject(makeError("provider destroyed; cancelled request", "UNSUPPORTED_OPERATION", { operation: method }));
         }
         const id2 = this.#nextId++;
-        const promise2 = new Promise((resolve9, reject) => {
+        const promise2 = new Promise((resolve11, reject) => {
           this.#payloads.push({
-            resolve: resolve9,
+            resolve: resolve11,
             reject,
             payload: { method, params, id: id2, jsonrpc: "2.0" }
           });
@@ -31829,8 +31829,8 @@ var init_provider_socket = __esm({
       }
       async _send(payload) {
         assertArgument(!Array.isArray(payload), "WebSocket does not support batch send", "payload", payload);
-        const promise2 = new Promise((resolve9, reject) => {
-          this.#callbacks.set(payload.id, { payload, resolve: resolve9, reject });
+        const promise2 = new Promise((resolve11, reject) => {
+          this.#callbacks.set(payload.id, { payload, resolve: resolve11, reject });
         });
         await this._waitUntilReady();
         await this._write(JSON.stringify(payload));
@@ -32227,8 +32227,8 @@ function shuffle(array2) {
   }
 }
 function stall3(duration3) {
-  return new Promise((resolve9) => {
-    setTimeout(resolve9, duration3);
+  return new Promise((resolve11) => {
+    setTimeout(resolve11, duration3);
   });
 }
 function getTime3() {
@@ -33098,7 +33098,7 @@ var init_provider_browser = __esm({
         if (timeout === 0) {
           return null;
         }
-        return await new Promise((resolve9, reject) => {
+        return await new Promise((resolve11, reject) => {
           let found = [];
           const addProvider = (event) => {
             found.push(event.detail);
@@ -33112,9 +33112,9 @@ var init_provider_browser = __esm({
               if (options && options.filter) {
                 const filtered = options.filter(found.map((i3) => Object.assign({}, i3.info)));
                 if (filtered == null) {
-                  resolve9(null);
+                  resolve11(null);
                 } else if (filtered instanceof _BrowserProvider) {
-                  resolve9(filtered);
+                  resolve11(filtered);
                 } else {
                   let match = null;
                   if (filtered.uuid) {
@@ -33123,7 +33123,7 @@ var init_provider_browser = __esm({
                   }
                   if (match) {
                     const { provider, info } = match;
-                    resolve9(new _BrowserProvider(provider, void 0, {
+                    resolve11(new _BrowserProvider(provider, void 0, {
                       providerInfo: info
                     }));
                   } else {
@@ -33134,12 +33134,12 @@ var init_provider_browser = __esm({
                 }
               } else {
                 const { provider, info } = found[0];
-                resolve9(new _BrowserProvider(provider, void 0, {
+                resolve11(new _BrowserProvider(provider, void 0, {
                   providerInfo: info
                 }));
               }
             } else {
-              resolve9(null);
+              resolve11(null);
             }
             context.removeEventListener("eip6963:announceProvider", addProvider);
           };
@@ -34494,9 +34494,9 @@ function decryptKeystoreJsonSync(json2, _password) {
   return getAccount(data4, key);
 }
 function stall4(duration3) {
-  return new Promise((resolve9) => {
+  return new Promise((resolve11) => {
     setTimeout(() => {
-      resolve9();
+      resolve11();
     }, duration3);
   });
 }
@@ -35116,9 +35116,9 @@ var init_json_crowdsale = __esm({
 
 // node_modules/ethers/lib.esm/wallet/wallet.js
 function stall5(duration3) {
-  return new Promise((resolve9) => {
+  return new Promise((resolve11) => {
     setTimeout(() => {
-      resolve9();
+      resolve11();
     }, duration3);
   });
 }
@@ -36395,12 +36395,12 @@ var require_isexe = __commonJS({
         if (typeof Promise !== "function") {
           throw new TypeError("callback not provided");
         }
-        return new Promise(function(resolve9, reject) {
+        return new Promise(function(resolve11, reject) {
           isexe(path7, options || {}, function(er2, is2) {
             if (er2) {
               reject(er2);
             } else {
-              resolve9(is2);
+              resolve11(is2);
             }
           });
         });
@@ -36466,27 +36466,27 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step2 = (i3) => new Promise((resolve9, reject) => {
+      const step2 = (i3) => new Promise((resolve11, reject) => {
         if (i3 === pathEnv.length)
-          return opt.all && found.length ? resolve9(found) : reject(getNotFoundError(cmd));
+          return opt.all && found.length ? resolve11(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i3];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
         const pCmd = path7.join(pathPart, cmd);
         const p4 = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
-        resolve9(subStep(p4, i3, 0));
+        resolve11(subStep(p4, i3, 0));
       });
-      const subStep = (p4, i3, ii) => new Promise((resolve9, reject) => {
+      const subStep = (p4, i3, ii) => new Promise((resolve11, reject) => {
         if (ii === pathExt.length)
-          return resolve9(step2(i3 + 1));
+          return resolve11(step2(i3 + 1));
         const ext = pathExt[ii];
         isexe(p4 + ext, { pathExt: pathExtExe }, (er2, is2) => {
           if (!er2 && is2) {
             if (opt.all)
               found.push(p4 + ext);
             else
-              return resolve9(p4 + ext);
+              return resolve11(p4 + ext);
           }
-          return resolve9(subStep(p4, i3, ii + 1));
+          return resolve11(subStep(p4, i3, ii + 1));
         });
       });
       return cb ? step2(0).then((res) => cb(null, res), cb) : step2(0);
@@ -43421,10 +43421,10 @@ var require_browser = __commonJS({
           text5 = canvas;
           canvas = void 0;
         }
-        return new Promise(function(resolve9, reject) {
+        return new Promise(function(resolve11, reject) {
           try {
             const data4 = QRCode.create(text5, opts);
-            resolve9(renderFunc(data4, canvas, opts));
+            resolve11(renderFunc(data4, canvas, opts));
           } catch (e2) {
             reject(e2);
           }
@@ -43505,11 +43505,11 @@ var require_server = __commonJS({
     }
     function render(renderFunc, text5, params) {
       if (!params.cb) {
-        return new Promise(function(resolve9, reject) {
+        return new Promise(function(resolve11, reject) {
           try {
             const data4 = QRCode.create(text5, params.opts);
             return renderFunc(data4, params.opts, function(err16, data5) {
-              return err16 ? reject(err16) : resolve9(data5);
+              return err16 ? reject(err16) : resolve11(data5);
             });
           } catch (e2) {
             reject(e2);
@@ -43634,11 +43634,11 @@ function __metadata(metadataKey, metadataValue) {
 }
 function __awaiter(thisArg, _arguments, P4, generator) {
   function adopt(value) {
-    return value instanceof P4 ? value : new P4(function(resolve9) {
-      resolve9(value);
+    return value instanceof P4 ? value : new P4(function(resolve11) {
+      resolve11(value);
     });
   }
-  return new (P4 || (P4 = Promise))(function(resolve9, reject) {
+  return new (P4 || (P4 = Promise))(function(resolve11, reject) {
     function fulfilled(value) {
       try {
         step2(generator.next(value));
@@ -43654,7 +43654,7 @@ function __awaiter(thisArg, _arguments, P4, generator) {
       }
     }
     function step2(result) {
-      result.done ? resolve9(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve11(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step2((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -43832,14 +43832,14 @@ function __asyncValues(o3) {
   }, i3);
   function verb(n4) {
     i3[n4] = o3[n4] && function(v7) {
-      return new Promise(function(resolve9, reject) {
-        v7 = o3[n4](v7), settle2(resolve9, reject, v7.done, v7.value);
+      return new Promise(function(resolve11, reject) {
+        v7 = o3[n4](v7), settle2(resolve11, reject, v7.done, v7.value);
       });
     };
   }
-  function settle2(resolve9, reject, d3, v7) {
+  function settle2(resolve11, reject, d3, v7) {
     Promise.resolve(v7).then(function(v8) {
-      resolve9({ value: v8, done: d3 });
+      resolve11({ value: v8, done: d3 });
     }, reject);
   }
 }
@@ -43907,9 +43907,9 @@ var require_delay = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.delay = void 0;
     function delay(timeout) {
-      return new Promise((resolve9) => {
+      return new Promise((resolve11) => {
         setTimeout(() => {
-          resolve9(true);
+          resolve11(true);
         }, timeout);
       });
     }
@@ -44140,11 +44140,11 @@ function __metadata2(metadataKey, metadataValue) {
 }
 function __awaiter2(thisArg, _arguments, P4, generator) {
   function adopt(value) {
-    return value instanceof P4 ? value : new P4(function(resolve9) {
-      resolve9(value);
+    return value instanceof P4 ? value : new P4(function(resolve11) {
+      resolve11(value);
     });
   }
-  return new (P4 || (P4 = Promise))(function(resolve9, reject) {
+  return new (P4 || (P4 = Promise))(function(resolve11, reject) {
     function fulfilled(value) {
       try {
         step2(generator.next(value));
@@ -44160,7 +44160,7 @@ function __awaiter2(thisArg, _arguments, P4, generator) {
       }
     }
     function step2(result) {
-      result.done ? resolve9(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve11(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step2((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -44338,14 +44338,14 @@ function __asyncValues2(o3) {
   }, i3);
   function verb(n4) {
     i3[n4] = o3[n4] && function(v7) {
-      return new Promise(function(resolve9, reject) {
-        v7 = o3[n4](v7), settle2(resolve9, reject, v7.done, v7.value);
+      return new Promise(function(resolve11, reject) {
+        v7 = o3[n4](v7), settle2(resolve11, reject, v7.done, v7.value);
       });
     };
   }
-  function settle2(resolve9, reject, d3, v7) {
+  function settle2(resolve11, reject, d3, v7) {
     Promise.resolve(v7).then(function(v8) {
-      resolve9({ value: v8, done: d3 });
+      resolve11({ value: v8, done: d3 });
     }, reject);
   }
 }
@@ -63721,11 +63721,11 @@ function __metadata3(metadataKey, metadataValue) {
 }
 function __awaiter3(thisArg, _arguments, P4, generator) {
   function adopt(value) {
-    return value instanceof P4 ? value : new P4(function(resolve9) {
-      resolve9(value);
+    return value instanceof P4 ? value : new P4(function(resolve11) {
+      resolve11(value);
     });
   }
-  return new (P4 || (P4 = Promise))(function(resolve9, reject) {
+  return new (P4 || (P4 = Promise))(function(resolve11, reject) {
     function fulfilled(value) {
       try {
         step2(generator.next(value));
@@ -63741,7 +63741,7 @@ function __awaiter3(thisArg, _arguments, P4, generator) {
       }
     }
     function step2(result) {
-      result.done ? resolve9(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve11(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step2((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -63919,14 +63919,14 @@ function __asyncValues3(o3) {
   }, i3);
   function verb(n4) {
     i3[n4] = o3[n4] && function(v7) {
-      return new Promise(function(resolve9, reject) {
-        v7 = o3[n4](v7), settle2(resolve9, reject, v7.done, v7.value);
+      return new Promise(function(resolve11, reject) {
+        v7 = o3[n4](v7), settle2(resolve11, reject, v7.done, v7.value);
       });
     };
   }
-  function settle2(resolve9, reject, d3, v7) {
+  function settle2(resolve11, reject, d3, v7) {
     Promise.resolve(v7).then(function(v8) {
-      resolve9({ value: v8, done: d3 });
+      resolve11({ value: v8, done: d3 });
     }, reject);
   }
 }
@@ -64140,11 +64140,11 @@ function __metadata4(metadataKey, metadataValue) {
 }
 function __awaiter4(thisArg, _arguments, P4, generator) {
   function adopt(value) {
-    return value instanceof P4 ? value : new P4(function(resolve9) {
-      resolve9(value);
+    return value instanceof P4 ? value : new P4(function(resolve11) {
+      resolve11(value);
     });
   }
-  return new (P4 || (P4 = Promise))(function(resolve9, reject) {
+  return new (P4 || (P4 = Promise))(function(resolve11, reject) {
     function fulfilled(value) {
       try {
         step2(generator.next(value));
@@ -64160,7 +64160,7 @@ function __awaiter4(thisArg, _arguments, P4, generator) {
       }
     }
     function step2(result) {
-      result.done ? resolve9(result.value) : adopt(result.value).then(fulfilled, rejected);
+      result.done ? resolve11(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
     step2((generator = generator.apply(thisArg, _arguments || [])).next());
   });
@@ -64338,14 +64338,14 @@ function __asyncValues4(o3) {
   }, i3);
   function verb(n4) {
     i3[n4] = o3[n4] && function(v7) {
-      return new Promise(function(resolve9, reject) {
-        v7 = o3[n4](v7), settle2(resolve9, reject, v7.done, v7.value);
+      return new Promise(function(resolve11, reject) {
+        v7 = o3[n4](v7), settle2(resolve11, reject, v7.done, v7.value);
       });
     };
   }
-  function settle2(resolve9, reject, d3, v7) {
+  function settle2(resolve11, reject, d3, v7) {
     Promise.resolve(v7).then(function(v8) {
-      resolve9({ value: v8, done: d3 });
+      resolve11({ value: v8, done: d3 });
     }, reject);
   }
 }
@@ -70841,7 +70841,7 @@ var require_lib4 = __commonJS({
       let accum = [];
       let accumBytes = 0;
       let abort = false;
-      return new Body.Promise(function(resolve9, reject) {
+      return new Body.Promise(function(resolve11, reject) {
         let resTimeout;
         if (_this4.timeout) {
           resTimeout = setTimeout(function() {
@@ -70875,7 +70875,7 @@ var require_lib4 = __commonJS({
           }
           clearTimeout(resTimeout);
           try {
-            resolve9(Buffer.concat(accum, accumBytes));
+            resolve11(Buffer.concat(accum, accumBytes));
           } catch (err16) {
             reject(new FetchError(`Could not create Buffer from response body for ${_this4.url}: ${err16.message}`, "system", err16));
           }
@@ -71550,7 +71550,7 @@ var require_lib4 = __commonJS({
         throw new Error("native promise missing, set fetch.Promise to your favorite alternative");
       }
       Body.Promise = fetch2.Promise;
-      return new fetch2.Promise(function(resolve9, reject) {
+      return new fetch2.Promise(function(resolve11, reject) {
         const request = new Request2(url2, opts);
         const options = getNodeRequestOptions(request);
         const send2 = (options.protocol === "https:" ? https2 : http2).request;
@@ -71683,7 +71683,7 @@ var require_lib4 = __commonJS({
                   requestOpts.body = void 0;
                   requestOpts.headers.delete("content-length");
                 }
-                resolve9(fetch2(new Request2(locationURL, requestOpts)));
+                resolve11(fetch2(new Request2(locationURL, requestOpts)));
                 finalize2();
                 return;
             }
@@ -71704,7 +71704,7 @@ var require_lib4 = __commonJS({
           const codings = headers.get("Content-Encoding");
           if (!request.compress || request.method === "HEAD" || codings === null || res.statusCode === 204 || res.statusCode === 304) {
             response = new Response(body, response_options);
-            resolve9(response);
+            resolve11(response);
             return;
           }
           const zlibOptions = {
@@ -71714,7 +71714,7 @@ var require_lib4 = __commonJS({
           if (codings == "gzip" || codings == "x-gzip") {
             body = body.pipe(zlib.createGunzip(zlibOptions));
             response = new Response(body, response_options);
-            resolve9(response);
+            resolve11(response);
             return;
           }
           if (codings == "deflate" || codings == "x-deflate") {
@@ -71726,12 +71726,12 @@ var require_lib4 = __commonJS({
                 body = body.pipe(zlib.createInflateRaw());
               }
               response = new Response(body, response_options);
-              resolve9(response);
+              resolve11(response);
             });
             raw.on("end", function() {
               if (!response) {
                 response = new Response(body, response_options);
-                resolve9(response);
+                resolve11(response);
               }
             });
             return;
@@ -71739,11 +71739,11 @@ var require_lib4 = __commonJS({
           if (codings == "br" && typeof zlib.createBrotliDecompress === "function") {
             body = body.pipe(zlib.createBrotliDecompress());
             response = new Response(body, response_options);
-            resolve9(response);
+            resolve11(response);
             return;
           }
           response = new Response(body, response_options);
-          resolve9(response);
+          resolve11(response);
         });
         writeToStream(req, request);
       });
@@ -72523,10 +72523,10 @@ __export(init_exports, {
 });
 import { createInterface as createInterface3 } from "node:readline/promises";
 import { stdin as input2, stdout as output3 } from "node:process";
-import { existsSync as existsSync18, readFileSync as readFileSync17, writeFileSync as writeFileSync6, mkdirSync as mkdirSync7, readdirSync as readdirSync5, statSync as statSync6, copyFileSync } from "node:fs";
-import { resolve as resolve6, dirname as dirname9, join as join14 } from "node:path";
+import { existsSync as existsSync20, readFileSync as readFileSync18, writeFileSync as writeFileSync6, mkdirSync as mkdirSync7, readdirSync as readdirSync5, statSync as statSync6, copyFileSync } from "node:fs";
+import { resolve as resolve8, dirname as dirname10, join as join14 } from "node:path";
 import { homedir as homedir6 } from "node:os";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
+import { fileURLToPath as fileURLToPath6 } from "node:url";
 async function run4() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     output3.write("dexe-mcp init [--skills-only] [--unattended]\n\n  interactive wizard; writes ~/.dexe-mcp/.env and can install the skills\n  --skills-only   skip the env interview, just install the skills\n  --unattended    also offer a plaintext hot key that signs with no confirmation (bots / CI)\n\nNeeds a TTY. For a non-interactive setup, copy .env.example by hand.\n");
@@ -72678,16 +72678,16 @@ async function run4() {
     if (wcProjectId)
       updates.DEXE_WALLETCONNECT_PROJECT_ID = wcProjectId;
     let envPath;
-    if (existsSync18(resolve6(repoRoot, "src"))) {
-      envPath = resolve6(repoRoot, ".env");
+    if (existsSync20(resolve8(repoRoot, "src"))) {
+      envPath = resolve8(repoRoot, ".env");
     } else {
-      const homeConfigDir = resolve6(homedir6(), ".dexe-mcp");
+      const homeConfigDir = resolve8(homedir6(), ".dexe-mcp");
       mkdirSync7(homeConfigDir, { recursive: true });
-      envPath = resolve6(homeConfigDir, ".env");
+      envPath = resolve8(homeConfigDir, ".env");
     }
     let existingEnv = null;
     try {
-      existingEnv = readFileSync17(envPath, "utf8");
+      existingEnv = readFileSync18(envPath, "utf8");
     } catch (err16) {
       if (err16.code !== "ENOENT")
         throw err16;
@@ -72728,8 +72728,8 @@ async function run4() {
   }
 }
 async function maybeInstallSkills(rl, repoRoot) {
-  const skillsSrc = resolve6(repoRoot, "dexe-plugin", "skills");
-  if (!existsSync18(skillsSrc))
+  const skillsSrc = resolve8(repoRoot, "dexe-plugin", "skills");
+  if (!existsSync20(skillsSrc))
     return;
   output3.write(line(""));
   const want = await yn(rl, "Install dexe-mcp Claude Code skills (create-dao / create-proposal / vote-execute / otc / staking / setup)?", true);
@@ -72739,7 +72739,7 @@ async function maybeInstallSkills(rl, repoRoot) {
     ["p", "project \u2014 ./.claude/skills (this repo only, recommended)"],
     ["g", "global  \u2014 ~/.claude/skills (all your projects)"]
   ], "p");
-  const targetRoot = scope2 === "g" ? resolve6(homedir6(), ".claude", "skills") : resolve6(process.cwd(), ".claude", "skills");
+  const targetRoot = scope2 === "g" ? resolve8(homedir6(), ".claude", "skills") : resolve8(process.cwd(), ".claude", "skills");
   const summary = installSkills(skillsSrc, targetRoot);
   output3.write(line(`\u2714 Skills \u2192 ${targetRoot}`));
   for (const s2 of summary)
@@ -72753,16 +72753,16 @@ function installSkills(srcRoot, targetRoot) {
     if (!statSync6(srcDir).isDirectory())
       continue;
     const srcSkill = join14(srcDir, "SKILL.md");
-    if (!existsSync18(srcSkill))
+    if (!existsSync20(srcSkill))
       continue;
     const destDir = join14(targetRoot, entry);
     const destSkill = join14(destDir, "SKILL.md");
-    const next = readFileSync17(srcSkill, "utf8");
+    const next = readFileSync18(srcSkill, "utf8");
     let status;
-    if (!existsSync18(destSkill)) {
+    if (!existsSync20(destSkill)) {
       status = "installed";
     } else {
-      const prev = readFileSync17(destSkill, "utf8");
+      const prev = readFileSync18(destSkill, "utf8");
       status = prev === next ? "unchanged" : "updated";
     }
     if (status !== "unchanged") {
@@ -72864,18 +72864,18 @@ async function deriveAddress(pk) {
   return new Wallet2(pk).address;
 }
 function findRepoRoot() {
-  const here = dirname9(fileURLToPath5(import.meta.url));
+  const here = dirname10(fileURLToPath6(import.meta.url));
   let cur = here;
   for (let i3 = 0; i3 < 6; i3++) {
-    if (existsSync18(resolve6(cur, "package.json")))
+    if (existsSync20(resolve8(cur, "package.json")))
       return cur;
-    cur = resolve6(cur, "..");
+    cur = resolve8(cur, "..");
   }
   return process.cwd();
 }
 function jsonSnippet(repoRoot) {
-  const write = JSON.stringify(resolve6(repoRoot, "dist", "index.js"));
-  const read3 = JSON.stringify(resolve6(repoRoot, "dist", "read", "bin.js"));
+  const write = JSON.stringify(resolve8(repoRoot, "dist", "index.js"));
+  const read3 = JSON.stringify(resolve8(repoRoot, "dist", "read", "bin.js"));
   return [
     "{",
     `  "mcpServers": {`,
@@ -72909,9 +72909,9 @@ var skills_exports = {};
 __export(skills_exports, {
   run: () => run5
 });
-import { resolve as resolve7 } from "node:path";
+import { resolve as resolve9 } from "node:path";
 import { homedir as homedir7 } from "node:os";
-import { existsSync as existsSync19 } from "node:fs";
+import { existsSync as existsSync21 } from "node:fs";
 async function run5(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write("dexe-mcp skills [--global]\n\n  copies the DeXe recipe skills into ./.claude/skills (default)\n  --global, -g   install into ~/.claude/skills instead (every project)\n\nRestart Claude Code afterwards so it picks them up.\n");
@@ -72919,13 +72919,13 @@ async function run5(argv) {
   }
   const global3 = argv.includes("--global") || argv.includes("-g");
   const repoRoot = findRepoRoot();
-  const skillsSrc = resolve7(repoRoot, "dexe-plugin", "skills");
-  if (!existsSync19(skillsSrc)) {
+  const skillsSrc = resolve9(repoRoot, "dexe-plugin", "skills");
+  if (!existsSync21(skillsSrc)) {
     process.stderr.write(`[dexe-mcp skills] bundled skills not found (dev checkout without build?). Looked in ${skillsSrc}.
 `);
     process.exit(2);
   }
-  const targetRoot = global3 ? resolve7(homedir7(), ".claude", "skills") : resolve7(process.cwd(), ".claude", "skills");
+  const targetRoot = global3 ? resolve9(homedir7(), ".claude", "skills") : resolve9(process.cwd(), ".claude", "skills");
   const summary = installSkills(skillsSrc, targetRoot);
   process.stdout.write(`Skills \u2192 ${targetRoot}
 `);
@@ -72944,9 +72944,9 @@ var init_skills = __esm({
 });
 
 // dist/index.js
-import { existsSync as existsSync20, readFileSync as readFileSync18 } from "node:fs";
-import { resolve as resolve8, dirname as dirname10 } from "node:path";
-import { fileURLToPath as fileURLToPath6 } from "node:url";
+import { existsSync as existsSync22, readFileSync as readFileSync19 } from "node:fs";
+import { resolve as resolve10, dirname as dirname11 } from "node:path";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
 
 // node_modules/zod/v3/helpers/util.js
 var util;
@@ -81606,7 +81606,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve9) {
+function isRecursive(inst, stack, resolve11) {
   const cached3 = recursive.get(inst);
   if (cached3 !== void 0)
     return cached3 ? PROVEN : NONE;
@@ -81616,7 +81616,7 @@ function isRecursive(inst, stack, resolve9) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve9);
+      const answer = isRecursive(child, stack, resolve11);
       if (answer > result)
         result = answer;
     }
@@ -81627,7 +81627,7 @@ function isRecursive(inst, stack, resolve9) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve9) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve11) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -81691,7 +81691,7 @@ function isRecursive(inst, stack, resolve9) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve9 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve11 ? inst._zod.innerType : void 0);
       merge3(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -100121,7 +100121,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve9) => setTimeout(resolve9, pollInterval));
+        await new Promise((resolve11) => setTimeout(resolve11, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error62) {
@@ -100138,7 +100138,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve11, reject) => {
       const earlyReject = (error62) => {
         reject(error62);
       };
@@ -100216,7 +100216,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve9(parseResult.data);
+            resolve11(parseResult.data);
           }
         } catch (error62) {
           reject(error62);
@@ -100478,12 +100478,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve11, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve9, interval);
+      const timeoutId = setTimeout(resolve11, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -101614,7 +101614,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve9) => setTimeout(resolve9, pollInterval));
+      await new Promise((resolve11) => setTimeout(resolve11, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -102278,12 +102278,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve9) => {
+    return new Promise((resolve11) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve9();
+        resolve11();
       } else {
-        this._stdout.once("drain", resolve9);
+        this._stdout.once("drain", resolve11);
       }
     });
   }
@@ -104673,8 +104673,8 @@ async function withDeadline(p4, ms2) {
   try {
     return await Promise.race([
       p4,
-      new Promise((resolve9) => {
-        timer = setTimeout(() => resolve9(TIMED_OUT), ms2);
+      new Promise((resolve11) => {
+        timer = setTimeout(() => resolve11(TIMED_OUT), ms2);
       })
     ]);
   } finally {
@@ -105586,7 +105586,7 @@ function untilCancelled(work, signal) {
     work.catch(() => void 0);
     return Promise.reject(new RequestCancelledError("RPC read"));
   }
-  return new Promise((resolve9, reject) => {
+  return new Promise((resolve11, reject) => {
     const onAbort = () => {
       work.catch(() => void 0);
       reject(new RequestCancelledError("RPC read"));
@@ -105594,7 +105594,7 @@ function untilCancelled(work, signal) {
     signal.addEventListener("abort", onAbort, { once: true });
     work.then((v7) => {
       signal.removeEventListener("abort", onAbort);
-      resolve9(v7);
+      resolve11(v7);
     }, (e2) => {
       signal.removeEventListener("abort", onAbort);
       reject(e2);
@@ -113685,27 +113685,27 @@ function pLimit(concurrency) {
     activeCount--;
     resumeNext();
   };
-  const run6 = async (function_, resolve9, arguments_) => {
+  const run6 = async (function_, resolve11, arguments_) => {
     const result = (async () => function_(...arguments_))();
-    resolve9(result);
+    resolve11(result);
     try {
       await result;
     } catch {
     }
     next();
   };
-  const enqueue = (function_, resolve9, reject, arguments_) => {
+  const enqueue = (function_, resolve11, reject, arguments_) => {
     const queueItem = { reject };
     new Promise((internalResolve) => {
       queueItem.run = internalResolve;
       queue.enqueue(queueItem);
-    }).then(run6.bind(void 0, function_, resolve9, arguments_));
+    }).then(run6.bind(void 0, function_, resolve11, arguments_));
     if (activeCount < concurrency) {
       resumeNext();
     }
   };
-  const generator = (function_, ...arguments_) => new Promise((resolve9, reject) => {
-    enqueue(function_, resolve9, reject, arguments_);
+  const generator = (function_, ...arguments_) => new Promise((resolve11, reject) => {
+    enqueue(function_, resolve11, reject, arguments_);
   });
   Object.defineProperties(generator, {
     activeCount: {
@@ -118638,7 +118638,7 @@ var ENV_SPEC_WRITE = {
     category: "core",
     required: false,
     example: "0",
-    doc: "1 = this server ALSO registers the 54 read tools (dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, dexe_read_*, \u2026) \u2014 for running dexe-mcp alone, without the DeXe read server (dexe-mcp-read) beside it; the pre-1.0 single server. Default 0: write tools only, the read server supplies the reads."
+    doc: "1 = this server ALSO registers the 54 read tools (dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, dexe_read_*, \u2026) \u2014 for running dexe-mcp alone, without the DeXe read server (dexe-mcp-read) beside it; the same tools as 0.37 plus dexe_write_guide / dexe_write_doctor. Default 0: write tools only, the read server supplies the reads. Prefer the dexe entry's host env block; not with the Claude Code plugin (it runs the read server)."
   },
   DEXE_TREASURY_GUARD: {
     // Validated by the SAME parser the config and every tool call resolve with
@@ -121064,8 +121064,8 @@ var disconnect = (anyProcess) => {
 // node_modules/execa/lib/utils/deferred.js
 var createDeferred = () => {
   const methods = {};
-  const promise2 = new Promise((resolve9, reject) => {
-    Object.assign(methods, { resolve: resolve9, reject });
+  const promise2 = new Promise((resolve11, reject) => {
+    Object.assign(methods, { resolve: resolve11, reject });
   });
   return Object.assign(promise2, methods);
 };
@@ -125707,11 +125707,11 @@ var addConcurrentStream = (concurrentStreams, stream, waitName) => {
   const promises = weakMap.get(stream);
   const promise2 = createDeferred();
   promises.push(promise2);
-  const resolve9 = promise2.resolve.bind(promise2);
-  return { resolve: resolve9, promises };
+  const resolve11 = promise2.resolve.bind(promise2);
+  return { resolve: resolve11, promises };
 };
-var waitForConcurrentStreams = async ({ resolve: resolve9, promises }, subprocess) => {
-  resolve9();
+var waitForConcurrentStreams = async ({ resolve: resolve11, promises }, subprocess) => {
+  resolve11();
   const [isSubprocessExit] = await Promise.race([
     Promise.allSettled([true, subprocess]),
     Promise.all([false, ...promises])
@@ -127700,9 +127700,9 @@ var VFile = class {
    * @returns {undefined}
    *   Nothing.
    */
-  set dirname(dirname11) {
+  set dirname(dirname12) {
     assertPath(this.basename, "dirname");
-    this.path = default2.join(dirname11 || "", this.basename);
+    this.path = default2.join(dirname12 || "", this.basename);
   }
   /**
    * Get the extname (including dot) (example: `'.js'`).
@@ -128301,7 +128301,7 @@ var Processor = class _Processor extends CallableInstance {
     assertParser("process", this.parser || this.Parser);
     assertCompiler("process", this.compiler || this.Compiler);
     return done ? executor(void 0, done) : new Promise(executor);
-    function executor(resolve9, reject) {
+    function executor(resolve11, reject) {
       const realFile = vfile(file2);
       const parseTree = (
         /** @type {HeadTree extends undefined ? Node : HeadTree} */
@@ -128332,8 +128332,8 @@ var Processor = class _Processor extends CallableInstance {
       function realDone(error62, file3) {
         if (error62 || !file3) {
           reject(error62);
-        } else if (resolve9) {
-          resolve9(file3);
+        } else if (resolve11) {
+          resolve11(file3);
         } else {
           ok6(done, "`done` is defined if `resolve` is not");
           done(void 0, file3);
@@ -128435,7 +128435,7 @@ var Processor = class _Processor extends CallableInstance {
       file2 = void 0;
     }
     return done ? executor(void 0, done) : new Promise(executor);
-    function executor(resolve9, reject) {
+    function executor(resolve11, reject) {
       ok6(
         typeof file2 !== "function",
         "`file` can\u2019t be a `done` anymore, we checked"
@@ -128449,8 +128449,8 @@ var Processor = class _Processor extends CallableInstance {
         );
         if (error62) {
           reject(error62);
-        } else if (resolve9) {
-          resolve9(resultingTree);
+        } else if (resolve11) {
+          resolve11(resultingTree);
         } else {
           ok6(done, "`done` is defined if `resolve` is not");
           done(void 0, resultingTree, file3);
@@ -131278,10 +131278,10 @@ function resolveAll(constructs2, events, context) {
   const called = [];
   let index2 = -1;
   while (++index2 < constructs2.length) {
-    const resolve9 = constructs2[index2].resolveAll;
-    if (resolve9 && !called.includes(resolve9)) {
-      events = resolve9(events, context);
-      called.push(resolve9);
+    const resolve11 = constructs2[index2].resolveAll;
+    if (resolve11 && !called.includes(resolve11)) {
+      events = resolve11(events, context);
+      called.push(resolve11);
     }
   }
   return events;
@@ -152665,7 +152665,8 @@ var FLOWS = [
         id: "predict",
         tool: "dexe_dao_predict_addresses",
         purpose: "Fetch the DAO's DistributionProposal executor address.",
-        paramsTemplate: { daoName: "\u2026the DAO's name\u2026", chainId: "\u2026" },
+        // The read tool's own parameter names: PoolFactory.predictGovAddresses(deployer, poolName).
+        paramsTemplate: { deployer: "\u2026the address that deployed the DAO\u2026", poolName: "\u2026the DAO's name\u2026", chainId: "\u2026" },
         bindsFrom: { distributionProposal: "predict.distributionProposal" },
         reportOnSuccess: "Got the distribution executor.",
         next: [{ when: "always", stepId: "create", why: "create the distribution proposal" }]
@@ -152764,7 +152765,9 @@ var FLOWS = [
         id: "verify",
         tool: "dexe_read_token_sales",
         purpose: "Confirm the tier is live and show its parameters (times are UTC).",
-        paramsTemplate: { govPool: "{{govPool}}" },
+        // The read server keeps no record of the sale, so the address is passed
+        // explicitly — bound from the open step (bindsFrom above).
+        paramsTemplate: { govPool: "{{govPool}}", tokenSaleProposal: "{{tokenSaleProposal}}" },
         reportOnSuccess: "Report tier id, price, remaining allocation, saleStartTimeUTC/saleEndTimeUTC. Buyers proceed with dexe_read_token_sale_position (read server) \u2192 dexe_otc_buyer_buy \u2192 (after sale end) dexe_otc_buyer_claim_all."
       }
     ],
@@ -156135,7 +156138,14 @@ ${sg.remediation}`);
 }
 
 // dist/diag/writeChecks.js
-import { readFileSync as readFileSync15 } from "node:fs";
+import { existsSync as existsSync16, readFileSync as readFileSync15 } from "node:fs";
+import { dirname as dirname7, resolve as resolve6 } from "node:path";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
+
+// dist/readPackage.js
+var READ_PACKAGE = "@dexe-network/dexe-mcp";
+var READ_PACKAGE_VERSION = "1.0.0-rc.1";
+var READ_SERVER_NPX = `npx -y -p ${READ_PACKAGE}@${READ_PACKAGE_VERSION} dexe-mcp-read`;
 
 // dist/editions.js
 var READ_TOOLS2 = [
@@ -156464,7 +156474,7 @@ async function pinataPinQuotaCheck(timeoutMs, enabled) {
     message: "pin capability verified \u2014 this wrote one tiny pin (dexe-mcp-doctor-probe) to your Pinata account" + (unpinned ? " and removed it again." : "; removing it failed (a pinning-only JWT cannot unpin) \u2014 delete it at app.pinata.cloud if you care.")
   };
 }
-function surfaceModeCheck(config2) {
+function surfaceModeCheck(config2, env = process.env) {
   if (!config2)
     return [];
   return [
@@ -156478,9 +156488,18 @@ function surfaceModeCheck(config2) {
       category: "core",
       status: "pass",
       message: `write-only \u2014 the ${WRITE_TOOLS.length} write tools; the ${READ_TOOLS2.length} read tools come from the DeXe read server (dexe-mcp-read): dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, dexe_read_* (read server)`,
-      remediation: "Install the read server next to this one (the Claude Code plugin ships both; otherwise add `npx -y -p @dexe-network/dexe-mcp dexe-mcp-read` to the MCP host config), or set DEXE_WRITE_STANDALONE=1 to register the read tools here too. Restart the MCP host after either."
+      remediation: runningAsPlugin(env) ? "The Claude Code plugin starts the read server as `dexe-read` next to this one. If its tools are missing, check that server in /mcp and restart Claude Code. (DEXE_WRITE_STANDALONE=1 here would duplicate the 54 read tools.)" : `If the read tools are missing, add the read server to the MCP host config next to this one \u2014 \`${READ_SERVER_NPX}\` (or the \`dexe-read\` entry \`npx dexe-mcp init\` prints) \u2014 or set DEXE_WRITE_STANDALONE=1 to register them here too. Restart the MCP host after either.`
     }
   ];
+}
+function runningAsPlugin(env = process.env) {
+  if (env.CLAUDE_PLUGIN_ROOT?.trim())
+    return true;
+  try {
+    return existsSync16(resolve6(dirname7(fileURLToPath5(import.meta.url)), "read", "bin.mjs"));
+  } catch {
+    return false;
+  }
 }
 function signerModeChecks(config2, env = process.env) {
   if (!config2?.signerMode)
@@ -158091,13 +158110,15 @@ function registerWriteGuideTool(server, config2, state, knowledge) {
     return { content: [{ type: "text", text: JSON.stringify(index2, null, 2) }] };
   });
 }
-function registerKnowledgePrompts(server, corpus = WRITE_CORPUS) {
+function registerKnowledgePrompts(server, opts = {}) {
+  const corpus = opts.corpus ?? WRITE_CORPUS;
+  const transform2 = opts.transform ?? ((t2) => t2);
   for (const flow3 of corpus.flows) {
     server.registerPrompt(`dexe-flow-${flow3.id}`, { description: flow3.summary }, () => ({
       messages: [
         {
           role: "user",
-          content: { type: "text", text: renderSkillRecipe(corpus, flow3.id, WRITE_GUIDE_TOOL) }
+          content: { type: "text", text: transform2(renderSkillRecipe(corpus, flow3.id, WRITE_GUIDE_TOOL)) }
         }
       ]
     }));
@@ -158492,8 +158513,12 @@ function restrictRegistrations(server, allow) {
 var READ_NAMES = [...READ_TOOLS2].sort((a3, b7) => b7.length - a3.length);
 var MARK_RE = READ_SERVER_MARK.replace(/[()]/g, "\\$&");
 var UNMARKED = new RegExp(`\\b(${READ_NAMES.join("|")})\\b(?![\\w*])(?!\`?\\s*${MARK_RE})(\`?)`, "g");
+var UNMARKED_GLOB = new RegExp(`\\b(dexe_[a-z0-9_]*)\\*(?!\`?\\s*${MARK_RE})(\`?)`, "g");
+function readOnlyFamily(prefix) {
+  return READ_TOOLS2.some((n4) => n4.startsWith(prefix)) && !WRITE_TOOLS.some((n4) => n4.startsWith(prefix));
+}
 function markReadTools(text5) {
-  return text5.replace(UNMARKED, (_m, name2, tick) => `${name2}${tick} ${READ_SERVER_MARK}`);
+  return text5.replace(UNMARKED, (_m, name2, tick) => `${name2}${tick} ${READ_SERVER_MARK}`).replace(UNMARKED_GLOB, (m3, prefix, tick) => readOnlyFamily(prefix) ? `${prefix}*${tick} ${READ_SERVER_MARK}` : m3);
 }
 function markSchema(node3) {
   if (Array.isArray(node3))
@@ -158575,8 +158600,8 @@ var GOTCHAS = SINGLE_SERVER_CORPUS.gotchas;
 var GOTCHA_BY_ID = K.gotchaById;
 
 // dist/diag/writeDoctor.js
-import { accessSync as accessSync2, constants as constants5, existsSync as existsSync16 } from "node:fs";
-import { dirname as dirname7 } from "node:path";
+import { accessSync as accessSync2, constants as constants5, existsSync as existsSync17 } from "node:fs";
+import { dirname as dirname8 } from "node:path";
 
 // dist/env/loadRecord.js
 var record2 = null;
@@ -158777,9 +158802,9 @@ function walletConnectRows(config2) {
 }
 function stateRows(config2) {
   const p4 = config2.statePath;
-  let probe = dirname7(p4);
-  while (!existsSync16(probe) && dirname7(probe) !== probe)
-    probe = dirname7(probe);
+  let probe = dirname8(p4);
+  while (!existsSync17(probe) && dirname8(probe) !== probe)
+    probe = dirname8(probe);
   try {
     accessSync2(probe, constants5.W_OK);
     return [{ id: "state.path", category: "process", status: "pass", message: `writable (${p4})` }];
@@ -159225,9 +159250,29 @@ function registerOtcSaleTools(server, ctx, signer, wc, state) {
     }
   });
 }
+async function tierVestingCheck(provider, tokenSaleProposal, tierId) {
+  if (tierId < 1n)
+    return { checked: false, vested: false, reason: "tier ids start at 1" };
+  try {
+    const [res] = await multicall(provider, [
+      { target: tokenSaleProposal, iface: TOKEN_SALE_ABI2, method: "getTierViews", args: [tierId - 1n, 1n], allowFailure: true }
+    ]);
+    const views = res?.success ? res.value : null;
+    const tv2 = views?.[0];
+    const raw = tv2?.tierInitParams?.vestingSettings?.vestingPercentage;
+    if (raw === void 0)
+      return { checked: false, vested: false, reason: `getTierViews returned no tier ${tierId}` };
+    const pct = BigInt(raw);
+    if (pct === 0n)
+      return { checked: true, vested: false };
+    return { checked: true, vested: true, vestingPercentage: formatUnits(pct, 25).replace(/\.0$/, "") };
+  } catch (e2) {
+    return { checked: false, vested: false, reason: safeErrorMessage(e2) };
+  }
+}
 function registerOtcBuyerTools(server, ctx, signer, wc) {
   const rpc = new RpcProvider(ctx.config);
-  server.tool("dexe_otc_buyer_buy", "Broadcasts when a signer is configured. Preflights balance + allowance, adds an ERC20 approve when needed, then builds `TokenSaleProposal.buy(tierId, paymentToken, amount, proof)`. Native path (0x000...000) skips approve and sets `value`; `whitelistUsers` generates the proof.", {
+  server.tool("dexe_otc_buyer_buy", "Broadcasts when a signer is configured. Preflights balance + allowance, adds an ERC20 approve when needed, then builds `TokenSaleProposal.buy(tierId, paymentToken, amount, proof)`. Native path (0x000...000) skips approve and sets `value`; `whitelistUsers` generates the proof. A tier with a vested share carries the F15 DANGER block (that share can never be withdrawn on current pools); buying into one needs `acknowledgeVesting: true` unless `dryRun`.", {
     tokenSaleProposal: external_exports.string().describe("TokenSaleProposal helper address"),
     chainId: external_exports.number().int().positive().optional().describe("Target chain id. Defaults to the MCP's default chain."),
     tierId: external_exports.string().describe("Tier to buy from, decimal string."),
@@ -159238,7 +159283,8 @@ function registerOtcBuyerTools(server, ctx, signer, wc) {
     user: external_exports.string().optional().describe("Buyer address; defaults to the configured signer."),
     signerKey: signerKeyParam,
     dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded."),
-    simulateFirst: external_exports.boolean().default(false).describe("eth_call-simulate buy() first; aborts with the revertReason if the sim fails.")
+    simulateFirst: external_exports.boolean().default(false).describe("eth_call-simulate buy() first; aborts with the revertReason if the sim fails."),
+    acknowledgeVesting: external_exports.boolean().default(false).describe("Buy into a tier with a vested share anyway. Its vested part is stranded on current pools (upstream F15); without this the call refuses such a tier (dryRun previews it).")
   }, async (input3) => {
     if (!isAddress(input3.tokenSaleProposal))
       return err10(`Invalid tokenSaleProposal`);
@@ -159279,6 +159325,19 @@ ${pr2.remediation}`);
     const provider = pr2.ok;
     const payloads = [];
     const skipped = [];
+    const vesting = await tierVestingCheck(provider, input3.tokenSaleProposal, tierIdBn);
+    if (vesting.vested && !input3.dryRun && !input3.acknowledgeVesting) {
+      return err10(`Tier ${tierIdBn} vests ${vesting.vestingPercentage}% of every purchase, and that share can never be withdrawn on current pools. ${VESTING_WITHDRAW_ADVISORY.text} Nothing was sent. Re-run with \`acknowledgeVesting: true\` to buy anyway (only the instant share is claimable), or \`dryRun: true\` to preview.`);
+    }
+    const vestingFields = vesting.vested ? {
+      vestingBlocked: {
+        tierId: tierIdBn.toString(),
+        vestingPercentage: vesting.vestingPercentage,
+        acknowledged: input3.acknowledgeVesting,
+        reason: VESTING_WITHDRAW_ADVISORY.text,
+        upstream: VESTING_WITHDRAW_ADVISORY.upstream
+      }
+    } : vesting.checked ? {} : { vestingCheck: { checked: false, reason: vesting.reason } };
     let balance = 0n;
     let allowance = 0n;
     let rawNeeded = amountBn;
@@ -159364,6 +159423,7 @@ ${pr2.remediation}`);
       native,
       amount: amountBn.toString(),
       proofLength: proof.length,
+      ...vestingFields,
       preflight: native ? null : { balance: balance.toString(), allowance: allowance.toString() },
       ...simulation ? { simulation } : {},
       steps: [...skipped, ...result.steps],
@@ -161630,7 +161690,7 @@ function registerAll(server, config2, opts = {}) {
       extraContext: activeFlowContext
     });
   }
-  registerKnowledgePrompts(server);
+  registerKnowledgePrompts(server, standalone ? {} : { corpus: WRITE_ONLY_CORPUS, transform: markReadTools });
   registerWriteDoctorTool(server, config2, { toolsets: serverToolsets(config2) });
   registerOtcSaleTools(server, ctx, signer, wc, state);
   if (standalone)
@@ -161669,6 +161729,38 @@ function writeInstructions() {
   return "Tools that build, sign and send DeXe Protocol governance transactions, plus dexe_gov_build_* (needs DEXE_TOOLSETS=core,governor) for OpenZeppelin/Compound Governors. Reads come from the DeXe read server (dexe-mcp-read) beside this one; tools marked (read server) are its. For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_write_guide FIRST: plan, questions, pitfalls. Orientation: dexe_write_context (signer, keyring, recorded DAOs, unfinished flow); setup: dexe_write_doctor. Prefer the composites: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types \u2014 proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). On partial failure they return the landed-steps ledger \u2014 fix the cause and re-run the same call. " + RESUME_SUMMARY + " Amounts: composites/proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. Images: pass a LOCAL FILE PATH, never base64. ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " + KEYSTORE_INSTRUCTION + ` Tools are gated by DEXE_TOOLSETS (default '${WRITE_EDITION_TOOLSETS.defaults.join(",")}' \u2014 ${defaultCount} tools). dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) are off and not needed: dexe_proposal_create covers every type. dexe_compile, dexe_get_abi (needs DEXE_TOOLSETS=core,dev): compile once first. Recipes + error remedies: dexe://playbook. Skills: ${WRITE_SKILLS.join(", ")}; dexe-agent-team needs DEXE_TOOLSETS=core,agents plus hot keys.`;
 }
 
+// dist/tools/resourcesWrite.js
+import { existsSync as existsSync18, readFileSync as readFileSync16 } from "node:fs";
+import { resolve as resolve7 } from "node:path";
+var WRITE_ONLY_DOC_RESOURCES = [
+  {
+    name: "playbook",
+    uri: "dexe://playbook",
+    file: "PLAYBOOK.md",
+    description: "AI playbook for dexe-mcp: intent \u2192 exact tool call recipes for every flow, per-proposal-type params, and the error \u2192 remedy table. Read tools it names are the DeXe read server's."
+  },
+  {
+    name: "tools",
+    uri: "dexe://tools",
+    file: "TOOLS.md",
+    description: "Full dexe-mcp tool catalog: every tool by group with a one-line description, plus the DEXE_TOOLSETS profiles that gate them. Read tools it names are the DeXe read server's."
+  }
+];
+function registerWriteDocResources(server, baseDir, config2) {
+  if (config2.writeStandalone) {
+    registerDocResources(server, baseDir);
+    return;
+  }
+  for (const r2 of WRITE_ONLY_DOC_RESOURCES) {
+    const path7 = resolve7(baseDir, "docs", r2.file);
+    if (!existsSync18(path7))
+      continue;
+    server.registerResource(r2.name, r2.uri, { description: r2.description, mimeType: "text/markdown" }, async () => ({
+      contents: [{ uri: r2.uri, mimeType: "text/markdown", text: markReadTools(readFileSync16(path7, "utf8")) }]
+    }));
+  }
+}
+
 // dist/index.js
 import { homedir as homedir8 } from "node:os";
 
@@ -161678,8 +161770,8 @@ import { createInterface as createInterface2 } from "node:readline/promises";
 // dist/cli/key.js
 init_lib2();
 import { createInterface } from "node:readline/promises";
-import { closeSync as closeSync4, existsSync as existsSync17, openSync as openSync4, readFileSync as readFileSync16, statSync as statSync5, unlinkSync as unlinkSync4, writeSync as writeSync4 } from "node:fs";
-import { basename as basename2, dirname as dirname8 } from "node:path";
+import { closeSync as closeSync4, existsSync as existsSync19, openSync as openSync4, readFileSync as readFileSync17, statSync as statSync5, unlinkSync as unlinkSync4, writeSync as writeSync4 } from "node:fs";
+import { basename as basename2, dirname as dirname9 } from "node:path";
 var SECRET_COMMANDS = /* @__PURE__ */ new Set(["create", "import", "change-password", "remove"]);
 var COMMANDS = ["create", "import", "list", "export-address", "change-password", "remove"];
 function keyUsage() {
@@ -161977,7 +162069,7 @@ ${keyUsage()}`);
         const jsonPath = flag(argv, "--json");
         let privateKey;
         if (jsonPath) {
-          const raw = readFileSync16(jsonPath, "utf8");
+          const raw = readFileSync17(jsonPath, "utf8");
           const meta3 = parseKeystoreMeta(raw);
           out(`Importing keystore for ${meta3.address} from ${jsonPath}`);
           const oldPw = await promptHidden("Its current password: ");
@@ -162042,7 +162134,7 @@ ${keyUsage()}`);
           return 1;
         }
         out(`Changing the password of ${sel.address} (${sel.file})`);
-        const raw = readFileSync16(sel.file, "utf8");
+        const raw = readFileSync17(sel.file, "utf8");
         const oldPw = await promptHidden("Current password: ");
         let pk;
         try {
@@ -162055,7 +162147,7 @@ ${keyUsage()}`);
         const password = await newPassword();
         out("Re-encrypting\u2026");
         const json2 = await encryptPrivateKey(pk, password);
-        writeKeystoreFile(dirname8(sel.file), json2, basename2(sel.file));
+        writeKeystoreFile(dirname9(sel.file), json2, basename2(sel.file));
         out(`\u2714 Password changed for ${sel.address}.`);
         return 0;
       }
@@ -162090,9 +162182,9 @@ ${keyUsage()}`);
   return 2;
 }
 async function stripFromEnvFiles(files, privateKey) {
-  const scanned = files.filter((f3) => existsSync17(f3)).map((f3) => {
+  const scanned = files.filter((f3) => existsSync19(f3)).map((f3) => {
     try {
-      const content3 = readFileSync16(f3, "utf8");
+      const content3 = readFileSync17(f3, "utf8");
       return { f: f3, ...removeEnvKeyValue(content3, "DEXE_PRIVATE_KEY", privateKey) };
     } catch {
       return null;
@@ -162417,10 +162509,10 @@ async function send(server, body, io2) {
 
 // dist/index.js
 import { spawn as spawn2 } from "node:child_process";
-var __dirname = dirname10(fileURLToPath6(import.meta.url));
+var __dirname = dirname11(fileURLToPath7(import.meta.url));
 function packageVersion() {
   try {
-    const pkg = JSON.parse(readFileSync18(resolve8(__dirname, "..", "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync19(resolve10(__dirname, "..", "package.json"), "utf8"));
     return pkg.version ?? "0.0.0";
   } catch {
     return "0.0.0";
@@ -162465,8 +162557,9 @@ function usageText(version5) {
     "",
     "ENV",
     "  .env is read once at startup, from the first of: $DEXE_ENV_FILE, ./.env, ~/.dexe-mcp/.env, <pkgdir>/.env",
-    "  Write tools only by default: the DeXe read server (`npx -y -p @dexe-network/dexe-mcp dexe-mcp-read`)",
-    "  serves the reads beside it. DEXE_WRITE_STANDALONE=1 registers the read tools here too.",
+    "  Write tools only by default: the DeXe read server serves the reads beside it \u2014",
+    `  \`${READ_SERVER_NPX}\` (or the dexe-read entry \`dexe-mcp init\` prints).`,
+    "  DEXE_WRITE_STANDALONE=1 registers the read tools here too.",
     "  Signing and IPFS uploads need keys \u2014 run `dexe-mcp init`.",
     "",
     "DOCS  https://github.com/dexe-network/dexe-mcp#readme",
@@ -162482,7 +162575,7 @@ Run \`dexe-mcp --help\` for usage.
 }
 function loadEnvironment() {
   const prevSnapshot = new Set(envKeys().filter((k5) => !!process.env[k5]?.trim()));
-  const homeEnvPath = resolve8(homedir8(), ".dexe-mcp", ".env");
+  const homeEnvPath = resolve10(homedir8(), ".dexe-mcp", ".env");
   const envCandidates = resolveEnvCandidates({
     cwd: process.cwd(),
     home: homedir8(),
@@ -162492,7 +162585,7 @@ function loadEnvironment() {
   let envReport;
   const reports = [];
   for (const candidate of envCandidates) {
-    if (!existsSync20(candidate))
+    if (!existsSync22(candidate))
       continue;
     const report = loadEnvFile(candidate, prevSnapshot, FULL_ENV_SURFACE);
     reports.push(report);
@@ -162528,8 +162621,11 @@ async function runSubcommand(name2, envFiles = []) {
   await mod4.run(process.argv.slice(3));
   process.exit(0);
 }
+function degradedDoctorName() {
+  return isWriteStandalone(process.env) ? "dexe_doctor" : "dexe_write_doctor";
+}
 function createDegradedServer(err16, envFiles = []) {
-  const doctor = isWriteStandalone(process.env) ? "dexe_doctor" : "dexe_write_doctor";
+  const doctor = degradedDoctorName();
   const detail = err16 instanceof Error ? err16.stack || err16.message : String(err16);
   const searched = envFiles.length ? ` (searched, in order: ${envFiles.join(", ")})` : "";
   const report = `dexe-mcp failed to start. Its DAO tools are NOT registered in this session.
@@ -162560,7 +162656,8 @@ async function startDegraded(err16, envFiles) {
     const transport = new StdioServerTransport();
     installTransportGuards(transport);
     await server.connect(transport);
-    process.stderr.write("[dexe-mcp] DEGRADED mode: startup failed, serving dexe_doctor only. Call it (or run `npx dexe-mcp doctor`) for the cause and the fix.\n");
+    process.stderr.write(`[dexe-mcp] DEGRADED mode: startup failed, serving ${degradedDoctorName()} only. Call it (or run \`npx dexe-mcp doctor\`) for the cause and the fix.
+`);
   } catch (fatal) {
     const msg = fatal instanceof Error ? fatal.stack || fatal.message : String(fatal);
     process.stderr.write(`[dexe-mcp] could not open the degraded transport:
@@ -162575,7 +162672,7 @@ async function main() {
     instructions: instructionsFor(config2)
   });
   registerAll(server, config2);
-  registerDocResources(server, resolve8(__dirname, ".."));
+  registerWriteDocResources(server, resolve10(__dirname, ".."), config2);
   const transport = new StdioServerTransport();
   installTransportGuards(transport);
   await server.connect(transport);
@@ -162586,9 +162683,9 @@ async function main() {
 }
 async function delegateServeHttp(args) {
   const ext = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
-  const bin = fileURLToPath6(new URL(`./read/bin${ext}`, import.meta.url));
-  if (!existsSync20(bin)) {
-    process.stderr.write(`[dexe-mcp] serve-http is served by the read edition, which this install does not carry (${bin} is missing). Run \`npx -y -p @dexe-network/dexe-mcp dexe-mcp-read serve-http\` instead.
+  const bin = fileURLToPath7(new URL(`./read/bin${ext}`, import.meta.url));
+  if (!existsSync22(bin)) {
+    process.stderr.write(`[dexe-mcp] serve-http is served by the read edition, which this install does not carry (${bin} is missing). Run \`${READ_SERVER_NPX} serve-http\` instead.
 `);
     process.exitCode = 2;
     return;

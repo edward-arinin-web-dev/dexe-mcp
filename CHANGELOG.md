@@ -38,8 +38,11 @@
   `src/editions.ts`) and none of the 54 read tools; run the read server next to
   it. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md).
 - **`DEXE_WRITE_STANDALONE=1`** (new env var, `dexe_write_doctor` row
-  `surface.mode`) registers the read tools too — every tool 0.37 had, plus the
-  two below: 172 tools, `core` 48.
+  `surface.mode`) registers the read tools too — the same tools as 0.37 plus
+  the two below (172 tools, `core` 48); some texts differ (read tools marked
+  `(read server)`, pointers/remedies naming the two new tools). Set it in the
+  `dexe` entry's host `env` block, not with the plugin (it already runs the
+  read server).
 - **New `dexe_write_guide`** — the eight write journeys from the same knowledge
   engine as `dexe_guide` (index + per-flow plans, interview, gotchas, chain
   notes, cross-session resume). A step whose tool the write server lacks is
@@ -77,7 +80,7 @@
   default, `dexe_otc_buyer_claim_all` does not send it, the builder reports it).
 - **The `dexe-mcp-read` bin is gone from this package** (both packages
   declaring it broke a global install with EEXIST): use
-  `npx -y -p @dexe-network/dexe-mcp dexe-mcp-read`. `dexe-mcp serve-http` still
+  `npx -y -p @dexe-network/dexe-mcp@1.0.0-rc.1 dexe-mcp-read`. `dexe-mcp serve-http` still
   starts the read edition's HTTP server.
 - **Claude Code plugin ships two servers:** `dexe` (`server/index.mjs`) and
   `dexe-read` (`server/read/bin.mjs`, the read server bundled from the pinned
@@ -85,6 +88,27 @@
   both into the host-config snippet.
 - Swarm orchestrator, e2e, OTC-lifecycle and eval harnesses run the server
   standalone (their scenarios read through it).
+- **No stored history on the default setup** (the read server keeps none):
+  `dexe_dao_report` takes an explicit `since` anchor — `since: "last"` and
+  `persist` exist only standalone; the `dexe-report` skill, REPORTING.md and
+  the PLAYBOOK say so and carry the previous run's `generatedAt` forward in the
+  scheduled prompt. `dexe_user_inbox` on the read server has no recorded-DAO
+  fallback (pass `daos[]` on chain 97); `dexe_read_token_sales` needs
+  `tokenSaleProposal` — the OTC flow's verify step now passes it, and the
+  token-distribution flow's predict step uses the read tool's real parameter
+  names (`deployer`, `poolName`).
+- **`dexe_otc_buyer_buy` warns and asks before buying into a vesting tier**
+  (F15): it reads the tier's `vestingSettings`; a tier with a vested share gets
+  the `vestingBlocked` DANGER block in every mode and in dryRun, and a real buy
+  into it is refused unless the new optional `acknowledgeVesting: true`. Buys
+  into tiers without vesting are unchanged.
+- `dexe-flow-*` prompts and the `dexe://playbook` / `dexe://tools` resources
+  mark read tools `(read server)` on the write-only server, which no longer
+  serves `dexe://graph-schema` (the read server does).
+- Every "run the read server" snippet, `--help` and the doctor's remediation
+  pin `@dexe-network/dexe-mcp@1.0.0-rc.1`; under the plugin the remediation
+  points at its `dexe-read` server instead. The plugin's read server reports
+  the read package's version.
 
 ### Added — keystore approvals for messages and Safe typed data (2c Phase B, part 1)
 No new tool (the 1.0.0 count is the two-server section's above). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-safe-transactions-since-100).
@@ -174,7 +198,7 @@ No new tool (the 1.0.0 count is the two-server section's above). [docs/SIGNING.m
   rendezvous, `PATH`, pseudo-terminal) — WalletConnect stays the
   recommendation for agents with shell or browser control.
 
-### Changed
+### Changed — keystore approvals and `dexe-mcp approve` (2c Phase B, part 1)
 - The password check moved from the HTTP server into the approval manager, so
   the page and the terminal share one serialized queue and lockout.
   `dexe_tx_approval_status` / `dexe_write_context` approvals carry `kind`; the
@@ -191,7 +215,7 @@ No new tool (the 1.0.0 count is the two-server section's above). [docs/SIGNING.m
   `src`; the terminal channel accepts no secret and no plain password on the
   wire.
 
-### Tests
+### Tests — keystore approvals and `dexe-mcp approve` (2c Phase B, part 1)
 Message review flags and markers, binding namespaces, typed-data policy
 (Permit / Permit2 / permit-shaped / non-SafeTx / domain chain and contract),
 message + SafeTx approvals over HTTP (replay, deviation, expiry, decline

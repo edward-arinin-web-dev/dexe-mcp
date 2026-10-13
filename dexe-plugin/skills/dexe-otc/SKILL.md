@@ -18,8 +18,12 @@ Validate on **BSC testnet (chain 97)** first. Full recipe + runnable proof:
 
 ## The three composites and two reads
 
-The two reads were `dexe_otc_list_sales_for_dao` and `dexe_otc_buyer_status`
-before 0.36.0; the old names still answer as deprecated aliases.
+The two reads (the DeXe read server's — `dexe-read` in the plugin) were
+`dexe_otc_list_sales_for_dao` and `dexe_otc_buyer_status` before 0.36.0; use the
+new names — the old ones answer only on a standalone `dexe-mcp`. On the read
+server `dexe_read_token_sales` needs the `tokenSaleProposal` address.
+`dexe_otc_buyer_buy` refuses a tier with a vested share unless
+`acknowledgeVesting: true` (F15: that share can never be withdrawn).
 
 | Tool | Role |
 |---|---|

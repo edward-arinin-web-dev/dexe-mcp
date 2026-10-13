@@ -335,7 +335,8 @@ export const FLOWS: readonly Flow[] = [
         id: "predict",
         tool: "dexe_dao_predict_addresses",
         purpose: "Fetch the DAO's DistributionProposal executor address.",
-        paramsTemplate: { daoName: "…the DAO's name…", chainId: "…" },
+        // The read tool's own parameter names: PoolFactory.predictGovAddresses(deployer, poolName).
+        paramsTemplate: { deployer: "…the address that deployed the DAO…", poolName: "…the DAO's name…", chainId: "…" },
         bindsFrom: { distributionProposal: "predict.distributionProposal" },
         reportOnSuccess: "Got the distribution executor.",
         next: [{ when: "always", stepId: "create", why: "create the distribution proposal" }],
@@ -444,7 +445,9 @@ export const FLOWS: readonly Flow[] = [
         id: "verify",
         tool: "dexe_read_token_sales",
         purpose: "Confirm the tier is live and show its parameters (times are UTC).",
-        paramsTemplate: { govPool: "{{govPool}}" },
+        // The read server keeps no record of the sale, so the address is passed
+        // explicitly — bound from the open step (bindsFrom above).
+        paramsTemplate: { govPool: "{{govPool}}", tokenSaleProposal: "{{tokenSaleProposal}}" },
         reportOnSuccess:
           "Report tier id, price, remaining allocation, saleStartTimeUTC/saleEndTimeUTC. Buyers proceed with " +
           "dexe_read_token_sale_position (read server) → dexe_otc_buyer_buy → (after sale end) dexe_otc_buyer_claim_all.",

@@ -14,6 +14,9 @@ import { FLOWS } from "../../src/knowledge/write/flows.js";
 import { nextAfter } from "../../src/knowledge/write/nextSteps.js";
 import { writeKnownFailures } from "../../src/lib/writeErrors.js";
 import { readServerMarkAfter, toolRefs } from "../helpers/toolTokens.js";
+import { registerWriteDocResources } from "../../src/tools/resourcesWrite.js";
+import { DEPRECATED_ALIASES } from "../../src/tools/aliases.js";
+import { resolve } from "node:path";
 
 /**
  * ── No write text claims a tool this server does not have (1.0.0) ──────────
@@ -61,6 +64,7 @@ async function boot(mode: Session["mode"], statePath: string): Promise<Session> 
   const config = { ...(await loadConfig()), writeStandalone: mode === "standalone" };
   const server = new McpServer({ name: "refs", version: "0.0.0" }, { instructions: instructionsFor(config) });
   registerAll(server, config);
+  registerWriteDocResources(server, resolve(__dirname, "..", ".."), config);
   const client = new Client({ name: "refs-client", version: "0.0.0" });
   const [c, s] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(s), client.connect(c)]);
@@ -184,6 +188,38 @@ for (const mode of ["write-only", "standalone"] as const) {
       const bad: string[] = [];
       for (const f of writeKnownFailures()) {
         for (const d of dangling(`${f.what} ${f.remedy}`, s.registered)) bad.push(`${f.slug}: ${d}`);
+      }
+      expect(bad).toEqual([]);
+    });
+
+    it("every dexe-flow-* prompt", async () => {
+      const bad: string[] = [];
+      const { prompts } = await s.client.listPrompts();
+      expect(prompts.length).toBe(FLOWS.length);
+      for (const p of prompts) {
+        const got = await s.client.getPrompt({ name: p.name });
+        for (const text of strings(got.messages)) for (const d of dangling(text, s.registered)) bad.push(`${p.name}: ${d}`);
+      }
+      expect(bad).toEqual([]);
+    });
+
+    it("every dexe:// resource this server serves", async () => {
+      // The docs also explain the deprecated aliases (now standalone-only) by
+      // name; a mention is not a promise of the tool, so those are allowed.
+      const allowed = new Set([...s.registered, ...Object.keys(DEPRECATED_ALIASES)]);
+      const bad: string[] = [];
+      const { resources } = await s.client.listResources();
+      expect(resources.map((r) => r.uri).sort()).toEqual(
+        mode === "standalone"
+          ? ["dexe://graph-schema", "dexe://playbook", "dexe://tools"]
+          : ["dexe://playbook", "dexe://tools"],
+      );
+      for (const r of resources) {
+        const got = await s.client.readResource({ uri: r.uri });
+        for (const c of got.contents) {
+          const text = "text" in c ? String(c.text) : "";
+          for (const d of dangling(text, allowed)) bad.push(`${r.uri}: ${d}`);
+        }
       }
       expect(bad).toEqual([]);
     });

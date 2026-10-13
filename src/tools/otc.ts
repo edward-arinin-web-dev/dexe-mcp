@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Interface, isAddress, getAddress } from "ethers";
+import { Interface, formatUnits, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { SignerManager, hotKeySafetyFields } from "../lib/signer.js";
@@ -469,6 +469,39 @@ export function registerOtcSaleTools(
   );
 }
 
+/** What a tier's vesting settings say about F15, for `dexe_otc_buyer_buy`. */
+export type TierVesting =
+  | { checked: true; vested: true; vestingPercentage: string }
+  | { checked: true; vested: false }
+  | { checked: false; vested: false; reason: string };
+
+/**
+ * Read one tier's `vestingSettings.vestingPercentage` (`getTierViews(tierId - 1, 1)`;
+ * on-chain the percentage is ×1e25). Best-effort: a failed read is reported, not
+ * fatal — the buy itself would fail the same way on a wrong address.
+ */
+export async function tierVestingCheck(
+  provider: Parameters<typeof multicall>[0],
+  tokenSaleProposal: string,
+  tierId: bigint,
+): Promise<TierVesting> {
+  if (tierId < 1n) return { checked: false, vested: false, reason: "tier ids start at 1" };
+  try {
+    const [res] = await multicall(provider, [
+      { target: tokenSaleProposal, iface: TOKEN_SALE_ABI, method: "getTierViews", args: [tierId - 1n, 1n], allowFailure: true },
+    ]);
+    const views = res?.success ? (res.value as unknown as unknown[]) : null;
+    const tv = views?.[0] as { tierInitParams?: { vestingSettings?: { vestingPercentage?: bigint } } } | undefined;
+    const raw = tv?.tierInitParams?.vestingSettings?.vestingPercentage;
+    if (raw === undefined) return { checked: false, vested: false, reason: `getTierViews returned no tier ${tierId}` };
+    const pct = BigInt(raw);
+    if (pct === 0n) return { checked: true, vested: false };
+    return { checked: true, vested: true, vestingPercentage: formatUnits(pct, 25).replace(/\.0$/, "") };
+  } catch (e) {
+    return { checked: false, vested: false, reason: safeErrorMessage(e) };
+  }
+}
+
 /** dexe_otc_buyer_buy + dexe_otc_buyer_claim_all. */
 export function registerOtcBuyerTools(
   server: McpServer,
@@ -485,7 +518,9 @@ export function registerOtcBuyerTools(
     "dexe_otc_buyer_buy",
     "Broadcasts when a signer is configured. Preflights balance + allowance, adds an ERC20 approve when " +
       "needed, then builds `TokenSaleProposal.buy(tierId, paymentToken, amount, proof)`. Native path " +
-      "(0x000...000) skips approve and sets `value`; `whitelistUsers` generates the proof.",
+      "(0x000...000) skips approve and sets `value`; `whitelistUsers` generates the proof. A tier with a vested " +
+      "share carries the F15 DANGER block (that share can never be withdrawn on current pools); buying into one " +
+      "needs `acknowledgeVesting: true` unless `dryRun`.",
     {
       tokenSaleProposal: z.string().describe("TokenSaleProposal helper address"),
       chainId: z
@@ -512,6 +547,13 @@ export function registerOtcBuyerTools(
         .boolean()
         .default(false)
         .describe("eth_call-simulate buy() first; aborts with the revertReason if the sim fails."),
+      acknowledgeVesting: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Buy into a tier with a vested share anyway. Its vested part is stranded on current pools (upstream F15); " +
+            "without this the call refuses such a tier (dryRun previews it).",
+        ),
     },
     async (input) => {
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);
@@ -558,6 +600,33 @@ export function registerOtcBuyerTools(
       const provider = pr2.ok;
       const payloads: TxPayload[] = [];
       const skipped: { label: string; reason: string }[] = [];
+
+      // F15 at the point of purchase. On the default two-server setup the
+      // position view (dexe_read_token_sale_position) is the read server's,
+      // which describes no upstream defect — so the buyer is told HERE, in
+      // every mode and in dryRun, and a real buy into a vesting tier needs the
+      // explicit acknowledgement.
+      const vesting = await tierVestingCheck(provider, input.tokenSaleProposal, tierIdBn);
+      if (vesting.vested && !input.dryRun && !input.acknowledgeVesting) {
+        return err(
+          `Tier ${tierIdBn} vests ${vesting.vestingPercentage}% of every purchase, and that share can never be ` +
+            `withdrawn on current pools. ${VESTING_WITHDRAW_ADVISORY.text} Nothing was sent. Re-run with ` +
+            "`acknowledgeVesting: true` to buy anyway (only the instant share is claimable), or `dryRun: true` to preview.",
+        );
+      }
+      const vestingFields = vesting.vested
+        ? {
+            vestingBlocked: {
+              tierId: tierIdBn.toString(),
+              vestingPercentage: vesting.vestingPercentage,
+              acknowledged: input.acknowledgeVesting,
+              reason: VESTING_WITHDRAW_ADVISORY.text,
+              upstream: VESTING_WITHDRAW_ADVISORY.upstream,
+            },
+          }
+        : vesting.checked
+          ? {}
+          : { vestingCheck: { checked: false, reason: vesting.reason } };
 
       // Balance + allowance preflight (ERC20 path only). R9: `balanceOf` /
       // `allowance` / `transferFrom` all operate in the token's NATIVE raw
@@ -669,6 +738,7 @@ export function registerOtcBuyerTools(
         native,
         amount: amountBn.toString(),
         proofLength: proof.length,
+        ...vestingFields,
         preflight: native ? null : { balance: balance.toString(), allowance: allowance.toString() },
         ...(simulation ? { simulation } : {}),
         steps: [...skipped, ...result.steps],

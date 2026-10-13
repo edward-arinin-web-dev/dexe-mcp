@@ -1,5 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { READ_SERVER_MARK, READ_TOOLS } from "../editions.js";
+import { READ_SERVER_MARK, READ_TOOLS, WRITE_TOOLS } from "../editions.js";
 
 /**
  * ── `(read server)` on every read tool a published description names ──────
@@ -31,9 +31,21 @@ const MARK_RE = READ_SERVER_MARK.replace(/[()]/g, "\\$&");
 // mark), capturing that backtick so the mark goes after it.
 const UNMARKED = new RegExp(`\\b(${READ_NAMES.join("|")})\\b(?![\\w*])(?!\`?\\s*${MARK_RE})(\`?)`, "g");
 
-/** `text` with every unmarked read tool name marked. Idempotent. */
+// A glob (`dexe_read_*`, `dexe_decode_*`): marked when only read tools match
+// its prefix — `dexe_gov_*` or `dexe_ipfs_*` name write tools too and stay bare.
+const UNMARKED_GLOB = new RegExp(`\\b(dexe_[a-z0-9_]*)\\*(?!\`?\\s*${MARK_RE})(\`?)`, "g");
+
+function readOnlyFamily(prefix: string): boolean {
+  return READ_TOOLS.some((n) => n.startsWith(prefix)) && !WRITE_TOOLS.some((n) => n.startsWith(prefix));
+}
+
+/** `text` with every unmarked read tool name (and read-only glob) marked. Idempotent. */
 export function markReadTools(text: string): string {
-  return text.replace(UNMARKED, (_m, name: string, tick: string) => `${name}${tick} ${READ_SERVER_MARK}`);
+  return text
+    .replace(UNMARKED, (_m, name: string, tick: string) => `${name}${tick} ${READ_SERVER_MARK}`)
+    .replace(UNMARKED_GLOB, (m, prefix: string, tick: string) =>
+      readOnlyFamily(prefix) ? `${prefix}*${tick} ${READ_SERVER_MARK}` : m,
+    );
 }
 
 function markSchema(node: unknown): unknown {

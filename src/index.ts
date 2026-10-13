@@ -8,6 +8,8 @@ import { isWriteStandalone, loadConfig } from "./config.js";
 import { registerAll } from "./tools/index.js";
 import { instructionsFor } from "./instructionsWrite.js";
 import { recordEnvLoad } from "./env/loadRecord.js";
+import { READ_SERVER_NPX } from "./readPackage.js";
+import { registerWriteDocResources } from "./tools/resourcesWrite.js";
 import {
   debugHint,
   debugLog,
@@ -19,7 +21,6 @@ import {
   loadEnvFile,
   MIN_NODE_VERSION,
   nodeVersionWarning,
-  registerDocResources,
   resolveEnvCandidates,
   runDoctorCli,
   safeErrorMessage,
@@ -121,8 +122,9 @@ export function usageText(version: string): string {
     "",
     "ENV",
     "  .env is read once at startup, from the first of: $DEXE_ENV_FILE, ./.env, ~/.dexe-mcp/.env, <pkgdir>/.env",
-    "  Write tools only by default: the DeXe read server (`npx -y -p @dexe-network/dexe-mcp dexe-mcp-read`)",
-    "  serves the reads beside it. DEXE_WRITE_STANDALONE=1 registers the read tools here too.",
+    "  Write tools only by default: the DeXe read server serves the reads beside it —",
+    `  \`${READ_SERVER_NPX}\` (or the dexe-read entry \`dexe-mcp init\` prints).`,
+    "  DEXE_WRITE_STANDALONE=1 registers the read tools here too.",
     "  Signing and IPFS uploads need keys — run `dexe-mcp init`.",
     "",
     "DOCS  https://github.com/dexe-network/dexe-mcp#readme",
@@ -259,10 +261,16 @@ export {
  * No config, no toolset gate, no dependencies beyond the SDK: this path has to
  * work when everything else did not.
  */
+/**
+ * The degraded server's one tool, named for the mode this server would have run
+ * in: the write-only server has no dexe_doctor (the read server beside it does).
+ */
+function degradedDoctorName(): "dexe_doctor" | "dexe_write_doctor" {
+  return isWriteStandalone(process.env) ? "dexe_doctor" : "dexe_write_doctor";
+}
+
 export function createDegradedServer(err: unknown, envFiles: readonly string[] = []): McpServer {
-  // The doctor's name in the mode this server would have run in: the
-  // write-only server has no dexe_doctor (the read server beside it does).
-  const doctor = isWriteStandalone(process.env) ? "dexe_doctor" : "dexe_write_doctor";
+  const doctor = degradedDoctorName();
   const detail = err instanceof Error ? err.stack || err.message : String(err);
   const searched = envFiles.length ? ` (searched, in order: ${envFiles.join(", ")})` : "";
   const report =
@@ -310,7 +318,7 @@ async function startDegraded(err: unknown, envFiles: readonly string[]): Promise
     installTransportGuards(transport);
     await server.connect(transport);
     process.stderr.write(
-      "[dexe-mcp] DEGRADED mode: startup failed, serving dexe_doctor only. " +
+      `[dexe-mcp] DEGRADED mode: startup failed, serving ${degradedDoctorName()} only. ` +
         "Call it (or run `npx dexe-mcp doctor`) for the cause and the fix.\n",
     );
   } catch (fatal: unknown) {
@@ -335,7 +343,7 @@ async function main(): Promise<void> {
 
   // Shipped docs as on-demand resources (playbook, graph schema, tool catalog).
   // Kept out of `instructions` so they don't cost tokens every session.
-  registerDocResources(server, resolve(__dirname, ".."));
+  registerWriteDocResources(server, resolve(__dirname, ".."), config);
 
   const transport = new StdioServerTransport();
   installTransportGuards(transport);
@@ -381,7 +389,7 @@ async function delegateServeHttp(args: readonly string[]): Promise<void> {
   if (!existsSync(bin)) {
     process.stderr.write(
       `[dexe-mcp] serve-http is served by the read edition, which this install does not carry (${bin} is missing). ` +
-        "Run `npx -y -p @dexe-network/dexe-mcp dexe-mcp-read serve-http` instead.\n",
+        `Run \`${READ_SERVER_NPX} serve-http\` instead.\n`,
     );
     process.exitCode = 2;
     return;

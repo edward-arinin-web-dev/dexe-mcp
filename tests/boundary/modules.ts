@@ -53,8 +53,12 @@ const WRITE = [
   "diag/writeDoctor.ts",
   // write-only tools/list: `(read server)` after every read tool a description names
   "tools/readServerMarks.ts",
+  // dexe://playbook + dexe://tools per mode (write-only: marked, no graph-schema)
+  "tools/resourcesWrite.ts",
   // the .env files this process loaded at startup, for dexe_write_doctor
   "env/loadRecord.ts",
+  // the exact read-package version every "start the read server" snippet names
+  "readPackage.ts",
   // the write + dev env specs and the full ENV_SPEC (display order) the
   // single server validates, loads and doctors
   "env/schema.ts",

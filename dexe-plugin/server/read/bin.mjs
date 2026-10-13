@@ -7,7 +7,6 @@ var __export = (target, all) => {
 };
 
 // dist/read/bin.js
-import { readFileSync as readFileSync5 } from "node:fs";
 import { dirname as dirname5, resolve as resolve4 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
@@ -71278,16 +71277,12 @@ async function runReadBin(argv = process.argv, opts = {}) {
 
 // dist/read/bin.js
 var __dirname2 = dirname5(fileURLToPath4(import.meta.url));
-function packageVersion() {
-  try {
-    const pkg = JSON.parse(readFileSync5(resolve4(__dirname2, "..", "..", "package.json"), "utf8"));
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
+var bundledReadVersion = true ? "1.0.0-rc.1" : void 0;
 if (isMainModule(import.meta.url)) {
-  await runReadBin(process.argv, { version: packageVersion(), pkgDir: resolve4(__dirname2, "..") });
+  await runReadBin(process.argv, {
+    ...bundledReadVersion ? { version: bundledReadVersion } : {},
+    pkgDir: resolve4(__dirname2, "..")
+  });
 }
 /*! Bundled license information:
 

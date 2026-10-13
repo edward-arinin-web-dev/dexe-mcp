@@ -46,7 +46,7 @@ mkdirSync(outDir, { recursive: true });
 // rewrite that one import; src/index.ts now imports both statically, so there
 // is nothing left to rewrite (tests/plugin/bundle-smoke.test.ts boots the
 // bundle).
-const bundle = (entry, outfile) =>
+const bundle = (entry, outfile, define = {}) =>
   build({
     entryPoints: [resolve(root, entry)],
     bundle: true,
@@ -54,6 +54,7 @@ const bundle = (entry, outfile) =>
     format: "esm",
     target: "node20",
     outfile,
+    define,
     // Some bundled CJS deps call require() internally; in an ESM bundle that
     // throws "Dynamic require … is not supported" unless we hand them a real one.
     banner: {
@@ -69,7 +70,12 @@ await bundle("dist/index.js", resolve(outDir, "index.mjs"));
 // candidate at ../.env, the same file as the write server's. Nothing of the
 // write edition can be in it: dist/read/bin.js imports no write module
 // (tests/read/module-graph.test.ts).
-await bundle("dist/read/bin.js", resolve(outDir, "read", "bin.mjs"));
+// It reports the READ package's version (src/read/bin.ts): baked in here,
+// since the bundle has no package directory to read it from.
+const readPkg = JSON.parse(readFileSync(resolve(root, "node_modules/@dexe-network/dexe-mcp/package.json"), "utf8"));
+await bundle("dist/read/bin.js", resolve(outDir, "read", "bin.mjs"), {
+  __DEXE_READ_VERSION__: JSON.stringify(readPkg.version),
+});
 
 // The server reads these files at runtime via fs, relative to its own dir
 // (__dirname/..). After bundling __dirname is dexe-plugin/server, so they must

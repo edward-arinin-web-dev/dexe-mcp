@@ -19,6 +19,7 @@ import { nextAfter } from "../../src/knowledge/write/nextSteps.js";
 import { envFileRows } from "../../src/diag/writeDoctor.js";
 import { markReadTools } from "../../src/tools/readServerMarks.js";
 import { listTools } from "../helpers/listTools.js";
+import { listReadEdition } from "../helpers/readEdition.js";
 
 /**
  * 1.0.0 (D1/D2): this server registers WRITE_TOOLS by default — including
@@ -281,12 +282,46 @@ describe("dexe_write_doctor env-file rows", () => {
   });
 });
 
+describe("write flows call read tools with what the stateless read server needs", () => {
+  it("every read-tool step's template carries the tool's required params (schema + '(required)' texts)", async () => {
+    // The read server keeps no state: an address this server would default
+    // from state.json (a sale's tokenSaleProposal) is required there.
+    const read = await listReadEdition();
+    const byName = new Map(read.tools.map((t) => [t.name, t]));
+    const missing: string[] = [];
+    for (const flow of FLOWS) {
+      for (const step of flow.steps) {
+        if (!READ_TOOLS.includes(step.tool)) continue;
+        const schema = byName.get(step.tool)!.inputSchema as {
+          required?: string[];
+          properties?: Record<string, { description?: string }>;
+        };
+        const needed = new Set(schema.required ?? []);
+        for (const [k, p] of Object.entries(schema.properties ?? {})) {
+          if (/\(required\)/i.test(p.description ?? "")) needed.add(k);
+        }
+        for (const k of needed) {
+          if (!(k in (step.paramsTemplate ?? {}))) missing.push(`${flow.id}.${step.id} → ${step.tool}: ${k}`);
+        }
+        for (const k of Object.keys(step.paramsTemplate ?? {})) {
+          if (!(k in (schema.properties ?? {}))) missing.push(`${flow.id}.${step.id} → ${step.tool}: unknown param ${k}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+});
+
 describe("markReadTools", () => {
   it("marks bare read names once, leaves write names and marked names alone", () => {
     expect(markReadTools("(dexe_dao_info) and dexe_tx_send")).toBe("(dexe_dao_info (read server)) and dexe_tx_send");
     expect(markReadTools("dexe_dao_info (read server)")).toBe("dexe_dao_info (read server)");
     expect(markReadTools("`dexe_proposal_state`")).toBe("`dexe_proposal_state` (read server)");
-    expect(markReadTools("dexe_read_*")).toBe("dexe_read_*");
+    // A glob is marked only when nothing but read tools matches it.
+    expect(markReadTools("dexe_read_*")).toBe("dexe_read_* (read server)");
+    expect(markReadTools("`dexe_decode_*`")).toBe("`dexe_decode_*` (read server)");
+    expect(markReadTools("dexe_gov_*")).toBe("dexe_gov_*");
+    expect(markReadTools("dexe_ipfs_*")).toBe("dexe_ipfs_*");
     const once = markReadTools("dexe_proposal_list then dexe_proposal_list");
     expect(markReadTools(once)).toBe(once);
   });

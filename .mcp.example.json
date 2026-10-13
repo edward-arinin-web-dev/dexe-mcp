@@ -14,7 +14,7 @@
     },
     "dexe-read": {
       "command": "npx",
-      "args": ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"]
+      "args": ["-y", "-p", "@dexe-network/dexe-mcp@1.0.0-rc.1", "dexe-mcp-read"]
     }
   }
 }

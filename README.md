@@ -60,16 +60,16 @@ Using Cursor, Claude Desktop, Codex CLI, another local MCP client, or the termin
 The write server's text names a read tool as `dexe_dao_info (read server)`. Both read the same `~/.dexe-mcp/.env`. To run the read server on its own (no write tools at all):
 
 ```bash
-claude mcp add dexe-read -- npx -y -p @dexe-network/dexe-mcp dexe-mcp-read      # Claude Code
+claude mcp add dexe-read -- npx -y -p @dexe-network/dexe-mcp@1.0.0-rc.1 dexe-mcp-read      # Claude Code
 ```
 
 ```json
-{ "mcpServers": { "dexe-read": { "command": "npx", "args": ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"] } } }
+{ "mcpServers": { "dexe-read": { "command": "npx", "args": ["-y", "-p", "@dexe-network/dexe-mcp@1.0.0-rc.1", "dexe-mcp-read"] } } }
 ```
 
 `dexe-mcp-read` is no longer a bin of `dexe-mcp` (since 1.0.0 — the read package owns the name). `dexe-mcp-read serve-http` (or `dexe-mcp serve-http`, which runs it) serves the read tools over MCP Streamable HTTP for remote clients (Claude.ai custom connectors, ChatGPT developer mode); it is pre-release. Operators: [docs/REMOTE.md](./docs/REMOTE.md).
 
-**Only want one process?** `DEXE_WRITE_STANDALONE=1` makes `dexe-mcp` register the 54 read tools too (the pre-1.0 single server, plus the write trio) — then do not also run the read server.
+**Only want one process?** `DEXE_WRITE_STANDALONE=1` makes `dexe-mcp` register the 54 read tools too — the same tools as 0.37 plus `dexe_write_guide` / `dexe_write_doctor`; some texts differ — then do not also run the read server (and do not set it with the plugin, which already runs it: the read tools would be listed twice).
 
 ## Quickstart (other MCP clients)
 
@@ -98,7 +98,7 @@ Already installed globally? Use `dexe-mcp init` instead — **do not mix the two
     },
     "dexe-read": {
       "command": "npx",
-      "args": ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"]
+      "args": ["-y", "-p", "@dexe-network/dexe-mcp@1.0.0-rc.1", "dexe-mcp-read"]
     }
   }
 }
@@ -131,8 +131,9 @@ The `env` block is optional — without it the server falls back to a public BSC
 // turnout, and everything with a deadline
 dexe_dao_report({ govPool: "0x...", chainId: 56 })
 
-// ...and on the next run, only what moved since the previous one
-dexe_dao_report({ govPool: "0x...", chainId: 56, since: "last" })
+// ...and on the next run, only what moved since the previous one: pass its
+// generatedAt (the read server keeps no history; standalone also takes "last")
+dexe_dao_report({ govPool: "0x...", chainId: 56, since: "2026-10-12T09:00:00Z" })
 
 // Enumerate every proposal type the server can build
 dexe_proposal_catalog({ category: "all", implementedOnly: true })
@@ -171,7 +172,7 @@ Verified, prompt-level scenarios live in **[docs/USE_CASES.md](https://github.co
 
 - **Basics** — create a DAO with its own token in one call; propose → vote → execute; join an existing DAO.
 - **Q&A over live data** — "does DAO X have validators?", whale maps, TVL charts, delegation graphs, per-proposal voter lists. _(All on the read server, which loads every one of its 54 tools and needs no keys: `dexe_dao_report`, `dexe_graph_query`, `dexe_graph_schema`, DAO list/members/stats, token holders, delegation map, named voter lists (`dexe_proposal_voters`), validator rosters, per-user activity, experts, protocol stats, NFTs, inbox/forecast/risk. `dexe_dao_report`'s `turnout` section already carries per-proposal voter counts. Standalone (`DEXE_WRITE_STANDALONE=1`) the reporting reads are in the default profile and the long tail in `read` — `DEXE_TOOLSETS=core,read` (or `full`); `dexe_context` says which sets are off.)_
-- **Automation** — pair reads with your agent's scheduler (`/loop`, `/schedule`): a scheduled `dexe_dao_report` with `since: "last"` reports only what moved since its own previous run, plus proposal watchdogs, daily governance digests (`dexe_user_inbox`), quorum trackers, treasury monitors, policy-based delegate agents.
+- **Automation** — pair reads with your agent's scheduler (`/loop`, `/schedule`): a scheduled `dexe_dao_report` with a `since` anchor the prompt carries forward (the previous run's `generatedAt`) reports only what moved since then, plus proposal watchdogs, daily governance digests (`dexe_user_inbox`), quorum trackers, treasury monitors, policy-based delegate agents.
 - **Analysis** — decode + risk-assess any proposal (quorum safety, treasury at risk, who profits); due-diligence a DAO before buying in; simulate before broadcasting.
 - **Advanced ops** — make the DAO call ANY external contract (`custom_abi`), OTC sales, cross-DAO delegation (one DAO voting inside another — live on mainnet), external Governor DAOs, Safe multisig.
 
@@ -179,7 +180,7 @@ Verified, prompt-level scenarios live in **[docs/USE_CASES.md](https://github.co
 
 172 tools in 19 groups — 118 on the write server, 54 on the read server. Full per-tool reference with required env vars: [docs/TOOLS.md](https://github.com/edward-arinin-web-dev/dexe-mcp/blob/main/docs/TOOLS.md).
 
-**A default write-server session loads the `core` profile — 25 tools, ~54 KB of `tools/list`:** `dexe_write_context`, `dexe_write_guide`, `dexe_write_doctor`, the composites, the four OTC write composites, `dexe_tx_send` / `dexe_tx_status` / `dexe_tx_approval_status`, WalletConnect, the five key vote builders, the IPFS upload trio + avatar, and `dexe_proposal_catalog`. The read server beside it loads all of its 54 tools (it has no profiles). **Standalone (`DEXE_WRITE_STANDALONE=1`), `core` is 48 tools, ~93 KB** — the same as the pre-1.0 default plus the write trio: orientation (`dexe_context`, `dexe_write_context`, `dexe_guide`, `dexe_doctor`), the one-call composites (`dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, the four `dexe_otc_*` composites with the token-sale reads `dexe_read_token_sale_position` / `dexe_read_token_sales`), signing (`dexe_tx_send`, `dexe_tx_approval_status`, WalletConnect, the key vote builders), the IPFS upload trio plus `dexe_ipfs_fetch`, `dexe_dao_info` / `dexe_dao_registry_lookup` / `dexe_dao_predict_addresses`, `dexe_proposal_state` / `_list` / `_catalog`, `dexe_read_treasury` / `_settings`, and the zero-config reporting reads (`dexe_dao_report`, `dexe_graph_query`, `dexe_graph_schema`, DAO list/members/stats, token holders, delegation map). Which profile to run, and what each costs: [docs/PROFILES.md](./docs/PROFILES.md).
+**A default write-server session loads the `core` profile — 25 tools, ~54 KB of `tools/list`:** `dexe_write_context`, `dexe_write_guide`, `dexe_write_doctor`, the composites, the three OTC write composites (`dexe_otc_dao_open_sale`, `dexe_otc_buyer_buy`, `dexe_otc_buyer_claim_all`), `dexe_tx_send` / `dexe_tx_status` / `dexe_tx_approval_status`, WalletConnect, the five key vote builders, the IPFS upload trio + avatar, and `dexe_proposal_catalog`. The read server beside it loads all of its 54 tools (it has no profiles). **Standalone (`DEXE_WRITE_STANDALONE=1`), `core` is 48 tools, ~93 KB** — the same as the pre-1.0 default plus the write trio: orientation (`dexe_context`, `dexe_write_context`, `dexe_guide`, `dexe_doctor`), the one-call composites (`dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, the three `dexe_otc_*` composites with the two token-sale reads `dexe_read_token_sale_position` / `dexe_read_token_sales`), signing (`dexe_tx_send`, `dexe_tx_approval_status`, WalletConnect, the key vote builders), the IPFS upload trio plus `dexe_ipfs_fetch`, `dexe_dao_info` / `dexe_dao_registry_lookup` / `dexe_dao_predict_addresses`, `dexe_proposal_state` / `_list` / `_catalog`, `dexe_read_treasury` / `_settings`, and the zero-config reporting reads (`dexe_dao_report`, `dexe_graph_query`, `dexe_graph_schema`, DAO list/members/stats, token holders, delegation map). Which profile to run, and what each costs: [docs/PROFILES.md](./docs/PROFILES.md).
 
 Changed in v0.31.0: the ~30 single-purpose `dexe_proposal_build_*` builders are **no longer loaded by default** — `dexe_proposal_create` covers every on-chain catalog type from `proposalType` + `params`, and `dexe_proposal_catalog` still enumerates them. Set `DEXE_TOOLSETS=core,proposals` to restore the pre-0.31 default exactly. Add profiles (`proposals`, `read`, `vote`, `agents`, `governor`, `dev`) or `DEXE_TOOLSETS=full` for everything — see [docs/PROFILES.md](./docs/PROFILES.md). Note before reaching for `full`: standalone it registers all 172 (the write server alone, 118), and some hosts (VS Code / GitHub Copilot) cap a chat request at 128 enabled tools per request and reject the session above that; the server prints a startup note when you cross it. For orientation, `dexe_write_context` returns the signer, the agent keyring, the Pinata / WalletConnect / Safe posture and the DAOs/proposals recorded in prior sessions; the read server's `dexe_context` returns the active chain and env readiness (standalone, it also says which profiles are off and what each unlocks).
 

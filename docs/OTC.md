@@ -8,8 +8,10 @@ signer: WalletConnect, keystore, or `DEXE_SIGNER_MODE=unattended` + `DEXE_PRIVAT
 
 > **Renamed in 0.36.0:** the two read tools are `dexe_read_token_sale_position`
 > (was `dexe_otc_buyer_status`) and `dexe_read_token_sales` (was
-> `dexe_otc_list_sales_for_dao`). The old names still work as deprecated
-> aliases — see [MIGRATION.md](./MIGRATION.md).
+> `dexe_otc_list_sales_for_dao`). Since 1.0.0 the old names answer only on a
+> standalone `dexe-mcp` (`DEXE_WRITE_STANDALONE=1`); the reads are the DeXe
+> read server's there by default — use the new names. See
+> [MIGRATION.md](./MIGRATION.md).
 
 ## Tools at a glance
 
@@ -21,7 +23,7 @@ signer: WalletConnect, keystore, or `DEXE_SIGNER_MODE=unattended` + `DEXE_PRIVAT
 | `dexe_proposal_state` | poll `state` until index `4` (`SucceededFor`) — newly-passed proposals briefly land in `Locked` (idx 6) for finality before transitioning |
 | `dexe_vote_build_execute` | build the final `execute(proposalId)` payload |
 | `dexe_read_token_sale_position` | render-ready buyer view: per-tier prices + `totalSold`/`isOff` + claimable + vesting + auto-merkle proof (passed into `getUserViews`, so `canParticipate` is accurate for merkle tiers) |
-| `dexe_otc_buyer_buy` | preflights balance/allowance + builds approve + buy(); native sentinel `0xEeee…EEeE` (ETHEREUM_ADDRESS) skips approve and uses `value` — `0x0…0` accepted as alias |
+| `dexe_otc_buyer_buy` | preflights balance/allowance + builds approve + buy(); native sentinel `0xEeee…EEeE` (ETHEREUM_ADDRESS) skips approve and uses `value` — `0x0…0` accepted as alias. A tier with a vested share carries the F15 DANGER block and needs `acknowledgeVesting: true` (1.0.0) |
 | `dexe_otc_buyer_claim_all` | reads `getUserViews`, picks tiers with `canClaim && !isClaimed` → `claim(...)`, tiers with `amountToWithdraw > 0` → `vestingWithdraw(...)`. `mode: "noop"` when nothing pending |
 | `dexe_read_token_sales` | list a DAO's tiers (prices, `totalSold`, `isOff`, UTC times) |
 | `dexe_proposal_build_token_sale_whitelist` | extend an existing tier's whitelist post-launch |

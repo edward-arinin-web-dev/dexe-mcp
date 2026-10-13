@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { READ_SERVER_NPX } from "../readPackage.js";
 import type { WriteConfig } from "../config.js";
 import { DEFAULTS, hotKeyEnvNames } from "../config.js";
 import { ignoredHotKeySentence } from "../lib/signerMode.js";
@@ -209,7 +212,7 @@ export async function pinataPinQuotaCheck(timeoutMs: number, enabled: boolean): 
  * are valid setups; the row says which one this process is, so a "tool not
  * found" for a read tool has its explanation in the report.
  */
-export function surfaceModeCheck(config: WriteConfig | undefined): CheckResult[] {
+export function surfaceModeCheck(config: WriteConfig | undefined, env: NodeJS.ProcessEnv = process.env): CheckResult[] {
   if (!config) return [];
   return [
     config.writeStandalone
@@ -228,12 +231,30 @@ export function surfaceModeCheck(config: WriteConfig | undefined): CheckResult[]
           message:
             `write-only — the ${WRITE_TOOLS.length} write tools; the ${READ_TOOLS.length} read tools come from the DeXe ` +
             "read server (dexe-mcp-read): dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, dexe_read_* (read server)",
-          remediation:
-            "Install the read server next to this one (the Claude Code plugin ships both; otherwise add " +
-            "`npx -y -p @dexe-network/dexe-mcp dexe-mcp-read` to the MCP host config), or set DEXE_WRITE_STANDALONE=1 " +
-            "to register the read tools here too. Restart the MCP host after either.",
+          remediation: runningAsPlugin(env)
+            ? "The Claude Code plugin starts the read server as `dexe-read` next to this one. If its tools are " +
+              "missing, check that server in /mcp and restart Claude Code. (DEXE_WRITE_STANDALONE=1 here would " +
+              "duplicate the 54 read tools.)"
+            : `If the read tools are missing, add the read server to the MCP host config next to this one — ` +
+              `\`${READ_SERVER_NPX}\` (or the \`dexe-read\` entry \`npx dexe-mcp init\` prints) — or set ` +
+              "DEXE_WRITE_STANDALONE=1 to register them here too. Restart the MCP host after either.",
         },
   ];
+}
+
+/**
+ * Is this the Claude Code plugin's bundle? The plugin starts both servers, so
+ * "install the read server" is the wrong advice there. Claude Code passes
+ * CLAUDE_PLUGIN_ROOT to a plugin's processes; the bundled read server next to
+ * this file (dexe-plugin/server/read/bin.mjs) says the same without it.
+ */
+export function runningAsPlugin(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.CLAUDE_PLUGIN_ROOT?.trim()) return true;
+  try {
+    return existsSync(resolve(dirname(fileURLToPath(import.meta.url)), "read", "bin.mjs"));
+  } catch {
+    return false;
+  }
 }
 
 // ─── signer mode, keystore, approval page (0.37.0) ─────────────────────────

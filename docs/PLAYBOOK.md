@@ -50,7 +50,7 @@ one as `dexe_dao_info (read server)`.
 | "What state is proposal N in?" | `dexe_proposal_state` / `dexe_proposal_list` | `{govPool, proposalId}` |
 | "Run an OTC / token sale" | `dexe_otc_dao_open_sale` | `{govPool, tokenSaleProposal, tiers:[…]}` then vote_and_execute |
 | "Buy from the sale / claim my tokens" | `dexe_otc_buyer_buy` / `dexe_otc_buyer_claim_all` | `{tokenSaleProposal, tierId, tokenToBuyWith, amount}` |
-| "What sales does this DAO have?" | `dexe_read_token_sales` / `dexe_read_token_sale_position` | `{govPool}` / `{tokenSaleProposal, tierIds, user}` |
+| "What sales does this DAO have?" | `dexe_read_token_sales` / `dexe_read_token_sale_position` | `{govPool, tokenSaleProposal}` (the read server keeps no record of the sale) / `{tokenSaleProposal, tierIds, user}` |
 | "Update the DAO profile/avatar" | `dexe_proposal_create` | `proposalType:"modify_dao_profile"`, pass only the fields to change; avatar via LOCAL `newAvatarPath` |
 | "Send this transaction" | `dexe_tx_send` | the TxPayload fields; check with `dexe_tx_status` |
 | "Vote on Uniswap/Compound/OP governance" | `dexe_gov_*` surface | needs `DEXE_TOOLSETS=core,governor` |
@@ -265,7 +265,11 @@ arbitrary contract state. GENERATED from the read edition's topics
 (`knowledge/read/topics.ts` in `@dexe-network/dexe-mcp`) — edit them there, then
 update the dependency and run `npm run gen:knowledge`. Also served in-band by
 the read server via `dexe_guide {flow:"read_dao_data"}` and the
-`dexe://graph-schema` resource.
+`dexe://graph-schema` resource. Worded for the standalone server
+(`DEXE_WRITE_STANDALONE=1`): on the default two-server setup the read server
+keeps no report snapshots — pass `dexe_dao_report` an explicit `since` anchor
+(ISO time, Unix seconds, `block:<n>`), never `"last"` — and has no toolsets to
+switch on; its own `dexe_guide` says so.
 
 <!-- BEGIN GENERATED: topics -->
 ### Read / query DAO data (subgraph, backend API, on-chain) (`read_dao_data`)

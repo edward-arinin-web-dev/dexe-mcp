@@ -168,7 +168,20 @@ export function registerWriteGuideTool(
  * pointer at `dexe_write_guide` (registered in both modes). Prompts are not
  * tools: they are not gated by DEXE_TOOLSETS and don't affect the tool count.
  */
-export function registerKnowledgePrompts(server: McpServer, corpus: KnowledgeCorpus = WRITE_CORPUS): void {
+export function registerKnowledgePrompts(
+  server: McpServer,
+  opts: {
+    corpus?: KnowledgeCorpus;
+    /**
+     * Applied to each rendered recipe. The write-only server passes
+     * `markReadTools`: a recipe lists its steps by tool, and the read steps'
+     * tools are the read server's there.
+     */
+    transform?: (text: string) => string;
+  } = {},
+): void {
+  const corpus = opts.corpus ?? WRITE_CORPUS;
+  const transform = opts.transform ?? ((t: string) => t);
   for (const flow of corpus.flows) {
     server.registerPrompt(
       `dexe-flow-${flow.id}`,
@@ -177,7 +190,7 @@ export function registerKnowledgePrompts(server: McpServer, corpus: KnowledgeCor
         messages: [
           {
             role: "user" as const,
-            content: { type: "text" as const, text: renderSkillRecipe(corpus, flow.id, WRITE_GUIDE_TOOL) },
+            content: { type: "text" as const, text: transform(renderSkillRecipe(corpus, flow.id, WRITE_GUIDE_TOOL)) },
           },
         ],
       }),

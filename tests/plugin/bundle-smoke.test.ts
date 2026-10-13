@@ -53,6 +53,11 @@ describe.skipIf(!existsSync(dist))("plugin bundles (dexe-plugin/server/)", () =>
   it("the read server starts over stdio as dexe-mcp-read and lists exactly READ_TOOLS", async () => {
     const { tools, server } = await listTools(readBundle);
     expect(server?.name).toBe("dexe-mcp-read");
+    // The read package's version (baked in by scripts/bundle-plugin.mjs), not dexe-mcp's.
+    const readPkg = JSON.parse(
+      readFileSync(resolve(root, "node_modules/@dexe-network/dexe-mcp/package.json"), "utf8"),
+    ) as { version: string };
+    expect(server?.version).toBe(readPkg.version);
     expect(tools.map((t) => t.name).sort()).toEqual([...READ_TOOLS].sort());
   }, 60_000);
 

@@ -66,7 +66,8 @@ export const ENV_SPEC_WRITE = {
     doc:
       "1 = this server ALSO registers the 54 read tools (dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, " +
       "dexe_read_*, …) — for running dexe-mcp alone, without the DeXe read server (dexe-mcp-read) beside it; " +
-      "the pre-1.0 single server. Default 0: write tools only, the read server supplies the reads.",
+      "the same tools as 0.37 plus dexe_write_guide / dexe_write_doctor. Default 0: write tools only, the read server " +
+      "supplies the reads. Prefer the dexe entry's host env block; not with the Claude Code plugin (it runs the read server).",
   },
   DEXE_TREASURY_GUARD: {
     // Validated by the SAME parser the config and every tool call resolve with
