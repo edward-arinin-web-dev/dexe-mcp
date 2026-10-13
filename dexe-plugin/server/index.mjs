@@ -40647,7 +40647,7 @@ var init_signing = __esm({
 
 // dist/lib/approval/rendezvous.js
 import { connect as netConnect } from "node:net";
-import { chmodSync as chmodSync2, closeSync as closeSync3, existsSync as existsSync10, lstatSync, mkdirSync as mkdirSync5, openSync as openSync3, readdirSync as readdirSync4, readFileSync as readFileSync10, unlinkSync as unlinkSync2, writeSync as writeSync3 } from "node:fs";
+import { chmodSync as chmodSync2, closeSync as closeSync3, constants as fsConstants, existsSync as existsSync10, fstatSync, lstatSync, mkdirSync as mkdirSync5, openSync as openSync3, readdirSync as readdirSync4, readFileSync as readFileSync10, unlinkSync as unlinkSync2, writeSync as writeSync3 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { isAbsolute as isAbsolute3, join as join10 } from "node:path";
 function currentIdentity() {
@@ -40777,15 +40777,11 @@ function discoverServers(dir, opts = {}) {
     if (!m3)
       continue;
     const file2 = join10(dir, name2);
-    let st3;
-    try {
-      st3 = lstatSync(file2);
-    } catch {
+    const read3 = readTrusted(file2, id2);
+    if (read3 === null)
       continue;
-    }
-    const p4 = trustProblem(st3, "file", id2);
-    if (p4) {
-      out2.ignored.push({ file: file2, reason: p4 });
+    if ("problem" in read3) {
+      out2.ignored.push({ file: file2, reason: read3.problem });
       continue;
     }
     const pid = Number(m3[1]);
@@ -40794,13 +40790,7 @@ function discoverServers(dir, opts = {}) {
       out2.removed.push(file2);
       continue;
     }
-    let raw;
-    try {
-      raw = readFileSync10(file2, "utf8");
-    } catch {
-      continue;
-    }
-    const info = parseInfo(raw, pid);
+    const info = parseInfo(read3.raw, pid);
     if (typeof info === "string") {
       out2.ignored.push({ file: file2, reason: info });
       continue;
@@ -40818,6 +40808,27 @@ function discoverServers(dir, opts = {}) {
     out2.servers.push({ file: file2, info });
   }
   return out2;
+}
+function readTrusted(file2, id2) {
+  let fd;
+  try {
+    fd = openSync3(file2, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  } catch (e2) {
+    const code6 = e2.code;
+    if (code6 === "ELOOP" || code6 === "EMLINK")
+      return { problem: "is a symbolic link" };
+    return null;
+  }
+  try {
+    const problem = trustProblem(fstatSync(fd), "file", id2);
+    if (problem)
+      return { problem };
+    return { raw: readFileSync10(fd, "utf8") };
+  } catch {
+    return null;
+  } finally {
+    closeSync3(fd);
+  }
 }
 function removeRendezvous(file2, id2 = currentIdentity()) {
   let endpoint;

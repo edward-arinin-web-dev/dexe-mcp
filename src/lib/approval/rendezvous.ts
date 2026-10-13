@@ -2,7 +2,9 @@ import { connect as netConnect } from "node:net";
 import {
   chmodSync,
   closeSync,
+  constants as fsConstants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -221,15 +223,10 @@ export function discoverServers(
     const m = FILE_RE.exec(name);
     if (!m) continue;
     const file = join(dir, name);
-    let st: Stats;
-    try {
-      st = lstatSync(file);
-    } catch {
-      continue;
-    }
-    const p = trustProblem(st, "file", id);
-    if (p) {
-      out.ignored.push({ file, reason: p });
+    const read = readTrusted(file, id);
+    if (read === null) continue;
+    if ("problem" in read) {
+      out.ignored.push({ file, reason: read.problem });
       continue;
     }
     const pid = Number(m[1]);
@@ -238,13 +235,7 @@ export function discoverServers(
       out.removed.push(file);
       continue;
     }
-    let raw: string;
-    try {
-      raw = readFileSync(file, "utf8");
-    } catch {
-      continue;
-    }
-    const info = parseInfo(raw, pid);
+    const info = parseInfo(read.raw, pid);
     if (typeof info === "string") {
       out.ignored.push({ file, reason: info });
       continue;
@@ -262,6 +253,33 @@ export function discoverServers(
     out.servers.push({ file, info });
   }
   return out;
+}
+
+/**
+ * Read a rendezvous file without a check-then-use window: open it once
+ * (refusing a symlink with O_NOFOLLOW where the OS has it), check ownership
+ * and mode on THAT descriptor (fstat), and read from the same descriptor —
+ * a file swapped between the check and the read is never the one read.
+ * null = vanished meanwhile.
+ */
+function readTrusted(file: string, id: PosixIdentity): { raw: string } | { problem: string } | null {
+  let fd: number;
+  try {
+    fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ELOOP" || code === "EMLINK") return { problem: "is a symbolic link" };
+    return null;
+  }
+  try {
+    const problem = trustProblem(fstatSync(fd), "file", id);
+    if (problem) return { problem };
+    return { raw: readFileSync(fd, "utf8") };
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Delete a rendezvous file and (POSIX) the socket it names, when both are ours. */
