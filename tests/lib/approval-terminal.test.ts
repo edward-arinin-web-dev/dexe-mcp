@@ -9,7 +9,7 @@ import { ApprovalManager } from "../../src/lib/approval/index.js";
 import { ApprovalHaltError } from "../../src/lib/approval/scope.js";
 import { createServer, connect as netConnect } from "node:net";
 import { randomBytes } from "node:crypto";
-import { ControlAuthError, controlCall, requestMac, serverProof } from "../../src/lib/approval/controlProtocol.js";
+import { ControlAuthError, controlCall, requestMac, sealPassword, serverProof } from "../../src/lib/approval/controlProtocol.js";
 import {
   discoverServers,
   rendezvousFile,
@@ -203,6 +203,21 @@ describe("terminal channel (server side)", () => {
     p.send({ v: 2, payload, mac: requestMac(info.secret, nonce, String(h2.serverNonce), payload) });
     expect(await p.next()).toMatchObject({ status: "refused", message: "enter the keystore password" });
     p.close();
+    // A sealed password lifted onto ANOTHER (correctly MAC'd) request does not open.
+    const q = rawSession(info.endpoint);
+    q.send({ v: 2, op: "hello", nonce });
+    const h3 = await q.next();
+    const sn = String(h3.serverNonce);
+    const sealedFor = JSON.stringify({ op: "approve", approvalId: "apr_other", binding: rec.batchHash });
+    const actual = JSON.stringify({ op: "approve", approvalId: rec.approvalId, binding: rec.batchHash });
+    q.send({
+      v: 2,
+      payload: actual,
+      mac: requestMac(info.secret, nonce, sn, actual),
+      sealedPassword: sealPassword(info.secret, nonce, sn, sealedFor, PW),
+    });
+    expect(await q.next()).toMatchObject({ status: "refused", message: "enter the keystore password" });
+    q.close();
     expect(m.view(halt.approvalId)!.status).toBe("pending");
   });
 

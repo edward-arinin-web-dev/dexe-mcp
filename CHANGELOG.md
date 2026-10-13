@@ -104,7 +104,8 @@ Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-saf
   nonce; the server must answer HMAC(secret, nonces, pid) before the CLI sends
   anything secret; the request then carries an HMAC over both nonces instead
   of the secret (which never crosses the channel), and a password travels
-  sealed (AES-256-GCM, key from HKDF(secret, nonces), bound to the approval).
+  sealed (AES-256-GCM, key from HKDF(secret, nonces), the exact request as
+  associated data) — encrypted, never hashed.
   A fake or re-created endpoint without the secret is reported NOT TRUSTED and
   gets nothing. A decision carries the approval's binding hash. Stale files of
   dead servers are removed by the next server or the CLI. The channel starts

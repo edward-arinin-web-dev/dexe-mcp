@@ -253,7 +253,7 @@ How it finds the server — owner-only, by design:
   answer with an HMAC of that nonce under the secret before the CLI sends
   anything secret. Only then does the request go out, authenticated by an HMAC
   over both nonces; a password travels only sealed (AES-256-GCM under a key
-  derived from the secret and both nonces, bound to the approval). A process
+  derived from the secret and both nonces, bound to that one request). A process
   that answers at the endpoint without the secret — a stale rendezvous whose
   pipe name someone else re-created, a squatted socket — is reported as NOT
   TRUSTED and gets nothing: no secret, no request, no password.

@@ -40750,20 +40750,20 @@ function passwordKey(secret, clientNonce, serverNonce) {
   return Buffer.from(hkdfSync("sha256", Buffer.from(secret, "utf8"), Buffer.from(`${clientNonce}
 ${serverNonce}`, "utf8"), L_PASSWORD, 32));
 }
-function sealPassword(secret, clientNonce, serverNonce, approvalId, password) {
+function sealPassword(secret, clientNonce, serverNonce, boundTo, password) {
   const iv = randomBytes8(12);
   const c4 = createCipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv);
-  c4.setAAD(Buffer.from(approvalId, "utf8"));
+  c4.setAAD(Buffer.from(boundTo, "utf8"));
   const ct4 = Buffer.concat([c4.update(password, "utf8"), c4.final()]);
   return { iv: iv.toString("base64url"), ct: ct4.toString("base64url"), tag: c4.getAuthTag().toString("base64url") };
 }
-function openPassword(secret, clientNonce, serverNonce, approvalId, sealed) {
+function openPassword(secret, clientNonce, serverNonce, boundTo, sealed) {
   const s2 = sealed;
   if (!s2 || typeof s2.iv !== "string" || typeof s2.ct !== "string" || typeof s2.tag !== "string")
     return null;
   try {
     const d3 = createDecipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), Buffer.from(s2.iv, "base64url"));
-    d3.setAAD(Buffer.from(approvalId, "utf8"));
+    d3.setAAD(Buffer.from(boundTo, "utf8"));
     d3.setAuthTag(Buffer.from(s2.tag, "base64url"));
     return Buffer.concat([d3.update(Buffer.from(s2.ct, "base64url")), d3.final()]).toString("utf8");
   } catch {
@@ -40860,12 +40860,16 @@ async function controlCall(server, body, timeoutMs = 12e4) {
       throw new ControlAuthError(`the process at ${server.endpoint} could not prove it is the dexe-mcp server that wrote this rendezvous (no proof of its secret) \u2014 nothing secret was sent to it`);
     }
     const { password, ...rest } = body;
-    const req = { ...rest };
+    const payload = JSON.stringify(rest);
+    const msg = {
+      v: PROTOCOL_VERSION,
+      payload,
+      mac: requestMac(server.secret, clientNonce, serverNonce, payload)
+    };
     if (typeof password === "string") {
-      req.sealedPassword = sealPassword(server.secret, clientNonce, serverNonce, String(rest.approvalId ?? ""), password);
+      msg.sealedPassword = sealPassword(server.secret, clientNonce, serverNonce, payload, password);
     }
-    const payload = JSON.stringify(req);
-    conn.send({ v: PROTOCOL_VERSION, payload, mac: requestMac(server.secret, clientNonce, serverNonce, payload) });
+    conn.send(msg);
     return await conn.next();
   } finally {
     conn.close();
@@ -140787,7 +140791,7 @@ var ControlChannel = class {
       } catch {
         return finish({ ok: false, status: "refused", message: "malformed request" });
       }
-      this.handle(req, { clientNonce, serverNonce }).then(finish, () => finish({ ok: false, status: "error", message: "internal error" }));
+      this.handle(req, { clientNonce, serverNonce, payload, sealedPassword: msg.sealedPassword }).then(finish, () => finish({ ok: false, status: "error", message: "internal error" }));
     };
     sock.on("error", () => void 0);
     sock.on("data", (chunk) => {
@@ -140835,7 +140839,7 @@ var ControlChannel = class {
           this.deps.log?.(`[dexe-mcp] approval ${record2.approvalId} declined in the terminal`);
           return { ok: true, status: "declined", message: "Declined. Nothing was signed." };
         }
-        const password = openPassword(this.secret, session.clientNonce, session.serverNonce, record2.approvalId, req.sealedPassword) ?? "";
+        const password = openPassword(this.secret, session.clientNonce, session.serverNonce, session.payload, session.sealedPassword) ?? "";
         if (!password || password.length > 1024)
           return { ok: false, status: "refused", message: "enter the keystore password" };
         const out2 = await this.deps.attemptApprove(record2, password);

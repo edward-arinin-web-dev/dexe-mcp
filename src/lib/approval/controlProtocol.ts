@@ -14,9 +14,11 @@ import { connect as netConnect } from "node:net";
  *             server's secret (a stale rendezvous whose pipe name another
  *             user re-created, a squatted socket path) is refused here, BEFORE
  *             anything secret leaves the client
- *   client → { v:2, payload: "<json>", mac: HMAC(secret, "…/request" ‖ Nc ‖ Ns ‖ payload) }
- *             a password travels only inside the payload, sealed with
- *             AES-256-GCM under HKDF(secret, Nc ‖ Ns), bound to the approval id
+ *   client → { v:2, payload: "<json>", mac: HMAC(secret, "…/request" ‖ Nc ‖ Ns ‖ payload),
+ *              sealedPassword? }
+ *             a password travels only sealed — AES-256-GCM under
+ *             HKDF(secret, Nc ‖ Ns), with the exact payload as associated
+ *             data, so it opens only for that one request
  *   server    verifies the MAC (constant time), opens the password, answers
  *
  * The labels separate the proof from the request MAC, so neither can be
@@ -74,33 +76,39 @@ function passwordKey(secret: string, clientNonce: string, serverNonce: string): 
   );
 }
 
+/**
+ * Seal a password for one request. `boundTo` is the exact MAC'd payload of
+ * that request (it names the approval): the GCM tag fails if the sealed
+ * password is moved to any other request. The password is encrypted, never
+ * hashed or MAC'd.
+ */
 export function sealPassword(
   secret: string,
   clientNonce: string,
   serverNonce: string,
-  approvalId: string,
+  boundTo: string,
   password: string,
 ): SealedPassword {
   const iv = randomBytes(12);
   const c = createCipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv);
-  c.setAAD(Buffer.from(approvalId, "utf8"));
+  c.setAAD(Buffer.from(boundTo, "utf8"));
   const ct = Buffer.concat([c.update(password, "utf8"), c.final()]);
   return { iv: iv.toString("base64url"), ct: ct.toString("base64url"), tag: c.getAuthTag().toString("base64url") };
 }
 
-/** The password, or null when it does not open (wrong key, wrong approval, tampered). */
+/** The password, or null when it does not open (wrong key, another request, tampered). */
 export function openPassword(
   secret: string,
   clientNonce: string,
   serverNonce: string,
-  approvalId: string,
+  boundTo: string,
   sealed: unknown,
 ): string | null {
   const s = sealed as Partial<SealedPassword> | null;
   if (!s || typeof s.iv !== "string" || typeof s.ct !== "string" || typeof s.tag !== "string") return null;
   try {
     const d = createDecipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), Buffer.from(s.iv, "base64url"));
-    d.setAAD(Buffer.from(approvalId, "utf8"));
+    d.setAAD(Buffer.from(boundTo, "utf8"));
     d.setAuthTag(Buffer.from(s.tag, "base64url"));
     return Buffer.concat([d.update(Buffer.from(s.ct, "base64url")), d.final()]).toString("utf8");
   } catch {
@@ -238,12 +246,17 @@ export async function controlCall(
       );
     }
     const { password, ...rest } = body;
-    const req: Record<string, unknown> = { ...rest };
+    const payload = JSON.stringify(rest);
+    const msg: Record<string, unknown> = {
+      v: PROTOCOL_VERSION,
+      payload,
+      mac: requestMac(server.secret, clientNonce, serverNonce, payload),
+    };
+    // Outside the MAC'd payload, but bound to it (GCM associated data).
     if (typeof password === "string") {
-      req.sealedPassword = sealPassword(server.secret, clientNonce, serverNonce, String(rest.approvalId ?? ""), password);
+      msg.sealedPassword = sealPassword(server.secret, clientNonce, serverNonce, payload, password);
     }
-    const payload = JSON.stringify(req);
-    conn.send({ v: PROTOCOL_VERSION, payload, mac: requestMac(server.secret, clientNonce, serverNonce, payload) });
+    conn.send(msg);
     return await conn.next();
   } finally {
     conn.close();

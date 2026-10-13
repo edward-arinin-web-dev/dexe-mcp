@@ -208,7 +208,7 @@ export class ControlChannel {
       } catch {
         return finish({ ok: false, status: "refused", message: "malformed request" });
       }
-      this.handle(req, { clientNonce, serverNonce }).then(finish, () =>
+      this.handle(req, { clientNonce, serverNonce, payload, sealedPassword: msg.sealedPassword }).then(finish, () =>
         finish({ ok: false, status: "error", message: "internal error" }),
       );
     };
@@ -232,7 +232,7 @@ export class ControlChannel {
 
   private async handle(
     req: Record<string, unknown>,
-    session: { clientNonce: string; serverNonce: string },
+    session: { clientNonce: string; serverNonce: string; payload: string; sealedPassword: unknown },
   ): Promise<Record<string, unknown>> {
     const store = this.deps.store;
     switch (req.op) {
@@ -264,9 +264,10 @@ export class ControlChannel {
           this.deps.log?.(`[dexe-mcp] approval ${record.approvalId} declined in the terminal`);
           return { ok: true, status: "declined", message: "Declined. Nothing was signed." };
         }
-        // Only a sealed password is accepted (never plain text on the wire).
+        // Only a sealed password is accepted (never plain text on the wire),
+        // and it opens only for this exact authenticated payload.
         const password =
-          openPassword(this.secret, session.clientNonce, session.serverNonce, record.approvalId, req.sealedPassword) ?? "";
+          openPassword(this.secret, session.clientNonce, session.serverNonce, session.payload, session.sealedPassword) ?? "";
         if (!password || password.length > 1024) return { ok: false, status: "refused", message: "enter the keystore password" };
         const out = await this.deps.attemptApprove(record, password);
         if (out.kind === "approved") {
