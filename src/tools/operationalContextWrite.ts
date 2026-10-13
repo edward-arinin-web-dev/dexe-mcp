@@ -1,10 +1,10 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteConfig } from "../config.js";
-import { WRITE_DEFAULTS, hotKeyEnvNames } from "../config.js";
+import { WRITE_DEFAULTS } from "../config.js";
 import {
   HOT_KEY_SAFETY,
-  UNSET_MODE_HOT_KEY_IGNORED,
+  ignoredHotKeySentence,
   humanConfirms,
   signerDispatch,
   type SignerManager,
@@ -248,8 +248,8 @@ export function registerWriteContextTool(
                 unattendedChains: signer.unattendedChains,
                 ...(address ? { safety: HOT_KEY_SAFETY } : {}),
               }
-            : signer.modeSource === "default" && hotKeyEnvNames(process.env).length > 0
-              ? { hotKeyIgnored: UNSET_MODE_HOT_KEY_IGNORED }
+            : config.hotKeysIgnored
+              ? { hotKeyIgnored: ignoredHotKeySentence(config.hotKeysIgnored) }
               : {}),
           ...(mode === "keystore"
             ? {

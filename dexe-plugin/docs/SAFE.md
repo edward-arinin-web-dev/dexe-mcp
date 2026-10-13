@@ -37,6 +37,8 @@ optional `chainId` (defaults to the MCP's default chain).
 ## Env
 
 ```env
+DEXE_SIGNER_MODE=unattended            # the owner key is a hot key: this mode only
+DEXE_UNATTENDED_CHAINS=56              # chains it may sign on (default 97 only)
 DEXE_PRIVATE_KEY=0x...                 # a Safe OWNER key (signs the safeTxHash)
 DEXE_RPC_URL_MAINNET=https://bsc-dataseed.bnbchain.org   # to read the Safe nonce
 # Optional / situational:
@@ -50,8 +52,9 @@ DEXE_SAFE_DELEGATECALL=block           # forbid operation=1 outright, overriding
   (`eth`, `bnb`, `matic`, `base`, `arb1`, `sep`, …).
 - **BSC testnet (97) has no hosted service** — set `DEXE_SAFE_TX_SERVICE_URL`
   to a self-hosted instance to use it there.
-- `dexe_write_context` shows `signer.mode: "safe"` once both `DEXE_PRIVATE_KEY` and
-  `DEXE_SAFE_TX_SERVICE_URL` are set.
+- `dexe_write_context` shows `signer.mode: "unattended"` with `signer.dispatch: "safe"`
+  once `DEXE_SIGNER_MODE=unattended`, `DEXE_PRIVATE_KEY` and
+  `DEXE_SAFE_TX_SERVICE_URL` are all set.
 
 ---
 

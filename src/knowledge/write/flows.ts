@@ -735,7 +735,7 @@ export const FLOWS: readonly Flow[] = [
         // tool present but empty is the KEYRING. Naming the toolset here is the
         // earliest place it can be said — step 1 is where the flow dies.
         purpose:
-          "Discover the personas this session HAS: signerKey ('agent1'…'agent16', 'funder'), address, native balance, and — with `token` — gov-token balance. Assign roles only to slots you can see. Tool not found = the PROFILE, not the keyring: DEXE_TOOLSETS=core,agents unlocks dexe_agents_list, dexe_agents_fund and dexe_agents_ledger (add `vote` for the raw builders), then restart. Tool there but roster empty = keyring unset (DEXE_AGENT_PK_1..16). Either way the flow stops here.",
+          "Discover the personas this session HAS: signerKey ('agent1'…'agent16', 'funder'), address, native balance, and — with `token` — gov-token balance. Assign roles only to slots you can see. Tool not found = the PROFILE, not the keyring: DEXE_TOOLSETS=core,agents unlocks dexe_agents_list, dexe_agents_fund and dexe_agents_ledger (add `vote` for the raw builders), then restart. Tool there but roster empty = keyring unset or mode not unattended. Either way the flow stops here.",
         paramsTemplate: { chainId: "{{chainId}}", token: "…gov token address…" },
         reportOnSuccess:
           "Show signerKey → address → balances and the role for each; confirm the map before any broadcast — the last cheap moment.",

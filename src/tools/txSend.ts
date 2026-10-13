@@ -8,7 +8,7 @@ import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.
 import { waitWithTimeout, waitForHashWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/writeErrors.js";
 import {
-  ENABLE_WRITES_HINT,
+  enableWritesHint,
   KEYSTORE_MISSING_HINT,
   KEYSTORE_SIGNERKEY_REFUSAL,
   READONLY_MODE_HINT,
@@ -285,7 +285,7 @@ export function registerTxTools(
           content: [
             {
               type: "text" as const,
-              text: "signerKey selects a DEXE_AGENT_PK_* hot key — it is not available in WalletConnect mode (the phone wallet owns the only key). Unset signerKey, or configure DEXE_PRIVATE_KEY + DEXE_AGENT_PK_* for keyring mode.",
+              text: "signerKey selects a DEXE_AGENT_PK_* hot key — it is not available in WalletConnect mode (the phone wallet owns the only key). Unset signerKey, or set DEXE_SIGNER_MODE=unattended with DEXE_PRIVATE_KEY + DEXE_AGENT_PK_* for keyring mode.",
             },
           ],
           isError: true,
@@ -435,7 +435,7 @@ export function registerTxTools(
                   status: "rejected",
                   reason: sg.error,
                   remediation: sg.remediation,
-                  enableWrites: ENABLE_WRITES_HINT,
+                  enableWrites: enableWritesHint(signer),
                   chainId: chain.chainId,
                 },
                 null,

@@ -5,7 +5,7 @@ import { hintFor, type EnvGuardResult } from "./requireEnv.js";
 import { ENV_SPEC } from "../env/schema.js";
 import { safeErrorMessage } from "./redact.js";
 import { attachBroadcastRecorder, registerLedgerSecrets } from "./agentLedger.js";
-import { type SignerMode, type SignerModeSource } from "./signerMode.js";
+import { DEFAULT_UNATTENDED_CHAINS, type SignerMode, type SignerModeSource } from "./signerMode.js";
 import { ApprovalManager } from "./approval/index.js";
 
 export {
@@ -13,6 +13,9 @@ export {
   signerDispatch,
   humanConfirms,
   UNSET_MODE_HOT_KEY_IGNORED,
+  INVALID_MODE_HOT_KEY_IGNORED,
+  ignoredHotKeySentence,
+  type IgnoredHotKeys,
   type SignerMode,
   type SignerModeSource,
 } from "./signerMode.js";
@@ -104,11 +107,15 @@ export class SignerManager {
   }
 
   /**
-   * The chains unattended mode may sign on. Always set by the env loader
-   * (default [97]); null = no fence only for a config built in code without it.
+   * The chains unattended mode may sign on. The env loader always sets it
+   * (default [97]); a config built in code that leaves it out gets the same
+   * default. Only an explicit `unattendedChains: null` means "no fence" — an
+   * embedder's or a test's deliberate opt-out, never reachable from env.
    */
   get unattendedChains(): number[] | null {
-    return this.mode === "unattended" ? (this.config.unattendedChains ?? null) : null;
+    if (this.mode !== "unattended") return null;
+    const configured = this.config.unattendedChains;
+    return configured === undefined ? [...DEFAULT_UNATTENDED_CHAINS] : configured;
   }
 
   /** keystore mode: the approval flow (created on first use). Undefined in every other mode. */

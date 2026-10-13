@@ -6,12 +6,13 @@ import { ENV_SPEC } from "./env/schema.js";
 import { safeErrorMessage } from "./lib/redact.js";
 import { resolveTreasuryGuardMode, type TreasuryGuardMode } from "./lib/treasuryGate.js";
 import {
-  UNSET_MODE_HOT_KEY_IGNORED,
+  ignoredHotKeySentence,
   parseUnattendedChains,
   resolveSignerMode,
   unattendedChainFence,
   type SignerMode,
   type SignerModeSource,
+  type IgnoredHotKeys,
 } from "./lib/signerMode.js";
 import { decryptKeystore, parseKeystoreMeta, selectKeystore, weakKdfReason } from "./lib/keystore.js";
 import {
@@ -130,6 +131,8 @@ export interface WriteConfig extends ReadConfig, DevConfig {
   signerMode?: SignerMode;
   /** explicit (DEXE_SIGNER_MODE set) | default (unset or invalid). */
   signerModeSource?: SignerModeSource;
+  /** Hot-key env vars present but NOT loaded because DEXE_SIGNER_MODE was unset or invalid (1.0.0). */
+  hotKeysIgnored?: IgnoredHotKeys;
   /**
    * Chains unattended signing is allowed on. The env loader always sets it in
    * unattended mode (default [97]) and null otherwise; only a config built in
@@ -280,13 +283,20 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
   });
   const signerMode: SignerMode = modeRes.mode;
   const signerModeSource: SignerModeSource = modeRes.source;
-  if (signerMode !== "unattended" && hotKeyVars.length > 0) {
+  // Hot keys present while the mode is unset or invalid: the pre-1.0 setup
+  // that signed unattended. Recorded so the doctor, dexe_write_context and
+  // every no-signer write response can say WHY nothing signs.
+  const hotKeysIgnored: IgnoredHotKeys | undefined =
+    signerModeSource === "default" && hotKeyVars.length > 0
+      ? { vars: hotKeyVars, reason: rejected.includes("DEXE_SIGNER_MODE") ? "invalid" : "unset" }
+      : undefined;
+  if (hotKeysIgnored) {
+    process.stderr.write(`[dexe-mcp] ⚠️ ${ignoredHotKeySentence(hotKeysIgnored)}\n`);
+  } else if (signerMode !== "unattended" && hotKeyVars.length > 0) {
     process.stderr.write(
-      signerModeSource === "default" && !rejected.includes("DEXE_SIGNER_MODE")
-        ? `[dexe-mcp] ⚠️ ${hotKeyVars.join(", ")}: ${UNSET_MODE_HOT_KEY_IGNORED}\n`
-        : `[dexe-mcp] ${hotKeyVars.join(", ")} ${hotKeyVars.length === 1 ? "is" : "are"} IGNORED: DEXE_SIGNER_MODE=${signerMode} ` +
-            "never signs with a hot key. Move the key into the encrypted keystore with `dexe-mcp key import --from-env` " +
-            "(it removes the plaintext line), or set DEXE_SIGNER_MODE=unattended to sign with it unattended.\n",
+      `[dexe-mcp] ${hotKeyVars.join(", ")} ${hotKeyVars.length === 1 ? "is" : "are"} IGNORED: DEXE_SIGNER_MODE=${signerMode} ` +
+        "never signs with a hot key. Move the key into the encrypted keystore with `dexe-mcp key import --from-env` " +
+        "(it removes the plaintext line), or set DEXE_SIGNER_MODE=unattended to sign with it unattended.\n",
     );
   }
 
@@ -638,6 +648,7 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
     statePath: read.statePath,
     signerMode,
     signerModeSource,
+    hotKeysIgnored,
     unattendedChains,
     keystore,
     approvalWaitMs,

@@ -3,8 +3,8 @@
 End-to-end recipe for an "OTC DAO" — a DAO whose mandate is selling its own
 token over-the-counter via on-chain `TokenSaleProposal` tiers (multi-payment,
 custom rate, lockup, vesting, optional whitelist). Every step is one MCP call;
-calldata returned can be signed by any wallet (or auto-broadcast when
-`DEXE_PRIVATE_KEY` is set).
+calldata returned can be signed by any wallet (or broadcast by the server's
+signer: WalletConnect, keystore, or `DEXE_SIGNER_MODE=unattended` + `DEXE_PRIVATE_KEY`).
 
 > **Renamed in 0.36.0:** the two read tools are `dexe_read_token_sale_position`
 > (was `dexe_otc_buyer_status`) and `dexe_read_token_sales` (was

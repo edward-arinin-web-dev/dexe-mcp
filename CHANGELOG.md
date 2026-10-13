@@ -19,7 +19,17 @@
   takes only the configured chains and never returns null;
   `IMPLICIT_UNATTENDED_DEPRECATION` is replaced by `UNSET_MODE_HOT_KEY_IGNORED`.
   A `SignerManager` built in code with a key and no mode still signs
-  unattended (the caller chose it) and reports `modeSource: "explicit"`.
+  unattended (the caller chose it), reports `modeSource: "explicit"`, and is
+  fenced to 97 unless `unattendedChains` is given (`null` = no fence).
+- The ignored keys are recorded (`config.hotKeysIgnored`) and named — with
+  the reason (unset vs rejected mode) and the ways out, safest first — in the
+  startup banner, `dexe_doctor`, `dexe_write_context` and the `enableWrites`
+  hint of every no-signer write response. `dexe_agents_list` / `dexe_agents_fund`
+  say the keyring is not loaded (mode) instead of asking for keys.
+- Model-facing remedies (`dexe_wc_connect`, `dexe_tx_send`, Safe, auth login,
+  composites) and the docs/skills (WALLETCONNECT, SAFE, OTC, AGENTS, TOOLS,
+  agent-team / create-proposal / otc / vote-execute skills) no longer say a key
+  alone signs.
 
 ## 0.37.1 — 2026-10-13
 

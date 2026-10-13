@@ -96,17 +96,40 @@ export function unattendedChainFence(configured: number[] | null): number[] {
   return configured ? [...configured] : [...DEFAULT_UNATTENDED_CHAINS];
 }
 
+/** The ways out of an ignored hot key, safest first — unattended last and only with the owner's go-ahead. */
+const HOT_KEY_WAYS_OUT =
+  "Ways out, safest first: delete the key lines and connect a phone wallet with dexe_wc_connect; or, in a " +
+  "terminal, run `dexe-mcp key import --from-env` (encrypts DEXE_PRIVATE_KEY, removes the plaintext line, sets " +
+  "DEXE_SIGNER_MODE=keystore — the owner then approves every batch); or, for bots/CI and only with the owner's " +
+  "go-ahead, set DEXE_SIGNER_MODE=unattended (signs with NO confirmation, only on DEXE_UNATTENDED_CHAINS, " +
+  "default 97; the agent keyring DEXE_AGENT_PK_* / AGENT_PK_* exists only in that mode). Restart after editing .env.";
+
 /**
  * Said when a hot key is present but `DEXE_SIGNER_MODE` is unset — the setup
  * that signed unattended before 1.0.0 and does not any more. One string: the
- * startup banner, dexe_doctor and dexe_write_context all print it.
+ * startup banner, dexe_doctor, dexe_write_context and the no-signer write
+ * responses all print it.
  */
 export const UNSET_MODE_HOT_KEY_IGNORED =
   "A hot key is set but DEXE_SIGNER_MODE is not, so the key is IGNORED: since dexe-mcp 1.0.0 an unset mode " +
-  "never signs with a hot key (0.37 and earlier signed unattended by default). To sign with it unattended, set " +
-  "DEXE_SIGNER_MODE=unattended (it then signs only on DEXE_UNATTENDED_CHAINS, default 97); to approve every " +
-  "batch yourself, run `dexe-mcp key import --from-env` (encrypts the key, removes the plaintext line, sets " +
-  "DEXE_SIGNER_MODE=keystore); or delete the key and connect a wallet with dexe_wc_connect.";
+  "never signs with a hot key (0.37 and earlier signed unattended by default). " +
+  HOT_KEY_WAYS_OUT;
+
+/** Same, when DEXE_SIGNER_MODE was set to something invalid (rejected at startup). */
+export const INVALID_MODE_HOT_KEY_IGNORED =
+  "A hot key is set but DEXE_SIGNER_MODE was rejected as invalid, so this server runs walletconnect and the key " +
+  "is IGNORED. Valid modes: walletconnect | keystore | readonly | unattended. " +
+  HOT_KEY_WAYS_OUT;
+
+/** Hot-key env vars present but not loaded because the mode was unset or invalid. */
+export interface IgnoredHotKeys {
+  vars: string[];
+  reason: "unset" | "invalid";
+}
+
+export function ignoredHotKeySentence(ignored: IgnoredHotKeys): string {
+  return `${ignored.vars.join(", ")}: ${ignored.reason === "invalid" ? INVALID_MODE_HOT_KEY_IGNORED : UNSET_MODE_HOT_KEY_IGNORED}`;
+}
 
 /**
  * The legacy dispatch label `dexe_write_context` / `dexe_wc_status` reported

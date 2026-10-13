@@ -118,7 +118,10 @@ describe.skipIf(!existsSync(DIST))("dexe-mcp-read serve-http (built bin)", () =>
     // A .env that WOULD switch on signing, the full tool surface and any
     // browser origin if it were loaded.
     const envFile = join(work, ".env");
-    writeFileSync(envFile, `DEXE_PRIVATE_KEY=${TEST_KEY}\nDEXE_TOOLSETS=full\nDEXE_HTTP_ALLOWED_ORIGINS=*\n`);
+    writeFileSync(
+      envFile,
+      `DEXE_SIGNER_MODE=unattended\nDEXE_PRIVATE_KEY=${TEST_KEY}\nDEXE_TOOLSETS=full\nDEXE_HTTP_ALLOWED_ORIGINS=*\n`,
+    );
     run = await startBin(
       cleanEnv({
         DEXE_ENV_FILE: envFile,

@@ -238,6 +238,27 @@ function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
 }
 
+/**
+ * Why the roster is empty. Outside unattended mode the keyring is never
+ * loaded, so "set the keys" would send the user after keys that may already
+ * be there.
+ */
+function emptyKeyringMessage(signer: SignerManager): string {
+  if (signer.mode !== "unattended") {
+    return (
+      `Agent keyring is not loaded: the keyring exists only in DEXE_SIGNER_MODE=unattended (this server runs ${signer.mode}). ` +
+      "Unattended keys sign with NO human confirmation — ask the user before switching. To use it: set " +
+      "DEXE_SIGNER_MODE=unattended (signs only on DEXE_UNATTENDED_CHAINS, default 97) plus DEXE_AGENT_PK_1..16 " +
+      "(or AGENT_PK_1..16 / AGENT_FUNDER_PK) in .env, then restart."
+    );
+  }
+  return (
+    "Agent keyring is empty. Set DEXE_AGENT_PK_1..16 (or the swarm naming AGENT_PK_1..16 / AGENT_FUNDER_PK) " +
+    "in .env — one hot key per agent persona — and restart. " +
+    "The primary DEXE_PRIVATE_KEY stays the default signer; keyring keys are selected per call via signerKey."
+  );
+}
+
 const bigintReplacer = (_k: string, v: unknown) => (typeof v === "bigint" ? v.toString() : v);
 
 function ok(data: Record<string, unknown>) {
@@ -347,13 +368,7 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
     },
     async ({ chainId, token }) => {
       const agents = signer.listAgents();
-      if (agents.length === 0) {
-        return err(
-          "Agent keyring is empty. Set DEXE_AGENT_PK_1..16 (or the swarm naming AGENT_PK_1..16 / AGENT_FUNDER_PK) " +
-            "in .env — one hot key per agent persona — and restart. " +
-            "The primary DEXE_PRIVATE_KEY stays the default signer; keyring keys are selected per call via signerKey.",
-        );
-      }
+      if (agents.length === 0) return err(emptyKeyringMessage(signer));
       if (token && !isAddress(token)) return err(`Invalid token: ${token}`);
       const chain = resolveChain(config, chainId);
       const provider = createChainProvider(chain, config);
@@ -445,9 +460,7 @@ export function registerAgentTools(server: McpServer, config: DexeConfig, signer
         );
       }
       const keyring = signer.listAgents();
-      if (keyring.length === 0) {
-        return err("Agent keyring is empty — set DEXE_AGENT_PK_1..16 (or AGENT_PK_1..16 / AGENT_FUNDER_PK) first.");
-      }
+      if (keyring.length === 0) return err(emptyKeyringMessage(signer));
       if (!source && !signer.hasSigner()) {
         return err(
           "Funding requires a source wallet: set the primary DEXE_PRIVATE_KEY, or pass source:'funder' to send " +

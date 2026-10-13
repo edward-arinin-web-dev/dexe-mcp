@@ -6,9 +6,9 @@
 > `dexe_wc_connect` renders a **scannable QR** (terminal ASCII + `image/png`
 > block) instead of a raw URI; `dexe_tx_send` and the composite flows
 > **auto-print that QR** when a write needs a wallet and no session exists; and
-> hot keys are flagged `⚠️ NOT SAFE` on every write. `dexe_wc_connect` now pairs
-> even when `DEXE_PRIVATE_KEY` is set (the key just keeps signing precedence until
-> unset). See `src/lib/qr.ts`.
+> hot keys are flagged `⚠️ NOT SAFE` on every write. Since 0.37 `DEXE_SIGNER_MODE`
+> picks the signer; since 1.0.0 a `DEXE_PRIVATE_KEY` alone never takes over from
+> WalletConnect (it signs only in `unattended` mode). See `src/lib/qr.ts`.
 
 ## Why
 
@@ -85,12 +85,14 @@ approval is an *additional* human gate, not a replacement for the guards.
 
 | Var | Required | Meaning |
 |-----|----------|---------|
-| `DEXE_WALLETCONNECT_PROJECT_ID` | yes (for WC mode) | Free project id from <https://cloud.reown.com>. Activates `signerMode: walletconnect` when set **and** `DEXE_PRIVATE_KEY` is **absent** (WC and hot-key are mutually exclusive — WC wins only when no key is present, else `eoa`). |
+| `DEXE_WALLETCONNECT_PROJECT_ID` | yes (for WC mode) | Free project id from <https://cloud.reown.com>. Your own id for `walletconnect` mode (the default `DEXE_SIGNER_MODE`); without it a shared default id is used. A `DEXE_PRIVATE_KEY` does not switch modes — only `DEXE_SIGNER_MODE=unattended` does. |
 | `DEXE_WALLETCONNECT_RELAY_URL` | no | Override relay. Default `wss://relay.walletconnect.com`. |
 | `DEXE_WALLETCONNECT_APPROVAL_TIMEOUT_MS` | no | Per-tx phone-approval timeout. Default `120000`. |
 
-Signer-mode precedence (reported by `dexe_write_context` as `signer.mode`; before 0.36.0 by `dexe_get_config` as `signerMode`): `safe` (if Safe env set) → `eoa`
-(if `DEXE_PRIVATE_KEY` set) → `walletconnect` (if project id set) → `readonly`.
+Signer mode (reported by `dexe_write_context` as `signer.mode`) is whatever
+`DEXE_SIGNER_MODE` says — `walletconnect` when unset, even with a hot key
+present. The legacy dispatch label (`signer.dispatch`) is `safe` / `eoa` only in
+`unattended` mode with a loaded key (`safe` when a Safe service is set).
 
 ## Phased delivery
 

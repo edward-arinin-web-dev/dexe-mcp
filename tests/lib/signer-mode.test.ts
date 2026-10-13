@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -102,15 +102,21 @@ describe("SignerManager per mode", () => {
     const wide = new SignerManager(cfg({ privateKey: PK, signerMode: "unattended", signerModeSource: "explicit", unattendedChains: [97, 56] }));
     expect(await wide.signMessage("login", undefined, 56)).toMatch(/^0x[0-9a-f]{130}$/);
     const inCode = new SignerManager(cfg({ privateKey: PK }));
-    expect(await inCode.signMessage("login", undefined, 56)).toMatch(/^0x/);
+    await expect(inCode.signMessage("login", undefined, 56)).rejects.toThrow(SignerModeRefusal);
+    const optOut = new SignerManager(cfg({ privateKey: PK, unattendedChains: null }));
+    expect(await optOut.signMessage("login", undefined, 56)).toMatch(/^0x/);
   });
 
-  it("a config built in code with a key and no mode: the caller chose unattended, unfenced", () => {
+  it("a config built in code with a key and no mode: unattended (the caller chose it), fenced to 97 unless null", () => {
     const s = new SignerManager(cfg({ privateKey: PK }));
     expect(s.mode).toBe("unattended");
     expect(s.modeSource).toBe("explicit");
-    expect(s.unattendedChains).toBeNull();
-    expect(s.requireSigner(56).address).toBe(ADDR);
+    expect(s.unattendedChains).toEqual([97]);
+    expect(s.requireSigner(97).address).toBe(ADDR);
+    expect(() => s.requireSigner(56)).toThrow(SignerModeRefusal);
+    const optOut = new SignerManager(cfg({ privateKey: PK, unattendedChains: null }));
+    expect(optOut.unattendedChains).toBeNull();
+    expect(optOut.requireSigner(56).address).toBe(ADDR);
     const none = new SignerManager(cfg({}));
     expect(none.mode).toBe("walletconnect");
     expect(none.modeSource).toBe("default");
@@ -209,15 +215,55 @@ describe("loadConfig — signer modes", () => {
     expect(c.signerModeSource).toBe("default");
     expect(c.privateKey).toBeUndefined();
     expect(c.unattendedChains).toBeNull();
+    expect(c.hotKeysIgnored).toEqual({ vars: ["DEXE_PRIVATE_KEY"], reason: "unset" });
     expect(new SignerManager(c).hasSigner()).toBe(false);
     const rows = signerModeChecks(c, process.env);
     expect(rows.find((r) => r.id === "signer.mode")?.status).toBe("pass");
     const ignored = rows.find((r) => r.id === "signer.hotKeyIgnored")!;
     expect(ignored.status).toBe("fail");
     expect(ignored.message).toMatch(/DEXE_PRIVATE_KEY: .*IGNORED.*since dexe-mcp 1\.0\.0/);
-    expect(ignored.remediation).toMatch(/DEXE_SIGNER_MODE=unattended/);
-    expect(ignored.remediation).toMatch(/key import --from-env/);
-    expect(ignored.remediation).toMatch(/dexe_wc_connect/);
+    // safest way out first; unattended last, and only with the owner's go-ahead
+    const r = ignored.remediation!;
+    expect(r.indexOf("dexe_wc_connect")).toBeLessThan(r.indexOf("key import --from-env"));
+    expect(r.indexOf("key import --from-env")).toBeLessThan(r.indexOf("DEXE_SIGNER_MODE=unattended"));
+    expect(r).toMatch(/Ask the owner/);
+  });
+
+  it("the startup banner names the ignored key and the reason", async () => {
+    process.env.DEXE_PRIVATE_KEY = PK;
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      await loadConfig();
+    } finally {
+      spy.mockRestore();
+    }
+    const line = writes.find((w) => w.includes("IGNORED"));
+    expect(line).toMatch(/DEXE_PRIVATE_KEY: A hot key is set but DEXE_SIGNER_MODE is not/);
+    expect(writes.join("")).not.toMatch(/signer mode: unattended/);
+  });
+
+  it("unset mode never unlocks a keystore through DEXE_KEYSTORE_PASSWORD_FILE", async () => {
+    process.env.DEXE_KEYSTORE_PATH = join(ksDir, "ks");
+    process.env.DEXE_KEYSTORE_PASSWORD_FILE = join(ksDir, "pw.txt");
+    const c = await loadConfig();
+    expect(c.signerMode).toBe("walletconnect");
+    expect(c.privateKey).toBeUndefined();
+    expect(new SignerManager(c).hasSigner()).toBe(false);
+  }, 30_000);
+
+  it("an INVALID mode with a hot key says the value was rejected, not that it is unset", async () => {
+    process.env.DEXE_PRIVATE_KEY = PK;
+    process.env.DEXE_SIGNER_MODE = "keysotre";
+    const c = await loadConfig();
+    expect(c.hotKeysIgnored?.reason).toBe("invalid");
+    const ignored = signerModeChecks(c, process.env).find((r) => r.id === "signer.hotKeyIgnored")!;
+    expect(ignored.status).toBe("fail");
+    expect(ignored.message).toMatch(/DEXE_SIGNER_MODE was rejected as invalid/);
+    expect(ignored.message).not.toMatch(/DEXE_SIGNER_MODE is not/);
   });
 
   it("unset mode + swarm aliases alone (AGENT_PK_n) → no keyring either", async () => {

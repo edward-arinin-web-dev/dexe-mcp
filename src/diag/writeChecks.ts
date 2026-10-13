@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { WriteConfig } from "../config.js";
 import { DEFAULTS, hotKeyEnvNames } from "../config.js";
-import { UNSET_MODE_HOT_KEY_IGNORED } from "../lib/signerMode.js";
+import { ignoredHotKeySentence } from "../lib/signerMode.js";
 import { keystorePermissionIssues, parseKeystoreMeta, weakKdfReason } from "../lib/keystore.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
@@ -248,17 +248,19 @@ export function signerModeChecks(config: WriteConfig | undefined, env: NodeJS.Pr
         ? { remediation: "In a terminal: `npx dexe-mcp key create` (or `key import`), then restart. See the startup row for the path." }
         : {}),
     });
-    if (hot.length > 0 && config.signerModeSource === "default") {
+    if (config.hotKeysIgnored) {
       // The setup that signed unattended before 1.0.0. It now signs nothing
-      // with the key, so the owner has to choose — a fail, not a warn.
+      // with the key, so the owner has to choose — a fail, not a warn. Safest
+      // way out first; unattended only with the owner's go-ahead.
       out.push({
         id: "signer.hotKeyIgnored",
         category: "signer",
         status: "fail",
-        message: `${hot.join(", ")}: ${UNSET_MODE_HOT_KEY_IGNORED}`,
+        message: ignoredHotKeySentence(config.hotKeysIgnored),
         remediation:
-          "Pick one: DEXE_SIGNER_MODE=unattended (bots/CI; signs only on DEXE_UNATTENDED_CHAINS, default 97), " +
-          "`npx dexe-mcp key import --from-env` (keystore: you approve each batch), or delete the key lines and use dexe_wc_connect. Then restart.",
+          "Ask the owner which: (1) delete the key lines and use dexe_wc_connect (recommended); (2) `npx dexe-mcp key " +
+          "import --from-env` in a terminal → keystore, the owner approves each batch; (3) bots/CI only: " +
+          "DEXE_SIGNER_MODE=unattended (no confirmation; DEXE_UNATTENDED_CHAINS, default 97). Then restart.",
       });
     } else if (hot.length > 0) {
       out.push({

@@ -459,7 +459,7 @@ export function registerSafeTools(
           }
         } else if (input.sign === true) {
           signHint =
-            "sign:true was requested but no signer is configured — set DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
+            "sign:true was requested but no signer is configured — set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
         }
 
         // Assemble the Safe-TX-Service create-multisig-transaction body. Field
@@ -520,7 +520,7 @@ export function registerSafeTools(
         // Live POST path.
         if (!signature || !sender) {
           return err(
-            "Live POST requires a signature. Set DEXE_PRIVATE_KEY (a Safe owner) so the tool can sign the safeTxHash, or run with dryRun=true.",
+            "Live POST requires a signature. Set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) so the tool can sign the safeTxHash, or run with dryRun=true.",
           );
         }
         const ep = resolveSafeServiceEndpoint(chainId, serviceUrl);

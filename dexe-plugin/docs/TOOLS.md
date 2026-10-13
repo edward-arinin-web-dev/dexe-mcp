@@ -457,7 +457,7 @@ Source: `src/tools/walletconnectStatus.ts` + `src/lib/walletconnect.ts`. `DEXE_S
 | Tool | What it does | Required env |
 |------|--------------|--------------|
 | `dexe_wc_status` | Report the resolved WalletConnect config plus live session state (`connected`, `connecting`, `account`, `chainId`, `topic`, `peerName`, `expiry`, `lastError`) and the server's `signerMode` (`walletconnect` | `keystore` | `readonly` | `unattended`). Read-only. WalletConnect dispatches transactions in `walletconnect` mode (the default). | `DEXE_WALLETCONNECT_PROJECT_ID` (for active mode) |
-| `dexe_wc_connect` | Start a session and render a scannable QR (ASCII + PNG) for the phone wallet (MetaMask / Trust / Rainbow) — the recommended signer, no key on disk. Non-blocking — approval completes in the background; poll `dexe_wc_status` until `connected`. Pairs even when a hot key is set (the key keeps precedence until unset). | `DEXE_WALLETCONNECT_PROJECT_ID` |
+| `dexe_wc_connect` | Start a session and render a scannable QR (ASCII + PNG) for the phone wallet (MetaMask / Trust / Rainbow) — the recommended signer, no key on disk. Non-blocking — approval completes in the background; poll `dexe_wc_status` until `connected`. In `DEXE_SIGNER_MODE=unattended` a hot key signs instead. | `DEXE_WALLETCONNECT_PROJECT_ID` |
 | `dexe_wc_disconnect` | Tear down the active session. Safe no-op when not connected. | — |
 
 ---

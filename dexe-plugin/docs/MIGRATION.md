@@ -36,8 +36,14 @@ Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
 
 3. **Code that reads `dexe_write_context`:** `signer.deprecation` is gone;
    `signer.hotKeyIgnored` (a sentence) appears when a hot key is set without a
-   mode. **Code that imports `src/lib/signerMode`:** see the CHANGELOG
-   "Library" line.
+   valid mode, and `signer.modeSource` is only `explicit` or `default` (never
+   `implicit-hot-key`). No-signer write responses append the same sentence to
+   `enableWrites`. **Code that imports `src/lib/signerMode`:** see the
+   CHANGELOG "Library" line.
+
+4. **Embedders building a `SignerManager` in code** with a key and no
+   `unattendedChains`: it now signs only on chain 97 (was: every chain). Pass
+   `unattendedChains: [97, 56]` — or `null` for no fence — explicitly.
 
 ---
 

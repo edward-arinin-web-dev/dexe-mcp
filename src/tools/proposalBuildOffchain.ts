@@ -299,8 +299,8 @@ function registerAuthLoginComposite(
       if (!eoa && !wcConnected) {
         return jsonResult({
           note:
-            "No signer configured — cannot sign the auth nonce internally. Either set DEXE_PRIVATE_KEY " +
-            "(or run dexe_wc_connect), then re-call dexe_auth_login; OR do it manually: dexe_auth_request_nonce → " +
+            "No signer configured — cannot sign the auth nonce internally. Either run dexe_wc_connect (or set " +
+            "DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY), then re-call dexe_auth_login; OR do it manually: dexe_auth_request_nonce → " +
             "sign the returned `message` with your wallet → dexe_auth_login_request with the signature.",
         });
       }

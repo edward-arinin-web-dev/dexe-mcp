@@ -79,6 +79,8 @@ In `.env` at the repo root (never in `.claude.json` — the host `env` block
 silently shadows `.env`), then **restart** the MCP server:
 
 ```bash
+DEXE_SIGNER_MODE=unattended             # the keyring loads in this mode only (since 1.0.0)
+DEXE_UNATTENDED_CHAINS=97               # where it may sign; add 56 deliberately
 DEXE_AGENT_PK_1=0x<burner-key>
 DEXE_AGENT_PK_2=0x<burner-key>
 DEXE_AGENT_PK_3=0x<burner-key>
