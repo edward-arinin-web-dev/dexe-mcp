@@ -28,11 +28,13 @@ import {
 import { homedir } from "node:os";
 import { envKeys, FULL_ENV_SURFACE } from "./env/schema.js";
 import { writeDoctorChecks } from "./diag/writeChecks.js";
-// Static, unlike the other subcommands: `dexe-mcp key` imports the read edition
-// (@dexe-network/dexe-mcp/core), and in the plugin bundle a dynamic import of
-// anything that reaches it makes esbuild wrap zod in a lazy init closure — the
-// bundle then dies on load with "Class2 is not a constructor"
-// (scripts/bundle-plugin.mjs, tests/plugin/bundle-smoke.test.ts).
+// Static, unlike the other subcommands: `dexe-mcp key` and `dexe-mcp approve`
+// import the read edition (@dexe-network/dexe-mcp/core), and in the plugin
+// bundle a dynamic import of anything that reaches it makes esbuild wrap zod in
+// a lazy init closure — the bundle then dies on load with "Class2 is not a
+// constructor" (scripts/bundle-plugin.mjs, tests/plugin/bundle-smoke.test.ts;
+// tests/boundary/import-boundary.test.ts fails on such an import first).
+import { run as runApproveCli } from "./cli/approve.js";
 import { run as runKeyCli } from "./cli/key.js";
 import { spawn } from "node:child_process";
 
@@ -218,8 +220,7 @@ async function runSubcommand(name: Exclude<Subcommand, "serve-http">, envFiles: 
     process.exit(await runKeyCli(process.argv.slice(3), { envFiles }));
   }
   if (name === "approve") {
-    const mod = await import("./cli/approve.js");
-    process.exit(await mod.run(process.argv.slice(3)));
+    process.exit(await runApproveCli(process.argv.slice(3)));
   }
   const mod = await import("./cli/skills.js");
   await mod.run(process.argv.slice(3));

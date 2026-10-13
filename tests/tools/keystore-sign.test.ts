@@ -9,7 +9,7 @@ import { applyApprovalScope } from "../../src/lib/approval/scope.js";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 import type { DexeConfig } from "../../src/config.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import { registerSafeTools } from "../../src/tools/safe.js";
 import { registerProposalBuildOffchainTools } from "../../src/tools/proposalBuildOffchain.js";
 import { buildSafeTx, computeSafeTxHash, safeTxDomain, SAFE_TX_TYPES, type SafeTx } from "../../src/lib/ethersProvider.js";

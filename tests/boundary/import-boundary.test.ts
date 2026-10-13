@@ -354,6 +354,40 @@ describe("the read edition is a dependency, not a copy", () => {
     expect(named("// loadReadConfig is not used here")).toBe(false);
   });
 
+  it("no dynamic import in src/ reaches the read edition (it breaks the plugin bundle)", () => {
+    // esbuild wraps the target of a dynamic import, and everything it reaches,
+    // in a lazy init closure. Reaching @dexe-network/dexe-mcp/core that way
+    // wraps zod, and the bundle dies on load ("Class2 is not a constructor").
+    // Such an import must be static (src/index.ts imports the doctor, `key`
+    // and `approve` statically for this).
+    const reachesCore = (start: string): string | null => {
+      const seen = new Set<string>([start]);
+      const queue = [start];
+      while (queue.length) {
+        const f = queue.shift()!;
+        const specs = scanModule(tree.get(f) ?? "").specifiers;
+        if (specs.includes(`${READ_PACKAGE}/core`)) return f;
+        for (const s of specs.filter((x) => x.startsWith("."))) {
+          const to = resolveIn(tree, f, s);
+          if (to && tree.has(to) && !seen.has(to)) {
+            seen.add(to);
+            queue.push(to);
+          }
+        }
+      }
+      return null;
+    };
+    const bad: string[] = [];
+    for (const [f, text] of tree) {
+      for (const m of text.matchAll(/\bimport\(\s*["'](\.[^"']+)["']\s*\)/g)) {
+        const target = resolveIn(tree, f, m[1]!);
+        const via = target && tree.has(target) ? reachesCore(target) : null;
+        if (via) bad.push(`${f}: import("${m[1]}") reaches ${READ_PACKAGE}/core via ${via}`);
+      }
+    }
+    expect(bad, "make these imports static").toEqual([]);
+  });
+
   it("src/ does use the read edition through core — otherwise the check above is vacuous", () => {
     const importers = [...tree].filter(([, text]) =>
       scanModule(text).specifiers.includes(`${READ_PACKAGE}/core`),

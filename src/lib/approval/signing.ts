@@ -11,7 +11,7 @@ import {
   type TypedDataField,
 } from "ethers";
 import { SAFE_TX_TYPES, safeTxRefundFields } from "../ethersProvider.js";
-import { safeErrorMessage } from "../redact.js";
+import { safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 import { ApprovalDeviationError, type ApprovalStore, type KeyHolder } from "./store.js";
 import type { RiskFlag } from "./review.js";
 
