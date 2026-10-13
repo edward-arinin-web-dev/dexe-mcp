@@ -503,7 +503,7 @@ export function registerOtcBuyerTools(
       whitelistUsers: z.array(z.string()).default([]).describe("Optional whitelist for proof gen"),
       user: z.string().optional().describe("Buyer address; defaults to the configured signer."),
       signerKey: signerKeyParam,
-      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded."),
       simulateFirst: z
         .boolean()
         .default(false)
@@ -515,7 +515,7 @@ export function registerOtcBuyerTools(
 
       const userResolved =
         input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
-      if (!userResolved) return err(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
+      if (!userResolved) return err(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
 
       const userAddr = getAddress(userResolved);
       const tierIdBn = parseUintString(input.tierId, "tierId");
@@ -696,7 +696,7 @@ export function registerOtcBuyerTools(
       tierIds: z.array(z.string()).min(1).describe("Tier ids to sweep, decimal strings."),
       user: z.string().optional().describe("Claimer address; defaults to the configured signer."),
       signerKey: signerKeyParam,
-      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded."),
       includeVesting: z
         .boolean()
         .default(false)
@@ -706,7 +706,7 @@ export function registerOtcBuyerTools(
       if (!isAddress(input.tokenSaleProposal)) return err(`Invalid tokenSaleProposal`);
       const userResolved =
         input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
-      if (!userResolved) return err(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
+      if (!userResolved) return err(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
 
       const userAddr = getAddress(userResolved);
       const tierIdBns = input.tierIds.map((s) => parseUintString(s, "tierId"));

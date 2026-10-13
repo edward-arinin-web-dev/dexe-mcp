@@ -771,7 +771,7 @@ export function registerDaoCreateTools(
     async (input) => {
       const deployer =
         input.deployer ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
-      if (!deployer) return err("Provide 'deployer' address or set DEXE_PRIVATE_KEY.");
+      if (!deployer) return err("Provide 'deployer' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
 
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;

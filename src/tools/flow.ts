@@ -2900,7 +2900,7 @@ export function registerFlowTools(
           "Auto-vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: all available power.",
         ),
       voteNftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
-      user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      user: z.string().optional().describe("User address. Required when no signer is loaded."),
       signerKey: signerKeyParam,
       dryRun: z
         .boolean()
@@ -2982,8 +2982,8 @@ export function registerFlowTools(
           "With autoExecute, drive the validator stage too: moveProposalToValidators, cast the signer's " +
             "validator vote if it is one, then execute. False stops after the member vote.",
         ),
-      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
-      user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded (preview without broadcasting)."),
+      user: z.string().optional().describe("User address. Required when no signer is loaded."),
       signerKey: signerKeyParam,
       flowContext: flowContextSchema,
     },

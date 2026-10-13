@@ -149726,7 +149726,7 @@ function registerFlowTools(server, ctx, signer, wc, state) {
       proposalMetadataExtra: external_exports.record(external_exports.string(), external_exports.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
       voteAmount: external_exports.string().optional().describe("Auto-vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: all available power."),
       voteNftIds: external_exports.array(external_exports.string()).default([]).describe(NFT_IDS_OWN_DESC),
-      user: external_exports.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      user: external_exports.string().optional().describe("User address. Required when no signer is loaded."),
       signerKey: signerKeyParam,
       dryRun: external_exports.boolean().default(false).describe("Preview: no broadcast, no IPFS pin, no Pinata key needed. The metadata CID is right but unpinned \u2014 do NOT broadcast this calldata."),
       confirmRisky: external_exports.boolean().default(false).describe("Required when the built proposal carries a DANGER governance-safety advisory. Without it the flow refuses BEFORE any transaction."),
@@ -149756,8 +149756,8 @@ function registerFlowTools(server, ctx, signer, wc, state) {
       depositFirst: external_exports.union([external_exports.boolean(), external_exports.literal("auto")]).default("auto").describe("'auto': deposit exactly what is missing when deposited power is short. true: deposit the whole wallet balance. false: never deposit."),
       autoExecute: external_exports.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
       driveValidatorRound: external_exports.boolean().default(true).describe("With autoExecute, drive the validator stage too: moveProposalToValidators, cast the signer's validator vote if it is one, then execute. False stops after the member vote."),
-      dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
-      user: external_exports.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded (preview without broadcasting)."),
+      user: external_exports.string().optional().describe("User address. Required when no signer is loaded."),
       signerKey: signerKeyParam,
       flowContext: flowContextSchema
     },
@@ -152982,7 +152982,7 @@ function registerDaoCreateTools(server, ctx, signer, wc, state) {
   }, async (input3) => {
     const deployer = input3.deployer ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!deployer)
-      return err4("Provide 'deployer' address or set DEXE_PRIVATE_KEY.");
+      return err4("Provide 'deployer' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
     const chain2 = resolveChain(ctx.config, input3.chainId);
     const chainId = chain2.chainId;
     const isMainnet2 = chainId === 56 || chainId === 1;
@@ -155306,7 +155306,7 @@ function registerOtcBuyerTools(server, ctx, signer, wc) {
     whitelistUsers: external_exports.array(external_exports.string()).default([]).describe("Optional whitelist for proof gen"),
     user: external_exports.string().optional().describe("Buyer address; defaults to the configured signer."),
     signerKey: signerKeyParam,
-    dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+    dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded."),
     simulateFirst: external_exports.boolean().default(false).describe("eth_call-simulate buy() first; aborts with the revertReason if the sim fails.")
   }, async (input3) => {
     if (!isAddress(input3.tokenSaleProposal))
@@ -155315,7 +155315,7 @@ function registerOtcBuyerTools(server, ctx, signer, wc) {
       return err5(`Invalid tokenToBuyWith`);
     const userResolved = input3.user ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!userResolved)
-      return err5(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
+      return err5(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
     const userAddr = getAddress(userResolved);
     const tierIdBn = parseUintString(input3.tierId, "tierId");
     let amountBn;
@@ -155448,14 +155448,14 @@ ${pr2.remediation}`);
     tierIds: external_exports.array(external_exports.string()).min(1).describe("Tier ids to sweep, decimal strings."),
     user: external_exports.string().optional().describe("Claimer address; defaults to the configured signer."),
     signerKey: signerKeyParam,
-    dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+    dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded."),
     includeVesting: external_exports.boolean().default(false).describe("Attempt `vestingWithdraw` too; it reverts on every current pool (upstream F15).")
   }, async (input3) => {
     if (!isAddress(input3.tokenSaleProposal))
       return err5(`Invalid tokenSaleProposal`);
     const userResolved = input3.user ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!userResolved)
-      return err5(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
+      return err5(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
     const userAddr = getAddress(userResolved);
     const tierIdBns = input3.tierIds.map((s2) => parseUintString(s2, "tierId"));
     const chain2 = resolveChain(ctx.config, input3.chainId);

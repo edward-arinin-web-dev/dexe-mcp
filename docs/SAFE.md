@@ -40,6 +40,10 @@ optional `chainId` (defaults to the MCP's default chain).
 DEXE_SIGNER_MODE=unattended            # the owner key is a hot key: this mode only
 DEXE_UNATTENDED_CHAINS=56              # chains it may sign on (default 97 only)
 DEXE_PRIVATE_KEY=0x...                 # a Safe OWNER key (signs the safeTxHash)
+# The same key can also sign ordinary mainnet transactions (dexe_tx_send) with
+# NO confirmation — cap it (dexe_doctor warns without both):
+DEXE_SIGNER_ALLOWLIST=0x<your-safe>,0x<your-govpool>
+DEXE_SIGNER_MAX_VALUE_WEI=0
 DEXE_RPC_URL_MAINNET=https://bsc-dataseed.bnbchain.org   # to read the Safe nonce
 # Optional / situational:
 DEXE_SAFE_TX_SERVICE_URL=https://api.safe.global/tx-service/bnb/api/v2
