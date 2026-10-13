@@ -340,6 +340,20 @@ describe("the read edition is a dependency, not a copy", () => {
     expect(bad, "deep or unlisted imports of the read package — use its entry points (ENTRY_POINTS)").toEqual([]);
   });
 
+  it("no src/ module imports loadReadConfig — in the write process it would delete the signing keys", () => {
+    // loadReadConfig deletes every DEXE_ / AGENT_ / SWARM_ var the read edition
+    // does not read from process.env (an allowlist). The write edition loads
+    // its config with config.ts's loadConfig, which runs the read loader's
+    // phases (applyEnvSpec, assembleReadConfig, …) without that scrub.
+    const named = (text: string): boolean => /\bloadReadConfig\b/.test(text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ""));
+    const offenders = [...tree].filter(([, text]) => named(text)).map(([f]) => f).sort();
+    expect(offenders, "use loadConfig (src/config.ts); loadReadConfig scrubs process.env").toEqual([]);
+    // the detector sees an import and a re-export, and not a comment
+    expect(named('import { loadReadConfig } from "@dexe-network/dexe-mcp/core";')).toBe(true);
+    expect(named('export { loadReadConfig } from "@dexe-network/dexe-mcp/core";')).toBe(true);
+    expect(named("// loadReadConfig is not used here")).toBe(false);
+  });
+
   it("src/ does use the read edition through core — otherwise the check above is vacuous", () => {
     const importers = [...tree].filter(([, text]) =>
       scanModule(text).specifiers.includes(`${READ_PACKAGE}/core`),

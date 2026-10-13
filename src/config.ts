@@ -41,15 +41,19 @@ import { decryptKeystore, parseKeystoreMeta, selectKeystore, weakKdfReason } fro
  * Compatibility surface: everything `config.ts` exported before the read/write
  * split is still exported from here (the read half is re-exported from the
  * read edition, @dexe-network/dexe-mcp/core — all of its config module but
- * `DEFAULTS`, which the merged table below replaces), and `DexeConfig` is
- * `WriteConfig`.
+ * `DEFAULTS`, which the merged table below replaces, and `loadReadConfig`),
+ * and `DexeConfig` is `WriteConfig`.
+ *
+ * `loadReadConfig` is deliberately NOT re-exported, nor imported anywhere in
+ * src/: it deletes every DEXE_ / AGENT_ / SWARM_ var the read edition does not
+ * read from `process.env` — in this process, the signing keys
+ * (tests/boundary/import-boundary.test.ts).
  */
 export {
   applyEnvSpec,
   assembleReadConfig,
   createIssueSink,
   DEFAULT_SUBGRAPH_CHAIN_ID,
-  loadReadConfig,
   resolveChain,
   resolveChainSet,
   resolveDataSources,
