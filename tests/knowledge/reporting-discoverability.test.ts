@@ -231,7 +231,8 @@ describe("dexe_guide serves the reporting topic (real server, default profile)",
     delete process.env.DEXE_TOOLSETS;
     const config = await loadConfig();
     server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-    registerAll(server, config);
+    // dexe_guide + the reporting reads: the standalone server's.
+    registerAll(server, { ...config, writeStandalone: true });
     client = new Client({ name: "test-client", version: "0.0.0" });
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverT), client.connect(clientT)]);

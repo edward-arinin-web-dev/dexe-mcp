@@ -134,7 +134,9 @@ describe("dexe_guide (real server)", () => {
     delete process.env.DEXE_TOOLSETS;
     const config = await loadConfig();
     server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-    registerAll(server, config);
+    // dexe_guide (flows + topics) is the standalone server's; dexe_write_guide is
+    // covered in tests/tools/write-surface.test.ts.
+    registerAll(server, { ...config, writeStandalone: true });
     client = new Client({ name: "test-client", version: "0.0.0" });
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverT), client.connect(clientT)]);

@@ -843,7 +843,7 @@ export function enableWritesHint(signer: Partial<Pick<SignerManager, "getConfig"
 export const KEYSTORE_MISSING_HINT =
   "⚠️ DEXE_SIGNER_MODE=keystore but no usable keystore was found — the steps below are UNSIGNED payloads; nothing " +
   "was broadcast. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart " +
-  "Claude Code, then re-run this call. dexe_doctor shows the path it looked in.";
+  "Claude Code, then re-run this call. dexe_write_doctor shows the path it looked in.";
 
 /** DEXE_SIGNER_MODE=readonly: the operator chose a server that never signs. */
 export const READONLY_MODE_HINT =
@@ -955,7 +955,7 @@ export const RESUME_RECHECKS =
   "createProposalAndVote (a still-live proposal with the same metadata URL already exists — no duplicate is minted), " +
   "and GovPool.vote (this wallet already voted on this proposal; GovPool reverts a second vote with \"Gov: need cancel\"). " +
   "NOT auto-skipped: GovPool.execute and the validator round (moveProposalToValidators / validator vote) — " +
-  "if one of those was the failing step, check dexe_proposal_state first so the re-run does not repeat a step that landed.";
+  "if one of those was the failing step, check dexe_proposal_state (read server) first so the re-run does not repeat a step that landed.";
 
 /**
  * Resume text for a flow that is ONE payload — a DAO deploy.
@@ -971,7 +971,7 @@ export const DEPLOY_RESUME_RECHECKS =
   "against a duplicate DAO: the pool address is derived from your wallet plus the DAO name (CREATE2), and the " +
   "build refuses up-front with \"PoolFactory: pool name is already taken\" if a pool already has code at that " +
   "address, so a re-run after a deploy that actually landed fails BEFORE broadcasting anything. Keep the SAME " +
-  "daoName on a re-run — changing it deploys a second, separate DAO. To inspect the existing one: dexe_dao_info.";
+  "daoName on a re-run — changing it deploys a second, separate DAO. To inspect the existing one: dexe_dao_info (read server).";
 
 /**
  * True when a step failed because the RECEIPT WAIT timed out rather than
@@ -1169,7 +1169,7 @@ export function postVoteNextStep(
   chainId: number,
 ): string {
   const self = `{"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}`;
-  const inspect = `Track it with dexe_proposal_state ${self}.`;
+  const inspect = `Track it with dexe_proposal_state (read server) ${self}.`;
   switch (state) {
     case 0:
       return (
@@ -1680,7 +1680,7 @@ export async function runProposalCreate(
         return err(
           a.slug
             ? a.message
-            : `${a.message}\nIf this repeats, verify the govPool address is a DeXe GovPool on chain ${chainId} (dexe_dao_info) — a wrong address or chain yields exactly this read failure.`,
+            : `${a.message}\nIf this repeats, verify the govPool address is a DeXe GovPool on chain ${chainId} (dexe_dao_info (read server)) — a wrong address or chain yields exactly this read failure.`,
         );
       }
 
@@ -2136,7 +2136,7 @@ export async function runProposalCreate(
                 "NOTHING WAS BROADCAST. Creating it again would mint a second identical proposal (GovPool does not " +
                 "reject duplicate descriptionURLs) and split the DAO's votes across two copies. " +
                 `Continue with the existing one: dexe_proposal_vote_and_execute {"govPool":"${govPool}",` +
-                `"proposalId":${existing.proposalId},"chainId":${chainId}} — or inspect it with dexe_proposal_state. ` +
+                `"proposalId":${existing.proposalId},"chainId":${chainId}} — or inspect it with dexe_proposal_state (read server). ` +
                 "If a second copy is genuinely intended, re-call with allowDuplicate:true.",
             });
           }
@@ -2382,12 +2382,12 @@ export async function runProposalCreate(
               ? created
                 ? `Pass it with ${voteCall} — it votes, drives the validator round and executes.`
                 : `The create landed but the new id could not be read back (the node is behind). Find it with ` +
-                  `dexe_proposal_list {"govPool":"${govPool}","chainId":${chainId}} — the entry whose ` +
+                  `dexe_proposal_list (read server) {"govPool":"${govPool}","chainId":${chainId}} — the entry whose ` +
                   `descriptionURL is ${descriptionURL}. Do NOT guess it: a vote on the wrong proposal cannot be undone in one call.`
               : input.dryRun
                 ? "NOTHING WAS BROADCAST (dryRun), so no proposal exists yet and there is no id. Re-run with dryRun:false to create it."
                 : "NOTHING WAS BROADCAST (no signing key). Broadcast the payloads above with dexe_tx_send, then read the id with " +
-                  `dexe_proposal_list {"govPool":"${govPool}","chainId":${chainId}}.`,
+                  `dexe_proposal_list (read server) {"govPool":"${govPool}","chainId":${chainId}}.`,
           }),
           autoVote: {
             amount: voteAmountHuman,
@@ -2952,7 +2952,7 @@ export function registerFlowTools(
       "proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper → deposit → " +
       "vote, the frontend's bundled shape), and with autoExecute executes once the vote passes. Without a signer " +
       "it returns ordered TxPayloads + a WalletConnect QR. Unsure of the lifecycle (validator round, locked " +
-      "tokens)? Call dexe_guide (flow:'vote_execute') first.",
+      "tokens)? Call dexe_write_guide (flow:'vote_execute') first.",
     {
       govPool: govPoolParam,
       chainId: z
@@ -3162,7 +3162,7 @@ export function registerFlowTools(
 
       if (stateNum !== 0) {
         const remedies: Record<number, string> = {
-          1: "It is waiting for the validator-voting transfer — re-run with driveValidatorRound:true (default) once past voting, or check dexe_proposal_state.",
+          1: "It is waiting for the validator-voting transfer — re-run with driveValidatorRound:true (default) once past voting, or check dexe_proposal_state (read server).",
           2: "It is in validator voting — the DAO's validators must vote; if the configured signer is a validator, re-run with driveValidatorRound:true.",
           3: "It was DEFEATED — voting is over. Create a new proposal if the change is still wanted.",
           4: "It already PASSED — re-run this call with autoExecute:true (the default) to execute it, no vote needed.",
@@ -3173,7 +3173,7 @@ export function registerFlowTools(
         };
         return err(
           `Proposal #${proposalId} is in state "${stateName}" — voting is only possible in "Voting". ` +
-            (remedies[stateNum] ?? "Check dexe_proposal_state for details."),
+            (remedies[stateNum] ?? "Check dexe_proposal_state (read server) for details."),
         );
       }
 
@@ -3517,7 +3517,7 @@ export function registerFlowTools(
                   receiver: result.signer?.address,
                   amountWei: prereqs.depositedPower > 0n ? prereqs.depositedPower.toString() : undefined,
                 })}.`
-              : `Track it with dexe_proposal_state {"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}.`),
+              : `Track it with dexe_proposal_state (read server) {"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}.`),
         }),
         power: {
           deposited: prereqs.depositedPower.toString(),

@@ -6,14 +6,18 @@ something on your side.
 
 ---
 
-## 0.37.1 → 1.0.0 — read this if you sign with DEXE_PRIVATE_KEY or the agent keyring
+## 0.37.1 → 1.0.0 — read this if you sign with DEXE_PRIVATE_KEY or the agent keyring, and everyone: reads moved to a second server
 
-Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
+**172 tools** / 19 groups, now on two servers: `dexe-mcp` registers the **118
+write tools** by default, and the DeXe read server `dexe-mcp-read`
+(`@dexe-network/dexe-mcp`) serves the 54 read tools next to it. No emitted
+calldata changed. Items 1–6 are about signing; 7–13 about the two servers.
 
 1. **A hot key alone no longer signs.** If your `.env` (or MCP host `env`
    block) sets `DEXE_PRIVATE_KEY` or `DEXE_AGENT_PK_*` / `AGENT_PK_*` and does
    NOT set `DEXE_SIGNER_MODE`, 1.0 ignores the key and falls back to
-   WalletConnect; `dexe_doctor` fails `signer.hotKeyIgnored`. Pick one and
+   WalletConnect; `dexe_write_doctor` (standalone: `dexe_doctor`) fails
+   `signer.hotKeyIgnored`. Pick one and
    restart:
 
    ```bash
@@ -69,6 +73,88 @@ Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
    and removes it on exit. `dexe_tx_approval_status` and `dexe_write_context`
    approvals now carry a `kind` (`tx-batch` | `message` | `safeTx`); a
    signature approval has no `landed` / `txCount`.
+
+7. **`dexe-mcp` registers write tools only.** The 54 read tools —
+   `dexe_context`, `dexe_guide`, `dexe_doctor`, `dexe_get_config`,
+   `dexe_dao_info`, `dexe_proposal_state`, every `dexe_read_*`,
+   `dexe_dao_report`, … — are the read server's. Pick one:
+
+   ```jsonc
+   // a) two servers (recommended; the Claude Code plugin does this for you)
+   "mcpServers": {
+     "dexe":      { "command": "npx", "args": ["-y", "dexe-mcp@latest"] },
+     "dexe-read": { "command": "npx", "args": ["-y", "-p", "@dexe-network/dexe-mcp@1.0.0-rc.1", "dexe-mcp-read"] }
+   }
+   // b) one server, as before 1.0: in the dexe entry's env block
+   "env": { "DEXE_WRITE_STANDALONE": "1" }
+   ```
+
+   `npx dexe-mcp init` prints (a) with `node` paths into your install. For
+   (b) prefer the `dexe` entry's host `env` block over the shared
+   `~/.dexe-mcp/.env`: it is a per-server switch, and the read server reads the
+   same file. **Do not set it with the Claude Code plugin** — the plugin already
+   runs the read server, so standalone there lists the 54 read tools twice.
+   Standalone registers the same tools as 0.37 plus the two of item 8; some
+   texts differ (read tools named `(read server)`, `dexe_write_guide` /
+   `dexe_write_doctor` in pointers and remedies). Both servers read the same
+   `~/.dexe-mcp/.env`; the read server drops the signing keys from its process.
+
+8. **Renamed orientation on the write server:** `dexe_write_guide` (the
+   eight write journeys — create a DAO, proposal, vote/execute, distribution,
+   OTC, staking, token launch, agent team) and `dexe_write_doctor` (signer,
+   keystore, approval page, Pinata, WalletConnect, this server's `.env`)
+   replace `dexe_guide` / `dexe_doctor` there; `dexe_write_context` now also
+   returns `recorded` (the DAOs and proposals this install recorded, windowed by
+   `daoLimit` / `proposalLimit`), since the read server keeps no state. The
+   read server's `dexe_guide` has the data-reading topics only, its
+   `dexe_doctor` the RPC / subgraph / backend / IPFS checks. `npx dexe-mcp
+   doctor` still runs every check of both. Composite `next` pointers and the
+   `dexe-flow-*` prompts name `dexe_write_guide`; a pointer at a read tool
+   carries `providedBy`. **Code that parses tool text:** write text names a
+   read tool as `dexe_dao_info (read server)`.
+
+9. **Write-only `DEXE_TOOLSETS`:** every set name still works, narrowed to
+   the write tools — `core` is 25 tools (was 46), `read` is only
+   `dexe_ipfs_cid_for_json`, `full` is 118. The deprecated aliases
+   `dexe_otc_buyer_status` / `dexe_otc_list_sales_for_dao` exist only
+   standalone (their targets are read tools). So does the F15 block on the
+   position view: on the default two-server setup `dexe_read_token_sale_position`
+   is the read server's, with its neutral `vestingNote`, while the write actions
+   still refuse `vestingWithdraw` (`dexe_otc_dao_open_sale` refuses a vesting
+   tier by default, `dexe_otc_buyer_claim_all` does not send it, the builder
+   reports it). See [PROFILES.md](./PROFILES.md).
+
+10. **The `dexe-mcp-read` bin moved to `@dexe-network/dexe-mcp`.** Two
+   packages declaring one bin collide on a global install (EEXIST), so
+   `dexe-mcp` no longer declares it. Replace `npx -p dexe-mcp dexe-mcp-read`
+   with `npx -y -p @dexe-network/dexe-mcp@1.0.0-rc.1 dexe-mcp-read`.
+   `dexe-mcp serve-http` still works (it starts the read server).
+
+11. **Swarm / e2e harnesses** that call read tools through `dist/index.js`
+   set `DEXE_WRITE_STANDALONE=1` (the swarm orchestrator does it for you).
+
+12. **No stored history on the default setup.** The read server keeps nothing
+   between calls, so on the two-server setup:
+   - `dexe_dao_report` has no `persist` and refuses `since: "last"` — pass an
+     explicit anchor (ISO time, Unix seconds or `block:<n>`); a scheduled
+     prompt carries the previous run's `generatedAt` forward
+     ([REPORTING.md](./REPORTING.md), the `dexe-report` skill);
+   - `dexe_user_inbox` has no record of the DAOs this install deployed, so on
+     a chain without a subgraph (BSC testnet 97) pass `daos[]` explicitly —
+     standalone it still falls back to the recorded DAOs;
+   - `dexe_read_token_sales` needs `tokenSaleProposal` (the OTC flow's verify
+     step now passes it).
+   The DAOs and proposals this install recorded are in `dexe_write_context`
+   (`recorded`). Standalone (`DEXE_WRITE_STANDALONE=1`) keeps the 0.37
+   behaviour: `reports.json` snapshots, `since: "last"`, the inbox fallback.
+
+13. **Buying into a vesting tier needs `acknowledgeVesting: true`.**
+   `dexe_otc_buyer_buy` now reads the tier's vesting settings: a tier with a
+   vested share gets the F15 DANGER block in the result (dryRun too), and a real
+   buy into it is refused unless `acknowledgeVesting: true` — the vested share
+   can never be withdrawn on current pools. Buys into tiers without vesting are
+   unchanged. (The position view on the default setup is the read server's,
+   which shows only a neutral `vestingNote`.)
 
 ---
 
@@ -268,7 +354,9 @@ moved to `dexe_write_context`.
    nothing.** It no longer publishes the `persist` input, and `since: "last"`
    answers with an error asking for an explicit anchor (ISO timestamp, Unix
    seconds or `block:<n>`). The stdio server is unchanged: it still stores a
-   snapshot per run in `reports.json` and honours `since: "last"`.
+   snapshot per run in `reports.json` and honours `since: "last"`. (Since
+   1.0.0 only a standalone `dexe-mcp` does — the default setup's read server
+   keeps no snapshots; see 0.37.1 → 1.0.0, item 12.)
 
 ---
 

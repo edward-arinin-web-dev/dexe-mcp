@@ -84,6 +84,8 @@ const WRITE_CLASSES: Record<string, ToolAnnotations> = {
   dexe_proposal_catalog: LOCAL_READ,
   // reads the in-memory approval store; cannot approve or decline anything
   dexe_tx_approval_status: LOCAL_READ,
+  // the bundled write corpus + the local state file (known DAO, unfinished flow)
+  dexe_write_guide: LOCAL_READ,
 
   // ── READ_ONLY — reads chain / subgraph / backend / IPFS and returns.
   // Calldata builders live here too: they return an unsigned payload and never
@@ -167,6 +169,8 @@ const WRITE_CLASSES: Record<string, ToolAnnotations> = {
   dexe_wc_status: READ_ONLY,
   // signer posture + keyring; probes each persona's balance over RPC, so open world
   dexe_write_context: READ_ONLY,
+  // probes Pinata (and, opt-in, pins one tiny file — the probePin input says so)
+  dexe_write_doctor: READ_ONLY,
 };
 
 /**
@@ -196,11 +200,15 @@ const WRITE_TITLES: Record<string, string> = {
   dexe_write_context: "Signer and write posture",
 };
 
-/** The write edition's annotation table. Nothing is always-loaded yet. */
+/**
+ * The write edition's annotation table — the write-only server's (the 1.0.0
+ * default). Always loaded: the two tools its handshake sends every session to
+ * first, `dexe_write_guide` and `dexe_write_context`.
+ */
 export const WRITE_ANNOTATIONS: AnnotationTable = {
   classes: WRITE_CLASSES,
   titles: WRITE_TITLES,
-  alwaysLoaded: new Set<string>(),
+  alwaysLoaded: new Set<string>(["dexe_write_guide", "dexe_write_context"]),
 };
 
 /**

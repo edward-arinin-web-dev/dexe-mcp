@@ -3,6 +3,10 @@
     "dexe": {
       "command": "node",
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/index.mjs"]
+    },
+    "dexe-read": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/read/bin.mjs"]
     }
   }
 }

@@ -2,7 +2,7 @@ import type { Flow } from "@dexe-network/dexe-mcp/core";
 
 /**
  * The flow corpus — ordered multi-step journeys through DeXe governance.
- * Each flow is what `dexe_guide` serves as the "detail tier": the interview
+ * Each flow is what `dexe_write_guide` (and, standalone, `dexe_guide`) serves as the "detail tier": the interview
  * (questions + risk notes), the exact tool sequence, and the relevant gotchas.
  *
  * Placeholders: `{{name}}` binds to an interview param of that name, or to a
@@ -335,7 +335,8 @@ export const FLOWS: readonly Flow[] = [
         id: "predict",
         tool: "dexe_dao_predict_addresses",
         purpose: "Fetch the DAO's DistributionProposal executor address.",
-        paramsTemplate: { daoName: "…the DAO's name…", chainId: "…" },
+        // The read tool's own parameter names: PoolFactory.predictGovAddresses(deployer, poolName).
+        paramsTemplate: { deployer: "…the address that deployed the DAO…", poolName: "…the DAO's name…", chainId: "…" },
         bindsFrom: { distributionProposal: "predict.distributionProposal" },
         reportOnSuccess: "Got the distribution executor.",
         next: [{ when: "always", stepId: "create", why: "create the distribution proposal" }],
@@ -444,10 +445,12 @@ export const FLOWS: readonly Flow[] = [
         id: "verify",
         tool: "dexe_read_token_sales",
         purpose: "Confirm the tier is live and show its parameters (times are UTC).",
-        paramsTemplate: { govPool: "{{govPool}}" },
+        // The read server keeps no record of the sale, so the address is passed
+        // explicitly — bound from the open step (bindsFrom above).
+        paramsTemplate: { govPool: "{{govPool}}", tokenSaleProposal: "{{tokenSaleProposal}}" },
         reportOnSuccess:
           "Report tier id, price, remaining allocation, saleStartTimeUTC/saleEndTimeUTC. Buyers proceed with " +
-          "dexe_read_token_sale_position → dexe_otc_buyer_buy → (after sale end) dexe_otc_buyer_claim_all.",
+          "dexe_read_token_sale_position (read server) → dexe_otc_buyer_buy → (after sale end) dexe_otc_buyer_claim_all.",
       },
     ],
     gotchaIds: ["amount-conventions"],
@@ -582,7 +585,7 @@ export const FLOWS: readonly Flow[] = [
     steps: [
       {
         id: "leg_dao",
-        tool: "dexe_guide",
+        tool: "dexe_write_guide",
         purpose:
           "LEG 1 — deploy the DAO. Fetch flow 'create_dao' and run its interview + steps. Set treasuryPercent so " +
           "the treasury covers the distribution list share (e.g. list needs 20% → treasury ≥ 20% + reserve), " +
@@ -610,12 +613,12 @@ export const FLOWS: readonly Flow[] = [
         },
         gotchaIds: ["distribution-vs-transfer", "vp-locked", "low-creating-power-race", "blacklist-execute-trap"],
         reportOnSuccess:
-          "Recipient paid — repeat for the rest of the list, then verify balances with dexe_read_token_holders.",
+          "Recipient paid — repeat for the rest of the list, then verify balances with dexe_read_token_holders (read server).",
         next: [{ when: "all recipients funded", stepId: "leg_otc", why: "open the sale" }],
       },
       {
         id: "leg_otc",
-        tool: "dexe_guide",
+        tool: "dexe_write_guide",
         purpose: "LEG 3 — open the OTC sale. Fetch flow 'otc_sale' and run its interview + steps.",
         paramsTemplate: { flow: "otc_sale" },
         reportOnSuccess: "Sale live — proceed to staking.",
@@ -623,7 +626,7 @@ export const FLOWS: readonly Flow[] = [
       },
       {
         id: "leg_staking",
-        tool: "dexe_guide",
+        tool: "dexe_write_guide",
         purpose:
           "LEG 4 — set up staking. Fetch flow 'staking_setup'. On chain 97 this leg MUST be deferred to mainnet — " +
           "relay the chain note instead of attempting it.",
@@ -666,7 +669,7 @@ export const FLOWS: readonly Flow[] = [
     summary:
       "Drive several keyring personas (proposer / voter / validator / delegator) through one DAO: configure the keyring, fund inside a budget, run the sequence that works on-chain, reconcile per-persona from the agent ledger.",
     chainNotes: {
-      97: "Testnet (97) is where an agent team belongs: free faucet BNB, throwaway DAOs, nothing real at stake — rehearse here first. Subgraph reconciliation (turnout / who-voted) does NOT exist on 97; use dexe_proposal_state plus the local ledger.",
+      97: "Testnet (97) is where an agent team belongs: free faucet BNB, throwaway DAOs, nothing real at stake — rehearse here first. No subgraph on 97 (no turnout / who-voted reconciliation): use dexe_proposal_state (read server) plus the local ledger.",
       56: "MAINNET — every persona holds a plaintext hot key that signs without asking, and the fleet spends real BNB unattended. Only after the same scenario is green on 97, with throwaway wallets and a budget you can afford to lose. Relay this and get an explicit go-ahead first.",
     },
     interview: [
@@ -837,7 +840,7 @@ export const FLOWS: readonly Flow[] = [
         id: "verify_outcome",
         tool: "dexe_dao_report",
         purpose:
-          "Did the governance outcome actually land? The turnout section shows who voted and with what weight (subgraph-backed: mainnet only — on 97 use dexe_proposal_state per proposal and say the section is missing).",
+          "Did the governance outcome actually land? The turnout section shows who voted and with what weight (subgraph-backed: mainnet only — on 97 use dexe_proposal_state (read server) per proposal and say the section is missing).",
         paramsTemplate: { govPool: "{{govPool}}", chainId: "{{chainId}}", sections: '["proposals","turnout"]' },
         reportOnSuccess:
           "Report the final proposal state in words. Then UNLOCK: voters still hold locked tokens — one dexe_vote_build_withdraw per persona before the next round.",

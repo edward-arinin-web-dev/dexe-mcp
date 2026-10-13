@@ -1,4 +1,17 @@
-# `dexe_doctor` — diagnostic reference
+# `dexe_doctor` / `dexe_write_doctor` — diagnostic reference
+
+> **Two doctors (1.0.0).** With the default two servers the checks are split:
+> **`dexe_write_doctor`** (the `dexe` write server) reports `surface.mode`
+> (write-only or standalone — `DEXE_WRITE_STANDALONE`), the env values it
+> rejected at startup, the `.env` it loaded (`env.file`, `env.file.precedence`,
+> `env.shadowedKeys`, `env.parse.*`, `env.unknownVars`), the write/dev vars,
+> the signer / keystore / approval-page / broadcast-guard / keyring rows, Pinata
+> (`pinata.jwt`, opt-in `probePin`), the shared WalletConnect id
+> (`walletconnect.sharedProjectId`) and `state.path`. **`dexe_doctor`** (the
+> `dexe-read` server) reports RPC, IPFS gateway, subgraph and backend
+> reachability and the read env. `npx dexe-mcp doctor` (CLI) and, standalone,
+> `dexe_doctor` run every check below in one report. Both tools return the
+> same `{ summary, checks, remediationSummary, … }` shape.
 
 The `dexe_doctor` tool (and its CLI twin `npx dexe-mcp doctor`) is the
 canonical "what is wrong with my setup?" diagnostic. It walks every
@@ -14,8 +27,8 @@ means, and how to fix the failure cases.
 
 Three equivalent entry points:
 
-1. **From inside Claude Code:** call the `dexe_doctor` MCP tool. No
-   arguments.
+1. **From inside Claude Code:** call the `dexe_write_doctor` and `dexe_doctor`
+   MCP tools (standalone: `dexe_doctor` alone). No arguments.
 2. **From a shell:** `npx dexe-mcp doctor [--strict] [--probe-pin]`. Exits with status:
    - `0` — no check failed. **Warnings only is still `0`** — that is the
      normal result for a zero-config install (see below).
@@ -23,8 +36,8 @@ Three equivalent entry points:
    - `2` — at least one failure, **or an unknown flag** (an unrecognized
      option is reported and exits `2` rather than being silently ignored,
      so `--Strict` or `--strict=true` in CI cannot go green by accident)
-3. **Via the `/dexe-setup` skill:** the skill calls `dexe_doctor` for
-   you, then parses the report into questions.
+3. **Via the `/dexe-setup` skill:** the skill calls both doctors for
+   you, then parses the reports into questions.
 
 A healthy zero-config install ends at roughly `10 pass / 3 warn / 0 fail`,
 exit `0`. The three warnings — `env.file`, `chain.publicRpcFallback` and
@@ -105,7 +118,7 @@ bearer token.
 ### Pinata pin capability — `pinata.pinQuota` (opt-in, WRITES)
 
 **Off by default, and emits no row at all when off.** Enable it with
-`npx dexe-mcp doctor --probe-pin` or `dexe_doctor { "probePin": true }`.
+`npx dexe-mcp doctor --probe-pin` or `dexe_write_doctor { "probePin": true }` (standalone also `dexe_doctor { "probePin": true }`).
 Only runs when `DEXE_PINATA_JWT` is set.
 
 It pins ~40 bytes of deterministic JSON named `dexe-mcp-doctor-probe` and

@@ -72,6 +72,11 @@ const CORE = [
   // signer, keyring and upload/WalletConnect/Safe posture — the write half of
   // what dexe_context and dexe_get_config reported before 0.36.0
   "dexe_write_context",
+  // the write journeys and the write checks (1.0.0): the write-only server's
+  // guide and doctor, which the standalone server registers next to
+  // dexe_guide / dexe_doctor so write text can always name them
+  "dexe_write_guide",
+  "dexe_write_doctor",
   // composite signing flows
   "dexe_proposal_create",
   "dexe_proposal_vote_and_execute",
@@ -460,20 +465,37 @@ export const SINGLE_SERVER_TOOLSETS: ToolsetTable = {
 };
 
 /**
- * The write edition's table: every set above narrowed to WRITE_TOOLS, empty
- * sets dropped, default `core`. No catalog yet — the write edition has no
- * `dexe_context` (decision D1); its orientation tool is `dexe_write_context`.
+ * The write edition's table — what this server gates by DEFAULT (1.0.0,
+ * write-only): every set above narrowed to WRITE_TOOLS, empty sets dropped,
+ * default `core`. No catalog — the write-only server has no `dexe_context`
+ * (decision D1); its orientation tools are `dexe_write_context` and
+ * `dexe_write_doctor`, which reports the active sets.
+ *
+ * What narrowing leaves: `core` = the composites, broadcast, WalletConnect,
+ * uploads, the five key vote builders, the catalog and the three write_*
+ * orientation tools; `read` = dexe_ipfs_cid_for_json alone (the reads are the
+ * read server's); `vote` / `dev` / `governor` lose their read tools. Spelled out
+ * in docs/PROFILES.md and pinned by tests/tools/gate.test.ts.
  */
 export const WRITE_EDITION_TOOLSETS: ToolsetTable = restrictToolsetTable(SINGLE_SERVER_TOOLSETS, WRITE_TOOLS);
+
+/**
+ * The table this server gates with: the write edition's by default, the single
+ * server's (read + write) with `DEXE_WRITE_STANDALONE=1`.
+ */
+export function serverToolsets(config: { writeStandalone?: boolean }): ToolsetTable {
+  return config.writeStandalone ? SINGLE_SERVER_TOOLSETS : WRITE_EDITION_TOOLSETS;
+}
 
 /**
  * The tool names a session sees when `DEXE_TOOLSETS` is unset. Callers that need
  * to answer "is this tool visible by default?" (knowledge annotations, doctor,
  * `dexe_context`) must use this instead of hardcoding the profile names, so the
- * answer can never drift from `DEFAULT_TOOLSETS`.
+ * answer can never drift from `DEFAULT_TOOLSETS`. Default: the single server's
+ * table (the standalone server's — every surface the pre-1.0 server had).
  */
-export function defaultProfileToolNames(): ReadonlySet<string> {
-  return defaultToolNames(SINGLE_SERVER_TOOLSETS);
+export function defaultProfileToolNames(table: ToolsetTable = SINGLE_SERVER_TOOLSETS): ReadonlySet<string> {
+  return defaultToolNames(table);
 }
 
 /** `resolveToolsetsIn` over the single server's table. Pure — no side effects. */
@@ -488,10 +510,29 @@ export function resolveToolsets(requested: readonly string[]): ResolvedToolsets 
 export const FULL_SURFACE_SIZE = tableSurface(SINGLE_SERVER_TOOLSETS).size;
 
 /**
- * The single server's gate: `applyToolsetGate` over `SINGLE_SERVER_TOOLSETS`.
- * Returns the original server unchanged when the active profile is `full`.
- * Emits a one-line stderr banner. Call once in `registerAll`.
+ * This server's gate: `applyToolsetGate` over the mode's table
+ * (`serverToolsets`). Returns the original server unchanged when the active
+ * profile is `full` — so the write-only server also restricts registrations to
+ * WRITE_TOOLS (`restrictRegistrations`), or `full` would let every read tool a
+ * shared register function carries through. Emits a one-line stderr banner.
+ * Call once in `registerAll`.
  */
-export function applyToolGate(server: McpServer, config: ReadConfig): McpServer {
-  return applyToolsetGate(server, config, SINGLE_SERVER_TOOLSETS);
+export function applyToolGate(server: McpServer, config: ReadConfig & { writeStandalone?: boolean }): McpServer {
+  const gated = applyToolsetGate(server, config, serverToolsets(config));
+  return config.writeStandalone ? gated : restrictRegistrations(gated, new Set(WRITE_TOOLS));
+}
+
+/** Proxy `server` so `registerTool` / `tool` drop any name outside `allow`. */
+export function restrictRegistrations(server: McpServer, allow: ReadonlySet<string>): McpServer {
+  return new Proxy(server, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver) as unknown;
+      if ((prop === "registerTool" || prop === "tool") && typeof value === "function") {
+        const fn = value as (...a: unknown[]) => unknown;
+        return (name: unknown, ...rest: unknown[]) =>
+          typeof name === "string" && !allow.has(name) ? undefined : fn.call(target, name, ...rest);
+      }
+      return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  });
 }

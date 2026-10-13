@@ -155,7 +155,8 @@ export async function run(): Promise<InitNext> {
     output.write(line("How should this server sign transactions?"));
     output.write(line("  walletconnect — your phone wallet signs each one; keys never touch this machine"));
     output.write(line("  keystore      — an encrypted key here; you approve every batch with its password"));
-    output.write(line("                  on a local web page (the AI never sees the password)"));
+    output.write(line("                  on a local web page, or in a terminal with `dexe-mcp approve`"));
+    output.write(line("                  (the AI never sees the password)"));
     output.write(line("  readonly      — never sign; tools return unsigned calldata"));
     if (allowUnattended) {
       output.write(line("  unattended    — a PLAINTEXT hot key in .env signs with NO confirmation (bots/CI)"));
@@ -293,7 +294,12 @@ export async function run(): Promise<InitNext> {
     }
 
     // ---- Print .claude.json snippet ------------------------------------
-    output.write(line("Paste this into your ~/.claude.json under `mcpServers`:"));
+    output.write(
+      line(
+        "Paste this into your ~/.claude.json under `mcpServers` — two servers: `dexe` (writes) and `dexe-read` " +
+          "(the DeXe read server, which serves the reads):",
+      ),
+    );
     output.write(line(""));
     output.write(jsonSnippet(repoRoot));
     output.write(line(""));
@@ -515,16 +521,28 @@ export function findRepoRoot(): string {
   return process.cwd();
 }
 
-function jsonSnippet(repoRoot: string): string {
-  const distPath = resolve(repoRoot, "dist", "index.js");
+/**
+ * The `mcpServers` block for this install: TWO servers (1.0.0). `dexe` is this
+ * package's — write tools only by default; `dexe-read` is the DeXe read
+ * server (`dexe-mcp-read`, the @dexe-network/dexe-mcp dependency this install
+ * carries, started through dist/read/bin.js), which serves the reads. Both load
+ * the same ~/.dexe-mcp/.env; the read server drops the signing keys from its
+ * process. Exported for tests/cli/init-snippet.test.ts.
+ */
+export function jsonSnippet(repoRoot: string): string {
   // Use JSON.stringify to handle Windows backslashes cleanly.
-  const safe = JSON.stringify(distPath);
+  const write = JSON.stringify(resolve(repoRoot, "dist", "index.js"));
+  const read = JSON.stringify(resolve(repoRoot, "dist", "read", "bin.js"));
   return [
     "{",
     `  "mcpServers": {`,
     `    "dexe": {`,
     `      "command": "node",`,
-    `      "args": [${safe}]`,
+    `      "args": [${write}]`,
+    `    },`,
+    `    "dexe-read": {`,
+    `      "command": "node",`,
+    `      "args": [${read}]`,
     `    }`,
     `  }`,
     `}`,

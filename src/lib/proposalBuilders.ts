@@ -294,7 +294,7 @@ async function resolveGovSettings(
   if (!settings || !isAddress(settings) || settings === ZeroAddress) {
     throw new Error(
       `govSettings was omitted and GovPool.getHelperContracts() on ${deps.govPool} (chain ${deps.chainId}) did not ` +
-        `return one — is this a GovPool? Pass govSettings explicitly (dexe_dao_info.helpers.settings).`,
+        `return one — is this a GovPool? Pass govSettings explicitly (dexe_dao_info (read server) → helpers.settings).`,
     );
   }
   return settings;
@@ -503,7 +503,7 @@ const customAbiBuilder: CatalogBuilder = {
 
 const manageValidatorsBuilder: CatalogBuilder = {
   schema: z.object({
-    govValidators: z.string().describe("GovValidators address (dexe_dao_info.helpers.validators)"),
+    govValidators: z.string().describe("GovValidators address (dexe_dao_info (read server) → helpers.validators)"),
     changes: z.array(z.object({ user: z.string(), balance: numericIntString.describe("Wei; 0 to remove") })).min(1),
   }),
   async build(raw, deps) {
@@ -1047,7 +1047,7 @@ const applyToDaoBuilder: CatalogBuilder = {
       if ("error" in pr) {
         throw new Error(
           `treasuryBalance was omitted (auto-read needs an RPC) and no RPC is configured for chain ${deps.chainId}. ` +
-            `Pass treasuryBalance explicitly (dexe_read_treasury) or configure an RPC. ${pr.remediation}`,
+            `Pass treasuryBalance explicitly (dexe_read_treasury (read server)) or configure an RPC. ${pr.remediation}`,
         );
       }
       const res = await multicall(pr.ok, [
@@ -1100,7 +1100,7 @@ const newProposalTypeBuilder: CatalogBuilder = {
       .describe("GovSettings address. Omit to read it from the DAO (GovPool.getHelperContracts)."),
     settings: ProposalSettingsSchema,
     executors: z.array(z.string()).min(1),
-    newSettingId: numericIntString.describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings)"),
+    newSettingId: numericIntString.describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings (read server))"),
   }),
   async build(raw, deps) {
     const p0 = raw as {

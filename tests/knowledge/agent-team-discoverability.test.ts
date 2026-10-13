@@ -320,7 +320,8 @@ describe("dexe-agent-team skill", () => {
     expect(skill).toMatch(/autoExecute:false/);
     expect(skill).toMatch(/dexe_agents_ledger/);
     expect(skill).toMatch(/agent-ledger\.json/);
-    expect(skill).toMatch(/dexe_guide \{flow:"agent_team"\}/);
+    // dexe_write_guide: the write server's guide, registered in both modes.
+    expect(skill).toMatch(/dexe_write_guide \{flow:"agent_team"\}/);
     expect(skill).toMatch(/DEXE_TOOLSETS=core,agents/);
     expect(skill).toMatch(/"confirm": true/);
   });
@@ -356,7 +357,7 @@ describe("dexe_guide serves the agent flow (real server, default profile)", () =
     delete process.env.DEXE_TOOLSETS;
     const config = await loadConfig();
     server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-    registerAll(server, config);
+    registerAll(server, { ...config, writeStandalone: true });
     client = new Client({ name: "test-client", version: "0.0.0" });
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(serverT), client.connect(clientT)]);
@@ -410,7 +411,7 @@ describe("the keyring tools the flow points at are reachable with core,agents,vo
     try {
       const config = await loadConfig();
       const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-      registerAll(server, config);
+      registerAll(server, { ...config, writeStandalone: true });
       const client = new Client({ name: "test-client", version: "0.0.0" });
       const [clientT, serverT] = InMemoryTransport.createLinkedPair();
       await Promise.all([server.connect(serverT), client.connect(clientT)]);

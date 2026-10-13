@@ -404,7 +404,7 @@ function registerErc20Approve(server: McpServer, ctx: WriteToolContext, rpc: Rpc
       title: "Build ERC20.approve(spender, amount) calldata",
       description:
         B +
-        "`ERC20.approve(spender, amount)`. Run it before dexe_vote_build_deposit when staking an ERC20: approve the DAO's GovUserKeeper (dexe_dao_info), never the GovPool. Native-coin staking needs no approve — pass `value` on deposit instead.",
+        "`ERC20.approve(spender, amount)`. Run it before dexe_vote_build_deposit when staking an ERC20: approve the DAO's GovUserKeeper (dexe_dao_info (read server)), never the GovPool. Native-coin staking needs no approve — pass `value` on deposit instead.",
       inputSchema: {
         token: z.string().describe("ERC20 token contract address to approve."),
         spender: z.string().describe("For deposits: the DAO's GovUserKeeper address (NOT the GovPool)"),
@@ -463,7 +463,7 @@ function registerErc20Approve(server: McpServer, ctx: WriteToolContext, rpc: Rpc
                 `GovUserKeeper.transferFrom pulls the deposit; approving the GovPool leaves the allowance unusable.`,
             remedy: keeper
               ? `Re-call with spender=${keeper}.`
-              : "Run dexe_dao_info(govPool) and re-call with spender = helpers.userKeeper.",
+              : "Run dexe_dao_info (read server) with the govPool and re-call with spender = helpers.userKeeper.",
           });
         }
         return payloadResultWith(payload, extra);
@@ -862,7 +862,7 @@ function registerValidatorVote(server: McpServer, ctx: WriteToolContext): void {
         B +
         "`GovValidators.vote{Internal,External}Proposal(proposalId, amount, isVoteFor)`. Arg order differs from GovPool.vote — amount comes before isVoteFor. Requires validator stake.",
       inputSchema: {
-        govValidators: z.string().describe("GovValidators address (dexe_dao_info: helpers.validators)."),
+        govValidators: z.string().describe("GovValidators address (dexe_dao_info (read server) → helpers.validators)."),
         scope: z.enum(["internal", "external"]).describe("Which chamber's proposal: 'internal' or 'external'."),
         proposalId: z.string().describe(PROPOSAL_ID_DESC),
         amount: z
@@ -910,7 +910,7 @@ function registerValidatorCancelVote(server: McpServer, ctx: WriteToolContext): 
         B +
         "`GovValidators.cancelVote{Internal,External}Proposal(proposalId)`. The on-chain firewall refuses this call on fresh (SphereX-era) pools and GovValidators has no multicall to wrap it in, so there is no workaround — an upstream defect, reported with every payload.",
       inputSchema: {
-        govValidators: z.string().describe("GovValidators address (dexe_dao_info: helpers.validators)."),
+        govValidators: z.string().describe("GovValidators address (dexe_dao_info (read server) → helpers.validators)."),
         scope: z.enum(["internal", "external"]).describe("Which chamber's proposal: 'internal' or 'external'."),
         proposalId: z.string().describe(PROPOSAL_ID_DESC),
         chainId: buildChainIdParam,
@@ -997,7 +997,7 @@ function registerExecute(server: McpServer, ctx: WriteToolContext, rpc: RpcProvi
           .enum(["external", "internal"])
           .default("external")
           .describe("'external' executes on GovPool; 'internal' on GovValidators (needs govValidators)."),
-        govValidators: z.string().optional().describe("Required for scope:'internal' (dexe_dao_info.helpers.validators)"),
+        govValidators: z.string().optional().describe("Required for scope:'internal' (dexe_dao_info (read server) → helpers.validators)"),
         voter: voterParam,
         chainId: buildChainIdParam,
       },
@@ -1018,7 +1018,7 @@ function registerExecute(server: McpServer, ctx: WriteToolContext, rpc: RpcProvi
         if (scope === "internal") {
           if (!govValidators || !isAddress(govValidators)) {
             return errorResult(
-              "scope:'internal' requires `govValidators` (get it from dexe_dao_info.helpers.validators).",
+              "scope:'internal' requires `govValidators` (get it from dexe_dao_info (read server) → helpers.validators).",
             );
           }
           const vIface = new Interface(["function executeInternalProposal(uint256 proposalId)"]);
@@ -1146,7 +1146,7 @@ function registerNftMultiplierLock(server: McpServer, ctx: WriteToolContext): vo
       description:
         B + "`ERC721Multiplier.lock(tokenId)` — applies the reward-multiplier NFT's bonus to your voting power.",
       inputSchema: {
-        nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info → nftMultiplier)"),
+        nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info (read server) → nftMultiplier)"),
         tokenId: z.string().describe("NFT token ID to lock"),
         chainId: buildChainIdParam,
       },
@@ -1180,7 +1180,7 @@ function registerNftMultiplierUnlock(server: McpServer, ctx: WriteToolContext): 
       description:
         B + "`ERC721Multiplier.unlock()` — returns the locked NFT and removes its voting-power bonus.",
       inputSchema: {
-        nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info → nftMultiplier)"),
+        nftMultiplier: z.string().describe("ERC721Multiplier contract address (from dexe_dao_info (read server) → nftMultiplier)"),
         chainId: buildChainIdParam,
       },
       outputSchema: payloadOutputSchema(),

@@ -31,7 +31,8 @@ async function callToolRaw(statePath: string, name: string, args: Record<string,
   process.env.DEXE_STATE_PATH = statePath;
   const config = await loadConfig();
   const server = new McpServer({ name: "ctx-test", version: "0.0.0" }, {});
-  registerAll(server, config);
+  // dexe_context is the read server's; this server registers it standalone only.
+  registerAll(server, { ...config, writeStandalone: true });
   const client = new Client({ name: "c", version: "0.0.0" });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(st), client.connect(ct)]);
@@ -179,7 +180,7 @@ describe("dexe_write_context is the write half (0.36.0)", () => {
     const { json } = await callWrite(statePath);
     expect(json.activeFlow).toMatchObject({ flow: "create_dao", step: "deploy", chainId: 97 });
     expect(json.hint).toMatch(/^Mid-journey: flow 'create_dao'/);
-    expect(json.hint).toContain('dexe_guide {flow:"create_dao"}');
+    expect(json.hint).toContain('dexe_write_guide {flow:"create_dao"}');
     expect(json.hint).not.toContain("No DAOs recorded");
   });
 });

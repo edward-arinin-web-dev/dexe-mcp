@@ -3,13 +3,18 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
- * Drift guard for the tool count quoted in user-facing docs. The registered
- * surface is 170 tools (asserted structurally in tests/tools/gate.test.ts);
- * every three-digit "<N> tools" mention in the docs must quote that number,
- * and known stale literals from past releases must not reappear.
+ * Drift guard for the tool count quoted in user-facing docs. Since 1.0.0 the
+ * package has 172 tools (READ_TOOLS + WRITE_TOOLS — the standalone surface,
+ * asserted structurally in tests/tools/write-surface.test.ts), of which the
+ * write-only default server registers 118. Every three-digit "<N> tools"
+ * mention in the docs must quote one of those two, every doc must mention the
+ * 172 total, and known stale literals from past releases must not reappear.
  */
-const REAL_COUNT = "170";
+const REAL_COUNT = "172";
+const WRITE_ONLY_COUNT = "118";
 const STALE_LITERALS = [
+  "170 tools",
+  "170-tool",
   "153 tools",
   "155 tools",
   "156 tools",
@@ -62,9 +67,9 @@ describe("docs quote the real tool count", () => {
     describe(rel, () => {
       const text = currentClaim(rel, readFileSync(resolve(root, rel), "utf8"));
 
-      it(`every three-digit '<N> tools' mention equals ${REAL_COUNT}`, () => {
+      it(`every three-digit '<N> tools' mention is ${REAL_COUNT} or ${WRITE_ONLY_COUNT}`, () => {
         const mentions = [...text.matchAll(/\b(1\d\d)(?=[ -]tools?\b)/g)].map((m) => m[1]);
-        const wrong = mentions.filter((n) => n !== REAL_COUNT);
+        const wrong = mentions.filter((n) => n !== REAL_COUNT && n !== WRITE_ONLY_COUNT);
         expect(wrong, `${rel} quotes stale tool counts: ${wrong.join(", ")}`).toEqual([]);
       });
 

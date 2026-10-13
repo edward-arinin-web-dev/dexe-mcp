@@ -19,9 +19,14 @@ import { isMainModule } from "@dexe-network/dexe-mcp/core";
  */
 
 const ROOT = resolve(__dirname, "..", "..");
-// Both binaries report this package's version: `dexe-mcp-read` is the read
-// edition's binary behind a shim (src/read/bin.ts), which passes it this one.
+// `dexe-mcp` reports this package's version; the read server (src/read/bin.ts,
+// the shim around @dexe-network/dexe-mcp's binary) reports the READ package's.
 const version = (JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { version: string }).version;
+const readVersion = (
+  JSON.parse(readFileSync(resolve(ROOT, "node_modules", "@dexe-network", "dexe-mcp", "package.json"), "utf8")) as {
+    version: string;
+  }
+).version;
 const work = mkdtempSync(join(tmpdir(), "dexe-symlink-bin-"));
 
 function canSymlink(): boolean {
@@ -58,15 +63,15 @@ describe("isMainModule", () => {
 
 describe.skipIf(!symlinks)("the built binaries, launched through a symlink", () => {
   it.each([
-    ["dexe-mcp", resolve(ROOT, "dist", "index.js")],
-    ["dexe-mcp-read", resolve(ROOT, "dist", "read", "bin.js")],
-  ])("%s --version answers", (name, target) => {
+    ["dexe-mcp", resolve(ROOT, "dist", "index.js"), version],
+    ["dexe-mcp-read", resolve(ROOT, "dist", "read", "bin.js"), readVersion],
+  ])("%s --version answers", (name, target, expected) => {
     if (!existsSync(target)) return; // needs `npm run build`, like tests/cli/usage.test.ts
     const link = join(work, name);
     symlinkSync(target, link);
     const r = spawnSync(process.execPath, [link, "--version"], { encoding: "utf8", timeout: 15_000, input: "" });
     expect(r.status).toBe(0);
     // once: a shim whose package entry also started itself printed it twice
-    expect(r.stdout.trim()).toBe(version);
+    expect(r.stdout.trim()).toBe(expected);
   });
 });

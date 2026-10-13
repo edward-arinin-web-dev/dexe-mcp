@@ -100,7 +100,7 @@ export function lowQuorumAdvisory(pct: number, floorPct: number): string {
 export const TREASURY_RISK_ADVISORY =
   `⚠ This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). ` +
   `Confirm the DAO's quorum is adequate (≥50%) and that key stakeholders have participated before ` +
-  `executing. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
+  `executing. Run dexe_proposal_risk_assess (read server) for a full readout. ${ADVISORY_TAG}`;
 
 /**
  * Build-time advisory for any builder whose actions move treasury value.
@@ -126,7 +126,7 @@ export function treasuryExecuteAdvisory(reasons: string[]): string {
   return (
     `⚠ Treasury-safety advisory: this proposal moves treasury value AND ${reasons.join("; ")}. ` +
     `Verify adequate quorum and stakeholder participation before executing — ` +
-    `responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess for a full ` +
+    `responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess (read server) for a full ` +
     `readout. ${ADVISORY_TAG}`
   );
 }

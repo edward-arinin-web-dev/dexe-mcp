@@ -71,23 +71,40 @@ describe("degraded server (startup failure stays reachable)", () => {
     expect(process.argv[1] ?? "").not.toMatch(/src[\\/]index\.ts$/);
   });
 
-  it("completes the MCP handshake and exposes only dexe_doctor", async () => {
+  it("completes the MCP handshake and exposes only dexe_write_doctor (the write-only default)", async () => {
     const { server, client } = await bootDegraded(new Error("DEXE_SIGNER_MAX_VALUE_WEI is not a number"));
     expect(client.getServerVersion()?.name).toBe("dexe-mcp");
-    expect(client.getInstructions() ?? "").toContain("dexe_doctor");
+    expect(client.getInstructions() ?? "").toContain("dexe_write_doctor");
 
     const { tools } = await client.listTools();
-    expect(tools.map(t => t.name)).toEqual(["dexe_doctor"]);
+    expect(tools.map(t => t.name)).toEqual(["dexe_write_doctor"]);
 
     await client.close();
     await server.close();
   });
 
-  it("dexe_doctor returns the startup error plus the remediation", async () => {
+  it("serves it as dexe_doctor on a standalone server (DEXE_WRITE_STANDALONE=1)", async () => {
+    // The write-only server has no dexe_doctor — the read server beside it does,
+    // and two tools of that name in one session would be one too many.
+    const saved = process.env.DEXE_WRITE_STANDALONE;
+    process.env.DEXE_WRITE_STANDALONE = "1";
+    try {
+      const { server, client } = await bootDegraded(new Error("boom"));
+      expect((await client.listTools()).tools.map(t => t.name)).toEqual(["dexe_doctor"]);
+      expect(client.getInstructions() ?? "").toContain("Call dexe_doctor");
+      await client.close();
+      await server.close();
+    } finally {
+      if (saved === undefined) delete process.env.DEXE_WRITE_STANDALONE;
+      else process.env.DEXE_WRITE_STANDALONE = saved;
+    }
+  });
+
+  it("dexe_write_doctor returns the startup error plus the remediation", async () => {
     const { server, client } = await bootDegraded(new Error("DEXE_SIGNER_MAX_VALUE_WEI is not a number"), [
       "/home/u/.dexe-mcp/.env",
     ]);
-    const res = await client.callTool({ name: "dexe_doctor", arguments: {} });
+    const res = await client.callTool({ name: "dexe_write_doctor", arguments: {} });
     const text = firstText(res);
 
     expect(text).toContain("DEXE_SIGNER_MAX_VALUE_WEI is not a number"); // the cause
@@ -103,7 +120,7 @@ describe("degraded server (startup failure stays reachable)", () => {
 
   it("reports a non-Error throw instead of printing [object Object]", async () => {
     const { server, client } = await bootDegraded("config.json is unreadable");
-    const text = firstText(await client.callTool({ name: "dexe_doctor", arguments: {} }));
+    const text = firstText(await client.callTool({ name: "dexe_write_doctor", arguments: {} }));
     expect(text).toContain("config.json is unreadable");
 
     await client.close();

@@ -64,9 +64,9 @@ asking.
 
 ## Recipe — SIMPLE mode (recommended)
 
-0. **Orient:** `dexe_context` — shows the active chain, env readiness, and
-   DAOs you already deployed; `dexe_write_context` shows the signer and whether
-   Pinata is set.
+0. **Orient:** `dexe_write_context` — the signer, whether Pinata is set, and
+   the DAOs this install already deployed; `dexe_context` (the read server's)
+   — the active chain and env readiness.
 1. **Env:** ensure the target chain is 97 and `DEXE_PINATA_JWT` is set (metadata).
 2. **(Optional) avatar:** `dexe_dao_generate_avatar` / `dexe_ipfs_upload_avatar`
    → pass the `cid` as `avatarCID`. Since v0.20.0 both enforce real raster
@@ -212,5 +212,5 @@ Deploy a new DeXe governance DAO with its gov token in one composite call (previ
 - ℹ Amount strings: digits-only = RAW smallest units (wei); a decimal point ("12.5") = human units scaled by the token's REAL on-chain decimals (never assumed 18). Durations and delays are SECONDS (86400 = 1 day). Composite quorum/percent params are plain percent numbers (51).
 - ℹ Chains: 56 = BSC mainnet, 97 = BSC testnet. Rehearse on 97 first (free faucet BNB) except for features that don't exist there (staking, subgraph, off-chain backend). Mainnet gas is cents per tx (~0.1 gwei) — never size budgets from Ethereum L1 intuition.
 
-_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_guide` tool with `flow:"create_dao"`._
+_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_write_guide` tool with `flow:"create_dao"`._
 <!-- END GENERATED: flow-recipe -->

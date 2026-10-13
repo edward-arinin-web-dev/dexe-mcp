@@ -2,7 +2,7 @@
   "name": "dexe",
   "displayName": "DeXe MCP — DAO governance",
   "version": "0.37.1",
-  "description": "Deploy DAOs, build every proposal type, vote/delegate/execute, OTC sales, IPFS metadata — the DeXe Protocol as MCP tools. Reads work with zero setup; add keys only for writes.",
+  "description": "Deploy DAOs, build every proposal type, vote/delegate/execute, OTC sales, IPFS metadata — the DeXe Protocol as MCP tools, on two servers: dexe (writes) and dexe-read (reads). Reads work with zero setup; add keys only for writes.",
   "author": {
     "name": "Edward Arinin",
     "email": "edward.arinin@gmail.com"

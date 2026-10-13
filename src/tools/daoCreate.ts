@@ -646,7 +646,7 @@ export function registerDaoCreateTools(
       "proposal class forever — plus a calldata round-trip self-check and a pre-sign eth_call: a provable revert " +
       "is refused with a classified cause + fix BEFORE any gas is spent, while an RPC outage only downgrades to " +
       "a warning. Mainnet (56) always needs `confirm: true` (real BNB); validate on testnet (97) first. " +
-      "`deployer` defaults to the signer. Unsure of the journey or params? Call dexe_guide (flow:'create_dao').",
+      "`deployer` defaults to the signer. Unsure of the journey or params? Call dexe_write_guide (flow:'create_dao').",
     {
       chainId: z
         .number()
@@ -1260,7 +1260,7 @@ export function registerDaoCreateTools(
             if (readiness && !readiness.govPoolLive) {
               readiness.note =
                 "code not visible yet on the RPC endpoint — on load-balanced public RPCs this is usually read-lag, " +
-                "not a failed deploy (the deploy tx DID land). Re-check in ~30s with dexe_dao_info.";
+                "not a failed deploy (the deploy tx DID land). Re-check in ~30s with dexe_dao_info (read server).";
             }
           }
         } catch {

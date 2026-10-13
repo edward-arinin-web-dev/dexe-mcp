@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.edward-arinin-web-dev/dexe-mcp",
   "title": "DeXe DAO governance",
-  "description": "DeXe Protocol DAOs for AI agents: create DAOs, proposals, votes, OTC token sales, on-chain reads.",
+  "description": "DeXe Protocol DAO writes for AI agents: deploy DAOs, propose, vote, OTC sales. Reads: dexe-mcp-read.",
   "repository": {
     "url": "https://github.com/edward-arinin-web-dev/dexe-mcp",
     "source": "github"

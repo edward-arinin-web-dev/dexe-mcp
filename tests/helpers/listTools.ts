@@ -27,10 +27,29 @@ export interface ListedTools {
   bytes: number;
 }
 
-export async function listTools(toolsetsEnv: string | undefined): Promise<ListedTools> {
+/**
+ * Which surface to boot (1.0.0): `standalone` is `DEXE_WRITE_STANDALONE=1` —
+ * the read tools registered next to the write ones, the pre-1.0 single server
+ * most of these suites were written against, and the helper's default;
+ * `write-only` is the product default (WRITE_TOOLS, the read server beside it).
+ */
+export type SurfaceMode = "standalone" | "write-only";
+
+export async function listTools(
+  toolsetsEnv: string | undefined,
+  mode: SurfaceMode = "standalone",
+): Promise<ListedTools> {
   if (toolsetsEnv === undefined) delete process.env.DEXE_TOOLSETS;
   else process.env.DEXE_TOOLSETS = toolsetsEnv;
-  const config = await loadConfig();
+  const savedMode = process.env.DEXE_WRITE_STANDALONE;
+  process.env.DEXE_WRITE_STANDALONE = mode === "standalone" ? "1" : "0";
+  let config: Awaited<ReturnType<typeof loadConfig>>;
+  try {
+    config = await loadConfig();
+  } finally {
+    if (savedMode === undefined) delete process.env.DEXE_WRITE_STANDALONE;
+    else process.env.DEXE_WRITE_STANDALONE = savedMode;
+  }
   const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
   registerAll(server, config);
   const client = new Client({ name: "test-client", version: "0.0.0" });

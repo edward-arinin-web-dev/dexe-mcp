@@ -320,7 +320,7 @@ export class SignerManager {
           err instanceof SignerModeRefusal
             ? err.remediation
             : err instanceof NoSignerKeyError
-              ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it."
+              ? "Run dexe_write_doctor to confirm which .env this server loaded, then restart Claude Code after editing it."
               : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC),
       };
     }
@@ -411,7 +411,7 @@ export class SignerManager {
       throw new NoSignerKeyError(
         "Keystore mode is on but no usable keystore was found, so this call cannot sign. Reads work without one.\n" +
           "Create one in a terminal (not through the AI): `npx dexe-mcp key create` (or `key import`), then restart " +
-          "Claude Code. Run dexe_doctor for the exact path and problem.",
+          "Claude Code. Run dexe_write_doctor for the exact path and problem.",
       );
     }
     if (this.mode === "readonly") {
@@ -424,7 +424,7 @@ export class SignerManager {
       "No signing key is configured, so this call cannot sign. Reads work without one.\n" +
         hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC) +
         "\nPrefer WalletConnect (keys stay on your phone): set DEXE_WALLETCONNECT_PROJECT_ID in .env, then run " +
-        "dexe_wc_connect. Run dexe_doctor to see which values this server loaded and from where, or /dexe-setup " +
+        "dexe_wc_connect. Run dexe_write_doctor to see which values this server loaded and from where, or /dexe-setup " +
         "for a guided walkthrough.",
     );
   }

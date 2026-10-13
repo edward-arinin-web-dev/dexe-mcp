@@ -9,6 +9,13 @@
 // launch, but that path throws -32000 on Windows. esbuild inlines every dep
 // into one ESM file so the plugin ships a runnable server.
 //
+// The plugin ships TWO servers (1.0.0): `dexe` (this package — write tools only
+// by default) and `dexe-read` (the DeXe read server, @dexe-network/dexe-mcp,
+// which serves the reads). Both are bundled here from what this install
+// carries — dist/index.js and dist/read/bin.js (the read package's binary
+// behind this package's shim) — so the plugin launches the read server with
+// plain `node` too, offline, at exactly the read version this release pins.
+//
 // Output goes to dexe-plugin/server/ (NOT dexe-plugin/dist/) on purpose:
 // `.gitignore` has a bare `dist/` rule that matches dist dirs at any depth, so
 // a bundle under dist/ would be silently un-committable.
@@ -39,19 +46,35 @@ mkdirSync(outDir, { recursive: true });
 // rewrite that one import; src/index.ts now imports both statically, so there
 // is nothing left to rewrite (tests/plugin/bundle-smoke.test.ts boots the
 // bundle).
-await build({
-  entryPoints: [resolve(root, "dist/index.js")],
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node20",
-  outfile: resolve(outDir, "index.mjs"),
-  // Some bundled CJS deps call require() internally; in an ESM bundle that
-  // throws "Dynamic require … is not supported" unless we hand them a real one.
-  banner: {
-    js: "import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);",
-  },
-  logLevel: "info",
+const bundle = (entry, outfile, define = {}) =>
+  build({
+    entryPoints: [resolve(root, entry)],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    target: "node20",
+    outfile,
+    define,
+    // Some bundled CJS deps call require() internally; in an ESM bundle that
+    // throws "Dynamic require … is not supported" unless we hand them a real one.
+    banner: {
+      js: "import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);",
+    },
+    logLevel: "info",
+  });
+
+await bundle("dist/index.js", resolve(outDir, "index.mjs"));
+// The read server: two directories below the plugin root, like dist/read/bin.js
+// below the package root — the binary finds package.json (its version) and
+// docs/GRAPH.md (the dexe://graph-schema resource) at ../../, and its .env
+// candidate at ../.env, the same file as the write server's. Nothing of the
+// write edition can be in it: dist/read/bin.js imports no write module
+// (tests/read/module-graph.test.ts).
+// It reports the READ package's version (src/read/bin.ts): baked in here,
+// since the bundle has no package directory to read it from.
+const readPkg = JSON.parse(readFileSync(resolve(root, "node_modules/@dexe-network/dexe-mcp/package.json"), "utf8"));
+await bundle("dist/read/bin.js", resolve(outDir, "read", "bin.mjs"), {
+  __DEXE_READ_VERSION__: JSON.stringify(readPkg.version),
 });
 
 // The server reads these files at runtime via fs, relative to its own dir
@@ -91,4 +114,4 @@ serverJson.version = pkg.version;
 for (const p of serverJson.packages ?? []) p.version = pkg.version;
 writeFileSync(serverJsonPath, JSON.stringify(serverJson, null, 2) + "\n");
 
-console.log(`bundled dexe-plugin/server/index.mjs (v${pkg.version})`);
+console.log(`bundled dexe-plugin/server/index.mjs + dexe-plugin/server/read/bin.mjs (v${pkg.version})`);

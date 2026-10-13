@@ -10,7 +10,7 @@
   `DEXE_SIGNER_MODE=unattended`, and then sign only on
   `DEXE_UNATTENDED_CHAINS` (default `97`) — there is no unfenced unattended
   mode left in the env loader.
-- `dexe_doctor` fails `signer.hotKeyIgnored` for that setup and names the three
+- `dexe_write_doctor` (standalone: `dexe_doctor`; and `npx dexe-mcp doctor`) fails `signer.hotKeyIgnored` for that setup and names the three
   ways out (explicit unattended, `dexe-mcp key import --from-env`, or
   WalletConnect); the startup banner says the same. `dexe_write_context`
   reports it as `signer.hotKeyIgnored` instead of the old `signer.deprecation`.
@@ -23,7 +23,7 @@
   fenced to 97 unless `unattendedChains` is given (`null` = no fence).
 - The ignored keys are recorded (`config.hotKeysIgnored`) and named — with
   the reason (unset vs rejected mode) and the ways out, safest first — in the
-  startup banner, `dexe_doctor`, `dexe_write_context` and the `enableWrites`
+  startup banner, `dexe_write_doctor`, `dexe_write_context` and the `enableWrites`
   hint of every no-signer write response. `dexe_agents_list` / `dexe_agents_fund`
   say the keyring is not loaded (mode) instead of asking for keys.
 - Model-facing remedies (`dexe_wc_connect`, `dexe_tx_send`, Safe, auth login,
@@ -31,8 +31,87 @@
   agent-team / create-proposal / otc / vote-execute skills) no longer say a key
   alone signs.
 
+### Breaking — two servers: `dexe-mcp` registers write tools only (172 tools)
+- The read tools moved to the DeXe read server, `dexe-mcp-read` from
+  `@dexe-network/dexe-mcp` (which this package now depends on for its read
+  code). By default `dexe-mcp` registers **118 write tools** (`WRITE_TOOLS`,
+  `src/editions.ts`) and none of the 54 read tools; run the read server next to
+  it. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md).
+- **`DEXE_WRITE_STANDALONE=1`** (new env var, `dexe_write_doctor` row
+  `surface.mode`) registers the read tools too — the same tools as 0.37 plus
+  the two below (172 tools, `core` 48); some texts differ (read tools marked
+  `(read server)`, pointers/remedies naming the two new tools). Set it in the
+  `dexe` entry's host `env` block, not with the plugin (it already runs the
+  read server).
+- **New `dexe_write_guide`** — the eight write journeys from the same knowledge
+  engine as `dexe_guide` (index + per-flow plans, interview, gotchas, chain
+  notes, cross-session resume). A step whose tool the write server lacks is
+  located `providedBy` the read server. The read server's `dexe_guide` keeps the
+  data topics; standalone, `dexe_guide` still serves flows + topics.
+- **New `dexe_write_doctor`** — the write server's checks only: surface mode,
+  startup-rejected values, the `.env` this process loaded (and what shadows
+  it), write/dev vars, signer / keystore / approval page / hot keys / broadcast
+  guards / keyring, Pinata (+ opt-in `probePin`), the shared WalletConnect id,
+  the state file. No RPC / subgraph / backend / gateway probes (the read
+  server's `dexe_doctor`). `npx dexe-mcp doctor` still runs both editions'
+  checks; the degraded startup server is named `dexe_write_doctor` (or
+  `dexe_doctor` standalone).
+- `dexe_write_context` returns `recorded` — the DAOs and proposals this
+  install's write flows recorded (`daoLimit` / `proposalLimit`, `*Total`) —
+  since the read server keeps no state.
+- Write-only handshake (2,031 chars): reads come from the read server, call
+  `dexe_write_guide` first, `dexe_write_context` / `dexe_write_doctor`;
+  default `core` = 25 tools. Always-loaded tools: `dexe_write_guide`,
+  `dexe_write_context`. Standalone keeps the 0.37 text (2,046 chars).
+- Every read tool a write text names is marked `(read server)`: published
+  descriptions and parameter texts (applied to `tools/list`, so the read
+  package's shared parameter texts are covered), remedies, the guide's gotchas,
+  composite `next` pointers (`providedBy`). Pointers and remedies that named
+  `dexe_guide` / `dexe_doctor` name `dexe_write_guide` / `dexe_write_doctor`
+  (registered in both modes). The PLAYBOOK error table is the write-only one.
+- Toolset profiles keep their names on the write-only server, narrowed to the
+  write tools: `core` 25, `proposals` 42, `read` 1 (`dexe_ipfs_cid_for_json`),
+  `vote` 28, `agents` 3, `governor` 10, `dev` 19, `full` 118. The deprecated
+  aliases `dexe_otc_buyer_status` / `dexe_otc_list_sales_for_dao` (and the F15
+  block on the position view) exist only standalone: on the default
+  two-server setup `dexe_read_token_sale_position` is the read server's, with
+  its neutral `vestingNote`, and the write actions still refuse
+  `vestingWithdraw` (`dexe_otc_dao_open_sale` refuses a vesting tier by
+  default, `dexe_otc_buyer_claim_all` does not send it, the builder reports it).
+- **The `dexe-mcp-read` bin is gone from this package** (both packages
+  declaring it broke a global install with EEXIST): use
+  `npx -y -p @dexe-network/dexe-mcp@1.0.0-rc.1 dexe-mcp-read`. `dexe-mcp serve-http` still
+  starts the read edition's HTTP server.
+- **Claude Code plugin ships two servers:** `dexe` (`server/index.mjs`) and
+  `dexe-read` (`server/read/bin.mjs`, the read server bundled from the pinned
+  dependency — launched with plain `node`, no npx). `npx dexe-mcp init` prints
+  both into the host-config snippet.
+- Swarm orchestrator, e2e, OTC-lifecycle and eval harnesses run the server
+  standalone (their scenarios read through it).
+- **No stored history on the default setup** (the read server keeps none):
+  `dexe_dao_report` takes an explicit `since` anchor — `since: "last"` and
+  `persist` exist only standalone; the `dexe-report` skill, REPORTING.md and
+  the PLAYBOOK say so and carry the previous run's `generatedAt` forward in the
+  scheduled prompt. `dexe_user_inbox` on the read server has no recorded-DAO
+  fallback (pass `daos[]` on chain 97); `dexe_read_token_sales` needs
+  `tokenSaleProposal` — the OTC flow's verify step now passes it, and the
+  token-distribution flow's predict step uses the read tool's real parameter
+  names (`deployer`, `poolName`).
+- **`dexe_otc_buyer_buy` warns and asks before buying into a vesting tier**
+  (F15): it reads the tier's `vestingSettings`; a tier with a vested share gets
+  the `vestingBlocked` DANGER block in every mode and in dryRun, and a real buy
+  into it is refused unless the new optional `acknowledgeVesting: true`. Buys
+  into tiers without vesting are unchanged.
+- `dexe-flow-*` prompts and the `dexe://playbook` / `dexe://tools` resources
+  mark read tools `(read server)` on the write-only server, which no longer
+  serves `dexe://graph-schema` (the read server does).
+- Every "run the read server" snippet, `--help` and the doctor's remediation
+  pin `@dexe-network/dexe-mcp@1.0.0-rc.1`; under the plugin the remediation
+  points at its `dexe-read` server instead. The plugin's read server reports
+  the read package's version.
+
 ### Added — keystore approvals for messages and Safe typed data (2c Phase B, part 1)
-Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-safe-transactions-since-100).
+No new tool (the 1.0.0 count is the two-server section's above). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-safe-transactions-since-100).
 - **Two new approval kinds** through the same store, page, password check,
   global lockout, decline cooldown, TTL and single-use rule as a transaction
   batch: `message` (EIP-191, bound to `keccak(chainId, from, keccak(bytes))`)
@@ -119,7 +198,7 @@ Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-saf
   rendezvous, `PATH`, pseudo-terminal) — WalletConnect stays the
   recommendation for agents with shell or browser control.
 
-### Changed
+### Changed — keystore approvals and `dexe-mcp approve` (2c Phase B, part 1)
 - The password check moved from the HTTP server into the approval manager, so
   the page and the terminal share one serialized queue and lockout.
   `dexe_tx_approval_status` / `dexe_write_context` approvals carry `kind`; the
@@ -136,7 +215,7 @@ Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-saf
   `src`; the terminal channel accepts no secret and no plain password on the
   wire.
 
-### Tests
+### Tests — keystore approvals and `dexe-mcp approve` (2c Phase B, part 1)
 Message review flags and markers, binding namespaces, typed-data policy
 (Permit / Permit2 / permit-shaped / non-SafeTx / domain chain and contract),
 message + SafeTx approvals over HTTP (replay, deviation, expiry, decline

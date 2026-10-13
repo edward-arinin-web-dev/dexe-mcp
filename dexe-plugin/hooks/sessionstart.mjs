@@ -32,12 +32,12 @@ function readStdin() {
 
 const NUDGE =
   "<dexe-mcp-onboarding>\n" +
-  "dexe-mcp is installed and READS work with zero setup — DAO info, treasury, holders, " +
-  "proposals, and subgraph + IPFS reads all run on shared public defaults. No keys needed to explore.\n" +
+  "dexe-mcp is installed as two servers: dexe-read (reads) and dexe (writes). READS work with zero setup — " +
+  "DAO info, treasury, holders, proposals, and subgraph + IPFS reads all run on shared public defaults. No keys needed to explore.\n" +
   "To ENABLE WRITES (vote / execute), connect a wallet with dexe_wc_connect (approve on your phone). " +
   "To CREATE DAOs or proposals you also need a free Pinata JWT (DEXE_PINATA_JWT) for IPFS metadata.\n" +
-  "Run /dexe-setup for a guided walkthrough, or dexe_doctor to check config. " +
-  "Tip: call dexe_context first to see the chain / env state, and dexe_write_context for the signer.\n" +
+  "Run /dexe-setup for a guided walkthrough, or dexe_doctor (reads) / dexe_write_doctor (signing, uploads) to check config. " +
+  "Tip: dexe_context shows the chain / env state, dexe_write_context the signer, and dexe_write_guide plans any multi-step write.\n" +
   "</dexe-mcp-onboarding>";
 
 async function main() {

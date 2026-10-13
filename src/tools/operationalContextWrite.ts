@@ -160,6 +160,10 @@ export async function keyringReport(
   };
 }
 
+/** Default windows for the recorded DAOs / proposals — the same as dexe_context's. */
+const RECORDED_DAO_WINDOW = 8;
+const RECORDED_PROPOSAL_WINDOW = 5;
+
 /** What to do next given the signer mode - one sentence, the mode's first move. */
 const SIGNER_NEXT: Record<SignerMode, string> = {
   walletconnect:
@@ -185,7 +189,7 @@ export function registerWriteContextTool(
     "Read-only. Write posture for this session — the signer mode + address (WalletConnect, keystore, hot key or none), " +
       "the agent KEYRING (signerKey, address, gas, 24h broadcasts per persona), Pinata / WalletConnect / Safe " +
       "readiness, the signer's deposited power in the newest recorded DAO, and a write journey a prior session " +
-      "left unfinished. Chains, env readiness and recorded DAOs are dexe_context.",
+      "left unfinished, plus the DAOs and proposals this install recorded. Chains and env readiness: dexe_context (read server).",
     {
       includeDepositedPower: z
         .boolean()
@@ -195,8 +199,27 @@ export function registerWriteContextTool(
         .boolean()
         .default(true)
         .describe("Probe each persona's native balance (one eth_getBalance per signer, default chain)."),
+      daoLimit: z
+        .number()
+        .int()
+        .min(0)
+        .max(50)
+        .default(RECORDED_DAO_WINDOW)
+        .describe("Recorded DAOs to return, newest first."),
+      proposalLimit: z
+        .number()
+        .int()
+        .min(0)
+        .max(50)
+        .default(RECORDED_PROPOSAL_WINDOW)
+        .describe("Recorded proposals to return, newest first."),
     },
-    async ({ includeDepositedPower = true, includeAgentBalances = true }) => {
+    async ({
+      includeDepositedPower = true,
+      includeAgentBalances = true,
+      daoLimit = RECORDED_DAO_WINDOW,
+      proposalLimit = RECORDED_PROPOSAL_WINDOW,
+    }) => {
       const st = state.getState();
       const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || undefined;
       const posture = signerPosture(signer, safeServiceUrl);
@@ -220,7 +243,7 @@ export function registerWriteContextTool(
       const hint =
         (st.activeFlow
           ? `Mid-journey: flow '${st.activeFlow.flow}' last completed step '${st.activeFlow.step}' on chain ` +
-            `${st.activeFlow.chainId} — call dexe_guide {flow:"${st.activeFlow.flow}"} to resume. `
+            `${st.activeFlow.chainId} — call dexe_write_guide {flow:"${st.activeFlow.flow}"} to resume. `
           : "") +
         SIGNER_NEXT[mode] +
         (posture.dispatch === "safe"
@@ -270,6 +293,15 @@ export function registerWriteContextTool(
         },
         ipfsUploads: { pinataConfigured },
         lastDaoPower,
+        // What this install's write flows recorded (state.json). The read
+        // server keeps no state, so on the default two-server setup this is
+        // the only place a later session finds them. Windowed; *Total = real counts.
+        recorded: {
+          knownDaos: st.knownDaos.slice(0, daoLimit),
+          knownDaosTotal: st.knownDaos.length,
+          recentProposals: st.recentProposals.slice(0, proposalLimit),
+          recentProposalsTotal: st.recentProposals.length,
+        },
         ...(st.activeFlow ? { activeFlow: st.activeFlow } : {}),
         hint,
       };

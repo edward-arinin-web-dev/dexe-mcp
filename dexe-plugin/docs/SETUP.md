@@ -33,19 +33,24 @@ Update later with `/plugin marketplace update` then `/plugin install dexe@dexe-m
 npm install -g dexe-mcp        # or: npm install dexe-mcp
 npx dexe-mcp init              # interactive wizard
 npx dexe-mcp doctor            # verify
+npx dexe-mcp approve           # keystore mode: approve/decline pending approvals in a terminal
 ```
 
 The wizard asks four questions (network, Pinata JWT, Graph key, signer mode),
 writes `~/.dexe-mcp/.env` — the home config the server loads from any
 directory (a source checkout writes the repo-root `.env` instead) — and prints
-an MCP-client snippet for copy-paste. It validates the Pinata JWT against the
+an MCP-client snippet for copy-paste: **two servers** since 1.0.0, `dexe` (the
+write tools, `dist/index.js`) and `dexe-read` (the DeXe read server,
+`dist/read/bin.js` — the `@dexe-network/dexe-mcp` version this install pins).
+Both load the same `~/.dexe-mcp/.env`. One process instead: keep only `dexe`
+and set `DEXE_WRITE_STANDALONE=1`. It validates the Pinata JWT against the
 live endpoint before writing, and warns explicitly before storing a private key
 in plaintext.
 
 After `init`:
 
-1. Paste the printed snippet into your MCP client config under `mcpServers`
-   (Claude Code: `~/.claude.json` or `.mcp.json`; Claude Desktop:
+1. Paste the printed snippet (both entries) into your MCP client config under
+   `mcpServers` (Claude Code: `~/.claude.json` or `.mcp.json`; Claude Desktop:
    `claude_desktop_config.json`; Cursor: its MCP settings).
 2. Restart Claude Code (quit and relaunch — `process.loadEnvFile()` runs
    once at MCP startup).
@@ -105,8 +110,10 @@ Run `npx dexe-mcp doctor` to verify each leg.
 ## Path D — `/dexe-setup` (from inside Claude Code)
 
 If you're already in a Claude Code session and tools are failing, type
-`/dexe-setup`. The skill calls `dexe_doctor`, parses the report, asks you
-only for the missing values, edits `.env`, then prompts you to restart
+`/dexe-setup`. The skill calls `dexe_write_doctor` (signer, Pinata,
+WalletConnect, the write server's `.env`) and the read server's `dexe_doctor`
+(RPC, subgraph, backend, IPFS), parses the reports, asks you only for the
+missing values, edits `.env`, then prompts you to restart
 Claude Code and re-runs the doctor. It iterates up to three times.
 
 The skill defaults to **readonly signer mode** for safety. If you ask it
@@ -154,9 +161,13 @@ session (or quit and relaunch).
 
 ---
 
-## What `dexe_doctor` checks
+## What the doctors check
 
-See [`DOCTOR.md`](./DOCTOR.md) for the full check reference. Summary:
+`npx dexe-mcp doctor` runs every check below in one report. Inside an MCP
+host they are split by server: `dexe_write_doctor` (write server — signer,
+keystore, Pinata, WalletConnect, its `.env`, `surface.mode`) and `dexe_doctor`
+(read server — RPC, IPFS gateway, subgraph, backend; standalone it runs both
+sets). See [`DOCTOR.md`](./DOCTOR.md) for the full check reference. Summary:
 
 - Env presence and validation for every recognized `DEXE_*` key
 - RPC reachability per configured chain (`eth_chainId`)

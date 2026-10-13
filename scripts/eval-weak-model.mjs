@@ -131,7 +131,8 @@ const transport = new StdioClientTransport({
   cwd: process.cwd(),
   // The server loads the hot key from .env; since 1.0.0 it signs with it only
   // in an explicit unattended mode, fenced here to testnet.
-  env: { ...process.env, DEXE_SIGNER_MODE: "unattended", DEXE_UNATTENDED_CHAINS: "97" },
+  // Standalone: the model plans with dexe_guide / dexe_context and reads through this server too.
+  env: { ...process.env, DEXE_SIGNER_MODE: "unattended", DEXE_UNATTENDED_CHAINS: "97", DEXE_WRITE_STANDALONE: "1" },
   stderr: "pipe",
 });
 const mcp = new Client({ name: "eval-weak-model", version: "0.0.1" });

@@ -17,7 +17,7 @@ confirms (`signer.humanConfirmation`), and any approvals waiting on you.
 
 > **Since 1.0.0 a hot key alone never signs.** With `DEXE_SIGNER_MODE` unset,
 > a `DEXE_PRIVATE_KEY` (or keyring slot) in the environment is ignored — the
-> mode is `walletconnect` — and `dexe_doctor` fails `signer.hotKeyIgnored` with
+> mode is `walletconnect` — and `dexe_write_doctor` (standalone: `dexe_doctor`) fails `signer.hotKeyIgnored` with
 > the three ways out. 0.37 signed `unattended` on every chain in that setup.
 > [MIGRATION.md](./MIGRATION.md) has the steps.
 

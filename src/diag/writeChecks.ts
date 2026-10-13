@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { READ_SERVER_NPX } from "../readPackage.js";
 import type { WriteConfig } from "../config.js";
 import { DEFAULTS, hotKeyEnvNames } from "../config.js";
 import { ignoredHotKeySentence } from "../lib/signerMode.js";
@@ -12,6 +15,7 @@ import {
   type ExtraChecks,
 } from "@dexe-network/dexe-mcp/core";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
+import { READ_TOOLS, WRITE_TOOLS } from "../editions.js";
 
 /**
  * The doctor's wording on a server that runs these checks: Pinata among the
@@ -49,6 +53,7 @@ export function writeDoctorChecks(opts: WriteDoctorOptions = {}): ExtraChecks<Wr
     env: FULL_ENV_SURFACE,
     network: (timeoutMs) => [pinataJwtCheck(timeoutMs), pinataPinQuotaCheck(timeoutMs, opts.probePin === true)],
     config: (config) => [
+      ...surfaceModeCheck(config),
       ...signerModeChecks(config),
       ...signerGuardConfigCheck(config),
       ...signerNeedsRpcCheck(config),
@@ -71,12 +76,12 @@ export const WRITE_ENV_FILE_WORDING: EnvFileWording = {
   createOne:
     "Create one with `npx dexe-mcp init` (writes ~/.dexe-mcp/.env), or set DEXE_ENV_FILE to an absolute path, then restart Claude Code. Editing a .env at any other location — including a repo checkout the server is not launched from — has no effect.",
   notRecorded:
-    "Run `npx dexe-mcp doctor`, or call dexe_doctor inside Claude Code, to see what the server itself loaded.",
+    "Run `npx dexe-mcp doctor`, or call dexe_write_doctor inside Claude Code, to see what the server itself loaded.",
 };
 
 // ─── pinata jwt ──────────────────────────────────────────────────────────
 
-async function pinataJwtCheck(timeoutMs: number): Promise<CheckResult | null> {
+export async function pinataJwtCheck(timeoutMs: number): Promise<CheckResult | null> {
   const jwt = process.env.DEXE_PINATA_JWT?.trim();
   if (!jwt) return null;
   const res = await fetchJsonWithTimeout(
@@ -120,7 +125,7 @@ async function pinataJwtCheck(timeoutMs: number): Promise<CheckResult | null> {
     // It carries the F3 pointer that the (now opt-in) pin probe used to carry.
     remediation:
       "If an IPFS upload later fails with HTTP 403 while this row is green, the account is pin-blocked (usually the free-plan usage limit). " +
-      "Confirm with `npx dexe-mcp doctor --probe-pin` (or dexe_doctor {probePin:true}), then free up pins / upgrade at app.pinata.cloud, or rotate DEXE_PINATA_JWT.",
+      "Confirm with `npx dexe-mcp doctor --probe-pin` (or dexe_write_doctor {probePin:true}), then free up pins / upgrade at app.pinata.cloud, or rotate DEXE_PINATA_JWT.",
   };
 }
 
@@ -138,7 +143,7 @@ async function pinataJwtCheck(timeoutMs: number): Promise<CheckResult | null> {
 // failure pattern), a `warn` would exit 1 for every configured user, and a new
 // status value is counted as a failure by both tallies. The F3 pointer lives on
 // the `pinata.jwt` row instead.
-async function pinataPinQuotaCheck(timeoutMs: number, enabled: boolean): Promise<CheckResult | null> {
+export async function pinataPinQuotaCheck(timeoutMs: number, enabled: boolean): Promise<CheckResult | null> {
   const jwt = process.env.DEXE_PINATA_JWT?.trim();
   if (!jwt) return null;
   if (!enabled) return null;
@@ -197,6 +202,59 @@ async function pinataPinQuotaCheck(timeoutMs: number, enabled: boolean): Promise
         ? " and removed it again."
         : "; removing it failed (a pinning-only JWT cannot unpin) — delete it at app.pinata.cloud if you care."),
   };
+}
+
+// ─── which tools this server registers (1.0.0) ─────────────────────────────
+
+/**
+ * `DEXE_WRITE_STANDALONE`: write tools only (the default — the DeXe read server
+ * beside this one serves the reads), or the read tools too. Always a pass: both
+ * are valid setups; the row says which one this process is, so a "tool not
+ * found" for a read tool has its explanation in the report.
+ */
+export function surfaceModeCheck(config: WriteConfig | undefined, env: NodeJS.ProcessEnv = process.env): CheckResult[] {
+  if (!config) return [];
+  return [
+    config.writeStandalone
+      ? {
+          id: "surface.mode",
+          category: "core",
+          status: "pass",
+          message:
+            `standalone (DEXE_WRITE_STANDALONE=1) — this server registers the ${READ_TOOLS.length} read tools next to ` +
+            `the ${WRITE_TOOLS.length} write tools; no read server is needed beside it`,
+        }
+      : {
+          id: "surface.mode",
+          category: "core",
+          status: "pass",
+          message:
+            `write-only — the ${WRITE_TOOLS.length} write tools; the ${READ_TOOLS.length} read tools come from the DeXe ` +
+            "read server (dexe-mcp-read): dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, dexe_read_* (read server)",
+          remediation: runningAsPlugin(env)
+            ? "The Claude Code plugin starts the read server as `dexe-read` next to this one. If its tools are " +
+              "missing, check that server in /mcp and restart Claude Code. (DEXE_WRITE_STANDALONE=1 here would " +
+              "duplicate the 54 read tools.)"
+            : `If the read tools are missing, add the read server to the MCP host config next to this one — ` +
+              `\`${READ_SERVER_NPX}\` (or the \`dexe-read\` entry \`npx dexe-mcp init\` prints) — or set ` +
+              "DEXE_WRITE_STANDALONE=1 to register them here too. Restart the MCP host after either.",
+        },
+  ];
+}
+
+/**
+ * Is this the Claude Code plugin's bundle? The plugin starts both servers, so
+ * "install the read server" is the wrong advice there. Claude Code passes
+ * CLAUDE_PLUGIN_ROOT to a plugin's processes; the bundled read server next to
+ * this file (dexe-plugin/server/read/bin.mjs) says the same without it.
+ */
+export function runningAsPlugin(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.CLAUDE_PLUGIN_ROOT?.trim()) return true;
+  try {
+    return existsSync(resolve(dirname(fileURLToPath(import.meta.url)), "read", "bin.mjs"));
+  } catch {
+    return false;
+  }
 }
 
 // ─── signer mode, keystore, approval page (0.37.0) ─────────────────────────
@@ -345,7 +403,7 @@ export function signerModeChecks(config: WriteConfig | undefined, env: NodeJS.Pr
 
 // ─── signer broadcast guards ─────────────────────────────────────────────
 
-function signerGuardConfigCheck(config?: WriteConfig): CheckResult[] {
+export function signerGuardConfigCheck(config?: WriteConfig): CheckResult[] {
   const out: CheckResult[] = [];
 
   // Report the RESOLVED signer, not the raw env. Since 0.30.1 a malformed
@@ -478,7 +536,7 @@ function signerGuardConfigCheck(config?: WriteConfig): CheckResult[] {
 // ─── a signer with no RPC ────────────────────────────────────────────────
 
 /** Listed first among the chain rows: a hot key the server cannot broadcast with. */
-function signerNeedsRpcCheck(config: WriteConfig | undefined): CheckResult[] {
+export function signerNeedsRpcCheck(config: WriteConfig | undefined): CheckResult[] {
   if (!config) return [];
   if (config.signerMode && config.signerMode !== "unattended") return [];
   if (process.env.DEXE_PRIVATE_KEY?.trim() && config.chains.size === 0) {

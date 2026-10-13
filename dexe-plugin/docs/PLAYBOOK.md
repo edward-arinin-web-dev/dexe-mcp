@@ -5,6 +5,12 @@ Written for AI assistants: every common journey is ONE composite call — do not
 hand-sequence approve/deposit/create calldata, and do not read this repo's
 source to figure out parameters. Also served as the MCP resource `dexe://playbook`.
 
+**Two servers (1.0.0).** `dexe` (this package) registers the write tools;
+the DeXe read server `dexe-read` (`dexe-mcp-read`, `@dexe-network/dexe-mcp`)
+serves the reads beside it. A read tool below is the read server's — or this
+server's too with `DEXE_WRITE_STANDALONE=1`; the write server's own text marks
+one as `dexe_dao_info (read server)`.
+
 **Ground rules**
 
 - Amounts: digits-only string = RAW smallest units (wei); string with a decimal
@@ -29,9 +35,9 @@ source to figure out parameters. Also served as the MCP resource `dexe://playboo
 
 | User says | Call | Minimal params |
 |---|---|---|
-| "What's set up / which DAOs do I have?" | `dexe_context` | `{}` |
+| "What's set up / which DAOs do I have?" | `dexe_write_context` (signer, recorded DAOs) / `dexe_context` (read server: chain, env) | `{}` |
 | "Who signs / which personas / is Pinata or WalletConnect set up?" | `dexe_write_context` | `{}` |
-| "Something's failing / set this up" | `dexe_doctor` → `/dexe-setup` | `{}` |
+| "Something's failing / set this up" | `dexe_write_doctor` + `dexe_doctor` (read server) → `/dexe-setup` | `{}` |
 | "Create a DAO" | `dexe_dao_create` | `{daoName, symbol, totalSupply:"1000000", chainId:97}` — preview first; add `confirm:true` when the user already approved |
 | "Show DAO info / treasury / settings" | `dexe_dao_info` / `dexe_read_treasury` / `dexe_read_settings` | `{govPool}` (+ `chainId`) |
 | "Create a proposal to …" (ANY type) | `dexe_proposal_create` | `{govPool, title, proposalType, params:{…}}` (see type table) |
@@ -44,11 +50,11 @@ source to figure out parameters. Also served as the MCP resource `dexe://playboo
 | "What state is proposal N in?" | `dexe_proposal_state` / `dexe_proposal_list` | `{govPool, proposalId}` |
 | "Run an OTC / token sale" | `dexe_otc_dao_open_sale` | `{govPool, tokenSaleProposal, tiers:[…]}` then vote_and_execute |
 | "Buy from the sale / claim my tokens" | `dexe_otc_buyer_buy` / `dexe_otc_buyer_claim_all` | `{tokenSaleProposal, tierId, tokenToBuyWith, amount}` |
-| "What sales does this DAO have?" | `dexe_read_token_sales` / `dexe_read_token_sale_position` | `{govPool}` / `{tokenSaleProposal, tierIds, user}` |
+| "What sales does this DAO have?" | `dexe_read_token_sales` / `dexe_read_token_sale_position` | `{govPool, tokenSaleProposal}` (the read server keeps no record of the sale) / `{tokenSaleProposal, tierIds, user}` |
 | "Update the DAO profile/avatar" | `dexe_proposal_create` | `proposalType:"modify_dao_profile"`, pass only the fields to change; avatar via LOCAL `newAvatarPath` |
 | "Send this transaction" | `dexe_tx_send` | the TxPayload fields; check with `dexe_tx_status` |
 | "Vote on Uniswap/Compound/OP governance" | `dexe_gov_*` surface | needs `DEXE_TOOLSETS=core,governor` |
-| "Run agents / a swarm — several wallets voting against each other" | `dexe_guide {flow:"agent_team"}`, then `dexe_agents_list` → `dexe_agents_fund` → act per persona with `signerKey` → `dexe_agents_ledger` | needs `DEXE_TOOLSETS=core,agents` (add `vote` for the raw builders). Burner keys only — the full safety model is `docs/AGENTS.md` |
+| "Run agents / a swarm — several wallets voting against each other" | `dexe_write_guide {flow:"agent_team"}`, then `dexe_agents_list` → `dexe_agents_fund` → act per persona with `signerKey` → `dexe_agents_ledger` | needs `DEXE_TOOLSETS=core,agents` (add `vote` for the raw builders). Burner keys only — the full safety model is `docs/AGENTS.md` |
 
 ## proposalType reference (`dexe_proposal_create`)
 
@@ -104,9 +110,10 @@ Bearer token. Mainnet DAOs only. ⚠ Only **two** off-chain voting types are cre
 `offchain_for_against` (`dexe_proposal_build_offchain_for_against`) returns a not-supported
 error; for a binary vote use `offchain_single_option` with `voteOptions:["For","Against"]`.
 
-## Guided flows (dexe_guide)
+## Guided flows (dexe_write_guide)
 
-For any multi-step journey, call `dexe_guide` first — it serves these flows as
+For any multi-step journey, call `dexe_write_guide` first (standalone,
+`dexe_guide` serves the same flows) — it serves these flows as
 structured plans (interview questions with risk notes, exact step order, and
 the gotcha corpus below) plus session context (known DAOs, active chain).
 This section is GENERATED from `src/knowledge/write/flows.ts` — edit there, then run
@@ -220,16 +227,16 @@ The end-to-end journey: deploy a DAO + token, put tokens in specific hands, open
 - `chainId` (optional) — Rehearse on testnet 97 first (recommended), or go straight to mainnet 56? · default `97`
 
 **Steps:**
-1. `dexe_guide` — LEG 1 — deploy the DAO. Fetch flow 'create_dao' and run its interview + steps. Set treasuryPercent so the treasury covers the distribution list share (e.g. list needs 20% → treasury ≥ 20% + reserve), while quorumPercent ≤ 0.8 × (100 − treasuryPercent) must still hold with quorum ≥ 50 — which caps treasuryPercent at 37.5% of supply under LINEAR power. A distribution list needing more than that must be funded from the deployer's votable allocation (recipients[]) at deploy time, not parked in the treasury.
+1. `dexe_write_guide` — LEG 1 — deploy the DAO. Fetch flow 'create_dao' and run its interview + steps. Set treasuryPercent so the treasury covers the distribution list share (e.g. list needs 20% → treasury ≥ 20% + reserve), while quorumPercent ≤ 0.8 × (100 − treasuryPercent) must still hold with quorum ≥ 50 — which caps treasuryPercent at 37.5% of supply under LINEAR power. A distribution list needing more than that must be funded from the deployer's votable allocation (recipients[]) at deploy time, not parked in the treasury.
 2. `dexe_proposal_create` — LEG 2 — distribute to the address list: ONE token_transfer proposal PER recipient (proposalType:'token_transfer', params:{token: govToken, recipient, amount}). Each auto-votes your power; execute each via dexe_proposal_vote_and_execute. Withdraw (unlock) tokens between proposals.
-3. `dexe_guide` — LEG 3 — open the OTC sale. Fetch flow 'otc_sale' and run its interview + steps.
-4. `dexe_guide` — LEG 4 — set up staking. Fetch flow 'staking_setup'. On chain 97 this leg MUST be deferred to mainnet — relay the chain note instead of attempting it.
+3. `dexe_write_guide` — LEG 3 — open the OTC sale. Fetch flow 'otc_sale' and run its interview + steps.
+4. `dexe_write_guide` — LEG 4 — set up staking. Fetch flow 'staking_setup'. On chain 97 this leg MUST be deferred to mainnet — relay the chain note instead of attempting it.
 
 ### Run an agent team (multi-persona DAO simulation) (`agent_team`)
 
 Drive several keyring personas (proposer / voter / validator / delegator) through one DAO: configure the keyring, fund inside a budget, run the sequence that works on-chain, reconcile per-persona from the agent ledger.
 - **chain 56:** MAINNET — every persona holds a plaintext hot key that signs without asking, and the fleet spends real BNB unattended. Only after the same scenario is green on 97, with throwaway wallets and a budget you can afford to lose. Relay this and get an explicit go-ahead first.
-- **chain 97:** Testnet (97) is where an agent team belongs: free faucet BNB, throwaway DAOs, nothing real at stake — rehearse here first. Subgraph reconciliation (turnout / who-voted) does NOT exist on 97; use dexe_proposal_state plus the local ledger.
+- **chain 97:** Testnet (97) is where an agent team belongs: free faucet BNB, throwaway DAOs, nothing real at stake — rehearse here first. No subgraph on 97 (no turnout / who-voted reconciliation): use dexe_proposal_state (read server) plus the local ledger.
 
 **Ask the user:**
 - `scenario` — What should the team exercise? (contested vote, delegation hub, validator round) · constraint: One on-chain outcome you can check afterwards.
@@ -248,7 +255,7 @@ Drive several keyring personas (proposer / voter / validator / delegator) throug
 5. `dexe_proposal_create` — The PROPOSER persona creates the proposal: signerKey picks its wallet and the one call runs approve → deposit → createProposalAndVote, auto-voting that persona's power FOR. Proposal content follows the create_proposal flow (sub-flow).
 6. `dexe_proposal_vote_and_execute` — ONE call per voting persona: signerKey picks the wallet, isVoteFor picks the side (this is how personas vote against each other), depositFirst:'auto' deposits the missing power. Keep autoExecute:false for every persona but the last, or the round executes mid-way and the rest have nothing to vote on. Only a validator persona drives the validator round (flow vote_execute).
 7. `dexe_agents_ledger` — Who did what, and what it cost: every broadcast attributed to the persona that made it (tool, action, tx hash, outcome broadcast/confirmed/reverted/failed), per-agent and total spend, and the remaining daily budget. Read-only and local — no RPC needed.
-8. `dexe_dao_report` — Did the governance outcome actually land? The turnout section shows who voted and with what weight (subgraph-backed: mainnet only — on 97 use dexe_proposal_state per proposal and say the section is missing).
+8. `dexe_dao_report` — Did the governance outcome actually land? The turnout section shows who voted and with what weight (subgraph-backed: mainnet only — on 97 use dexe_proposal_state (read server) per proposal and say the section is missing).
 <!-- END GENERATED: flows -->
 
 ## Reading DAO data (reference topics)
@@ -256,8 +263,13 @@ Drive several keyring personas (proposer / voter / validator / delegator) throug
 Non-journey knowledge: how to query the subgraph, the backend API, and
 arbitrary contract state. GENERATED from the read edition's topics
 (`knowledge/read/topics.ts` in `@dexe-network/dexe-mcp`) — edit them there, then
-update the dependency and run `npm run gen:knowledge`. Also served in-band via
-`dexe_guide {flow:"read_dao_data"}` and the `dexe://graph-schema` resource.
+update the dependency and run `npm run gen:knowledge`. Also served in-band by
+the read server via `dexe_guide {flow:"read_dao_data"}` and the
+`dexe://graph-schema` resource. Worded for the standalone server
+(`DEXE_WRITE_STANDALONE=1`): on the default two-server setup the read server
+keeps no report snapshots — pass `dexe_dao_report` an explicit `since` anchor
+(ISO time, Unix seconds, `block:<n>`), never `"last"` — and has no toolsets to
+switch on; its own `dexe_guide` says so.
 
 <!-- BEGIN GENERATED: topics -->
 ### Read / query DAO data (subgraph, backend API, on-chain) (`read_dao_data`)
@@ -338,7 +350,7 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 - 🔴 **reward-commission** — Every EXECUTED proposal with rewards configured pays a ~30% DeXe protocol commission on the reward total (voteAmount × voteRewardsCoefficient + fixed rewards) from the DAO treasury at execute time. If the treasury can't cover it, the protocol MINTS new gov tokens (supply inflation — the quorum denominator grows). claimRewards on an empty treasury succeeds but silently pays 0. Keep voteRewardsCoefficient ≤ 1e23 (×0.01) or 0 unless the user explicitly budgets for it.
 - 🔴 **approve-userkeeper** — When depositing gov tokens, ERC20.approve must target the DAO's UserKeeper, NEVER the GovPool. Approving the GovPool burns gas and the deposit reverts. The composites (dexe_proposal_create, dexe_proposal_vote_and_execute) sequence this correctly — do not hand-build the approve.
 - 🔴 **spherex-addsettings** — CHAIN-ASYMMETRIC (verified 2026-07-23): on fresh TESTNET (97) pools, EXECUTING a proposal whose action is GovSettings.addSettings reverts 'disallowed tx pattern' — deterministically, re-running never helps. This hits change_voting_settings WITHOUT settingsIds, new_proposal_type, and enable_staking. On current MAINNET (56) fresh pools addSettings EXECUTES fine (proven 2026-07-22) — testnet runs an older protocol deployment. On 97: EDIT existing settings instead (pass settingsIds) — editSettings is always allowed — and do NOT use testnet to validate addSettings-based flows.
-- 🔴 **monthly-withdraw-credit** — An internal monthly_withdraw draws from the validators' CREDIT LINE (GovPool.setCreditInfo), not directly from the treasury. Unfunded/insufficient line → execute reverts 'Validators: failed to execute' (the real cause is swallowed by a low-level call — this was mis-filed as SphereX finding F14). Fund it FIRST with an external validators_allocation proposal ({credits:[{token, amount}]}); dexe_read_validators shows the current lines and dexe_proposal_create refuses an uncovered monthly_withdraw up-front.
+- 🔴 **monthly-withdraw-credit** — An internal monthly_withdraw draws from the validators' CREDIT LINE (GovPool.setCreditInfo), not directly from the treasury. Unfunded/insufficient line → execute reverts 'Validators: failed to execute' (the real cause is swallowed by a low-level call — this was mis-filed as SphereX finding F14). Fund it FIRST with an external validators_allocation proposal ({credits:[{token, amount}]}); dexe_read_validators (read server) shows the current lines and dexe_proposal_create refuses an uncovered monthly_withdraw up-front.
 - 🔴 **distribution-vs-transfer** — Two different things both read as 'distribute tokens': (1) sending fixed amounts to a SPECIFIC ADDRESS LIST — do that post-deploy via token_transfer proposals (one per recipient), or at deploy time via ADVANCED params.tokenParams.users/amounts (SIMPLE mode allocates votable supply to the deployer only); (2) proposalType token_distribution — a PRO-RATA AIRDROP split among whoever VOTES on that proposal, NOT an address list. Picking token_distribution for an address list sends funds to the wrong people. Ask the user which they mean.
 - 🔴 **otc-vesting-broken** — TokenSaleProposal.vestingWithdraw is blocked ('SphereX error: disallowed tx pattern') in EVERY call shape on fresh pools — the VESTED portion of a purchase CANNOT be withdrawn (confirmed protocol bug, escalated upstream). Until fixed: open tiers with vestingPercentage:"0" on new DAOs. claim (the instant portion) works fine.
 - 🔴 **staking-not-on-testnet** — Staking DOES NOT EXIST on BSC testnet (chain 97): every testnet GovUserKeeper predates the staking implementation and stakingProposalAddress() reverts. Do not attempt staking transactions on 97 — plan the staking leg on mainnet (chain 56) and tell the user so.
@@ -348,7 +360,7 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 - ⚠ **five-settings-ids** — A fresh dexe_dao_create deploy auto-expands FIVE proposal-settings ids: 0 default, 1 internal, 2 validators, 3 distribution, 4 tokenSale. Any later rewards/settings change must edit EVERY id whose executor matters — proposals routed through untouched executors keep the old values.
 - ⚠ **delegated-voting-inverted** — The settings flag `delegatedVotingAllowed` is INVERTED versus its name: false = delegation IS allowed (the default), true = delegated votes are DISABLED for that proposal type. Do not "enable delegation" by setting it to true.
 - ⚠ **min-votes-coherence** — minVotesForVoting and minVotesForCreating must be ≤ the largest single recipient's token allocation, or no holder can ever create/vote. dexe_dao_create's synthesized configs keep this coherent; check it when the user supplies explicit settings.
-- ⚠ **state-enum** — Canonical ProposalState order: 0 Voting, 1 WaitingForVotingTransfer, 2 ValidatorVoting, 3 Defeated, 4 SucceededFor, 5 SucceededAgainst, 6 Locked, 7 ExecutedFor, 8 ExecutedAgainst, 9 Undefined. Execute is only valid from SucceededFor/SucceededAgainst; use dexe_proposal_state to check, never guess from the number.
+- ⚠ **state-enum** — Canonical ProposalState order: 0 Voting, 1 WaitingForVotingTransfer, 2 ValidatorVoting, 3 Defeated, 4 SucceededFor, 5 SucceededAgainst, 6 Locked, 7 ExecutedFor, 8 ExecutedAgainst, 9 Undefined. Execute is only valid from SucceededFor/SucceededAgainst; use dexe_proposal_state (read server) to check, never guess from the number.
 - ⚠ **validator-leg** — DAOs with validators add a second voting chamber: Voting → (member quorum) WaitingForVotingTransfer → moveProposalToValidators → ValidatorVoting → (validator quorum) SucceededFor → execute. Voting in the validator chamber BEFORE the move reverts 'Validators: proposal does not exist'. dexe_proposal_vote_and_execute auto-drives the whole validator round when the signer is a validator; pass driveValidatorRound:false to stop after the member vote.
 - ⚠ **vp-locked** — Tokens you voted with stay LOCKED per-proposal even after the proposal executes, and votingPower() reads 0 while locked (it shows available, not deposited, power). Between proposals run dexe_vote_build_withdraw to unlock, or the next create/vote fails with 'No voting power available'.
 - ⚠ **spherex-create-pattern** — Fresh (SphereX-guarded, deployed ≥ 2026-07) pools reject multicall([deposit, createProposalAndVote]) with 'SphereX error: disallowed tx pattern'. Deposit and create must be SEPARATE transactions — the composites already send them separately; never re-bundle them.
@@ -370,7 +382,7 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 - ℹ **low-creating-power-race** — The FIRST proposal on a freshly deployed DAO can revert 'low creating power' — the just-landed deposit isn't credited at snapshot time. This is transient: re-run the SAME dexe_proposal_create call; the ledger resume skips the landed deposit and the create succeeds.
 - ℹ **treasury-is-erc20** — The DAO treasury is a plain ERC20/NFT holding at the govPool address — it moves via governance proposals (token_transfer / withdraw_treasury / apply_to_dao through dexe_proposal_create), NOT via the personal deposit-withdraw function. GovPool.withdraw() only returns YOUR OWN deposited tokens.
 - ℹ **validator-internal-enum** — Validator internal proposal types (GovValidators): 0 ChangeSettings, 1 ChangeBalances, 2 MonthlyWithdraw, 3 Offchain. Only a CURRENT validator can create them, and validators vote with their own validator balances — no deposit involved.
-- ℹ **delegation-one-level** — Delegation is ONE level: a delegator delegates only their OWN deposited balance; received delegations cannot be re-delegated (hub-and-spoke, never chains). Effective voting power = own deposited + incoming delegations — verify with dexe_vote_user_power (totalBalance).
+- ℹ **delegation-one-level** — Delegation is ONE level: a delegator delegates only their OWN deposited balance; received delegations cannot be re-delegated (hub-and-spoke, no chains). Effective voting power = own deposited + incoming delegations — verify with dexe_vote_user_power (read server; totalBalance).
 - ℹ **otc-whitelist-merkle** — Whitelisted tiers use a merkle root; the tier's uri must point to IPFS JSON {"list":[lowercased addresses]} so buyers can regenerate proofs — dexe_otc_dao_open_sale auto-uploads it when uri is empty (needs DEXE_PINATA_JWT). Buyer-side reads need the proof BEFORE getUserViews or canParticipate reads false.
 - ℹ **staking-resolver** — The StakingProposal contract address is NOT in the registry or predicted addresses. Resolve it the way the frontend does: GovPool.getHelperContracts().userKeeper → GovUserKeeper.stakingProposalAddress(). Zero address = not deployed yet → deploying it is ONE permissionless direct transaction (GovUserKeeper.deployStakingProposal(), selector 0x82e97c92) sent via dexe_tx_send — NEVER a governance proposal, never custom/custom_abi. dexe_proposal_create(create_staking_tier) auto-resolves when stakingProposal is omitted and its error returns the exact paste-able TxPayload; then re-run the SAME call.
 - ℹ **offchain-types** — Only TWO off-chain proposal types are creatable: single-option and multi-option. There is no for/against creation path (the backend 400s) — for a binary vote use offchain_single_option with voteOptions:["For","Against"]. Off-chain proposals are mainnet-DAO only and live on api.dexe.io, not on-chain.
@@ -393,7 +405,7 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 | `is not a registered DeXe GovPool` | Wrong/fake govPool address | Re-check the address with `dexe_dao_registry_lookup` |
 | `rate-limit / 429 / SERVER_ERROR` | Public RPC flaked (already retried) | Re-run; set own RPC in `.env` (`DEXE_RPC_URL_MAINNET/_TESTNET`, comma-list = auto-failover) |
 | `tokens locked` after an execute | Voted tokens stay locked per proposal | `dexe_vote_build_withdraw` between proposals, then proceed |
-| tool not found (`dexe_…`) | Toolset gated off | `dexe_context` lists hidden sets; set `DEXE_TOOLSETS` in `.env` + restart |
+| tool not found (`dexe_…`) | Toolset gated off — or a read tool with no read server beside the write server | `dexe_write_doctor` (`surface.mode`, toolsets); standalone `dexe_context` lists hidden sets; set `DEXE_TOOLSETS` (or run the read server / `DEXE_WRITE_STANDALONE=1`) in `.env` + restart |
 
 Composite failures also carry a stable `slug` (GENERATED from the read table in
 `lib/errors.ts` (read edition) plus the write table `src/lib/writeErrors.ts` registers on
@@ -407,13 +419,13 @@ top — the classifier the composites actually run):
 | `wallet-rejected` | The transaction was rejected in the wallet. | Re-run the call and approve the request on the phone/wallet when it appears. |
 | `pinata-missing` | IPFS uploads need a Pinata JWT and none is configured. | 1) Create a free API key at https://app.pinata.cloud/developers/api-keys with pinJSONToIPFS + pinFileToIPFS permissions. 2) Add DEXE_PINATA_JWT=<jwt> to the .env at the dexe-mcp root (never .claude.json). 3) Restart Claude Code (the .env is read once at startup). Or run /dexe-setup for a guided walkthrough. |
 | `pinata-failed` | Pinata (the IPFS pinning service) rejected or never answered the upload, so the metadata was NOT pinned. | HTTP 401/403 means the DEXE_PINATA_JWT is wrong, revoked, or lacks the pinJSONToIPFS/pinFileToIPFS scopes — mint a fresh key at https://app.pinata.cloud/developers/api-keys, put it in .env, and restart. A 429 or a timeout is transient (check status.pinata.cloud): wait ~30s and re-run the SAME call — ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped, so nothing is paid for twice. If a transaction was already broadcast (you have a hash), check dexe_tx_status first. |
-| `subgraph-orphan-relation` | The indexer never populated a relation this query selects, so the gateway rejected the WHOLE document — including the healthy fields in it. Deterministic: retrying returns the identical error, and an empty answer here is NOT 'the DAO has none'. | Do NOT retry — it will fail identically. The DAO-level reads already drop the broken relation and answer anyway with `indexerWarning` / `degraded` set (dexe_read_dao_members, dexe_read_dao_experts, dexe_proposal_voters, dexe_dao_report), so prefer those over a hand-written dexe_graph_query. For a hand-written query, remove the named relation from the selection set (leave at least one unconditional field in its parent) and re-send. On-chain reads are unaffected: dexe_proposal_list / dexe_read_settings / dexe_dao_info need no indexer at all. |
-| `subgraph-failed` | The subgraph (indexer) failed, so this read returned NO data — that is NOT the same as 'the DAO has none'. Do not report an empty result. | Re-run once (429/5xx/timeouts are usually transient). If it persists, read the same facts on-chain instead — dexe_proposal_list / dexe_read_settings / dexe_dao_info need no indexer and are in the default profile; dexe_read_gov_state (needs DEXE_TOOLSETS=core,dev) and dexe_read_multicall (needs DEXE_TOOLSETS=core,read) cover the rest. A 401/403/429 on the shipped default endpoint means you are sharing the packaged Graph key: get a free one at thegraph.com/studio, set DEXE_SUBGRAPH_POOLS_URL / _VALIDATORS_URL / _INTERACTIONS_URL in .env, and restart. Entity/field names for a hand-written query: call dexe_graph_schema (live introspection, default profile) or read the dexe://graph-schema resource. |
+| `subgraph-orphan-relation` | The indexer never populated a relation this query selects, so the gateway rejected the WHOLE document — including the healthy fields in it. Deterministic: retrying returns the identical error, and an empty answer here is NOT 'the DAO has none'. | Do NOT retry — it will fail identically. The DAO-level reads drop the broken relation and answer anyway with `indexerWarning` / `degraded` set (dexe_read_dao_members, dexe_read_dao_experts, dexe_proposal_voters, dexe_dao_report (read server)), so prefer those over a hand-written dexe_graph_query (read server). For a hand-written query, remove the named relation from the selection set (leave at least one unconditional field in its parent) and re-send. On-chain reads are unaffected: dexe_proposal_list / dexe_read_settings / dexe_dao_info (read server) need no indexer at all. |
+| `subgraph-failed` | The subgraph (indexer) failed, so this read returned NO data — that is NOT the same as 'the DAO has none'. Do not report an empty result. | Re-run once (429/5xx/timeouts are usually transient). If it persists, read the same facts on-chain instead — dexe_proposal_list / dexe_read_settings / dexe_dao_info / dexe_read_gov_state / dexe_read_multicall (read server) need no indexer. A 401/403/429 on the shipped default endpoint means you are sharing the packaged Graph key: get a free one at thegraph.com/studio, set DEXE_SUBGRAPH_POOLS_URL / _VALIDATORS_URL / _INTERACTIONS_URL in .env, and restart. Entity/field names for a hand-written query: dexe_graph_schema (read server) or the dexe://graph-schema resource. |
 | `backend-page-token-rejected` | The DeXe backend refused the request as malformed (HTTP 400) — on a paginated read that is almost always the `pageToken`: cursors are opaque, single-use and bound to the query that produced them. | Do NOT retry with the same pageToken — it will be refused identically. Re-run the call WITHOUT pageToken to start the listing again from page 1, then page forward using only the `nextPageToken` that THIS call returned. A cursor from a different token/holder/chainId/pageSize, or one edited or re-wrapped by hand, is not valid here. If you passed no pageToken, the rejected argument is another one: check the address is checksummed-or-lowercase hex and that pageSize is 1-100. |
 | `backend-failed` | The DeXe backend API (api.dexe.io) failed or timed out — the enriched answer (USD prices, token discovery, off-chain proposals) is unavailable. | For reads, re-run: tools that can fall back serve the same call on-chain and report `degraded: true` (no token auto-discovery, no USD). For off-chain proposals/votes there is no on-chain fallback — the backend is the system of record, so wait and retry. A 401 means the Bearer token expired: re-run dexe_auth_login (needs DEXE_TOOLSETS=core,proposals) to mint a new one. Point DEXE_BACKEND_API_URL at another host only if you run your own. |
 | `rpc-timeout` | The endpoint accepted the connection and then went silent until the deadline fired. The call was abandoned, not answered. | No state was changed by a timed-out READ — re-run it. If a WRITE timed out while waiting for a receipt, do NOT re-send blindly: check it with dexe_tx_status first, it may still land. A public endpoint that keeps stalling will not improve: set your own DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET (Alchemy/QuickNode/Ankr) in .env and restart. The receipt-wait budget is tunable via DEXE_TX_WAIT_TIMEOUT_MS. |
 | `rpc-flaky` | The RPC endpoint failed or rate-limited mid-call (retries were already attempted). | Re-run the call; ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived from chain state and skipped. If the failure came after a broadcast (you have a tx hash), check dexe_tx_status first — GovPool.execute and the validator round are NOT auto-skipped. For reliability set a private endpoint in .env (DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_TESTNET, e.g. Alchemy/QuickNode/Ankr) and restart. |
-| `onchain-revert` | The transaction reverted on-chain (state was NOT changed by this step). | Read the revert reason above if present. Common causes: proposal not in the required state (check dexe_proposal_state), tokens locked in an active proposal (withdraw between proposals), or a blacklisted recipient. Fix the cause and re-run — ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round are NOT, so check dexe_proposal_state before re-running one of those. |
+| `onchain-revert` | The transaction reverted on-chain (state was NOT changed by this step). | Read the revert reason above if present. Common causes: proposal not in the required state (check dexe_proposal_state (read server)), tokens locked in an active proposal (withdraw between proposals), or a blacklisted recipient. Fix the cause and re-run — ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round are NOT, so check dexe_proposal_state (read server) before re-running one of those. |
 <!-- END GENERATED: error-slugs -->
 
 ## DAO deploy reverts → fix (v0.24: the pre-sign simulation catches these BEFORE gas is spent)
@@ -472,7 +484,7 @@ note) or untouched executors keep paying.
 | dev | `DEXE_TOOLSETS=core,dev` — compile + ABI introspection, dao_build_deploy (raw), simulate/decode, merkle, safe |
 
 `DEXE_TOOLSETS=full` loads everything. Change requires a Claude Code restart.
-Sets are additive and may overlap; `dexe_context` reports which are off and what they unlock.
+Sets are additive and may overlap; `dexe_write_doctor` reports the active ones (standalone, `dexe_context` reports which are off and what they unlock). On the write-only server each set keeps only its write tools — `read` is just `dexe_ipfs_cid_for_json` there; see `docs/PROFILES.md`.
 
 ## Signer bootstrap (first write)
 

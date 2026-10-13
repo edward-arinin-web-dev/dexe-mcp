@@ -4,7 +4,7 @@ import type { StateStore } from "@dexe-network/dexe-mcp/core";
 
 /**
  * Composite-side glue for the knowledge layer's structured chaining (Phase B).
- * dexe_guide pre-fills `flowContext: {flow, step}` into its paramsTemplates;
+ * dexe_write_guide pre-fills `flowContext: {flow, step}` into its paramsTemplates;
  * a composite that receives it attaches `flowProgress` + `next` to its success
  * payload and persists the journey position in the StateStore. Everything is
  * best-effort: a stale/typo'd flowContext or a state-write failure must never
@@ -12,13 +12,13 @@ import type { StateStore } from "@dexe-network/dexe-mcp/core";
  */
 
 const flowContextObject = z.object({
-  flow: z.string().describe("Flow id from dexe_guide (e.g. 'launch_token_economy')"),
+  flow: z.string().describe("Flow id from dexe_write_guide (e.g. 'launch_token_economy')"),
   step: z.string().describe("Step id within that flow (e.g. 'leg_otc')"),
 });
 
 /**
  * Accepts the object the schema always required — and, tolerantly, the JSON
- * STRING older/cached dexe_guide output emitted for it.
+ * STRING older/cached dexe_write_guide output emitted for it.
  *
  * An agent that copies a paramsTemplate literally is the ONLY consumer of this
  * field, so a `-32602 Invalid arguments` there is a dead end it cannot debug:
@@ -41,7 +41,7 @@ export const flowContextSchema = z
   }, flowContextObject)
   .optional()
   .describe(
-    "Guided-flow position from dexe_guide's step templates. Adds flowProgress + next to the result and persists it.",
+    "Guided-flow position from dexe_write_guide's step templates. Adds flowProgress + next to the result and persists it.",
   );
 
 export type FlowContext = { flow: string; step: string };
@@ -59,7 +59,7 @@ export interface FlowChainFields {
  * `landed: false` is the PREVIEW form — a dryRun or a no-signer `payloads`
  * response. Those broadcast nothing, so the journey position must NOT move:
  * `setActiveFlow` is rendered back to the agent as COMPLETED work
- * (operationalContext's "last completed step", dexe_guide's "progress: N of M"),
+ * (operationalContext's "last completed step", dexe_write_guide's "progress: N of M"),
  * and a preview that advanced it would make the next session resume past a step
  * that never happened. The pointers themselves are still worth returning — "what
  * comes after this" is exactly what a caller previewing a step wants — so they

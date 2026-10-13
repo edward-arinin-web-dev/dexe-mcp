@@ -83,6 +83,8 @@ const transport = new StdioClientTransport({
     DEXE_CHAIN_ID: String(CHAIN_ID),
     DEXE_SIGNER_MODE: "unattended",
     DEXE_UNATTENDED_CHAINS: String(CHAIN_ID),
+    // It reads (predicted addresses, tiers, proposal state) through this server too.
+    DEXE_WRITE_STANDALONE: "1",
   },
   cwd: process.cwd(),
 });
