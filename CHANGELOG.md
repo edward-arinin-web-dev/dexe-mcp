@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.37.1 — unreleased
+## 0.37.1 — 2026-10-13
 
 ### Fixed — text that described a setup the server did not have
 - `DEXE_RPC_TIMEOUT_MS` documentation (the env spec `doc`, shown by
