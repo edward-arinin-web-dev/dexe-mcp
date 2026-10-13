@@ -7,12 +7,12 @@
     "url": "https://github.com/edward-arinin-web-dev/dexe-mcp",
     "source": "github"
   },
-  "version": "0.37.0",
+  "version": "0.37.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "dexe-mcp",
-      "version": "0.37.0",
+      "version": "0.37.1",
       "transport": {
         "type": "stdio"
       }

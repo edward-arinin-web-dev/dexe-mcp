@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.37.1 — unreleased
+## 0.37.1 — 2026-10-13
 
 ### Fixed — text that described a setup the server did not have
 - `DEXE_RPC_TIMEOUT_MS` documentation (the env spec `doc`, shown by
@@ -13,6 +13,13 @@
   `tokenSaleProposal` parameter descriptions and the two "required" errors now
   depend on whether a state store is passed: `dexe-mcp` reads exactly as
   before; `dexe-mcp-read` says the address / `daos[]` is required.
+
+### Fixed — `serve-http` shutdown
+- `dexe-mcp serve-http` / `dexe-mcp-read serve-http` armed their SIGINT and
+  SIGTERM handlers only after logging `listening`. A signal sent in that
+  window (a supervisor that stops the server as soon as it is up) hit Node's
+  default action and killed the process instead of draining it. The handlers
+  are now in place before the line is written.
 
 ## 0.37.0 — 2026-10-12
 
