@@ -1,8 +1,12 @@
+import type { createToolLocator } from "@dexe-network/dexe-mcp/core";
 import { FLOW_BY_ID } from "./flows.js";
+
+/** The knowledge engine's tool locator (its type is not exported by name). */
+export type ToolLocator = ReturnType<typeof createToolLocator>;
 
 /**
  * Structured next-step chaining (Phase B). Composites that receive a
- * `flowContext: {flow, step}` (pre-filled by dexe_guide's paramsTemplates)
+ * `flowContext: {flow, step}` (pre-filled by dexe_write_guide's paramsTemplates)
  * attach the result of `nextAfter()` to their success payload — so the agent
  * reads "what to call next" right in the tool result instead of re-deriving
  * the journey.
@@ -18,8 +22,12 @@ export interface FlowProgress {
 }
 
 export interface NextPointer {
-  /** MCP tool to call (dexe_guide for sub-flow legs). */
+  /** MCP tool to call (dexe_write_guide for sub-flow legs). */
   tool: string;
+  /** The DEXE_TOOLSETS set(s) that expose `tool`, when the default profile does not. */
+  requiresToolset?: string;
+  /** Who serves `tool` when this server does not register it: the read server, for a read tool. */
+  providedBy?: string;
   when: string;
   why: string;
   /**
@@ -40,6 +48,28 @@ export interface NextPointer {
 /** One text, so the four push sites below cannot describe `params` differently. */
 const PARAMS_NOTE =
   "Argument template for that call: `{{name}}` is a placeholder to fill from the flow's answers or an earlier step's output; prose values describe what to supply.";
+
+/**
+ * Where a pointer's tool lives, the way `dexe_write_guide` locates its steps:
+ * `requiresToolset` for a gated set, `providedBy` the read server for a read
+ * tool the write-only server does not register. Set once per process by
+ * `registerAll` (src/tools/index.ts) from the server's mode; until then every
+ * tool counts as local, which is what a caller outside a server wants.
+ */
+let locate: ToolLocator = () => ({});
+
+export function useNextStepLocator(locator: ToolLocator): void {
+  locate = locator;
+}
+
+/** The locator's answer with only the fields it set. */
+function location(tool: string): Pick<NextPointer, "requiresToolset" | "providedBy"> {
+  const loc = locate(tool);
+  return {
+    ...(loc.requiresToolset ? { requiresToolset: loc.requiresToolset } : {}),
+    ...(loc.providedBy ? { providedBy: loc.providedBy } : {}),
+  };
+}
 
 export interface NextSteps {
   flowProgress: FlowProgress;
@@ -64,11 +94,13 @@ export function nextAfter(flowId: string, stepId: string): NextSteps | null {
   if (step.next?.length) {
     for (const n of step.next) {
       if (n.flowRef) {
-        // Cross-flow pointer — fetch the next journey's plan via dexe_guide.
+        // Cross-flow pointer — fetch the next journey's plan via dexe_write_guide,
+        // which this server registers in both modes (the read server's
+        // dexe_guide has no write flows).
         next.push({
-          tool: "dexe_guide",
+          tool: "dexe_write_guide",
           when: n.when,
-          why: `${n.why} — call dexe_guide with flow:"${n.flowRef}" for the plan`,
+          why: `${n.why} — call dexe_write_guide with flow:"${n.flowRef}" for the plan`,
           params: { flow: n.flowRef },
           paramsNote: "Ready to call as-is.",
         });
@@ -78,6 +110,7 @@ export function nextAfter(flowId: string, stepId: string): NextSteps | null {
       if (!target) continue;
       next.push({
         tool: target.tool,
+        ...location(target.tool),
         when: n.when,
         why: n.why,
         params: target.paramsTemplate,
@@ -88,6 +121,7 @@ export function nextAfter(flowId: string, stepId: string): NextSteps | null {
     const following = flow.steps[idx + 1]!;
     next.push({
       tool: following.tool,
+      ...location(following.tool),
       when: following.optionalWhen ? `unless: ${following.optionalWhen}` : "always",
       why: following.purpose.split(".")[0] ?? following.purpose,
       params: following.paramsTemplate,

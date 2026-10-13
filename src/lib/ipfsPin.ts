@@ -34,7 +34,7 @@ export async function pinJsonOrPreview(
   if (!opts.pinata) {
     throw new Error(
       "Internal: a real (non-dryRun) pin was attempted without a Pinata client. " +
-        "Set DEXE_PINATA_JWT in .env and restart, then run dexe_doctor to verify.",
+        "Set DEXE_PINATA_JWT in .env and restart, then run dexe_write_doctor to verify.",
     );
   }
   const res = await opts.pinata.pinJson(value, opts.name ? { name: opts.name } : undefined);

@@ -46,8 +46,12 @@ import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
 import { registerDaoCreateTools } from "./daoCreate.js";
 import { registerWriteContextTool } from "./operationalContextWrite.js";
-import { FLOW_GUIDE_TEXT, activeFlowContext, registerKnowledgePrompts } from "./guideWrite.js";
-import { SINGLE_SERVER_KNOWLEDGE } from "../knowledge/index.js";
+import { FLOW_GUIDE_TEXT, activeFlowContext, registerKnowledgePrompts, registerWriteGuideTool } from "./guideWrite.js";
+import { SINGLE_SERVER_KNOWLEDGE, writeGuideKnowledge, writeToolLocator } from "../knowledge/index.js";
+import { useNextStepLocator } from "../knowledge/write/nextSteps.js";
+import { registerWriteDoctorTool } from "../diag/writeDoctor.js";
+import { useWriteFailureWording } from "../lib/writeErrors.js";
+import { installReadServerMarks } from "./readServerMarks.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcSaleTools, registerOtcBuyerTools } from "./otc.js";
 import { withVestingWithdrawAdvisory } from "./tokenSaleF15.js";
@@ -56,8 +60,8 @@ import { registerSimulateTools } from "./simulate.js";
 import { SignerManager } from "../lib/signer.js";
 import { WalletConnectManager } from "../lib/walletconnect.js";
 import { governorWriteTools } from "../governor/write.js";
-import { applyToolGate, SINGLE_SERVER_TOOLSETS } from "./gate.js";
-import { SINGLE_SERVER_ANNOTATIONS } from "./annotationsWrite.js";
+import { applyToolGate, serverToolsets, SINGLE_SERVER_TOOLSETS } from "./gate.js";
+import { SINGLE_SERVER_ANNOTATIONS, WRITE_ANNOTATIONS } from "./annotationsWrite.js";
 import { applyToolAliases } from "./aliases.js";
 import { applyApprovalScope } from "../lib/approval/scope.js";
 import { WRITE_TOOLS } from "../editions.js";
@@ -74,16 +78,37 @@ export interface RegisterAllOptions {
 }
 
 /**
- * Wire every dexe-mcp tool onto the given server instance. Builds the shared
+ * Wire this server's tools onto the given server instance. Builds the shared
  * WriteToolContext (artifacts cache, hardhat runner, selector index) once so all
  * tools share state.
  *
- * The single server: its toolset table (src/tools/gate.ts), its annotation
- * table (src/tools/annotationsWrite.ts), the write doctor checks and the file
- * report store. Each read register function is handed these as parameters; none
- * of them imports the single server's tables.
+ * Two surfaces (1.0.0, decisions D1/D2):
+ *
+ *   write-only (default)  WRITE_TOOLS — the composites, builders, signing,
+ *                         uploads, dev toolchain, and the write orientation
+ *                         trio dexe_write_context / dexe_write_guide /
+ *                         dexe_write_doctor. The DeXe read server running next
+ *                         to it (dexe-mcp-read) serves the reads; write text
+ *                         marks every read tool it names `(read server)`.
+ *   standalone            `DEXE_WRITE_STANDALONE=1`: also every READ tool —
+ *                         the pre-1.0 single server (dexe_context, dexe_guide
+ *                         over flows + topics, dexe_doctor over both editions'
+ *                         checks, …) plus the write trio, for a user who runs
+ *                         no read server.
+ *
+ * The mode picks the toolset table (src/tools/gate.ts), the annotation table
+ * (src/tools/annotationsWrite.ts), the failure wording (src/lib/writeErrors.ts)
+ * and where the guide and the composites' `next` pointers locate a tool. Each
+ * read register function is handed these as parameters; none of them imports
+ * this server's tables.
  */
 export function registerAll(server: McpServer, config: WriteConfig, opts: RegisterAllOptions = {}): void {
+  const standalone = config.writeStandalone === true;
+  // Process-wide, like the failure table they sit next to: what a remedy or a
+  // `next` pointer says depends on whether this server has the read tools.
+  useWriteFailureWording(config);
+  useNextStepLocator(writeToolLocator(config));
+
   // Phase 2: gate tool registration by the active DEXE_TOOLSETS profile. The
   // wrapped server drops any tool name not in the active allowlist; `full`
   // returns the server unchanged. Every register* call below sees the gate, so
@@ -105,9 +130,15 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   // path the tool name + request (progress, cancellation) and renders an
   // ApprovalHaltError as `awaiting_approval` / `declined` (src/lib/approval/scope.ts).
   installListToolsNormalizer(server);
+  // Write-only: every read tool a published description names is marked
+  // `(read server)` — this server does not register it (./readServerMarks.ts).
+  if (!standalone) installReadServerMarks(server);
   server = applyReadResultGuard(
     applyApprovalScope(
-      applyToolAnnotations(applyToolAliases(applyToolGate(server, config), server), SINGLE_SERVER_ANNOTATIONS),
+      applyToolAnnotations(
+        applyToolAliases(applyToolGate(server, config), server),
+        standalone ? SINGLE_SERVER_ANNOTATIONS : WRITE_ANNOTATIONS,
+      ),
       new Set(WRITE_TOOLS),
     ),
     config,
@@ -118,17 +149,24 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   const selectors = new SelectorIndex(artifacts);
   const ctx: WriteToolContext = { config, artifacts, runner, selectors };
 
+  // Registration order is the historical tools/list order; on the write-only
+  // server each read register call is skipped (`standalone &&`), which drops
+  // exactly the read tools from it. The gate restricts registrations to
+  // WRITE_TOOLS there as well, so a register function that carries both halves
+  // (the governor surface) cannot leak a read tool, not even at `full`.
   registerBuildTools(server, ctx);
   registerIntrospectTools(server, ctx);
-  registerGovTools(server, ctx, { localCompileHint: LOCAL_COMPILE_DECODE_HINT });
-  registerDaoTools(server, ctx);
-  registerProposalTools(server, ctx);
-  registerVoteTools(server, ctx);
-  registerReadTools(server, ctx);
+  if (standalone) {
+    registerGovTools(server, ctx, { localCompileHint: LOCAL_COMPILE_DECODE_HINT });
+    registerDaoTools(server, ctx);
+    registerProposalTools(server, ctx);
+    registerVoteTools(server, ctx);
+    registerReadTools(server, ctx);
+  }
   // IPFS: uploads, then fetch / cid_info, then cid_for_json — the historical
   // tools/list order across the write and read halves.
   registerIpfsUploadTools(server, ctx);
-  registerIpfsReadTools(server, ctx);
+  if (standalone) registerIpfsReadTools(server, ctx);
   registerIpfsCidForJsonTool(server);
   registerProposalBuildTools(server, ctx);
   registerProposalBuildMoreTools(server, ctx);
@@ -136,16 +174,20 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   registerProposalBuildInternalTools(server, ctx);
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
-  registerReportTools(server, ctx, {
-    store:
-      opts.reportStore === undefined
-        ? new FileReportStore(reportStorePath(config))
-        : (opts.reportStore ?? undefined),
-    toolsets: SINGLE_SERVER_TOOLSETS,
-  });
+  if (standalone) {
+    registerReportTools(server, ctx, {
+      store:
+        opts.reportStore === undefined
+          ? new FileReportStore(reportStorePath(config))
+          : (opts.reportStore ?? undefined),
+      toolsets: SINGLE_SERVER_TOOLSETS,
+    });
+  }
   registerMerkleTools(server, ctx);
-  registerPredictTools(server, ctx);
-  registerRiskTools(server, ctx);
+  if (standalone) {
+    registerPredictTools(server, ctx);
+    registerRiskTools(server, ctx);
+  }
 
   const signer = new SignerManager(config);
   const wc = new WalletConnectManager(config);
@@ -153,45 +195,59 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   const state = new StateStore(config.statePath);
   // The inbox falls back to the DAOs recorded here on chains with no subgraph;
   // the OTC list defaults `tokenSaleProposal` from the same record.
-  registerInboxTools(server, ctx, state);
-  registerSubgraphTools(server, ctx, state);
+  if (standalone) {
+    registerInboxTools(server, ctx, state);
+    registerSubgraphTools(server, ctx, state);
+  }
   registerTxTools(server, config, signer, wc);
   registerAgentTools(server, config, signer);
-  registerGetConfigTool(server, ctx);
-  // Diagnostics — call dexe_doctor first when env-related failures show up.
-  registerDoctorTool(server, config, writeDoctorChecks, {
-    toolsets: SINGLE_SERVER_TOOLSETS,
-    text: WRITE_DOCTOR_TEXT,
-  });
+  if (standalone) {
+    registerGetConfigTool(server, ctx);
+    // Diagnostics — dexe_doctor runs the read checks with the write ones added.
+    registerDoctorTool(server, config, writeDoctorChecks, {
+      toolsets: SINGLE_SERVER_TOOLSETS,
+      text: WRITE_DOCTOR_TEXT,
+    });
+  }
   registerWalletConnectTools(server, config, signer, wc);
   registerProposalBuildOffchainTools(server, ctx, signer, wc);
   registerFlowTools(server, ctx, signer, wc, state);
   registerDaoCreateTools(server, ctx, signer, wc, state);
   // Orientation, split by edition: dexe_context (chains, env, toolsets, known
-  // DAOs) and dexe_write_context (signer, keyring, upload/WC/Safe posture, the
-  // interrupted flow). The read tool names no write tool itself — this root
-  // hands it the toolset catalog and the pointer at the write half.
-  registerOperationalContextTools(server, config, state, {
-    toolsets: SINGLE_SERVER_TOOLSETS,
-    hintSuffix:
-      "Signer, agent keyring, Pinata/WalletConnect/Safe posture and an unfinished flow: dexe_write_context.",
-  });
+  // DAOs — the read server's, here only standalone) and dexe_write_context
+  // (signer, keyring, upload/WC/Safe posture, recorded DAOs, the interrupted
+  // flow). The read tool names no write tool itself — this root hands it the
+  // toolset catalog and the pointer at the write half.
+  if (standalone) {
+    registerOperationalContextTools(server, config, state, {
+      toolsets: SINGLE_SERVER_TOOLSETS,
+      hintSuffix:
+        "Signer, agent keyring, Pinata/WalletConnect/Safe posture and an unfinished flow: dexe_write_context.",
+    });
+  }
   registerWriteContextTool(server, config, signer, state);
-  // Knowledge layer — dexe_guide serves the write flows next to the read
-  // topics (Phase A) and follows an interrupted write journey across sessions;
-  // per-flow MCP prompts for hosts that support them (Phase B).
-  registerGuideTool(server, config, state, {
-    knowledge: SINGLE_SERVER_KNOWLEDGE,
-    text: FLOW_GUIDE_TEXT,
-    extraContext: activeFlowContext,
-  });
+  // Knowledge layer — dexe_write_guide serves the write flows in both modes;
+  // the standalone server also has dexe_guide, which serves them next to the
+  // read topics (Phase A). Both follow an interrupted write journey across
+  // sessions; per-flow MCP prompts for hosts that support them (Phase B).
+  registerWriteGuideTool(server, config, state, writeGuideKnowledge(config));
+  if (standalone) {
+    registerGuideTool(server, config, state, {
+      knowledge: SINGLE_SERVER_KNOWLEDGE,
+      text: FLOW_GUIDE_TEXT,
+      extraContext: activeFlowContext,
+    });
+  }
   registerKnowledgePrompts(server);
+  // The write checks: signer, keystore, approval page, Pinata, WalletConnect,
+  // this process's .env. In both modes; standalone's dexe_doctor runs them too.
+  registerWriteDoctorTool(server, config, { toolsets: serverToolsets(config) });
   // OTC: open sale, then the read-only position view (dexe_read_token_sale_position,
-  // the read edition's), then buy / claim all — the historical tools/list order.
-  // This server attaches F15 (the stranded vested leg) to the position view's
-  // vested tiers, alias included (./tokenSaleF15.ts).
+  // the read edition's — standalone only), then buy / claim all — the
+  // historical tools/list order. This server attaches F15 (the stranded vested
+  // leg) to the position view's vested tiers, alias included (./tokenSaleF15.ts).
   registerOtcSaleTools(server, ctx, signer, wc, state);
-  registerTokenSaleReadTools(withVestingWithdrawAdvisory(server), ctx);
+  if (standalone) registerTokenSaleReadTools(withVestingWithdrawAdvisory(server), ctx);
   registerOtcBuyerTools(server, ctx, signer, wc);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
@@ -199,6 +255,6 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   // External OpenZeppelin Governor surface (research/06-execution-plan.md).
   // Independent namespace; no DeXe Protocol dependency. The read half
   // registers and slots the write half (governor/write.ts) in at its
-  // historical positions.
+  // historical positions; on the write-only server the gate drops the read half.
   registerGovernorTools(server, config, governorWriteTools);
 }

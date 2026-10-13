@@ -15,7 +15,7 @@ description: |
 
 Each persona is one hot key in the agent keyring, picked per call with
 `signerKey: "agent<n>"`. Full reference: `docs/AGENTS.md`. Machine-readable plan:
-`dexe_guide {flow:"agent_team"}`.
+`dexe_write_guide {flow:"agent_team"}`.
 
 ## 0. Say the risk out loud, first
 
@@ -44,7 +44,7 @@ node -e "const{Wallet}=require('ethers');for(let i=1;i<=8;i++){const w=Wallet.cr
 | quorum / treasury-drain advisories | `DEXE_TREASURY_GUARD`, `DEXE_MIN_SAFE_QUORUM_PCT` | **advise only** — printed, never blocking |
 
 Guards bound destinations, value and rate — **not governance outcomes**. Nothing
-notices that your personas just passed a treasury transfer. Check `dexe_doctor`
+notices that your personas just passed a treasury transfer. Check `dexe_write_doctor`
 for which guards are actually configured instead of assuming. And note the
 budget is **not armed by default on a faucet testnet** (97): set
 `SWARM_DAILY_BNB_BUDGET` explicitly if you want a cap there too.
@@ -182,8 +182,8 @@ spend`, the final proposal state, and the remaining budget.
 
 ## Related
 
-- `dexe_guide {flow:"agent_team"}` — the machine-readable plan (interview
+- `dexe_write_guide {flow:"agent_team"}` — the machine-readable plan (interview
   questions with risk notes, step order, pitfalls)
 - `docs/AGENTS.md` — full reference, env table, safety model
-- `dexe_guide {flow:"vote_execute"}` — the validator round in detail
+- `dexe_write_guide {flow:"vote_execute"}` — the validator round in detail
 - `docs/SECURITY.md` — the broadcast-guard posture

@@ -54,7 +54,7 @@ Create a staking reward tier: resolve/deploy the StakingProposal contract, pass 
 - ℹ The StakingProposal contract address is NOT in the registry or predicted addresses. Resolve it the way the frontend does: GovPool.getHelperContracts().userKeeper → GovUserKeeper.stakingProposalAddress(). Zero address = not deployed yet → deploying it is ONE permissionless direct transaction (GovUserKeeper.deployStakingProposal(), selector 0x82e97c92) sent via dexe_tx_send — NEVER a governance proposal, never custom/custom_abi. dexe_proposal_create(create_staking_tier) auto-resolves when stakingProposal is omitted and its error returns the exact paste-able TxPayload; then re-run the SAME call.
 - ℹ Amount strings: digits-only = RAW smallest units (wei); a decimal point ("12.5") = human units scaled by the token's REAL on-chain decimals (never assumed 18). Durations and delays are SECONDS (86400 = 1 day). Composite quorum/percent params are plain percent numbers (51).
 
-_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_guide` tool with `flow:"staking_setup"`._
+_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_write_guide` tool with `flow:"staking_setup"`._
 <!-- END GENERATED: flow-recipe -->
 
 Related: [[dexe-create-proposal]], [[dexe-vote-execute]].

@@ -375,12 +375,13 @@ describe("the response stays backward compatible and affordable", () => {
     expect(added.length).toBeLessThan(1700);
   });
 
-  it("an executed create response stays under 4200 chars end to end", async () => {
+  it("an executed create response stays under 4250 chars end to end", async () => {
     // ~1.1k of this fixture is the codeless-executor build warning, emitted
     // twice (warnings[] + the deprecated governanceAdvisories[]) because the
     // fixture points the action at the GovPool itself, which the offline mock
     // reports as having no code. A real proposal carries neither copy.
+    // 1.0.0: +50 for the `(read server)` marks on the read tools it names.
     const { body } = await run();
-    expect(JSON.stringify(body).length).toBeLessThan(4200);
+    expect(JSON.stringify(body).length).toBeLessThan(4250);
   });
 });

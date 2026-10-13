@@ -15,10 +15,12 @@ describe("nextAfter (structured chaining)", () => {
     expect(ns.flowProgress).toMatchObject({ flow: "create_dao", stepIndex: 1, of: 2 });
   });
 
-  it("cross-flow pointer resolves to dexe_guide (create_dao.deploy → create_proposal)", () => {
+  it("cross-flow pointer resolves to dexe_write_guide (create_dao.deploy → create_proposal)", () => {
     const ns = nextAfter("create_dao", "deploy")!;
     expect(ns.done).toBe(false);
-    expect(ns.next[0]!.tool).toBe("dexe_guide");
+    // dexe_write_guide, not dexe_guide: registered in both modes, while the
+    // read server's dexe_guide has no write flows.
+    expect(ns.next[0]!.tool).toBe("dexe_write_guide");
     expect(ns.next[0]!.why).toContain('flow:"create_proposal"');
   });
 

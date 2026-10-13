@@ -165,7 +165,7 @@ export const WRITE_GOTCHAS: readonly Gotcha[] = [
     text:
       "Canonical ProposalState order: 0 Voting, 1 WaitingForVotingTransfer, 2 ValidatorVoting, 3 Defeated, " +
       "4 SucceededFor, 5 SucceededAgainst, 6 Locked, 7 ExecutedFor, 8 ExecutedAgainst, 9 Undefined. Execute is only " +
-      "valid from SucceededFor/SucceededAgainst; use dexe_proposal_state to check, never guess from the number.",
+      "valid from SucceededFor/SucceededAgainst; use dexe_proposal_state (read server) to check, never guess from the number.",
     applies: { flows: ["vote_execute"], tools: ["dexe_proposal_state"] },
   },
   {
@@ -282,7 +282,7 @@ export const WRITE_GOTCHAS: readonly Gotcha[] = [
       "An internal monthly_withdraw draws from the validators' CREDIT LINE (GovPool.setCreditInfo), not directly " +
       "from the treasury. Unfunded/insufficient line → execute reverts 'Validators: failed to execute' (the real " +
       "cause is swallowed by a low-level call — this was mis-filed as SphereX finding F14). Fund it FIRST with an " +
-      "external validators_allocation proposal ({credits:[{token, amount}]}); dexe_read_validators shows the current " +
+      "external validators_allocation proposal ({credits:[{token, amount}]}); dexe_read_validators (read server) shows the current " +
       "lines and dexe_proposal_create refuses an uncovered monthly_withdraw up-front.",
     applies: { proposalTypes: ["monthly_withdraw", "validators_allocation"], tools: ["dexe_read_validators"] },
   },
@@ -352,8 +352,8 @@ export const WRITE_GOTCHAS: readonly Gotcha[] = [
     severity: "info",
     text:
       "Delegation is ONE level: a delegator delegates only their OWN deposited balance; received delegations cannot " +
-      "be re-delegated (hub-and-spoke, never chains). Effective voting power = own deposited + incoming " +
-      "delegations — verify with dexe_vote_user_power (totalBalance).",
+      "be re-delegated (hub-and-spoke, no chains). Effective voting power = own deposited + incoming " +
+      "delegations — verify with dexe_vote_user_power (read server; totalBalance).",
     applies: { flows: ["vote_execute"], tools: ["dexe_vote_build_delegate", "dexe_vote_user_power"] },
   },
 

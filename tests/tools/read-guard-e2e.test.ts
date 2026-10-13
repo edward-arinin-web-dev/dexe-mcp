@@ -121,7 +121,8 @@ beforeAll(async () => {
   });
   const config = await loadConfig();
   server = new McpServer({ name: "guard-e2e", version: "0.0.0" }, {});
-  registerAll(server, config);
+  // The read tools: registered by this server standalone only.
+  registerAll(server, { ...config, writeStandalone: true });
   client = new Client({ name: "guard-e2e-client", version: "0.0.0" });
   const [c, s] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(s), client.connect(c)]);

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { TOOLSETS } from "../../src/tools/gate.js";
+import { TOOLSETS, WRITE_EDITION_TOOLSETS } from "../../src/tools/gate.js";
+import { READ_TOOLS } from "../../src/editions.js";
 import { listTools } from "../helpers/listTools.js";
+import { readServerMarkAfter, toolRefs } from "../helpers/toolTokens.js";
 
 /**
  * ── No dangling tool references in the default profile ─────────────────────
@@ -299,5 +301,39 @@ describe("default profile names no tool it does not have", () => {
     const desc = daoList!.description ?? "";
     expect(desc).not.toMatch(/dexe_read_multicall|dexe_read_gov_state/);
     expect(desc).toContain("an error that names the on-chain reads to use instead");
+  });
+});
+
+/**
+ * 1.0.0 — the same promise on the write-only server (the default), where the
+ * read tools are the read server's: a name a default description cites must be
+ * in the WRITE edition's default profile, annotated with a write-edition set
+ * that contains it, or be a read tool marked `(read server)` — which every
+ * published description gets automatically (src/tools/readServerMarks.ts).
+ */
+describe("write-only default profile names no tool it does not have", () => {
+  it("resolves every dexe_* reference to a default tool, a gated write set, or the read server", async () => {
+    const tools = (await listTools(undefined, "write-only")).tools;
+    const names = new Set(tools.map((t) => t.name));
+    const bad: string[] = [];
+    for (const tool of tools) {
+      const { name, ...rest } = tool;
+      const strings: string[] = [];
+      collectStrings(rest, strings);
+      for (const text of strings) {
+        for (const { raw, ref, glob, end } of toolRefs(text)) {
+          if (ref === name) continue;
+          if (glob ? [...names].some((n) => n.startsWith(ref)) : names.has(ref)) continue;
+          const isRead = glob ? READ_TOOLS.some((n) => n.startsWith(ref)) : READ_TOOLS.includes(ref);
+          if (isRead && readServerMarkAfter(text, end)) continue;
+          const sets = annotationAfter(text, end);
+          const unlocked = new Set<string>();
+          for (const s of sets ?? []) for (const n of WRITE_EDITION_TOOLSETS.sets[s] ?? []) unlocked.add(n);
+          if (glob ? [...unlocked].some((n) => n.startsWith(ref)) : unlocked.has(ref)) continue;
+          bad.push(`${name} names ${raw}: …${text.slice(Math.max(0, end - raw.length - 60), end + 60)}…`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });

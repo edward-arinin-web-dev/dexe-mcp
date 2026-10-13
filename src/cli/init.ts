@@ -293,7 +293,12 @@ export async function run(): Promise<InitNext> {
     }
 
     // ---- Print .claude.json snippet ------------------------------------
-    output.write(line("Paste this into your ~/.claude.json under `mcpServers`:"));
+    output.write(
+      line(
+        "Paste this into your ~/.claude.json under `mcpServers` — two servers: `dexe` (writes) and `dexe-read` " +
+          "(the DeXe read server, which serves the reads):",
+      ),
+    );
     output.write(line(""));
     output.write(jsonSnippet(repoRoot));
     output.write(line(""));
@@ -515,16 +520,28 @@ export function findRepoRoot(): string {
   return process.cwd();
 }
 
-function jsonSnippet(repoRoot: string): string {
-  const distPath = resolve(repoRoot, "dist", "index.js");
+/**
+ * The `mcpServers` block for this install: TWO servers (1.0.0). `dexe` is this
+ * package's — write tools only by default; `dexe-read` is the DeXe read
+ * server (`dexe-mcp-read`, the @dexe-network/dexe-mcp dependency this install
+ * carries, started through dist/read/bin.js), which serves the reads. Both load
+ * the same ~/.dexe-mcp/.env; the read server drops the signing keys from its
+ * process. Exported for tests/cli/init-snippet.test.ts.
+ */
+export function jsonSnippet(repoRoot: string): string {
   // Use JSON.stringify to handle Windows backslashes cleanly.
-  const safe = JSON.stringify(distPath);
+  const write = JSON.stringify(resolve(repoRoot, "dist", "index.js"));
+  const read = JSON.stringify(resolve(repoRoot, "dist", "read", "bin.js"));
   return [
     "{",
     `  "mcpServers": {`,
     `    "dexe": {`,
     `      "command": "node",`,
-    `      "args": [${safe}]`,
+    `      "args": [${write}]`,
+    `    },`,
+    `    "dexe-read": {`,
+    `      "command": "node",`,
+    `      "args": [${read}]`,
     `    }`,
     `  }`,
     `}`,

@@ -195,7 +195,7 @@ describe("postVoteNextStep — one remedy per state, not one for all five", () =
 
   it("every state names a callable tool with its exact params", () => {
     for (const s of [0, 1, 2, 3, 6]) {
-      expect(at(s), `state ${s}`).toMatch(/dexe_\w+ \{|dexe_proposal_create/);
+      expect(at(s), `state ${s}`).toMatch(/dexe_\w+ (\(read server\) )?\{|dexe_proposal_create/);
     }
   });
 });

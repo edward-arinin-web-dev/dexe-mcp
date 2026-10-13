@@ -38,7 +38,9 @@ async function listTools(toolsetsEnv: string | undefined): Promise<Tool[]> {
   else process.env.DEXE_TOOLSETS = toolsetsEnv;
   const config = await loadConfig();
   const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerAll(server, config);
+  // The standalone server: both editions' tools (the write-only surface is
+  // tests/tools/write-surface.test.ts).
+  registerAll(server, { ...config, writeStandalone: true });
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverT), client.connect(clientT)]);

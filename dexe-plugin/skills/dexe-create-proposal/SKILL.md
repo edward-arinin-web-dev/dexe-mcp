@@ -17,9 +17,9 @@ changes}` shape, and calls `createProposalAndVote`. With a signer (WalletConnect
 keystore, or an unattended hot key) it broadcasts; otherwise it returns ordered
 `TxPayload`s.
 
-If you don't already know the target `govPool`/chain, call **`dexe_context`** —
-it returns the active chain and the DAOs/proposals from prior sessions
-(`dexe_write_context` returns the signer).
+If you don't already know the target `govPool`/chain, call **`dexe_write_context`** —
+it returns the signer and the DAOs/proposals this install recorded in prior
+sessions (`dexe_context`, the read server's, returns the active chain).
 When the user already told you the DAO and what to do, go straight to
 `dexe_proposal_create`.
 
@@ -179,5 +179,5 @@ Create ANY of the 33 catalog proposal types with one dexe_proposal_create call �
 - ℹ The FIRST proposal on a freshly deployed DAO can revert 'low creating power' — the just-landed deposit isn't credited at snapshot time. This is transient: re-run the SAME dexe_proposal_create call; the ledger resume skips the landed deposit and the create succeeds.
 - ℹ Amount strings: digits-only = RAW smallest units (wei); a decimal point ("12.5") = human units scaled by the token's REAL on-chain decimals (never assumed 18). Durations and delays are SECONDS (86400 = 1 day). Composite quorum/percent params are plain percent numbers (51).
 
-_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_guide` tool with `flow:"create_proposal"`._
+_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_write_guide` tool with `flow:"create_proposal"`._
 <!-- END GENERATED: flow-recipe -->

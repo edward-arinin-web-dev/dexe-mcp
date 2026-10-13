@@ -5,7 +5,8 @@ description: |
   then walks the user through only the keys that unlock more — signing, DAO/
   proposal creation (Pinata JWT), and optional reliability upgrades — telling
   them for each one exactly what breaks if they skip it. Drives from
-  `dexe_doctor`, edits `.env` (NEVER `.claude.json`), and tells them to restart.
+  `dexe_write_doctor` + `dexe_doctor`, edits `.env` (NEVER `.claude.json`), and
+  tells them to restart.
   Triggered by `/dexe-setup`, or proactively when a tool reports a missing key
   ("DEXE_PINATA_JWT is required…", "public RPC unstable", "shared public defaults").
 ---
@@ -18,7 +19,15 @@ A guided onboarding journey for `dexe-mcp`. The plugin ships with sane public
 defaults, so **reads work the moment it's installed** — no keys required. This
 skill's job is to explain that reality and then help the user unlock the parts
 that *do* need a key, one tier at a time, always saying what they lose by
-skipping. It drives from the `dexe_doctor` tool — no guessing which file or key.
+skipping. It drives from the two doctors — no guessing which file or key:
+
+- **`dexe_write_doctor`** (the `dexe` server): signer mode, keystore, hot keys,
+  Pinata, WalletConnect, and which `.env` the write server loaded.
+- **`dexe_doctor`** (the `dexe-read` server): RPC, IPFS gateway, subgraph and
+  backend reachability, and which `.env` the read server loaded.
+
+Both servers read the same `~/.dexe-mcp/.env`. With `DEXE_WRITE_STANDALONE=1`
+(one server, no `dexe-read`), `dexe_doctor` runs both sets of checks.
 
 ## The two-tier reality (say this first)
 
@@ -104,8 +113,11 @@ Creating a DAO or proposal pins metadata to IPFS, which needs a **Pinata JWT**
 
 ## Algorithm
 
-1. Call `dexe_doctor` (no input).
-2. Read `summary` and `checks` from the structured response.
+1. Call `dexe_write_doctor` and `dexe_doctor` (no input). If one of them is not
+   there, the user runs one server only — standalone `dexe_doctor` covers both,
+   and a write-only server without `dexe-read` should get the read server added
+   (`surface.mode` in `dexe_write_doctor` says which setup this is).
+2. Read `summary` and `checks` from each structured response.
    - **Success is `summary.failures === 0`** — equivalently `summary.advisoryOnly`
      when there are warnings. Reads are healthy; ask which tier (if any) the user
      wants, and don't block on warnings.
@@ -128,8 +140,8 @@ Creating a DAO or proposal pins metadata to IPFS, which needs a **Pinata JWT**
    append `KEY=value` (preserve the trailing newline).
 7. Tell the user, verbatim:
    > Edits saved to `.env`. **Restart Claude Code** so the new values load
-   > (quit and relaunch). Then I'll re-run `dexe_doctor` to confirm.
-8. After restart, re-run `dexe_doctor`. If still failing, go to step 3. Iterate
+   > (quit and relaunch). Then I'll re-run the doctors to confirm.
+8. After restart, re-run `dexe_write_doctor` and `dexe_doctor`. If still failing, go to step 3. Iterate
    at most 3 times.
 9. After 3 iterations still failing, present the full `checks` array — remaining
    issues need manual triage (bad credentials, suspended account, paid-plan
@@ -167,16 +179,18 @@ If the user wants signing beyond phone-approval WalletConnect, walk this ladder
 
 ## .env precedence trap
 
-If `dexe_doctor` returns a check named `env.<KEY>` with "shadowed by host env
-block", the same key is defined in BOTH `.env` and `.claude.json`. The host
+If either doctor returns a check named `env.<KEY>` or `env.shadowedKeys` with
+"shadowed by host env block", the same key is defined in BOTH `.env` and `.claude.json`. The host
 wins. Tell them to keep it in one place (prefer `.env`) and restart.
 
 ## Useful tools (reference)
 
-- `dexe_doctor` — diagnostic (read-only, safe to call repeatedly).
-- `dexe_context` — env readiness + `usingSharedDefaults` list.
-- `dexe_write_context` — signer/mode, keyring, Pinata / WalletConnect / Safe posture.
-- `npx dexe-mcp doctor` — CLI form; useful when the MCP server failed to start.
+- `dexe_write_doctor` — the write server's diagnostic (read-only, safe to call
+  repeatedly; `probePin: true` is the one write).
+- `dexe_doctor` — the read server's diagnostic (read-only, safe to call repeatedly).
+- `dexe_context` — env readiness + `usingSharedDefaults` list (read server).
+- `dexe_write_context` — signer/mode, keyring, Pinata / WalletConnect / Safe posture, recorded DAOs.
+- `npx dexe-mcp doctor` — CLI form, both servers' checks in one report; useful when an MCP server failed to start.
   It exits **0** when nothing failed (warnings included), **2** on a real failure
   or an unknown flag; pass `--strict` (or set `DEXE_DOCTOR_STRICT=1`) to make
   warnings exit **1** instead, which is what a CI gate wants and a setup session

@@ -16,9 +16,9 @@ otherwise it returns ordered `TxPayload`s.
 
 ## Recipe
 
-Call **`dexe_context`** first for the active chain and recent proposals, and
-**`dexe_write_context`** for the signer and its deposited power in the most
-recent DAO.
+Call **`dexe_write_context`** first for the signer, its deposited power in the
+most recent DAO, and the proposals this install recorded; **`dexe_context`**
+(the read server's) gives the active chain.
 
 ```jsonc
 dexe_proposal_vote_and_execute({
@@ -126,12 +126,12 @@ Vote and execute in one dexe_proposal_vote_and_execute call — auto-deposits wh
 
 **Pitfalls (danger first):**
 - ⚠ DeXe expresses quorum in TWO units and mixing them is the classic error. (1) The SETTING — GovSettings.getDefaultSettings().quorum, the pools subgraph's Proposal.quorum, and the raw `quorum`/`quorumSettingRaw` on dexe_read_settings and dexe_dao_report — is a PERCENTAGE scaled by 1e25 (5e26 = 50%); read it as `quorumPct`/`quorumSettingPct`. (2) The TARGET — GovPool.getProposalRequiredQuorum(id), the `requiredQuorum` field on getProposals rows, dexe_proposal_state and dexe_proposal_list — is an ABSOLUTE vote weight in token wei, equal to GovUserKeeper.getTotalPower() × setting / 1e27. Compare votes ONLY against the TARGET; against the SETTING you are off by totalPower/1e27 — orders of magnitude, in either direction. Quorum is also per-SIDE: GovPoolVote._quorumReached is true when EITHER votesFor OR votesAgainst clears the target, never their sum. getProposalRequiredQuorum returns 0 for a proposal that does not exist or has not started — treat 0 as unknown, never as "already reached".
-- ⚠ Canonical ProposalState order: 0 Voting, 1 WaitingForVotingTransfer, 2 ValidatorVoting, 3 Defeated, 4 SucceededFor, 5 SucceededAgainst, 6 Locked, 7 ExecutedFor, 8 ExecutedAgainst, 9 Undefined. Execute is only valid from SucceededFor/SucceededAgainst; use dexe_proposal_state to check, never guess from the number.
+- ⚠ Canonical ProposalState order: 0 Voting, 1 WaitingForVotingTransfer, 2 ValidatorVoting, 3 Defeated, 4 SucceededFor, 5 SucceededAgainst, 6 Locked, 7 ExecutedFor, 8 ExecutedAgainst, 9 Undefined. Execute is only valid from SucceededFor/SucceededAgainst; use dexe_proposal_state (read server) to check, never guess from the number.
 - ⚠ DAOs with validators add a second voting chamber: Voting → (member quorum) WaitingForVotingTransfer → moveProposalToValidators → ValidatorVoting → (validator quorum) SucceededFor → execute. Voting in the validator chamber BEFORE the move reverts 'Validators: proposal does not exist'. dexe_proposal_vote_and_execute auto-drives the whole validator round when the signer is a validator; pass driveValidatorRound:false to stop after the member vote.
 - ⚠ Tokens you voted with stay LOCKED per-proposal even after the proposal executes, and votingPower() reads 0 while locked (it shows available, not deposited, power). Between proposals run dexe_vote_build_withdraw to unlock, or the next create/vote fails with 'No voting power available'.
 - ⚠ On fresh (SphereX-era) pools a cast VALIDATOR vote cannot be cancelled — GovValidators has no multicall, and raw cancelVote{Internal,External}Proposal is blocked in every shape. Top-up re-votes ARE allowed. Warn validators before they vote.
 - ⚠ Raw top-level vote()/delegate() calls REVERT on fresh (SphereX-era) pools — the frontend always wraps them as GovPool.multicall([call]) even for a single call, and the dexe-mcp builders emit that shape since v0.24.1. If you hand-craft calldata, wrap it. Raw deposit/withdraw/cancelVote/undelegate/createProposal(AndVote) remain allowed (undelegate with one exception — see undelegate-after-vote).
-- ℹ Delegation is ONE level: a delegator delegates only their OWN deposited balance; received delegations cannot be re-delegated (hub-and-spoke, never chains). Effective voting power = own deposited + incoming delegations — verify with dexe_vote_user_power (totalBalance).
+- ℹ Delegation is ONE level: a delegator delegates only their OWN deposited balance; received delegations cannot be re-delegated (hub-and-spoke, no chains). Effective voting power = own deposited + incoming delegations — verify with dexe_vote_user_power (read server; totalBalance).
 
-_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_guide` tool with `flow:"vote_execute"`._
+_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_write_guide` tool with `flow:"vote_execute"`._
 <!-- END GENERATED: flow-recipe -->

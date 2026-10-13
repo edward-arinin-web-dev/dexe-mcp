@@ -75,7 +75,8 @@ describe("deprecated aliases", () => {
     const config = await loadConfig();
     delete process.env.DEXE_TOOLSETS;
     const server = new McpServer({ name: "aliases", version: "0.0.0" }, {});
-    registerAll(server, config);
+    // The aliases' targets are read tools: registered standalone only.
+    registerAll(server, { ...config, writeStandalone: true });
     const client = new Client({ name: "c", version: "0.0.0" });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     await Promise.all([server.connect(st), client.connect(ct)]);

@@ -100,6 +100,13 @@ export interface DevConfig {
 }
 
 export interface WriteConfig extends ReadConfig, DevConfig {
+  /**
+   * `DEXE_WRITE_STANDALONE=1`: register the read tools too (the pre-1.0 single
+   * server, for a user who runs no read server). Unset or false: write tools
+   * only — the DeXe read server beside this one serves the reads. A config
+   * built in code that leaves it out is write-only.
+   */
+  writeStandalone?: boolean;
   /** Pinata JWT for IPFS uploads (reads work without it via gateway). */
   pinataJwt?: string;
   /** Private key for tx signing. When set, `dexe_tx_send` can broadcast. */
@@ -581,6 +588,7 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
   const approvalTtlS = boundedInt(process.env.DEXE_APPROVAL_TTL_S, 900, 60, 3600);
   const approvalUseS = boundedInt(process.env.DEXE_APPROVAL_USE_S, 120, 10, approvalTtlS);
   const approvalOpenBrowser = !/^(0|false|no|off)$/i.test(process.env.DEXE_APPROVAL_OPEN_BROWSER?.trim() ?? "");
+  const writeStandalone = isWriteStandalone(process.env);
 
   const risk = resolveRiskSettings(sink);
   // DEXE_TREASURY_GUARD resolves through `resolveTreasuryGuardMode` — the same
@@ -683,7 +691,18 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
     approvalTtlS,
     approvalOpenBrowser,
     approvalUseS,
+    writeStandalone,
   });
+}
+
+/**
+ * `DEXE_WRITE_STANDALONE` as the server reads it: `1` / `true` register the
+ * read tools too, anything else (unset, `0`, `false`, a value the env spec
+ * rejected and deleted at startup) is write-only. Also read by the degraded
+ * startup server (src/index.ts), which runs when `loadConfig` itself failed.
+ */
+export function isWriteStandalone(env: NodeJS.ProcessEnv): boolean {
+  return /^(1|true)$/i.test(env.DEXE_WRITE_STANDALONE?.trim() ?? "");
 }
 
 /** Env var names that hold a hot key (set and non-empty). DEXE_-prefixed and swarm aliases both count. */

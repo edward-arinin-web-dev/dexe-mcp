@@ -9,7 +9,7 @@
     {
       "name": "dexe",
       "source": "./dexe-plugin",
-      "description": "DeXe Protocol DAO governance for Claude — deploy DAOs, draft/vote/execute proposals, OTC sales, IPFS metadata. Reads work with zero setup; add keys only for writes.",
+      "description": "DeXe Protocol DAO governance for Claude — deploy DAOs, draft/vote/execute proposals, OTC sales, IPFS metadata. Two servers: writes (dexe) and the DeXe read server (dexe-read). Reads work with zero setup; add keys only for writes.",
       "version": "0.37.1",
       "author": {
         "name": "Edward Arinin",

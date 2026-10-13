@@ -1937,7 +1937,7 @@ function registerNewProposalType(server: McpServer, ctx: WriteToolContext): void
       inputSchema: {
         govSettings: z
           .string()
-          .describe("GovSettings contract address (from dexe_dao_info.helpers.settings)."),
+          .describe("GovSettings contract address (from dexe_dao_info (read server) → helpers.settings)."),
         settings: z
           .object({
             earlyCompletion: z.boolean().describe("End the vote as soon as the result is decided."),

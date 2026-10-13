@@ -22,13 +22,14 @@ automatically with the plugin, or on demand via the CLI.
 | `dexe-staking` | Staking setup end-to-end: `create_staking_tier`, StakingProposal auto-resolve + the one-off permissionless `deployStakingProposal()`, the silent past-deadline rejection, mainnet-only rule. |
 | `dexe-report` | One-call `dexe_dao_report` + the subgraph/backend reads behind it: what to ask for, `since: "last"` incremental runs, scheduling a digest. Works with no configuration. Full reference: [`REPORTING.md`](./REPORTING.md). |
 | `dexe-agent-team` | Running a multi-persona fleet: `dexe_agents_list` / `_fund` / `_ledger`, `signerKey` routing, funding caps. **Needs `DEXE_TOOLSETS=core,agents` and plaintext hot keys — burner wallets, chain 97 first.** Full reference: [`AGENTS.md`](./AGENTS.md). |
-| `dexe-setup` | Env onboarding via `dexe_doctor` (edits `.env`, never `.claude.json`). |
+| `dexe-setup` | Env onboarding via `dexe_write_doctor` + the read server's `dexe_doctor` (edits `.env`, never `.claude.json`). |
 
 Since v0.26.0 the five **recipe** skills (`dexe-create-dao`, `dexe-create-proposal`,
 `dexe-vote-execute`, `dexe-otc`, `dexe-staking`) each carry a **generated
 "Canonical recipe" section** rendered from the machine-readable corpus in
 `src/knowledge/` (`npm run gen:knowledge`; drift-checked in CI) — the same source that powers the
-`dexe_guide` tool and `docs/PLAYBOOK.md`, so the three can never disagree.
+`dexe_write_guide` tool (and, standalone, `dexe_guide`) and `docs/PLAYBOOK.md`, so they can never disagree.
+The skills run with both servers in the plugin: a read tool they name is the `dexe-read` server's.
 
 ## Installing
 
@@ -54,14 +55,15 @@ overwritten with an `(updated)` note, so upgrading the package and re-running
 keeps the installed recipes current. Each skill is a folder with a single
 `SKILL.md`; Claude Code auto-discovers them from the skills directory.
 
-## Skills, MCP prompts, and dexe_guide
+## Skills, MCP prompts, and dexe_write_guide
 
 The recipe knowledge is model-facing guidance, not tool I/O. Skills are the
 supported, discoverable channel for that in Claude Code and travel with the npm
 package. Since v0.26.0 the same recipes are ALSO served as:
 
-- the **`dexe_guide` tool** (works in every MCP host — the primary channel for
-  weak models, since tool results land right before the agent's next decision);
+- the **`dexe_write_guide` tool** (works in every MCP host — the primary channel for
+  weak models, since tool results land right before the agent's next decision;
+  standalone, `dexe_guide` serves the same flows next to the read topics);
 - **MCP prompts** `dexe-flow-<flow-id>` (one per flow) for hosts that support
   the prompts surface.
 

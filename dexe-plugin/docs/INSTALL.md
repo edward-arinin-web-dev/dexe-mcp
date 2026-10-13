@@ -22,7 +22,7 @@ If you use **Claude Code**, this is all you do. Type these two lines into Claude
 
 That's it. Claude will:
 
-- connect the DeXe tools automatically (nothing to install, no config file to edit), and
+- connect the DeXe tools automatically — two servers, `dexe` (writes: deploy, propose, vote, sign) and `dexe-read` (reads: DAOs, proposals, treasury, reports); nothing to install, no config file to edit — and
 - add the governance **skills** — ready-made recipes for *create a DAO*, *create a proposal*, *vote and execute*, *OTC sales*, *DAO reports*, and more.
 
 Now just ask, in plain English:
@@ -30,7 +30,7 @@ Now just ask, in plain English:
 > *"Show the treasury of `0x…` on BSC."*
 > *"List the open proposals for this DAO."*
 
-The tools appear as soon as Claude restarts — the plugin ships the server itself, so there is nothing to download. If you do not see the `dexe_*` tools, quit and relaunch Claude Code, then run `dexe_doctor`.
+The tools appear as soon as Claude restarts — the plugin ships the server itself, so there is nothing to download. If you do not see the `dexe_*` tools, quit and relaunch Claude Code, then run `dexe_doctor` (the read server's checks) and `dexe_write_doctor` (signing and uploads).
 
 **Updating later:** when a new version ships, type `/plugin marketplace update` then `/plugin install dexe@dexe-mcp` again.
 
@@ -38,7 +38,7 @@ The tools appear as soon as Claude restarts — the plugin ships the server itse
 
 ## Path B — Cursor, Claude Desktop, and other local MCP clients
 
-These clients don't support Claude Code plugins yet, so you register the server once.
+These clients don't support Claude Code plugins yet, so you register the servers once. Since 1.0.0 there are **two**: `dexe` (`dexe-mcp`, the write tools) and `dexe-read` (`dexe-mcp-read` from `@dexe-network/dexe-mcp`, the read tools). Every config below registers both; `npx dexe-mcp init` prints the same pair with `node` paths into your install. **Only want one process?** Register just `dexe` with `"env": { "DEXE_WRITE_STANDALONE": "1" }` — it then registers the read tools too.
 
 > **stdio only.** `dexe-mcp` runs as a local process on your machine and talks to the client over stdio — it never opens a network port. A client that only accepts a *remote* MCP **URL** (ChatGPT connectors and other hosted-only integrations) cannot connect to it directly. Use a client that can launch a local command: Claude Code, Claude Desktop, Cursor, VS Code, or your own agent.
 
@@ -50,9 +50,10 @@ You need [Node.js 20.12 or newer](https://nodejs.org) — the server reads your 
 
 ```sh
 claude mcp add dexe -s user -- npx -y dexe-mcp@latest
+claude mcp add dexe-read -s user -- npx -y -p @dexe-network/dexe-mcp dexe-mcp-read
 ```
 
-One line on every OS. `-s user` registers it for **every** project — local scope is the default, and it makes the server appear to vanish the moment you open another project. Verify with `claude mcp list`.
+Two lines on every OS. `-s user` registers it for **every** project — local scope is the default, and it makes the server appear to vanish the moment you open another project. Verify with `claude mcp list`.
 
 ### B2 — Claude Desktop
 
@@ -67,6 +68,10 @@ Config file:
     "dexe": {
       "command": "npx",
       "args": ["-y", "dexe-mcp@latest"]
+    },
+    "dexe-read": {
+      "command": "npx",
+      "args": ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"]
     }
   }
 }
@@ -80,12 +85,16 @@ On **Windows**, `npx` spawns a `.cmd` shim and can exceed the client's MCP start
     "dexe": {
       "command": "node",
       "args": ["<npm root -g>\\dexe-mcp\\dist\\index.js"]
+    },
+    "dexe-read": {
+      "command": "node",
+      "args": ["<npm root -g>\\dexe-mcp\\dist\\read\\bin.js"]
     }
   }
 }
 ```
 
-Run `npm install -g dexe-mcp`, then `npm root -g` for the absolute path to substitute.
+Run `npm install -g dexe-mcp`, then `npm root -g` for the absolute path to substitute. `dist/read/bin.js` starts the read server from the `@dexe-network/dexe-mcp` version this install pins.
 
 ### B3 — Cursor
 
@@ -100,6 +109,7 @@ Same JSON as B2, and the same Windows `node` + `dist/index.js` fallback.
 
 ```sh
 codex mcp add dexe -- npx -y dexe-mcp@latest
+codex mcp add dexe-read -- npx -y -p @dexe-network/dexe-mcp dexe-mcp-read
 ```
 
 Or edit `~/.codex/config.toml` by hand — note the **UNDERSCORE**; `mcp-servers` with a hyphen is silently ignored:
@@ -108,6 +118,11 @@ Or edit `~/.codex/config.toml` by hand — note the **UNDERSCORE**; `mcp-servers
 [mcp_servers.dexe]
 command = "npx"
 args = ["-y", "dexe-mcp@latest"]
+startup_timeout_sec = 60
+
+[mcp_servers.dexe-read]
+command = "npx"
+args = ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"]
 startup_timeout_sec = 60
 ```
 
@@ -121,7 +136,7 @@ The B2 JSON is the portable shape. [`.mcp.example.json`](https://github.com/edwa
 npm install -g dexe-mcp
 ```
 
-Then use `"command": "dexe-mcp"` (or the `node` + `dist/index.js` form on Windows) instead of `npx`. Same rule as above: once it is installed globally, do **not** also launch it through `npx dexe-mcp@<version>` — the global copy wins and the pinned version never runs.
+Then use `"command": "dexe-mcp"` (or the `node` + `dist/index.js` form on Windows) instead of `npx`, and `node <npm root -g>/dexe-mcp/dist/read/bin.js` for `dexe-read`. Same rule as above: once it is installed globally, do **not** also launch it through `npx dexe-mcp@<version>` — the global copy wins and the pinned version never runs.
 
 ### Add the skills (optional — the recipe shortcuts)
 

@@ -6,14 +6,17 @@ import { isMainModule } from "@dexe-network/dexe-mcp/core";
 import { runReadBin } from "@dexe-network/dexe-mcp/bin";
 
 /**
- * `dexe-mcp-read` — the read edition's binary, as this package ships it.
+ * The read server (`dexe-mcp-read`) as this install starts it.
  *
  * The read edition is @dexe-network/dexe-mcp: its stdio server, `serve-http`
  * and the usage text are that package's (`runReadBin`, which starts nothing
- * until called). This file gives it a bin entry here (package.json "bin"), is
- * what `dexe-mcp serve-http` spawns (src/index.ts), and tells it two things
- * about this install: the version to report (this package's, as before the
- * read code moved out) and where the install's `.env` candidate is
+ * until called). Since 1.0.0 this file is NOT a package.json "bin" — that name
+ * belongs to @dexe-network/dexe-mcp, and two packages declaring one bin collide
+ * on a global install (EEXIST). It is what `dexe-mcp serve-http` spawns
+ * (src/index.ts), the `dexe-read` server `dexe-mcp init` prints, and the entry
+ * the plugin bundles into dexe-plugin/server/read/bin.mjs. It tells the binary
+ * two things about this install: the version to report (this package's, as
+ * before the read code moved out) and where the install's `.env` candidate is
  * (`<dist>/../.env`, as for `dexe-mcp`). It imports no src/ module, so it
  * carries no write code (tests/read/module-graph.test.ts).
  */

@@ -29,6 +29,11 @@ export const WRITE_SKILLS: readonly string[] = SHIPPED_SKILLS.filter(
   (s) => !(READ_SKILLS as readonly string[]).includes(s),
 );
 
+/** The handshake for this server's mode: the single server's text standalone, the write edition's otherwise. */
+export function instructionsFor(config: { writeStandalone?: boolean }): string {
+  return config.writeStandalone ? serverInstructions() : writeInstructions();
+}
+
 /**
  * The keystore-mode rule, in both handshakes. The model must never be the
  * channel the password travels through, and an `awaiting_approval` result is
@@ -39,7 +44,9 @@ export const KEYSTORE_INSTRUCTION =
 
 /**
  * The single server's MCP handshake `instructions` — the one block of text
- * EVERY session reads before it acts.
+ * EVERY session reads before it acts. Since 1.0.0 the standalone server's
+ * (`DEXE_WRITE_STANDALONE=1`): it registers the read tools it names, and its
+ * `dexe_guide` serves the write flows, so the 0.37 text stays true there.
  *
  * Exported and DERIVED (not a literal) so it can never drift from the gate
  * again: the v0.31.0 narrowing of `DEFAULT_TOOLSETS` to `["core"]` left this
@@ -54,7 +61,8 @@ export const KEYSTORE_INSTRUCTION =
  *
  * Budget: `INSTRUCTIONS_MAX_CHARS` (the read edition's instructions.ts). The per-edition texts
  * are `readInstructions()` (the read edition's instructions.ts) and `writeInstructions()`
- * below; this one is pinned byte-for-byte while the single server ships.
+ * below; this one stays the 0.37 text for the standalone server (its default
+ * tool count is derived, so it moved 46 → 48 with the write guide and doctor).
  */
 export function serverInstructions(): string {
   const defaultCount = defaultProfileToolNames().size;
@@ -80,20 +88,21 @@ export function serverInstructions(): string {
 }
 
 /**
- * The write edition's handshake: the single server's text minus the read
- * material. It names write tools only — the reads, the report and the flow
- * guide belong to the DeXe read server, which it points at without naming its
- * tools. The toolset sentence is derived from the write edition's own table.
+ * The write-only server's handshake (the 1.0.0 default): the single server's
+ * text minus the read material. It names write tools only — the reads and the
+ * report are the DeXe read server's, which it points at by name without naming
+ * its tools; the flow plans are this server's `dexe_write_guide`. The toolset
+ * sentence is derived from the write edition's own table.
  */
 export function writeInstructions(): string {
   const defaultCount = defaultToolNames(WRITE_EDITION_TOOLSETS).size;
   return (
     "Tools that build, sign and send DeXe Protocol governance transactions, plus dexe_gov_build_* (needs " +
-    "DEXE_TOOLSETS=core,governor) for external OpenZeppelin/Compound Governors. " +
-    "DAO data, reports and the step-by-step flow plans come from the DeXe read server — install it next to this " +
-    "one; plan any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) with its guide or the " +
-    "dexe-flow-* prompts first. " +
-    "Orientation: dexe_write_context (signer, keyring, uploads, an unfinished flow). " +
+    "DEXE_TOOLSETS=core,governor) for OpenZeppelin/Compound Governors. " +
+    "Reads come from the DeXe read server (dexe-mcp-read) beside this one; tools marked (read server) are its. " +
+    "For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_write_guide FIRST: " +
+    "plan, questions, pitfalls. " +
+    "Orientation: dexe_write_context (signer, keyring, recorded DAOs, unfinished flow); setup: dexe_write_doctor. " +
     "Prefer the composites: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types — proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). " +
     "On partial failure they return the landed-steps ledger — fix the cause and re-run the same call. " +
     RESUME_SUMMARY +
@@ -105,7 +114,7 @@ export function writeInstructions(): string {
     " " +
     `Tools are gated by DEXE_TOOLSETS (default '${WRITE_EDITION_TOOLSETS.defaults.join(",")}' — ${defaultCount} tools). ` +
     "dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) are off and not needed: dexe_proposal_create covers every type. " +
-    "dexe_compile, dexe_get_abi, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): compile once before the reads. " +
+    "dexe_compile, dexe_get_abi (needs DEXE_TOOLSETS=core,dev): compile once first. " +
     "Recipes + error remedies: dexe://playbook. " +
     `Skills: ${WRITE_SKILLS.join(", ")}; dexe-agent-team needs DEXE_TOOLSETS=core,agents plus hot keys.`
   );

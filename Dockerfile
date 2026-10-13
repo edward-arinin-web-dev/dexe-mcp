@@ -3,7 +3,7 @@
 # The read edition's remote server: `dexe-mcp-read serve-http` — every tool
 # read-only, MCP Streamable HTTP, stateless. Pre-release until the
 # connector-directory submission. Runbook: docs/REMOTE.md. The stdio servers
-# (`npx dexe-mcp`, `npx -p dexe-mcp dexe-mcp-read`) do not need this.
+# (`npx dexe-mcp`, `npx -p @dexe-network/dexe-mcp dexe-mcp-read`) do not need this.
 #
 #   docker build -t dexe-mcp-read .
 #   docker run --rm -p 127.0.0.1:8080:8080 \

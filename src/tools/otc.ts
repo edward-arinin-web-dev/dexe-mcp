@@ -175,7 +175,7 @@ export async function resolveMerkleUris(
         opts.dryRun
           ? `Tier "${tier.name}": preview only — DEXE_PINATA_JWT is unset, so a real run will leave this ` +
               `MerkleWhitelist uri EMPTY and app.dexe.io buyers will not be able to derive proofs. ` +
-              `Set DEXE_PINATA_JWT (see dexe_doctor) before the real run.`
+              `Set DEXE_PINATA_JWT (see dexe_write_doctor) before the real run.`
           : `Tier "${tier.name}": MerkleWhitelist uri left empty (DEXE_PINATA_JWT unset) — ` +
               `app.dexe.io buyers cannot regenerate proofs for this tier; distribute the whitelist out-of-band.`,
       );
@@ -262,7 +262,7 @@ export function registerOtcSaleTools(
         .string()
         .optional()
         .describe(
-          "TokenSaleProposal helper address. Omit for a DAO this install deployed (recorded at deploy); otherwise dexe_dao_predict_addresses or the deploy receipt.",
+          "TokenSaleProposal helper address. Omit for a DAO this install deployed (recorded at deploy); otherwise dexe_dao_predict_addresses (read server) or the deploy receipt.",
         ),
       tiers: z
         .array(tierSchema)
@@ -307,7 +307,7 @@ export function registerOtcSaleTools(
           return err(
             `tokenSaleProposal is required: ${inputRaw.govPool} on chain ${tspChainId} was not deployed by this ` +
               `install, so its TokenSaleProposal address is not on record. Pass it explicitly — from the deploy ` +
-              `receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`,
+              `receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses (read server) with deployer + daoName.`,
           );
         }
         if (!isAddress(tokenSaleProposal)) return err(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);

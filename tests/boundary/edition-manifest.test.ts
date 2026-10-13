@@ -6,8 +6,9 @@ import { listTools, type ListedTools } from "../helpers/listTools.js";
 
 /**
  * The edition manifest (src/editions.ts) against the surface the server
- * actually registers. Until the two editions ship as separate servers, this is
- * what keeps the line drawn: a tool added without a side fails here by name.
+ * actually registers, in both of its modes: write-only (the 1.0.0 default)
+ * registers exactly WRITE_TOOLS; standalone (DEXE_WRITE_STANDALONE=1) READ_TOOLS
+ * as well. A tool added without a side fails here by name.
  */
 
 function dupes(list: readonly string[]): string[] {
@@ -17,16 +18,22 @@ function dupes(list: readonly string[]): string[] {
 
 describe("edition manifest", () => {
   let full: ListedTools;
+  let writeOnly: ListedTools;
 
   beforeAll(async () => {
-    full = await listTools("full");
+    full = await listTools("full", "standalone");
+    writeOnly = await listTools("full", "write-only");
   });
 
-  it("has 54 read and 116 write tools, no duplicates", () => {
+  it("has 54 read and 118 write tools, no duplicates", () => {
     expect(dupes(READ_TOOLS), "listed twice in READ_TOOLS").toEqual([]);
     expect(dupes(WRITE_TOOLS), "listed twice in WRITE_TOOLS").toEqual([]);
     expect(READ_TOOLS.length).toBe(54);
-    expect(WRITE_TOOLS.length).toBe(116);
+    expect(WRITE_TOOLS.length).toBe(118);
+  });
+
+  it("the write-only server registers exactly WRITE_TOOLS — no read tool, no alias, even at full", () => {
+    expect(writeOnly.names).toEqual([...WRITE_TOOLS].sort());
   });
 
   it("READ_TOOLS is exactly what the read edition's package serves", () => {
@@ -41,7 +48,7 @@ describe("edition manifest", () => {
     expect(READ_TOOLS.filter((n) => write.has(n)), "in both editions").toEqual([]);
   });
 
-  it("read ∪ write is exactly the registered surface (plus the deprecated aliases)", () => {
+  it("standalone: read ∪ write is exactly the registered surface (plus the deprecated aliases)", () => {
     // An alias (src/tools/aliases.ts) is an old name for a renamed tool, not a
     // tool: it is in neither edition and is registered only by the single
     // server, next to its target.

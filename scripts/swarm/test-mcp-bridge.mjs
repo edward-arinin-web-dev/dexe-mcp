@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const transport = new StdioClientTransport({
   command: "node",
   args: [resolve("dist/index.js")],
-  env: { ...process.env, DEXE_PRIVATE_KEY: "" },
+  env: { ...process.env, DEXE_PRIVATE_KEY: "", DEXE_WRITE_STANDALONE: "1" },
   cwd: process.cwd(),
 });
 const c = new Client({ name: "swarm-orch", version: "0.1.0" });

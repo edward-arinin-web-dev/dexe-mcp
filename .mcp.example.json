@@ -1,5 +1,5 @@
 {
-  "_comment": "Minimal config — read tools need NO env at all. macOS/Linux: command 'dexe-mcp'. Windows: if the shim is not on PATH, use { \"command\": \"node\", \"args\": [\"<npm root -g>/dexe-mcp/dist/index.js\"] } — `npx dexe-mcp init` prints that exact snippet for you. The _-prefixed keys below are documentation; delete them if your MCP client rejects unknown top-level keys.",
+  "_comment": "Minimal config — two servers since 1.0.0: dexe (write tools) and dexe-read (the DeXe read server, @dexe-network/dexe-mcp — read tools, NO env needed at all). macOS/Linux: command 'dexe-mcp'. Windows: if the shim is not on PATH, use { \"command\": \"node\", \"args\": [\"<npm root -g>/dexe-mcp/dist/index.js\"] } and <npm root -g>/dexe-mcp/dist/read/bin.js for dexe-read — `npx dexe-mcp init` prints that exact snippet for you. One process only: drop dexe-read and set DEXE_WRITE_STANDALONE=1. The _-prefixed keys below are documentation; delete them if your MCP client rejects unknown top-level keys.",
   "_env_note": "Put DEXE_* values in ~/.dexe-mcp/.env (written by `npx dexe-mcp init`), NOT in the env block — a key set in the client config SHADOWS the .env file silently. Run `npx dexe-mcp doctor` to see which file was loaded and what is shadowed.",
   "_signing_note": "No private key is needed to BUILD transactions. To let the server broadcast, connect a wallet with dexe_wc_connect (WalletConnect) — a plaintext DEXE_PRIVATE_KEY is the last resort, see docs/SETUP.md.",
   "_optional_env": {
@@ -11,6 +11,10 @@
   "mcpServers": {
     "dexe": {
       "command": "dexe-mcp"
+    },
+    "dexe-read": {
+      "command": "npx",
+      "args": ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"]
     }
   }
 }

@@ -40,8 +40,25 @@ describe("edition env specs", () => {
     }
   });
 
+  /**
+   * Write vars newer than the vendored read package: the read server does not
+   * know them yet, so its doctor lists them under env.unknownVars when a shared
+   * .env sets them (it still drops them from its process). A RATCHET — once the
+   * read package names one in FOREIGN_WRITE_ENV_KEYS, its entry here fails the
+   * test and must go.
+   */
+  const PENDING_IN_READ_PACKAGE = ["DEXE_WRITE_STANDALONE"];
+
+  it("the pending list holds only vars the read package does not know yet", () => {
+    for (const k of PENDING_IN_READ_PACKAGE) {
+      expect(FOREIGN_WRITE_ENV_KEYS.has(k), `${k} is foreign in the read package now — drop it from PENDING_IN_READ_PACKAGE`).toBe(false);
+      expect(keys(ENV_SPEC_WRITE)).toContain(k);
+    }
+  });
+
   it("the read edition names every write and dev var as foreign — and nothing else", () => {
-    expect([...FOREIGN_WRITE_ENV_KEYS].sort()).toEqual([...keys(ENV_SPEC_WRITE), ...keys(ENV_SPEC_DEV)].sort());
+    const written = [...keys(ENV_SPEC_WRITE), ...keys(ENV_SPEC_DEV)].filter((k) => !PENDING_IN_READ_PACKAGE.includes(k));
+    expect([...FOREIGN_WRITE_ENV_KEYS].sort()).toEqual(written.sort());
     for (const k of keys(ENV_SPEC_READ)) expect(READ_ENV_SURFACE.isForeign?.(k), k).toBe(false);
     for (const k of FOREIGN_WRITE_ENV_KEYS) expect(READ_ENV_SURFACE.isForeign?.(k), k).toBe(true);
   });

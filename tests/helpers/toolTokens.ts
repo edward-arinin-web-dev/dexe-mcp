@@ -66,3 +66,22 @@ export function toolRefs(text: string): ToolRef[] {
   }
   return out;
 }
+
+/**
+ * The `(read server)` mark (src/editions.ts READ_SERVER_MARK) attached to the
+ * token ending at `from` — directly, or as the trailing mark of a run of names
+ * separated only by list punctuation ("dexe_a / dexe_b (read server)"), the
+ * same rule as `annotationAfter`. `(read server; …)` counts too.
+ */
+const READ_SERVER_ANNOTATION = /^\s*\(read server[;)]/;
+
+export function readServerMarkAfter(text: string, from: number): boolean {
+  let rest = text.slice(from, from + 300);
+  for (let hop = 0; hop < 24; hop += 1) {
+    if (READ_SERVER_ANNOTATION.test(rest)) return true;
+    const gap = LIST_GAP.exec(rest);
+    if (!gap) return false;
+    rest = rest.slice(gap[0].length);
+  }
+  return false;
+}

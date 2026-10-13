@@ -122,7 +122,9 @@ async function writeServer(): Promise<McpServer> {
   const { loadConfig } = await import("../../src/config.js");
   const { registerAll } = await import("../../src/tools/index.js");
   const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
-  registerAll(server, await loadConfig());
+  // The position view is a read tool: this server registers it (and attaches
+  // F15 to it) standalone only — see the open question in the 1e-b PR.
+  registerAll(server, { ...(await loadConfig()), writeStandalone: true });
   return server;
 }
 

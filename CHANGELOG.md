@@ -31,8 +31,63 @@
   agent-team / create-proposal / otc / vote-execute skills) no longer say a key
   alone signs.
 
+### Breaking — two servers: `dexe-mcp` registers write tools only (172 tools)
+- The read tools moved to the DeXe read server, `dexe-mcp-read` from
+  `@dexe-network/dexe-mcp` (which this package now depends on for its read
+  code). By default `dexe-mcp` registers **118 write tools** (`WRITE_TOOLS`,
+  `src/editions.ts`) and none of the 54 read tools; run the read server next to
+  it. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md).
+- **`DEXE_WRITE_STANDALONE=1`** (new env var, `dexe_write_doctor` row
+  `surface.mode`) registers the read tools too — every tool 0.37 had, plus the
+  two below: 172 tools, `core` 48.
+- **New `dexe_write_guide`** — the eight write journeys from the same knowledge
+  engine as `dexe_guide` (index + per-flow plans, interview, gotchas, chain
+  notes, cross-session resume). A step whose tool the write server lacks is
+  located `providedBy` the read server. The read server's `dexe_guide` keeps the
+  data topics; standalone, `dexe_guide` still serves flows + topics.
+- **New `dexe_write_doctor`** — the write server's checks only: surface mode,
+  startup-rejected values, the `.env` this process loaded (and what shadows
+  it), write/dev vars, signer / keystore / approval page / hot keys / broadcast
+  guards / keyring, Pinata (+ opt-in `probePin`), the shared WalletConnect id,
+  the state file. No RPC / subgraph / backend / gateway probes (the read
+  server's `dexe_doctor`). `npx dexe-mcp doctor` still runs both editions'
+  checks; the degraded startup server is named `dexe_write_doctor` (or
+  `dexe_doctor` standalone).
+- `dexe_write_context` returns `recorded` — the DAOs and proposals this
+  install's write flows recorded (`daoLimit` / `proposalLimit`, `*Total`) —
+  since the read server keeps no state.
+- Write-only handshake (2,031 chars): reads come from the read server, call
+  `dexe_write_guide` first, `dexe_write_context` / `dexe_write_doctor`;
+  default `core` = 25 tools. Always-loaded tools: `dexe_write_guide`,
+  `dexe_write_context`. Standalone keeps the 0.37 text (2,046 chars).
+- Every read tool a write text names is marked `(read server)`: published
+  descriptions and parameter texts (applied to `tools/list`, so the read
+  package's shared parameter texts are covered), remedies, the guide's gotchas,
+  composite `next` pointers (`providedBy`). Pointers and remedies that named
+  `dexe_guide` / `dexe_doctor` name `dexe_write_guide` / `dexe_write_doctor`
+  (registered in both modes). The PLAYBOOK error table is the write-only one.
+- Toolset profiles keep their names on the write-only server, narrowed to the
+  write tools: `core` 25, `proposals` 42, `read` 1 (`dexe_ipfs_cid_for_json`),
+  `vote` 28, `agents` 3, `governor` 10, `dev` 19, `full` 118. The deprecated
+  aliases `dexe_otc_buyer_status` / `dexe_otc_list_sales_for_dao` (and the F15
+  block on the position view) exist only standalone: on the default
+  two-server setup `dexe_read_token_sale_position` is the read server's, with
+  its neutral `vestingNote`, and the write actions still refuse
+  `vestingWithdraw` (`dexe_otc_dao_open_sale` refuses a vesting tier by
+  default, `dexe_otc_buyer_claim_all` does not send it, the builder reports it).
+- **The `dexe-mcp-read` bin is gone from this package** (both packages
+  declaring it broke a global install with EEXIST): use
+  `npx -y -p @dexe-network/dexe-mcp dexe-mcp-read`. `dexe-mcp serve-http` still
+  starts the read edition's HTTP server.
+- **Claude Code plugin ships two servers:** `dexe` (`server/index.mjs`) and
+  `dexe-read` (`server/read/bin.mjs`, the read server bundled from the pinned
+  dependency — launched with plain `node`, no npx). `npx dexe-mcp init` prints
+  both into the host-config snippet.
+- Swarm orchestrator, e2e, OTC-lifecycle and eval harnesses run the server
+  standalone (their scenarios read through it).
+
 ### Added — keystore approvals for messages and Safe typed data (2c Phase B, part 1)
-Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-safe-transactions-since-100).
+No new tool (the 1.0.0 count is the two-server section's above). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-safe-transactions-since-100).
 - **Two new approval kinds** through the same store, page, password check,
   global lockout, decline cooldown, TTL and single-use rule as a transaction
   batch: `message` (EIP-191, bound to `keccak(chainId, from, keccak(bytes))`)

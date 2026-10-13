@@ -58,6 +58,16 @@ const KEYSTORE_ADDRESS_MSG = "must be a 0x-prefixed 40-hex EVM address (42 chara
 
 /** The write edition's vars: signing, broadcast guards, uploads, WalletConnect, Safe, the treasury guard. */
 export const ENV_SPEC_WRITE = {
+  DEXE_WRITE_STANDALONE: {
+    schema: enumStr(["1", "0", "true", "false"]),
+    category: "core",
+    required: false,
+    example: "0",
+    doc:
+      "1 = this server ALSO registers the 54 read tools (dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, " +
+      "dexe_read_*, …) — for running dexe-mcp alone, without the DeXe read server (dexe-mcp-read) beside it; " +
+      "the pre-1.0 single server. Default 0: write tools only, the read server supplies the reads.",
+  },
   DEXE_TREASURY_GUARD: {
     // Validated by the SAME parser the config and every tool call resolve with
     // (`resolveTreasuryGuardMode`), so this layer cannot reject a posture the
@@ -350,6 +360,7 @@ export const ENV_DISPLAY_ORDER: readonly string[] = [
   "DEXE_CONTROLLING_TOPN",
   "DEXE_MAX_RESPONSE_BYTES",
   "DEXE_TOOLSETS",
+  "DEXE_WRITE_STANDALONE",
   "DEXE_STATE_PATH",
   "DEXE_ENV_FILE",
   "DEXE_DEBUG",

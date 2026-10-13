@@ -49,6 +49,12 @@ const WRITE = [
   // Pinata JWT / pin probe, signer + keyring + broadcast guards, the
   // WalletConnect shared default — handed to runAllChecks as ExtraChecks
   "diag/writeChecks.ts",
+  // dexe_write_doctor: the write checks + this process's .env rows, no read probes
+  "diag/writeDoctor.ts",
+  // write-only tools/list: `(read server)` after every read tool a description names
+  "tools/readServerMarks.ts",
+  // the .env files this process loaded at startup, for dexe_write_doctor
+  "env/loadRecord.ts",
   // the write + dev env specs and the full ENV_SPEC (display order) the
   // single server validates, loads and doctors
   "env/schema.ts",
@@ -188,8 +194,11 @@ const ROOT = [
 ];
 
 const SHIM = [
-  // `dexe-mcp-read` (package.json "bin", and the child `dexe-mcp serve-http`
-  // spawns): runs @dexe-network/dexe-mcp's binary
+  // the read server as this install starts it — no package.json "bin" since
+  // 1.0.0 (that is @dexe-network/dexe-mcp's `dexe-mcp-read`): the child
+  // `dexe-mcp serve-http` spawns, the `dexe-read` entry `dexe-mcp init` prints,
+  // and the entry of the plugin's dexe-plugin/server/read/bin.mjs bundle.
+  // Runs @dexe-network/dexe-mcp's binary
   "read/bin.ts",
 ];
 

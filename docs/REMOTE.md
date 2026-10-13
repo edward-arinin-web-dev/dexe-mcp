@@ -12,8 +12,11 @@
 DeXe DAO data — DAO profiles and settings, treasury, proposals and their state,
 votes and voters, members, token holders, delegation, validators and experts,
 token sales, staking, protocol statistics — plus the external
-OpenZeppelin/Compound Governor reads. It ships in the `dexe-mcp` package next
-to the full server and runs two ways:
+OpenZeppelin/Compound Governor reads. It is the npm package
+[`@dexe-network/dexe-mcp`](https://github.com/dexe-network/dexe-mcp) — a
+dependency of `dexe-mcp`, whose server registers only the write tools since
+1.0.0 and expects this one next to it (the Claude Code plugin ships both;
+`dexe-mcp` no longer declares the `dexe-mcp-read` bin). It runs two ways:
 
 | | Command | For |
 | --- | --- | --- |
@@ -30,7 +33,7 @@ the MCP handshake, with instructions that describe reads only.
 ## Use it locally (stdio)
 
 ```bash
-claude mcp add dexe-read -- npx -y -p dexe-mcp dexe-mcp-read
+claude mcp add dexe-read -- npx -y -p @dexe-network/dexe-mcp dexe-mcp-read
 ```
 
 Claude Desktop (`claude_desktop_config.json`) or any client that takes the
@@ -39,7 +42,7 @@ same shape:
 ```json
 {
   "mcpServers": {
-    "dexe-read": { "command": "npx", "args": ["-y", "-p", "dexe-mcp", "dexe-mcp-read"] }
+    "dexe-read": { "command": "npx", "args": ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"] }
   }
 }
 ```
@@ -149,7 +152,7 @@ Compose: copy `docker-compose.example.yml`, fill in the endpoints, then run `doc
 Without Docker (Node 20.12 or later), with the data-source variables exported:
 
 ```sh
-DEXE_HTTP_ALLOWED_HOSTS=mcp.example.com npx -y -p dexe-mcp dexe-mcp-read serve-http --host 0.0.0.0 --port 8080
+DEXE_HTTP_ALLOWED_HOSTS=mcp.example.com npx -y -p @dexe-network/dexe-mcp dexe-mcp-read serve-http --host 0.0.0.0 --port 8080
 ```
 
 The image:

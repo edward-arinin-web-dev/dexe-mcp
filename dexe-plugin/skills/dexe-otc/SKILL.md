@@ -109,5 +109,5 @@ Open a multi-tier token sale (proposal → vote → execute → live), then buye
 - ℹ Whitelisted tiers use a merkle root; the tier's uri must point to IPFS JSON {"list":[lowercased addresses]} so buyers can regenerate proofs — dexe_otc_dao_open_sale auto-uploads it when uri is empty (needs DEXE_PINATA_JWT). Buyer-side reads need the proof BEFORE getUserViews or canParticipate reads false.
 - ℹ Amount strings: digits-only = RAW smallest units (wei); a decimal point ("12.5") = human units scaled by the token's REAL on-chain decimals (never assumed 18). Durations and delays are SECONDS (86400 = 1 day). Composite quorum/percent params are plain percent numbers (51).
 
-_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_guide` tool with `flow:"otc_sale"`._
+_For the machine-readable plan (interview questions with risk notes, step templates with `flowContext` chaining), call the `dexe_write_guide` tool with `flow:"otc_sale"`._
 <!-- END GENERATED: flow-recipe -->

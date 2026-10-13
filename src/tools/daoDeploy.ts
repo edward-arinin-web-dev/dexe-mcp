@@ -718,7 +718,7 @@ export async function buildDeployGovPool(
         pinataWarning +=
           "\n⚠️  DEXE_PINATA_JWT is not configured, so the REAL run cannot pin them — it would deploy with EMPTY " +
           "executorDescription fields and the DAO's proposal settings would render broken on app.dexe.io. " +
-          "Set DEXE_PINATA_JWT before deploying (run dexe_doctor to verify).";
+          "Set DEXE_PINATA_JWT before deploying (run dexe_write_doctor to verify).";
       }
     }
   } else {

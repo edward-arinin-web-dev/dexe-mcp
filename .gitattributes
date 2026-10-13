@@ -2,6 +2,7 @@
 # server (see scripts/bundle-plugin.mjs). Suppress diffs and mark as generated
 # so it doesn't drown code review — regenerate with `npm run bundle:plugin`.
 dexe-plugin/server/index.mjs -text -diff linguist-generated
+dexe-plugin/server/read/bin.mjs -text -diff linguist-generated
 
 # The read edition, vendored as an npm tarball until @dexe-network/dexe-mcp is
 # on npm (package.json depends on file:vendor/…). Bytes, never line-converted:

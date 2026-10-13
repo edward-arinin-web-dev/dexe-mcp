@@ -125,20 +125,103 @@ export const WRITE_KNOWN_FAILURES: KnownFailureRegistration = {
 
 /**
  * The read table with the write table on top — what the single server has
- * always classified against, slug for slug and word for word, and what
- * docs/PLAYBOOK.md renders.
+ * always classified against, slug for slug and word for word. The standalone
+ * server's (DEXE_WRITE_STANDALONE=1) table.
  */
 export const COMBINED_KNOWN_FAILURES: readonly KnownFailure[] = mergeKnownFailures(
   READ_KNOWN_FAILURES,
   WRITE_KNOWN_FAILURES,
 );
 
-registerKnownFailures(WRITE_KNOWN_FAILURES);
+const readRemedy = (slug: string): string => READ_KNOWN_FAILURES.find((k) => k.slug === slug)!.remedy;
 
 /**
- * `toActionableError` for write tools: classifies against the combined table
- * whether or not anything else registered it.
+ * The write-only server's table (the 1.0.0 default): the same failures, but
+ * every read tool a remedy names is the read server's, so it is marked
+ * `(read server)` (src/editions.ts READ_SERVER_MARK) and carries no
+ * `DEXE_TOOLSETS` annotation — that profile switch belongs to the standalone
+ * server. Includes the read failure whose read-edition remedy names read
+ * tools (`subgraph-orphan-relation`), which the standalone table leaves as the
+ * read edition words it. docs/PLAYBOOK.md renders this table: it is the
+ * default setup's.
+ */
+export const WRITE_ONLY_KNOWN_FAILURES_REGISTRATION: KnownFailureRegistration = {
+  failures: WRITE_KNOWN_FAILURES.failures,
+  wording: {
+    ...WRITE_KNOWN_FAILURES.wording,
+    "subgraph-orphan-relation": {
+      remedy:
+        "Do NOT retry — it will fail identically. The DAO-level reads drop the broken relation and answer anyway with " +
+        "`indexerWarning` / `degraded` set (dexe_read_dao_members, dexe_read_dao_experts, dexe_proposal_voters, " +
+        "dexe_dao_report (read server)), so prefer those over a hand-written dexe_graph_query (read server). For a " +
+        "hand-written query, remove the named relation from the selection set (leave at least one unconditional field " +
+        "in its parent) and re-send. On-chain reads are unaffected: dexe_proposal_list / dexe_read_settings / " +
+        "dexe_dao_info (read server) need no indexer at all.",
+    },
+    "subgraph-failed": {
+      remedy:
+        "Re-run once (429/5xx/timeouts are usually transient). If it persists, read the same facts on-chain instead — " +
+        "dexe_proposal_list / dexe_read_settings / dexe_dao_info / dexe_read_gov_state / dexe_read_multicall " +
+        "(read server) need no indexer. " +
+        "A 401/403/429 on the shipped default endpoint means you are sharing the packaged Graph key: get a free one at " +
+        "thegraph.com/studio, set DEXE_SUBGRAPH_POOLS_URL / _VALIDATORS_URL / _INTERACTIONS_URL in .env, and restart. " +
+        "Entity/field names for a hand-written query: dexe_graph_schema (read server) or the dexe://graph-schema resource.",
+    },
+    "onchain-revert": {
+      what: "The transaction reverted on-chain (state was NOT changed by this step).",
+      remedy:
+        "Read the revert reason above if present. Common causes: proposal not in the required state " +
+        "(check dexe_proposal_state (read server)), tokens locked in an active proposal (withdraw between proposals), " +
+        "or a blacklisted recipient. Fix the cause and re-run — ERC20.approve / GovPool.deposit / " +
+        "createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round " +
+        "are NOT, so check dexe_proposal_state (read server) before re-running one of those.",
+    },
+  },
+};
+
+export const WRITE_ONLY_KNOWN_FAILURES: readonly KnownFailure[] = mergeKnownFailures(
+  READ_KNOWN_FAILURES,
+  WRITE_ONLY_KNOWN_FAILURES_REGISTRATION,
+);
+
+/**
+ * The standalone registration with every slug the write-only one rewords, so
+ * switching modes in one process (tests) can never leave a write-only remedy
+ * behind: `registerKnownFailures` merges wording into what is already there.
+ */
+const STANDALONE_REGISTRATION: KnownFailureRegistration = {
+  failures: WRITE_KNOWN_FAILURES.failures,
+  wording: {
+    "subgraph-orphan-relation": { remedy: readRemedy("subgraph-orphan-relation") },
+    ...WRITE_KNOWN_FAILURES.wording,
+  },
+};
+
+let activeTable: readonly KnownFailure[] = COMBINED_KNOWN_FAILURES;
+
+/**
+ * Put this server's wording in force for the process — the table
+ * `toActionableError` uses here and the one the read register functions
+ * classify against. Called by `registerAll` with the server's mode; until then
+ * (a module imported outside a server) the standalone table applies, which is
+ * what this module registered before 1.0.0.
+ */
+export function useWriteFailureWording(config: { writeStandalone?: boolean }): void {
+  registerKnownFailures(config.writeStandalone ? STANDALONE_REGISTRATION : WRITE_ONLY_KNOWN_FAILURES_REGISTRATION);
+  activeTable = config.writeStandalone ? COMBINED_KNOWN_FAILURES : WRITE_ONLY_KNOWN_FAILURES;
+}
+
+registerKnownFailures(STANDALONE_REGISTRATION);
+
+/** The table write tools classify against right now. */
+export function writeKnownFailures(): readonly KnownFailure[] {
+  return activeTable;
+}
+
+/**
+ * `toActionableError` for write tools: classifies against this server's table
+ * (`useWriteFailureWording`) whether or not anything else registered it.
  */
 export function toActionableError(err: unknown, step?: string): ActionableError {
-  return classify(err, step, COMBINED_KNOWN_FAILURES);
+  return classify(err, step, activeTable);
 }

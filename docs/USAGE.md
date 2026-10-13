@@ -11,8 +11,10 @@ or any custom MCP client.
 ## What this is
 
 `dexe-mcp` is a Model Context Protocol server that operates **DeXe Protocol**
-DAOs end-to-end — **170 tools** across 19 groups
-(catalog: [`TOOLS.md`](./TOOLS.md)):
+DAOs end-to-end — **172 tools** across 19 groups on two servers: `dexe-mcp`
+(118 write tools — this package) and the DeXe read server `dexe-mcp-read` (54
+read tools, npm `@dexe-network/dexe-mcp`); `DEXE_WRITE_STANDALONE=1` puts all
+of them in `dexe-mcp` (catalog: [`TOOLS.md`](./TOOLS.md)):
 
 - Deploy a DAO with one call (`dexe_dao_create`).
 - Create **any of the 33 catalog proposal types** with one call
@@ -61,12 +63,13 @@ mid-session failure (`dexe_doctor` flags the same problems).
 | `DEXE_PINATA_JWT` | **The only hard blocker for broadcasting a create flow** — DAO/proposal metadata pins to IPFS. Required to broadcast a creation, not to preview one: a `dryRun` computes the CIDs locally and pins nothing. A missing key errors with a numbered 3-step guide (get key → `.env` → restart). |
 | `DEXE_PRIVATE_KEY` | Opt-in hot key (**NOT SAFE** — plaintext on disk). WalletConnect is the recommended signer — see [§6](#6-walletconnect-signing). |
 | `DEXE_TX_WAIT_TIMEOUT_MS` | Per-broadcast mining-wait budget (default `180000` = 3 min). On timeout you get a check-`dexe_tx_status` error, never a hang. |
-| `DEXE_TOOLSETS` | Tool gating. Default `core` = 46 of 170 tools — see [§11](#11-toolsets). |
+| `DEXE_TOOLSETS` | Tool gating. Default `core` = 25 of the write server's 118 tools (48 of 172 standalone) — see [§11](#11-toolsets). |
+| `DEXE_WRITE_STANDALONE` | `1` = `dexe-mcp` also registers the 54 read tools (no read server needed). Default: write tools only. |
 
 Full reference — including `DEXE_MAX_DESCRIPTION_LEN`, `DEXE_PROTOCOL_REF`,
 subgraph/IPFS/signer-guard vars — in [`ENVIRONMENT.md`](./ENVIRONMENT.md).
 Env edits go in `.env` (never `.claude.json`); restart Claude Code afterwards;
-`dexe_doctor` diagnoses anything env-shaped.
+`dexe_write_doctor` (signing, uploads, the write server's `.env`) and the read server's `dexe_doctor` (RPC, subgraph, backend, IPFS) diagnose anything env-shaped; `npx dexe-mcp doctor` runs both.
 
 ### Amount conventions (apply everywhere)
 
@@ -421,10 +424,12 @@ check-`dexe_tx_status` timeout error instead of hanging.
 
 ## 8. Reading state
 
-Start every session with **`dexe_context`** — it returns the signer, active
-chain, env readiness, the DAOs/proposals recorded in prior sessions, and the
-toolset report (`{enabled, hidden: [{set, unlocks}], enableHint}` — so an agent
-can see which gated tools exist and how to enable them).
+Orient with **`dexe_write_context`** — the signer, the keyring, the DAOs and
+proposals recorded in prior sessions — and the read server's **`dexe_context`**
+— active chain and env readiness (standalone, also the toolset report
+`{enabled, hidden: [{set, unlocks}], enableHint}`, so an agent can see which
+gated tools exist and how to enable them). The reads in this section are the
+read server's (`dexe-mcp-read`), or this server's with `DEXE_WRITE_STANDALONE=1`.
 
 **Every relevant read tool takes an optional `chainId`** — the same session can
 read testnet and mainnet without a restart. This covers `dexe_proposal_state` /
@@ -530,7 +535,10 @@ edition, `@dexe-network/dexe-mcp`; its maintainers refresh it there with
 ## 11. Toolsets
 
 The registered surface is gated by `DEXE_TOOLSETS` (default `core` =
-**46 tools** of the 170):
+**25 tools** of the write server's 118; standalone 48 of the 172). The read
+server is not gated — it always loads its 54 tools. The table is the
+standalone server's; write-only, each set keeps only its write tools
+([PROFILES.md](./PROFILES.md)):
 
 | Set | Unlocks |
 |-----|---------|
@@ -543,7 +551,9 @@ The registered surface is gated by `DEXE_TOOLSETS` (default `core` =
 | `dev` | compile + ABI introspection, raw deploy, simulate/decode, merkle, Safe |
 
 `DEXE_TOOLSETS=full` loads everything. A tool-not-found error usually means a
-gated set: `dexe_context` lists the hidden sets and the exact `enableHint`.
+gated set — or, for a read tool, that the read server is not running beside the
+write server (`dexe_write_doctor` → `surface.mode`). Standalone, `dexe_context`
+lists the hidden sets and the exact `enableHint`.
 Changes require a Claude Code restart.
 
 > **Check your client's cap before escalating to `full`.** VS Code / GitHub
@@ -559,14 +569,15 @@ Changes require a Claude Code restart.
 
 | Need | Tool |
 |------|------|
-| Orient (chain, DAOs, toolsets) | `dexe_context` |
-| Signer, keyring, upload/WalletConnect/Safe posture | `dexe_write_context` |
-| Diagnose env problems | `dexe_doctor` |
+| Orient (chain, env, toolsets) | `dexe_context` (read server) |
+| Signer, keyring, upload/WalletConnect/Safe posture, recorded DAOs | `dexe_write_context` |
+| Plan a multi-step write | `dexe_write_guide` |
+| Diagnose env problems | `dexe_write_doctor` (writes), `dexe_doctor` (read server) |
 | Deploy a DAO (preview → confirm) | `dexe_dao_create` |
 | Create any of the 33 proposal types | `dexe_proposal_create` |
 | Vote + execute (auto-deposit) | `dexe_proposal_vote_and_execute` |
 | Open / inspect / buy / claim an OTC sale | `dexe_otc_dao_open_sale`, `dexe_read_token_sales`, `dexe_read_token_sale_position`, `dexe_otc_buyer_buy`, `dexe_otc_buyer_claim_all` |
-| Read DAO/proposal state | `dexe_dao_info`, `dexe_proposal_state`, `dexe_proposal_list`, `dexe_vote_user_power` |
+| Read DAO/proposal state (read server) | `dexe_dao_info`, `dexe_proposal_state`, `dexe_proposal_list`, `dexe_vote_user_power` |
 | Pin metadata / avatars | `dexe_ipfs_upload_proposal_metadata`, `dexe_ipfs_upload_dao_metadata`, `dexe_ipfs_upload_avatar` (or just pass `newAvatarPath` / `avatarPath`) |
 | Build one action / one tx | `dexe_proposal_build_*`, `dexe_vote_build_*` |
 | Sign + broadcast / check a tx | `dexe_tx_send`, `dexe_tx_status` |
@@ -575,6 +586,6 @@ Changes require a Claude Code restart.
 | Decode / introspect | `dexe_decode_calldata`, `dexe_decode_proposal`, `dexe_find_selector` |
 | External Governor DAOs | `dexe_gov_*` (`governor` toolset) |
 
-For the full per-tool schema (**170 tools** across 19 groups) see
+For the full per-tool schema (**172 tools** across 19 groups) see
 [`TOOLS.md`](./TOOLS.md) — every input/output is a Zod schema exposed via MCP
 `tools/list`.

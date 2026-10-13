@@ -23,24 +23,30 @@ import {
 } from "@dexe-network/dexe-mcp/core";
 import { SINGLE_SERVER_CORPUS } from "../src/knowledge/index.js";
 import { WRITE_CORPUS } from "../src/knowledge/write/index.js";
-import { COMBINED_KNOWN_FAILURES } from "../src/lib/writeErrors.js";
+import { WRITE_ONLY_KNOWN_FAILURES } from "../src/lib/writeErrors.js";
+import { WRITE_GUIDE_TOOL } from "../src/tools/guideWrite.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** A write skill's recipe region: one write flow, rendered from the write corpus. */
-const recipe = (flowId: string) => () => renderSkillRecipe(WRITE_CORPUS, flowId);
+/**
+ * A write skill's recipe region: one write flow, rendered from the write
+ * corpus, closing with a pointer at dexe_write_guide — the tool that serves the
+ * flows on every setup (the read server's dexe_guide has none).
+ */
+const recipe = (flowId: string) => () => renderSkillRecipe(WRITE_CORPUS, flowId, WRITE_GUIDE_TOOL);
 
 /** file → region name → renderer. Every listed region must exist in the file. */
 const TARGETS: Array<{ file: string; regions: Record<string, () => string> }> = [
   {
-    // PLAYBOOK documents the single server: write flows next to read topics,
-    // and the read error table with the write table on top.
+    // PLAYBOOK documents both editions: write flows next to read topics, and
+    // the read error table with the write table on top — worded for the
+    // default setup (write-only server, read server beside it).
     file: "docs/PLAYBOOK.md",
     regions: {
       flows: () => renderFlowsSection(SINGLE_SERVER_CORPUS),
       topics: () => renderTopicsSection(SINGLE_SERVER_CORPUS),
       gotchas: () => renderGotchasSection(SINGLE_SERVER_CORPUS),
-      "error-slugs": () => renderErrorTable(COMBINED_KNOWN_FAILURES),
+      "error-slugs": () => renderErrorTable(WRITE_ONLY_KNOWN_FAILURES),
     },
   },
   { file: "dexe-plugin/skills/dexe-create-dao/SKILL.md", regions: { "flow-recipe": recipe("create_dao") } },

@@ -190,7 +190,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: WriteToolContext):
       description:
         "Builds proposal actions; does not broadcast. GovSettings.editSettings(ids, params) when `settingsIds` are supplied, else GovSettings.addSettings(params) — a new settings slot.",
       inputSchema: {
-        govSettings: z.string().describe("GovSettings contract address (from dexe_dao_info.helpers.settings)"),
+        govSettings: z.string().describe("GovSettings contract address (from dexe_dao_info (read server) → helpers.settings)"),
         settings: z
           .array(ProposalSettingsSchema)
           .min(1)
@@ -249,7 +249,7 @@ function registerChangeVotingSettings(server: McpServer, ctx: WriteToolContext):
         if (settingsIds.length > 0 && settings.some((s) => !s.executorDescription)) {
           advisories.push(
             "⚠ editSettings replaces the whole struct: an empty executorDescription clears the settings-JSON IPFS ref " +
-              "the frontend UI reads (comment/discussion thresholds). Read the current value first (dexe_read_settings) " +
+              "the frontend UI reads (comment/discussion thresholds). Read the current value first (dexe_read_settings (read server)) " +
               "and pass it through, or use dexe_proposal_create (proposalType change_voting_settings) which preserves it automatically.",
           );
         }
@@ -285,7 +285,7 @@ function registerManageValidators(server: McpServer, ctx: WriteToolContext): voi
       inputSchema: {
         govValidators: z
           .string()
-          .describe("GovValidators contract address (from dexe_dao_info.helpers.validators)."),
+          .describe("GovValidators contract address (from dexe_dao_info (read server) → helpers.validators)."),
         changes: z
           .array(
             z.object({

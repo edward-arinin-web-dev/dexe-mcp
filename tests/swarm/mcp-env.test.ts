@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mcpChildEnv, swarmChainId } from "../../scripts/swarm/mcpEnv.js";
 import { resolveSignerMode, unattendedChainFence } from "../../src/lib/signerMode.js";
+import { isWriteStandalone } from "../../src/config.js";
 
 /**
  * 0.37.0 — the swarm fleet signs with hot keys, so its MCP child must say
@@ -8,20 +9,27 @@ import { resolveSignerMode, unattendedChainFence } from "../../src/lib/signerMod
  * signs nothing) and fence itself to the run's chain.
  */
 describe("swarm MCP child env", () => {
-  it("is explicit unattended, fenced to the run's chain, full toolset", () => {
+  it("is explicit unattended, fenced to the run's chain, full toolset, standalone", () => {
     const env = mcpChildEnv({ SWARM_CHAIN_ID: "97", AGENT_PK_1: "0xabc", UNSET: undefined }, { primary: "", chainId: 97 });
     expect(env.DEXE_SIGNER_MODE).toBe("unattended");
     expect(env.DEXE_UNATTENDED_CHAINS).toBe("97");
     expect(env.DEXE_TOOLSETS).toBe("full");
+    // Scenarios call read tools through this child: 1.0.0 registers them only standalone.
+    expect(env.DEXE_WRITE_STANDALONE).toBe("1");
+    expect(isWriteStandalone(env)).toBe(true);
     expect(env.DEXE_PRIVATE_KEY).toBe("");
     expect(env.AGENT_PK_1).toBe("0xabc");
     expect("UNSET" in env).toBe(false);
   });
 
   it("a mainnet stage fences to 56 only, overriding whatever the shell had", () => {
-    const env = mcpChildEnv({ DEXE_UNATTENDED_CHAINS: "97,56,1", DEXE_SIGNER_MODE: "keystore" }, { primary: "0x1", chainId: 56 });
+    const env = mcpChildEnv(
+      { DEXE_UNATTENDED_CHAINS: "97,56,1", DEXE_SIGNER_MODE: "keystore", DEXE_WRITE_STANDALONE: "0" },
+      { primary: "0x1", chainId: 56 },
+    );
     expect(env.DEXE_UNATTENDED_CHAINS).toBe("56");
     expect(env.DEXE_SIGNER_MODE).toBe("unattended");
+    expect(env.DEXE_WRITE_STANDALONE).toBe("1");
   });
 
   it("resolves the same chain main() does", () => {

@@ -16,7 +16,8 @@ describe.skipIf(!existsSync(dist))("advertised tool schemas (DEXE_TOOLSETS=full)
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [dist],
-      env: { DEXE_TOOLSETS: "full" },
+      // Standalone: every schema this binary can advertise, the read tools' included.
+      env: { DEXE_TOOLSETS: "full", DEXE_WRITE_STANDALONE: "1" },
       stderr: "ignore",
     });
     const client = new Client({ name: "schema-check", version: "0" });

@@ -10,8 +10,12 @@
  *          plus the pre-checks that exist only to serve a write (simulators,
  *          hash previews, the builder catalog, the dev toolchain).
  *
- * Today ONE server still registers both lists (src/tools/index.ts). This file
- * only draws the line so it can be enforced while the code moves:
+ * The read edition is its own server — `dexe-mcp-read`, from the
+ * @dexe-network/dexe-mcp package. This package's server (src/tools/index.ts)
+ * registers WRITE_TOOLS by default, and READ_TOOLS as well only with
+ * `DEXE_WRITE_STANDALONE=1` (one process for a user who runs no read server —
+ * the pre-1.0 single server, plus the two write-only orientation tools). This
+ * file draws the line, and the tests enforce it:
  *
  *   - tests/boundary/edition-manifest.test.ts: the two lists are disjoint and
  *     together are exactly the registered surface, and every READ tool is
@@ -109,7 +113,21 @@ export const READ_TOOLS: readonly string[] = [
   "dexe_gov_simulate_vote_impact",
 ];
 
-/** 116 tools for the write edition. */
+/**
+ * How write text marks a READ tool it names: `dexe_dao_info (read server)`. By
+ * default this server does not register READ_TOOLS — the DeXe read server
+ * running next to it does — so a bare read-tool name in a description, remedy
+ * or guide would promise a tool this server lacks. With
+ * `DEXE_WRITE_STANDALONE=1` the tool is ALSO registered here, and the marker
+ * stays true: it is a read-edition tool. tests/tools/write-surface-references.test.ts
+ * holds every write text to it.
+ */
+export const READ_SERVER_MARK = "(read server)";
+
+/** Who serves READ_TOOLS when this server does not: the `providedBy` of a guide step. */
+export const READ_SERVER_LABEL = "the DeXe read server (dexe-mcp-read, npm @dexe-network/dexe-mcp)";
+
+/** 118 tools for the write edition. */
 export const WRITE_TOOLS: readonly string[] = [
   // ── composites that sign and broadcast
   "dexe_proposal_create",
@@ -124,6 +142,11 @@ export const WRITE_TOOLS: readonly string[] = [
   // ── signing, broadcast, wallets, personas
   // signer mode, keyring, Pinata/WalletConnect/Safe posture, the unfinished flow
   "dexe_write_context",
+  // the eight write journeys (dexe_guide is the read server's: read topics only)
+  "dexe_write_guide",
+  // signer, keystore, approval page, Pinata, WalletConnect, this process's .env
+  // (dexe_doctor is the read server's: RPC, subgraph, backend, IPFS gateway)
+  "dexe_write_doctor",
   "dexe_tx_send",
   // the write edition's resume rule depends on it, so it stays beside tx_send
   "dexe_tx_status",

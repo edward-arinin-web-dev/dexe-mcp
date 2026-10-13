@@ -365,7 +365,7 @@ export function assessBuildPure(input: AssessBuildInput): BuildWarning[] {
             `its vote, be marked Executed, and do nothing, with no revert receipt to diagnose. Any value or ` +
             `approval attached to it is lost.`,
           remedy:
-            "Supply the real contract address for this action (dexe_dao_info resolves a DAO's helpers; " +
+            "Supply the real contract address for this action (dexe_dao_info (read server) resolves a DAO's helpers; " +
             "a zero StakingProposal means it is not deployed yet — call GovUserKeeper.deployStakingProposal first).",
         }),
       );
@@ -469,7 +469,7 @@ export function assessBuildPure(input: AssessBuildInput): BuildWarning[] {
             `(GovUserKeeper.sol:100-112) — the GovPool is never the ERC20 spender, so this allowance can ` +
             `never be used and the deposit still reverts "ERC20: insufficient allowance".`,
           remedy:
-            "Re-call with spender = the DAO's GovUserKeeper (dexe_dao_info → helpers.userKeeper). " +
+            "Re-call with spender = the DAO's GovUserKeeper (dexe_dao_info (read server) → helpers.userKeeper). " +
             "Omit `govPool` if you deliberately want the raw encode.",
         }),
       );
@@ -515,7 +515,7 @@ export function assessBuildPure(input: AssessBuildInput): BuildWarning[] {
           severity: "WARN",
           block: "none",
           message: TREASURY_RISK_ADVISORY,
-          remedy: "Run dexe_proposal_risk_assess for the quorum + balance readout before voting.",
+          remedy: "Run dexe_proposal_risk_assess (read server) for the quorum + balance readout before voting.",
         }),
       );
     }
@@ -581,7 +581,7 @@ function unavailable(chainId: number, reason: string): BuildWarning {
     message:
       `Balance / helper-address / codeless-executor context could not be read on chain ${chainId} ` +
       `(${reason}) — those checks did not run. The calldata itself was still fully checked.`,
-    remedy: "Set a working RPC for this chain (dexe_doctor) and rebuild if you want those checks.",
+    remedy: "Set a working RPC for this chain (`npx dexe-mcp doctor` probes it) and rebuild if you want those checks.",
   };
 }
 
@@ -819,7 +819,7 @@ async function assessContextInner(
           `actionsOnFor[${index}].executor ${a.executor} has no contract code on chain ${chainId}. ` +
           `GovPool.execute uses a raw .call, which SUCCEEDS against a codeless address — the proposal would ` +
           `pass, be marked Executed, and do nothing. The usual cause is an address copied from another chain.`,
-        remedy: `Verify the address exists on chain ${chainId} before voting (dexe_dao_info / a block explorer).`,
+        remedy: `Verify the address exists on chain ${chainId} before voting (dexe_dao_info (read server) / a block explorer).`,
       });
     });
   }
@@ -898,7 +898,7 @@ function overBalanceWarnings(
         `treasury first, ERC20.transfer reverts and GovPool.execute reverts with it — the proposal stays ` +
         `SucceededFor and can be executed again once the treasury is funded, but the gas and the round trip ` +
         `are spent.`,
-      remedy: `Lower the amount to ≤ ${row.balance.toString()} wei, or fund the treasury first (confirm with dexe_read_treasury).`,
+      remedy: `Lower the amount to ≤ ${row.balance.toString()} wei, or fund the treasury first (confirm with dexe_read_treasury (read server)).`,
     });
   }
   return out;
