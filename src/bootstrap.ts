@@ -4,7 +4,7 @@ import { homedir, platform } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { envWithNodeBinDir, hasGit, npmCommand } from "./runtimeDev.js";
-import { safeErrorMessage } from "./lib/redact.js";
+import { safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 
 const execFileAsync = promisify(execFile);
 

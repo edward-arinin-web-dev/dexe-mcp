@@ -29,9 +29,10 @@ vi.mock("ethers", async (importOriginal) => {
   return { ...actual, Wallet: SpiedWallet };
 });
 
-const { loadReadConfig } = await import("../../src/configRead.js");
+// The read loader is the read edition's, from the package. vitest.config.ts
+// inlines the package, so the `ethers` mock above reaches its imports too.
+const { loadEnvFile, loadReadConfig } = await import("@dexe-network/dexe-mcp/core");
 const { loadConfig } = await import("../../src/config.js");
-const { loadEnvFile, resetEnvLoadState } = await import("../../src/env/loader.js");
 const { FULL_ENV_SURFACE } = await import("../../src/env/schema.js");
 
 // Well-known throwaway keys (Hardhat's default accounts #1–#3) — never funded.
@@ -169,7 +170,7 @@ describe("loadReadConfig next to the write edition's secrets", () => {
     expect(stderr.join("")).toMatch(/signing enabled for 0x/);
   });
 
-  it("ignores malformed write values: no issue, no warning, and the values stay put", async () => {
+  it("ignores malformed write values: no issue, no warning — and drops them from the process", async () => {
     Object.assign(process.env, MALFORMED_WRITE_ENV);
 
     const config = await loadReadConfig();
@@ -178,8 +179,9 @@ describe("loadReadConfig next to the write edition's secrets", () => {
     const out = stderr.join("");
     expect(out).not.toMatch(/env error|config issue/);
     for (const k of Object.keys(MALFORMED_WRITE_ENV)) expect(out).not.toContain(k);
-    // Not the read loader's to delete: a write edition in another process may own them.
-    for (const [k, v] of Object.entries(MALFORMED_WRITE_ENV)) expect(process.env[k]).toBe(v);
+    // The read loader deletes every DeXe var it does not read (an allowlist), so
+    // nothing in a read-only process can read a write var back.
+    for (const k of Object.keys(MALFORMED_WRITE_ENV)) expect(process.env[k], k).toBeUndefined();
     expect(walletCtor).not.toHaveBeenCalled();
   });
 
@@ -217,14 +219,15 @@ describe("loadReadConfig next to the write edition's secrets", () => {
 });
 
 describe(".env loading with the read surface", () => {
+  // loadEnvFile's process-wide load record is not reset here (that hook is not
+  // part of the read edition's API); nothing below reads it, and the inlined
+  // package gives every test file its own copy.
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "dexe-read-env-"));
-    resetEnvLoadState();
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
-    resetEnvLoadState();
   });
 
   it("does not call the write edition's vars typos — but still catches real ones", () => {

@@ -246,7 +246,7 @@ describe("keyringReport — balance probe degrades, never throws", () => {
     } as unknown as import("../../src/config.js").DexeConfig);
 
   const rpcWith = (getBalance: (addr: string) => Promise<bigint>) =>
-    ({ tryProvider: () => ({ ok: { getBalance } }) }) as unknown as import("../../src/rpc.js").RpcProvider;
+    ({ tryProvider: () => ({ ok: { getBalance } }) }) as unknown as import("@dexe-network/dexe-mcp/core").RpcProvider;
 
   it("marks who can pay for their own gas", async () => {
     scratch();
@@ -289,7 +289,7 @@ describe("keyringReport — balance probe degrades, never throws", () => {
 
   it("no provider for the default chain → no balances, and it says so", async () => {
     scratch();
-    const rpc = { tryProvider: () => ({ error: "no RPC", remediation: "" }) } as unknown as import("../../src/rpc.js").RpcProvider;
+    const rpc = { tryProvider: () => ({ error: "no RPC", remediation: "" }) } as unknown as import("@dexe-network/dexe-mcp/core").RpcProvider;
     const report = await keyringReport(config, manager(), rpc, true);
     expect(report.balanceChainId).toBeNull();
     expect(report.signers.every((s) => s.balanceWei === null)).toBe(true);

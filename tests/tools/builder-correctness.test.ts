@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Interface, parseUnits } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import {
   TOKEN_SALE_PROPOSAL_ABI,
   buildTokenSaleMultiActions,

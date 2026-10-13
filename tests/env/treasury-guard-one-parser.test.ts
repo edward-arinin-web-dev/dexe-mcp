@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { loadConfig } from "../../src/config.js";
-import { parseEnv as parseWithSpec } from "../../src/env/parse.js";
+import { parseEnv as parseWithSpec } from "@dexe-network/dexe-mcp/testing";
 import { ENV_REGISTRY } from "../../src/env/schema.js";
 import { TREASURY_GUARD_MODES, resolveTreasuryGuardMode, treasuryGuardMode } from "../../src/lib/treasuryGate.js";
 

@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { loadConfig } from "../../src/config.js";
 import { registerTxTools } from "../../src/tools/txSend.js";
-import { forbiddenSelectors } from "../../src/lib/dangerousSelectors.js";
+import { forbiddenSelectors } from "@dexe-network/dexe-mcp/core";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 

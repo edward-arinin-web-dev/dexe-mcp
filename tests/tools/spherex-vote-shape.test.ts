@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Interface } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import { registerVoteBuildTools } from "../../src/tools/voteBuild.js";
 
 const GOV_POOL = "0x5555555555555555555555555555555555555555";

@@ -30,8 +30,8 @@ const h = vi.hoisted(() => ({
   chainId: 97,
 }));
 
-vi.mock("../../src/rpc.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/rpc.js")>();
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>();
   const provider = {
     getNetwork: async () => new Network("fake", BigInt(h.chainId)),
     getTransactionCount: async () => 7,

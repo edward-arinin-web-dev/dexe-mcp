@@ -6,7 +6,7 @@ import { SignerManager } from "../lib/signer.js";
 import { buildSafeTxReview } from "../lib/approval/safeReview.js";
 import { ApprovalHaltError, currentToolScope } from "../lib/approval/scope.js";
 import { SignatureRefusal } from "../lib/approval/signing.js";
-import { RpcProvider } from "../rpc.js";
+import { RpcProvider, safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 import { resolveChain } from "../config.js";
 import {
   buildSafeTx,
@@ -24,7 +24,6 @@ import {
   assertNoForbiddenCalldata,
   BroadcastGuardError,
 } from "../lib/broadcastGuards.js";
-import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/writeErrors.js";
 
 // ---------- helpers ----------

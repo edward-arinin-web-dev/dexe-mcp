@@ -1,6 +1,6 @@
 import type { WriteConfig } from "../config.js";
 import type { HardhatRunner } from "../hardhat.js";
-import type { ToolContext } from "./context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 
 /**
  * What write-edition tools get: the read `ToolContext` with the write config

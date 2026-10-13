@@ -8,8 +8,7 @@ import { SignatureRefusal } from "../lib/approval/signing.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { DEFAULTS } from "../config.js";
-import { safeErrorMessage } from "../lib/redact.js";
-import { govPoolParam } from "../lib/params.js";
+import { govPoolParam, safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 import { PROPOSAL_ID_DESC_OFFCHAIN } from "../lib/writeParams.js";
 
 /** Effect marker (WP-I style guide): these tools return a request, never send it. */

@@ -2,7 +2,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { safeErrorMessage } from "../redact.js";
+import { safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 import type { ApprovalRecord, ApprovalStore } from "./store.js";
 import { isNonce, macEqual, newNonce, openPassword, PROTOCOL_VERSION, requestMac, serverProof } from "./controlProtocol.js";
 import type { ApproveAttempt } from "./server.js";

@@ -3,7 +3,7 @@ import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { safeErrorMessage } from "../lib/redact.js";
+import { safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 import { buildChainIdParam } from "../lib/writeParams.js";
 import { VALIDATOR_VOTE_IRREVOCABLE_ADVISORY } from "../lib/protocolAdvisories.js";
 

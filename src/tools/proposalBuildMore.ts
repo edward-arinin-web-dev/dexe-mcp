@@ -4,17 +4,12 @@ import { Interface, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
-import {
-  govPoolParam,
-  DELEGATEE_DESC,
-  NFT_IDS_TREASURY_DESC,
-} from "../lib/params.js";
+import { DELEGATEE_DESC, govPoolParam, NFT_IDS_TREASURY_DESC, safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 import { buildChainIdParam } from "../lib/writeParams.js";
 import { settingsAdvisories } from "../lib/protocolAdvisories.js";
 import { assessActions, withWarnings, legacyGovernanceAdvisories } from "./buildResult.js";
 import { warningsOutputField } from "../lib/buildWarning.js";
 import { buildTimeTreasuryAdvisory } from "../lib/treasuryGate.js";
-import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 3b named wrappers. Every wrapper returns the same scaffold shape as

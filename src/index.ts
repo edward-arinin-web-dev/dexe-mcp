@@ -7,22 +7,36 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { loadConfig } from "./config.js";
 import { registerAll } from "./tools/index.js";
 import { serverInstructions } from "./instructionsWrite.js";
-import { registerDocResources } from "./resources.js";
-import { homedir } from "node:os";
-import { loadEnvFile, writeStartupBanner, resolveEnvCandidates, type EnvLoadReport } from "./env/loader.js";
-import { envKeys, FULL_ENV_SURFACE } from "./env/schema.js";
-import { debugHint, debugLog, formatDiagnostic } from "./runtime.js";
 import {
-  MIN_NODE_VERSION,
+  debugHint,
+  debugLog,
+  formatDiagnostic,
   installProcessGuards,
   installTransportGuards,
   isMainModule,
+  isReadServerEnvKey,
+  loadEnvFile,
+  MIN_NODE_VERSION,
   nodeVersionWarning,
-} from "./stdioRuntime.js";
-import { safeErrorMessage } from "./lib/redact.js";
+  registerDocResources,
+  resolveEnvCandidates,
+  runDoctorCli,
+  safeErrorMessage,
+  writeStartupBanner,
+  type EnvLoadReport,
+} from "@dexe-network/dexe-mcp/core";
+import { homedir } from "node:os";
+import { envKeys, FULL_ENV_SURFACE } from "./env/schema.js";
 import { writeDoctorChecks } from "./diag/writeChecks.js";
+// Static, unlike the other subcommands: `dexe-mcp key` and `dexe-mcp approve`
+// import the read edition (@dexe-network/dexe-mcp/core), and in the plugin
+// bundle a dynamic import of anything that reaches it makes esbuild wrap zod in
+// a lazy init closure — the bundle then dies on load with "Class2 is not a
+// constructor" (scripts/bundle-plugin.mjs, tests/plugin/bundle-smoke.test.ts;
+// tests/boundary/import-boundary.test.ts fails on such an import first).
+import { run as runApproveCli } from "./cli/approve.js";
+import { run as runKeyCli } from "./cli/key.js";
 import { spawn } from "node:child_process";
-import { isReadServerEnvKey } from "./http/remoteEnv.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -181,14 +195,15 @@ function loadEnvironment(): string[] {
  */
 async function runSubcommand(name: Exclude<Subcommand, "serve-http">, envFiles: readonly string[] = []): Promise<void> {
   if (name === "doctor") {
-    const mod = await import("./cli/doctor.js");
-    // Forward argv[3..] the same way the skills branch does. `run()` calls
-    // process.exit() itself with the graded code — do NOT "clean that up" into
-    // a returned value, or every doctor run exits 0 and CI goes green forever.
-    // The read checks plus the write ones (signer, Pinata incl. --probe-pin,
-    // WalletConnect), over the full config and env surface: this binary
-    // carries both editions.
-    await mod.run(process.argv.slice(3), writeDoctorChecks, loadConfig);
+    // The doctor engine is the read edition's (@dexe-network/dexe-mcp/core,
+    // imported statically above, for the same reason as `dexe-mcp key`).
+    // Forward argv[3..] the same way the skills
+    // branch does. `runDoctorCli()` calls process.exit() itself with the graded
+    // code — do NOT "clean that up" into a returned value, or every doctor run
+    // exits 0 and CI goes green forever. The read checks plus the write ones
+    // (signer, Pinata incl. --probe-pin, WalletConnect), over the full config
+    // and env surface: this binary carries both editions.
+    await runDoctorCli(process.argv.slice(3), writeDoctorChecks, loadConfig);
     process.exit(0);
   }
   if (name === "init") {
@@ -197,18 +212,15 @@ async function runSubcommand(name: Exclude<Subcommand, "serve-http">, envFiles: 
     // The wizard stays free of key handling (it is shared with the read
     // edition); when the user picked the encrypted key it hands over here.
     if (next === "key-create" || next === "key-import") {
-      const key = await import("./cli/key.js");
-      process.exit(await key.run([next === "key-create" ? "create" : "import"], { envFiles }));
+      process.exit(await runKeyCli([next === "key-create" ? "create" : "import"], { envFiles }));
     }
     process.exit(0);
   }
   if (name === "key") {
-    const mod = await import("./cli/key.js");
-    process.exit(await mod.run(process.argv.slice(3), { envFiles }));
+    process.exit(await runKeyCli(process.argv.slice(3), { envFiles }));
   }
   if (name === "approve") {
-    const mod = await import("./cli/approve.js");
-    process.exit(await mod.run(process.argv.slice(3)));
+    process.exit(await runApproveCli(process.argv.slice(3)));
   }
   const mod = await import("./cli/skills.js");
   await mod.run(process.argv.slice(3));
@@ -217,16 +229,16 @@ async function runSubcommand(name: Exclude<Subcommand, "serve-http">, envFiles: 
 
 /* ─────────────────────── runtime crash safety (0.30.4) ───────────────────── */
 
-// The Node floor, the process guards and the transport guards live in
-// ./stdioRuntime.ts, shared with the read edition's binary (src/read/bin.ts).
+// The Node floor, the process guards and the transport guards come from the
+// read edition (@dexe-network/dexe-mcp/core), whose binary uses the same ones.
 export {
-  MIN_NODE_VERSION,
   formatCrashReport,
   installProcessGuards,
   installTransportGuards,
   isTransportGoneError,
+  MIN_NODE_VERSION,
   nodeVersionWarning,
-} from "./stdioRuntime.js";
+} from "@dexe-network/dexe-mcp/core";
 
 /**
  * Diagnostic-only server, served when startup failed.
@@ -336,7 +348,8 @@ async function main(): Promise<void> {
 
 /**
  * `dexe-mcp serve-http` runs the read edition's HTTP server in a CHILD process
- * (`dexe-mcp-read serve-http`, src/read/bin.ts). Not in this one: this process
+ * (`dexe-mcp-read serve-http`, src/read/bin.ts — which starts the read
+ * edition's binary from @dexe-network/dexe-mcp). Not in this one: this process
  * has already loaded every write module through its static imports, and a
  * public endpoint must carry no code that signs, broadcasts or pins — nor the
  * write wording of error remedies, which those modules register when they

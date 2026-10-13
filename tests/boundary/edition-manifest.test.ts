@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { READ_TOOLS as PACKAGE_READ_TOOLS } from "@dexe-network/dexe-mcp";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";
 import { DEPRECATED_ALIASES } from "../../src/tools/aliases.js";
 import { listTools, type ListedTools } from "../helpers/listTools.js";
@@ -26,6 +27,13 @@ describe("edition manifest", () => {
     expect(dupes(WRITE_TOOLS), "listed twice in WRITE_TOOLS").toEqual([]);
     expect(READ_TOOLS.length).toBe(54);
     expect(WRITE_TOOLS.length).toBe(116);
+  });
+
+  it("READ_TOOLS is exactly what the read edition's package serves", () => {
+    // The read tools are registered by @dexe-network/dexe-mcp; this list is how
+    // the single server and its gate name them. A tool added to or dropped from
+    // the package without this list following fails here by name.
+    expect([...READ_TOOLS].sort()).toEqual([...PACKAGE_READ_TOOLS].sort());
   });
 
   it("the two editions are disjoint", () => {

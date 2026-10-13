@@ -1,5 +1,5 @@
 import { Interface } from "ethers";
-import type { RpcProvider } from "../rpc.js";
+import type { RpcProvider } from "@dexe-network/dexe-mcp/core";
 
 /**
  * The eth_call simulation core behind dexe_sim_* (src/tools/simulate.ts), the

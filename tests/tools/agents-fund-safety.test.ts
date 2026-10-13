@@ -34,7 +34,11 @@ const rpcState = {
   code: "0x60016000",
 };
 
-vi.mock("../../src/rpc.js", () => ({
+// One partial mock of the read edition's API for both stubs, the RPC factory and
+// multicall (a second vi.mock of the same specifier would replace the first).
+// tokenState is declared further down; the stubs only read it when called.
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
   createChainProvider: () => ({
     getBalance: async (addr: string) => rpcState.balances.get(addr.toLowerCase()) ?? 0n,
   }),
@@ -43,24 +47,6 @@ vi.mock("../../src/rpc.js", () => ({
       return { getCode: async () => rpcState.code };
     }
   },
-}));
-
-const simState = { success: true, networkError: false, revertReason: undefined as string | undefined };
-
-vi.mock("../../src/lib/simulate.js", () => ({
-  simulateCalldata: async () => ({ ...simState }),
-}));
-
-const tokenState = {
-  /** null = the decimals() call fails; a non-integer models a junk answer */
-  decimals: 6 as number | null,
-  symbol: "USDX" as string | null,
-  balances: new Map<string, bigint>(),
-  throwMsg: null as string | null,
-};
-
-vi.mock("../../src/lib/multicall.js", () => ({
-  MULTICALL3_ADDRESS: "0xcA11bde05977b3631167028862bE2a173976CA11",
   multicall: async (_p: unknown, calls: Array<{ method: string; args: readonly unknown[] }>) => {
     if (tokenState.throwMsg) throw new Error(tokenState.throwMsg);
     return calls.map((c) => {
@@ -85,6 +71,20 @@ vi.mock("../../src/lib/multicall.js", () => ({
     });
   },
 }));
+
+const simState = { success: true, networkError: false, revertReason: undefined as string | undefined };
+
+vi.mock("../../src/lib/simulate.js", () => ({
+  simulateCalldata: async () => ({ ...simState }),
+}));
+
+const tokenState = {
+  /** null = the decimals() call fails; a non-integer models a junk answer */
+  decimals: 6 as number | null,
+  symbol: "USDX" as string | null,
+  balances: new Map<string, bigint>(),
+  throwMsg: null as string | null,
+};
 
 import { registerAgentTools, dailyBudget, fundCapInUnits, fundTransferTx } from "../../src/tools/agents.js";
 import { __resetBroadcastWindow } from "../../src/lib/broadcastGuards.js";

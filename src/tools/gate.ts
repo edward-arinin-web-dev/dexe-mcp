@@ -1,20 +1,20 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ReadConfig } from "../configRead.js";
-import { WRITE_TOOLS } from "../editions.js";
-import { DEPRECATED_ALIASES } from "./aliases.js";
 import {
   applyToolsetGate,
   defaultToolNames,
   resolveToolsetsIn,
   restrictToolsetTable,
   tableSurface,
+  type ReadConfig,
   type ResolvedToolsets,
   type ToolsetCatalog,
   type ToolsetTable,
   type ToolsetUnlock,
-} from "./toolsets.js";
+} from "@dexe-network/dexe-mcp/core";
+import { WRITE_TOOLS } from "../editions.js";
+import { DEPRECATED_ALIASES } from "./aliases.js";
 
-export type { ResolvedToolsets, ToolsetCatalog, ToolsetTable, ToolsetUnlock } from "./toolsets.js";
+export type { ResolvedToolsets, ToolsetCatalog, ToolsetTable, ToolsetUnlock } from "@dexe-network/dexe-mcp/core";
 
 /**
  * Toolset gating (Phase 2 / v0.13.0) — the SINGLE server's table. Registering
@@ -120,7 +120,7 @@ const CORE = [
   "dexe_graph_query",
   // The recovery path for the most common failure of a tool that IS in core.
   // A bad field name in dexe_graph_query answers with "[recover] … call
-  // dexe_graph_schema" (src/tools/subgraph.ts withSchemaRecoveryHint); if the
+  // dexe_graph_schema" (the read edition's tools/subgraph.ts withSchemaRecoveryHint); if the
   // session cannot see that tool, the documented recovery is a 404 and the
   // caller's only remaining move is to guess another field name. Pinned by
   // tests/tools/default-profile-references.test.ts, which fails on ANY tool

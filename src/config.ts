@@ -1,9 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveProtocolPath, isBuildReady } from "./bootstrap.js";
-import { resolveStatePath } from "./lib/stateStore.js";
+import {
+  applyEnvSpec,
+  assembleReadConfig,
+  createIssueSink,
+  DEFAULTS as READ_DEFAULTS,
+  resolveChainSet,
+  resolveDataSources,
+  resolveRiskSettings,
+  resolveStatePath,
+  resolveToolsetsEnv,
+  safeErrorMessage,
+  type ReadConfig,
+} from "@dexe-network/dexe-mcp/core";
 import { ENV_SPEC } from "./env/schema.js";
-import { safeErrorMessage } from "./lib/redact.js";
 import { resolveTreasuryGuardMode, type TreasuryGuardMode } from "./lib/treasuryGate.js";
 import {
   ignoredHotKeySentence,
@@ -15,22 +26,11 @@ import {
   type IgnoredHotKeys,
 } from "./lib/signerMode.js";
 import { decryptKeystore, parseKeystoreMeta, selectKeystore, weakKdfReason } from "./lib/keystore.js";
-import {
-  DEFAULTS as READ_DEFAULTS,
-  applyEnvSpec,
-  assembleReadConfig,
-  createIssueSink,
-  resolveChainSet,
-  resolveDataSources,
-  resolveRiskSettings,
-  resolveToolsetsEnv,
-  type ReadConfig,
-} from "./configRead.js";
 
 /**
  * The WRITE edition's configuration and the single server's config loader.
  *
- * `WriteConfig` is `ReadConfig` (./configRead.ts — chains, subgraphs, backend,
+ * `WriteConfig` is `ReadConfig` (the read edition's configRead.ts — chains, subgraphs, backend,
  * analysis knobs, toolsets, state path) plus what only a server that signs,
  * broadcasts, pins or runs the dev toolchain needs: signing keys and the agent
  * keyring, the broadcast guards, Pinata, WalletConnect, the treasury guard,
@@ -39,15 +39,43 @@ import {
  * has always printed its startup lines.
  *
  * Compatibility surface: everything `config.ts` exported before the read/write
- * split is still exported from here (the read half is re-exported), and
- * `DexeConfig` is `WriteConfig`. Read-edition code imports ./configRead.ts
- * directly — never this file (tests/boundary/import-boundary.test.ts).
+ * split is still exported from here (the read half is re-exported from the
+ * read edition, @dexe-network/dexe-mcp/core — all of its config module but
+ * `DEFAULTS`, which the merged table below replaces, and `loadReadConfig`),
+ * and `DexeConfig` is `WriteConfig`.
+ *
+ * `loadReadConfig` is deliberately NOT re-exported, nor imported anywhere in
+ * src/: it deletes every DEXE_ / AGENT_ / SWARM_ var the read edition does not
+ * read from `process.env` — in this process, the signing keys
+ * (tests/boundary/import-boundary.test.ts).
  */
-export * from "./configRead.js";
+export {
+  applyEnvSpec,
+  assembleReadConfig,
+  createIssueSink,
+  DEFAULT_SUBGRAPH_CHAIN_ID,
+  resolveChain,
+  resolveChainSet,
+  resolveDataSources,
+  resolveRiskSettings,
+  resolveSubgraphEndpoints,
+  resolveToolsetsEnv,
+  SUBGRAPH_KINDS,
+  subgraphEnvVar,
+  type ChainConfig,
+  type ChainSet,
+  type ConfigIssueSink,
+  type DataSources,
+  type ReadConfig,
+  type RiskSettings,
+  type StartupIssue,
+  type SubgraphEndpoints,
+  type SubgraphKind,
+} from "@dexe-network/dexe-mcp/core";
 
 /**
  * Baked defaults only the write edition uses. Same terms as the read
- * `DEFAULTS` (./configRead.ts): they ship publicly on npm + GitHub, the
+ * `DEFAULTS` (@dexe-network/dexe-mcp/core): they ship publicly on npm + GitHub, the
  * WalletConnect project id is shared, heavy users set their own (dexe_doctor
  * advises this).
  */
@@ -57,9 +85,9 @@ export const WRITE_DEFAULTS = {
 
 /**
  * The single server's view of every baked default: the read table plus
- * WRITE_DEFAULTS. Shadows the read `DEFAULTS` that `export *` above would
- * re-export, so pre-split importers of `DEFAULTS.walletConnectProjectId` keep
- * compiling; read code imports ./configRead.ts and never sees the WC id.
+ * WRITE_DEFAULTS, in place of the read `DEFAULTS` (not re-exported above), so
+ * pre-split importers of `DEFAULTS.walletConnectProjectId` keep compiling; the
+ * read edition never sees the WC id.
  */
 export const DEFAULTS = { ...READ_DEFAULTS, ...WRITE_DEFAULTS } as const;
 
@@ -231,7 +259,7 @@ export function parseAgentKeys(
  * not clone, install, or shell out. The protocol checkout may not exist yet;
  * `ensureBuildReady` handles that lazily from inside build/test tools.
  *
- * Runs the read loader's phases (./configRead.ts) with the write phases in
+ * Runs the read loader's phases (the read edition's configRead.ts) with the write phases in
  * between, so the startup lines and `startupIssues` come out in the order they
  * always have.
  */

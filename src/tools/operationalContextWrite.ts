@@ -10,11 +10,8 @@ import {
   type SignerManager,
   type SignerMode,
 } from "../lib/signer.js";
-import type { StateStore } from "../lib/stateStore.js";
-import { RpcProvider } from "../rpc.js";
-import { maskUrl } from "../lib/redact.js";
+import { depositedPowerFor, maskUrl, RpcProvider, type StateStore } from "@dexe-network/dexe-mcp/core";
 import { getAgentLedger, DAY_MS, type SpendRow } from "../lib/agentLedger.js";
-import { depositedPowerFor } from "./operationalContext.js";
 
 /**
  * `dexe_write_context` (0.36.0) — the write edition's half of session

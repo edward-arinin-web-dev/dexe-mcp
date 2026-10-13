@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Interface, ZeroAddress } from "ethers";
 import { PROPOSAL_CATALOG } from "../../src/lib/proposalCatalog.js";
 import { PROPOSAL_BUILDERS } from "../../src/lib/proposalBuilders.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../../src/config.js";
 
 /**

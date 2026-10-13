@@ -1,6 +1,13 @@
-import type { Flow, Gotcha, KnowledgeCorpus, Topic } from "./types.js";
-import { createKnowledge, createToolLocator, type Knowledge } from "./engine.js";
-import { READ_CORPUS } from "./read/index.js";
+import {
+  createKnowledge,
+  createToolLocator,
+  READ_CORPUS,
+  type Flow,
+  type Gotcha,
+  type Knowledge,
+  type KnowledgeCorpus,
+  type Topic,
+} from "@dexe-network/dexe-mcp/core";
 import { WRITE_CORPUS, AGENT_PROTOCOL } from "./write/index.js";
 import { TOOLSETS, defaultProfileToolNames } from "../tools/gate.js";
 
@@ -13,7 +20,7 @@ import { TOOLSETS, defaultProfileToolNames } from "../tools/gate.js";
  *
  * A composition root, like src/tools/index.ts: it wires both editions'
  * knowledge together. Neither edition imports it — the read guide takes a
- * `Knowledge` as a parameter (src/tools/guide.ts).
+ * `Knowledge` as a parameter (the read edition's tools/guide.ts).
  *
  * The named exports below keep the pre-split API (`flowIndex()`,
  * `flowDetail(id)`, `FLOWS`, `GOTCHA_BY_ID`, …) bound to this corpus.
@@ -49,12 +56,12 @@ export const GOTCHAS: readonly Gotcha[] = SINGLE_SERVER_CORPUS.gotchas;
 export const GOTCHA_BY_ID: ReadonlyMap<string, Gotcha> = K.gotchaById;
 export { AGENT_PROTOCOL };
 export type {
-  FlowIndexEntry,
-  TopicIndexEntry,
-  ResolvedGotcha,
-  FlowStepDetail,
   FlowDetail,
-  TopicToolRef,
-  TopicDetail,
+  FlowIndexEntry,
+  FlowStepDetail,
   IntentMatch,
-} from "./engine.js";
+  ResolvedGotcha,
+  TopicDetail,
+  TopicIndexEntry,
+  TopicToolRef,
+} from "@dexe-network/dexe-mcp/core";

@@ -16,7 +16,7 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { getAddress, isAddress } from "ethers";
-import { renameWithRetry, tempStatePath } from "../stateStore.js";
+import { renameWithRetry, tempStatePath } from "@dexe-network/dexe-mcp/core";
 
 /**
  * ── How `dexe-mcp approve` finds the running server (the rendezvous) ───────

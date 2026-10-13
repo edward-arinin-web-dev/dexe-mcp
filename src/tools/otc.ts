@@ -5,8 +5,27 @@ import type { WriteToolContext } from "./writeContext.js";
 import { SignerManager, hotKeySafetyFields } from "../lib/signer.js";
 import { ApprovalHaltError } from "../lib/approval/scope.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
-import { RpcProvider } from "../rpc.js";
-import { multicall, type Call } from "../lib/multicall.js";
+import {
+  buildAddressMerkleTree,
+  ETHEREUM_ADDRESS,
+  findKnownDao,
+  formatAmount,
+  from18,
+  GET_TIER_VIEWS_FRAGMENT,
+  GET_USER_VIEWS_FRAGMENT,
+  isNativeSentinel,
+  multicall,
+  NFT_IDS_OWN_DESC,
+  tokenSaleResult as ok,
+  parseAmount,
+  parseUintString,
+  pinataCidForJson,
+  RpcProvider,
+  safeErrorMessage,
+  sanitizeRevertReason,
+  type Call,
+  type StateStore,
+} from "@dexe-network/dexe-mcp/core";
 import type { TxPayload } from "../lib/calldata.js";
 import { attachPairingQr, runProposalCreate, sendOrCollect, flowFailureResult, type ProposalCreateInput } from "./flow.js";
 import { resolveChain } from "../config.js";
@@ -15,27 +34,12 @@ import {
   tierSchema,
   type TierSpec,
 } from "./proposalBuildComplex.js";
-import { pinataCidForJson } from "../lib/ipfs.js";
 import { PinataClient } from "../lib/ipfsPin.js";
 import type { IpfsArtifact } from "../lib/ipfsPreview.js";
-import { buildAddressMerkleTree } from "../lib/merkleTree.js";
 import { simulateCalldata } from "../lib/simulate.js";
-import { parseUintString } from "../lib/amount.js";
-import { parseAmount, formatAmount, from18 } from "../lib/units.js";
-import { NFT_IDS_OWN_DESC } from "../lib/params.js";
 import { signerKeyParam } from "../lib/writeParams.js";
-import { findKnownDao, type StateStore } from "../lib/stateStore.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
-import { safeErrorMessage } from "../lib/redact.js";
-import { sanitizeRevertReason } from "../lib/errors.js";
 import { toActionableError } from "../lib/writeErrors.js";
-import { tokenSaleResult as ok } from "../lib/tokenSaleResult.js";
-import {
-  ETHEREUM_ADDRESS,
-  GET_TIER_VIEWS_FRAGMENT,
-  GET_USER_VIEWS_FRAGMENT,
-  isNativeSentinel,
-} from "../lib/abi/tokenSale.js";
 import {
   VESTING_WITHDRAW_ADVISORY,
   findVestingTiers,
@@ -52,9 +56,9 @@ export {
   ETHEREUM_ADDRESS,
   GET_TIER_VIEWS_FRAGMENT,
   GET_USER_VIEWS_FRAGMENT,
-  TIER_VIEW_TUPLE,
   isNativeSentinel,
-} from "../lib/abi/tokenSale.js";
+  TIER_VIEW_TUPLE,
+} from "@dexe-network/dexe-mcp/core";
 
 function errorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };

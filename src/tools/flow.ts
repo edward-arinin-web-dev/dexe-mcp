@@ -3,14 +3,36 @@ import { Contract, Interface, JsonRpcProvider } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import type { TxPayload } from "../lib/calldata.js";
-import { RpcProvider } from "../rpc.js";
-import { multicall, type Call } from "../lib/multicall.js";
-import { fetchIpfs, toCidV1 } from "../lib/ipfs.js";
+import {
+  AddressBook,
+  classifyTreasuryActions,
+  CONTRACT_NAMES,
+  decodeProposalView,
+  fetchIpfs,
+  formatAmount,
+  formatUnitsWithSymbol,
+  GET_PROPOSALS_FRAGMENT,
+  govPoolParam,
+  judgeQuorum,
+  multicall,
+  NFT_IDS_OWN_DESC,
+  parseAmount,
+  PROPOSAL_ID_DESC,
+  quorumPctFromRaw,
+  resolveControllingHoldersVotedFor,
+  resolveGateways,
+  RpcProvider,
+  safeErrorMessage,
+  StateStore,
+  toCidV1,
+  unixToUtc,
+  type Call,
+  type TreasuryHit,
+} from "@dexe-network/dexe-mcp/core";
 import { pinJsonOrPreview } from "../lib/ipfsPin.js";
 import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
-import { resolveGateways } from "./ipfsRead.js";
 import {
   SignerManager,
   HOT_KEY_SAFETY,
@@ -21,20 +43,12 @@ import {
 } from "../lib/signer.js";
 import { buildReview } from "../lib/approval/review.js";
 import { currentToolScope } from "../lib/approval/scope.js";
-import { StateStore } from "../lib/stateStore.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { qrFallbackUrl, wcQrBlocks, type PairingContent } from "../lib/qr.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { resolveChain, type DexeConfig } from "../config.js";
 import { pinataForWrites } from "../lib/pinata.js";
 import { runBroadcastGuards } from "../lib/broadcastGuards.js";
-import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
-import {
-  classifyTreasuryActions,
-  quorumPctFromRaw,
-  judgeQuorum,
-  type TreasuryHit,
-} from "../lib/quorumRisk.js";
 import { treasuryGate, treasuryGuardMode } from "../lib/treasuryGate.js";
 import {
   executeAddSettingsAdvisory,
@@ -51,8 +65,6 @@ import {
   worstBlock,
   type BuildWarning,
 } from "../lib/buildWarning.js";
-import { GET_PROPOSALS_FRAGMENT, decodeProposalView } from "../lib/govProposalView.js";
-import { resolveControllingHoldersVotedFor } from "../lib/controllingVoters.js";
 import {
   PROPOSAL_BUILDERS,
   INTERNAL_PROPOSAL_BUILDERS,
@@ -65,11 +77,7 @@ import { checkProposalMetadata, proposalStateName } from "../lib/preflight.js";
 import { waitWithTimeout, assertReceiptSuccess, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/writeErrors.js";
 import { flowChainFields, flowContextSchema, type FlowContext } from "../lib/flowChain.js";
-import { parseAmount, formatAmount, formatUnitsWithSymbol } from "../lib/units.js";
-import { unixToUtc } from "../lib/time.js";
-import { govPoolParam, PROPOSAL_ID_DESC, NFT_IDS_OWN_DESC } from "../lib/params.js";
 import { signerKeyParam } from "../lib/writeParams.js";
-import { safeErrorMessage } from "../lib/redact.js";
 import { withActionContext, currentActionContext } from "../lib/agentLedger.js";
 
 // ---------- ABI fragments ----------

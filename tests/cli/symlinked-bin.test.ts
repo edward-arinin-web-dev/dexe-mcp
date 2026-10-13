@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { isMainModule } from "../../src/stdioRuntime.js";
+import { isMainModule } from "@dexe-network/dexe-mcp/core";
 
 /**
  * npm installs a package's bins on Linux and macOS as SYMLINKS
@@ -19,6 +19,8 @@ import { isMainModule } from "../../src/stdioRuntime.js";
  */
 
 const ROOT = resolve(__dirname, "..", "..");
+// Both binaries report this package's version: `dexe-mcp-read` is the read
+// edition's binary behind a shim (src/read/bin.ts), which passes it this one.
 const version = (JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { version: string }).version;
 const work = mkdtempSync(join(tmpdir(), "dexe-symlink-bin-"));
 
@@ -64,6 +66,7 @@ describe.skipIf(!symlinks)("the built binaries, launched through a symlink", () 
     symlinkSync(target, link);
     const r = spawnSync(process.execPath, [link, "--version"], { encoding: "utf8", timeout: 15_000, input: "" });
     expect(r.status).toBe(0);
+    // once: a shim whose package entry also started itself printed it twice
     expect(r.stdout.trim()).toBe(version);
   });
 });

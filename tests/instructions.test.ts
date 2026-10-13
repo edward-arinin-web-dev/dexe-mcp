@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { INSTRUCTIONS_MAX_CHARS, READ_SKILLS, readInstructions } from "../src/instructions.js";
+import { defaultToolNames, READ_SKILLS } from "@dexe-network/dexe-mcp/core";
+import { INSTRUCTIONS_MAX_CHARS, readInstructions } from "@dexe-network/dexe-mcp/testing";
 import { serverInstructions, SHIPPED_SKILLS, WRITE_SKILLS, writeInstructions } from "../src/instructionsWrite.js";
 import {
   DEFAULT_TOOLSETS,
@@ -9,7 +10,6 @@ import {
   WRITE_EDITION_TOOLSETS,
   defaultProfileToolNames,
 } from "../src/tools/gate.js";
-import { defaultToolNames } from "../src/tools/toolsets.js";
 import { READ_TOOLS, WRITE_TOOLS } from "../src/editions.js";
 import { ENV_SPEC } from "../src/env/schema.js";
 import { toolRefs, annotationAfter } from "./helpers/toolTokens.js";
@@ -152,7 +152,7 @@ describe("the env schema agrees with the gate", () => {
 describe("no shipped surface restates the pre-0.31 default", () => {
   /** Bans the CLAIM ("default core,proposals"), not the string — `(needs DEXE_TOOLSETS=core,proposals)` is correct. */
   const STALE = /default[^\n.]{0,30}['"`]?core,proposals/i;
-  const SURFACES = ["src/instructions.ts", "src/instructionsWrite.ts", "src/env/schema.ts", ".env.example", "docs/USAGE.md"];
+  const SURFACES = ["src/instructionsWrite.ts", "src/env/schema.ts", ".env.example", "docs/USAGE.md"];
 
   for (const rel of SURFACES) {
     it(`${rel} does not claim the default is core,proposals`, () => {
@@ -164,6 +164,13 @@ describe("no shipped surface restates the pre-0.31 default", () => {
       ).toBe(-1);
     });
   }
+
+  // The read edition's handshake is the package's (@dexe-network/dexe-mcp/core):
+  // checked as the text it serves rather than as a source file of this repo.
+  it("the read edition's handshake does not claim the default is core,proposals", () => {
+    const hit = readInstructions().split("\n").findIndex((l) => STALE.test(l));
+    expect(hit, hit === -1 ? "" : `readInstructions() line ${hit + 1} says the default profile is core,proposals`).toBe(-1);
+  });
 });
 
 /**

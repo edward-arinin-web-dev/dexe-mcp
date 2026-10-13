@@ -2,17 +2,22 @@
  * Which edition every source module under src/ belongs to — the module-level
  * half of the edition manifest (the tool-level half is src/editions.ts).
  *
- *   read   goes to the read edition and is library API the write edition
- *          imports from it.
+ * The read edition's modules are not here: they live in the read edition's own
+ * package, @dexe-network/dexe-mcp, and this repo consumes them through its
+ * entry points (`@dexe-network/dexe-mcp/core` for the library API, `/bin` for
+ * the binary). src/ keeps no copy of a read module
+ * (tests/boundary/import-boundary.test.ts).
+ *
  *   write  write edition only: signing, broadcast, uploads, calldata builders,
- *          simulators, the dev toolchain.
+ *          simulators, the dev toolchain, and the CLI commands that write files.
  *   mixed  holds code for both. Counts as READ side in the import walk, so
  *          every write module it imports is a listed boundary crossing until
  *          the file is split (the crossing then disappears from the list).
  *   root   a composition root that wires BOTH editions into the single server
  *          this repo ships today. Not a walk source: it is supposed to import
- *          both sides. A per-edition root replaces it when the read server gets
- *          its own entrypoint.
+ *          both sides.
+ *   shim   a bin entry of this package for a binary that IS the read edition's:
+ *          it imports the package's entry points and no src/ module at all.
  *
  * Paths are relative to src/, forward slashes. Not a test file (vitest only
  * collects *.test.ts); tests/boundary/import-boundary.test.ts fails on any src
@@ -20,164 +25,20 @@
  *
  * Not used by the server. A new file goes in whichever group matches what it
  * does; when unsure, `write` is the conservative choice (it can only add
- * crossings, never hide one).
+ * crossings, never hide one). Read code goes to @dexe-network/dexe-mcp.
  */
-export type ModuleClass = "read" | "write" | "mixed" | "root";
-
-const READ = [
-  // bundled protocol ABI snapshot the decode tools fall back to (no compile step)
-  "abi/protocolSnapshot.generated.ts",
-  "artifacts.ts",
-  // ReadConfig + loadReadConfig and the loader phases the write loader reuses
-  "configRead.ts",
-  // the read edition's handshake text + the instructions budget
-  "instructions.ts",
-  "resources.ts",
-  "rpc.ts",
-  // DEXE_DEBUG diagnostics; the npm/hardhat/git resolvers are runtimeDev.ts
-  "runtime.ts",
-  // Node floor, process/transport guards and isMainModule, for both stdio binaries
-  "stdioRuntime.ts",
-  "cli/doctor.ts",
-  "cli/skills.ts",
-  // the read doctor checks + the ExtraChecks hook the write checks
-  // (diag/writeChecks.ts) come in through, with the full env surface to walk
-  "diag/checks.ts",
-  "env/loader.ts",
-  "env/parse.ts",
-  // the read env spec, the foreign (write) key names, the read env surface
-  "env/schemaRead.ts",
-  "governor/adapter.ts",
-  // registers the read governor tools; the write half (governor/write.ts) is
-  // passed in by the composition root
-  "governor/index.ts",
-  "governor/loader.ts",
-  "governor/rpc.ts",
-  "governor/tally.ts",
-  // dexe_gov_get_state, dexe_gov_has_voted
-  "governor/tools/extras.ts",
-  "governor/tools/read.ts",
-  // dexe_gov_simulate_vote_impact
-  "governor/tools/simulate.ts",
-  // serve-http: the read edition over HTTP. cli.ts is its composition root
-  // (options → remote env → read server factory → HTTP app); remoteEnv.ts the
-  // env allowlist, shared-default refusal and /readyz probe; the rest is the
-  // transport layer, which takes the MCP server as an injected factory.
-  "http/cli.ts",
-  "http/options.ts",
-  "http/remoteEnv.ts",
-  "http/security.ts",
-  "http/server.ts",
-  // the knowledge engine and renderers, parameterized by corpus + tool locator
-  "knowledge/engine.ts",
-  "knowledge/render.ts",
-  "knowledge/types.ts",
-  // the read corpus: reference topics + the data-read gotchas
-  "knowledge/read/gotchas.ts",
-  "knowledge/read/index.ts",
-  // the read corpus as the read server tells it (no stored runs, no profiles)
-  "knowledge/read/edition.ts",
-  "knowledge/read/topics.ts",
-  "lib/abi/tokenSale.ts",
-  "lib/abiSnapshot.ts",
-  "lib/addresses.ts",
-  // A pure digits-only validator. Builders use it, but so does the read tool
-  // dexe_read_token_sale_position (tier ids), so it is shared code, not write code.
-  "lib/amount.ts",
-  // local vs hosted wording for messages that end in an env remedy
-  "lib/audience.ts",
-  // byte-capped body reads for upstream responses
-  "lib/boundedBody.ts",
-  "lib/controllingVoters.ts",
-  "lib/dangerousSelectors.ts",
-  "lib/decoders.ts",
-  "lib/decodeAbis.ts",
-  // the read remedy table + the registry write code adds its table to
-  "lib/errors.ts",
-  "lib/govAddresses.ts",
-  "lib/govEnums.ts",
-  "lib/governanceHits.ts",
-  "lib/govProposalView.ts",
-  // maxItems ceilings for read-tool array inputs
-  "lib/inputLimits.ts",
-  "lib/interactionTypes.ts",
-  // gateway fetch, CID parsing, offline CIDs; pinning is lib/ipfsPin.ts
-  "lib/ipfs.ts",
-  // shrink a JSON value to a byte budget (response cap, IPFS JSON)
-  "lib/jsonShrink.ts",
-  "lib/merkleTree.ts",
-  "lib/multicall.ts",
-  "lib/page.ts",
-  // shared input-param vocabulary; write-only params are lib/writeParams.ts
-  "lib/params.ts",
-  // pure quorum/treasury risk math; the gate and its advisories are lib/treasuryGate.ts
-  "lib/quorumRisk.ts",
-  "lib/redact.ts",
-  // remote mode: configured hosts -> stable labels, peers/IPs masked
-  "lib/remoteLabels.ts",
-  // generic env guard; the Pinata guard is lib/pinata.ts
-  // ambient per-request cancellation signal for read tools
-  "lib/requestScope.ts",
-  "lib/requireEnv.ts",
-  "lib/sanitize.ts",
-  // masks configured endpoints/keys in read-tool output
-  "lib/secretScrub.ts",
-  "lib/selectors.ts",
-  // Persistence infrastructure. Read tools only call getState / findKnownDao;
-  // the writers are called by write flows.
-  "lib/stateStore.ts",
-  "lib/subgraph.ts",
-  "lib/time.ts",
-  // the sanitizing result funnel shared by every OTC tool
-  "lib/tokenSaleResult.ts",
-  "lib/units.ts",
-  "lib/upstreamAdvisories.ts",
-  // the read edition's entry: createReadServer (+ the HTTP pool) and the
-  // `dexe-mcp-read` binary. Read-classified like everything they import, so the
-  // walk proves they reach no write module (tests/read/module-graph.test.ts
-  // checks the same from the binary, by name).
-  "read/bin.ts",
-  "read/server.ts",
-  // the annotation wrapper, the AnnotationTable shape, the read edition's classes
-  "tools/annotations.ts",
-  // ToolContext over the read config; write tools take tools/writeContext.ts
-  "tools/context.ts",
-  "tools/dao.ts",
-  "tools/doctor.ts",
-  // dexe_get_config: chains, subgraph coverage, backend, IPFS read gateways
-  "tools/getConfig.ts",
-  "tools/gov.ts",
-  // dexe_guide over whatever Knowledge it is handed; write extras come in as a hook
-  "tools/guide.ts",
-  "tools/inbox.ts",
-  // dexe_ipfs_fetch, dexe_ipfs_cid_info, the gateway chain and the IPFS error sink
-  "tools/ipfsRead.ts",
-  // dexe_context: chains, env readiness, toolsets, recorded DAOs (no signer)
-  "tools/operationalContext.ts",
-  "tools/predict.ts",
-  "tools/proposal.ts",
-  "tools/read.ts",
-  // read-tool result guard: request signal, secret scrub, response-size cap
-  "tools/readGuard.ts",
-  "tools/report.ts",
-  "tools/risk.ts",
-  // generic tools/list schema post-processing (oneOf → anyOf, closed objects)
-  "tools/schemaNormalize.ts",
-  "tools/subgraph.ts",
-  "tools/tokenSaleRead.ts",
-  // the gate machinery over any ToolsetTable + the read edition's (ungated) table
-  "tools/toolsets.ts",
-  "tools/vote.ts",
-];
+export type ModuleClass = "write" | "mixed" | "root" | "shim";
 
 const WRITE = [
   "bootstrap.ts",
   // `dexe-mcp approve` — decide keystore approvals in a terminal (2c Phase B)
   "cli/approve.ts",
+  // `dexe-mcp skills` — copies this package's dexe-plugin/skills into a skills dir
+  "cli/skills.ts",
   // `dexe-mcp key` — create / import / list / change-password / remove the encrypted keystore
   "cli/key.ts",
-  // WriteConfig + the single server's loadConfig; re-exports configRead.ts so
-  // pre-split importers keep compiling (read code imports configRead.ts)
+  // WriteConfig + the single server's loadConfig; re-exports the read config API
+  // (@dexe-network/dexe-mcp/core) so pre-split importers keep compiling
   "config.ts",
   "hardhat.ts",
   // the write edition's handshake, the single server's (unchanged) handshake,
@@ -215,6 +76,8 @@ const WRITE = [
   "lib/approval/controlProtocol.ts",
   "lib/approval/index.ts",
   "lib/approval/openBrowser.ts",
+  // the approval page's Origin check — the write edition's own, not the read package's
+  "lib/approval/origin.ts",
   "lib/approval/page.ts",
   "lib/approval/rendezvous.ts",
   "lib/approval/review.ts",
@@ -228,7 +91,7 @@ const WRITE = [
   "lib/avatarUpload.ts",
   "lib/blacklist.ts",
   "lib/broadcastGuards.ts",
-  // the build-time harm pass; its governance classifier is lib/governanceHits.ts
+  // the build-time harm pass; its governance classifier is the read edition's
   "lib/buildAdvisories.ts",
   "lib/buildWarning.ts",
   "lib/calldata.ts",
@@ -249,7 +112,7 @@ const WRITE = [
   "lib/preflight.ts",
   "lib/proposalBuilders.ts",
   "lib/proposalCatalog.ts",
-  // build-time advisories; the advisory core and F15 are lib/upstreamAdvisories.ts
+  // build-time advisories, F15 included; the advisory constructor is the read edition's
   "lib/protocolAdvisories.ts",
   "lib/qr.ts",
   // dexe_dao_report snapshots on disk (reports.json), injected by the composition root
@@ -264,7 +127,7 @@ const WRITE = [
   "lib/treasuryGate.ts",
   "lib/txWait.ts",
   "lib/walletconnect.ts",
-  // write remedy table, registered on top of lib/errors.ts by the composition root
+  // write remedy table, registered into the read edition's registry by the composition root
   "lib/writeErrors.ts",
   // builder chainId, signerKey, off-chain proposal id
   "lib/writeParams.ts",
@@ -290,7 +153,7 @@ const WRITE = [
   "tools/merkle.ts",
   // dexe_write_context: signer, keyring, Pinata/WalletConnect/Safe posture, activeFlow
   "tools/operationalContextWrite.ts",
-  // OTC composites; the read-only position view is tools/tokenSaleRead.ts
+  // OTC composites; the read-only position view is the read edition's
   "tools/otc.ts",
   "tools/proposalBuild.ts",
   "tools/proposalBuildComplex.ts",
@@ -299,6 +162,8 @@ const WRITE = [
   "tools/proposalBuildOffchain.ts",
   "tools/safe.ts",
   "tools/simulate.ts",
+  // F15 on the read edition's dexe_read_token_sale_position, attached at registration
+  "tools/tokenSaleF15.ts",
   "tools/txSend.ts",
   "tools/voteBuild.ts",
   "tools/walletconnectStatus.ts",
@@ -322,12 +187,18 @@ const ROOT = [
   "tools/index.ts",
 ];
 
+const SHIM = [
+  // `dexe-mcp-read` (package.json "bin", and the child `dexe-mcp serve-http`
+  // spawns): runs @dexe-network/dexe-mcp's binary
+  "read/bin.ts",
+];
+
 /** The raw lists, so the boundary test can check nothing is listed twice. */
 export const MODULE_GROUPS: Readonly<Record<ModuleClass, readonly string[]>> = {
-  read: READ,
   write: WRITE,
   mixed: MIXED,
   root: ROOT,
+  shim: SHIM,
 };
 
 /** File → class. A file listed twice keeps its last class; the test fails on it. */

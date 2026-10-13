@@ -26,9 +26,8 @@ const repoRoot = path.resolve(__dirname, "../..");
 const helper = await import(
   "file:///" + path.join(repoRoot, "dist/tools/proposalBuildComplex.js").replace(/\\/g, "/")
 );
-const merkle = await import(
-  "file:///" + path.join(repoRoot, "dist/lib/merkleTree.js").replace(/\\/g, "/")
-);
+// The merkle helpers are the read edition's library API (they left dist/ with it).
+const merkle = await import("@dexe-network/dexe-mcp/core");
 
 // Canonical TokenSaleProposal signatures — matches the compiled frontend ABI
 // at `C:/dev/investing-dashboard/src/abi/TokenSaleProposal` (regenerated from

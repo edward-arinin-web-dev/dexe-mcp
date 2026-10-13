@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveGovernor } from "../../src/governor/loader.js";
+import { resolveGovernor } from "@dexe-network/dexe-mcp/core";
 import {
   GOVERNOR_OZ_WRITE_ABI,
   buildCancel,

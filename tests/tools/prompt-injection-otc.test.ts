@@ -2,16 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Interface, ZeroHash, type JsonRpcProvider } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { DexeConfig } from "../../src/config.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import {
+  multicall,
+  registerReadTools,
+  registerRiskTools,
+  registerSubgraphTools,
+  registerTokenSaleReadTools,
+  RpcProvider,
+  type Call,
+  type ToolContext,
+} from "@dexe-network/dexe-mcp/core";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
-import { RpcProvider } from "../../src/rpc.js";
-import { multicall, type Call } from "../../src/lib/multicall.js";
 import { registerOtcTools } from "../../src/tools/otc.js";
-import { registerTokenSaleReadTools } from "../../src/tools/tokenSaleRead.js";
-import { registerSubgraphTools } from "../../src/tools/subgraph.js";
-import { registerReadTools } from "../../src/tools/read.js";
-import { registerRiskTools } from "../../src/tools/risk.js";
 
 /**
  * HIGH-4 / LOW-3 — identical on-chain bytes must not produce opposite outcomes.
@@ -33,8 +36,14 @@ import { registerRiskTools } from "../../src/tools/risk.js";
  * field.
  */
 
-vi.mock("../../src/lib/multicall.js", async (importOriginal) => {
-  const real = await importOriginal<typeof import("../../src/lib/multicall.js")>();
+// The tools under test are mostly the READ edition's (dexe_read_token_sale_*,
+// dexe_proposal_risk_assess), and they call multicall from inside the package —
+// a mock of the @dexe-network/dexe-mcp/core re-export would not reach them. So
+// the stub replaces the package's own multicall module (vitest.config.ts inlines
+// the package, which is what makes this path mockable); the core re-export, and
+// with it the write edition's OTC composite, sees the same stub.
+vi.mock("../../node_modules/@dexe-network/dexe-mcp/dist/lib/multicall.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>();
   return { ...real, multicall: vi.fn() };
 });
 

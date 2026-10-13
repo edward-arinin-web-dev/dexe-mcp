@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { DexeConfig } from "../../src/config.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import { SignerManager } from "../../src/lib/signer.js";
 import { registerSafeTools, assertSafeOperationAllowed } from "../../src/tools/safe.js";
 import { BroadcastGuardError } from "../../src/lib/broadcastGuards.js";

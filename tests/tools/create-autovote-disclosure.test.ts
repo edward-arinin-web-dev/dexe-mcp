@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { Interface } from "ethers";
-import type { ToolContext } from "../../src/tools/context.js";
+import { multicall, RpcProvider, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 
@@ -22,8 +22,6 @@ import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
  * has not earned: under dryRun nothing is locked and nothing exists.
  */
 
-vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
-
 vi.mock("../../src/lib/ipfsPin.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/ipfsPin.js")>()),
   PinataClient: class {
@@ -33,8 +31,11 @@ vi.mock("../../src/lib/ipfsPin.js", async (importOriginal) => ({
   },
 }));
 
-vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/addresses.js")>()),
+// multicall and the registry lookup both come from the read edition's API: one
+// partial mock (a second vi.mock of the same specifier would replace the first).
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
+  multicall: vi.fn(),
   AddressBook: class {
     async resolve(): Promise<string> {
       throw new Error("offline test — registry unresolvable");
@@ -42,9 +43,7 @@ vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
   },
 }));
 
-import { multicall } from "../../src/lib/multicall.js";
 import { loadConfig } from "../../src/config.js";
-import { RpcProvider } from "../../src/rpc.js";
 import { runProposalCreate } from "../../src/tools/flow.js";
 
 const mc = vi.mocked(multicall);

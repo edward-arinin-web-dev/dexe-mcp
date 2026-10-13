@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadGovernorConfigs } from "../../src/governor/loader.js";
+import { loadGovernorConfigs } from "@dexe-network/dexe-mcp/testing";
 
 /**
  * 0.34.0 repointed three Tier-1 Governor fixtures: Compound's retired

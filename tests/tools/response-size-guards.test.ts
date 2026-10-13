@@ -1,8 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerIntrospectTools } from "../../src/tools/introspect.js";
-import { registerSubgraphTools } from "../../src/tools/subgraph.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import { registerSubgraphTools, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../../src/config.js";
 
 /**

@@ -10,7 +10,7 @@ import {
 } from "../lib/approval/rendezvous.js";
 import { ControlAuthError, ControlConnectError, controlCall } from "../lib/approval/controlProtocol.js";
 import { renderTerminalReview, tsafe, type TerminalReview } from "../lib/approval/terminalReview.js";
-import { safeErrorMessage } from "../lib/redact.js";
+import { safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 
 /**
  * `dexe-mcp approve` — decide keystore approvals in a terminal instead of the

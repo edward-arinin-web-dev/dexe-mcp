@@ -9,6 +9,9 @@ coverage/
 .vscode/
 .idea/
 *.tgz
+# The read edition, consumed as a vendored tarball until @dexe-network/dexe-mcp is on
+# npm: package.json depends on file:vendor/…tgz, so CI's `npm ci` needs it committed.
+!vendor/*.tgz
 
 # Swarm test runtime artifacts
 tests/swarm/state/

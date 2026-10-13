@@ -1,7 +1,6 @@
 import { Contract, JsonRpcProvider } from "ethers";
-import { RpcProvider } from "../rpc.js";
+import { RpcProvider, safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../config.js";
-import { safeErrorMessage } from "./redact.js";
 
 // F20b: ERC20Gov has NO isBlacklisted(address) — the real interface is the
 // enumerable pair below (see DeXe-Protocol contracts/gov/ERC20/ERC20Gov.sol).

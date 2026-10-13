@@ -6,7 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
 import { scanForbiddenCalldata, forbiddenBroadcastError } from "../../src/tools/txSend.js";
-import { forbiddenSelectors } from "../../src/lib/dangerousSelectors.js";
+import { forbiddenSelectors } from "@dexe-network/dexe-mcp/core";
 
 /**
  * ── The GovUserKeeper denylist is enforced at the wire, not only at build ───

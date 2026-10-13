@@ -1,9 +1,7 @@
 import { getAddress, Wallet } from "ethers";
 import { resolveChain, type DexeConfig } from "../config.js";
-import { createChainProvider } from "../rpc.js";
-import { hintFor, type EnvGuardResult } from "./requireEnv.js";
+import { createChainProvider, hintFor, safeErrorMessage, type EnvGuardResult } from "@dexe-network/dexe-mcp/core";
 import { ENV_SPEC } from "../env/schema.js";
-import { safeErrorMessage } from "./redact.js";
 import { attachBroadcastRecorder, registerLedgerSecrets } from "./agentLedger.js";
 import { DEFAULT_UNATTENDED_CHAINS, type SignerMode, type SignerModeSource } from "./signerMode.js";
 import { ApprovalManager } from "./approval/index.js";

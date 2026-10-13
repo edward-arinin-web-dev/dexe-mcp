@@ -6,7 +6,8 @@ import {
   ENV_SPEC_WRITE,
   FULL_ENV_SURFACE,
 } from "../../src/env/schema.js";
-import { ENV_SPEC_READ, FOREIGN_WRITE_ENV_KEYS, READ_ENV_SURFACE } from "../../src/env/schemaRead.js";
+import { ENV_SPEC_READ } from "@dexe-network/dexe-mcp/core";
+import { FOREIGN_WRITE_ENV_KEYS, READ_ENV_SURFACE } from "@dexe-network/dexe-mcp/testing";
 
 /**
  * The env spec split into read / write / dev halves (A5). The single server

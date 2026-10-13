@@ -13,11 +13,15 @@ import {
 } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { buildAddressMerkleTree } from "../lib/merkleTree.js";
+import {
+  buildAddressMerkleTree,
+  govPoolParam,
+  parseUintString,
+  RpcProvider,
+  safeErrorMessage,
+} from "@dexe-network/dexe-mcp/core";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
-import { govPoolParam } from "../lib/params.js";
 import { buildChainIdParam } from "../lib/writeParams.js";
-import { parseUintString } from "../lib/amount.js";
 import { assessActions, withWarnings, legacyGovernanceAdvisories } from "./buildResult.js";
 import { assertStakingWindow } from "../lib/buildAdvisories.js";
 import { warningsOutputField } from "../lib/buildWarning.js";
@@ -27,9 +31,7 @@ import {
   vestingRefusalText,
 } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/treasuryGate.js";
-import { RpcProvider } from "../rpc.js";
 import type { DexeConfig } from "../config.js";
-import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 3c — 10 complex named wrappers. Same contract as 3a/3b:

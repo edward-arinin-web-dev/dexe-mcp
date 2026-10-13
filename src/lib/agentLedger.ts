@@ -2,15 +2,16 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { debugLog } from "../runtime.js";
-import { redactUrlCredentials, safeErrorMessage } from "./redact.js";
 import {
+  debugLog,
   lockBackoffMs,
+  redactUrlCredentials,
   renameWithRetry,
   resolveStatePath,
+  safeErrorMessage,
   tempStatePath,
   withWriteLock,
-} from "./stateStore.js";
+} from "@dexe-network/dexe-mcp/core";
 
 /**
  * Agent action ledger (0.32.0) — the attribution substrate for multi-agent

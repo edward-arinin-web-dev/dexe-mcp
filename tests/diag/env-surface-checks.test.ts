@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { startupIssueChecks, envSourceChecks, type CheckResult } from "../../src/diag/checks.js";
+import { type CheckResult, type EnvLoadReport } from "@dexe-network/dexe-mcp/core";
+import { envSourceChecks, startupIssueChecks, type EnvSourceState } from "@dexe-network/dexe-mcp/testing";
 import { FULL_ENV_SURFACE } from "../../src/env/schema.js";
 import { WRITE_ENV_FILE_WORDING } from "../../src/diag/writeChecks.js";
-import type { EnvLoadReport, EnvSourceState } from "../../src/env/loader.js";
 import type { DexeConfig, StartupIssue } from "../../src/config.js";
 
 /**

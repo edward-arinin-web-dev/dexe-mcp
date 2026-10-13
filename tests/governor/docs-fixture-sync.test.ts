@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadGovernorConfigs } from "../../src/governor/loader.js";
-import { isBravo } from "../../src/governor/adapter.js";
+import { isBravo } from "@dexe-network/dexe-mcp/core";
+import { loadGovernorConfigs } from "@dexe-network/dexe-mcp/testing";
 
 /**
  * Always-on, no network: docs/GOVERNOR.md must describe the fixtures that

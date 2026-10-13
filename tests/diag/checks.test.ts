@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runAllChecks as runReadChecks, type RunCheckOpts } from "../../src/diag/checks.js";
+import { runAllChecks as runReadChecks, type RunCheckOpts } from "@dexe-network/dexe-mcp/testing";
 import { writeDoctorChecks } from "../../src/diag/writeChecks.js";
 import { DEFAULTS, type DexeConfig } from "../../src/config.js";
 

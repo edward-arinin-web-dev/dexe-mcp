@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEnv as parseWithSpec } from "../../src/env/parse.js";
+import { parseEnv as parseWithSpec } from "@dexe-network/dexe-mcp/testing";
 import { ENV_SPEC } from "../../src/env/schema.js";
 
 /** The single server's parse: the full env spec (read + write + dev). */

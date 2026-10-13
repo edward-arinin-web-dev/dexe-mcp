@@ -1,5 +1,4 @@
-import { safeErrorMessage } from "./redact.js";
-import { readBodyHead } from "./boundedBody.js";
+import { readBodyHead, safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 
 /**
  * Magic-byte sniffing for avatar uploads.

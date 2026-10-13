@@ -1,13 +1,21 @@
 import { z } from "zod";
 import { Interface, ZeroAddress, toUtf8String } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { RpcProvider } from "../../rpc.js";
-import { resolveGovernor, type GovernorConfig } from "../loader.js";
-import { governorContract, legacyIdHint, stateName } from "../adapter.js";
-import { governorProvider, governorReadError, rpcNote } from "../rpc.js";
+import {
+  governorContract,
+  governorIdSchema,
+  governorProvider,
+  governorReadError,
+  legacyIdHint,
+  PID_GOV,
+  resolveGovernor,
+  rpcNote,
+  RpcProvider,
+  safeErrorMessage,
+  stateName,
+  type GovernorConfig,
+} from "@dexe-network/dexe-mcp/core";
 import { buildExecute, decodeGovernorWrite, type QueueExecuteArgs } from "../encoder.js";
-import { safeErrorMessage } from "../../lib/redact.js";
-import { governorIdSchema, PID_GOV } from "./simulate.js";
 
 /**
  * `dexe_gov_simulate_proposal`: an `eth_call` dry-run of `Governor.execute()`,

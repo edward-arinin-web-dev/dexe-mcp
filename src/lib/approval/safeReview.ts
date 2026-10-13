@@ -1,6 +1,6 @@
 import { getAddress, Interface, formatUnits, type JsonRpcProvider } from "ethers";
 import type { DexeConfig } from "../../config.js";
-import { RpcProvider } from "../../rpc.js";
+import { RpcProvider } from "@dexe-network/dexe-mcp/core";
 import { computeSafeTxHash, describeSafeTxRefund, SAFE_OPERATION, safeTxRefundFields, type SafeTx } from "../ethersProvider.js";
 import { buildReview, chainLabel, type DecodedView, type Prechecks, type ReviewStep, type RiskFlag } from "./review.js";
 

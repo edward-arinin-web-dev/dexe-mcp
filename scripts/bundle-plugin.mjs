@@ -3,7 +3,8 @@
 // node_modules on the end-user machine.
 //
 // Why this exists: `dist/index.js` is tsc output that `import`s ~12 runtime
-// deps (@modelcontextprotocol/sdk, ethers, execa, @walletconnect/*, …), so it
+// deps (@modelcontextprotocol/sdk, ethers, execa, @walletconnect/*, the read
+// edition @dexe-network/dexe-mcp, …), so it
 // only runs where node_modules is present. `npx dexe-mcp@x` fetched them at
 // launch, but that path throws -32000 on Windows. esbuild inlines every dep
 // into one ESM file so the plugin ships a runnable server.
@@ -28,34 +29,18 @@ const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 
 mkdirSync(outDir, { recursive: true });
 
-// `dist/index.js` loads the doctor with `await import("./cli/doctor.js")`.
-// In a single-file bundle esbuild answers a dynamic import by wrapping the
-// target AND everything only it reaches in a lazy `init_*()` closure. The
-// doctor pulls in zod (the env schema), so zod 4 got wrapped and the MCP SDK's
-// top-level `custom(...)` calls ran before `ZodCustom` was assigned: the
-// bundle died on load with "Class2 is not a constructor". Turning that one
-// import static keeps zod a plain module graph. The doctor module only defines
-// functions at load, so loading it eagerly costs nothing at startup.
-const staticDoctor = {
-  name: "static-doctor",
-  setup(b) {
-    b.onLoad({ filter: /dist[\\/]index\.js$/ }, (args) => {
-      if (resolve(args.path) !== resolve(root, "dist/index.js")) return undefined;
-      const src = readFileSync(args.path, "utf8");
-      const needle = 'await import("./cli/doctor.js")';
-      if (!src.includes(needle)) throw new Error("bundle-plugin: doctor import not found in dist/index.js");
-      return {
-        contents: src.replace(needle, "__doctorMod") + '\nimport * as __doctorMod from "./cli/doctor.js";\n',
-        loader: "js",
-        resolveDir: dirname(args.path),
-      };
-    });
-  },
-};
-
+// Nothing that reaches @dexe-network/dexe-mcp/core (the doctor, `dexe-mcp key`)
+// may be a DYNAMIC import of dist/index.js. In a single-file bundle esbuild
+// answers a dynamic import by wrapping the target AND everything it reaches in
+// a lazy `init_*()` closure. Core pulls in zod (the env schema), so when the
+// doctor was `await import("./cli/doctor.js")` zod 4 got wrapped and the MCP
+// SDK's top-level `custom(...)` calls ran before `ZodCustom` was assigned: the
+// bundle died on load with "Class2 is not a constructor". A plugin here used to
+// rewrite that one import; src/index.ts now imports both statically, so there
+// is nothing left to rewrite (tests/plugin/bundle-smoke.test.ts boots the
+// bundle).
 await build({
   entryPoints: [resolve(root, "dist/index.js")],
-  plugins: [staticDoctor],
   bundle: true,
   platform: "node",
   format: "esm",
@@ -74,7 +59,7 @@ await build({
 // live at the plugin root:
 //   - package.json → the version reported in the MCP handshake
 //   - docs/*.md    → back the dexe://playbook / dexe://graph-schema /
-//                    dexe://tools resources (src/resources.ts DOC_RESOURCES)
+//                    dexe://tools resources (DOC_RESOURCES, @dexe-network/dexe-mcp/core)
 //
 // The WHOLE docs/ tree ships, not just those three: PLAYBOOK/TOOLS/GRAPH link
 // their siblings (AGENTS, REPORTING, OTC, SAFE, …) and dexe_doctor's

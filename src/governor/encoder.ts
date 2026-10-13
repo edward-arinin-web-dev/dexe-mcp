@@ -1,6 +1,5 @@
 import { Interface, isAddress, keccak256, toUtf8Bytes } from "ethers";
-import type { GovernorConfig } from "./loader.js";
-import { isBravo } from "./adapter.js";
+import { isBravo, type GovernorConfig } from "@dexe-network/dexe-mcp/core";
 
 /**
  * Write-side ABI fragments per governor family. The exact selectors differ

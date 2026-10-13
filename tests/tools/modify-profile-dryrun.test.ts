@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Interface } from "ethers";
-import type { ToolContext } from "../../src/tools/context.js";
+import { multicall, RpcProvider, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 
@@ -21,12 +21,13 @@ import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
  * in this repo uploads a user's local file during a read-only-looking call.
  */
 
-vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
-
-// W10's registered-GovPool probe is a live eth_call — make the registry
-// unresolvable so it takes its documented "cannot verify → proceed" branch.
-vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/addresses.js")>()),
+// multicall is faked per test; W10's registered-GovPool probe is a live
+// eth_call — make the registry unresolvable so it takes its documented
+// "cannot verify → proceed" branch. Both are the read edition's API: one
+// partial mock (a second vi.mock of the same specifier would replace the first).
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
+  multicall: vi.fn(),
   AddressBook: class {
     async resolve(): Promise<string> {
       throw new Error("offline test — registry unresolvable");
@@ -34,9 +35,7 @@ vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
   },
 }));
 
-import { multicall } from "../../src/lib/multicall.js";
 import { loadConfig } from "../../src/config.js";
-import { RpcProvider } from "../../src/rpc.js";
 import { PinataClient } from "../../src/lib/ipfsPin.js";
 import { renderAvatarJpeg } from "../../src/lib/avatarImage.js";
 import { runProposalCreate } from "../../src/tools/flow.js";

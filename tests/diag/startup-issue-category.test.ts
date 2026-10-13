@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runAllChecks, startupIssueChecks } from "../../src/diag/checks.js";
+import { runAllChecks, startupIssueChecks } from "@dexe-network/dexe-mcp/testing";
 import { FULL_ENV_SURFACE } from "../../src/env/schema.js";
 import { DEFAULTS, loadConfig, type DexeConfig, type StartupIssue } from "../../src/config.js";
 

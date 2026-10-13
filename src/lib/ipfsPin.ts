@@ -1,4 +1,4 @@
-import { pinataCidForJson } from "./ipfs.js";
+import { pinataCidForJson } from "@dexe-network/dexe-mcp/core";
 
 /**
  * The write half of IPFS: the Pinata client and the one fork between a real

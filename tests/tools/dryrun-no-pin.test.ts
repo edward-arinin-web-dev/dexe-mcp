@@ -51,7 +51,8 @@ const predictResult = AbiCoder.defaultAbiCoder().encode(
     ],
   ],
 );
-vi.mock("../../src/rpc.js", () => ({
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
   RpcProvider: class {
     tryProvider() {
       return { ok: { call: async () => predictResult, getCode: async () => "0x" } };
@@ -63,7 +64,7 @@ import { PinataClient } from "../../src/lib/ipfsPin.js";
 import { registerDaoCreateTools } from "../../src/tools/daoCreate.js";
 import { registerDaoDeployTools } from "../../src/tools/daoDeploy.js";
 import { renderAvatarJpeg } from "../../src/lib/avatarImage.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../../src/config.js";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
@@ -203,7 +204,7 @@ describe("dexe_dao_create — dryRun pins nothing", () => {
     pinJson.mockReset();
     // A "real" run whose pin returns whatever CID the local computation says —
     // i.e. a faithful Pinata. Assert the two calldatas match byte for byte.
-    const { pinataCidForJson } = await import("../../src/lib/ipfs.js");
+    const { pinataCidForJson } = await import("@dexe-network/dexe-mcp/core");
     pinJson.mockImplementation(async (value: unknown) => ({
       cid: (await pinataCidForJson(value)).cid,
       size: 1,

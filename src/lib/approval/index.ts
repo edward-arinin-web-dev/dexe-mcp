@@ -8,7 +8,7 @@ import {
   parseKeystoreMeta,
   weakKdfReason,
 } from "../keystore.js";
-import { renderUntrusted } from "../sanitize.js";
+import { renderUntrusted } from "@dexe-network/dexe-mcp/core";
 import { ApprovalServer, type ApproveAttempt } from "./server.js";
 import {
   ApprovalStore,

@@ -521,7 +521,8 @@ the server (the reply names its commit). A local compile is tried first when
 one exists; anything it lacks falls through to the snapshot (`abiSource` says
 which answered). Introspection (`dexe_find_selector`,
 `dexe_get_methods`, `dexe_get_abi`, …) reads the local compile: run
-`dexe_compile` once per session first. Maintainers refresh the snapshot with
+`dexe_compile` once per session first. The snapshot ships with the read
+edition, `@dexe-network/dexe-mcp`; its maintainers refresh it there with
 `npm run gen:abi-snapshot -- --protocol <compiled DeXe-Protocol checkout>`.
 
 ---

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkQuorumMargin, QUORUM_TURNOUT_CEILING } from "../../src/lib/quorumRisk.js";
+import { checkQuorumMargin, QUORUM_TURNOUT_CEILING } from "@dexe-network/dexe-mcp/core";
 import {
   resolveQuorumSplit,
   synthesizeParams,

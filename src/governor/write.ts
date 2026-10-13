@@ -1,4 +1,4 @@
-import type { GovernorWriteTools } from "./index.js";
+import type { GovernorWriteTools } from "@dexe-network/dexe-mcp/core";
 import { registerGovernorBuildTools } from "./tools/build.js";
 import { registerGovernorSimulateWriteTools } from "./tools/simulateWrite.js";
 import { registerGovernorExtraWriteTools } from "./tools/extrasWrite.js";

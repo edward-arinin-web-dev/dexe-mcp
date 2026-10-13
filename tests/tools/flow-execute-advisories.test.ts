@@ -3,7 +3,7 @@ import { Interface } from "ethers";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import { multicall, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 
@@ -27,19 +27,19 @@ import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
  * against what actually goes on the wire.
  */
 
-vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
-
-// The controlling-holder participation signal is a subgraph round-trip. Pin it
-// to "unknown" so every assertion here is about the quorum reason alone.
-vi.mock("../../src/lib/controllingVoters.js", () => ({
+// One partial mock of the read edition's API (a second vi.mock of the same
+// specifier would replace the first):
+//   - multicall: every RPC read is faked per test.
+//   - resolveControllingHoldersVotedFor: the controlling-holder participation
+//     signal is a subgraph round-trip. Pin it to "unknown" so every assertion
+//     here is about the quorum reason alone.
+//   - AddressBook: W10's registered-GovPool probe is a live eth_call. Make the
+//     registry unresolvable so `assertRegisteredGovPool` takes its documented
+//     "cannot verify → proceed" branch instead of hitting the network.
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
+  multicall: vi.fn(),
   resolveControllingHoldersVotedFor: async () => null,
-}));
-
-// W10's registered-GovPool probe is a live eth_call. Make the registry
-// unresolvable so `assertRegisteredGovPool` takes its documented
-// "cannot verify → proceed" branch instead of hitting the network.
-vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/addresses.js")>()),
   AddressBook: class {
     async resolve(): Promise<string> {
       throw new Error("offline test — registry unresolvable");
@@ -47,7 +47,6 @@ vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
   },
 }));
 
-import { multicall } from "../../src/lib/multicall.js";
 import { loadConfig } from "../../src/config.js";
 import { registerFlowTools } from "../../src/tools/flow.js";
 import { registerVoteBuildTools } from "../../src/tools/voteBuild.js";

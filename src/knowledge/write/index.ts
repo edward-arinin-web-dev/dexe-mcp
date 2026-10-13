@@ -1,4 +1,4 @@
-import type { KnowledgeCorpus } from "../types.js";
+import type { KnowledgeCorpus } from "@dexe-network/dexe-mcp/core";
 import { FLOWS } from "./flows.js";
 import { WRITE_CORPUS_GOTCHAS } from "./gotchas.js";
 

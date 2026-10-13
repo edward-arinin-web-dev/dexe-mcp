@@ -14,8 +14,7 @@ import {
   selectKeystore,
   writeKeystoreFile,
 } from "../lib/keystore.js";
-import { safeErrorMessage } from "../lib/redact.js";
-import { renameWithRetry, tempStatePath } from "../lib/stateStore.js";
+import { renameWithRetry, safeErrorMessage, tempStatePath } from "@dexe-network/dexe-mcp/core";
 
 /**
  * `dexe-mcp key` — manage the encrypted keystore the `keystore` signer mode

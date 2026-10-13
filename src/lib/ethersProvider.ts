@@ -17,7 +17,7 @@ import {
  *  - the canonical `SafeTx` EIP-712 type set + domain + `computeSafeTxHash`
  *  - the chainId → Safe Transaction Service endpoint resolver
  *
- * Kept separate from `../rpc.ts` (which is the generic gov-tool provider cache)
+ * Kept separate from the read edition's `rpc.ts` (which is the generic gov-tool provider cache)
  * so the Safe-specific crypto stays in one auditable place.
  */
 

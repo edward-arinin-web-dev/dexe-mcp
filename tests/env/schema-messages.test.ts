@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ENV_REGISTRY, type EnvEntry, type EnvKey } from "../../src/env/schema.js";
-import { parseEnv as parseWithSpec } from "../../src/env/parse.js";
+import { parseEnv as parseWithSpec } from "@dexe-network/dexe-mcp/testing";
 
 /** The registry walked here is the full spec, so parse against it too. */
 const parseEnv = (env: NodeJS.ProcessEnv) => parseWithSpec(env, ENV_REGISTRY);

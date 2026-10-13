@@ -1,16 +1,25 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { cidForJson, fetchIpfs, pinataCidForJson, toCidV1, DEFAULT_IPFS_HOP_TIMEOUT_MS } from "../lib/ipfs.js";
+import {
+  cidForJson,
+  DEFAULT_IPFS_HOP_TIMEOUT_MS,
+  fetchIpfs,
+  ipfsToolError as ipfsReadToolError,
+  NO_GATEWAY_HINT,
+  pinataCidForJson,
+  redactUrlCredentials,
+  resolveGateways,
+  safeErrorMessage,
+  toCidV1,
+} from "@dexe-network/dexe-mcp/core";
 import { PinataClient } from "../lib/ipfsPin.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { pinataUploadHint } from "../lib/pinata.js";
 import { renderAvatarJpeg } from "../lib/avatarImage.js";
 import { assertRasterAvatar, checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput } from "../lib/avatarUpload.js";
-import { redactUrlCredentials, safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/writeErrors.js";
-import { ipfsToolError as ipfsReadToolError, NO_GATEWAY_HINT, resolveGateways } from "./ipfsRead.js";
 import { readFile } from "node:fs/promises";
 
 /**

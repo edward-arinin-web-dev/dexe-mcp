@@ -1,5 +1,4 @@
-import type { Gotcha } from "../types.js";
-import { READ_GOTCHAS, READ_GOTCHA_BY_ID } from "../read/gotchas.js";
+import { READ_GOTCHA_BY_ID, READ_GOTCHAS, type Gotcha } from "@dexe-network/dexe-mcp/core";
 
 /**
  * The WRITE gotchas — every non-obvious DeXe rule an agent must know before it
@@ -25,7 +24,7 @@ export const WRITE_GOTCHAS: readonly Gotcha[] = [
     applies: { flows: ["create_dao"], tools: ["dexe_dao_create"] },
   },
   {
-    // src/lib/quorumRisk.ts QUORUM_TURNOUT_CEILING (0.33.0); enforced in
+    // the read edition's lib/quorumRisk.ts QUORUM_TURNOUT_CEILING (0.33.0); enforced in
     // src/lib/deployGuard.ts (check "deploy.quorum-margin") and src/tools/daoCreate.ts.
     // The literal ceiling below is pinned to that constant by
     // tests/knowledge/guidance-guard-drift.test.ts.

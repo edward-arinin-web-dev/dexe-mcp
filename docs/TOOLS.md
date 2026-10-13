@@ -85,7 +85,7 @@ Source: `src/tools/build.ts`. All four operate on a DeXe-Protocol Hardhat worksp
 
 **Profile: `dev`** — not in a default session; set `DEXE_TOOLSETS=core,dev`.
 
-Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. The introspection tools require `dexe_compile` to have run at least once and read compiled artifacts from `DEXE_PROTOCOL_PATH/artifacts/`. The two decode tools try those artifacts first and fall back to a DeXe-Protocol ABI snapshot bundled with the server for anything the artifacts lack, so they need no setup.
+Source: `src/tools/introspect.ts` + `tools/gov.ts` (read edition). The introspection tools require `dexe_compile` to have run at least once and read compiled artifacts from `DEXE_PROTOCOL_PATH/artifacts/`. The two decode tools try those artifacts first and fall back to a DeXe-Protocol ABI snapshot bundled with the server for anything the artifacts lack, so they need no setup.
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
@@ -106,7 +106,7 @@ Source: `src/tools/introspect.ts` + `src/tools/gov.ts`. The introspection tools 
 
 **Profiles: `core` + `read`.** A default session gets the zero-config reporting subset — `dexe_dao_report`, `dexe_graph_query`, `dexe_graph_schema`, `dexe_read_dao_list/dao_members/dao_stats/token_holders/delegation_map`, `dexe_read_treasury/settings`, `dexe_dao_info/registry_lookup/predict_addresses`, `dexe_proposal_state/list`, `dexe_vote_user_power`, `dexe_read_token_sales`. `dexe_graph_schema` is in `core` on purpose: it is the recovery path a failed `dexe_graph_query` names, and an error that points at a tool you cannot call is a dead end. Everything else in this section (`dexe_proposal_voters`, `dexe_read_validator_list`, `dexe_read_user_activity`, `dexe_read_dao_experts`, `dexe_read_protocol_stats`, `dexe_read_nfts`, `dexe_read_gov_state`) needs `DEXE_TOOLSETS=core,read` (`dexe_read_gov_state`: `core,dev`).
 
-Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/tools/vote.ts`, `src/tools/read.ts`, `src/tools/report.ts`, `src/tools/risk.ts`, `src/tools/subgraph.ts`. All on-chain reads need `DEXE_RPC_URL`.
+Source (the read edition, `@dexe-network/dexe-mcp`): `tools/dao.ts`, `tools/gov.ts`, `tools/proposal.ts`, `tools/vote.ts`, `tools/read.ts`, `tools/report.ts`, `tools/risk.ts`, `tools/subgraph.ts`. All on-chain reads need `DEXE_RPC_URL`.
 
 **Every paginated read says whether you saw everything.** The offset-paged tools add `returned`, `truncated` and — when there is another page — `nextOffset` (`nextSkip` on `dexe_proposal_voters`, which names its cursor `skip`/`first`); `total` comes too where the index actually knows one. A full page is no longer silently the end of the list. The backend-paged reads (`dexe_read_token_holders`, `dexe_read_nfts`) use an opaque `pageToken` cursor instead. **Raw wei amounts carry a `<field>Formatted` sibling** — `votesForFormatted`, `balanceFormatted`, `receivedDelegationFormatted` and friends — decimal-scaled and symbol-suffixed, so a number read off a report is the number a human would say out loud. Add-only: the raw field stays exactly where it was.
 
@@ -155,7 +155,7 @@ Sources: `src/tools/dao.ts`, `src/tools/gov.ts`, `src/tools/proposal.ts`, `src/t
 
 **Profiles: `core` + `proposals` + `read`.** Default session: `dexe_ipfs_upload_file`, `_upload_avatar`, `_upload_proposal_metadata`, `dexe_dao_generate_avatar`, `dexe_ipfs_fetch`. The DAO-metadata writes (`_upload_dao_metadata`, `_update_dao_metadata`) need `DEXE_TOOLSETS=core,proposals`; `_cid_info` / `_cid_for_json` need `core,read`.
 
-Sources: `src/tools/ipfsWrite.ts` (uploads, avatar, profile re-upload, `_cid_for_json`) and `src/tools/ipfsRead.ts` (`_fetch`, `_cid_info`). Pinata-backed; reads use the configured gateway with optional fallback chain.
+Sources: `src/tools/ipfsWrite.ts` (uploads, avatar, profile re-upload, `_cid_for_json`) and `tools/ipfsRead.ts` (read edition) (`_fetch`, `_cid_info`). Pinata-backed; reads use the configured gateway with optional fallback chain.
 
 **`DEXE_PINATA_JWT` is required to BROADCAST, not to look.** Every upload tool here is a write, so it needs the key — but a preview never does: `dexe_ipfs_cid_for_json` hashes entirely offline, and the `dryRun` / preview paths of `dexe_dao_create`, `dexe_proposal_create` and `dexe_otc_dao_open_sale` construct no Pinata client at all. Those three composites also return an **`ipfs` envelope** — `{artifacts[], allPinned, note}` — naming every CID the run produced and whether it was actually pinned, so a dry run cannot be mistaken for a pinned one.
 
@@ -317,7 +317,7 @@ These tools also return **`warnings[]`** (see section 7); the older `advisories`
 
 **Profile: `core`** (default-visible), except the three agent-keyring tools — `dexe_agents_list`, `dexe_agents_fund`, `dexe_agents_ledger` — which need the **`agents`** profile: `DEXE_TOOLSETS=core,agents` (add `vote` for the raw delegation/validator builders a fleet run needs). `dexe_agents_list` / `dexe_agents_fund` also remain in `vote`, so an existing `core,vote` session keeps exactly the surface it had; `dexe_agents_ledger` is new in v0.32.0 and reachable only via `agents` (or `full`).
 
-Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`, `src/tools/operationalContext.ts` + `src/tools/operationalContextWrite.ts`, `src/tools/getConfig.ts`, `src/tools/agents.ts`. The signing flows (`dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`) **broadcast when a signer is configured** ([SIGNING.md](./SIGNING.md)): in `DEXE_SIGNER_MODE=keystore` the whole ordered batch is approved once, with the keystore password, on a local page (until then the result is `mode: "awaiting_approval"` — re-run the same call after approving); in `unattended` mode a hot key signs directly. Both run the B6/B7/B10/B11/B12 broadcast guards first; `dexe_tx_send` also runs B9 simulation. Other tools always return calldata for an external signer.
+Sources: `src/tools/flow.ts`, `src/tools/txSend.ts`, `tools/operationalContext.ts` (read edition) + `src/tools/operationalContextWrite.ts`, `tools/getConfig.ts` (read edition), `src/tools/agents.ts`. The signing flows (`dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`) **broadcast when a signer is configured** ([SIGNING.md](./SIGNING.md)): in `DEXE_SIGNER_MODE=keystore` the whole ordered batch is approved once, with the keystore password, on a local page (until then the result is `mode: "awaiting_approval"` — re-run the same call after approving); in `unattended` mode a hot key signs directly. Both run the B6/B7/B10/B11/B12 broadcast guards first; `dexe_tx_send` also runs B9 simulation. Other tools always return calldata for an external signer.
 
 **Per-persona signing.** `dexe_dao_create`, `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, `dexe_tx_send`, `dexe_otc_buyer_buy` and `dexe_otc_buyer_claim_all` all accept an optional **`signerKey`** — omit it and the primary `DEXE_PRIVATE_KEY` signs; pass `'agent3'` (or the address) and that keyring wallet signs instead. Agent keys are never used implicitly. As of v0.32.0 every one of those broadcasts is attributed in the agent ledger, so `dexe_agents_ledger` can answer "which persona did this, and what did it cost". `signerKey` is hot-key-only (`DEXE_SIGNER_MODE=unattended`): in WalletConnect or keystore mode there is one key and the call is rejected. A fleet of hot keys in `.env` is a loaded gun — the safety model, the guards that enforce versus advise, and the run sequence that actually works on-chain are in [AGENTS.md](./AGENTS.md).
 
@@ -397,7 +397,7 @@ Source: `src/tools/simulate.ts`. `eth_call`-based preflight gate. Catches revert
 
 **Profile: `read`** — not in a default session; set `DEXE_TOOLSETS=core,read`. For a single DAO, `dexe_dao_report`'s `deadlines` section (with `user`) covers the same ground from the default profile; `dexe_user_inbox` is the multi-DAO sweep.
 
-Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my attention" tools. See [`docs/INBOX.md`](./INBOX.md).
+Source (the read edition, `@dexe-network/dexe-mcp`): `tools/inbox.ts`, `tools/predict.ts`. Read-side "what needs my attention" tools. See [`docs/INBOX.md`](./INBOX.md).
 
 | Tool | What it does | Required env |
 |------|--------------|--------------|
@@ -410,9 +410,9 @@ Sources: `src/tools/inbox.ts`, `src/tools/predict.ts`. Read-side "what needs my 
 
 **Profile: `governor`** — not in a default session; set `DEXE_TOOLSETS=core,governor`.
 
-Sources: `src/governor/tools/read.ts`, `src/governor/tools/build.ts`,
-`src/governor/tools/simulate.ts`, `src/governor/tools/simulateWrite.ts`, `src/governor/tools/extras.ts`,
-`src/governor/tools/extrasWrite.ts`. Configs: `src/governor/configs/*.json`.
+Sources: `governor/tools/read.ts` (read edition), `src/governor/tools/build.ts`,
+`governor/tools/simulate.ts` (read edition), `src/governor/tools/simulateWrite.ts`, `governor/tools/extras.ts` (read edition),
+`src/governor/tools/extrasWrite.ts`. Configs: `governor/configs/*.json` (read edition).
 Family-branched internally — callers see normalized OZ-shaped output regardless
 of whether the target is OZ v4+ or Compound Bravo. See [`docs/GOVERNOR.md`](./GOVERNOR.md).
 
@@ -466,7 +466,7 @@ Source: `src/tools/walletconnectStatus.ts` + `src/lib/walletconnect.ts`. `DEXE_S
 
 **Profile: `core`** — default-visible.
 
-Source: `src/tools/doctor.ts` + `src/diag/checks.ts` (+ `src/diag/writeChecks.ts` for the signer, Pinata and WalletConnect rows). First stop when an env-related failure shows up. Everything it does is a read except the opt-in `probePin` (one tiny IPFS pin, then unpinned).
+Source: `tools/doctor.ts` (read edition) + `diag/checks.ts` (read edition) (+ `src/diag/writeChecks.ts` for the signer, Pinata and WalletConnect rows). First stop when an env-related failure shows up. Everything it does is a read except the opt-in `probePin` (one tiny IPFS pin, then unpinned).
 
 Also runnable as a CLI: `npx dexe-mcp doctor`, with an exit-code contract worth wiring into CI — **0** when everything passes *or* only warns, **1** when `--strict` (or `DEXE_DOCTOR_STRICT=1`) is set and there are warnings, **2** on a real failure, a config that will not load, or an unknown flag. Warnings are advisories: a healthy zero-config install always has some, which is why warn-only is a 0 unless you ask for `--strict`.
 

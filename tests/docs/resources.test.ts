@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { registerDocResources, DOC_RESOURCES } from "../../src/resources.js";
+import { registerDocResources } from "@dexe-network/dexe-mcp/core";
+import { DOC_RESOURCES } from "@dexe-network/dexe-mcp/testing";
 
 /**
  * The shipped docs must be reachable in-band as MCP resources — a fresh AI

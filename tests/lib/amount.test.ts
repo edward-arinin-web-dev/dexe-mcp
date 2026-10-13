@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { parseUintString } from "../../src/lib/amount.js";
+import { parseUintString, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import { registerVoteBuildTools } from "../../src/tools/voteBuild.js";
-import type { ToolContext } from "../../src/tools/context.js";
 
 /**
  * H-8 guardrail coverage. Amount/id fields used to flow straight into

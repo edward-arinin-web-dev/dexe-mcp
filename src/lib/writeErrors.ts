@@ -1,15 +1,15 @@
 import {
+  toActionableError as classify,
   mergeKnownFailures,
   READ_KNOWN_FAILURES,
   registerKnownFailures,
-  toActionableError as classify,
   type ActionableError,
   type KnownFailure,
   type KnownFailureRegistration,
-} from "./errors.js";
+} from "@dexe-network/dexe-mcp/core";
 
 /**
- * The write edition's half of the actionable-error layer (src/lib/errors.ts):
+ * The write edition's half of the actionable-error layer (the read edition's lib/errors.ts):
  * the failures only signing, broadcasting or pinning can raise, and the
  * write-side wording of failures a read can hit too — a timed-out receipt wait
  * is not a timed-out read, and the resume rule after a reverted or flaky

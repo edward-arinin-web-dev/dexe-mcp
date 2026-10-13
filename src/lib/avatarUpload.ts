@@ -12,9 +12,8 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { assertRasterAvatar, type RasterFormat } from "./imageSniff.js";
-import { toCidV1 } from "./ipfs.js";
+import { safeErrorMessage, toCidV1 } from "@dexe-network/dexe-mcp/core";
 import type { PinataClient } from "./ipfsPin.js";
-import { safeErrorMessage } from "./redact.js";
 
 /** Avatars render at ≤512px on app.dexe.io — 10 MB is already generous. */
 export const MAX_AVATAR_BYTES = 10 * 1024 * 1024;

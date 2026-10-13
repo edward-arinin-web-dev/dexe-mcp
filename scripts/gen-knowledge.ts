@@ -15,12 +15,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  renderFlowsSection,
-  renderTopicsSection,
-  renderGotchasSection,
   renderErrorTable,
+  renderFlowsSection,
+  renderGotchasSection,
   renderSkillRecipe,
-} from "../src/knowledge/render.js";
+  renderTopicsSection,
+} from "@dexe-network/dexe-mcp/core";
 import { SINGLE_SERVER_CORPUS } from "../src/knowledge/index.js";
 import { WRITE_CORPUS } from "../src/knowledge/write/index.js";
 import { COMBINED_KNOWN_FAILURES } from "../src/lib/writeErrors.js";

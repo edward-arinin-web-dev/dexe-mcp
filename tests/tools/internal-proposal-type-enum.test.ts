@@ -9,7 +9,7 @@ import {
 } from "../../src/tools/proposalBuild.js";
 import { registerProposalBuildInternalTools } from "../../src/tools/proposalBuildInternal.js";
 import { INTERNAL_PROPOSAL_TYPE_LABELS } from "../../src/lib/proposalCatalog.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../../src/config.js";
 
 /**

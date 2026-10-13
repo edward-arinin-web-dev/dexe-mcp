@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { FLOW_BY_ID, GOTCHA_BY_ID } from "../../src/knowledge/index.js";
-import { QUORUM_TURNOUT_CEILING } from "../../src/lib/quorumRisk.js";
+import { QUORUM_TURNOUT_CEILING } from "@dexe-network/dexe-mcp/core";
 import {
   resolveQuorumSplit,
   synthesizeParams,

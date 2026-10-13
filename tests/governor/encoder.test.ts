@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Interface, keccak256, toUtf8Bytes, ZeroAddress } from "ethers";
-import { resolveGovernor } from "../../src/governor/loader.js";
+import { resolveGovernor, type GovernorConfig } from "@dexe-network/dexe-mcp/core";
 import {
   buildDelegate,
   buildExecute,
@@ -11,7 +11,6 @@ import {
   GOVERNOR_BRAVO_WRITE_ABI,
   GOVERNOR_OZ_WRITE_ABI,
 } from "../../src/governor/encoder.js";
-import type { GovernorConfig } from "../../src/governor/loader.js";
 
 const OZ_PROPOSE_SELECTOR = "0x7d5e81e2"; // propose(address[],uint256[],bytes[],string) — plan §4.1
 const CAST_VOTE_SELECTOR = "0x56781388"; // castVote(uint256,uint8) — same on OZ + Bravo

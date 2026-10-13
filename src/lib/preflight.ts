@@ -19,7 +19,7 @@ import { z } from "zod";
 import { isAddress, ZeroAddress } from "ethers";
 import type { DexeConfig } from "../config.js";
 import { checkBlacklist, blacklistError } from "./blacklist.js";
-import { quorumPctFromRaw } from "./quorumRisk.js";
+import { quorumPctFromRaw } from "@dexe-network/dexe-mcp/core";
 
 export interface PreflightResult {
   /** Stable check id, e.g. "deploy.cap-gt-minted". */

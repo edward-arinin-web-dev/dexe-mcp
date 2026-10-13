@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { READ_CORPUS, READ_GOTCHAS } from "../../src/knowledge/read/index.js";
+import { createKnowledge, createToolLocator, READ_CORPUS, READ_GOTCHAS } from "@dexe-network/dexe-mcp/core";
+import { READ_GUIDE_TEXT } from "@dexe-network/dexe-mcp/testing";
 import { WRITE_CORPUS, WRITE_GOTCHAS, FLOWS } from "../../src/knowledge/write/index.js";
 import { SINGLE_SERVER_CORPUS, SINGLE_SERVER_KNOWLEDGE } from "../../src/knowledge/index.js";
-import { createKnowledge, createToolLocator } from "../../src/knowledge/engine.js";
-import { READ_GUIDE_TEXT } from "../../src/tools/guide.js";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";
 import { TOOLSETS } from "../../src/tools/gate.js";
 import { toolRefs } from "../helpers/toolTokens.js";

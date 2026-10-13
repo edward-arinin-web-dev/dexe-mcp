@@ -2,15 +2,19 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadEnvFile } from "../../src/env/loader.js";
+import { loadEnvFile } from "@dexe-network/dexe-mcp/core";
+import { READ_ENV_SURFACE } from "@dexe-network/dexe-mcp/testing";
 import { FULL_ENV_SURFACE } from "../../src/env/schema.js";
-import { READ_ENV_SURFACE, dropWriteEnv, isWriteEnvKey } from "../../src/env/schemaRead.js";
 
 /**
  * A9 — the read edition shares a `.env` with the write edition. Its loader
  * report (banner, doctor `env.file`) must neither list nor name the write
  * edition's variables; the binary then drops them from the process. The full
  * server's report is unchanged.
+ *
+ * `dropWriteEnv` (what the read binary does with them) is pinned with the read
+ * edition, in @dexe-network/dexe-mcp's copy of this file; that its foreign list
+ * is exactly this repo's write and dev vars is tests/env/edition-spec.test.ts.
  */
 
 const KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
@@ -55,28 +59,6 @@ describe("the read surface's .env report", () => {
     const trap = r.parseIssues.find((i) => i.trap === "no-trailing-newline");
     expect(trap).toBeDefined();
     expect(trap!.message).not.toContain("DEXE_PRIVATE_KEY");
-  });
-});
-
-describe("dropWriteEnv", () => {
-  it("removes every write-edition spelling and keeps the read ones", () => {
-    const env: NodeJS.ProcessEnv = {
-      DEXE_RPC_URL_MAINNET: "https://bsc.example",
-      DEXE_GRAPH_API_KEY: "read-key",
-      DEXE_PRIVATE_KEY: KEY,
-      DEXE_AGENT_PK_16: KEY,
-      AGENT_PK_3: KEY,
-      AGENT_FUNDER_PK: KEY,
-      DEXE_AGENT_LEDGER: "1",
-      DEXE_WALLETCONNECT_PROJECT_ID: "p",
-      DEXE_SAFE_API_KEY: "s",
-      DEXE_PROTOCOL_PATH: "/x",
-      SWARM_DAILY_BNB_BUDGET: "1",
-      PATH: "/bin",
-    };
-    expect(dropWriteEnv(env)).toBe(9);
-    expect(Object.keys(env).sort()).toEqual(["DEXE_GRAPH_API_KEY", "DEXE_RPC_URL_MAINNET", "PATH"]);
-    expect(isWriteEnvKey("DEXE_PINATA_GATEWAY_TOKEN")).toBe(false); // a read-gateway credential
   });
 });
 

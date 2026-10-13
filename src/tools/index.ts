@@ -1,17 +1,35 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteConfig } from "../config.js";
-import { Artifacts } from "../artifacts.js";
+import {
+  applyReadResultGuard,
+  applyToolAnnotations,
+  Artifacts,
+  installListToolsNormalizer,
+  registerDaoTools,
+  registerDoctorTool,
+  registerGetConfigTool,
+  registerGovernorTools,
+  registerGovTools,
+  registerGuideTool,
+  registerInboxTools,
+  registerIpfsReadTools,
+  registerOperationalContextTools,
+  registerPredictTools,
+  registerProposalTools,
+  registerReadTools,
+  registerReportTools,
+  registerRiskTools,
+  registerSubgraphTools,
+  registerTokenSaleReadTools,
+  registerVoteTools,
+  SelectorIndex,
+  StateStore,
+  type ReportSnapshotStore,
+} from "@dexe-network/dexe-mcp/core";
 import { HardhatRunner } from "../hardhat.js";
-import { SelectorIndex } from "../lib/selectors.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { registerBuildTools } from "./build.js";
 import { registerIntrospectTools } from "./introspect.js";
-import { registerGovTools } from "./gov.js";
-import { registerDaoTools } from "./dao.js";
-import { registerProposalTools } from "./proposal.js";
-import { registerVoteTools } from "./vote.js";
-import { registerReadTools } from "./read.js";
-import { registerIpfsReadTools } from "./ipfsRead.js";
 import { registerIpfsCidForJsonTool, registerIpfsUploadTools } from "./ipfsWrite.js";
 import { registerProposalBuildTools } from "./proposalBuild.js";
 import { registerProposalBuildMoreTools } from "./proposalBuildMore.js";
@@ -20,41 +38,27 @@ import { registerProposalBuildOffchainTools } from "./proposalBuildOffchain.js";
 import { registerProposalBuildInternalTools } from "./proposalBuildInternal.js";
 import { registerVoteBuildTools } from "./voteBuild.js";
 import { registerDaoDeployTools } from "./daoDeploy.js";
-import { registerSubgraphTools } from "./subgraph.js";
-import { registerReportTools, type ReportSnapshotStore } from "./report.js";
 import { FileReportStore, reportStorePath } from "../lib/reportStoreFile.js";
 import { registerTxTools } from "./txSend.js";
 import { registerAgentTools } from "./agents.js";
-import { registerGetConfigTool } from "./getConfig.js";
-import { registerDoctorTool } from "./doctor.js";
 import { WRITE_DOCTOR_TEXT, writeDoctorChecks } from "../diag/writeChecks.js";
 import { registerWalletConnectTools } from "./walletconnectStatus.js";
 import { registerFlowTools } from "./flow.js";
 import { registerDaoCreateTools } from "./daoCreate.js";
-import { registerOperationalContextTools } from "./operationalContext.js";
 import { registerWriteContextTool } from "./operationalContextWrite.js";
-import { registerGuideTool } from "./guide.js";
 import { FLOW_GUIDE_TEXT, activeFlowContext, registerKnowledgePrompts } from "./guideWrite.js";
 import { SINGLE_SERVER_KNOWLEDGE } from "../knowledge/index.js";
-import { StateStore } from "../lib/stateStore.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcSaleTools, registerOtcBuyerTools } from "./otc.js";
-import { registerTokenSaleReadTools } from "./tokenSaleRead.js";
+import { withVestingWithdrawAdvisory } from "./tokenSaleF15.js";
 import { registerSafeTools } from "./safe.js";
 import { registerSimulateTools } from "./simulate.js";
-import { registerInboxTools } from "./inbox.js";
-import { registerPredictTools } from "./predict.js";
-import { registerRiskTools } from "./risk.js";
 import { SignerManager } from "../lib/signer.js";
 import { WalletConnectManager } from "../lib/walletconnect.js";
-import { registerGovernorTools } from "../governor/index.js";
 import { governorWriteTools } from "../governor/write.js";
 import { applyToolGate, SINGLE_SERVER_TOOLSETS } from "./gate.js";
-import { applyToolAnnotations } from "./annotations.js";
 import { SINGLE_SERVER_ANNOTATIONS } from "./annotationsWrite.js";
-import { applyReadResultGuard } from "./readGuard.js";
 import { applyToolAliases } from "./aliases.js";
-import { installListToolsNormalizer } from "./schemaNormalize.js";
 import { applyApprovalScope } from "../lib/approval/scope.js";
 import { WRITE_TOOLS } from "../editions.js";
 
@@ -183,9 +187,11 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   });
   registerKnowledgePrompts(server);
   // OTC: open sale, then the read-only position view (dexe_read_token_sale_position,
-  // kept out of otc.ts), then buy / claim all — the historical tools/list order.
+  // the read edition's), then buy / claim all — the historical tools/list order.
+  // This server attaches F15 (the stranded vested leg) to the position view's
+  // vested tiers, alias included (./tokenSaleF15.ts).
   registerOtcSaleTools(server, ctx, signer, wc, state);
-  registerTokenSaleReadTools(server, ctx);
+  registerTokenSaleReadTools(withVestingWithdrawAdvisory(server), ctx);
   registerOtcBuyerTools(server, ctx, signer, wc);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);

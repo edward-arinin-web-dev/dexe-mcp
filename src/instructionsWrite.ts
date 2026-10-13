@@ -1,7 +1,6 @@
 import { DEFAULT_TOOLSETS, WRITE_EDITION_TOOLSETS, defaultProfileToolNames } from "./tools/gate.js";
-import { defaultToolNames } from "./tools/toolsets.js";
+import { defaultToolNames, READ_SKILLS } from "@dexe-network/dexe-mcp/core";
 import { RESUME_SUMMARY } from "./lib/resumeContract.js";
-import { READ_SKILLS } from "./instructions.js";
 
 /**
  * The skill directories shipped in `dexe-plugin/skills` (package.json `files`).
@@ -53,8 +52,8 @@ export const KEYSTORE_INSTRUCTION =
  * be checked by the same machinery as the tool descriptions
  * (tests/instructions.test.ts, mirroring tests/tools/default-profile-references.test.ts).
  *
- * Budget: `INSTRUCTIONS_MAX_CHARS` (src/instructions.ts). The per-edition texts
- * are `readInstructions()` (src/instructions.ts) and `writeInstructions()`
+ * Budget: `INSTRUCTIONS_MAX_CHARS` (the read edition's instructions.ts). The per-edition texts
+ * are `readInstructions()` (the read edition's instructions.ts) and `writeInstructions()`
  * below; this one is pinned byte-for-byte while the single server ships.
  */
 export function serverInstructions(): string {
