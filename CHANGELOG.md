@@ -14,6 +14,13 @@
   depend on whether a state store is passed: `dexe-mcp` reads exactly as
   before; `dexe-mcp-read` says the address / `daos[]` is required.
 
+### Fixed — `serve-http` shutdown
+- `dexe-mcp serve-http` / `dexe-mcp-read serve-http` armed their SIGINT and
+  SIGTERM handlers only after logging `listening`. A signal sent in that
+  window (a supervisor that stops the server as soon as it is up) hit Node's
+  default action and killed the process instead of draining it. The handlers
+  are now in place before the line is written.
+
 ## 0.37.0 — 2026-10-12
 
 Tool count 169 → 170 for `dexe-mcp` (`dexe_tx_approval_status`); the new read-only edition `dexe-mcp-read` serves the 54 read tools. Upgrade notes: [docs/MIGRATION.md](./docs/MIGRATION.md#0361--0370--read-this-if-you-sign-with-dexe_private_key-read-signermode-or-run-serve-http).

@@ -8,7 +8,8 @@ something on your side.
 
 ## 0.37.0 → 0.37.1 — no action
 
-Wording fixes only. `DEXE_RPC_TIMEOUT_MS` is documented with its real default
+Wording fixes, plus `serve-http` now drains on a SIGINT/SIGTERM that arrives
+right after startup. `DEXE_RPC_TIMEOUT_MS` is documented with its real default
 (10000 ms), and `dexe_read_token_sales` / `dexe_user_inbox` describe the
 `dexe-mcp-read` case (no local state: pass the address or `daos[]`). Tool count
 unchanged (**170 tools** / 19 groups); no tool input and no emitted calldata
