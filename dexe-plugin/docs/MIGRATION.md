@@ -6,14 +6,18 @@ something on your side.
 
 ---
 
-## 0.37.1 → 1.0.0 — read this if you sign with DEXE_PRIVATE_KEY or the agent keyring
+## 0.37.1 → 1.0.0 — read this if you sign with DEXE_PRIVATE_KEY or the agent keyring, and everyone: reads moved to a second server
 
-Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
+**172 tools** / 19 groups, now on two servers: `dexe-mcp` registers the **118
+write tools** by default, and the DeXe read server `dexe-mcp-read`
+(`@dexe-network/dexe-mcp`) serves the 54 read tools next to it. No emitted
+calldata changed. Items 1–6 are about signing; 7–11 about the two servers.
 
 1. **A hot key alone no longer signs.** If your `.env` (or MCP host `env`
    block) sets `DEXE_PRIVATE_KEY` or `DEXE_AGENT_PK_*` / `AGENT_PK_*` and does
    NOT set `DEXE_SIGNER_MODE`, 1.0 ignores the key and falls back to
-   WalletConnect; `dexe_doctor` fails `signer.hotKeyIgnored`. Pick one and
+   WalletConnect; `dexe_write_doctor` (standalone: `dexe_doctor`) fails
+   `signer.hotKeyIgnored`. Pick one and
    restart:
 
    ```bash
@@ -69,6 +73,60 @@ Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
    and removes it on exit. `dexe_tx_approval_status` and `dexe_write_context`
    approvals now carry a `kind` (`tx-batch` | `message` | `safeTx`); a
    signature approval has no `landed` / `txCount`.
+
+7. **`dexe-mcp` registers write tools only.** The 54 read tools —
+   `dexe_context`, `dexe_guide`, `dexe_doctor`, `dexe_get_config`,
+   `dexe_dao_info`, `dexe_proposal_state`, every `dexe_read_*`,
+   `dexe_dao_report`, … — are the read server's. Pick one:
+
+   ```jsonc
+   // a) two servers (recommended; the Claude Code plugin does this for you)
+   "mcpServers": {
+     "dexe":      { "command": "npx", "args": ["-y", "dexe-mcp@latest"] },
+     "dexe-read": { "command": "npx", "args": ["-y", "-p", "@dexe-network/dexe-mcp", "dexe-mcp-read"] }
+   }
+   // b) one server, as before 1.0: add to the dexe entry (or ~/.dexe-mcp/.env)
+   "env": { "DEXE_WRITE_STANDALONE": "1" }
+   ```
+
+   `npx dexe-mcp init` prints (a) with `node` paths into your install.
+   Standalone registers everything 0.37 did plus the two tools of item 8 — do
+   not also run the read server then. Both servers read the same
+   `~/.dexe-mcp/.env`; the read server drops the signing keys from its process.
+
+8. **Renamed orientation on the write server:** `dexe_write_guide` (the
+   eight write journeys — create a DAO, proposal, vote/execute, distribution,
+   OTC, staking, token launch, agent team) and `dexe_write_doctor` (signer,
+   keystore, approval page, Pinata, WalletConnect, this server's `.env`)
+   replace `dexe_guide` / `dexe_doctor` there; `dexe_write_context` now also
+   returns `recorded` (the DAOs and proposals this install recorded, windowed by
+   `daoLimit` / `proposalLimit`), since the read server keeps no state. The
+   read server's `dexe_guide` has the data-reading topics only, its
+   `dexe_doctor` the RPC / subgraph / backend / IPFS checks. `npx dexe-mcp
+   doctor` still runs every check of both. Composite `next` pointers and the
+   `dexe-flow-*` prompts name `dexe_write_guide`; a pointer at a read tool
+   carries `providedBy`. **Code that parses tool text:** write text names a
+   read tool as `dexe_dao_info (read server)`.
+
+9. **Write-only `DEXE_TOOLSETS`:** every set name still works, narrowed to
+   the write tools — `core` is 25 tools (was 46), `read` is only
+   `dexe_ipfs_cid_for_json`, `full` is 118. The deprecated aliases
+   `dexe_otc_buyer_status` / `dexe_otc_list_sales_for_dao` exist only
+   standalone (their targets are read tools). So does the F15 block on the
+   position view: on the default two-server setup `dexe_read_token_sale_position`
+   is the read server's, with its neutral `vestingNote`, while the write actions
+   still refuse `vestingWithdraw` (`dexe_otc_dao_open_sale` refuses a vesting
+   tier by default, `dexe_otc_buyer_claim_all` does not send it, the builder
+   reports it). See [PROFILES.md](./PROFILES.md).
+
+10. **The `dexe-mcp-read` bin moved to `@dexe-network/dexe-mcp`.** Two
+   packages declaring one bin collide on a global install (EEXIST), so
+   `dexe-mcp` no longer declares it. Replace `npx -p dexe-mcp dexe-mcp-read`
+   with `npx -y -p @dexe-network/dexe-mcp dexe-mcp-read`.
+   `dexe-mcp serve-http` still works (it starts the read server).
+
+11. **Swarm / e2e harnesses** that call read tools through `dist/index.js`
+   set `DEXE_WRITE_STANDALONE=1` (the swarm orchestrator does it for you).
 
 ---
 

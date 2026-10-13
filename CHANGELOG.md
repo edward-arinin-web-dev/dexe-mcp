@@ -10,7 +10,7 @@
   `DEXE_SIGNER_MODE=unattended`, and then sign only on
   `DEXE_UNATTENDED_CHAINS` (default `97`) — there is no unfenced unattended
   mode left in the env loader.
-- `dexe_doctor` fails `signer.hotKeyIgnored` for that setup and names the three
+- `dexe_write_doctor` (standalone: `dexe_doctor`; and `npx dexe-mcp doctor`) fails `signer.hotKeyIgnored` for that setup and names the three
   ways out (explicit unattended, `dexe-mcp key import --from-env`, or
   WalletConnect); the startup banner says the same. `dexe_write_context`
   reports it as `signer.hotKeyIgnored` instead of the old `signer.deprecation`.
@@ -23,7 +23,7 @@
   fenced to 97 unless `unattendedChains` is given (`null` = no fence).
 - The ignored keys are recorded (`config.hotKeysIgnored`) and named — with
   the reason (unset vs rejected mode) and the ways out, safest first — in the
-  startup banner, `dexe_doctor`, `dexe_write_context` and the `enableWrites`
+  startup banner, `dexe_write_doctor`, `dexe_write_context` and the `enableWrites`
   hint of every no-signer write response. `dexe_agents_list` / `dexe_agents_fund`
   say the keyring is not loaded (mode) instead of asking for keys.
 - Model-facing remedies (`dexe_wc_connect`, `dexe_tx_send`, Safe, auth login,

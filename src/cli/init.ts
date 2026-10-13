@@ -155,7 +155,8 @@ export async function run(): Promise<InitNext> {
     output.write(line("How should this server sign transactions?"));
     output.write(line("  walletconnect — your phone wallet signs each one; keys never touch this machine"));
     output.write(line("  keystore      — an encrypted key here; you approve every batch with its password"));
-    output.write(line("                  on a local web page (the AI never sees the password)"));
+    output.write(line("                  on a local web page, or in a terminal with `dexe-mcp approve`"));
+    output.write(line("                  (the AI never sees the password)"));
     output.write(line("  readonly      — never sign; tools return unsigned calldata"));
     if (allowUnattended) {
       output.write(line("  unattended    — a PLAINTEXT hot key in .env signs with NO confirmation (bots/CI)"));

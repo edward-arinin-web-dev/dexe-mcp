@@ -33,6 +33,7 @@ Update later with `/plugin marketplace update` then `/plugin install dexe@dexe-m
 npm install -g dexe-mcp        # or: npm install dexe-mcp
 npx dexe-mcp init              # interactive wizard
 npx dexe-mcp doctor            # verify
+npx dexe-mcp approve           # keystore mode: approve/decline pending approvals in a terminal
 ```
 
 The wizard asks four questions (network, Pinata JWT, Graph key, signer mode),

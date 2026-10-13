@@ -159,7 +159,8 @@ If the user wants signing beyond phone-approval WalletConnect, walk this ladder
    `npx dexe-mcp key create` (or `key import`, or `key import --from-env` to
    move an existing `DEXE_PRIVATE_KEY`) in their own terminal — it needs a TTY
    and will refuse your shell. Then `.env` gets `DEXE_SIGNER_MODE=keystore`.
-   Each write opens a local approval page; the user types the password THERE.
+   Each write opens a local approval page (or the user runs `npx dexe-mcp approve`
+   in their own terminal); the user types the password THERE.
    **Never ask for, accept, or relay the keystore password.** On
    `awaiting_approval`, tell the user to approve, then re-run the same call.
    See docs/SIGNING.md.

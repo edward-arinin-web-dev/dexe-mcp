@@ -426,11 +426,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names2, constants5) {
+      optimizeNames(names2, constants6) {
         if (!names2[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names2, constants5);
+          this.rhs = optimizeExpr(this.rhs, names2, constants6);
         return this;
       }
       get names() {
@@ -447,10 +447,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names2, constants5) {
+      optimizeNames(names2, constants6) {
         if (this.lhs instanceof code_1.Name && !names2[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names2, constants5);
+        this.rhs = optimizeExpr(this.rhs, names2, constants6);
         return this;
       }
       get names() {
@@ -511,8 +511,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names2, constants5) {
-        this.code = optimizeExpr(this.code, names2, constants5);
+      optimizeNames(names2, constants6) {
+        this.code = optimizeExpr(this.code, names2, constants6);
         return this;
       }
       get names() {
@@ -541,12 +541,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names2, constants5) {
+      optimizeNames(names2, constants6) {
         const { nodes } = this;
         let i3 = nodes.length;
         while (i3--) {
           const n4 = nodes[i3];
-          if (n4.optimizeNames(names2, constants5))
+          if (n4.optimizeNames(names2, constants6))
             continue;
           subtractNames(names2, n4.names);
           nodes.splice(i3, 1);
@@ -599,12 +599,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names2, constants5) {
+      optimizeNames(names2, constants6) {
         var _a3;
-        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names2, constants5);
-        if (!(super.optimizeNames(names2, constants5) || this.else))
+        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names2, constants6);
+        if (!(super.optimizeNames(names2, constants6) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names2, constants5);
+        this.condition = optimizeExpr(this.condition, names2, constants6);
         return this;
       }
       get names() {
@@ -627,10 +627,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names2, constants5) {
-        if (!super.optimizeNames(names2, constants5))
+      optimizeNames(names2, constants6) {
+        if (!super.optimizeNames(names2, constants6))
           return;
-        this.iteration = optimizeExpr(this.iteration, names2, constants5);
+        this.iteration = optimizeExpr(this.iteration, names2, constants6);
         return this;
       }
       get names() {
@@ -666,10 +666,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names2, constants5) {
-        if (!super.optimizeNames(names2, constants5))
+      optimizeNames(names2, constants6) {
+        if (!super.optimizeNames(names2, constants6))
           return;
-        this.iterable = optimizeExpr(this.iterable, names2, constants5);
+        this.iterable = optimizeExpr(this.iterable, names2, constants6);
         return this;
       }
       get names() {
@@ -711,11 +711,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names2, constants5) {
+      optimizeNames(names2, constants6) {
         var _a3, _b;
-        super.optimizeNames(names2, constants5);
-        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names2, constants5);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names2, constants5);
+        super.optimizeNames(names2, constants6);
+        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names2, constants6);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names2, constants6);
         return this;
       }
       get names() {
@@ -1016,7 +1016,7 @@ var require_codegen = __commonJS({
     function addExprNames(names2, from10) {
       return from10 instanceof code_1._CodeOrName ? addNames(names2, from10.names) : names2;
     }
-    function optimizeExpr(expr, names2, constants5) {
+    function optimizeExpr(expr, names2, constants6) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1031,14 +1031,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n4) {
-        const c4 = constants5[n4.str];
+        const c4 = constants6[n4.str];
         if (c4 === void 0 || names2[n4.str] !== 1)
           return n4;
         delete names2[n4.str];
         return c4;
       }
       function canOptimize(e2) {
-        return e2 instanceof code_1._Code && e2._items.some((c4) => c4 instanceof code_1.Name && names2[c4.str] === 1 && constants5[c4.str] !== void 0);
+        return e2 instanceof code_1._Code && e2._items.some((c4) => c4 instanceof code_1.Name && names2[c4.str] === 1 && constants6[c4.str] !== void 0);
       }
     }
     function subtractNames(names2, from10) {
@@ -8825,8 +8825,8 @@ var init_fetch = __esm({
         let response = new FetchResponse(resp.statusCode, resp.statusMessage, resp.headers, resp.body, _request);
         if ([301, 302, 307, 308].indexOf(response.statusCode) >= 0) {
           try {
-            const location = response.headers.location || "";
-            return req.redirect(location).#send(attempt + 1, expires, 0, _request, response);
+            const location2 = response.headers.location || "";
+            return req.redirect(location2).#send(attempt + 1, expires, 0, _request, response);
           } catch (error62) {
           }
           return response;
@@ -8882,13 +8882,13 @@ var init_fetch = __esm({
        *  Returns a new [[FetchRequest]] that represents the redirection
        *  to %%location%%.
        */
-      redirect(location) {
+      redirect(location2) {
         const current = this.url.split(":")[0].toLowerCase();
-        const target = location.split(":")[0].toLowerCase();
-        assert2((current !== "https" || target !== "http") && location.match(/^https?:/), `unsupported redirect`, "UNSUPPORTED_OPERATION", {
-          operation: `redirect(${this.method} ${JSON.stringify(this.url)} => ${JSON.stringify(location)})`
+        const target = location2.split(":")[0].toLowerCase();
+        assert2((current !== "https" || target !== "http") && location2.match(/^https?:/), `unsupported redirect`, "UNSUPPORTED_OPERATION", {
+          operation: `redirect(${this.method} ${JSON.stringify(this.url)} => ${JSON.stringify(location2)})`
         });
-        const req = new _FetchRequest(location);
+        const req = new _FetchRequest(location2);
         req.method = this.method;
         req.allowGzip = this.allowGzip;
         req.timeout = this.timeout;
@@ -30817,9 +30817,9 @@ var require_websocket = __commonJS({
         emitErrorAndClose(websocket, err16);
       });
       req.on("response", (res) => {
-        const location = res.headers.location;
+        const location2 = res.headers.location;
         const statusCode = res.statusCode;
-        if (location && opts.followRedirects && statusCode >= 300 && statusCode < 400) {
+        if (location2 && opts.followRedirects && statusCode >= 300 && statusCode < 400) {
           if (++websocket._redirects > opts.maxRedirects) {
             abortHandshake(websocket, req, "Maximum redirects exceeded");
             return;
@@ -30827,9 +30827,9 @@ var require_websocket = __commonJS({
           req.abort();
           let addr;
           try {
-            addr = new URL2(location, address);
+            addr = new URL2(location2, address);
           } catch (e2) {
-            const err16 = new SyntaxError(`Invalid URL: ${location}`);
+            const err16 = new SyntaxError(`Invalid URL: ${location2}`);
             emitErrorAndClose(websocket, err16);
             return;
           }
@@ -32313,14 +32313,14 @@ function normalizeResult(method, value) {
   return { tag: _normalize2(result), value: result };
 }
 function checkQuorum(quorum, results) {
-  const tally2 = /* @__PURE__ */ new Map();
+  const tally3 = /* @__PURE__ */ new Map();
   for (const { value, tag, weight } of results) {
-    const t2 = tally2.get(tag) || { value, weight: 0 };
+    const t2 = tally3.get(tag) || { value, weight: 0 };
     t2.weight += weight;
-    tally2.set(tag, t2);
+    tally3.set(tag, t2);
   }
   let best = null;
-  for (const r2 of tally2.values()) {
+  for (const r2 of tally3.values()) {
     if (r2.weight >= quorum && (!best || r2.weight > best.weight)) {
       best = r2;
     }
@@ -32377,11 +32377,11 @@ function getFuzzyMode(quorum, results) {
   if (quorum === 1) {
     return getNumber(getMedian(quorum, results), "%internal");
   }
-  const tally2 = /* @__PURE__ */ new Map();
+  const tally3 = /* @__PURE__ */ new Map();
   const add2 = (result, weight) => {
-    const t2 = tally2.get(result) || { result, weight: 0 };
+    const t2 = tally3.get(result) || { result, weight: 0 };
     t2.weight += weight;
-    tally2.set(result, t2);
+    tally3.set(result, t2);
   };
   for (const { weight, value } of results) {
     const r2 = getNumber(value);
@@ -32391,7 +32391,7 @@ function getFuzzyMode(quorum, results) {
   }
   let bestWeight = 0;
   let bestResult = void 0;
-  for (const { weight, result } of tally2.values()) {
+  for (const { weight, result } of tally3.values()) {
     if (weight >= quorum && (weight > bestWeight || bestResult != null && weight === bestWeight && result > bestResult)) {
       bestWeight = weight;
       bestResult = result;
@@ -41344,7 +41344,7 @@ var require_crc = __commonJS({
 var require_parser = __commonJS({
   "node_modules/pngjs/lib/parser.js"(exports, module) {
     "use strict";
-    var constants5 = require_constants2();
+    var constants6 = require_constants2();
     var CrcCalculator = require_crc();
     var Parser = module.exports = function(options, dependencies) {
       this._options = options;
@@ -41355,12 +41355,12 @@ var require_parser = __commonJS({
       this._palette = [];
       this._colorType = 0;
       this._chunks = {};
-      this._chunks[constants5.TYPE_IHDR] = this._handleIHDR.bind(this);
-      this._chunks[constants5.TYPE_IEND] = this._handleIEND.bind(this);
-      this._chunks[constants5.TYPE_IDAT] = this._handleIDAT.bind(this);
-      this._chunks[constants5.TYPE_PLTE] = this._handlePLTE.bind(this);
-      this._chunks[constants5.TYPE_tRNS] = this._handleTRNS.bind(this);
-      this._chunks[constants5.TYPE_gAMA] = this._handleGAMA.bind(this);
+      this._chunks[constants6.TYPE_IHDR] = this._handleIHDR.bind(this);
+      this._chunks[constants6.TYPE_IEND] = this._handleIEND.bind(this);
+      this._chunks[constants6.TYPE_IDAT] = this._handleIDAT.bind(this);
+      this._chunks[constants6.TYPE_PLTE] = this._handlePLTE.bind(this);
+      this._chunks[constants6.TYPE_tRNS] = this._handleTRNS.bind(this);
+      this._chunks[constants6.TYPE_gAMA] = this._handleGAMA.bind(this);
       this.read = dependencies.read;
       this.error = dependencies.error;
       this.metadata = dependencies.metadata;
@@ -41375,10 +41375,10 @@ var require_parser = __commonJS({
       };
     };
     Parser.prototype.start = function() {
-      this.read(constants5.PNG_SIGNATURE.length, this._parseSignature.bind(this));
+      this.read(constants6.PNG_SIGNATURE.length, this._parseSignature.bind(this));
     };
     Parser.prototype._parseSignature = function(data4) {
-      let signature = constants5.PNG_SIGNATURE;
+      let signature = constants6.PNG_SIGNATURE;
       for (let i3 = 0; i3 < signature.length; i3++) {
         if (data4[i3] !== signature[i3]) {
           this.error(new Error("Invalid file signature"));
@@ -41395,7 +41395,7 @@ var require_parser = __commonJS({
         name2 += String.fromCharCode(data4[i3]);
       }
       let ancillary = Boolean(data4[4] & 32);
-      if (!this._hasIHDR && type !== constants5.TYPE_IHDR) {
+      if (!this._hasIHDR && type !== constants6.TYPE_IHDR) {
         this.error(new Error("Expected IHDR on beggining"));
         return;
       }
@@ -41443,7 +41443,7 @@ var require_parser = __commonJS({
         this.error(new Error("Unsupported bit depth " + depth));
         return;
       }
-      if (!(colorType in constants5.COLORTYPE_TO_BPP_MAP)) {
+      if (!(colorType in constants6.COLORTYPE_TO_BPP_MAP)) {
         this.error(new Error("Unsupported color type"));
         return;
       }
@@ -41460,16 +41460,16 @@ var require_parser = __commonJS({
         return;
       }
       this._colorType = colorType;
-      let bpp = constants5.COLORTYPE_TO_BPP_MAP[this._colorType];
+      let bpp = constants6.COLORTYPE_TO_BPP_MAP[this._colorType];
       this._hasIHDR = true;
       this.metadata({
         width,
         height,
         depth,
         interlace: Boolean(interlace),
-        palette: Boolean(colorType & constants5.COLORTYPE_PALETTE),
-        color: Boolean(colorType & constants5.COLORTYPE_COLOR),
-        alpha: Boolean(colorType & constants5.COLORTYPE_ALPHA),
+        palette: Boolean(colorType & constants6.COLORTYPE_PALETTE),
+        color: Boolean(colorType & constants6.COLORTYPE_COLOR),
+        alpha: Boolean(colorType & constants6.COLORTYPE_ALPHA),
         bpp,
         colorType
       });
@@ -41493,7 +41493,7 @@ var require_parser = __commonJS({
     };
     Parser.prototype._parseTRNS = function(data4) {
       this._crc.write(data4);
-      if (this._colorType === constants5.COLORTYPE_PALETTE_COLOR) {
+      if (this._colorType === constants6.COLORTYPE_PALETTE_COLOR) {
         if (this._palette.length === 0) {
           this.error(new Error("Transparency chunk must be after palette"));
           return;
@@ -41507,10 +41507,10 @@ var require_parser = __commonJS({
         }
         this.palette(this._palette);
       }
-      if (this._colorType === constants5.COLORTYPE_GRAYSCALE) {
+      if (this._colorType === constants6.COLORTYPE_GRAYSCALE) {
         this.transColor([data4.readUInt16BE(0)]);
       }
-      if (this._colorType === constants5.COLORTYPE_COLOR) {
+      if (this._colorType === constants6.COLORTYPE_COLOR) {
         this.transColor([
           data4.readUInt16BE(0),
           data4.readUInt16BE(2),
@@ -41524,7 +41524,7 @@ var require_parser = __commonJS({
     };
     Parser.prototype._parseGAMA = function(data4) {
       this._crc.write(data4);
-      this.gamma(data4.readUInt32BE(0) / constants5.GAMMA_DIVISION);
+      this.gamma(data4.readUInt32BE(0) / constants6.GAMMA_DIVISION);
       this._handleChunkEnd();
     };
     Parser.prototype._handleIDAT = function(length3) {
@@ -41536,7 +41536,7 @@ var require_parser = __commonJS({
     };
     Parser.prototype._parseIDAT = function(length3, data4) {
       this._crc.write(data4);
-      if (this._colorType === constants5.COLORTYPE_PALETTE_COLOR && this._palette.length === 0) {
+      if (this._colorType === constants6.COLORTYPE_PALETTE_COLOR && this._palette.length === 0) {
         throw new Error("Expected palette not found");
       }
       this.inflateData(data4);
@@ -42020,9 +42020,9 @@ var require_parser_async = __commonJS({
 var require_bitpacker = __commonJS({
   "node_modules/pngjs/lib/bitpacker.js"(exports, module) {
     "use strict";
-    var constants5 = require_constants2();
+    var constants6 = require_constants2();
     module.exports = function(dataIn, width, height, options) {
-      let outHasAlpha = [constants5.COLORTYPE_COLOR_ALPHA, constants5.COLORTYPE_ALPHA].indexOf(
+      let outHasAlpha = [constants6.COLORTYPE_COLOR_ALPHA, constants6.COLORTYPE_ALPHA].indexOf(
         options.colorType
       ) !== -1;
       if (options.colorType === options.inputColorType) {
@@ -42042,11 +42042,11 @@ var require_bitpacker = __commonJS({
       }
       let data4 = options.bitDepth !== 16 ? dataIn : new Uint16Array(dataIn.buffer);
       let maxValue2 = 255;
-      let inBpp = constants5.COLORTYPE_TO_BPP_MAP[options.inputColorType];
+      let inBpp = constants6.COLORTYPE_TO_BPP_MAP[options.inputColorType];
       if (inBpp === 4 && !options.inputHasAlpha) {
         inBpp = 3;
       }
-      let outBpp = constants5.COLORTYPE_TO_BPP_MAP[options.colorType];
+      let outBpp = constants6.COLORTYPE_TO_BPP_MAP[options.colorType];
       if (options.bitDepth === 16) {
         maxValue2 = 65535;
         outBpp *= 2;
@@ -42070,24 +42070,24 @@ var require_bitpacker = __commonJS({
         let blue2;
         let alpha = maxValue2;
         switch (options.inputColorType) {
-          case constants5.COLORTYPE_COLOR_ALPHA:
+          case constants6.COLORTYPE_COLOR_ALPHA:
             alpha = data4[inIndex + 3];
             red2 = data4[inIndex];
             green2 = data4[inIndex + 1];
             blue2 = data4[inIndex + 2];
             break;
-          case constants5.COLORTYPE_COLOR:
+          case constants6.COLORTYPE_COLOR:
             red2 = data4[inIndex];
             green2 = data4[inIndex + 1];
             blue2 = data4[inIndex + 2];
             break;
-          case constants5.COLORTYPE_ALPHA:
+          case constants6.COLORTYPE_ALPHA:
             alpha = data4[inIndex + 1];
             red2 = data4[inIndex];
             green2 = red2;
             blue2 = red2;
             break;
-          case constants5.COLORTYPE_GRAYSCALE:
+          case constants6.COLORTYPE_GRAYSCALE:
             red2 = data4[inIndex];
             green2 = red2;
             blue2 = red2;
@@ -42120,8 +42120,8 @@ var require_bitpacker = __commonJS({
         for (let x6 = 0; x6 < width; x6++) {
           let rgba = getRGBA(data4, inIndex);
           switch (options.colorType) {
-            case constants5.COLORTYPE_COLOR_ALPHA:
-            case constants5.COLORTYPE_COLOR:
+            case constants6.COLORTYPE_COLOR_ALPHA:
+            case constants6.COLORTYPE_COLOR:
               if (options.bitDepth === 8) {
                 outData[outIndex] = rgba.red;
                 outData[outIndex + 1] = rgba.green;
@@ -42138,8 +42138,8 @@ var require_bitpacker = __commonJS({
                 }
               }
               break;
-            case constants5.COLORTYPE_ALPHA:
-            case constants5.COLORTYPE_GRAYSCALE: {
+            case constants6.COLORTYPE_ALPHA:
+            case constants6.COLORTYPE_GRAYSCALE: {
               let grayscale = (rgba.red + rgba.green + rgba.blue) / 3;
               if (options.bitDepth === 8) {
                 outData[outIndex] = grayscale;
@@ -42312,7 +42312,7 @@ var require_filter_pack = __commonJS({
 var require_packer = __commonJS({
   "node_modules/pngjs/lib/packer.js"(exports, module) {
     "use strict";
-    var constants5 = require_constants2();
+    var constants6 = require_constants2();
     var CrcStream = require_crc();
     var bitPacker = require_bitpacker();
     var filter = require_filter_pack();
@@ -42325,23 +42325,23 @@ var require_packer = __commonJS({
       options.inputHasAlpha = options.inputHasAlpha != null ? options.inputHasAlpha : true;
       options.deflateFactory = options.deflateFactory || zlib.createDeflate;
       options.bitDepth = options.bitDepth || 8;
-      options.colorType = typeof options.colorType === "number" ? options.colorType : constants5.COLORTYPE_COLOR_ALPHA;
-      options.inputColorType = typeof options.inputColorType === "number" ? options.inputColorType : constants5.COLORTYPE_COLOR_ALPHA;
+      options.colorType = typeof options.colorType === "number" ? options.colorType : constants6.COLORTYPE_COLOR_ALPHA;
+      options.inputColorType = typeof options.inputColorType === "number" ? options.inputColorType : constants6.COLORTYPE_COLOR_ALPHA;
       if ([
-        constants5.COLORTYPE_GRAYSCALE,
-        constants5.COLORTYPE_COLOR,
-        constants5.COLORTYPE_COLOR_ALPHA,
-        constants5.COLORTYPE_ALPHA
+        constants6.COLORTYPE_GRAYSCALE,
+        constants6.COLORTYPE_COLOR,
+        constants6.COLORTYPE_COLOR_ALPHA,
+        constants6.COLORTYPE_ALPHA
       ].indexOf(options.colorType) === -1) {
         throw new Error(
           "option color type:" + options.colorType + " is not supported at present"
         );
       }
       if ([
-        constants5.COLORTYPE_GRAYSCALE,
-        constants5.COLORTYPE_COLOR,
-        constants5.COLORTYPE_COLOR_ALPHA,
-        constants5.COLORTYPE_ALPHA
+        constants6.COLORTYPE_GRAYSCALE,
+        constants6.COLORTYPE_COLOR,
+        constants6.COLORTYPE_COLOR_ALPHA,
+        constants6.COLORTYPE_ALPHA
       ].indexOf(options.inputColorType) === -1) {
         throw new Error(
           "option input color type:" + options.inputColorType + " is not supported at present"
@@ -42365,7 +42365,7 @@ var require_packer = __commonJS({
     };
     Packer.prototype.filterData = function(data4, width, height) {
       let packedData = bitPacker(data4, width, height, this._options);
-      let bpp = constants5.COLORTYPE_TO_BPP_MAP[this._options.colorType];
+      let bpp = constants6.COLORTYPE_TO_BPP_MAP[this._options.colorType];
       let filteredData = filter(packedData, width, height, this._options, bpp);
       return filteredData;
     };
@@ -42385,8 +42385,8 @@ var require_packer = __commonJS({
     };
     Packer.prototype.packGAMA = function(gamma) {
       let buf = Buffer.alloc(4);
-      buf.writeUInt32BE(Math.floor(gamma * constants5.GAMMA_DIVISION), 0);
-      return this._packChunk(constants5.TYPE_gAMA, buf);
+      buf.writeUInt32BE(Math.floor(gamma * constants6.GAMMA_DIVISION), 0);
+      return this._packChunk(constants6.TYPE_gAMA, buf);
     };
     Packer.prototype.packIHDR = function(width, height) {
       let buf = Buffer.alloc(13);
@@ -42397,13 +42397,13 @@ var require_packer = __commonJS({
       buf[10] = 0;
       buf[11] = 0;
       buf[12] = 0;
-      return this._packChunk(constants5.TYPE_IHDR, buf);
+      return this._packChunk(constants6.TYPE_IHDR, buf);
     };
     Packer.prototype.packIDAT = function(data4) {
-      return this._packChunk(constants5.TYPE_IDAT, data4);
+      return this._packChunk(constants6.TYPE_IDAT, data4);
     };
     Packer.prototype.packIEND = function() {
-      return this._packChunk(constants5.TYPE_IEND, null);
+      return this._packChunk(constants6.TYPE_IEND, null);
     };
   }
 });
@@ -42414,7 +42414,7 @@ var require_packer_async = __commonJS({
     "use strict";
     var util2 = __require("util");
     var Stream = __require("stream");
-    var constants5 = require_constants2();
+    var constants6 = require_constants2();
     var Packer = require_packer();
     var PackerAsync = module.exports = function(opt) {
       Stream.call(this);
@@ -42425,7 +42425,7 @@ var require_packer_async = __commonJS({
     };
     util2.inherits(PackerAsync, Stream);
     PackerAsync.prototype.pack = function(data4, width, height, gamma) {
-      this.emit("data", Buffer.from(constants5.PNG_SIGNATURE));
+      this.emit("data", Buffer.from(constants6.PNG_SIGNATURE));
       this.emit("data", this._packer.packIHDR(width, height));
       if (gamma) {
         this.emit("data", this._packer.packGAMA(gamma));
@@ -42749,7 +42749,7 @@ var require_packer_sync = __commonJS({
     if (!zlib.deflateSync) {
       hasSyncZlib = false;
     }
-    var constants5 = require_constants2();
+    var constants6 = require_constants2();
     var Packer = require_packer();
     module.exports = function(metaData, opt) {
       if (!hasSyncZlib) {
@@ -42760,7 +42760,7 @@ var require_packer_sync = __commonJS({
       let options = opt || {};
       let packer = new Packer(options);
       let chunks = [];
-      chunks.push(Buffer.from(constants5.PNG_SIGNATURE));
+      chunks.push(Buffer.from(constants6.PNG_SIGNATURE));
       chunks.push(packer.packIHDR(metaData.width, metaData.height));
       if (metaData.gamma) {
         chunks.push(packer.packGAMA(metaData.gamma));
@@ -57070,24 +57070,24 @@ var require_CachedKeyDecoder = __commonJS({
       }
       find(bytes2, inputOffset, byteLength) {
         const records = this.caches[byteLength - 1];
-        FIND_CHUNK: for (const record2 of records) {
-          const recordBytes = record2.bytes;
+        FIND_CHUNK: for (const record3 of records) {
+          const recordBytes = record3.bytes;
           for (let j5 = 0; j5 < byteLength; j5++) {
             if (recordBytes[j5] !== bytes2[inputOffset + j5]) {
               continue FIND_CHUNK;
             }
           }
-          return record2.str;
+          return record3.str;
         }
         return null;
       }
       store(bytes2, value) {
         const records = this.caches[bytes2.length - 1];
-        const record2 = { bytes: bytes2, str: value };
+        const record3 = { bytes: bytes2, str: value };
         if (records.length >= this.maxLengthPerKey) {
-          records[Math.random() * records.length | 0] = record2;
+          records[Math.random() * records.length | 0] = record3;
         } else {
-          records.push(record2);
+          records.push(record3);
         }
       }
       decode(bytes2, inputOffset, byteLength) {
@@ -71622,13 +71622,13 @@ var require_lib4 = __commonJS({
           clearTimeout(reqTimeout);
           const headers = createHeadersLenient(res.headers);
           if (fetch2.isRedirect(res.statusCode)) {
-            const location = headers.get("Location");
+            const location2 = headers.get("Location");
             let locationURL = null;
             try {
-              locationURL = location === null ? null : new URL$1(location, request.url).toString();
+              locationURL = location2 === null ? null : new URL$1(location2, request.url).toString();
             } catch (err16) {
               if (request.redirect !== "manual") {
-                reject(new FetchError(`uri requested responds with an invalid redirect URL: ${location}`, "invalid-redirect"));
+                reject(new FetchError(`uri requested responds with an invalid redirect URL: ${location2}`, "invalid-redirect"));
                 finalize2();
                 return;
               }
@@ -72518,12 +72518,13 @@ var init_exports = {};
 __export(init_exports, {
   findRepoRoot: () => findRepoRoot,
   installSkills: () => installSkills,
+  jsonSnippet: () => jsonSnippet,
   run: () => run4
 });
 import { createInterface as createInterface3 } from "node:readline/promises";
 import { stdin as input2, stdout as output3 } from "node:process";
-import { existsSync as existsSync17, readFileSync as readFileSync17, writeFileSync as writeFileSync6, mkdirSync as mkdirSync7, readdirSync as readdirSync5, statSync as statSync6, copyFileSync } from "node:fs";
-import { resolve as resolve6, dirname as dirname8, join as join14 } from "node:path";
+import { existsSync as existsSync18, readFileSync as readFileSync17, writeFileSync as writeFileSync6, mkdirSync as mkdirSync7, readdirSync as readdirSync5, statSync as statSync6, copyFileSync } from "node:fs";
+import { resolve as resolve6, dirname as dirname9, join as join14 } from "node:path";
 import { homedir as homedir6 } from "node:os";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 async function run4() {
@@ -72595,7 +72596,8 @@ async function run4() {
     output3.write(line("How should this server sign transactions?"));
     output3.write(line("  walletconnect \u2014 your phone wallet signs each one; keys never touch this machine"));
     output3.write(line("  keystore      \u2014 an encrypted key here; you approve every batch with its password"));
-    output3.write(line("                  on a local web page (the AI never sees the password)"));
+    output3.write(line("                  on a local web page, or in a terminal with `dexe-mcp approve`"));
+    output3.write(line("                  (the AI never sees the password)"));
     output3.write(line("  readonly      \u2014 never sign; tools return unsigned calldata"));
     if (allowUnattended) {
       output3.write(line("  unattended    \u2014 a PLAINTEXT hot key in .env signs with NO confirmation (bots/CI)"));
@@ -72676,7 +72678,7 @@ async function run4() {
     if (wcProjectId)
       updates.DEXE_WALLETCONNECT_PROJECT_ID = wcProjectId;
     let envPath;
-    if (existsSync17(resolve6(repoRoot, "src"))) {
+    if (existsSync18(resolve6(repoRoot, "src"))) {
       envPath = resolve6(repoRoot, ".env");
     } else {
       const homeConfigDir = resolve6(homedir6(), ".dexe-mcp");
@@ -72710,7 +72712,7 @@ async function run4() {
     if (mode === "b") {
       await maybeInstallSkills(rl, repoRoot);
     }
-    output3.write(line("Paste this into your ~/.claude.json under `mcpServers`:"));
+    output3.write(line("Paste this into your ~/.claude.json under `mcpServers` \u2014 two servers: `dexe` (writes) and `dexe-read` (the DeXe read server, which serves the reads):"));
     output3.write(line(""));
     output3.write(jsonSnippet(repoRoot));
     output3.write(line(""));
@@ -72727,7 +72729,7 @@ async function run4() {
 }
 async function maybeInstallSkills(rl, repoRoot) {
   const skillsSrc = resolve6(repoRoot, "dexe-plugin", "skills");
-  if (!existsSync17(skillsSrc))
+  if (!existsSync18(skillsSrc))
     return;
   output3.write(line(""));
   const want = await yn(rl, "Install dexe-mcp Claude Code skills (create-dao / create-proposal / vote-execute / otc / staking / setup)?", true);
@@ -72751,13 +72753,13 @@ function installSkills(srcRoot, targetRoot) {
     if (!statSync6(srcDir).isDirectory())
       continue;
     const srcSkill = join14(srcDir, "SKILL.md");
-    if (!existsSync17(srcSkill))
+    if (!existsSync18(srcSkill))
       continue;
     const destDir = join14(targetRoot, entry);
     const destSkill = join14(destDir, "SKILL.md");
     const next = readFileSync17(srcSkill, "utf8");
     let status;
-    if (!existsSync17(destSkill)) {
+    if (!existsSync18(destSkill)) {
       status = "installed";
     } else {
       const prev = readFileSync17(destSkill, "utf8");
@@ -72862,24 +72864,28 @@ async function deriveAddress(pk) {
   return new Wallet2(pk).address;
 }
 function findRepoRoot() {
-  const here = dirname8(fileURLToPath5(import.meta.url));
+  const here = dirname9(fileURLToPath5(import.meta.url));
   let cur = here;
   for (let i3 = 0; i3 < 6; i3++) {
-    if (existsSync17(resolve6(cur, "package.json")))
+    if (existsSync18(resolve6(cur, "package.json")))
       return cur;
     cur = resolve6(cur, "..");
   }
   return process.cwd();
 }
 function jsonSnippet(repoRoot) {
-  const distPath = resolve6(repoRoot, "dist", "index.js");
-  const safe = JSON.stringify(distPath);
+  const write = JSON.stringify(resolve6(repoRoot, "dist", "index.js"));
+  const read3 = JSON.stringify(resolve6(repoRoot, "dist", "read", "bin.js"));
   return [
     "{",
     `  "mcpServers": {`,
     `    "dexe": {`,
     `      "command": "node",`,
-    `      "args": [${safe}]`,
+    `      "args": [${write}]`,
+    `    },`,
+    `    "dexe-read": {`,
+    `      "command": "node",`,
+    `      "args": [${read3}]`,
     `    }`,
     `  }`,
     `}`,
@@ -72905,7 +72911,7 @@ __export(skills_exports, {
 });
 import { resolve as resolve7 } from "node:path";
 import { homedir as homedir7 } from "node:os";
-import { existsSync as existsSync18 } from "node:fs";
+import { existsSync as existsSync19 } from "node:fs";
 async function run5(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write("dexe-mcp skills [--global]\n\n  copies the DeXe recipe skills into ./.claude/skills (default)\n  --global, -g   install into ~/.claude/skills instead (every project)\n\nRestart Claude Code afterwards so it picks them up.\n");
@@ -72914,7 +72920,7 @@ async function run5(argv) {
   const global3 = argv.includes("--global") || argv.includes("-g");
   const repoRoot = findRepoRoot();
   const skillsSrc = resolve7(repoRoot, "dexe-plugin", "skills");
-  if (!existsSync18(skillsSrc)) {
+  if (!existsSync19(skillsSrc)) {
     process.stderr.write(`[dexe-mcp skills] bundled skills not found (dev checkout without build?). Looked in ${skillsSrc}.
 `);
     process.exit(2);
@@ -72938,8 +72944,8 @@ var init_skills = __esm({
 });
 
 // dist/index.js
-import { existsSync as existsSync19, readFileSync as readFileSync18 } from "node:fs";
-import { resolve as resolve8, dirname as dirname9 } from "node:path";
+import { existsSync as existsSync20, readFileSync as readFileSync18 } from "node:fs";
+import { resolve as resolve8, dirname as dirname10 } from "node:path";
 import { fileURLToPath as fileURLToPath6 } from "node:url";
 
 // node_modules/zod/v3/helpers/util.js
@@ -93178,8 +93184,8 @@ function rewriteKeyNames(ctx) {
       bySchema.set(entry.schema, entry);
   }
   const rewrites = /* @__PURE__ */ new Map();
-  for (const record2 of pendingRecords.get(ctx) ?? []) {
-    const seen = ctx.seen.get(record2);
+  for (const record3 of pendingRecords.get(ctx) ?? []) {
+    const seen = ctx.seen.get(record3);
     const names2 = (seen?.def ?? seen?.schema)?.propertyNames;
     if (!names2 || names2 === true || rewrites.has(names2))
       continue;
@@ -102478,7 +102484,7 @@ var Artifacts = class {
       if (!parsed.contractName || !parsed.sourceName || !Array.isArray(parsed.abi))
         continue;
       const bytecode = parsed.bytecode ?? "0x";
-      const record2 = {
+      const record3 = {
         contractName: parsed.contractName,
         sourceName: parsed.sourceName,
         abi: parsed.abi,
@@ -102487,12 +102493,12 @@ var Artifacts = class {
         artifactPath: file2,
         kind: inferKind(parsed.sourceName, bytecode)
       };
-      all2.push(record2);
-      const list3 = byName.get(record2.contractName);
+      all2.push(record3);
+      const list3 = byName.get(record3.contractName);
       if (list3)
-        list3.push(record2);
+        list3.push(record3);
       else
-        byName.set(record2.contractName, [record2]);
+        byName.set(record3.contractName, [record3]);
     }
     this.cache = { mtimeMs: st3.mtimeMs, all: all2, byContractName: byName };
     return this.cache;
@@ -102524,8 +102530,8 @@ var Artifacts = class {
    * artifact. Hardhat writes one build-info per compile per solc invocation;
    * the artifact's `.dbg.json` points at the right one.
    */
-  loadBuildInfoFor(record2) {
-    const dbgPath = record2.artifactPath.replace(/\.json$/, ".dbg.json");
+  loadBuildInfoFor(record3) {
+    const dbgPath = record3.artifactPath.replace(/\.json$/, ".dbg.json");
     if (!existsSync2(dbgPath))
       return null;
     let dbg;
@@ -102537,7 +102543,7 @@ var Artifacts = class {
     if (!dbg.buildInfo)
       return null;
     const biPath = join2(dbgPath, "..", dbg.buildInfo);
-    return this.loadBuildInfoFile(biPath, record2.sourceName, record2.contractName);
+    return this.loadBuildInfoFile(biPath, record3.sourceName, record3.contractName);
   }
   loadBuildInfoFile(absPath, sourceName, contractName) {
     let file2 = this.buildInfoCache.get(absPath);
@@ -106497,7 +106503,7 @@ function createToolLocator(opts) {
   };
 }
 var SEVERITY_RANK = { danger: 0, warn: 1, info: 2 };
-function createKnowledge(corpus, locate) {
+function createKnowledge(corpus, locate2) {
   if (corpus.flows.length > 0 && !corpus.agentProtocol) {
     throw new Error("knowledge corpus: a corpus with flows needs an agentProtocol");
   }
@@ -106505,8 +106511,8 @@ function createKnowledge(corpus, locate) {
   const topicById = new Map(corpus.topics.map((t2) => [t2.id, t2]));
   const gotchaById = new Map(corpus.gotchas.map((g3) => [g3.id, g3]));
   const chainingTools = corpus.chainingTools ?? /* @__PURE__ */ new Set();
-  function location(tool) {
-    const loc = locate(tool);
+  function location2(tool) {
+    const loc = locate2(tool);
     return {
       ...loc.requiresToolset ? { requiresToolset: loc.requiresToolset } : {},
       ...loc.providedBy ? { providedBy: loc.providedBy } : {}
@@ -106541,7 +106547,7 @@ function createKnowledge(corpus, locate) {
       steps: f3.steps.map((s2) => ({
         id: s2.id,
         tool: s2.tool,
-        ...location(s2.tool),
+        ...location2(s2.tool),
         purpose: s2.purpose,
         // Chaining composites get their guided-flow position pre-filled: pass it
         // through verbatim and the success payload returns flowProgress + next.
@@ -106570,7 +106576,7 @@ function createKnowledge(corpus, locate) {
       title: t2.title,
       summary: t2.summary,
       sections: [...t2.sections],
-      tools: t2.tools.map((tool) => ({ tool, ...location(tool) })),
+      tools: t2.tools.map((tool) => ({ tool, ...location2(tool) })),
       gotchas: resolveGotchas(t2.gotchaIds, opts?.chainId)
     };
   }
@@ -108720,15 +108726,15 @@ var CalldataDecoder = class _CalldataDecoder {
     const selector = data4.slice(0, 10).toLowerCase();
     const stamp = (c4) => this.options.sourceKind ? { ...c4, abiSource: this.options.sourceKind } : c4;
     if (contractName) {
-      const record2 = this.artifacts.get(contractName)[0];
-      if (!record2)
+      const record3 = this.artifacts.get(contractName)[0];
+      if (!record3)
         return { primary: null, alternatives: [] };
-      const hit = tryDecodeWith(record2.abi, data4);
+      const hit = tryDecodeWith(record3.abi, data4);
       if (hit) {
         return {
           primary: stamp({
-            contract: record2.contractName,
-            sourceName: record2.sourceName,
+            contract: record3.contractName,
+            sourceName: record3.sourceName,
             ...hit
           }),
           alternatives: []
@@ -110391,23 +110397,23 @@ var SelectorIndex = class {
     this.byFunctionSelector.clear();
     this.byEventTopic.clear();
     this.byErrorSelector.clear();
-    for (const record2 of stamp) {
-      this.indexContract(record2);
+    for (const record3 of stamp) {
+      this.indexContract(record3);
     }
     this.built = true;
     this.lastCacheStamp = stamp;
   }
-  indexContract(record2) {
+  indexContract(record3) {
     let iface;
     try {
-      iface = new Interface(record2.abi);
+      iface = new Interface(record3.abi);
     } catch {
       return;
     }
     iface.forEachFunction((fn) => {
       const hit = {
-        contract: record2.contractName,
-        sourceName: record2.sourceName,
+        contract: record3.contractName,
+        sourceName: record3.sourceName,
         signature: fn.format("sighash"),
         selector: fn.selector,
         kind: "function"
@@ -110416,8 +110422,8 @@ var SelectorIndex = class {
     });
     iface.forEachEvent((ev) => {
       const hit = {
-        contract: record2.contractName,
-        sourceName: record2.sourceName,
+        contract: record3.contractName,
+        sourceName: record3.sourceName,
         signature: ev.format("sighash"),
         selector: ev.topicHash,
         kind: "event"
@@ -110426,8 +110432,8 @@ var SelectorIndex = class {
     });
     iface.forEachError((err16) => {
       const hit = {
-        contract: record2.contractName,
-        sourceName: record2.sourceName,
+        contract: record3.contractName,
+        sourceName: record3.sourceName,
         signature: err16.format("sighash"),
         selector: err16.selector,
         kind: "error"
@@ -116120,7 +116126,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
     const poolsRef = indexRef("pools", Boolean(pools.url), poolsDown);
     const validatorsRef = indexRef("validators", Boolean(validatorsSg.url), validatorsSource.available ? null : validatorsSource.reason ?? "no validators subgraph");
     const interactionsRef = indexRef("interactions", Boolean(interactions.url), interactionsSource.available ? null : interactionsSource.reason ?? `Activity needs the interactions subgraph on chain ${resolvedChainId}.`);
-    const record2 = (name2, s2) => {
+    const record3 = (name2, s2) => {
       if (!want(name2))
         return;
       sectionsOut[name2] = s2;
@@ -116134,9 +116140,9 @@ Pass an ISO timestamp or Unix seconds instead.`);
     };
     if (want("identity")) {
       if (!helpers && !daoPool) {
-        record2("identity", missing(`Neither the RPC nor the pools subgraph could describe ${dao}. ${onchainDown ?? ""} ${poolsRef ?? ""}`.trim(), `${toolRef("dexe_dao_registry_lookup", "is this address a DeXe DAO on this chain?")} / ` + toolRef("dexe_dao_info", "helpers + validator count, one RPC round-trip")));
+        record3("identity", missing(`Neither the RPC nor the pools subgraph could describe ${dao}. ${onchainDown ?? ""} ${poolsRef ?? ""}`.trim(), `${toolRef("dexe_dao_registry_lookup", "is this address a DeXe DAO on this chain?")} / ` + toolRef("dexe_dao_info", "helpers + validator count, one RPC round-trip")));
       } else {
-        record2("identity", have(helpers && daoPool ? "mixed" : helpers ? "onchain" : "subgraph", {
+        record3("identity", have(helpers && daoPool ? "mixed" : helpers ? "onchain" : "subgraph", {
           govPool: dao,
           chainId: resolvedChainId,
           name: daoPool ? str(daoPool.name) : null,
@@ -116155,14 +116161,14 @@ Pass an ISO timestamp or Unix seconds instead.`);
       }
     }
     if (want("settings")) {
-      record2("settings", defaultSettings || internalSettings ? have("onchain", {
+      record3("settings", defaultSettings || internalSettings ? have("onchain", {
         settingsContract: helpers?.settings ?? null,
         default: defaultSettings,
         internal: internalSettings
       }) : missing(onchainDown ?? `GovSettings on ${dao} did not answer getDefaultSettings().`, toolRef("dexe_read_settings")));
     }
     if (want("treasury")) {
-      record2("treasury", nativeBalance !== null || tokenMeta ? have("onchain", {
+      record3("treasury", nativeBalance !== null || tokenMeta ? have("onchain", {
         native: nativeBalance,
         govToken: tokenMeta,
         note: `On-chain balances only \u2014 no token auto-discovery and no USD. Call ${toolRef("dexe_read_treasury")} for the full priced holdings (mainnets).`
@@ -116170,7 +116176,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
       followUps.push(`${toolRef("dexe_read_treasury")} \u2014 full token discovery + USD prices for this DAO`);
     }
     if (want("membership")) {
-      record2("membership", poolsData ? have("subgraph", {
+      record3("membership", poolsData ? have("subgraph", {
         totalMembers: daoPool ? str(daoPool.votersCount) : null,
         returned: poolsData.members.length,
         windowFull: poolsData.members.length >= memberLimit,
@@ -116183,7 +116189,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
       }) : missing(poolsRef ?? "Members need the pools subgraph.", `${toolRef("dexe_read_dao_members", "same index, paginated")} / ${toolRef("dexe_graph_query", "subgraph: 'pools', voterInPools")} / ` + toolRef("dexe_read_multicall", "on-chain balances, no indexer")));
     }
     if (want("delegation")) {
-      record2("delegation", poolsData ? have("subgraph", {
+      record3("delegation", poolsData ? have("subgraph", {
         // The gap this closes: dexe_read_delegation_map needs the caller
         // to already know the addresses. Filtering pairs by the
         // delegator's POOL answers "who delegated to whom in DAO X"
@@ -116207,7 +116213,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
       }) : missing(poolsRef ?? "Delegation pairs need the pools subgraph.", `${toolRef("dexe_read_delegation_map", "needs the addresses up front")} / ` + toolRef("dexe_graph_query", "subgraph: 'pools', voterInPoolPairs \u2014 no address list needed")));
     }
     if (want("experts")) {
-      record2("experts", poolsData ? have("subgraph", {
+      record3("experts", poolsData ? have("subgraph", {
         count: poolsData.experts.length,
         experts: poolsData.experts.map((e2) => ({
           address: e2.voter?.id ?? null,
@@ -116220,7 +116226,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
     }
     if (want("validators")) {
       const anyValidators = validatorsCount !== null || validatorRows !== null;
-      record2("validators", anyValidators ? have(validatorsCount !== null && validatorRows !== null ? "mixed" : validatorsCount !== null ? "onchain" : "subgraph", {
+      record3("validators", anyValidators ? have(validatorsCount !== null && validatorRows !== null ? "mixed" : validatorsCount !== null ? "onchain" : "subgraph", {
         contract: helpers?.validators ?? null,
         count: validatorsCount,
         creditLines,
@@ -116235,7 +116241,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
     for (const p4 of onchainProposals)
       byState[p4.state] = (byState[p4.state] ?? 0) + 1;
     if (want("proposals")) {
-      record2("proposals", onchainProposals.length > 0 || latestProposalId !== null ? have("onchain", {
+      record3("proposals", onchainProposals.length > 0 || latestProposalId !== null ? have("onchain", {
         latestProposalId,
         scanned: onchainProposals.length,
         scanFrom: (scanOffset + 1n).toString(),
@@ -116255,7 +116261,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
         const totalVoters = voters.reduce((s2, n4) => s2 + n4, 0);
         const members2 = daoPool ? int2(daoPool.votersCount) : 0;
         const avg = voters.length ? totalVoters / voters.length : 0;
-        record2("turnout", have("subgraph", {
+        record3("turnout", have("subgraph", {
           proposalsMeasured: voters.length,
           averageVotersPerProposal: Number(avg.toFixed(2)),
           maxVotersOnAProposal: voters.length ? Math.max(...voters) : 0,
@@ -116284,7 +116290,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
           }))
         }));
       } else {
-        record2("turnout", missing(`${poolsRef ?? "Turnout needs the pools subgraph."} Per-proposal vote TOTALS are still in the \`proposals\` section (on-chain votesFor/votesAgainst); only the per-proposal VOTER COUNTS need the indexer.`, `${toolRef("dexe_graph_query", "subgraph: 'pools', proposals { proposalId votersVoted } \u2014 every proposal in one query")} / ` + toolRef("dexe_proposal_voters", "one call per proposal")));
+        record3("turnout", missing(`${poolsRef ?? "Turnout needs the pools subgraph."} Per-proposal vote TOTALS are still in the \`proposals\` section (on-chain votesFor/votesAgainst); only the per-proposal VOTER COUNTS need the indexer.`, `${toolRef("dexe_graph_query", "subgraph: 'pools', proposals { proposalId votersVoted } \u2014 every proposal in one query")} / ` + toolRef("dexe_proposal_voters", "one call per proposal")));
       }
     }
     if (want("activity")) {
@@ -116320,7 +116326,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
         for (const e2 of feed)
           counts[String(e2.kind)] = (counts[String(e2.kind)] ?? 0) + 1;
         const actors = new Set(feed.map((e2) => String(e2.user ?? "")).filter(Boolean));
-        record2("activity", have("subgraph", {
+        record3("activity", have("subgraph", {
           windowFrom: activitySince,
           windowFromUTC: unixToUtc(activitySince),
           windowSource: sinceUnix !== null ? "since" : "default-7d",
@@ -116330,12 +116336,12 @@ Pass an ISO timestamp or Unix seconds instead.`);
           events: feed.slice(0, DELTA_ROW_CAP)
         }));
       } else {
-        record2("activity", missing(interactionsRef ?? `Activity needs the interactions subgraph on chain ${resolvedChainId}.`, `${toolRef("dexe_graph_query", "subgraph: 'interactions', same feed, hand-written")} / ` + toolRef("dexe_read_user_activity", "per user")));
+        record3("activity", missing(interactionsRef ?? `Activity needs the interactions subgraph on chain ${resolvedChainId}.`, `${toolRef("dexe_graph_query", "subgraph: 'interactions', same feed, hand-written")} / ` + toolRef("dexe_read_user_activity", "per user")));
       }
     }
     if (want("deadlines")) {
       if (onchainProposals.length === 0 && personalItems.length === 0) {
-        record2("deadlines", onchainDown ? missing(`${onchainDown} Deadlines are computed from on-chain proposal state, so there is nothing to time.`, `${toolRef("dexe_proposal_list")} / ${toolRef("dexe_proposal_state", "one proposal")} / ` + toolRef("dexe_user_inbox", "one wallet: unvoted proposals + claimable rewards")) : have("onchain", { items: [], note: "No proposals in the scanned window." }));
+        record3("deadlines", onchainDown ? missing(`${onchainDown} Deadlines are computed from on-chain proposal state, so there is nothing to time.`, `${toolRef("dexe_proposal_list")} / ${toolRef("dexe_proposal_state", "one proposal")} / ` + toolRef("dexe_user_inbox", "one wallet: unvoted proposals + claimable rewards")) : have("onchain", { items: [], note: "No proposals in the scanned window." }));
       } else {
         const items = [];
         const add2 = (kind, p4, at3, action) => {
@@ -116366,7 +116372,7 @@ Pass an ISO timestamp or Unix seconds instead.`);
             add2("awaitingValidators", p4, p4.voteEnd, "move it to the validators chamber");
         }
         items.sort((a3, b7) => int2(a3.secondsRemaining) - int2(b7.secondsRemaining));
-        record2("deadlines", have("onchain", {
+        record3("deadlines", have("onchain", {
           chainNow,
           chainNowUTC: unixToUtc(chainNow),
           items,
@@ -118529,14 +118535,14 @@ function lowQuorumAdvisory(pct, floorPct) {
   const shown2 = Number.isFinite(pct) ? `${pct}%` : "unparseable";
   return `\u26A0 quorum=${shown2} is below the ${floorPct}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT). Low quorum reduces the participation required to pass a proposal. For a DAO that holds treasury assets, set quorum \u226550% (51%+ recommended) and verify stakeholder participation before executing treasury-moving proposals; the safe value is DAO-specific. ${ADVISORY_TAG}`;
 }
-var TREASURY_RISK_ADVISORY = `\u26A0 This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). Confirm the DAO's quorum is adequate (\u226550%) and that key stakeholders have participated before executing. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
+var TREASURY_RISK_ADVISORY = `\u26A0 This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). Confirm the DAO's quorum is adequate (\u226550%) and that key stakeholders have participated before executing. Run dexe_proposal_risk_assess (read server) for a full readout. ${ADVISORY_TAG}`;
 function buildTimeTreasuryAdvisory(actions, guard) {
   if (guard === "off")
     return null;
   return classifyTreasuryActions(actions).length > 0 ? TREASURY_RISK_ADVISORY : null;
 }
 function treasuryExecuteAdvisory(reasons) {
-  return `\u26A0 Treasury-safety advisory: this proposal moves treasury value AND ${reasons.join("; ")}. Verify adequate quorum and stakeholder participation before executing \u2014 responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
+  return `\u26A0 Treasury-safety advisory: this proposal moves treasury value AND ${reasons.join("; ")}. Verify adequate quorum and stakeholder participation before executing \u2014 responsibility for executing rests with whoever broadcasts it. Run dexe_proposal_risk_assess (read server) for a full readout. ${ADVISORY_TAG}`;
 }
 function treasuryGate(input3) {
   const none = { hits: [], triggered: false, blocked: false, advisory: null, refusal: null };
@@ -118627,6 +118633,13 @@ var TREASURY_GUARD_MSG = `must be one of ${TREASURY_GUARD_MODES.join(" | ")}, e.
 var UNATTENDED_CHAINS_MSG = "must be a comma-separated list of chain ids (digits only), e.g. 97 or 97,56";
 var KEYSTORE_ADDRESS_MSG = "must be a 0x-prefixed 40-hex EVM address (42 characters total), e.g. 0xAbc\u2026(40 hex chars)";
 var ENV_SPEC_WRITE = {
+  DEXE_WRITE_STANDALONE: {
+    schema: enumStr(["1", "0", "true", "false"]),
+    category: "core",
+    required: false,
+    example: "0",
+    doc: "1 = this server ALSO registers the 54 read tools (dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, dexe_read_*, \u2026) \u2014 for running dexe-mcp alone, without the DeXe read server (dexe-mcp-read) beside it; the pre-1.0 single server. Default 0: write tools only, the read server supplies the reads."
+  },
   DEXE_TREASURY_GUARD: {
     // Validated by the SAME parser the config and every tool call resolve with
     // (`resolveTreasuryGuardMode`), so this layer cannot reject a posture the
@@ -118873,6 +118886,7 @@ var ENV_DISPLAY_ORDER = [
   "DEXE_CONTROLLING_TOPN",
   "DEXE_MAX_RESPONSE_BYTES",
   "DEXE_TOOLSETS",
+  "DEXE_WRITE_STANDALONE",
   "DEXE_STATE_PATH",
   "DEXE_ENV_FILE",
   "DEXE_DEBUG",
@@ -119396,6 +119410,7 @@ async function loadWriteConfig() {
   const approvalTtlS = boundedInt(process.env.DEXE_APPROVAL_TTL_S, 900, 60, 3600);
   const approvalUseS = boundedInt(process.env.DEXE_APPROVAL_USE_S, 120, 10, approvalTtlS);
   const approvalOpenBrowser = !/^(0|false|no|off)$/i.test(process.env.DEXE_APPROVAL_OPEN_BROWSER?.trim() ?? "");
+  const writeStandalone = isWriteStandalone(process.env);
   const risk = resolveRiskSettings(sink);
   const treasuryGuard = resolveTreasuryGuardMode(process.env.DEXE_TREASURY_GUARD).mode;
   let forkBlock;
@@ -119460,8 +119475,12 @@ async function loadWriteConfig() {
     approvalWaitMs,
     approvalTtlS,
     approvalOpenBrowser,
-    approvalUseS
+    approvalUseS,
+    writeStandalone
   });
+}
+function isWriteStandalone(env) {
+  return /^(1|true)$/i.test(env.DEXE_WRITE_STANDALONE?.trim() ?? "");
 }
 function hotKeyEnvNames(env) {
   const out2 = [];
@@ -126863,8 +126882,8 @@ function registerGetMethods(server, ctx) {
     const res = await guarded(ctx, () => getOneArtifact(ctx.artifacts, contract));
     if (!res.ok)
       return errorResult13(res.error);
-    const record2 = res.value;
-    const abi = record2.abi;
+    const record3 = res.value;
+    const abi = record3.abi;
     const read3 = [];
     const write = [];
     const events = [];
@@ -126899,8 +126918,8 @@ function registerGetMethods(server, ctx) {
     events.sort(cmp);
     errors.sort(cmp);
     const structured = {
-      contract: record2.contractName,
-      sourceName: record2.sourceName,
+      contract: record3.contractName,
+      sourceName: record3.sourceName,
       counts: {
         read: read3.length,
         write: write.length
@@ -126919,7 +126938,7 @@ function registerGetMethods(server, ctx) {
       structured.counts.errors = errors.length;
     }
     const summaryParts = [
-      `${record2.contractName} (${record2.sourceName})`,
+      `${record3.contractName} (${record3.sourceName})`,
       `read=${read3.length}`,
       `write=${write.length}`
     ];
@@ -127101,8 +127120,8 @@ function registerGetNatspec(server, ctx) {
     }
   }, async ({ contract, member }) => {
     const res = await guarded(ctx, () => {
-      const record2 = getOneArtifact(ctx.artifacts, contract);
-      const info = ctx.artifacts.loadBuildInfoFor(record2);
+      const record3 = getOneArtifact(ctx.artifacts, contract);
+      const info = ctx.artifacts.loadBuildInfoFor(record3);
       if (!info) {
         throw new Error(`No build-info found for ${contract}. devdoc/userdoc may be disabled in the protocol's hardhat config outputSelection.`);
       }
@@ -127157,8 +127176,8 @@ function registerGetSource(server, ctx) {
     }
   }, async ({ contract, symbol: symbol2 }) => {
     const res = await guarded(ctx, () => {
-      const record2 = getOneArtifact(ctx.artifacts, contract);
-      const sourcePath = isAbsolute(record2.sourceName) ? record2.sourceName : join8(ctx.config.protocolPath, record2.sourceName);
+      const record3 = getOneArtifact(ctx.artifacts, contract);
+      const sourcePath = isAbsolute(record3.sourceName) ? record3.sourceName : join8(ctx.config.protocolPath, record3.sourceName);
       let snippet;
       let snippetStartLine;
       if (symbol2 && existsSync11(sourcePath)) {
@@ -127173,7 +127192,7 @@ function registerGetSource(server, ctx) {
           snippetStartLine = start + 1;
         }
       }
-      return { sourceName: record2.sourceName, sourcePath, snippet, snippetStartLine };
+      return { sourceName: record3.sourceName, sourcePath, snippet, snippetStartLine };
     });
     if (!res.ok)
       return errorResult13(res.error);
@@ -127202,7 +127221,7 @@ async function pinJsonOrPreview(value, opts) {
     return { uri: `ipfs://${local.cid}`, cid: local.cid, pinned: false, exact: local.exact };
   }
   if (!opts.pinata) {
-    throw new Error("Internal: a real (non-dryRun) pin was attempted without a Pinata client. Set DEXE_PINATA_JWT in .env and restart, then run dexe_doctor to verify.");
+    throw new Error("Internal: a real (non-dryRun) pin was attempted without a Pinata client. Set DEXE_PINATA_JWT in .env and restart, then run dexe_write_doctor to verify.");
   }
   const res = await opts.pinata.pinJson(value, opts.name ? { name: opts.name } : void 0);
   return { uri: `ipfs://${res.cid}`, cid: res.cid, pinned: true, exact: true };
@@ -127681,9 +127700,9 @@ var VFile = class {
    * @returns {undefined}
    *   Nothing.
    */
-  set dirname(dirname10) {
+  set dirname(dirname11) {
     assertPath(this.basename, "dirname");
-    this.path = default2.join(dirname10 || "", this.basename);
+    this.path = default2.join(dirname11 || "", this.basename);
   }
   /**
    * Get the extname (including dot) (example: `'.js'`).
@@ -139116,7 +139135,7 @@ function pinataUploadHint(context) {
 1) Create a free API key at https://app.pinata.cloud \u2192 API Keys \u2192 New Key \u2014 grant it pinJSONToIPFS + pinFileToIPFS, copy the JWT (the long eyJ\u2026 string).
 2) Add a line 'DEXE_PINATA_JWT=<jwt>' to the .env file at the dexe-mcp root \u2014 NEVER to .claude.json (the MCP env block silently shadows .env). No spaces around '=', file must end with a newline.
 3) Restart Claude Code (quit + relaunch) \u2014 .env is read once at startup, so the key does nothing until restart.
-Prefer a guided walkthrough? Run /dexe-setup. Verify afterwards with dexe_doctor.`;
+Prefer a guided walkthrough? Run /dexe-setup. Verify afterwards with dexe_write_doctor.`;
 }
 function pinataForWrites(jwt2, dryRun, context) {
   if (dryRun)
@@ -139530,9 +139549,39 @@ var WRITE_KNOWN_FAILURES = {
   }
 };
 var COMBINED_KNOWN_FAILURES = mergeKnownFailures(READ_KNOWN_FAILURES, WRITE_KNOWN_FAILURES);
-registerKnownFailures(WRITE_KNOWN_FAILURES);
+var readRemedy = (slug) => READ_KNOWN_FAILURES.find((k5) => k5.slug === slug).remedy;
+var WRITE_ONLY_KNOWN_FAILURES_REGISTRATION = {
+  failures: WRITE_KNOWN_FAILURES.failures,
+  wording: {
+    ...WRITE_KNOWN_FAILURES.wording,
+    "subgraph-orphan-relation": {
+      remedy: "Do NOT retry \u2014 it will fail identically. The DAO-level reads drop the broken relation and answer anyway with `indexerWarning` / `degraded` set (dexe_read_dao_members, dexe_read_dao_experts, dexe_proposal_voters, dexe_dao_report (read server)), so prefer those over a hand-written dexe_graph_query (read server). For a hand-written query, remove the named relation from the selection set (leave at least one unconditional field in its parent) and re-send. On-chain reads are unaffected: dexe_proposal_list / dexe_read_settings / dexe_dao_info (read server) need no indexer at all."
+    },
+    "subgraph-failed": {
+      remedy: "Re-run once (429/5xx/timeouts are usually transient). If it persists, read the same facts on-chain instead \u2014 dexe_proposal_list / dexe_read_settings / dexe_dao_info / dexe_read_gov_state / dexe_read_multicall (read server) need no indexer. A 401/403/429 on the shipped default endpoint means you are sharing the packaged Graph key: get a free one at thegraph.com/studio, set DEXE_SUBGRAPH_POOLS_URL / _VALIDATORS_URL / _INTERACTIONS_URL in .env, and restart. Entity/field names for a hand-written query: dexe_graph_schema (read server) or the dexe://graph-schema resource."
+    },
+    "onchain-revert": {
+      what: "The transaction reverted on-chain (state was NOT changed by this step).",
+      remedy: "Read the revert reason above if present. Common causes: proposal not in the required state (check dexe_proposal_state (read server)), tokens locked in an active proposal (withdraw between proposals), or a blacklisted recipient. Fix the cause and re-run \u2014 ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote are re-derived and skipped; GovPool.execute and the validator round are NOT, so check dexe_proposal_state (read server) before re-running one of those."
+    }
+  }
+};
+var WRITE_ONLY_KNOWN_FAILURES = mergeKnownFailures(READ_KNOWN_FAILURES, WRITE_ONLY_KNOWN_FAILURES_REGISTRATION);
+var STANDALONE_REGISTRATION = {
+  failures: WRITE_KNOWN_FAILURES.failures,
+  wording: {
+    "subgraph-orphan-relation": { remedy: readRemedy("subgraph-orphan-relation") },
+    ...WRITE_KNOWN_FAILURES.wording
+  }
+};
+var activeTable2 = COMBINED_KNOWN_FAILURES;
+function useWriteFailureWording(config2) {
+  registerKnownFailures(config2.writeStandalone ? STANDALONE_REGISTRATION : WRITE_ONLY_KNOWN_FAILURES_REGISTRATION);
+  activeTable2 = config2.writeStandalone ? COMBINED_KNOWN_FAILURES : WRITE_ONLY_KNOWN_FAILURES;
+}
+registerKnownFailures(STANDALONE_REGISTRATION);
 function toActionableError2(err16, step2) {
-  return toActionableError(err16, step2, COMBINED_KNOWN_FAILURES);
+  return toActionableError(err16, step2, activeTable2);
 }
 
 // dist/tools/ipfsWrite.js
@@ -140737,7 +140786,7 @@ function assessBuildPure(input3) {
         block: "hard",
         actionIndex: index2,
         message: `actionsOnFor[${index2}].executor is the zero address. GovPool.execute uses a raw .call, which SUCCEEDS against an address with no code (GovPoolExecute.sol:60-68) \u2014 this proposal would pass its vote, be marked Executed, and do nothing, with no revert receipt to diagnose. Any value or approval attached to it is lost.`,
-        remedy: "Supply the real contract address for this action (dexe_dao_info resolves a DAO's helpers; a zero StakingProposal means it is not deployed yet \u2014 call GovUserKeeper.deployStakingProposal first)."
+        remedy: "Supply the real contract address for this action (dexe_dao_info (read server) resolves a DAO's helpers; a zero StakingProposal means it is not deployed yet \u2014 call GovUserKeeper.deployStakingProposal first)."
       });
     }
     if (!data4.startsWith("0x") || data4.length < 10)
@@ -140801,7 +140850,7 @@ function assessBuildPure(input3) {
         block: "hard",
         actionIndex: index2,
         message: `ERC20.approve must target this DAO's GovUserKeeper, not its GovPool (${input3.govPool}). GovUserKeeper.depositTokens pulls the deposit with transferFrom into the GovUserKeeper (GovUserKeeper.sol:100-112) \u2014 the GovPool is never the ERC20 spender, so this allowance can never be used and the deposit still reverts "ERC20: insufficient allowance".`,
-        remedy: "Re-call with spender = the DAO's GovUserKeeper (dexe_dao_info \u2192 helpers.userKeeper). Omit `govPool` if you deliberately want the raw encode."
+        remedy: "Re-call with spender = the DAO's GovUserKeeper (dexe_dao_info (read server) \u2192 helpers.userKeeper). Omit `govPool` if you deliberately want the raw encode."
       });
     }
   });
@@ -140831,7 +140880,7 @@ function assessBuildPure(input3) {
         severity: "WARN",
         block: "none",
         message: TREASURY_RISK_ADVISORY,
-        remedy: "Run dexe_proposal_risk_assess for the quorum + balance readout before voting."
+        remedy: "Run dexe_proposal_risk_assess (read server) for the quorum + balance readout before voting."
       });
     }
   }
@@ -140874,7 +140923,7 @@ function unavailable(chainId, reason) {
     severity: "INFO",
     block: "none",
     message: `Balance / helper-address / codeless-executor context could not be read on chain ${chainId} (${reason}) \u2014 those checks did not run. The calldata itself was still fully checked.`,
-    remedy: "Set a working RPC for this chain (dexe_doctor) and rebuild if you want those checks."
+    remedy: "Set a working RPC for this chain (`npx dexe-mcp doctor` probes it) and rebuild if you want those checks."
   };
 }
 async function assessBuildContext(input3) {
@@ -141054,7 +141103,7 @@ async function assessContextInner(provider, input3, actions, out2) {
         block: "none",
         actionIndex: index2,
         message: `actionsOnFor[${index2}].executor ${a3.executor} has no contract code on chain ${chainId}. GovPool.execute uses a raw .call, which SUCCEEDS against a codeless address \u2014 the proposal would pass, be marked Executed, and do nothing. The usual cause is an address copied from another chain.`,
-        remedy: `Verify the address exists on chain ${chainId} before voting (dexe_dao_info / a block explorer).`
+        remedy: `Verify the address exists on chain ${chainId} before voting (dexe_dao_info (read server) / a block explorer).`
       });
     });
   }
@@ -141114,7 +141163,7 @@ function overBalanceWarnings(hits, balances, govPool) {
       block: "none",
       actionIndex: agg.indices[0],
       message: `actionsOnFor[${agg.indices.join(", ")}] transfer ${fmt(agg.total)} but the treasury (${govPool}) holds ${fmt(row2.balance)}${supplyHint}. Unless an earlier action in this same proposal funds the treasury first, ERC20.transfer reverts and GovPool.execute reverts with it \u2014 the proposal stays SucceededFor and can be executed again once the treasury is funded, but the gas and the round trip are spent.`,
-      remedy: `Lower the amount to \u2264 ${row2.balance.toString()} wei, or fund the treasury first (confirm with dexe_read_treasury).`
+      remedy: `Lower the amount to \u2264 ${row2.balance.toString()} wei, or fund the treasury first (confirm with dexe_read_treasury (read server)).`
     });
   }
   return out2;
@@ -142129,7 +142178,7 @@ function registerChangeVotingSettings(server, ctx) {
     title: "Wrapper: change voting settings (edit existing or add new)",
     description: "Builds proposal actions; does not broadcast. GovSettings.editSettings(ids, params) when `settingsIds` are supplied, else GovSettings.addSettings(params) \u2014 a new settings slot.",
     inputSchema: {
-      govSettings: external_exports.string().describe("GovSettings contract address (from dexe_dao_info.helpers.settings)"),
+      govSettings: external_exports.string().describe("GovSettings contract address (from dexe_dao_info (read server) \u2192 helpers.settings)"),
       settings: external_exports.array(ProposalSettingsSchema).min(1).describe("Full settings struct per slot; editSettings replaces the whole struct."),
       settingsIds: external_exports.array(external_exports.string()).default([]).describe("Settings ids to edit (parallel to `settings`). Empty => addSettings"),
       // Without settingsIds this emits addSettings, which is chain-gated by
@@ -142171,7 +142220,7 @@ function registerChangeVotingSettings(server, ctx) {
       };
       const advisories = settings.flatMap((s2, i3) => settingsAdvisories(s2, ctx.config.minSafeQuorumPct).map((a3) => `\u26A0 settings[${i3}]: ${a3}`));
       if (settingsIds.length > 0 && settings.some((s2) => !s2.executorDescription)) {
-        advisories.push("\u26A0 editSettings replaces the whole struct: an empty executorDescription clears the settings-JSON IPFS ref the frontend UI reads (comment/discussion thresholds). Read the current value first (dexe_read_settings) and pass it through, or use dexe_proposal_create (proposalType change_voting_settings) which preserves it automatically.");
+        advisories.push("\u26A0 editSettings replaces the whole struct: an empty executorDescription clears the settings-JSON IPFS ref the frontend UI reads (comment/discussion thresholds). Read the current value first (dexe_read_settings (read server)) and pass it through, or use dexe_proposal_create (proposalType change_voting_settings) which preserves it automatically.");
       }
       return wrapperResult({
         metadata,
@@ -142196,7 +142245,7 @@ function registerManageValidators(server, ctx) {
     title: "Wrapper: change validator balances (add/remove validators via balance tweak)",
     description: "Builds proposal actions; does not broadcast. GovValidators.changeBalances(balances, users) \u2014 balance 0 removes a validator, >0 adds or updates.",
     inputSchema: {
-      govValidators: external_exports.string().describe("GovValidators contract address (from dexe_dao_info.helpers.validators)."),
+      govValidators: external_exports.string().describe("GovValidators contract address (from dexe_dao_info (read server) \u2192 helpers.validators)."),
       changes: external_exports.array(external_exports.object({
         user: external_exports.string().describe("Validator address."),
         balance: external_exports.string().describe("New validator balance, RAW base units (wei); 0 removes.")
@@ -143793,7 +143842,7 @@ function registerNewProposalType(server, ctx) {
     title: "Wrapper: register a new proposal settings template + bind executors",
     description: "Builds proposal actions; does not broadcast. GovSettings.addSettings([newSettings]) + changeExecutors(executors, [newSettingId]); also the path for enabling staking.",
     inputSchema: {
-      govSettings: external_exports.string().describe("GovSettings contract address (from dexe_dao_info.helpers.settings)."),
+      govSettings: external_exports.string().describe("GovSettings contract address (from dexe_dao_info (read server) \u2192 helpers.settings)."),
       settings: external_exports.object({
         earlyCompletion: external_exports.boolean().describe("End the vote as soon as the result is decided."),
         delegatedVotingAllowed: external_exports.boolean().describe("Allow delegated power to vote on this type."),
@@ -146002,8 +146051,8 @@ var ApprovalServer = class {
     }
     const path7 = (req.url ?? "/").split("?")[0];
     const m3 = /^\/a\/([A-Za-z0-9_-]{16,64})(?:\/(approve|decline|status))?$/.exec(path7);
-    const record2 = m3 ? this.deps.store.getByToken(m3[1]) : void 0;
-    if (!m3 || !record2) {
+    const record3 = m3 ? this.deps.store.getByToken(m3[1]) : void 0;
+    if (!m3 || !record3) {
       if (method === "GET" && !m3?.[2])
         this.html(res, 404, renderNotFoundPage);
       else
@@ -146011,18 +146060,18 @@ var ApprovalServer = class {
       return;
     }
     const action = m3[2];
-    const base3 = `/a/${record2.pathToken}`;
+    const base3 = `/a/${record3.pathToken}`;
     if (method === "GET") {
       if (action === "status") {
-        this.json(res, 200, { status: record2.status, kind: record2.kind, landed: record2.landed, reason: record2.reason ?? null });
+        this.json(res, 200, { status: record3.status, kind: record3.kind, landed: record3.landed, reason: record3.reason ?? null });
         return;
       }
       if (action) {
         this.json(res, 405, { status: "refused", message: "use POST" }, { Allow: "POST" });
         return;
       }
-      if (record2.status === "pending") {
-        this.html(res, 200, (nonce) => renderApprovalPage(record2, {
+      if (record3.status === "pending") {
+        this.html(res, 200, (nonce) => renderApprovalPage(record3, {
           nonce,
           approvePath: `${base3}/approve`,
           declinePath: `${base3}/decline`,
@@ -146030,7 +146079,7 @@ var ApprovalServer = class {
           terminal: this.deps.terminalAvailable?.() ?? false
         }));
       } else {
-        this.html(res, 200, (nonce) => renderClosedPage(record2, nonce));
+        this.html(res, 200, (nonce) => renderClosedPage(record3, nonce));
       }
       return;
     }
@@ -146055,17 +146104,17 @@ var ApprovalServer = class {
       this.json(res, tooBig ? 413 : 400, { status: "refused", message: tooBig ? "body too large" : "malformed JSON" });
       return;
     }
-    if (typeof body?.csrf !== "string" || !safeEqual(body.csrf, record2.csrf)) {
+    if (typeof body?.csrf !== "string" || !safeEqual(body.csrf, record3.csrf)) {
       this.json(res, 403, { status: "refused", message: "missing or wrong CSRF token \u2014 reload the page" });
       return;
     }
-    if (record2.status !== "pending") {
-      this.json(res, 409, { status: record2.status, message: `this approval is already ${record2.status}` });
+    if (record3.status !== "pending") {
+      this.json(res, 409, { status: record3.status, message: `this approval is already ${record3.status}` });
       return;
     }
     if (action === "decline") {
-      this.deps.store.decline(record2.approvalId, "declined by the owner on the approval page");
-      this.deps.log?.(`[dexe-mcp] approval ${record2.approvalId} declined on the page`);
+      this.deps.store.decline(record3.approvalId, "declined by the owner on the approval page");
+      this.deps.log?.(`[dexe-mcp] approval ${record3.approvalId} declined on the page`);
       this.json(res, 200, { status: "declined", message: "Declined. Nothing was signed." });
       return;
     }
@@ -146092,7 +146141,7 @@ var ApprovalServer = class {
     }
     let out2;
     try {
-      out2 = await this.deps.attemptApprove(record2, password);
+      out2 = await this.deps.attemptApprove(record3, password);
     } catch {
       out2 = { kind: "error", message: "could not check the password" };
     }
@@ -146100,7 +146149,7 @@ var ApprovalServer = class {
       const mins = Math.max(1, Math.round(this.deps.store.approvedUseWindowMs / 6e4));
       this.json(res, 200, {
         status: "approved",
-        message: (record2.kind === "tx-batch" ? "Approved. If the tool call is still waiting it signs now \u2014 keep this tab open to watch the transactions land. " : "Approved. If the tool call is still waiting it signs now. ") + `If it already returned, re-run it within ${mins} min; after that the key is dropped and you approve again.`
+        message: (record3.kind === "tx-batch" ? "Approved. If the tool call is still waiting it signs now \u2014 keep this tab open to watch the transactions land. " : "Approved. If the tool call is still waiting it signs now. ") + `If it already returned, re-run it within ${mins} min; after that the key is dropped and you approve again.`
       });
       return;
     }
@@ -147118,26 +147167,26 @@ var ControlChannel = class {
         };
       case "approve":
       case "decline": {
-        const record2 = typeof req.approvalId === "string" ? store2.get(req.approvalId) : void 0;
-        if (!record2)
+        const record3 = typeof req.approvalId === "string" ? store2.get(req.approvalId) : void 0;
+        if (!record3)
           return { ok: false, status: "not-found", message: "no such approval (expired, or the server restarted)" };
-        if (typeof req.binding !== "string" || req.binding !== record2.batchHash) {
+        if (typeof req.binding !== "string" || req.binding !== record3.batchHash) {
           return { ok: false, status: "refused", message: "the approval does not match the review you saw \u2014 list again" };
         }
-        if (record2.status !== "pending") {
-          return { ok: false, status: record2.status, message: `this approval is already ${record2.status}` };
+        if (record3.status !== "pending") {
+          return { ok: false, status: record3.status, message: `this approval is already ${record3.status}` };
         }
         if (req.op === "decline") {
-          store2.decline(record2.approvalId, "declined by the owner in the terminal (dexe-mcp approve)");
-          this.deps.log?.(`[dexe-mcp] approval ${record2.approvalId} declined in the terminal`);
+          store2.decline(record3.approvalId, "declined by the owner in the terminal (dexe-mcp approve)");
+          this.deps.log?.(`[dexe-mcp] approval ${record3.approvalId} declined in the terminal`);
           return { ok: true, status: "declined", message: "Declined. Nothing was signed." };
         }
         const password = openPassword(this.secret, session.clientNonce, session.serverNonce, session.payload, session.sealedPassword) ?? "";
         if (!password || password.length > 1024)
           return { ok: false, status: "refused", message: "enter the keystore password" };
-        const out2 = await this.deps.attemptApprove(record2, password);
+        const out2 = await this.deps.attemptApprove(record3, password);
         if (out2.kind === "approved") {
-          this.deps.log?.(`[dexe-mcp] approval ${record2.approvalId} approved in the terminal`);
+          this.deps.log?.(`[dexe-mcp] approval ${record3.approvalId} approved in the terminal`);
           const mins = Math.max(1, Math.round(store2.approvedUseWindowMs / 6e4));
           return {
             ok: true,
@@ -147375,7 +147424,7 @@ var ApprovalManager = class {
    * the lockout inside the queue — guesses queued before a lockout never run
    * after it, whichever channel they came through.
    */
-  passwordAttempt(record2, password) {
+  passwordAttempt(record3, password) {
     const locked7 = this.store.lockedForMs();
     if (locked7 > 0)
       return Promise.resolve({ kind: "locked", retryAfterMs: locked7 });
@@ -147383,13 +147432,13 @@ var ApprovalManager = class {
       const lockedNow = this.store.lockedForMs();
       if (lockedNow > 0)
         return Promise.resolve({ kind: "locked", retryAfterMs: lockedNow });
-      return record2.status === "pending" ? this.attemptApprove(record2, password) : Promise.resolve({ kind: "error", message: `this approval is already ${record2.status}` });
+      return record3.status === "pending" ? this.attemptApprove(record3, password) : Promise.resolve({ kind: "error", message: `this approval is already ${record3.status}` });
     });
     this.attemptChain = attempt.catch(() => void 0);
     return attempt;
   }
   /** Decrypt with the password and approve. The only path from `pending` to `approved`. */
-  async attemptApprove(record2, password) {
+  async attemptApprove(record3, password) {
     const locked7 = this.store.lockedForMs();
     if (locked7 > 0)
       return { kind: "locked", retryAfterMs: locked7 };
@@ -147408,33 +147457,33 @@ var ApprovalManager = class {
     }
     let account;
     try {
-      account = await decryptKeystore(json2, password, record2.from);
+      account = await decryptKeystore(json2, password, record3.from);
     } catch (e2) {
       if (isWrongPasswordError(e2)) {
-        const f3 = this.store.recordFailure(record2.approvalId);
-        this.opts.log?.(`[dexe-mcp] approval ${record2.approvalId}: wrong password${f3.declined ? " \u2014 auto-declined" : ""}`);
+        const f3 = this.store.recordFailure(record3.approvalId);
+        this.opts.log?.(`[dexe-mcp] approval ${record3.approvalId}: wrong password${f3.declined ? " \u2014 auto-declined" : ""}`);
         return { kind: "wrong-password", remaining: f3.remaining, declined: f3.declined, lockedMs: f3.lockedMs };
       }
       if (e2 instanceof KeystoreAddressMismatchError) {
-        this.store.decline(record2.approvalId, e2.message);
+        this.store.decline(record3.approvalId, e2.message);
         return { kind: "error", message: e2.message };
       }
       return { kind: "error", message: "The keystore could not be decrypted \u2014 nothing was signed." };
     }
     registerLedgerSecrets([account.privateKey]);
-    const holder = record2.kind === "tx-batch" ? new ApprovedSigner(record2.approvalId, account.address, account.privateKey, record2.chainId, record2.expected, {
+    const holder = record3.kind === "tx-batch" ? new ApprovedSigner(record3.approvalId, account.address, account.privateKey, record3.chainId, record3.expected, {
       store: this.store,
-      connect: (pk) => this.opts.connect(pk, record2.chainId),
-      lock: (task) => this.opts.lock(record2.chainId, task)
-    }) : new ApprovedSignature(record2.approvalId, account.address, account.privateKey, record2.kind, record2.chainId, record2.batchHash, {
+      connect: (pk) => this.opts.connect(pk, record3.chainId),
+      lock: (task) => this.opts.lock(record3.chainId, task)
+    }) : new ApprovedSignature(record3.approvalId, account.address, account.privateKey, record3.kind, record3.chainId, record3.batchHash, {
       store: this.store,
-      ...record2.signing?.kind === "safeTx" ? { verifyingContract: record2.signing.safe.safe } : {}
+      ...record3.signing?.kind === "safeTx" ? { verifyingContract: record3.signing.safe.safe } : {}
     });
-    if (!this.store.approve(record2.approvalId, holder)) {
-      return { kind: "error", message: `this approval is already ${record2.status}` };
+    if (!this.store.approve(record3.approvalId, holder)) {
+      return { kind: "error", message: `this approval is already ${record3.status}` };
     }
-    this.holders.set(record2.approvalId, holder);
-    this.opts.log?.(`[dexe-mcp] approval ${record2.approvalId} approved by the owner`);
+    this.holders.set(record3.approvalId, holder);
+    this.opts.log?.(`[dexe-mcp] approval ${record3.approvalId} approved by the owner`);
     return { kind: "approved" };
   }
   haltOf(r2, status, message, url2) {
@@ -147486,9 +147535,9 @@ var ApprovalManager = class {
     if (executing) {
       throw new ApprovalHaltError(this.haltOf(executing, "executing", "Exactly this is being signed by another call right now \u2014 wait for it, then re-check."));
     }
-    let record2 = this.store.findByBatch(spec.binding, "pending");
+    let record3 = this.store.findByBatch(spec.binding, "pending");
     let terminal = false;
-    if (!record2) {
+    if (!record3) {
       const admit = this.store.admitCreate();
       if (!admit.ok) {
         const open2 = this.store.open().filter((r3) => r3.status === "pending");
@@ -147508,28 +147557,28 @@ var ApprovalManager = class {
           }))
         });
       }
-      record2 = this.store.create(spec.create());
+      record3 = this.store.create(spec.create());
       terminal = await this.startChannels();
-      const url3 = this.server.urlFor(record2);
-      this.opts.log?.(`[dexe-mcp] APPROVAL NEEDED \u2014 ${spec.tool}: ${spec.what} on ${chainLabel(spec.chainId)} from ${spec.from}. Open ${url3}${terminal ? " (or run `npx dexe-mcp approve` in a terminal)" : ""} and check fingerprint ${record2.fingerprint}.`);
+      const url3 = this.server.urlFor(record3);
+      this.opts.log?.(`[dexe-mcp] APPROVAL NEEDED \u2014 ${spec.tool}: ${spec.what} on ${chainLabel(spec.chainId)} from ${spec.from}. Open ${url3}${terminal ? " (or run `npx dexe-mcp approve` in a terminal)" : ""} and check fingerprint ${record3.fingerprint}.`);
       if (this.opts.openBrowser)
         (this.opts.opener ?? openBrowser)(url3);
     } else {
       terminal = await this.startChannels();
     }
-    const url2 = this.server.urlFor(record2);
+    const url2 = this.server.urlFor(record3);
     const where = `${url2}${terminal ? " or with `npx dexe-mcp approve` in a terminal" : ""}`;
-    const waitMs = Math.max(0, Math.min(ro2.waitMs ?? this.opts.waitMs, record2.expiresAt - Date.now()));
+    const waitMs = Math.max(0, Math.min(ro2.waitMs ?? this.opts.waitMs, record3.expiresAt - Date.now()));
     const deadline = Date.now() + waitMs;
-    await ro2.progress?.(`Waiting for the owner to approve ${spec.what} at ${where} (fingerprint ${record2.fingerprint}).`);
-    let current = record2;
+    await ro2.progress?.(`Waiting for the owner to approve ${spec.what} at ${where} (fingerprint ${record3.fingerprint}).`);
+    let current = record3;
     while (current?.status === "pending" && Date.now() < deadline && !ro2.signal?.aborted) {
-      current = await this.store.waitForDecision(record2.approvalId, Math.min(HEARTBEAT_MS, deadline - Date.now()), ro2.signal);
+      current = await this.store.waitForDecision(record3.approvalId, Math.min(HEARTBEAT_MS, deadline - Date.now()), ro2.signal);
       if (current?.status === "pending" && Date.now() < deadline) {
-        await ro2.progress?.(`Still waiting for approval at ${where} (fingerprint ${record2.fingerprint}).`);
+        await ro2.progress?.(`Still waiting for approval at ${where} (fingerprint ${record3.fingerprint}).`);
       }
     }
-    const r2 = current ?? record2;
+    const r2 = current ?? record3;
     if (r2.status === "approved") {
       const h3 = this.takeApproved(r2);
       if (h3)
@@ -148037,7 +148086,7 @@ var SignerManager = class {
         // repeating it here printed the same three sentences twice wherever a
         // caller joins `error` + `remediation` (sendOrCollect does). Every
         // OTHER cause (unknown signerKey, provider construction) still needs it.
-        remediation: err16 instanceof SignerModeRefusal ? err16.remediation : err16 instanceof NoSignerKeyError ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it." : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC)
+        remediation: err16 instanceof SignerModeRefusal ? err16.remediation : err16 instanceof NoSignerKeyError ? "Run dexe_write_doctor to confirm which .env this server loaded, then restart Claude Code after editing it." : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC)
       };
     }
   }
@@ -148108,12 +148157,12 @@ var SignerManager = class {
   }
   failNoKey() {
     if (this.mode === "keystore") {
-      throw new NoSignerKeyError("Keystore mode is on but no usable keystore was found, so this call cannot sign. Reads work without one.\nCreate one in a terminal (not through the AI): `npx dexe-mcp key create` (or `key import`), then restart Claude Code. Run dexe_doctor for the exact path and problem.");
+      throw new NoSignerKeyError("Keystore mode is on but no usable keystore was found, so this call cannot sign. Reads work without one.\nCreate one in a terminal (not through the AI): `npx dexe-mcp key create` (or `key import`), then restart Claude Code. Run dexe_write_doctor for the exact path and problem.");
     }
     if (this.mode === "readonly") {
       throw new NoSignerKeyError("DEXE_SIGNER_MODE=readonly - this server never signs. Write tools return unsigned payloads for your own wallet; set DEXE_SIGNER_MODE=walletconnect (or keystore) and restart to sign from here.");
     }
-    throw new NoSignerKeyError("No signing key is configured, so this call cannot sign. Reads work without one.\n" + hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC) + "\nPrefer WalletConnect (keys stay on your phone): set DEXE_WALLETCONNECT_PROJECT_ID in .env, then run dexe_wc_connect. Run dexe_doctor to see which values this server loaded and from where, or /dexe-setup for a guided walkthrough.");
+    throw new NoSignerKeyError("No signing key is configured, so this call cannot sign. Reads work without one.\n" + hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC) + "\nPrefer WalletConnect (keys stay on your phone): set DEXE_WALLETCONNECT_PROJECT_ID in .env, then run dexe_wc_connect. Run dexe_write_doctor to see which values this server loaded and from where, or /dexe-setup for a guided walkthrough.");
   }
   failUnknownSigner(signerKey) {
     if (this.mode !== "unattended") {
@@ -149071,7 +149120,7 @@ function registerVoteBuildTools(server, ctx) {
 function registerErc20Approve(server, ctx, rpc) {
   server.registerTool("dexe_vote_build_erc20_approve", {
     title: "Build ERC20.approve(spender, amount) calldata",
-    description: B2 + "`ERC20.approve(spender, amount)`. Run it before dexe_vote_build_deposit when staking an ERC20: approve the DAO's GovUserKeeper (dexe_dao_info), never the GovPool. Native-coin staking needs no approve \u2014 pass `value` on deposit instead.",
+    description: B2 + "`ERC20.approve(spender, amount)`. Run it before dexe_vote_build_deposit when staking an ERC20: approve the DAO's GovUserKeeper (dexe_dao_info (read server)), never the GovPool. Native-coin staking needs no approve \u2014 pass `value` on deposit instead.",
     inputSchema: {
       token: external_exports.string().describe("ERC20 token contract address to approve."),
       spender: external_exports.string().describe("For deposits: the DAO's GovUserKeeper address (NOT the GovPool)"),
@@ -149104,7 +149153,7 @@ function registerErc20Approve(server, ctx, rpc) {
           severity: "WARN",
           block: "hard",
           message: keeper ? checkApproveTarget(spender, keeper, govPool).remediation : `ERC20.approve must target this DAO's GovUserKeeper, not its GovPool (${govPool}). GovUserKeeper.transferFrom pulls the deposit; approving the GovPool leaves the allowance unusable.`,
-          remedy: keeper ? `Re-call with spender=${keeper}.` : "Run dexe_dao_info(govPool) and re-call with spender = helpers.userKeeper."
+          remedy: keeper ? `Re-call with spender=${keeper}.` : "Run dexe_dao_info (read server) with the govPool and re-call with spender = helpers.userKeeper."
         });
       }
       return payloadResultWith(payload, extra);
@@ -149390,7 +149439,7 @@ function registerValidatorVote(server, ctx) {
     title: "Validator vote on internal or external proposal",
     description: B2 + "`GovValidators.vote{Internal,External}Proposal(proposalId, amount, isVoteFor)`. Arg order differs from GovPool.vote \u2014 amount comes before isVoteFor. Requires validator stake.",
     inputSchema: {
-      govValidators: external_exports.string().describe("GovValidators address (dexe_dao_info: helpers.validators)."),
+      govValidators: external_exports.string().describe("GovValidators address (dexe_dao_info (read server) \u2192 helpers.validators)."),
       scope: external_exports.enum(["internal", "external"]).describe("Which chamber's proposal: 'internal' or 'external'."),
       proposalId: external_exports.string().describe(PROPOSAL_ID_DESC),
       amount: external_exports.string().describe(amountDesc("Validator-token balance to vote with, that token's own decimals (the GovValidators token, NOT the DAO governance token)")),
@@ -149424,7 +149473,7 @@ function registerValidatorCancelVote(server, ctx) {
     title: "Validator: cancel your vote on internal/external proposal",
     description: B2 + "`GovValidators.cancelVote{Internal,External}Proposal(proposalId)`. The on-chain firewall refuses this call on fresh (SphereX-era) pools and GovValidators has no multicall to wrap it in, so there is no workaround \u2014 an upstream defect, reported with every payload.",
     inputSchema: {
-      govValidators: external_exports.string().describe("GovValidators address (dexe_dao_info: helpers.validators)."),
+      govValidators: external_exports.string().describe("GovValidators address (dexe_dao_info (read server) \u2192 helpers.validators)."),
       scope: external_exports.enum(["internal", "external"]).describe("Which chamber's proposal: 'internal' or 'external'."),
       proposalId: external_exports.string().describe(PROPOSAL_ID_DESC),
       chainId: buildChainIdParam
@@ -149489,7 +149538,7 @@ function registerExecute(server, ctx, rpc) {
       govPool: govPoolParam,
       proposalId: external_exports.string().describe(PROPOSAL_ID_DESC),
       scope: external_exports.enum(["external", "internal"]).default("external").describe("'external' executes on GovPool; 'internal' on GovValidators (needs govValidators)."),
-      govValidators: external_exports.string().optional().describe("Required for scope:'internal' (dexe_dao_info.helpers.validators)"),
+      govValidators: external_exports.string().optional().describe("Required for scope:'internal' (dexe_dao_info (read server) \u2192 helpers.validators)"),
       voter: voterParam,
       chainId: buildChainIdParam
     },
@@ -149507,7 +149556,7 @@ function registerExecute(server, ctx, rpc) {
     try {
       if (scope2 === "internal") {
         if (!govValidators || !isAddress(govValidators)) {
-          return errorResult20("scope:'internal' requires `govValidators` (get it from dexe_dao_info.helpers.validators).");
+          return errorResult20("scope:'internal' requires `govValidators` (get it from dexe_dao_info (read server) \u2192 helpers.validators).");
         }
         const vIface = new Interface(["function executeInternalProposal(uint256 proposalId)"]);
         const payload2 = buildPayload({
@@ -149611,7 +149660,7 @@ function registerNftMultiplierLock(server, ctx) {
     title: "Lock an NFT multiplier to boost voting power",
     description: B2 + "`ERC721Multiplier.lock(tokenId)` \u2014 applies the reward-multiplier NFT's bonus to your voting power.",
     inputSchema: {
-      nftMultiplier: external_exports.string().describe("ERC721Multiplier contract address (from dexe_dao_info \u2192 nftMultiplier)"),
+      nftMultiplier: external_exports.string().describe("ERC721Multiplier contract address (from dexe_dao_info (read server) \u2192 nftMultiplier)"),
       tokenId: external_exports.string().describe("NFT token ID to lock"),
       chainId: buildChainIdParam
     },
@@ -149640,7 +149689,7 @@ function registerNftMultiplierUnlock(server, ctx) {
     title: "Unlock the NFT multiplier to reclaim it",
     description: B2 + "`ERC721Multiplier.unlock()` \u2014 returns the locked NFT and removes its voting-power bonus.",
     inputSchema: {
-      nftMultiplier: external_exports.string().describe("ERC721Multiplier contract address (from dexe_dao_info \u2192 nftMultiplier)"),
+      nftMultiplier: external_exports.string().describe("ERC721Multiplier contract address (from dexe_dao_info (read server) \u2192 nftMultiplier)"),
       chainId: buildChainIdParam
     },
     outputSchema: payloadOutputSchema3()
@@ -150818,7 +150867,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
     if (dryRun && executorDescriptions.length > 0) {
       pinataWarning += "\n\u26A0\uFE0F  Preview only \u2014 the executorDescription CIDs above were computed locally, not pinned (dryRun). They are byte-identical to what a real run pins, so this calldata matches; the content itself is not on IPFS yet.";
       if (!pinata) {
-        pinataWarning += "\n\u26A0\uFE0F  DEXE_PINATA_JWT is not configured, so the REAL run cannot pin them \u2014 it would deploy with EMPTY executorDescription fields and the DAO's proposal settings would render broken on app.dexe.io. Set DEXE_PINATA_JWT before deploying (run dexe_doctor to verify).";
+        pinataWarning += "\n\u26A0\uFE0F  DEXE_PINATA_JWT is not configured, so the REAL run cannot pin them \u2014 it would deploy with EMPTY executorDescription fields and the DAO's proposal settings would render broken on app.dexe.io. Set DEXE_PINATA_JWT before deploying (run dexe_write_doctor to verify).";
       }
     }
   } else {
@@ -151412,7 +151461,7 @@ async function resolveGovSettings(explicit, deps) {
   ]);
   const settings = res?.success ? res.value[0] : null;
   if (!settings || !isAddress(settings) || settings === ZeroAddress) {
-    throw new Error(`govSettings was omitted and GovPool.getHelperContracts() on ${deps.govPool} (chain ${deps.chainId}) did not return one \u2014 is this a GovPool? Pass govSettings explicitly (dexe_dao_info.helpers.settings).`);
+    throw new Error(`govSettings was omitted and GovPool.getHelperContracts() on ${deps.govPool} (chain ${deps.chainId}) did not return one \u2014 is this a GovPool? Pass govSettings explicitly (dexe_dao_info (read server) \u2192 helpers.settings).`);
   }
   return settings;
 }
@@ -151601,7 +151650,7 @@ var customAbiBuilder = {
 };
 var manageValidatorsBuilder = {
   schema: external_exports.object({
-    govValidators: external_exports.string().describe("GovValidators address (dexe_dao_info.helpers.validators)"),
+    govValidators: external_exports.string().describe("GovValidators address (dexe_dao_info (read server) \u2192 helpers.validators)"),
     changes: external_exports.array(external_exports.object({ user: external_exports.string(), balance: numericIntString.describe("Wei; 0 to remove") })).min(1)
   }),
   async build(raw, deps) {
@@ -152077,7 +152126,7 @@ var applyToDaoBuilder = {
     } else {
       const pr2 = new RpcProvider(deps.ctx.config).tryProvider(deps.chainId);
       if ("error" in pr2) {
-        throw new Error(`treasuryBalance was omitted (auto-read needs an RPC) and no RPC is configured for chain ${deps.chainId}. Pass treasuryBalance explicitly (dexe_read_treasury) or configure an RPC. ${pr2.remediation}`);
+        throw new Error(`treasuryBalance was omitted (auto-read needs an RPC) and no RPC is configured for chain ${deps.chainId}. Pass treasuryBalance explicitly (dexe_read_treasury (read server)) or configure an RPC. ${pr2.remediation}`);
       }
       const res = await multicall(pr2.ok, [
         { target: p4.token, iface: ERC20_TRANSFER_ABI2, method: "balanceOf", args: [deps.govPool], allowFailure: true }
@@ -152119,7 +152168,7 @@ var newProposalTypeBuilder = {
     govSettings: external_exports.string().optional().describe("GovSettings address. Omit to read it from the DAO (GovPool.getHelperContracts)."),
     settings: ProposalSettingsSchema,
     executors: external_exports.array(external_exports.string()).min(1),
-    newSettingId: numericIntString.describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings)")
+    newSettingId: numericIntString.describe("Id the new setting receives (= current getSettingsLength(); read via dexe_read_settings (read server))")
   }),
   async build(raw, deps) {
     const p0 = raw;
@@ -152716,7 +152765,7 @@ var FLOWS = [
         tool: "dexe_read_token_sales",
         purpose: "Confirm the tier is live and show its parameters (times are UTC).",
         paramsTemplate: { govPool: "{{govPool}}" },
-        reportOnSuccess: "Report tier id, price, remaining allocation, saleStartTimeUTC/saleEndTimeUTC. Buyers proceed with dexe_read_token_sale_position \u2192 dexe_otc_buyer_buy \u2192 (after sale end) dexe_otc_buyer_claim_all."
+        reportOnSuccess: "Report tier id, price, remaining allocation, saleStartTimeUTC/saleEndTimeUTC. Buyers proceed with dexe_read_token_sale_position (read server) \u2192 dexe_otc_buyer_buy \u2192 (after sale end) dexe_otc_buyer_claim_all."
       }
     ],
     gotchaIds: ["amount-conventions"]
@@ -152829,7 +152878,7 @@ var FLOWS = [
     steps: [
       {
         id: "leg_dao",
-        tool: "dexe_guide",
+        tool: "dexe_write_guide",
         purpose: "LEG 1 \u2014 deploy the DAO. Fetch flow 'create_dao' and run its interview + steps. Set treasuryPercent so the treasury covers the distribution list share (e.g. list needs 20% \u2192 treasury \u2265 20% + reserve), while quorumPercent \u2264 0.8 \xD7 (100 \u2212 treasuryPercent) must still hold with quorum \u2265 50 \u2014 which caps treasuryPercent at 37.5% of supply under LINEAR power. A distribution list needing more than that must be funded from the deployer's votable allocation (recipients[]) at deploy time, not parked in the treasury.",
         paramsTemplate: { flow: "create_dao" },
         gotchaIds: ["treasury-remainder", "quorum-turnout-margin", "quorum-reachable"],
@@ -152847,12 +152896,12 @@ var FLOWS = [
           params: "{ token: \u2026govToken\u2026, recipient: \u2026next from list\u2026, amount: \u2026 }"
         },
         gotchaIds: ["distribution-vs-transfer", "vp-locked", "low-creating-power-race", "blacklist-execute-trap"],
-        reportOnSuccess: "Recipient paid \u2014 repeat for the rest of the list, then verify balances with dexe_read_token_holders.",
+        reportOnSuccess: "Recipient paid \u2014 repeat for the rest of the list, then verify balances with dexe_read_token_holders (read server).",
         next: [{ when: "all recipients funded", stepId: "leg_otc", why: "open the sale" }]
       },
       {
         id: "leg_otc",
-        tool: "dexe_guide",
+        tool: "dexe_write_guide",
         purpose: "LEG 3 \u2014 open the OTC sale. Fetch flow 'otc_sale' and run its interview + steps.",
         paramsTemplate: { flow: "otc_sale" },
         reportOnSuccess: "Sale live \u2014 proceed to staking.",
@@ -152860,7 +152909,7 @@ var FLOWS = [
       },
       {
         id: "leg_staking",
-        tool: "dexe_guide",
+        tool: "dexe_write_guide",
         purpose: "LEG 4 \u2014 set up staking. Fetch flow 'staking_setup'. On chain 97 this leg MUST be deferred to mainnet \u2014 relay the chain note instead of attempting it.",
         paramsTemplate: { flow: "staking_setup" },
         gotchaIds: ["staking-not-on-testnet"],
@@ -152897,7 +152946,7 @@ var FLOWS = [
     ],
     summary: "Drive several keyring personas (proposer / voter / validator / delegator) through one DAO: configure the keyring, fund inside a budget, run the sequence that works on-chain, reconcile per-persona from the agent ledger.",
     chainNotes: {
-      97: "Testnet (97) is where an agent team belongs: free faucet BNB, throwaway DAOs, nothing real at stake \u2014 rehearse here first. Subgraph reconciliation (turnout / who-voted) does NOT exist on 97; use dexe_proposal_state plus the local ledger.",
+      97: "Testnet (97) is where an agent team belongs: free faucet BNB, throwaway DAOs, nothing real at stake \u2014 rehearse here first. No subgraph on 97 (no turnout / who-voted reconciliation): use dexe_proposal_state (read server) plus the local ledger.",
       56: "MAINNET \u2014 every persona holds a plaintext hot key that signs without asking, and the fleet spends real BNB unattended. Only after the same scenario is green on 97, with throwaway wallets and a budget you can afford to lose. Relay this and get an explicit go-ahead first."
     },
     interview: [
@@ -153053,7 +153102,7 @@ var FLOWS = [
       {
         id: "verify_outcome",
         tool: "dexe_dao_report",
-        purpose: "Did the governance outcome actually land? The turnout section shows who voted and with what weight (subgraph-backed: mainnet only \u2014 on 97 use dexe_proposal_state per proposal and say the section is missing).",
+        purpose: "Did the governance outcome actually land? The turnout section shows who voted and with what weight (subgraph-backed: mainnet only \u2014 on 97 use dexe_proposal_state (read server) per proposal and say the section is missing).",
         paramsTemplate: { govPool: "{{govPool}}", chainId: "{{chainId}}", sections: '["proposals","turnout"]' },
         reportOnSuccess: "Report the final proposal state in words. Then UNLOCK: voters still hold locked tokens \u2014 one dexe_vote_build_withdraw per persona before the next round."
       }
@@ -153072,6 +153121,17 @@ var FLOW_BY_ID = new Map(FLOWS.map((f3) => [f3.id, f3]));
 
 // dist/knowledge/write/nextSteps.js
 var PARAMS_NOTE = "Argument template for that call: `{{name}}` is a placeholder to fill from the flow's answers or an earlier step's output; prose values describe what to supply.";
+var locate = () => ({});
+function useNextStepLocator(locator) {
+  locate = locator;
+}
+function location(tool) {
+  const loc = locate(tool);
+  return {
+    ...loc.requiresToolset ? { requiresToolset: loc.requiresToolset } : {},
+    ...loc.providedBy ? { providedBy: loc.providedBy } : {}
+  };
+}
 function nextAfter(flowId, stepId) {
   const flow3 = FLOW_BY_ID.get(flowId);
   if (!flow3)
@@ -153085,9 +153145,9 @@ function nextAfter(flowId, stepId) {
     for (const n4 of step2.next) {
       if (n4.flowRef) {
         next.push({
-          tool: "dexe_guide",
+          tool: "dexe_write_guide",
           when: n4.when,
-          why: `${n4.why} \u2014 call dexe_guide with flow:"${n4.flowRef}" for the plan`,
+          why: `${n4.why} \u2014 call dexe_write_guide with flow:"${n4.flowRef}" for the plan`,
           params: { flow: n4.flowRef },
           paramsNote: "Ready to call as-is."
         });
@@ -153098,6 +153158,7 @@ function nextAfter(flowId, stepId) {
         continue;
       next.push({
         tool: target.tool,
+        ...location(target.tool),
         when: n4.when,
         why: n4.why,
         params: target.paramsTemplate,
@@ -153108,6 +153169,7 @@ function nextAfter(flowId, stepId) {
     const following = flow3.steps[idx + 1];
     next.push({
       tool: following.tool,
+      ...location(following.tool),
       when: following.optionalWhen ? `unless: ${following.optionalWhen}` : "always",
       why: following.purpose.split(".")[0] ?? following.purpose,
       params: following.paramsTemplate,
@@ -153130,7 +153192,7 @@ function nextAfter(flowId, stepId) {
 
 // dist/lib/flowChain.js
 var flowContextObject = external_exports.object({
-  flow: external_exports.string().describe("Flow id from dexe_guide (e.g. 'launch_token_economy')"),
+  flow: external_exports.string().describe("Flow id from dexe_write_guide (e.g. 'launch_token_economy')"),
   step: external_exports.string().describe("Step id within that flow (e.g. 'leg_otc')")
 });
 var flowContextSchema = external_exports.preprocess((v7) => {
@@ -153142,7 +153204,7 @@ var flowContextSchema = external_exports.preprocess((v7) => {
   } catch {
     return v7;
   }
-}, flowContextObject).optional().describe("Guided-flow position from dexe_guide's step templates. Adds flowProgress + next to the result and persists it.");
+}, flowContextObject).optional().describe("Guided-flow position from dexe_write_guide's step templates. Adds flowProgress + next to the result and persists it.");
 function flowChainFields(flowContext, state, info, opts) {
   if (!flowContext)
     return {};
@@ -153558,7 +153620,7 @@ function enableWritesHint(signer) {
   return ignored ? `${ENABLE_WRITES_HINT}
 \u26A0\uFE0F ${ignoredHotKeySentence(ignored)}` : ENABLE_WRITES_HINT;
 }
-var KEYSTORE_MISSING_HINT = "\u26A0\uFE0F DEXE_SIGNER_MODE=keystore but no usable keystore was found \u2014 the steps below are UNSIGNED payloads; nothing was broadcast. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run this call. dexe_doctor shows the path it looked in.";
+var KEYSTORE_MISSING_HINT = "\u26A0\uFE0F DEXE_SIGNER_MODE=keystore but no usable keystore was found \u2014 the steps below are UNSIGNED payloads; nothing was broadcast. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run this call. dexe_write_doctor shows the path it looked in.";
 var READONLY_MODE_HINT = "DEXE_SIGNER_MODE=readonly \u2014 this server never signs. The steps below are UNSIGNED payloads for your own wallet; nothing was broadcast.";
 var KEYSTORE_SIGNERKEY_REFUSAL = "signerKey selects a hot key from the agent keyring, and hot keys sign only in DEXE_SIGNER_MODE=unattended. This server is in keystore mode (one encrypted key, approved per batch) \u2014 omit signerKey.";
 async function tryAutoPair(wc, chainId) {
@@ -153600,8 +153662,8 @@ function attachPairingQr(res, pairingContent) {
     return res;
   return { ...res, content: [...pairingContent, ...res.content] };
 }
-var RESUME_RECHECKS = 'On re-run this flow re-reads chain state first and skips what is already true: ERC20.approve (allowance already covers the deposit), GovPool.deposit (deposited power already covers the vote), createProposalAndVote (a still-live proposal with the same metadata URL already exists \u2014 no duplicate is minted), and GovPool.vote (this wallet already voted on this proposal; GovPool reverts a second vote with "Gov: need cancel"). NOT auto-skipped: GovPool.execute and the validator round (moveProposalToValidators / validator vote) \u2014 if one of those was the failing step, check dexe_proposal_state first so the re-run does not repeat a step that landed.';
-var DEPLOY_RESUME_RECHECKS = 'A DAO deploy is a SINGLE transaction \u2014 there are no earlier steps to skip. Re-running the same call is safe against a duplicate DAO: the pool address is derived from your wallet plus the DAO name (CREATE2), and the build refuses up-front with "PoolFactory: pool name is already taken" if a pool already has code at that address, so a re-run after a deploy that actually landed fails BEFORE broadcasting anything. Keep the SAME daoName on a re-run \u2014 changing it deploys a second, separate DAO. To inspect the existing one: dexe_dao_info.';
+var RESUME_RECHECKS = 'On re-run this flow re-reads chain state first and skips what is already true: ERC20.approve (allowance already covers the deposit), GovPool.deposit (deposited power already covers the vote), createProposalAndVote (a still-live proposal with the same metadata URL already exists \u2014 no duplicate is minted), and GovPool.vote (this wallet already voted on this proposal; GovPool reverts a second vote with "Gov: need cancel"). NOT auto-skipped: GovPool.execute and the validator round (moveProposalToValidators / validator vote) \u2014 if one of those was the failing step, check dexe_proposal_state (read server) first so the re-run does not repeat a step that landed.';
+var DEPLOY_RESUME_RECHECKS = 'A DAO deploy is a SINGLE transaction \u2014 there are no earlier steps to skip. Re-running the same call is safe against a duplicate DAO: the pool address is derived from your wallet plus the DAO name (CREATE2), and the build refuses up-front with "PoolFactory: pool name is already taken" if a pool already has code at that address, so a re-run after a deploy that actually landed fails BEFORE broadcasting anything. Keep the SAME daoName on a re-run \u2014 changing it deploys a second, separate DAO. To inspect the existing one: dexe_dao_info (read server).';
 function broadcastTimeout(err16) {
   const raw = safeErrorMessage(err16);
   const code6 = err16?.code;
@@ -153677,7 +153739,7 @@ function votedWithFields(voteAlreadyCast, priorVote, voteAmt, decimals, symbol2)
 }
 function postVoteNextStep(state, govPool, proposalId, chainId) {
   const self2 = `{"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}`;
-  const inspect7 = `Track it with dexe_proposal_state ${self2}.`;
+  const inspect7 = `Track it with dexe_proposal_state (read server) ${self2}.`;
   switch (state) {
     case 0:
       return `Quorum is not reached yet \u2014 more holders must vote. Each one calls dexe_proposal_vote_and_execute ${self2} (add "signerKey":"agent2" to vote as another keyring persona). ` + inspect7;
@@ -153914,7 +153976,7 @@ Note: the backend indexes BSC mainnet (56) DAOs only.`);
   } catch (e2) {
     const a3 = toActionableError2(e2, "resolve DAO prerequisites");
     return err7(a3.slug ? a3.message : `${a3.message}
-If this repeats, verify the govPool address is a DeXe GovPool on chain ${chainId} (dexe_dao_info) \u2014 a wrong address or chain yields exactly this read failure.`);
+If this repeats, verify the govPool address is a DeXe GovPool on chain ${chainId} (dexe_dao_info (read server)) \u2014 a wrong address or chain yields exactly this read failure.`);
   }
   if (prereqs.userKeeper.toLowerCase() === govPool.toLowerCase()) {
     return err7("Refusing: resolved UserKeeper equals the GovPool address \u2014 the auto-approve would target GovPool, not the keeper (failure mode 6). Re-check the govPool address.");
@@ -154210,7 +154272,7 @@ ${pr2.remediation}`);
               reason: `Proposal #${existing.proposalId} on this DAO already carries this exact descriptionURL and is still live ("${existing.stateName}") \u2014 this call already landed.`
             }
           ],
-          note: `NOTHING WAS BROADCAST. Creating it again would mint a second identical proposal (GovPool does not reject duplicate descriptionURLs) and split the DAO's votes across two copies. Continue with the existing one: dexe_proposal_vote_and_execute {"govPool":"${govPool}","proposalId":${existing.proposalId},"chainId":${chainId}} \u2014 or inspect it with dexe_proposal_state. If a second copy is genuinely intended, re-call with allowDuplicate:true.`
+          note: `NOTHING WAS BROADCAST. Creating it again would mint a second identical proposal (GovPool does not reject duplicate descriptionURLs) and split the DAO's votes across two copies. Continue with the existing one: dexe_proposal_vote_and_execute {"govPool":"${govPool}","proposalId":${existing.proposalId},"chainId":${chainId}} \u2014 or inspect it with dexe_proposal_state (read server). If a second copy is genuinely intended, re-call with allowDuplicate:true.`
         });
       }
     }
@@ -154350,7 +154412,7 @@ ${pr2.remediation}`);
       txCount: payloads.length,
       irreversible: "A created proposal cannot be deleted or edited, and the FOR vote cast with it cannot be changed without cancelling first. Gas is spent whether or not it passes.",
       broadcast,
-      next: broadcast ? created ? `Pass it with ${voteCall} \u2014 it votes, drives the validator round and executes.` : `The create landed but the new id could not be read back (the node is behind). Find it with dexe_proposal_list {"govPool":"${govPool}","chainId":${chainId}} \u2014 the entry whose descriptionURL is ${descriptionURL}. Do NOT guess it: a vote on the wrong proposal cannot be undone in one call.` : input3.dryRun ? "NOTHING WAS BROADCAST (dryRun), so no proposal exists yet and there is no id. Re-run with dryRun:false to create it." : `NOTHING WAS BROADCAST (no signing key). Broadcast the payloads above with dexe_tx_send, then read the id with dexe_proposal_list {"govPool":"${govPool}","chainId":${chainId}}.`
+      next: broadcast ? created ? `Pass it with ${voteCall} \u2014 it votes, drives the validator round and executes.` : `The create landed but the new id could not be read back (the node is behind). Find it with dexe_proposal_list (read server) {"govPool":"${govPool}","chainId":${chainId}} \u2014 the entry whose descriptionURL is ${descriptionURL}. Do NOT guess it: a vote on the wrong proposal cannot be undone in one call.` : input3.dryRun ? "NOTHING WAS BROADCAST (dryRun), so no proposal exists yet and there is no id. Re-run with dryRun:false to create it." : `NOTHING WAS BROADCAST (no signing key). Broadcast the payloads above with dexe_tx_send, then read the id with dexe_proposal_list (read server) {"govPool":"${govPool}","chainId":${chainId}}.`
     }),
     autoVote: {
       amount: voteAmountHuman,
@@ -154682,7 +154744,7 @@ function registerFlowTools(server, ctx, signer, wc, state) {
   );
   server.tool(
     "dexe_proposal_vote_and_execute",
-    "Broadcasts when a signer is configured. The ONE call for 'vote on / pass / execute proposal N': checks proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper \u2192 deposit \u2192 vote, the frontend's bundled shape), and with autoExecute executes once the vote passes. Without a signer it returns ordered TxPayloads + a WalletConnect QR. Unsure of the lifecycle (validator round, locked tokens)? Call dexe_guide (flow:'vote_execute') first.",
+    "Broadcasts when a signer is configured. The ONE call for 'vote on / pass / execute proposal N': checks proposal state, AUTO-DEPOSITS wallet tokens when voting power is short (approve UserKeeper \u2192 deposit \u2192 vote, the frontend's bundled shape), and with autoExecute executes once the vote passes. Without a signer it returns ordered TxPayloads + a WalletConnect QR. Unsure of the lifecycle (validator round, locked tokens)? Call dexe_write_guide (flow:'vote_execute') first.",
     {
       govPool: govPoolParam,
       chainId: external_exports.number().int().positive().optional().describe("Target chain (56 mainnet, 97 testnet); needs an RPC for it. Default: the MCP's default chain."),
@@ -154857,7 +154919,7 @@ ${pr2.remediation}`);
       }
       if (stateNum !== 0) {
         const remedies = {
-          1: "It is waiting for the validator-voting transfer \u2014 re-run with driveValidatorRound:true (default) once past voting, or check dexe_proposal_state.",
+          1: "It is waiting for the validator-voting transfer \u2014 re-run with driveValidatorRound:true (default) once past voting, or check dexe_proposal_state (read server).",
           2: "It is in validator voting \u2014 the DAO's validators must vote; if the configured signer is a validator, re-run with driveValidatorRound:true.",
           3: "It was DEFEATED \u2014 voting is over. Create a new proposal if the change is still wanted.",
           4: "It already PASSED \u2014 re-run this call with autoExecute:true (the default) to execute it, no vote needed.",
@@ -154866,7 +154928,7 @@ ${pr2.remediation}`);
           7: "It was already EXECUTED (for) \u2014 nothing left to do.",
           8: "It was already EXECUTED (against) \u2014 nothing left to do."
         };
-        return err7(`Proposal #${proposalId} is in state "${stateName2}" \u2014 voting is only possible in "Voting". ` + (remedies[stateNum] ?? "Check dexe_proposal_state for details."));
+        return err7(`Proposal #${proposalId} is in state "${stateName2}" \u2014 voting is only possible in "Voting". ` + (remedies[stateNum] ?? "Check dexe_proposal_state (read server) for details."));
       }
       const prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
       const d3 = prereqs.tokenDecimals;
@@ -154942,7 +155004,7 @@ ${pr2.remediation}`);
       let executeDecision;
       let proposalStateAfter;
       let postVoteNext;
-      let tally2;
+      let tally3;
       if (input3.autoExecute && result.mode === "executed") {
         const postRes = await multicall(provider, [
           { target: govPool, iface: GOV_POOL_ABI7, method: "getProposalState", args: [proposalId] }
@@ -155023,7 +155085,7 @@ ${pr2.remediation}`);
             const row2 = Array.isArray(rows2) && rows2.length > 0 ? decodeProposalView(rows2[0]) : null;
             if (row2) {
               const gap = (v7) => row2.requiredQuorum > v7 ? row2.requiredQuorum - v7 : 0n;
-              tally2 = {
+              tally3 = {
                 votesFor: row2.votesFor.toString(),
                 votesForHuman: formatUnitsWithSymbol(row2.votesFor, d3, sym),
                 votesAgainst: row2.votesAgainst.toString(),
@@ -155061,7 +155123,7 @@ ${pr2.remediation}`);
             chainId,
             receiver: result.signer?.address,
             amountWei: prereqs.depositedPower > 0n ? prereqs.depositedPower.toString() : void 0
-          })}.` : `Track it with dexe_proposal_state {"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}.`)
+          })}.` : `Track it with dexe_proposal_state (read server) {"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}.`)
         }),
         power: {
           deposited: prereqs.depositedPower.toString(),
@@ -155073,7 +155135,7 @@ ${pr2.remediation}`);
           tokenDecimals: d3,
           asOf: "deposited/wallet read before this call's transactions"
         },
-        ...tally2 ? { tally: tally2 } : {},
+        ...tally3 ? { tally: tally3 } : {},
         steps: [...skippedSteps, ...result.steps],
         ...result.signer ? { signer: result.signer } : {},
         ...hotKeySafetyFields(result.signer?.safety),
@@ -156074,6 +156136,219 @@ ${sg.remediation}`);
 
 // dist/diag/writeChecks.js
 import { readFileSync as readFileSync15 } from "node:fs";
+
+// dist/editions.js
+var READ_TOOLS2 = [
+  // ── orientation / diagnostics
+  // chains, env readiness, toolsets, recorded DAOs; the signer half is dexe_write_context
+  "dexe_context",
+  "dexe_guide",
+  "dexe_doctor",
+  // chains, subgraph coverage, backend, IPFS read gateways (D6)
+  "dexe_get_config",
+  // ── DAO / proposal / vote reads
+  "dexe_dao_info",
+  "dexe_dao_registry_lookup",
+  // also the only way to find a DAO's TokenSaleProposal for the sale reads
+  "dexe_dao_predict_addresses",
+  "dexe_proposal_state",
+  "dexe_proposal_list",
+  "dexe_proposal_voters",
+  "dexe_vote_user_power",
+  "dexe_vote_get_votes",
+  // ── on-chain reads (the read edition's tools/read.ts)
+  "dexe_read_multicall",
+  "dexe_read_treasury",
+  "dexe_read_token_holders",
+  "dexe_read_dao_stats",
+  "dexe_read_nfts",
+  "dexe_read_validators",
+  "dexe_read_settings",
+  "dexe_read_protocol_stats",
+  "dexe_read_expert_status",
+  "dexe_read_token_sale_tiers",
+  "dexe_read_token_sale_user",
+  "dexe_read_distribution_status",
+  "dexe_read_staking_info",
+  "dexe_read_privacy_policy_status",
+  // ── subgraph reads (the read edition's tools/subgraph.ts)
+  "dexe_graph_query",
+  "dexe_graph_schema",
+  "dexe_read_dao_list",
+  "dexe_read_dao_members",
+  "dexe_read_dao_experts",
+  "dexe_read_delegation_map",
+  "dexe_read_user_activity",
+  "dexe_read_validator_list",
+  // ── token-sale reads (pure multicall + merkle proof, no signer). Named
+  // dexe_otc_list_sales_for_dao / dexe_otc_buyer_status before 0.36.0 (D4);
+  // the single server still answers to the old names (src/tools/aliases.ts).
+  "dexe_read_token_sales",
+  "dexe_read_token_sale_position",
+  // ── reporting and analysis
+  "dexe_dao_report",
+  "dexe_user_inbox",
+  "dexe_proposal_forecast",
+  "dexe_proposal_risk_assess",
+  // ── IPFS reads
+  "dexe_ipfs_fetch",
+  "dexe_ipfs_cid_info",
+  // ── decoding / gov-contract reads
+  "dexe_read_gov_state",
+  "dexe_list_gov_contract_types",
+  "dexe_decode_calldata",
+  "dexe_decode_proposal",
+  // ── external Governor reads
+  "dexe_gov_list_governors",
+  "dexe_gov_get_proposal",
+  "dexe_gov_get_voting_power",
+  "dexe_gov_get_quorum",
+  "dexe_gov_get_proposal_threshold",
+  "dexe_gov_get_state",
+  "dexe_gov_has_voted",
+  "dexe_gov_simulate_vote_impact"
+];
+var READ_SERVER_MARK = "(read server)";
+var READ_SERVER_LABEL = "the DeXe read server (dexe-mcp-read, npm @dexe-network/dexe-mcp)";
+var WRITE_TOOLS = [
+  // ── composites that sign and broadcast
+  "dexe_proposal_create",
+  "dexe_proposal_vote_and_execute",
+  "dexe_dao_create",
+  "dexe_otc_dao_open_sale",
+  "dexe_otc_buyer_buy",
+  "dexe_otc_buyer_claim_all",
+  // the deploy calldata dexe_dao_create signs
+  "dexe_dao_build_deploy",
+  // ── signing, broadcast, wallets, personas
+  // signer mode, keyring, Pinata/WalletConnect/Safe posture, the unfinished flow
+  "dexe_write_context",
+  // the eight write journeys (dexe_guide is the read server's: read topics only)
+  "dexe_write_guide",
+  // signer, keystore, approval page, Pinata, WalletConnect, this process's .env
+  // (dexe_doctor is the read server's: RPC, subgraph, backend, IPFS gateway)
+  "dexe_write_doctor",
+  "dexe_tx_send",
+  // the write edition's resume rule depends on it, so it stays beside tx_send
+  "dexe_tx_status",
+  // keystore mode: read-only state of an owner approval (cannot approve)
+  "dexe_tx_approval_status",
+  "dexe_wc_status",
+  "dexe_wc_connect",
+  "dexe_wc_disconnect",
+  "dexe_agents_list",
+  "dexe_agents_fund",
+  "dexe_agents_ledger",
+  // reports whether the configured signer is an owner
+  "dexe_safe_info",
+  "dexe_safe_propose_tx",
+  // ── IPFS writes and the CID preview they share
+  "dexe_ipfs_upload_proposal_metadata",
+  "dexe_ipfs_upload_dao_metadata",
+  "dexe_ipfs_upload_file",
+  "dexe_ipfs_upload_avatar",
+  "dexe_ipfs_update_dao_metadata",
+  "dexe_dao_generate_avatar",
+  "dexe_ipfs_cid_for_json",
+  // ── vote / stake / claim calldata builders (src/tools/voteBuild.ts)
+  "dexe_vote_build_erc20_approve",
+  "dexe_vote_build_deposit",
+  "dexe_vote_build_withdraw",
+  "dexe_vote_build_delegate",
+  "dexe_vote_build_undelegate",
+  "dexe_vote_build_vote",
+  "dexe_vote_build_cancel_vote",
+  "dexe_vote_build_validator_vote",
+  "dexe_vote_build_validator_cancel_vote",
+  "dexe_vote_build_move_to_validators",
+  "dexe_vote_build_execute",
+  "dexe_vote_build_claim_rewards",
+  "dexe_vote_build_claim_micropool_rewards",
+  "dexe_vote_build_nft_multiplier_lock",
+  "dexe_vote_build_nft_multiplier_unlock",
+  "dexe_vote_build_token_sale_buy",
+  "dexe_vote_build_token_sale_claim",
+  "dexe_vote_build_token_sale_vesting_withdraw",
+  "dexe_vote_build_distribution_claim",
+  "dexe_vote_build_staking_stake",
+  "dexe_vote_build_staking_claim",
+  "dexe_vote_build_staking_claim_all",
+  "dexe_vote_build_staking_reclaim",
+  "dexe_vote_build_privacy_policy_sign",
+  "dexe_vote_build_privacy_policy_agree",
+  "dexe_vote_build_multicall",
+  // ── proposal builders and their catalog
+  "dexe_proposal_catalog",
+  "dexe_proposal_build_external",
+  "dexe_proposal_build_internal",
+  "dexe_proposal_build_custom_abi",
+  "dexe_proposal_build_offchain",
+  "dexe_proposal_build_token_transfer",
+  "dexe_proposal_build_token_distribution",
+  "dexe_proposal_build_token_sale",
+  "dexe_proposal_build_token_sale_multi",
+  "dexe_proposal_build_token_sale_whitelist",
+  "dexe_proposal_build_token_sale_recover",
+  "dexe_proposal_build_create_staking_tier",
+  "dexe_proposal_build_change_math_model",
+  "dexe_proposal_build_modify_dao_profile",
+  "dexe_proposal_build_blacklist",
+  "dexe_proposal_build_reward_multiplier",
+  "dexe_proposal_build_apply_to_dao",
+  "dexe_proposal_build_new_proposal_type",
+  "dexe_proposal_build_change_voting_settings",
+  "dexe_proposal_build_manage_validators",
+  "dexe_proposal_build_add_expert",
+  "dexe_proposal_build_remove_expert",
+  "dexe_proposal_build_withdraw_treasury",
+  "dexe_proposal_build_delegate_to_expert",
+  "dexe_proposal_build_revoke_from_expert",
+  "dexe_proposal_build_change_validator_balances",
+  "dexe_proposal_build_change_validator_settings",
+  "dexe_proposal_build_monthly_withdraw",
+  "dexe_proposal_build_offchain_internal_proposal",
+  // ── off-chain proposals and the backend auth they need
+  "dexe_auth_request_nonce",
+  "dexe_auth_login_request",
+  "dexe_auth_login",
+  "dexe_proposal_build_offchain_single_option",
+  "dexe_proposal_build_offchain_multi_option",
+  "dexe_proposal_build_offchain_for_against",
+  "dexe_proposal_build_offchain_settings",
+  "dexe_offchain_build_vote",
+  "dexe_offchain_build_cancel_vote",
+  // ── pre-checks that exist to serve a write
+  "dexe_merkle_build",
+  "dexe_merkle_proof",
+  "dexe_sim_calldata",
+  "dexe_sim_proposal",
+  "dexe_sim_buy",
+  // ── external Governor writes and their previews
+  "dexe_gov_build_propose",
+  "dexe_gov_build_vote_cast",
+  "dexe_gov_build_queue",
+  "dexe_gov_build_execute",
+  "dexe_gov_build_delegate",
+  "dexe_gov_build_cancel",
+  "dexe_gov_simulate_proposal",
+  "dexe_gov_decode_calldata",
+  "dexe_gov_hash_description",
+  "dexe_gov_hash_proposal",
+  // ── dev toolchain: shells out to git / npm / hardhat, reads local artifacts
+  "dexe_compile",
+  "dexe_test",
+  "dexe_coverage",
+  "dexe_lint",
+  "dexe_list_contracts",
+  "dexe_get_abi",
+  "dexe_get_methods",
+  "dexe_get_selectors",
+  "dexe_find_selector",
+  "dexe_get_natspec",
+  "dexe_get_source"
+];
+
+// dist/diag/writeChecks.js
 var WRITE_DOCTOR_TEXT = {
   description: "Read-only. Diagnoses env setup \u2014 the cause and the fix of an env-related failure: presence + reachability checks (RPC, Pinata, IPFS gateway DNS, subgraph, backend) as pass/warn/fail with remediation hints. Warnings are advisories \u2014 a healthy zero-config install always has some. `probePin` is the one write: one tiny IPFS pin.",
   probePin: "Probe pin to Pinata (added, then removed) \u2014 use when an IPFS upload fails with HTTP 403."
@@ -156085,6 +156360,7 @@ function writeDoctorChecks(opts = {}) {
     env: FULL_ENV_SURFACE,
     network: (timeoutMs) => [pinataJwtCheck(timeoutMs), pinataPinQuotaCheck(timeoutMs, opts.probePin === true)],
     config: (config2) => [
+      ...surfaceModeCheck(config2),
       ...signerModeChecks(config2),
       ...signerGuardConfigCheck(config2),
       ...signerNeedsRpcCheck(config2)
@@ -156102,7 +156378,7 @@ function writeDoctorChecks(opts = {}) {
 var WRITE_ENV_FILE_WORDING = {
   zeroConfig: "Reads still work zero-config; signing and IPFS uploads do not.",
   createOne: "Create one with `npx dexe-mcp init` (writes ~/.dexe-mcp/.env), or set DEXE_ENV_FILE to an absolute path, then restart Claude Code. Editing a .env at any other location \u2014 including a repo checkout the server is not launched from \u2014 has no effect.",
-  notRecorded: "Run `npx dexe-mcp doctor`, or call dexe_doctor inside Claude Code, to see what the server itself loaded."
+  notRecorded: "Run `npx dexe-mcp doctor`, or call dexe_write_doctor inside Claude Code, to see what the server itself loaded."
 };
 async function pinataJwtCheck(timeoutMs) {
   const jwt2 = process.env.DEXE_PINATA_JWT?.trim();
@@ -156142,7 +156418,7 @@ async function pinataJwtCheck(timeoutMs) {
     // A `remediation` on a PASS row is printed by both renderers but is kept out
     // of `remediationSummary`, so it informs without flagging anything broken.
     // It carries the F3 pointer that the (now opt-in) pin probe used to carry.
-    remediation: "If an IPFS upload later fails with HTTP 403 while this row is green, the account is pin-blocked (usually the free-plan usage limit). Confirm with `npx dexe-mcp doctor --probe-pin` (or dexe_doctor {probePin:true}), then free up pins / upgrade at app.pinata.cloud, or rotate DEXE_PINATA_JWT."
+    remediation: "If an IPFS upload later fails with HTTP 403 while this row is green, the account is pin-blocked (usually the free-plan usage limit). Confirm with `npx dexe-mcp doctor --probe-pin` (or dexe_write_doctor {probePin:true}), then free up pins / upgrade at app.pinata.cloud, or rotate DEXE_PINATA_JWT."
   };
 }
 async function pinataPinQuotaCheck(timeoutMs, enabled) {
@@ -156187,6 +156463,24 @@ async function pinataPinQuotaCheck(timeoutMs, enabled) {
     status: "pass",
     message: "pin capability verified \u2014 this wrote one tiny pin (dexe-mcp-doctor-probe) to your Pinata account" + (unpinned ? " and removed it again." : "; removing it failed (a pinning-only JWT cannot unpin) \u2014 delete it at app.pinata.cloud if you care.")
   };
+}
+function surfaceModeCheck(config2) {
+  if (!config2)
+    return [];
+  return [
+    config2.writeStandalone ? {
+      id: "surface.mode",
+      category: "core",
+      status: "pass",
+      message: `standalone (DEXE_WRITE_STANDALONE=1) \u2014 this server registers the ${READ_TOOLS2.length} read tools next to the ${WRITE_TOOLS.length} write tools; no read server is needed beside it`
+    } : {
+      id: "surface.mode",
+      category: "core",
+      status: "pass",
+      message: `write-only \u2014 the ${WRITE_TOOLS.length} write tools; the ${READ_TOOLS2.length} read tools come from the DeXe read server (dexe-mcp-read): dexe_context, dexe_guide, dexe_doctor, dexe_dao_info, dexe_read_* (read server)`,
+      remediation: "Install the read server next to this one (the Claude Code plugin ships both; otherwise add `npx -y -p @dexe-network/dexe-mcp dexe-mcp-read` to the MCP host config), or set DEXE_WRITE_STANDALONE=1 to register the read tools here too. Restart the MCP host after either."
+    }
+  ];
 }
 function signerModeChecks(config2, env = process.env) {
   if (!config2?.signerMode)
@@ -156799,7 +157093,7 @@ async function probeDeployCost(rpc, chainId, payer) {
 }
 function registerDaoCreateTools(server, ctx, signer, wc, state) {
   const rpc = new RpcProvider(ctx.config);
-  server.tool("dexe_dao_create", "Broadcasts when a signer is configured. Deploys a new DeXe DAO in ONE call. SIMPLE mode (recommended): pass `symbol` + `totalSupply` and the tool synthesizes a coherent, frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a quorum that passes on realistic turnout). ADVANCED mode: pass a full `params` struct. Returns a `preview` of the resolved config + a safety proof and broadcasts only with `confirm: true`. Runs the frontend's governance coherence guards over ALL FIVE settings slots (default / internal / validators / distribution / tokenSale) \u2014 one un-passable slot bricks that whole proposal class forever \u2014 plus a calldata round-trip self-check and a pre-sign eth_call: a provable revert is refused with a classified cause + fix BEFORE any gas is spent, while an RPC outage only downgrades to a warning. Mainnet (56) always needs `confirm: true` (real BNB); validate on testnet (97) first. `deployer` defaults to the signer. Unsure of the journey or params? Call dexe_guide (flow:'create_dao').", {
+  server.tool("dexe_dao_create", "Broadcasts when a signer is configured. Deploys a new DeXe DAO in ONE call. SIMPLE mode (recommended): pass `symbol` + `totalSupply` and the tool synthesizes a coherent, frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a quorum that passes on realistic turnout). ADVANCED mode: pass a full `params` struct. Returns a `preview` of the resolved config + a safety proof and broadcasts only with `confirm: true`. Runs the frontend's governance coherence guards over ALL FIVE settings slots (default / internal / validators / distribution / tokenSale) \u2014 one un-passable slot bricks that whole proposal class forever \u2014 plus a calldata round-trip self-check and a pre-sign eth_call: a provable revert is refused with a classified cause + fix BEFORE any gas is spent, while an RPC outage only downgrades to a warning. Mainnet (56) always needs `confirm: true` (real BNB); validate on testnet (97) first. `deployer` defaults to the signer. Unsure of the journey or params? Call dexe_write_guide (flow:'create_dao').", {
     chainId: external_exports.number().int().positive().optional().describe("Target chain id. Defaults to the MCP's default chain. Use 97 (BSC testnet) to validate; 56 = BSC mainnet (real funds)."),
     poolFactory: external_exports.string().optional().describe("PoolFactory override; defaults to ContractsRegistry lookup"),
     deployer: external_exports.string().optional().describe("tx.origin that sends the deploy (needed for address prediction). Defaults to the signer address."),
@@ -157181,7 +157475,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
             await new Promise((r2) => setTimeout(r2, 3e3));
           }
           if (readiness && !readiness.govPoolLive) {
-            readiness.note = "code not visible yet on the RPC endpoint \u2014 on load-balanced public RPCs this is usually read-lag, not a failed deploy (the deploy tx DID land). Re-check in ~30s with dexe_dao_info.";
+            readiness.note = "code not visible yet on the RPC endpoint \u2014 on load-balanced public RPCs this is usually read-lag, not a failed deploy (the deploy tx DID land). Re-check in ~30s with dexe_dao_info (read server).";
           }
         }
       } catch {
@@ -157291,6 +157585,8 @@ async function keyringReport(config2, signer, rpc, includeBalances) {
     hint
   };
 }
+var RECORDED_DAO_WINDOW = 8;
+var RECORDED_PROPOSAL_WINDOW = 5;
 var SIGNER_NEXT = {
   walletconnect: "Writes sign on a phone over WalletConnect: dexe_wc_status says whether a wallet is paired, dexe_wc_connect shows the pairing QR.",
   keystore: "Writes sign with the encrypted keystore: each batch returns `awaiting_approval` until the owner approves it with their password on the local page - never ask for the password; tell them to approve, then re-run the same call.",
@@ -157299,10 +157595,12 @@ var SIGNER_NEXT = {
 };
 function registerWriteContextTool(server, config2, signer, state) {
   const rpc = new RpcProvider(config2);
-  server.tool("dexe_write_context", "Read-only. Write posture for this session \u2014 the signer mode + address (WalletConnect, keystore, hot key or none), the agent KEYRING (signerKey, address, gas, 24h broadcasts per persona), Pinata / WalletConnect / Safe readiness, the signer's deposited power in the newest recorded DAO, and a write journey a prior session left unfinished. Chains, env readiness and recorded DAOs are dexe_context.", {
+  server.tool("dexe_write_context", "Read-only. Write posture for this session \u2014 the signer mode + address (WalletConnect, keystore, hot key or none), the agent KEYRING (signerKey, address, gas, 24h broadcasts per persona), Pinata / WalletConnect / Safe readiness, the signer's deposited power in the newest recorded DAO, and a write journey a prior session left unfinished, plus the DAOs and proposals this install recorded. Chains and env readiness: dexe_context (read server).", {
     includeDepositedPower: external_exports.boolean().default(true).describe("Read the signer's deposited power in the newest recorded DAO (one extra RPC call)."),
-    includeAgentBalances: external_exports.boolean().default(true).describe("Probe each persona's native balance (one eth_getBalance per signer, default chain).")
-  }, async ({ includeDepositedPower = true, includeAgentBalances = true }) => {
+    includeAgentBalances: external_exports.boolean().default(true).describe("Probe each persona's native balance (one eth_getBalance per signer, default chain)."),
+    daoLimit: external_exports.number().int().min(0).max(50).default(RECORDED_DAO_WINDOW).describe("Recorded DAOs to return, newest first."),
+    proposalLimit: external_exports.number().int().min(0).max(50).default(RECORDED_PROPOSAL_WINDOW).describe("Recorded proposals to return, newest first.")
+  }, async ({ includeDepositedPower = true, includeAgentBalances = true, daoLimit = RECORDED_DAO_WINDOW, proposalLimit = RECORDED_PROPOSAL_WINDOW }) => {
     const st3 = state.getState();
     const safeServiceUrl = process.env.DEXE_SAFE_TX_SERVICE_URL?.trim() || void 0;
     const posture = signerPosture(signer, safeServiceUrl);
@@ -157319,7 +157617,7 @@ function registerWriteContextTool(server, config2, signer, state) {
     }
     const keyring = await keyringReport(config2, signer, rpc, includeAgentBalances);
     const pinataConfigured = !!config2.pinataJwt;
-    const hint = (st3.activeFlow ? `Mid-journey: flow '${st3.activeFlow.flow}' last completed step '${st3.activeFlow.step}' on chain ${st3.activeFlow.chainId} \u2014 call dexe_guide {flow:"${st3.activeFlow.flow}"} to resume. ` : "") + SIGNER_NEXT[mode] + (posture.dispatch === "safe" ? " A Safe Transaction Service is configured: dexe_safe_propose_tx queues a transaction for the Safe owners." : "") + (pinataConfigured ? "" : " DEXE_PINATA_JWT is unset: DAO and proposal creation can preview (dryRun) but cannot broadcast, because broadcasting pins the metadata to IPFS.") + (st3.knownDaos.length === 0 ? " No DAOs recorded yet \u2014 deploy one with dexe_dao_create (rehearse on testnet chain 97)." : "");
+    const hint = (st3.activeFlow ? `Mid-journey: flow '${st3.activeFlow.flow}' last completed step '${st3.activeFlow.step}' on chain ${st3.activeFlow.chainId} \u2014 call dexe_write_guide {flow:"${st3.activeFlow.flow}"} to resume. ` : "") + SIGNER_NEXT[mode] + (posture.dispatch === "safe" ? " A Safe Transaction Service is configured: dexe_safe_propose_tx queues a transaction for the Safe owners." : "") + (pinataConfigured ? "" : " DEXE_PINATA_JWT is unset: DAO and proposal creation can preview (dryRun) but cannot broadcast, because broadcasting pins the metadata to IPFS.") + (st3.knownDaos.length === 0 ? " No DAOs recorded yet \u2014 deploy one with dexe_dao_create (rehearse on testnet chain 97)." : "");
     const approvals = signer.approvals;
     const result = {
       signer: {
@@ -157350,6 +157648,15 @@ function registerWriteContextTool(server, config2, signer, state) {
       },
       ipfsUploads: { pinataConfigured },
       lastDaoPower,
+      // What this install's write flows recorded (state.json). The read
+      // server keeps no state, so on the default two-server setup this is
+      // the only place a later session finds them. Windowed; *Total = real counts.
+      recorded: {
+        knownDaos: st3.knownDaos.slice(0, daoLimit),
+        knownDaosTotal: st3.knownDaos.length,
+        recentProposals: st3.recentProposals.slice(0, proposalLimit),
+        recentProposalsTotal: st3.recentProposals.length
+      },
       ...st3.activeFlow ? { activeFlow: st3.activeFlow } : {},
       hint
     };
@@ -157462,7 +157769,7 @@ var WRITE_GOTCHAS = [
     // bug_state_names_enum.md
     id: "state-enum",
     severity: "warn",
-    text: "Canonical ProposalState order: 0 Voting, 1 WaitingForVotingTransfer, 2 ValidatorVoting, 3 Defeated, 4 SucceededFor, 5 SucceededAgainst, 6 Locked, 7 ExecutedFor, 8 ExecutedAgainst, 9 Undefined. Execute is only valid from SucceededFor/SucceededAgainst; use dexe_proposal_state to check, never guess from the number.",
+    text: "Canonical ProposalState order: 0 Voting, 1 WaitingForVotingTransfer, 2 ValidatorVoting, 3 Defeated, 4 SucceededFor, 5 SucceededAgainst, 6 Locked, 7 ExecutedFor, 8 ExecutedAgainst, 9 Undefined. Execute is only valid from SucceededFor/SucceededAgainst; use dexe_proposal_state (read server) to check, never guess from the number.",
     applies: { flows: ["vote_execute"], tools: ["dexe_proposal_state"] }
   },
   {
@@ -157540,7 +157847,7 @@ var WRITE_GOTCHAS = [
     // swallows "GPC: Current credit permission < amount to withdraw".
     id: "monthly-withdraw-credit",
     severity: "danger",
-    text: "An internal monthly_withdraw draws from the validators' CREDIT LINE (GovPool.setCreditInfo), not directly from the treasury. Unfunded/insufficient line \u2192 execute reverts 'Validators: failed to execute' (the real cause is swallowed by a low-level call \u2014 this was mis-filed as SphereX finding F14). Fund it FIRST with an external validators_allocation proposal ({credits:[{token, amount}]}); dexe_read_validators shows the current lines and dexe_proposal_create refuses an uncovered monthly_withdraw up-front.",
+    text: "An internal monthly_withdraw draws from the validators' CREDIT LINE (GovPool.setCreditInfo), not directly from the treasury. Unfunded/insufficient line \u2192 execute reverts 'Validators: failed to execute' (the real cause is swallowed by a low-level call \u2014 this was mis-filed as SphereX finding F14). Fund it FIRST with an external validators_allocation proposal ({credits:[{token, amount}]}); dexe_read_validators (read server) shows the current lines and dexe_proposal_create refuses an uncovered monthly_withdraw up-front.",
     applies: { proposalTypes: ["monthly_withdraw", "validators_allocation"], tools: ["dexe_read_validators"] }
   },
   {
@@ -157583,7 +157890,7 @@ var WRITE_GOTCHAS = [
     // swarm S01 (MEMORY-ONLY promotion)
     id: "delegation-one-level",
     severity: "info",
-    text: "Delegation is ONE level: a delegator delegates only their OWN deposited balance; received delegations cannot be re-delegated (hub-and-spoke, never chains). Effective voting power = own deposited + incoming delegations \u2014 verify with dexe_vote_user_power (totalBalance).",
+    text: "Delegation is ONE level: a delegator delegates only their OWN deposited balance; received delegations cannot be re-delegated (hub-and-spoke, no chains). Effective voting power = own deposited + incoming delegations \u2014 verify with dexe_vote_user_power (read server; totalBalance).",
     applies: { flows: ["vote_execute"], tools: ["dexe_vote_build_delegate", "dexe_vote_user_power"] }
   },
   // ── OTC / token sale ──────────────────────────────────────────────────────
@@ -157706,11 +158013,18 @@ var WRITE_CORPUS = {
 };
 
 // dist/tools/guideWrite.js
+var WRITE_GUIDE_TOOL = "dexe_write_guide";
 var FLOW_GUIDE_TEXT = {
   description: "Read-only, local. The plan for a multi-step or unfamiliar DeXe request \u2014 'create a DAO', 'launch a token with distribution/OTC/staking', 'open a sale', 'pass this proposal': the ordered steps (which tools, in what order, with what params), the questions to ask the user with per-parameter risk notes, and the known pitfalls for that journey. Reference topics answer data questions the same way (flow:\"read_dao_data\" covers the whole read surface). No args or a free-text `intent` returns the menu; `flow` returns the full plan.",
   intent: "The user's request in free text \u2014 matched against the flow triggers (e.g. 'create a token and sell 20% via OTC').",
   flow: "Exact flow or topic id. Takes precedence over `intent`; omit both for the menu.",
   multiMatchNote: (candidates) => `The request matches several flows (${candidates.join(", ")}). If it genuinely spans more than one (create + distribute + sale + staking), pick launch_token_economy; otherwise pick the single best fit.`
+};
+var WRITE_GUIDE_TEXT = {
+  description: "Read-only, local. The plan for a multi-step DeXe write request \u2014 'create a DAO', 'launch a token with distribution/OTC/staking', 'open a sale', 'pass this proposal', 'run an agent team': the ordered steps (which tools, in what order, with what params), the questions to ask the user with per-parameter risk notes, and the known pitfalls for that journey. A step whose tool another server provides says so (providedBy). No args or a free-text `intent` returns the menu; `flow` returns the full plan.",
+  intent: "The user's request in free text \u2014 matched against the flow triggers (e.g. 'create a token and sell 20% via OTC').",
+  flow: "Exact flow id. Takes precedence over `intent`; omit both for the menu.",
+  multiMatchNote: FLOW_GUIDE_TEXT.multiMatchNote
 };
 function activeFlowContext(st3) {
   const active = st3.activeFlow;
@@ -157722,9 +158036,60 @@ function activeFlowContext(st3) {
       ...active,
       progress: `${activeProgress.flowProgress.stepIndex} of ${activeProgress.flowProgress.of} (last completed: ${active.step})`,
       next: activeProgress.next,
-      hint: `A prior session left flow '${active.flow}' mid-journey. Confirm with the user, then continue from the 'next' pointer (or call dexe_guide {flow:"${active.flow}"} for the full plan).`
+      hint: `A prior session left flow '${active.flow}' mid-journey. Confirm with the user, then continue from the 'next' pointer (or call ${WRITE_GUIDE_TOOL} {flow:"${active.flow}"} for the full plan).`
     }
   };
+}
+function registerWriteGuideTool(server, config2, state, knowledge) {
+  const ids = knowledge.ids;
+  if (ids.length === 0)
+    throw new Error(`${WRITE_GUIDE_TOOL}: the knowledge corpus is empty`);
+  const text5 = WRITE_GUIDE_TEXT;
+  server.registerTool(WRITE_GUIDE_TOOL, {
+    title: "Write flow plans and pitfalls",
+    description: text5.description,
+    inputSchema: {
+      intent: external_exports.string().optional().describe(text5.intent),
+      flow: external_exports.enum(ids).optional().describe(text5.flow),
+      chainId: external_exports.number().int().optional().describe("Target chain (56 mainnet / 97 testnet). Defaults to the last-used, then the configured default chain.")
+    }
+  }, async ({ intent, flow: flow3, chainId }) => {
+    const st3 = state.getState();
+    const resolvedChainId = chainId ?? st3.lastChainId ?? config2.defaultChainId;
+    const lastDao = st3.knownDaos[0];
+    const context = {
+      chainId: resolvedChainId,
+      chainIdSource: chainId !== void 0 ? "argument" : st3.lastChainId !== void 0 ? "last-used" : "default",
+      ...lastDao ? {
+        knownDao: {
+          name: lastDao.name,
+          govPool: lastDao.govPool,
+          chainId: lastDao.chainId,
+          hint: "You already have this DAO from a prior session \u2014 confirm reuse with the user instead of asking for an address."
+        }
+      } : {},
+      ...activeFlowContext(st3)
+    };
+    const wanted = flow3 ?? (intent ? knowledge.bestMatch(intent) : null);
+    const detail = wanted ? knowledge.flowDetail(wanted, { chainId: resolvedChainId }) : null;
+    if (detail) {
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ mode: "flow-detail", context, ...detail }, null, 2) }
+        ]
+      };
+    }
+    const candidates = intent ? knowledge.matchIntent(intent).map((m3) => m3.flow) : [];
+    const index2 = {
+      mode: "flow-index",
+      ...flow3 ? { note: `Unknown flow '${flow3}'. Pick one of the ids below.` } : {},
+      ...intent && candidates.length > 1 ? { note: text5.multiMatchNote(candidates) } : {},
+      context,
+      flows: knowledge.flowIndex(),
+      next: `Call ${WRITE_GUIDE_TOOL} again with flow:"<id>" to get the full plan (interview questions, step order, gotchas). Reading DAO data (subgraph queries, reports) is not a write journey: dexe_guide (read server) has those reference topics.`
+    };
+    return { content: [{ type: "text", text: JSON.stringify(index2, null, 2) }] };
+  });
 }
 function registerKnowledgePrompts(server, corpus = WRITE_CORPUS) {
   for (const flow3 of corpus.flows) {
@@ -157732,146 +158097,12 @@ function registerKnowledgePrompts(server, corpus = WRITE_CORPUS) {
       messages: [
         {
           role: "user",
-          content: { type: "text", text: renderSkillRecipe(corpus, flow3.id) }
+          content: { type: "text", text: renderSkillRecipe(corpus, flow3.id, WRITE_GUIDE_TOOL) }
         }
       ]
     }));
   }
 }
-
-// dist/editions.js
-var WRITE_TOOLS = [
-  // ── composites that sign and broadcast
-  "dexe_proposal_create",
-  "dexe_proposal_vote_and_execute",
-  "dexe_dao_create",
-  "dexe_otc_dao_open_sale",
-  "dexe_otc_buyer_buy",
-  "dexe_otc_buyer_claim_all",
-  // the deploy calldata dexe_dao_create signs
-  "dexe_dao_build_deploy",
-  // ── signing, broadcast, wallets, personas
-  // signer mode, keyring, Pinata/WalletConnect/Safe posture, the unfinished flow
-  "dexe_write_context",
-  "dexe_tx_send",
-  // the write edition's resume rule depends on it, so it stays beside tx_send
-  "dexe_tx_status",
-  // keystore mode: read-only state of an owner approval (cannot approve)
-  "dexe_tx_approval_status",
-  "dexe_wc_status",
-  "dexe_wc_connect",
-  "dexe_wc_disconnect",
-  "dexe_agents_list",
-  "dexe_agents_fund",
-  "dexe_agents_ledger",
-  // reports whether the configured signer is an owner
-  "dexe_safe_info",
-  "dexe_safe_propose_tx",
-  // ── IPFS writes and the CID preview they share
-  "dexe_ipfs_upload_proposal_metadata",
-  "dexe_ipfs_upload_dao_metadata",
-  "dexe_ipfs_upload_file",
-  "dexe_ipfs_upload_avatar",
-  "dexe_ipfs_update_dao_metadata",
-  "dexe_dao_generate_avatar",
-  "dexe_ipfs_cid_for_json",
-  // ── vote / stake / claim calldata builders (src/tools/voteBuild.ts)
-  "dexe_vote_build_erc20_approve",
-  "dexe_vote_build_deposit",
-  "dexe_vote_build_withdraw",
-  "dexe_vote_build_delegate",
-  "dexe_vote_build_undelegate",
-  "dexe_vote_build_vote",
-  "dexe_vote_build_cancel_vote",
-  "dexe_vote_build_validator_vote",
-  "dexe_vote_build_validator_cancel_vote",
-  "dexe_vote_build_move_to_validators",
-  "dexe_vote_build_execute",
-  "dexe_vote_build_claim_rewards",
-  "dexe_vote_build_claim_micropool_rewards",
-  "dexe_vote_build_nft_multiplier_lock",
-  "dexe_vote_build_nft_multiplier_unlock",
-  "dexe_vote_build_token_sale_buy",
-  "dexe_vote_build_token_sale_claim",
-  "dexe_vote_build_token_sale_vesting_withdraw",
-  "dexe_vote_build_distribution_claim",
-  "dexe_vote_build_staking_stake",
-  "dexe_vote_build_staking_claim",
-  "dexe_vote_build_staking_claim_all",
-  "dexe_vote_build_staking_reclaim",
-  "dexe_vote_build_privacy_policy_sign",
-  "dexe_vote_build_privacy_policy_agree",
-  "dexe_vote_build_multicall",
-  // ── proposal builders and their catalog
-  "dexe_proposal_catalog",
-  "dexe_proposal_build_external",
-  "dexe_proposal_build_internal",
-  "dexe_proposal_build_custom_abi",
-  "dexe_proposal_build_offchain",
-  "dexe_proposal_build_token_transfer",
-  "dexe_proposal_build_token_distribution",
-  "dexe_proposal_build_token_sale",
-  "dexe_proposal_build_token_sale_multi",
-  "dexe_proposal_build_token_sale_whitelist",
-  "dexe_proposal_build_token_sale_recover",
-  "dexe_proposal_build_create_staking_tier",
-  "dexe_proposal_build_change_math_model",
-  "dexe_proposal_build_modify_dao_profile",
-  "dexe_proposal_build_blacklist",
-  "dexe_proposal_build_reward_multiplier",
-  "dexe_proposal_build_apply_to_dao",
-  "dexe_proposal_build_new_proposal_type",
-  "dexe_proposal_build_change_voting_settings",
-  "dexe_proposal_build_manage_validators",
-  "dexe_proposal_build_add_expert",
-  "dexe_proposal_build_remove_expert",
-  "dexe_proposal_build_withdraw_treasury",
-  "dexe_proposal_build_delegate_to_expert",
-  "dexe_proposal_build_revoke_from_expert",
-  "dexe_proposal_build_change_validator_balances",
-  "dexe_proposal_build_change_validator_settings",
-  "dexe_proposal_build_monthly_withdraw",
-  "dexe_proposal_build_offchain_internal_proposal",
-  // ── off-chain proposals and the backend auth they need
-  "dexe_auth_request_nonce",
-  "dexe_auth_login_request",
-  "dexe_auth_login",
-  "dexe_proposal_build_offchain_single_option",
-  "dexe_proposal_build_offchain_multi_option",
-  "dexe_proposal_build_offchain_for_against",
-  "dexe_proposal_build_offchain_settings",
-  "dexe_offchain_build_vote",
-  "dexe_offchain_build_cancel_vote",
-  // ── pre-checks that exist to serve a write
-  "dexe_merkle_build",
-  "dexe_merkle_proof",
-  "dexe_sim_calldata",
-  "dexe_sim_proposal",
-  "dexe_sim_buy",
-  // ── external Governor writes and their previews
-  "dexe_gov_build_propose",
-  "dexe_gov_build_vote_cast",
-  "dexe_gov_build_queue",
-  "dexe_gov_build_execute",
-  "dexe_gov_build_delegate",
-  "dexe_gov_build_cancel",
-  "dexe_gov_simulate_proposal",
-  "dexe_gov_decode_calldata",
-  "dexe_gov_hash_description",
-  "dexe_gov_hash_proposal",
-  // ── dev toolchain: shells out to git / npm / hardhat, reads local artifacts
-  "dexe_compile",
-  "dexe_test",
-  "dexe_coverage",
-  "dexe_lint",
-  "dexe_list_contracts",
-  "dexe_get_abi",
-  "dexe_get_methods",
-  "dexe_get_selectors",
-  "dexe_find_selector",
-  "dexe_get_natspec",
-  "dexe_get_source"
-];
 
 // dist/tools/aliases.js
 var DEPRECATED_ALIASES = {
@@ -157931,6 +158162,11 @@ var CORE = [
   // signer, keyring and upload/WalletConnect/Safe posture — the write half of
   // what dexe_context and dexe_get_config reported before 0.36.0
   "dexe_write_context",
+  // the write journeys and the write checks (1.0.0): the write-only server's
+  // guide and doctor, which the standalone server registers next to
+  // dexe_guide / dexe_doctor so write text can always name them
+  "dexe_write_guide",
+  "dexe_write_doctor",
   // composite signing flows
   "dexe_proposal_create",
   "dexe_proposal_vote_and_execute",
@@ -158228,12 +158464,73 @@ var SINGLE_SERVER_TOOLSETS = {
   aliases: DEPRECATED_ALIASES
 };
 var WRITE_EDITION_TOOLSETS = restrictToolsetTable(SINGLE_SERVER_TOOLSETS, WRITE_TOOLS);
-function defaultProfileToolNames() {
-  return defaultToolNames(SINGLE_SERVER_TOOLSETS);
+function serverToolsets(config2) {
+  return config2.writeStandalone ? SINGLE_SERVER_TOOLSETS : WRITE_EDITION_TOOLSETS;
+}
+function defaultProfileToolNames(table = SINGLE_SERVER_TOOLSETS) {
+  return defaultToolNames(table);
 }
 var FULL_SURFACE_SIZE = tableSurface(SINGLE_SERVER_TOOLSETS).size;
 function applyToolGate(server, config2) {
-  return applyToolsetGate(server, config2, SINGLE_SERVER_TOOLSETS);
+  const gated = applyToolsetGate(server, config2, serverToolsets(config2));
+  return config2.writeStandalone ? gated : restrictRegistrations(gated, new Set(WRITE_TOOLS));
+}
+function restrictRegistrations(server, allow) {
+  return new Proxy(server, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if ((prop === "registerTool" || prop === "tool") && typeof value === "function") {
+        const fn = value;
+        return (name2, ...rest) => typeof name2 === "string" && !allow.has(name2) ? void 0 : fn.call(target, name2, ...rest);
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
+
+// dist/tools/readServerMarks.js
+var READ_NAMES = [...READ_TOOLS2].sort((a3, b7) => b7.length - a3.length);
+var MARK_RE = READ_SERVER_MARK.replace(/[()]/g, "\\$&");
+var UNMARKED = new RegExp(`\\b(${READ_NAMES.join("|")})\\b(?![\\w*])(?!\`?\\s*${MARK_RE})(\`?)`, "g");
+function markReadTools(text5) {
+  return text5.replace(UNMARKED, (_m, name2, tick) => `${name2}${tick} ${READ_SERVER_MARK}`);
+}
+function markSchema(node3) {
+  if (Array.isArray(node3))
+    return node3.map(markSchema);
+  if (!node3 || typeof node3 !== "object")
+    return node3;
+  const out2 = {};
+  for (const [k5, v7] of Object.entries(node3)) {
+    out2[k5] = k5 === "description" && typeof v7 === "string" ? markReadTools(v7) : markSchema(v7);
+  }
+  return out2;
+}
+function installReadServerMarks(server) {
+  const low = server.server;
+  if (!low || typeof low.setRequestHandler !== "function")
+    return;
+  const original = low.setRequestHandler.bind(low);
+  low.setRequestHandler = (schema, handler) => {
+    const method = typeof schema === "string" ? schema : schema?.shape?.method?.value;
+    if (method !== "tools/list" || typeof handler !== "function")
+      return original(schema, handler);
+    const wrapped = async (...args) => {
+      const res = await handler(...args);
+      if (!res || !Array.isArray(res.tools))
+        return res;
+      return {
+        ...res,
+        tools: res.tools.map((t2) => ({
+          ...t2,
+          ...typeof t2.description === "string" ? { description: markReadTools(t2.description) } : {},
+          ...t2.inputSchema !== void 0 ? { inputSchema: markSchema(t2.inputSchema) } : {},
+          ...t2.outputSchema !== void 0 ? { outputSchema: markSchema(t2.outputSchema) } : {}
+        }))
+      };
+    };
+    return original(schema, wrapped);
+  };
 }
 
 // dist/knowledge/index.js
@@ -158242,6 +158539,27 @@ var SINGLE_SERVER_CORPUS = {
   topics: READ_CORPUS.topics
 };
 var SINGLE_SERVER_KNOWLEDGE = createKnowledge(SINGLE_SERVER_CORPUS, createToolLocator({ toolsets: TOOLSETS, defaultTools: defaultProfileToolNames() }));
+var WRITE_ONLY_LOCATOR = createToolLocator({
+  toolsets: WRITE_EDITION_TOOLSETS.sets,
+  defaultTools: defaultToolNames(WRITE_EDITION_TOOLSETS),
+  elsewhere: { tools: new Set(READ_TOOLS2), providedBy: READ_SERVER_LABEL }
+});
+var WRITE_ONLY_CORPUS = {
+  ...WRITE_CORPUS,
+  gotchas: WRITE_CORPUS.gotchas.map((g3) => ({ ...g3, text: markReadTools(g3.text) }))
+};
+var WRITE_ONLY_GUIDE_KNOWLEDGE = createKnowledge(WRITE_ONLY_CORPUS, WRITE_ONLY_LOCATOR);
+var STANDALONE_LOCATOR = createToolLocator({
+  toolsets: TOOLSETS,
+  defaultTools: defaultProfileToolNames()
+});
+var STANDALONE_GUIDE_KNOWLEDGE = createKnowledge(WRITE_CORPUS, STANDALONE_LOCATOR);
+function writeToolLocator(config2) {
+  return config2.writeStandalone ? STANDALONE_LOCATOR : WRITE_ONLY_LOCATOR;
+}
+function writeGuideKnowledge(config2) {
+  return config2.writeStandalone ? STANDALONE_GUIDE_KNOWLEDGE : WRITE_ONLY_GUIDE_KNOWLEDGE;
+}
 var K = SINGLE_SERVER_KNOWLEDGE;
 var flowIndex = K.flowIndex;
 var topicIndex = K.topicIndex;
@@ -158255,6 +158573,293 @@ var TOPICS = SINGLE_SERVER_CORPUS.topics;
 var TOPIC_BY_ID = K.topicById;
 var GOTCHAS = SINGLE_SERVER_CORPUS.gotchas;
 var GOTCHA_BY_ID = K.gotchaById;
+
+// dist/diag/writeDoctor.js
+import { accessSync as accessSync2, constants as constants5, existsSync as existsSync16 } from "node:fs";
+import { dirname as dirname7 } from "node:path";
+
+// dist/env/loadRecord.js
+var record2 = null;
+function recordEnvLoad(next) {
+  record2 = { candidates: [...next.candidates], reports: [...next.reports] };
+}
+function envLoadRecord() {
+  return record2;
+}
+
+// dist/diag/writeDoctor.js
+var WRITE_DOCTOR_TOOL = "dexe_write_doctor";
+var WRITE_DOCTOR_DESCRIPTION = "Read-only. Diagnoses the write setup \u2014 the cause and the fix of a signing, upload or env failure: signer mode, keystore and approval page, hot keys, broadcast guards, keyring, Pinata JWT, WalletConnect project id, the .env file this server loaded and the values it rejected, and whether it registers the read tools (DEXE_WRITE_STANDALONE) \u2014 pass/warn/fail rows with remediation. RPC, subgraph, backend and IPFS gateway reachability is the read server's doctor. `probePin` is the one write: one tiny IPFS pin.";
+var PROBE_PIN_DESCRIPTION = "Probe pin to Pinata (added, then removed) \u2014 use when an IPFS upload fails with HTTP 403.";
+async function writeDoctorRows(config2, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? 3e3;
+  const record3 = opts.envRecord === void 0 ? envLoadRecord() : opts.envRecord;
+  const rows2 = [];
+  rows2.push(...surfaceModeCheck(config2));
+  rows2.push(...startupRows(config2, record3));
+  rows2.push(...envFileRows(record3));
+  rows2.push(...presenceRows());
+  rows2.push(...await pinataRows(timeoutMs, opts.probePin === true));
+  rows2.push(...signerModeChecks(config2));
+  rows2.push(...signerGuardConfigCheck(config2));
+  rows2.push(...signerNeedsRpcCheck(config2));
+  rows2.push(...walletConnectRows(config2));
+  rows2.push(...stateRows(config2));
+  return rows2;
+}
+function startupRows(config2, record3) {
+  if (config2.startupIssues.length === 0) {
+    return [
+      { id: "startup.config", category: "process", status: "pass", message: "every env value parsed \u2014 nothing was rejected at startup" }
+    ];
+  }
+  const where = winningReport2(record3)?.envFilePath ?? "your .env";
+  return config2.startupIssues.map((issue2) => ({
+    id: `startup.${issue2.key}`,
+    category: specEntry(issue2.key)?.category ?? "process",
+    status: "fail",
+    message: `${issue2.message} The server did NOT exit: ${issue2.fallback}.`,
+    remediation: `Correct ${issue2.key} in ${where}, then restart the MCP host \u2014 env is read once, at startup.`
+  }));
+}
+function specEntry(key) {
+  return Object.prototype.hasOwnProperty.call(ENV_SPEC, key) ? ENV_SPEC[key] : void 0;
+}
+function winningReport2(record3) {
+  const existing = record3?.reports.filter((r2) => r2.envFileExists) ?? [];
+  return existing.find((r2) => r2.envFileLoaded) ?? existing[0];
+}
+function summarizeKeys2(keys, max = 12) {
+  return keys.length <= max ? keys.join(", ") : `${keys.slice(0, max).join(", ")} +${keys.length - max} more`;
+}
+function envFileRows(record3) {
+  const wording = WRITE_ENV_FILE_WORDING;
+  if (!record3 || record3.candidates.length === 0 && record3.reports.length === 0) {
+    return [
+      {
+        id: "env.file",
+        category: "process",
+        status: "warn",
+        message: ".env resolution was not recorded \u2014 this server did not start through its own entry point.",
+        remediation: wording.notRecorded
+      }
+    ];
+  }
+  const out2 = [];
+  const winner = winningReport2(record3);
+  const last = record3.reports[record3.reports.length - 1];
+  if (!winner) {
+    const hostKeys = last?.preExistingVars ?? [];
+    out2.push({
+      id: "env.file",
+      category: "process",
+      status: "warn",
+      message: `no .env file exists \u2014 tried, in order: ${record3.candidates.join(" \u2192 ")}. ` + (hostKeys.length ? `Every DEXE_* value comes from the MCP host env block instead (${summarizeKeys2(hostKeys)}).` : wording.zeroConfig),
+      remediation: wording.createOne
+    });
+  } else {
+    out2.push({
+      id: "env.file",
+      category: "process",
+      status: "pass",
+      message: `loaded ${winner.envFilePath} \u2014 ${winner.keysApplied.length} key(s) applied` + (winner.keysApplied.length ? `: ${summarizeKeys2(winner.keysApplied)}` : "") + ` (Node ${winner.loadedNodeVersion})`,
+      remediation: `Edit THIS file for env changes: ${winner.envFilePath}. Restart the MCP host afterwards.`
+    });
+    const alsoPresent = record3.reports.filter((r2) => r2.envFileExists && r2 !== winner);
+    if (alsoPresent.length) {
+      out2.push({
+        id: "env.file.precedence",
+        category: "process",
+        status: "warn",
+        message: `${alsoPresent.length} lower-precedence .env file(s) also exist and lost: ${alsoPresent.map((r2) => r2.envFilePath).join(", ")}. Keys already set by ${winner.envFilePath} are ignored in them.`,
+        remediation: `Keep one file. Edit ${winner.envFilePath}, or delete/rename the others, then restart the MCP host.`
+      });
+    }
+    if (winner.keysShadowed.length) {
+      out2.push({
+        id: "env.shadowedKeys",
+        category: "process",
+        status: "warn",
+        message: `${winner.keysShadowed.length} key(s) in ${winner.envFilePath} were SHADOWED by values already in the environment: ${summarizeKeys2(winner.keysShadowed)}. process.loadEnvFile does not override pre-set keys, so editing them in that file changes nothing.`,
+        remediation: "Remove those keys from the MCP host `env` block (the `env` object in .claude.json / your MCP client config) \u2014 or change their values there instead \u2014 then restart the MCP host."
+      });
+    }
+  }
+  record3.reports.filter((r2) => r2.envFileExists).forEach((r2, i3) => {
+    for (const issue2 of r2.parseIssues) {
+      out2.push({
+        id: i3 === 0 ? `env.parse.${issue2.trap}` : `env.parse.${issue2.trap}.${i3}`,
+        category: "process",
+        status: issue2.severity,
+        message: issue2.message,
+        remediation: issue2.remediation
+      });
+    }
+  });
+  if (last?.unknownDexeVars.length) {
+    out2.push({
+      id: "env.unknownVars",
+      category: "process",
+      status: "warn",
+      message: `unrecognized DEXE_* var(s): ${summarizeKeys2(last.unknownDexeVars)} \u2014 nothing reads them (a typo silently disables the feature you set it for).`,
+      remediation: `Check the spelling against docs/ENVIRONMENT.md, fix or delete the line in ${winner?.envFilePath ?? "your .env"}, then restart the MCP host.`
+    });
+  }
+  return out2;
+}
+function presenceRows() {
+  const out2 = [];
+  const entries = { ...ENV_SPEC_WRITE, ...ENV_SPEC_DEV };
+  for (const [k5, v7] of Object.entries(entries)) {
+    const raw = process.env[k5];
+    const set2 = !!raw?.trim();
+    if (set2) {
+      const parsed = v7.schema.safeParse(raw);
+      out2.push(parsed.success ? { id: `env.${k5}`, category: v7.category, status: "pass", message: v7.secret ? "set (redacted)" : "set" } : {
+        id: `env.${k5}`,
+        category: v7.category,
+        status: "fail",
+        message: parsed.error.issues[0]?.message ?? "invalid value",
+        remediation: `Fix ${k5} in .env. ${v7.doc}`
+      });
+    } else if (v7.required) {
+      out2.push({
+        id: `env.${k5}`,
+        category: v7.category,
+        status: "fail",
+        message: "not set (required)",
+        remediation: `Add ${k5}=${v7.example} to .env. ${v7.doc}`
+      });
+    }
+  }
+  return out2;
+}
+async function pinataRows(timeoutMs, probePin) {
+  const budgetMs = timeoutMs * 4;
+  let timer;
+  const deadline = new Promise((done) => {
+    timer = setTimeout(() => done("timeout"), budgetMs);
+  });
+  try {
+    const result = await Promise.race([
+      Promise.all([pinataJwtCheck(timeoutMs), pinataPinQuotaCheck(timeoutMs, probePin)]),
+      deadline
+    ]);
+    if (result === "timeout") {
+      return [
+        {
+          id: "network.probes",
+          category: "network",
+          status: "warn",
+          message: `the Pinata probes exceeded the ${budgetMs}ms budget and were abandoned.`,
+          remediation: "Usually DNS or a proxy. Retry; uploads fail the same way until api.pinata.cloud answers."
+        }
+      ];
+    }
+    return result.filter((r2) => r2 !== null);
+  } finally {
+    if (timer)
+      clearTimeout(timer);
+  }
+}
+function walletConnectRows(config2) {
+  if (config2.walletConnectProjectId !== DEFAULTS2.walletConnectProjectId)
+    return [];
+  return [
+    {
+      id: "walletconnect.sharedProjectId",
+      category: "walletconnect",
+      status: "warn",
+      message: "WalletConnect pairs through the shared public project id shipped with the package. Fine for light use; rate-limited and shared.",
+      remediation: "For production / heavy use set your own DEXE_WALLETCONNECT_PROJECT_ID (free at cloud.reown.com). See docs/ENVIRONMENT.md."
+    }
+  ];
+}
+function stateRows(config2) {
+  const p4 = config2.statePath;
+  let probe = dirname7(p4);
+  while (!existsSync16(probe) && dirname7(probe) !== probe)
+    probe = dirname7(probe);
+  try {
+    accessSync2(probe, constants5.W_OK);
+    return [{ id: "state.path", category: "process", status: "pass", message: `writable (${p4})` }];
+  } catch {
+    return [
+      {
+        id: "state.path",
+        category: "process",
+        status: "warn",
+        message: `persistent-state path may not be writable: ${p4}`,
+        remediation: "Set DEXE_STATE_PATH to a writable location. Without it, the DAOs and proposals the write flows create are not recorded across sessions (dexe_write_context, resume) \u2014 the tools still work."
+      }
+    ];
+  }
+}
+function tally2(rows2) {
+  const passed = rows2.filter((r2) => r2.status === "pass").length;
+  const warnings = rows2.filter((r2) => r2.status === "warn").length;
+  const failures = rows2.filter((r2) => r2.status === "fail").length;
+  return {
+    passed,
+    warnings,
+    failures,
+    status: failures > 0 ? "fail" : warnings > 0 ? "warn" : "pass",
+    advisoryOnly: failures === 0 && warnings > 0
+  };
+}
+function registerWriteDoctorTool(server, config2, opts) {
+  server.registerTool(WRITE_DOCTOR_TOOL, {
+    title: "Diagnose the write setup",
+    description: WRITE_DOCTOR_DESCRIPTION,
+    inputSchema: { probePin: external_exports.boolean().optional().describe(PROBE_PIN_DESCRIPTION) }
+  }, async ({ probePin }) => {
+    const checks = await writeDoctorRows(config2, { probePin: probePin === true });
+    const summary = tally2(checks);
+    const remediationSummary = checks.filter((c4) => c4.status !== "pass" && c4.remediation).map((c4) => `${c4.id}: ${c4.remediation.split("\n")[0]}`);
+    const table = opts.toolsets;
+    const resolved = resolveToolsetsIn(table, config2.toolsets ?? [...table.defaults]);
+    const toolsets = {
+      requested: resolved.requested,
+      mode: resolved.full ? "full" : "filtered",
+      loadedToolCount: resolved.full ? null : resolved.names.size,
+      availableSets: [...Object.keys(table.sets), "full"],
+      ...resolved.unknown.length ? { unknownSets: resolved.unknown } : {}
+    };
+    const startupTime = new Date(Date.now() - process.uptime() * 1e3).toISOString();
+    const structured = {
+      summary,
+      checks,
+      remediationSummary,
+      startupTime,
+      surface: config2.writeStandalone ? "standalone" : "write-only",
+      toolsets
+    };
+    return {
+      content: [{ type: "text", text: renderText2(structured) }],
+      structuredContent: structured
+    };
+  });
+}
+function renderText2(r2) {
+  const lines = [];
+  lines.push(r2.summary.advisoryOnly ? `dexe-mcp write doctor \u2014 OK, no failures: ${r2.summary.passed} pass / ${r2.summary.warnings} advisory warning(s) / 0 fail.` : `dexe-mcp write doctor \u2014 ${r2.summary.status.toUpperCase()}: ${r2.summary.passed} pass / ${r2.summary.warnings} warn / ${r2.summary.failures} fail`);
+  lines.push(`server started ${r2.startupTime}. If you just edited .env, restart the MCP host so the new values load.`);
+  lines.push(r2.toolsets.mode === "full" ? `toolsets: full \u2014 all tools loaded${r2.toolsets.unknownSets?.length ? ` (unknown set(s): ${r2.toolsets.unknownSets.join(", ")})` : ""}.` : `toolsets: [${r2.toolsets.requested.join(", ")}] \u2192 ${r2.toolsets.loadedToolCount} tools loaded. Set DEXE_TOOLSETS=full for all.`);
+  lines.push("");
+  for (const c4 of r2.checks) {
+    const tag = c4.status === "pass" ? " OK " : c4.status === "warn" ? "WARN" : "FAIL";
+    lines.push(`  [${tag}] ${c4.id}  ${c4.message}`);
+    if (c4.remediation)
+      for (const rl of c4.remediation.split("\n"))
+        lines.push(`         \u2192 ${rl}`);
+  }
+  if (r2.remediationSummary.length) {
+    lines.push("");
+    lines.push("To fix:");
+    r2.remediationSummary.forEach((m3, i3) => lines.push(`  ${i3 + 1}) ${m3}`));
+  }
+  return lines.join("\n");
+}
 
 // dist/tools/merkle.js
 init_lib2();
@@ -158446,7 +159051,7 @@ async function resolveMerkleUris(tiers, pinataJwt, opts) {
       continue;
     }
     if (!pinataJwt) {
-      warnings.push(opts.dryRun ? `Tier "${tier.name}": preview only \u2014 DEXE_PINATA_JWT is unset, so a real run will leave this MerkleWhitelist uri EMPTY and app.dexe.io buyers will not be able to derive proofs. Set DEXE_PINATA_JWT (see dexe_doctor) before the real run.` : `Tier "${tier.name}": MerkleWhitelist uri left empty (DEXE_PINATA_JWT unset) \u2014 app.dexe.io buyers cannot regenerate proofs for this tier; distribute the whitelist out-of-band.`);
+      warnings.push(opts.dryRun ? `Tier "${tier.name}": preview only \u2014 DEXE_PINATA_JWT is unset, so a real run will leave this MerkleWhitelist uri EMPTY and app.dexe.io buyers will not be able to derive proofs. Set DEXE_PINATA_JWT (see dexe_write_doctor) before the real run.` : `Tier "${tier.name}": MerkleWhitelist uri left empty (DEXE_PINATA_JWT unset) \u2014 app.dexe.io buyers cannot regenerate proofs for this tier; distribute the whitelist out-of-band.`);
       out2.push(tier);
       continue;
     }
@@ -158475,7 +159080,7 @@ function registerOtcSaleTools(server, ctx, signer, wc, state) {
   server.tool("dexe_otc_dao_open_sale", "Broadcasts when a signer is configured. Proposes a multi-tier token sale on an OTC DAO: builds the `createTiers` envelope (deduped approves, auto-merkle, auto-addToWhitelist, merkle lists pinned to IPFS so buyers can regenerate proofs), then runs the proposal_create flow (approve, deposit, IPFS metadata, `createProposalAndVote`). DAOs from `dexe_dao_create` (v0.19+) already wire TokenSaleProposal as an executor; older ones need a `new_proposal_type` proposal first.", {
     govPool: external_exports.string().describe("GovPool address"),
     chainId: external_exports.number().int().positive().optional().describe("Target chain id. Defaults to the MCP's default chain."),
-    tokenSaleProposal: external_exports.string().optional().describe("TokenSaleProposal helper address. Omit for a DAO this install deployed (recorded at deploy); otherwise dexe_dao_predict_addresses or the deploy receipt."),
+    tokenSaleProposal: external_exports.string().optional().describe("TokenSaleProposal helper address. Omit for a DAO this install deployed (recorded at deploy); otherwise dexe_dao_predict_addresses (read server) or the deploy receipt."),
     tiers: external_exports.array(tierSchema).min(1).describe("Tier specs for `createTiers`, in order; at least one."),
     latestTierId: external_exports.string().default("0").describe("Current `latestTierId()` on the sale; new tiers start after it."),
     proposalName: external_exports.string().default("Open OTC Token Sale").describe("Proposal title in the DAO UI."),
@@ -158493,7 +159098,7 @@ function registerOtcSaleTools(server, ctx, signer, wc, state) {
       const tspChainId = rpc.resolveChainId(inputRaw.chainId);
       const tokenSaleProposal = inputRaw.tokenSaleProposal ?? findKnownDao(state, tspChainId, inputRaw.govPool)?.tokenSaleProposal;
       if (!tokenSaleProposal) {
-        return err10(`tokenSaleProposal is required: ${inputRaw.govPool} on chain ${tspChainId} was not deployed by this install, so its TokenSaleProposal address is not on record. Pass it explicitly \u2014 from the deploy receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`);
+        return err10(`tokenSaleProposal is required: ${inputRaw.govPool} on chain ${tspChainId} was not deployed by this install, so its TokenSaleProposal address is not on record. Pass it explicitly \u2014 from the deploy receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses (read server) with deployer + daoName.`);
       }
       if (!isAddress(tokenSaleProposal))
         return err10(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
@@ -160828,6 +161433,8 @@ var WRITE_CLASSES = {
   dexe_proposal_catalog: LOCAL_READ,
   // reads the in-memory approval store; cannot approve or decline anything
   dexe_tx_approval_status: LOCAL_READ,
+  // the bundled write corpus + the local state file (known DAO, unfinished flow)
+  dexe_write_guide: LOCAL_READ,
   // ── READ_ONLY — reads chain / subgraph / backend / IPFS and returns.
   // Calldata builders live here too: they return an unsigned payload and never
   // send it, but several DO read the chain while building (blacklist checks,
@@ -160909,7 +161516,9 @@ var WRITE_CLASSES = {
   dexe_vote_build_withdraw: READ_ONLY,
   dexe_wc_status: READ_ONLY,
   // signer posture + keyring; probes each persona's balance over RPC, so open world
-  dexe_write_context: READ_ONLY
+  dexe_write_context: READ_ONLY,
+  // probes Pinata (and, opt-in, pins one tiny file — the probePin input says so)
+  dexe_write_doctor: READ_ONLY
 };
 var WRITE_TITLES = {
   dexe_dao_create: "Deploy a new DAO",
@@ -160934,7 +161543,7 @@ var WRITE_TITLES = {
 var WRITE_ANNOTATIONS = {
   classes: WRITE_CLASSES,
   titles: WRITE_TITLES,
-  alwaysLoaded: /* @__PURE__ */ new Set()
+  alwaysLoaded: /* @__PURE__ */ new Set(["dexe_write_guide", "dexe_write_context"])
 };
 var SINGLE_SERVER_ANNOTATIONS = {
   classes: { ...READ_ANNOTATIONS.classes, ...WRITE_ANNOTATIONS.classes },
@@ -160945,21 +161554,29 @@ var SINGLE_SERVER_ANNOTATIONS = {
 // dist/tools/index.js
 var LOCAL_COMPILE_DECODE_HINT = "Try dexe_find_selector to search the local compile's events and errors too.";
 function registerAll(server, config2, opts = {}) {
+  const standalone = config2.writeStandalone === true;
+  useWriteFailureWording(config2);
+  useNextStepLocator(writeToolLocator(config2));
   installListToolsNormalizer(server);
-  server = applyReadResultGuard(applyApprovalScope(applyToolAnnotations(applyToolAliases(applyToolGate(server, config2), server), SINGLE_SERVER_ANNOTATIONS), new Set(WRITE_TOOLS)), config2);
+  if (!standalone)
+    installReadServerMarks(server);
+  server = applyReadResultGuard(applyApprovalScope(applyToolAnnotations(applyToolAliases(applyToolGate(server, config2), server), standalone ? SINGLE_SERVER_ANNOTATIONS : WRITE_ANNOTATIONS), new Set(WRITE_TOOLS)), config2);
   const artifacts = new Artifacts(config2);
   const runner = new HardhatRunner(config2);
   const selectors = new SelectorIndex(artifacts);
   const ctx = { config: config2, artifacts, runner, selectors };
   registerBuildTools(server, ctx);
   registerIntrospectTools(server, ctx);
-  registerGovTools(server, ctx, { localCompileHint: LOCAL_COMPILE_DECODE_HINT });
-  registerDaoTools(server, ctx);
-  registerProposalTools(server, ctx);
-  registerVoteTools(server, ctx);
-  registerReadTools(server, ctx);
+  if (standalone) {
+    registerGovTools(server, ctx, { localCompileHint: LOCAL_COMPILE_DECODE_HINT });
+    registerDaoTools(server, ctx);
+    registerProposalTools(server, ctx);
+    registerVoteTools(server, ctx);
+    registerReadTools(server, ctx);
+  }
   registerIpfsUploadTools(server, ctx);
-  registerIpfsReadTools(server, ctx);
+  if (standalone)
+    registerIpfsReadTools(server, ctx);
   registerIpfsCidForJsonTool(server);
   registerProposalBuildTools(server, ctx);
   registerProposalBuildMoreTools(server, ctx);
@@ -160967,42 +161584,57 @@ function registerAll(server, config2, opts = {}) {
   registerProposalBuildInternalTools(server, ctx);
   registerVoteBuildTools(server, ctx);
   registerDaoDeployTools(server, ctx);
-  registerReportTools(server, ctx, {
-    store: opts.reportStore === void 0 ? new FileReportStore(reportStorePath(config2)) : opts.reportStore ?? void 0,
-    toolsets: SINGLE_SERVER_TOOLSETS
-  });
+  if (standalone) {
+    registerReportTools(server, ctx, {
+      store: opts.reportStore === void 0 ? new FileReportStore(reportStorePath(config2)) : opts.reportStore ?? void 0,
+      toolsets: SINGLE_SERVER_TOOLSETS
+    });
+  }
   registerMerkleTools(server, ctx);
-  registerPredictTools(server, ctx);
-  registerRiskTools(server, ctx);
+  if (standalone) {
+    registerPredictTools(server, ctx);
+    registerRiskTools(server, ctx);
+  }
   const signer = new SignerManager(config2);
   const wc = new WalletConnectManager(config2);
   const state = new StateStore(config2.statePath);
-  registerInboxTools(server, ctx, state);
-  registerSubgraphTools(server, ctx, state);
+  if (standalone) {
+    registerInboxTools(server, ctx, state);
+    registerSubgraphTools(server, ctx, state);
+  }
   registerTxTools(server, config2, signer, wc);
   registerAgentTools(server, config2, signer);
-  registerGetConfigTool(server, ctx);
-  registerDoctorTool(server, config2, writeDoctorChecks, {
-    toolsets: SINGLE_SERVER_TOOLSETS,
-    text: WRITE_DOCTOR_TEXT
-  });
+  if (standalone) {
+    registerGetConfigTool(server, ctx);
+    registerDoctorTool(server, config2, writeDoctorChecks, {
+      toolsets: SINGLE_SERVER_TOOLSETS,
+      text: WRITE_DOCTOR_TEXT
+    });
+  }
   registerWalletConnectTools(server, config2, signer, wc);
   registerProposalBuildOffchainTools(server, ctx, signer, wc);
   registerFlowTools(server, ctx, signer, wc, state);
   registerDaoCreateTools(server, ctx, signer, wc, state);
-  registerOperationalContextTools(server, config2, state, {
-    toolsets: SINGLE_SERVER_TOOLSETS,
-    hintSuffix: "Signer, agent keyring, Pinata/WalletConnect/Safe posture and an unfinished flow: dexe_write_context."
-  });
+  if (standalone) {
+    registerOperationalContextTools(server, config2, state, {
+      toolsets: SINGLE_SERVER_TOOLSETS,
+      hintSuffix: "Signer, agent keyring, Pinata/WalletConnect/Safe posture and an unfinished flow: dexe_write_context."
+    });
+  }
   registerWriteContextTool(server, config2, signer, state);
-  registerGuideTool(server, config2, state, {
-    knowledge: SINGLE_SERVER_KNOWLEDGE,
-    text: FLOW_GUIDE_TEXT,
-    extraContext: activeFlowContext
-  });
+  registerWriteGuideTool(server, config2, state, writeGuideKnowledge(config2));
+  if (standalone) {
+    registerGuideTool(server, config2, state, {
+      knowledge: SINGLE_SERVER_KNOWLEDGE,
+      text: FLOW_GUIDE_TEXT,
+      extraContext: activeFlowContext
+    });
+  }
   registerKnowledgePrompts(server);
+  registerWriteDoctorTool(server, config2, { toolsets: serverToolsets(config2) });
   registerOtcSaleTools(server, ctx, signer, wc, state);
-  registerTokenSaleReadTools(withVestingWithdrawAdvisory(server), ctx);
+  if (standalone)
+    registerTokenSaleReadTools(withVestingWithdrawAdvisory(server), ctx);
   registerOtcBuyerTools(server, ctx, signer, wc);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);
@@ -161024,10 +161656,17 @@ var SHIPPED_SKILLS = [
   "dexe-vote-execute"
 ];
 var WRITE_SKILLS = SHIPPED_SKILLS.filter((s2) => !READ_SKILLS.includes(s2));
+function instructionsFor(config2) {
+  return config2.writeStandalone ? serverInstructions() : writeInstructions();
+}
 var KEYSTORE_INSTRUCTION = "Keystore: on awaiting_approval ask the user to approve on the local page, then re-run the same call; never ask for the password.";
 function serverInstructions() {
   const defaultCount = defaultProfileToolNames().size;
   return "Tools for DeXe Protocol governance DAOs, plus dexe_gov_* (needs DEXE_TOOLSETS=core,governor) for external OpenZeppelin/Compound Governors. For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_guide FIRST: it returns the plan, the questions to ask and the pitfalls. Orientation: dexe_context (chain, env, known DAOs, toolsets off); dexe_write_context (signer, keyring, uploads) \u2014 skip both when the user named the DAO and chain. Prefer the composites: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types \u2014 proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). On partial failure they return the landed-steps ledger \u2014 fix the cause and re-run the same call. " + RESUME_SUMMARY + " Amounts: composites/proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. Images: pass a LOCAL FILE PATH, never base64. ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " + KEYSTORE_INSTRUCTION + ` Tools are gated by DEXE_TOOLSETS (default '${DEFAULT_TOOLSETS.join(",")}' \u2014 ${defaultCount} tools). dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) are off and not needed: dexe_proposal_create covers every type. dexe_compile, dexe_get_abi, dexe_find_selector (needs DEXE_TOOLSETS=core,dev): compile once before the reads. Recipes + error remedies: dexe://playbook; catalog: dexe://tools. Skills: ${SHIPPED_SKILLS.join(", ")}; dexe-agent-team needs DEXE_TOOLSETS=core,agents plus hot keys.`;
+}
+function writeInstructions() {
+  const defaultCount = defaultToolNames(WRITE_EDITION_TOOLSETS).size;
+  return "Tools that build, sign and send DeXe Protocol governance transactions, plus dexe_gov_build_* (needs DEXE_TOOLSETS=core,governor) for OpenZeppelin/Compound Governors. Reads come from the DeXe read server (dexe-mcp-read) beside this one; tools marked (read server) are its. For any MULTI-STEP request (create a DAO, token sale, staking, pass a proposal) call dexe_write_guide FIRST: plan, questions, pitfalls. Orientation: dexe_write_context (signer, keyring, recorded DAOs, unfinished flow); setup: dexe_write_doctor. Prefer the composites: dexe_dao_create, dexe_proposal_create (any of the 33 proposal types \u2014 proposalType + params), dexe_proposal_vote_and_execute (auto-deposits). On partial failure they return the landed-steps ledger \u2014 fix the cause and re-run the same call. " + RESUME_SUMMARY + " Amounts: composites/proposal builders take raw wei (digits only) or human units with a decimal point ('12.5'); dexe_vote_build_* take RAW base units only. Durations are seconds. Images: pass a LOCAL FILE PATH, never base64. ERC20.approve the UserKeeper, never GovPool. Validate DAO deploys on BSC testnet (chain 97). " + KEYSTORE_INSTRUCTION + ` Tools are gated by DEXE_TOOLSETS (default '${WRITE_EDITION_TOOLSETS.defaults.join(",")}' \u2014 ${defaultCount} tools). dexe_proposal_build_* (needs DEXE_TOOLSETS=core,proposals) are off and not needed: dexe_proposal_create covers every type. dexe_compile, dexe_get_abi (needs DEXE_TOOLSETS=core,dev): compile once first. Recipes + error remedies: dexe://playbook. Skills: ${WRITE_SKILLS.join(", ")}; dexe-agent-team needs DEXE_TOOLSETS=core,agents plus hot keys.`;
 }
 
 // dist/index.js
@@ -161039,8 +161678,8 @@ import { createInterface as createInterface2 } from "node:readline/promises";
 // dist/cli/key.js
 init_lib2();
 import { createInterface } from "node:readline/promises";
-import { closeSync as closeSync4, existsSync as existsSync16, openSync as openSync4, readFileSync as readFileSync16, statSync as statSync5, unlinkSync as unlinkSync4, writeSync as writeSync4 } from "node:fs";
-import { basename as basename2, dirname as dirname7 } from "node:path";
+import { closeSync as closeSync4, existsSync as existsSync17, openSync as openSync4, readFileSync as readFileSync16, statSync as statSync5, unlinkSync as unlinkSync4, writeSync as writeSync4 } from "node:fs";
+import { basename as basename2, dirname as dirname8 } from "node:path";
 var SECRET_COMMANDS = /* @__PURE__ */ new Set(["create", "import", "change-password", "remove"]);
 var COMMANDS = ["create", "import", "list", "export-address", "change-password", "remove"];
 function keyUsage() {
@@ -161416,7 +162055,7 @@ ${keyUsage()}`);
         const password = await newPassword();
         out("Re-encrypting\u2026");
         const json2 = await encryptPrivateKey(pk, password);
-        writeKeystoreFile(dirname7(sel.file), json2, basename2(sel.file));
+        writeKeystoreFile(dirname8(sel.file), json2, basename2(sel.file));
         out(`\u2714 Password changed for ${sel.address}.`);
         return 0;
       }
@@ -161451,7 +162090,7 @@ ${keyUsage()}`);
   return 2;
 }
 async function stripFromEnvFiles(files, privateKey) {
-  const scanned = files.filter((f3) => existsSync16(f3)).map((f3) => {
+  const scanned = files.filter((f3) => existsSync17(f3)).map((f3) => {
     try {
       const content3 = readFileSync16(f3, "utf8");
       return { f: f3, ...removeEnvKeyValue(content3, "DEXE_PRIVATE_KEY", privateKey) };
@@ -161778,7 +162417,7 @@ async function send(server, body, io2) {
 
 // dist/index.js
 import { spawn as spawn2 } from "node:child_process";
-var __dirname = dirname9(fileURLToPath6(import.meta.url));
+var __dirname = dirname10(fileURLToPath6(import.meta.url));
 function packageVersion() {
   try {
     const pkg = JSON.parse(readFileSync18(resolve8(__dirname, "..", "package.json"), "utf8"));
@@ -161820,12 +162459,15 @@ function usageText(version5) {
     "  dexe-mcp skills [--global]      copy the shipped Claude skills into ./.claude/skills (or ~ with --global)",
     "  dexe-mcp serve-http [--port <n>] [--host <addr>]",
     "                                  the read edition over MCP Streamable HTTP for remote clients (runs",
-    "                                  `dexe-mcp-read serve-http`); process env only, no .env (`--help`)",
+    "                                  `dexe-mcp-read serve-http` of @dexe-network/dexe-mcp); process env",
+    "                                  only, no .env (`--help`)",
     "  dexe-mcp --help | --version",
     "",
     "ENV",
     "  .env is read once at startup, from the first of: $DEXE_ENV_FILE, ./.env, ~/.dexe-mcp/.env, <pkgdir>/.env",
-    "  Reads work with zero config. Signing and IPFS uploads need keys \u2014 run `dexe-mcp init`.",
+    "  Write tools only by default: the DeXe read server (`npx -y -p @dexe-network/dexe-mcp dexe-mcp-read`)",
+    "  serves the reads beside it. DEXE_WRITE_STANDALONE=1 registers the read tools here too.",
+    "  Signing and IPFS uploads need keys \u2014 run `dexe-mcp init`.",
     "",
     "DOCS  https://github.com/dexe-network/dexe-mcp#readme",
     ""
@@ -161848,14 +162490,19 @@ function loadEnvironment() {
     explicit: process.env.DEXE_ENV_FILE
   });
   let envReport;
+  const reports = [];
   for (const candidate of envCandidates) {
-    if (!existsSync19(candidate))
+    if (!existsSync20(candidate))
       continue;
     const report = loadEnvFile(candidate, prevSnapshot, FULL_ENV_SURFACE);
+    reports.push(report);
     if (!envReport)
       envReport = report;
   }
-  writeStartupBanner(envReport ?? loadEnvFile(homeEnvPath, prevSnapshot, FULL_ENV_SURFACE));
+  if (!envReport)
+    reports.push(loadEnvFile(homeEnvPath, prevSnapshot, FULL_ENV_SURFACE));
+  writeStartupBanner(envReport ?? reports[reports.length - 1]);
+  recordEnvLoad({ candidates: envCandidates, reports });
   return envCandidates;
 }
 async function runSubcommand(name2, envFiles = []) {
@@ -161882,6 +162529,7 @@ async function runSubcommand(name2, envFiles = []) {
   process.exit(0);
 }
 function createDegradedServer(err16, envFiles = []) {
+  const doctor = isWriteStandalone(process.env) ? "dexe_doctor" : "dexe_write_doctor";
   const detail = err16 instanceof Error ? err16.stack || err16.message : String(err16);
   const searched = envFiles.length ? ` (searched, in order: ${envFiles.join(", ")})` : "";
   const report = `dexe-mcp failed to start. Its DAO tools are NOT registered in this session.
@@ -161897,9 +162545,9 @@ HOW TO FIX
 
 Runtime: Node ${process.versions.node} (dexe-mcp requires >=${MIN_NODE_VERSION}).`;
   const server = new McpServer({ name: "dexe-mcp", version: packageVersion() }, {
-    instructions: "dexe-mcp failed to start, so none of its DAO tools exist in this session. Call dexe_doctor for the startup error and the fix, then relay both to the user \u2014 do not retry the missing tools."
+    instructions: `dexe-mcp failed to start, so none of its DAO tools exist in this session. Call ${doctor} for the startup error and the fix, then relay both to the user \u2014 do not retry the missing tools.`
   });
-  server.registerTool("dexe_doctor", {
+  server.registerTool(doctor, {
     title: "dexe-mcp startup diagnostic",
     description: "Returns why dexe-mcp failed to start and how to fix it. The server is running in degraded mode \u2014 this is the only tool available until the cause is fixed and the host restarted.",
     annotations: { readOnlyHint: true }
@@ -161924,7 +162572,7 @@ ${msg}
 async function main() {
   const config2 = await loadConfig();
   const server = new McpServer({ name: "dexe-mcp", version: packageVersion() }, {
-    instructions: serverInstructions()
+    instructions: instructionsFor(config2)
   });
   registerAll(server, config2);
   registerDocResources(server, resolve8(__dirname, ".."));
@@ -161933,13 +162581,14 @@ async function main() {
   await server.connect(transport);
   process.stderr.write(`[dexe-mcp] connected on stdio. DEXE_PROTOCOL_PATH=${config2.protocolPath}${config2.rpcUrl ? " (rpc enabled)" : ""}
 `);
+  process.stderr.write(config2.writeStandalone ? "[dexe-mcp] standalone (DEXE_WRITE_STANDALONE=1): the read tools are registered here too.\n" : "[dexe-mcp] write tools only \u2014 the DeXe read server (dexe-mcp-read) serves the reads; DEXE_WRITE_STANDALONE=1 registers them here too.\n");
   debugLog("startup", `pid=${process.pid} node=${process.versions.node} version=${packageVersion()} defaultChain=${config2.defaultChainId} chains=[${[...config2.chains.keys()].join(",")}] rpc=${config2.rpcUrl ?? "(none)"} statePath=${config2.statePath}`);
 }
 async function delegateServeHttp(args) {
   const ext = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
   const bin = fileURLToPath6(new URL(`./read/bin${ext}`, import.meta.url));
-  if (!existsSync19(bin)) {
-    process.stderr.write(`[dexe-mcp] serve-http is served by the read edition, which this install does not carry (${bin} is missing). Run \`npx -p dexe-mcp dexe-mcp-read serve-http\` instead.
+  if (!existsSync20(bin)) {
+    process.stderr.write(`[dexe-mcp] serve-http is served by the read edition, which this install does not carry (${bin} is missing). Run \`npx -y -p @dexe-network/dexe-mcp dexe-mcp-read serve-http\` instead.
 `);
     process.exitCode = 2;
     return;

@@ -16,7 +16,8 @@ calldata changed. Items 1–6 are about signing; 7–11 about the two servers.
 1. **A hot key alone no longer signs.** If your `.env` (or MCP host `env`
    block) sets `DEXE_PRIVATE_KEY` or `DEXE_AGENT_PK_*` / `AGENT_PK_*` and does
    NOT set `DEXE_SIGNER_MODE`, 1.0 ignores the key and falls back to
-   WalletConnect; `dexe_doctor` fails `signer.hotKeyIgnored`. Pick one and
+   WalletConnect; `dexe_write_doctor` (standalone: `dexe_doctor`) fails
+   `signer.hotKeyIgnored`. Pick one and
    restart:
 
    ```bash
