@@ -1,7 +1,7 @@
 import { getAddress, Interface, formatUnits, type JsonRpcProvider } from "ethers";
 import type { DexeConfig } from "../../config.js";
 import { RpcProvider } from "../../rpc.js";
-import { computeSafeTxHash, describeSafeTxRefund, SAFE_OPERATION, type SafeTx } from "../ethersProvider.js";
+import { computeSafeTxHash, describeSafeTxRefund, SAFE_OPERATION, safeTxRefundFields, type SafeTx } from "../ethersProvider.js";
 import { buildReview, chainLabel, type DecodedView, type Prechecks, type ReviewStep, type RiskFlag } from "./review.js";
 
 /**
@@ -104,7 +104,7 @@ export function safeCallRisk(
   target: string,
   safe: string,
   operation: number,
-): { call: string; risk: string } | null {
+): { call: string; risk: string; nestedRefund?: string[] } | null {
   let p;
   try {
     p = SAFE_ABI.parseTransaction({ data });
@@ -128,7 +128,14 @@ export function safeCallRisk(
     };
   }
   if (p.name === "approveHash" || p.name === "execTransaction") {
+    // A nested execTransaction carries its own refund fields — the same drain
+    // as a refund on the outer SafeTx (paid by the OTHER Safe to its executor).
+    const nestedRefund =
+      p.name === "execTransaction"
+        ? safeTxRefundFields({ baseGas: p.args[5], gasPrice: p.args[6], gasToken: p.args[7], refundReceiver: p.args[8] })
+        : [];
     return {
+      ...(nestedRefund.length ? { nestedRefund } : {}),
       call,
       risk: self
         ? `${call} on this Safe itself — it approves or executes another transaction of this Safe.`
@@ -211,6 +218,14 @@ export function unpackMultiSend(
     if (out.length > 64) return null;
   }
   return out;
+}
+
+function nestedRefundReason(call: string, fields: readonly string[], where: string): string {
+  return (
+    `Refused: ${where}${call.split("(")[0]} on another Safe pays a gas refund of its own (${fields.join(", ")}) — ` +
+    "that Safe would pay its executor on execution. In keystore mode no refund is ever signed, nested ones " +
+    "included. Nothing was put up for approval."
+  );
 }
 
 export interface SafeReviewContext {
@@ -397,6 +412,11 @@ export async function buildSafeTxReview(ctx: SafeReviewContext): Promise<SafeRev
   // threshold), on another Safe (approveHash / execTransaction — a nested
   // signature) or through a message-signing library (EIP-1271 signMessage).
   const sc = safeCallRisk(ctx.tx.data, to, safe, operation);
+  // This review exists for keystore signing only, where refunds are refused —
+  // nested ones too.
+  if (sc?.nestedRefund) {
+    return { ok: false, reason: nestedRefundReason(sc.call, sc.nestedRefund, "") };
+  }
   if (sc) {
     risks.push({ level: "danger", text: sc.risk });
     step.decoded = { signature: sc.call, contract: to === safe ? "Safe" : null, args: [], nested: [] };
@@ -450,6 +470,7 @@ export async function buildSafeTxReview(ctx: SafeReviewContext): Promise<SafeRev
         if (s.operation === 1) risks.push({ level: "danger", text: `${where}DELEGATECALL to ${s.to} — runs in the Safe's own storage.` });
         if (s.operation !== 0 && s.operation !== 1) risks.push({ level: "danger", text: `${where}unknown operation ${s.operation}.` });
         const subSafe = safeCallRisk(s.data, s.to, safe, s.operation);
+        if (subSafe?.nestedRefund) return { ok: false, reason: nestedRefundReason(subSafe.call, subSafe.nestedRefund, where) };
         if (subSafe) risks.push({ level: "danger", text: `${where}${subSafe.risk}` });
         else if (getAddress(s.to) === safe) {
           risks.push({ level: "danger", text: `${where}calls the Safe itself (owners / threshold / modules).` });

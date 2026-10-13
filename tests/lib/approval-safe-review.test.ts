@@ -28,6 +28,7 @@ const SAFE_IFACE = new Interface([
   "function getTransactionHash(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 _nonce) view returns (bytes32)",
   "function approveHash(bytes32 hashToApprove)",
   "function signMessage(bytes _data)",
+  "function execTransaction(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, bytes signatures) returns (bool)",
 ]);
 const coder = AbiCoder.defaultAbiCoder();
 
@@ -239,6 +240,33 @@ describe("buildSafeTxReview — the Safe is verified before anything is put up f
     expect(ok.ok && ok.safe.onChainSafeTxHash).toBe(
       computeSafeTxHash(CHAIN, SAFE, buildSafeTx({ to: TARGET, value: "0", data: "0x", nonce: "7" })),
     );
+  });
+
+  it("a nested execTransaction on another Safe that pays its own gas refund is REFUSED — top level and inside MultiSend", async () => {
+    const otherSafe = getAddress("0x5afe00000000000000000000000000000000beef");
+    const zero = "0x0000000000000000000000000000000000000000";
+    const exec = (gasPrice: bigint, baseGas: bigint, gasToken = zero, refundReceiver = zero) =>
+      SAFE_IFACE.encodeFunctionData("execTransaction", [TARGET, 0n, "0x", 0, 0n, baseGas, gasPrice, gasToken, refundReceiver, "0x"]);
+    // top level: gasPrice 1 gwei + baseGas 1e12 (≥ 1000 native coin to the executor)
+    const top = await review({}, { to: otherSafe, data: exec(1_000_000_000n, 1_000_000_000_000n) });
+    expect(top.ok).toBe(false);
+    expect(!top.ok && top.reason).toMatch(/execTransaction on another Safe pays a gas refund of its own \(gasPrice 1000000000, baseGas 1000000000000\)/);
+    // each refund field alone is enough
+    for (const data of [exec(0n, 1n), exec(0n, 0n, TARGET), exec(0n, 0n, zero, OTHER_OWNER)]) {
+      expect((await review({}, { to: otherSafe, data })).ok).toBe(false);
+    }
+    // inside a MultiSend
+    const pack = (op: number, to: string, value: bigint, data: string) =>
+      solidityPacked(["uint8", "address", "uint256", "uint256", "bytes"], [op, to, value, (data.length - 2) / 2, data]);
+    const packed = `0x${[pack(0, TARGET, 0n, "0x"), pack(0, otherSafe, 0n, exec(1n, 0n))].map((p) => p.slice(2)).join("")}`;
+    const msData = new Interface(["function multiSend(bytes transactions)"]).encodeFunctionData("multiSend", [packed]);
+    const nested = await review({}, { to: MULTISEND_141, data: msData, operation: 1 });
+    expect(nested.ok).toBe(false);
+    expect(!nested.ok && nested.reason).toMatch(/MultiSend call 2: execTransaction on another Safe pays a gas refund of its own \(gasPrice 1\)/);
+    // a nested execTransaction WITHOUT a refund is still shown (DANGER), not refused
+    const clean = await review({}, { to: otherSafe, data: exec(0n, 0n) });
+    expect(clean.ok).toBe(true);
+    expect(texts(clean, "danger")).toMatch(/execTransaction\(.*ANOTHER Safe/);
   });
 
   it("Safe functions are decoded on ANY target: approveHash on another Safe, a message signature via DELEGATECALL", async () => {

@@ -9,7 +9,16 @@ import { ApprovalManager } from "../../src/lib/approval/index.js";
 import { ApprovalHaltError } from "../../src/lib/approval/scope.js";
 import { createServer, connect as netConnect } from "node:net";
 import { randomBytes } from "node:crypto";
-import { ControlAuthError, controlCall, requestMac, sealPassword, serverProof } from "../../src/lib/approval/controlProtocol.js";
+import {
+  ControlAuthError,
+  controlCall,
+  openPassword,
+  requestMac,
+  sealPassword,
+  serverProof,
+} from "../../src/lib/approval/controlProtocol.js";
+import { ControlChannel } from "../../src/lib/approval/control.js";
+import { ApprovalStore } from "../../src/lib/approval/store.js";
 import {
   discoverServers,
   rendezvousFile,
@@ -137,7 +146,9 @@ function rawSession(endpoint: string) {
     }
   });
   sock.on("error", () => undefined);
+  const closed = new Promise<void>((r) => sock.on("close", () => r()));
   return {
+    closed,
     send: (o: Record<string, unknown>) => void sock.write(`${JSON.stringify(o)}\n`),
     next: () =>
       new Promise<Record<string, unknown>>((r) => {
@@ -219,6 +230,60 @@ describe("terminal channel (server side)", () => {
     expect(await q.next()).toMatchObject({ status: "refused", message: "enter the keystore password" });
     q.close();
     expect(m.view(halt.approvalId)!.status).toBe("pending");
+  });
+
+  it("a sealed password opens only with the full 16-byte GCM tag (a truncated tag is refused)", async () => {
+    const secret = randomBytes(32).toString("base64url");
+    const [cn, sn, bound] = ["c".repeat(43), "s".repeat(43), '{"op":"approve"}'];
+    const sealed = sealPassword(secret, cn, sn, bound, PW);
+    expect(openPassword(secret, cn, sn, bound, sealed)).toBe(PW);
+    for (const n of [4, 8, 12, 15]) {
+      const short = { ...sealed, tag: Buffer.from(sealed.tag, "base64url").subarray(0, n).toString("base64url") };
+      expect(openPassword(secret, cn, sn, bound, short)).toBeNull();
+    }
+    expect(openPassword(secret, cn, sn, bound, { ...sealed, iv: Buffer.alloc(8).toString("base64url") })).toBeNull();
+    // and through the server: a correctly MAC'd approve whose sealed password carries a 4-byte tag is refused
+    const runDir = join(tempDir(), "run");
+    const { m } = manager(runDir);
+    const halt = await pending(m.request(txReq()));
+    const info = serverInfo(runDir);
+    const rec = m.store.get(halt.approvalId)!;
+    const s = rawSession(info.endpoint);
+    s.send({ v: 2, op: "hello", nonce: cn });
+    const h = await s.next();
+    const payload = JSON.stringify({ op: "approve", approvalId: rec.approvalId, binding: rec.batchHash });
+    const full = sealPassword(info.secret, cn, String(h.serverNonce), payload, PW);
+    s.send({
+      v: 2,
+      payload,
+      mac: requestMac(info.secret, cn, String(h.serverNonce), payload),
+      sealedPassword: { ...full, tag: Buffer.from(full.tag, "base64url").subarray(0, 4).toString("base64url") },
+    });
+    expect(await s.next()).toMatchObject({ status: "refused", message: "enter the keystore password" });
+    s.close();
+    expect(m.view(halt.approvalId)!.status).toBe("pending");
+  });
+
+  it("a connection that says hello but sends no authenticated request is dropped after the handshake timeout", async () => {
+    const runDir = join(tempDir(), "run");
+    const ch = new ControlChannel({
+      store: new ApprovalStore({ ttlMs: 60_000 }),
+      address: KEY.address,
+      runDir,
+      version: "test",
+      attemptApprove: async () => ({ kind: "error", message: "unused" }),
+      reviewOf: () => ({}),
+      handshakeTimeoutMs: 150,
+    });
+    cleanups.push(() => ch.close());
+    expect(await ch.start()).toBe(true);
+    const info = serverInfo(runDir);
+    const s = rawSession(info.endpoint);
+    s.send({ v: 2, op: "hello", nonce: "n".repeat(43) });
+    expect((await s.next()).ok).toBe(true);
+    const t0 = Date.now();
+    await s.closed;
+    expect(Date.now() - t0).toBeLessThan(5_000);
   });
 
   it("a fake server that does not hold the secret gets NOTHING secret: no secret, no MAC'd request, no password", async () => {

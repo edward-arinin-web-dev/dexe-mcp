@@ -53,6 +53,8 @@ export interface ControlDeps {
   log?: (line: string) => void;
   identity?: PosixIdentity;
   pid?: number;
+  /** Idle limit before an authenticated request (default 10 s; tests shorten it). */
+  handshakeTimeoutMs?: number;
 }
 
 const MAX_REQUEST = 16 * 1024;
@@ -65,11 +67,13 @@ export class ControlChannel {
   private file = "";
   private readonly id: PosixIdentity;
   private readonly pid: number;
+  private readonly handshakeTimeoutMs: number;
   private exitHook: (() => void) | undefined;
 
   constructor(private readonly deps: ControlDeps) {
     this.id = deps.identity ?? currentIdentity();
     this.pid = deps.pid ?? process.pid;
+    this.handshakeTimeoutMs = deps.handshakeTimeoutMs ?? 10_000;
   }
 
   get started(): boolean {
@@ -167,7 +171,9 @@ export class ControlChannel {
 
   private onConnection(sock: Socket): void {
     sock.setEncoding("utf8");
-    sock.setTimeout(150_000, () => sock.destroy());
+    // Until an authenticated request arrives the client has nothing to wait
+    // for: hello and request come back to back. Idle > 10 s → dropped.
+    sock.setTimeout(this.handshakeTimeoutMs, () => sock.destroy());
     let buf = "";
     let stage: "hello" | "request" | "done" = "hello";
     let clientNonce = "";
@@ -208,6 +214,8 @@ export class ControlChannel {
       } catch {
         return finish({ ok: false, status: "refused", message: "malformed request" });
       }
+      // Authenticated: a password check may queue behind others (one scrypt at a time).
+      sock.setTimeout(150_000, () => sock.destroy());
       this.handle(req, { clientNonce, serverNonce, payload, sealedPassword: msg.sealedPassword }).then(finish, () =>
         finish({ ok: false, status: "error", message: "internal error" }),
       );

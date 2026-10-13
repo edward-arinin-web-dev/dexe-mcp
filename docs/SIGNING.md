@@ -114,7 +114,10 @@ hashes. It is read-only: no tool can approve or decline anything.
   without a new page, for 10 minutes. For a login message (whose nonce changes
   on every call) the decline holds for the whole flow: `dexe_auth_login` is
   refused for 10 minutes — no new nonce, no new page — whatever message the
-  backend would send next.
+  backend would send next. The automatic declines count too: five wrong
+  passwords on a login approval, or a keystore whose address does not match,
+  start the same 10-minute block. Restarting the server clears it (approvals
+  and their cooldowns live in memory only).
 - **Wrong passwords** are counted across **all** approvals, not per page:
   five within an hour lock password entry everywhere for a minute, then 2,
   4, … up to an hour — doubling for the life of the server; a correct password
@@ -449,8 +452,9 @@ expensive to brute-force.
 - **The decline cooldown is keyed to the exact batch** (and to the exact
   SafeTx). A 1-wei variation is a new batch and gets a new page — it still
   needs your password, and the 3-open / 6-per-minute limits bound how often you
-  can be asked. Logins are the exception: a declined login blocks every login
-  of that signer for the cooldown.
+  can be asked. Logins are the exception: a declined login — by you, or
+  automatically after five wrong passwords — blocks every login of that signer
+  for the cooldown; a server restart clears it.
 - **An agent can lock you out on purpose.** Wrong guesses on the page lock
   password entry for everyone — during a lockout even the correct password is
   refused (HTTP 429), for up to an hour as the lockout doubles. That is a

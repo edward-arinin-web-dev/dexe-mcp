@@ -24,6 +24,11 @@ import { connect as netConnect } from "node:net";
  * The labels separate the proof from the request MAC, so neither can be
  * replayed as the other; the fresh Ns per connection stops a request from
  * being replayed on another connection.
+ *
+ * The server's reply after the proof is NOT MAC'd: it travels on the same
+ * local socket / pipe whose other end just proved it holds the secret, and
+ * carries no secret. A connection that says hello but sends no authenticated
+ * request is dropped after 10 s.
  */
 
 export const PROTOCOL_VERSION = 2;
@@ -90,7 +95,7 @@ export function sealPassword(
   password: string,
 ): SealedPassword {
   const iv = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv);
+  const c = createCipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv, { authTagLength: 16 });
   c.setAAD(Buffer.from(boundTo, "utf8"));
   const ct = Buffer.concat([c.update(password, "utf8"), c.final()]);
   return { iv: iv.toString("base64url"), ct: ct.toString("base64url"), tag: c.getAuthTag().toString("base64url") };
@@ -106,10 +111,15 @@ export function openPassword(
 ): string | null {
   const s = sealed as Partial<SealedPassword> | null;
   if (!s || typeof s.iv !== "string" || typeof s.ct !== "string" || typeof s.tag !== "string") return null;
+  const iv = Buffer.from(s.iv, "base64url");
+  const tag = Buffer.from(s.tag, "base64url");
+  // Exactly a 96-bit IV and a full 128-bit tag: GCM otherwise accepts a
+  // truncated tag (4 bytes opened in a probe), which makes forgery cheap.
+  if (iv.length !== 12 || tag.length !== 16) return null;
   try {
-    const d = createDecipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), Buffer.from(s.iv, "base64url"));
+    const d = createDecipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv, { authTagLength: 16 });
     d.setAAD(Buffer.from(boundTo, "utf8"));
-    d.setAuthTag(Buffer.from(s.tag, "base64url"));
+    d.setAuthTag(tag);
     return Buffer.concat([d.update(Buffer.from(s.ct, "base64url")), d.final()]).toString("utf8");
   } catch {
     return null;

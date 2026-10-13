@@ -109,8 +109,15 @@ describe("the approval gate has no off switch", () => {
 
   it("no lower-level signing primitive is used anywhere (raw digest / raw transaction signing)", () => {
     // A SigningKey or signTransaction() signs without any of the checks above:
-    // a digest of anything, a transaction nobody reviewed. None may exist in src.
-    expect(hits(/\bsigningKey\.sign\(|\.signDigest\(|\bsignTransaction\(|new SigningKey\(|\bSigningKey\b.*\.sign\(/)).toEqual([]);
+    // a digest of anything, a transaction nobody reviewed; signMessageSync()
+    // bypasses the enumerated message sites; authorize() / authorizeSync()
+    // sign an EIP-7702 delegation — handing the EOA's code to a contract. None
+    // may exist in src.
+    expect(
+      hits(
+        /\bsigningKey\.sign\(|\.signDigest\(|\bsignTransaction\(|new SigningKey\(|\bSigningKey\b.*\.sign\(|\bsignMessageSync\(|\.authorize\(|\bauthorizeSync\(/,
+      ),
+    ).toEqual([]);
   });
 
   it("typed data is signed for SafeTx only; permits never", async () => {

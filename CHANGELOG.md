@@ -61,7 +61,8 @@ Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-saf
   `gasPrice`, `baseGas`, `gasToken` or `refundReceiver`), before any page and
   again in the signer — with `gasPrice > 0` and token / receiver zero the Safe
   pays `(gas used + baseGas) × gasPrice` native coin to the executor; no
-  opt-in exists. With `dryRun: false` the Safe service endpoint / API key is
+  opt-in exists. A nested `execTransaction` on another Safe (top level or in a
+  MultiSend) that carries its own refund fields is refused the same way. With `dryRun: false` the Safe service endpoint / API key is
   checked before the owner is asked. Responses carry `signer: "keystore"` + a
   `safety` note. Before: refused with a WalletConnect pointer.
 - **What a message review shows**, from the bytes: the exact text in full
@@ -105,7 +106,9 @@ Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-saf
   anything secret; the request then carries an HMAC over both nonces instead
   of the secret (which never crosses the channel), and a password travels
   sealed (AES-256-GCM, key from HKDF(secret, nonces), the exact request as
-  associated data) — encrypted, never hashed.
+  associated data, a 96-bit IV and only the full 128-bit tag accepted) —
+  encrypted, never hashed. A connection that says hello but sends no
+  authenticated request is dropped after 10 s.
   A fake or re-created endpoint without the secret is reported NOT TRUSTED and
   gets nothing. A decision carries the approval's binding hash. Stale files of
   dead servers are removed by the next server or the CLI. The channel starts
@@ -128,7 +131,8 @@ Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-saf
   the minimum it pays.
 - An approval whose key holder cannot be handed over (internal error) is
   revoked, never left `executing`.
-- Ratchet: no `SigningKey` / `signDigest` / `signTransaction` anywhere in
+- Ratchet: no `SigningKey` / `signDigest` / `signTransaction` /
+  `signMessageSync` / EIP-7702 `authorize` / `authorizeSync` anywhere in
   `src`; the terminal channel accepts no secret and no plain password on the
   wire.
 

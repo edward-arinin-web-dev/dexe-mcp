@@ -40752,7 +40752,7 @@ ${serverNonce}`, "utf8"), L_PASSWORD, 32));
 }
 function sealPassword(secret, clientNonce, serverNonce, boundTo, password) {
   const iv = randomBytes8(12);
-  const c4 = createCipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv);
+  const c4 = createCipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv, { authTagLength: 16 });
   c4.setAAD(Buffer.from(boundTo, "utf8"));
   const ct4 = Buffer.concat([c4.update(password, "utf8"), c4.final()]);
   return { iv: iv.toString("base64url"), ct: ct4.toString("base64url"), tag: c4.getAuthTag().toString("base64url") };
@@ -40761,10 +40761,14 @@ function openPassword(secret, clientNonce, serverNonce, boundTo, sealed) {
   const s2 = sealed;
   if (!s2 || typeof s2.iv !== "string" || typeof s2.ct !== "string" || typeof s2.tag !== "string")
     return null;
+  const iv = Buffer.from(s2.iv, "base64url");
+  const tag = Buffer.from(s2.tag, "base64url");
+  if (iv.length !== 12 || tag.length !== 16)
+    return null;
   try {
-    const d3 = createDecipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), Buffer.from(s2.iv, "base64url"));
+    const d3 = createDecipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv, { authTagLength: 16 });
     d3.setAAD(Buffer.from(boundTo, "utf8"));
-    d3.setAuthTag(Buffer.from(s2.tag, "base64url"));
+    d3.setAuthTag(tag);
     return Buffer.concat([d3.update(Buffer.from(s2.ct, "base64url")), d3.final()]).toString("utf8");
   } catch {
     return null;
@@ -140659,11 +140663,13 @@ var ControlChannel = class {
   file = "";
   id;
   pid;
+  handshakeTimeoutMs;
   exitHook;
   constructor(deps) {
     this.deps = deps;
     this.id = deps.identity ?? currentIdentity();
     this.pid = deps.pid ?? process.pid;
+    this.handshakeTimeoutMs = deps.handshakeTimeoutMs ?? 1e4;
   }
   get started() {
     return !!this.server;
@@ -140748,7 +140754,7 @@ var ControlChannel = class {
   // ---------------------------------------------------------------------------
   onConnection(sock) {
     sock.setEncoding("utf8");
-    sock.setTimeout(15e4, () => sock.destroy());
+    sock.setTimeout(this.handshakeTimeoutMs, () => sock.destroy());
     let buf = "";
     let stage = "hello";
     let clientNonce = "";
@@ -140791,6 +140797,7 @@ var ControlChannel = class {
       } catch {
         return finish({ ok: false, status: "refused", message: "malformed request" });
       }
+      sock.setTimeout(15e4, () => sock.destroy());
       this.handle(req, { clientNonce, serverNonce, payload, sealedPassword: msg.sealedPassword }).then(finish, () => finish({ ok: false, status: "error", message: "internal error" }));
     };
     sock.on("error", () => void 0);
@@ -157651,7 +157658,9 @@ function safeCallRisk(data4, target, safe, operation) {
     };
   }
   if (p4.name === "approveHash" || p4.name === "execTransaction") {
+    const nestedRefund = p4.name === "execTransaction" ? safeTxRefundFields({ baseGas: p4.args[5], gasPrice: p4.args[6], gasToken: p4.args[7], refundReceiver: p4.args[8] }) : [];
     return {
+      ...nestedRefund.length ? { nestedRefund } : {},
       call,
       risk: self2 ? `${call} on this Safe itself \u2014 it approves or executes another transaction of this Safe.` : `${call} on ${target}: this Safe ${p4.name === "approveHash" ? "approves a transaction hash of" : "executes a transaction on"} ANOTHER Safe (a nested owner signature) \u2014 what that transaction does is not shown here.`
     };
@@ -157697,6 +157706,9 @@ function unpackMultiSend(packedHex) {
       return null;
   }
   return out2;
+}
+function nestedRefundReason(call, fields, where) {
+  return `Refused: ${where}${call.split("(")[0]} on another Safe pays a gas refund of its own (${fields.join(", ")}) \u2014 that Safe would pay its executor on execution. In keystore mode no refund is ever signed, nested ones included. Nothing was put up for approval.`;
 }
 async function buildSafeTxReview(ctx) {
   const safe = getAddress(ctx.safe);
@@ -157847,6 +157859,9 @@ async function buildSafeTxReview(ctx) {
   const step2 = inner.steps[0];
   const to = getAddress(ctx.tx.to);
   const sc = safeCallRisk(ctx.tx.data, to, safe, operation);
+  if (sc?.nestedRefund) {
+    return { ok: false, reason: nestedRefundReason(sc.call, sc.nestedRefund, "") };
+  }
   if (sc) {
     risks2.push({ level: "danger", text: sc.risk });
     step2.decoded = { signature: sc.call, contract: to === safe ? "Safe" : null, args: [], nested: [] };
@@ -157898,6 +157913,8 @@ async function buildSafeTxReview(ctx) {
         if (s2.operation !== 0 && s2.operation !== 1)
           risks2.push({ level: "danger", text: `${where}unknown operation ${s2.operation}.` });
         const subSafe = safeCallRisk(s2.data, s2.to, safe, s2.operation);
+        if (subSafe?.nestedRefund)
+          return { ok: false, reason: nestedRefundReason(subSafe.call, subSafe.nestedRefund, where) };
         if (subSafe)
           risks2.push({ level: "danger", text: `${where}${subSafe.risk}` });
         else if (getAddress(s2.to) === safe) {
