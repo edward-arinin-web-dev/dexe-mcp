@@ -6,9 +6,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildDeployGovPool, registerDaoDeployTools, type DeployParams } from "../../src/tools/daoDeploy.js";
 import { registerDaoCreateTools } from "../../src/tools/daoCreate.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { RpcProvider, ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../../src/config.js";
-import type { RpcProvider } from "../../src/rpc.js";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 

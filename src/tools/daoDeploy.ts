@@ -4,11 +4,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { resolveChain } from "../config.js";
-import { ArtifactsMissingError } from "../artifacts.js";
-import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
-import { RpcProvider } from "../rpc.js";
+import {
+  AddressBook,
+  ArtifactsMissingError,
+  CONTRACT_NAMES,
+  judgeQuorum,
+  quorumPctFromRaw,
+  RpcProvider,
+  safeErrorMessage,
+} from "@dexe-network/dexe-mcp/core";
 import { PinataClient, pinJsonOrPreview } from "../lib/ipfsPin.js";
-import { quorumPctFromRaw, judgeQuorum } from "../lib/quorumRisk.js";
 import {
   firstFailure,
   checkTreasuryRemainder,
@@ -23,7 +28,6 @@ import {
   formatSettingsSlotIssues,
   type DeployStructView,
 } from "../lib/deployGuard.js";
-import { safeErrorMessage } from "../lib/redact.js";
 
 /**
  * Phase 5 — deploy a new DAO via `PoolFactory.deployGovPool(GovPoolDeployParams)`.

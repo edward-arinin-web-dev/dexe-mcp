@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { pinataCidForJson } from "../../src/lib/ipfs.js";
+import { pinataCidForJson } from "@dexe-network/dexe-mcp/core";
 import { PinataClient } from "../../src/lib/ipfsPin.js";
 import { resolveMerkleUris } from "../../src/tools/otc.js";
 import type { TierSpec } from "../../src/tools/proposalBuildComplex.js";

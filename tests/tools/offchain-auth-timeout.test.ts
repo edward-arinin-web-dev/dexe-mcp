@@ -7,7 +7,7 @@ import {
   authPost,
   AUTH_TIMEOUT_MS,
 } from "../../src/tools/proposalBuildOffchain.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 

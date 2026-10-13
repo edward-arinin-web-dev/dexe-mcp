@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
-import { chainIdParam } from "../../src/lib/params.js";
+import { chainIdParam } from "@dexe-network/dexe-mcp/core";
 import { buildChainIdParam } from "../../src/lib/writeParams.js";
 
 /**

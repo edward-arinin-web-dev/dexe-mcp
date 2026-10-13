@@ -30,10 +30,22 @@
  */
 import { Interface, isAddress, ZeroAddress, type JsonRpcProvider } from "ethers";
 import type { DexeConfig } from "../config.js";
-import { RpcProvider } from "../rpc.js";
-import { safeErrorMessage } from "./redact.js";
-import { multicall, type Call } from "./multicall.js";
-import { findForbiddenSelector, dangerousSelectorError } from "./dangerousSelectors.js";
+import {
+  ADD_SETTINGS_DECODE_SELECTOR,
+  classifyTreasuryActions,
+  dangerousSelectorError,
+  EDIT_SETTINGS_SELECTOR,
+  findForbiddenSelector,
+  formatAmount,
+  multicall,
+  renderUntrusted,
+  RpcProvider,
+  safeErrorMessage,
+  SETTINGS_DECODE_IFACE,
+  type AssessableAction,
+  type Call,
+  type TreasuryHit,
+} from "@dexe-network/dexe-mcp/core";
 import {
   checkAddSettingsTrap,
   VESTING_WITHDRAW_ADVISORY,
@@ -42,34 +54,25 @@ import {
   decodeCreateTiersVesting,
   decodeBlacklistAdditions,
 } from "./protocolAdvisories.js";
-import { classifyTreasuryActions, type TreasuryHit } from "./quorumRisk.js";
 import { TREASURY_RISK_ADVISORY, type TreasuryGuardMode } from "./treasuryGate.js";
-import { formatAmount } from "./units.js";
-import { renderUntrusted } from "./sanitize.js";
 import {
   assumedChainPrefix,
   type BuildWarning,
   type WarningBlock,
   type WarningSeverity,
 } from "./buildWarning.js";
-import {
-  SETTINGS_DECODE_IFACE,
-  EDIT_SETTINGS_SELECTOR,
-  ADD_SETTINGS_DECODE_SELECTOR,
-  type AssessableAction,
-} from "./governanceHits.js";
 
 // The governance-call classifier dexe_proposal_risk_assess reads lives in
 // ./governanceHits.ts (pure, no build-warning machinery); re-exported so
 // existing importers keep working.
 export {
-  EDIT_SETTINGS_SELECTOR,
   ADD_SETTINGS_DECODE_SELECTOR,
   classifyGovernanceActions,
-  governanceVerdict,
+  EDIT_SETTINGS_SELECTOR,
   governanceSelectors,
-} from "./governanceHits.js";
-export type { AssessableAction, GovernanceHit, GovernanceHitKind } from "./governanceHits.js";
+  governanceVerdict,
+} from "@dexe-network/dexe-mcp/core";
+export type { AssessableAction, GovernanceHit, GovernanceHitKind } from "@dexe-network/dexe-mcp/core";
 
 // ---------------------------------------------------------------------------
 // shared shapes

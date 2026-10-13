@@ -6,7 +6,7 @@ import {
   meritocraticVotingPower,
   type PreflightResult,
 } from "./preflight.js";
-import { checkQuorumMargin, judgeQuorum, quorumPctFromRaw } from "./quorumRisk.js";
+import { checkQuorumMargin, judgeQuorum, quorumPctFromRaw } from "@dexe-network/dexe-mcp/core";
 import { lowQuorumAdvisory } from "./treasuryGate.js";
 
 /**

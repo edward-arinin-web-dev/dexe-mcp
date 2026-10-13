@@ -14,8 +14,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { decryptKeystoreJson, encryptKeystoreJson, getAddress, isAddress, scrypt as ethersScrypt, Wallet } from "ethers";
-import { renameWithRetry, tempStatePath } from "./stateStore.js";
-import { safeErrorMessage } from "./redact.js";
+import { renameWithRetry, safeErrorMessage, tempStatePath } from "@dexe-network/dexe-mcp/core";
 
 /**
  * ── Encrypted key at rest (keystore v3) ─────────────────────────────────────

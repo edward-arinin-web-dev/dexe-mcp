@@ -1,14 +1,16 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { PersistedState } from "../lib/stateStore.js";
-import type { KnowledgeCorpus } from "../knowledge/types.js";
-import type { GuideText } from "./guide.js";
+import {
+  renderSkillRecipe,
+  type GuideText,
+  type KnowledgeCorpus,
+  type PersistedState,
+} from "@dexe-network/dexe-mcp/core";
 import { WRITE_CORPUS } from "../knowledge/write/index.js";
 import { nextAfter } from "../knowledge/write/nextSteps.js";
-import { renderSkillRecipe } from "../knowledge/render.js";
 
 /**
  * The WRITE half of the guide: what follows a write journey, and the flow
- * recipes as MCP prompts. The tool itself is src/tools/guide.ts; the
+ * recipes as MCP prompts. The tool itself is the read edition's tools/guide.ts; the
  * composition root hands it these.
  */
 

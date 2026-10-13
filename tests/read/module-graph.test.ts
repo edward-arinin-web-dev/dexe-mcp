@@ -1,23 +1,23 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { builtinModules } from "node:module";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";
-import { MODULE_CLASSES } from "../boundary/modules.js";
-import { REPO, loadSrcTree, resolveIn, scanModule } from "../boundary/scan.js";
+import { REPO, loadSrcTree, scanModule } from "../boundary/scan.js";
 
 /**
- * A9 — the read edition never loads write code. Two proofs:
+ * A9 — the read edition never loads write code.
  *
- *   STATIC   walk every import (value and type, re-exports, literal dynamic
- *            imports) from the binary, src/read/bin.ts, with the boundary
- *            scanner: no write or root module, none of the modules that sign,
- *            connect a wallet, pin or register the write error remedies, and
- *            no package outside the read edition's dependency set.
+ * `dexe-mcp-read` is the read edition's own binary: this package's bin entry,
+ * src/read/bin.ts, is a shim that starts @dexe-network/dexe-mcp's. Two proofs:
+ *
+ *   STATIC   the shim imports no src/ module — only the read package's entry
+ *            points — so no write module of this repo is reachable from it.
+ *            (tests/boundary/import-boundary.test.ts holds every shim to that.)
  *   RUNTIME  start the BUILT binary under a loader hook that logs every module
  *            it loads, drive it through a session (tools, resources, calls) with
  *            a signing key in both its .env and its process env, and check what
@@ -45,7 +45,7 @@ const FORBIDDEN = [
   "hardhat.ts",
 ];
 
-/** Packages the read edition may import — what its own package.json will list. */
+/** Packages the read edition may import — what its own package.json lists. */
 const READ_PACKAGES = new Set(["@modelcontextprotocol/sdk", "ethers", "zod", "multiformats", "p-limit"]);
 /** Packages only write code uses. */
 const WRITE_PACKAGES = [
@@ -59,57 +59,26 @@ const WRITE_PACKAGES = [
   "unified",
 ];
 
-const BUILTINS = new Set([...builtinModules, ...builtinModules.map((m) => `node:${m}`)]);
-const packageOf = (spec: string): string =>
-  spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0]!;
+const READ_PACKAGE_ROOT = dirname(
+  createRequire(join(REPO, "package.json")).resolve("@dexe-network/dexe-mcp/package.json"),
+);
 
-function staticReach(entry: string): { files: Set<string>; packages: Set<string> } {
-  const tree = loadSrcTree();
-  const files = new Set<string>([entry]);
-  const packages = new Set<string>();
-  const queue = [entry];
-  while (queue.length) {
-    const from = queue.shift()!;
-    for (const spec of scanModule(tree.get(from) ?? "").specifiers) {
-      if (!spec.startsWith(".")) {
-        if (!BUILTINS.has(spec)) packages.add(packageOf(spec));
-        continue;
-      }
-      const to = resolveIn(tree, from, spec);
-      if (to && tree.has(to) && !files.has(to)) {
-        files.add(to);
-        queue.push(to);
-      }
-    }
-  }
-  return { files, packages };
-}
+describe("read edition — static imports of the binary", () => {
+  const specs = scanModule(loadSrcTree().get(ENTRY) ?? "").specifiers;
 
-describe("read edition — static import graph from the binary", () => {
-  const { files, packages } = staticReach(ENTRY);
-
-  it("reaches the server, the HTTP entry and the read tools (the walk is not vacuous)", () => {
-    for (const f of ["read/server.ts", "http/cli.ts", "http/server.ts", "tools/read.ts", "tools/report.ts", "lib/errors.ts"]) {
-      expect(files.has(f), f).toBe(true);
-    }
-    expect(files.size).toBeGreaterThan(60);
+  it("the shim imports no src module, only the read edition's entry points", () => {
+    expect(specs.length, `${ENTRY} is missing or imports nothing`).toBeGreaterThan(0);
+    expect(specs.filter((s) => s.startsWith("."))).toEqual([]);
+    expect(specs.filter((s) => !s.startsWith("@dexe-network/dexe-mcp/"))).toEqual([]);
   });
 
-  it("reaches none of the modules that sign, connect a wallet, pin, persist reports or carry write remedies", () => {
-    expect(FORBIDDEN.filter((f) => files.has(f))).toEqual([]);
-  });
-
-  it("reaches no module classified write or root", () => {
-    const bad = [...files].filter((f) => {
-      const c = MODULE_CLASSES.get(f);
-      return c !== "read" && c !== "mixed";
-    });
-    expect(bad).toEqual([]);
-  });
-
-  it("imports only the read edition's packages", () => {
-    expect([...packages].filter((p) => !READ_PACKAGES.has(p)).sort()).toEqual([]);
-    for (const p of WRITE_PACKAGES) expect(packages.has(p), p).toBe(false);
+  it("the read package needs only the read edition's packages", () => {
+    const pkg = JSON.parse(readFileSync(join(READ_PACKAGE_ROOT, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    const deps = Object.keys(pkg.dependencies ?? {});
+    expect(deps.filter((d) => !READ_PACKAGES.has(d)).sort()).toEqual([]);
+    for (const p of WRITE_PACKAGES) expect(deps, p).not.toContain(p);
   });
 });
 
@@ -219,21 +188,22 @@ describe.skipIf(!existsSync(BIN))("read edition — the built stdio binary at ru
 
   it("loads no write module and no write-only package", () => {
     const loaded = readFileSync(logFile, "utf8").split("\n").filter(Boolean);
-    const dist = `${resolve(REPO, "dist").replace(/\\/g, "/").toLowerCase()}/`;
-    const ours = loaded
+    const files = loaded
       .filter((u) => u.startsWith("file:"))
       .map((u) => fileURLToPath(u).replace(/\\/g, "/"))
       // code only: the governor configs are bundled JSON data
-      .filter((p) => p.toLowerCase().startsWith(dist) && p.endsWith(".js"))
-      .map((p) => p.slice(dist.length).replace(/\.js$/, ".ts"));
-    expect(ours.length, "the hook recorded nothing — is the loader hook working?").toBeGreaterThan(60);
-    expect(ours).toContain("read/server.ts");
-    expect(FORBIDDEN.filter((f) => ours.includes(f))).toEqual([]);
-    const bad = ours.filter((f) => {
-      const c = MODULE_CLASSES.get(f);
-      return c !== "read" && c !== "mixed";
-    });
-    expect(bad).toEqual([]);
+      .filter((p) => p.endsWith(".js"));
+    const under = (root: string) => {
+      const prefix = `${root.replace(/\\/g, "/").toLowerCase()}/`;
+      return files.filter((p) => p.toLowerCase().startsWith(prefix)).map((p) => p.slice(prefix.length).replace(/\.js$/, ".ts"));
+    };
+    // This repo's own dist: the shim, and nothing else.
+    expect(under(resolve(REPO, "dist"))).toEqual(["read/bin.ts"]);
+    // The read edition's modules: its server, and none of the write edition's.
+    const theirs = under(resolve(READ_PACKAGE_ROOT, "dist"));
+    expect(theirs.length, "the hook recorded nothing — is the loader hook working?").toBeGreaterThan(60);
+    expect(theirs).toContain("read/server.ts");
+    expect(FORBIDDEN.filter((f) => theirs.includes(f))).toEqual([]);
     const pkgs = loaded.filter((u) => u.includes("/node_modules/"));
     for (const p of WRITE_PACKAGES) {
       expect(pkgs.filter((u) => u.includes(`/node_modules/${p}/`)), p).toEqual([]);

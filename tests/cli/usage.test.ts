@@ -111,8 +111,13 @@ interface ChildRun {
  * Spawn the built bin with stdin PIPED AND NEVER ENDED — i.e. a real terminal.
  * cwd is an empty temp dir and DEXE_ENV_FILE points at a nonexistent path so no
  * developer `.env` (or hot key) leaks into the child.
+ *
+ * The budget only has to tell "answered and exited" from "opened a transport
+ * and waits forever"; 15 s (under the suite's 20 s testTimeout) leaves room for
+ * a cold start while every worker is busy — at 5 s the full parallel run timed
+ * out an `--help` that takes ~1 s alone.
  */
-function spawnCli(args: string[], timeoutMs = 5000): Promise<ChildRun> {
+function spawnCli(args: string[], timeoutMs = 15_000): Promise<ChildRun> {
   return new Promise((done) => {
     const cwd = mkdtempSync(resolve(tmpdir(), "dexe-cli-"));
     const child = spawn(process.execPath, [DIST, ...args], {

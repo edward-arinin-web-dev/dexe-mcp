@@ -1,10 +1,15 @@
 import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import type { ReadConfig } from "../configRead.js";
-import type { ReportSnapshot, ReportSnapshotStore } from "../tools/report.js";
-import { renameWithRetry, tempStatePath, withWriteLock } from "./stateStore.js";
-import { safeErrorMessage } from "./redact.js";
-import { debugLog } from "../runtime.js";
+import {
+  debugLog,
+  renameWithRetry,
+  safeErrorMessage,
+  tempStatePath,
+  withWriteLock,
+  type ReadConfig,
+  type ReportSnapshot,
+  type ReportSnapshotStore,
+} from "@dexe-network/dexe-mcp/core";
 
 /**
  * ── `dexe_dao_report` snapshots on disk (`reports.json`) ───────────────────
@@ -13,7 +18,7 @@ import { debugLog } from "../runtime.js";
  * full run beside `state.json`, so `since: "last"` and the state-change diff
  * work across sessions. Handed to `registerReportTools` by the composition root
  * (src/tools/index.ts). The read edition passes no store — it keeps nothing
- * between calls — so the report tool itself (src/tools/report.ts) writes no
+ * between calls — so the report tool itself (the read edition's tools/report.ts) writes no
  * file, and this module is the only place a report touches the disk.
  */
 

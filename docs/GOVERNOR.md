@@ -313,8 +313,9 @@ node. (`DEXE_RPC_URL_OPTIMISM` was never a recognized variable at all.)
 
 A Governor fixture is a static snapshot of mutable on-chain state, and governors
 are upgradeable — Compound replaced its governor outright, Optimism upgraded its
-proxy implementation. Offline shape tests cannot see that, so
-`tests/governor/fixtures-live.test.ts` re-reads every fixture off-chain:
+proxy implementation. Offline shape tests cannot see that, so the read
+edition's `tests/governor/fixtures-live.test.ts` (the fixtures ship in
+`@dexe-network/dexe-mcp`, and that repo runs it) re-reads every fixture off-chain:
 
 - the governor address holds a live contract and answers `name()`
 - `governorVersion` matches the deployed ABI family (Bravo exposes
@@ -327,7 +328,8 @@ proxy implementation. Offline shape tests cannot see that, so
 - quorum resolves non-zero through the configured `quorumSource`
 
 It is **skipped by default** — a fresh clone, an offline machine and default CI
-make zero network calls. Run it locally with archive endpoints:
+make zero network calls. Run it locally, in the read edition's checkout, with
+archive endpoints:
 
 ```powershell
 $env:GOVERNOR_LIVE   = "1"

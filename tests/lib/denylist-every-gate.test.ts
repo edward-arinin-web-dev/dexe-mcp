@@ -4,7 +4,7 @@ import {
   BroadcastGuardError,
   type BroadcastTx,
 } from "../../src/lib/broadcastGuards.js";
-import { forbiddenSelectors, scanForbiddenCalldata } from "../../src/lib/dangerousSelectors.js";
+import { forbiddenSelectors, scanForbiddenCalldata } from "@dexe-network/dexe-mcp/core";
 
 /**
  * B12 lives in `runBroadcastGuards`, not at each call site — and that placement
@@ -89,8 +89,8 @@ describe("B12 refuses denylisted calldata at the shared guard", () => {
  * ship unguarded, so assert the dependency direction rather than trusting it.
  */
 describe("the denylist scanner is reachable from the guard layer", () => {
-  it("is exported from src/lib, not only from a tool module", async () => {
-    const lib = await import("../../src/lib/dangerousSelectors.js");
+  it("is exported as library API, not only from a tool module", async () => {
+    const lib = await import("@dexe-network/dexe-mcp/core");
     expect(typeof lib.scanForbiddenCalldata).toBe("function");
     expect(typeof lib.forbiddenBroadcastError).toBe("function");
   });

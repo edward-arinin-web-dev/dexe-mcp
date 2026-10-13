@@ -2,12 +2,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { loadReadConfig } from "../../src/configRead.js";
-import { createReadServer, type ReadServerOptions } from "../../src/read/server.js";
+import { createReadServer, loadReadConfig, type ReadServerOptions } from "@dexe-network/dexe-mcp";
 
 /**
  * The READ edition as its binaries serve it: `createReadServer` from
- * src/read/server.ts (read config, the read toolset and annotation tables, the
+ * @dexe-network/dexe-mcp (read config, the read toolset and annotation tables, the
  * read-result guard, no state store, no report snapshots, the read corpus, the
  * read doctor checks, no governor write half, the read resources).
  */

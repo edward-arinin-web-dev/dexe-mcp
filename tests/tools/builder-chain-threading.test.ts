@@ -3,7 +3,7 @@ import { AbiCoder, id } from "ethers";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../../src/config.js";
 
 /**
@@ -42,7 +42,8 @@ const CODE_WITH_MINT = "0x60ff63af2d233314600057";
 /** Every chain id handed to the provider factory, in call order. */
 const probes = vi.hoisted(() => ({ chains: [] as (number | undefined)[] }));
 
-vi.mock("../../src/rpc.js", () => {
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>();
   const fakeProvider = {
     async getCode() {
       return CODE_WITH_MINT;
@@ -59,6 +60,7 @@ vi.mock("../../src/rpc.js", () => {
     },
   };
   return {
+    ...actual,
     RpcProvider: class {
       constructor(_config: unknown) {}
       requireProvider(chainId?: number) {

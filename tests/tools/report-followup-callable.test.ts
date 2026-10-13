@@ -1,14 +1,12 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { multicall } from "../../src/lib/multicall.js";
+import { multicall, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import { defaultProfileToolNames, resolveToolsets, SINGLE_SERVER_TOOLSETS, TOOLSETS } from "../../src/tools/gate.js";
-import type { ToolContext } from "../../src/tools/context.js";
 import type { DexeConfig, SubgraphEndpoints } from "../../src/config.js";
 
 /**
@@ -184,7 +182,12 @@ function answerCall(c: { method: string; args: readonly unknown[] }) {
   }
 }
 
-vi.mock("../../src/lib/multicall.js", () => ({
+// dexe_dao_report is the read edition's tool: it calls multicall and RpcProvider
+// from inside @dexe-network/dexe-mcp, where a mock of the core re-export does not
+// reach. So both stubs replace the package's own modules (vitest.config.ts
+// inlines the package, which is what makes these paths mockable); anything that
+// imports them through @dexe-network/dexe-mcp/core sees the same stubs.
+vi.mock("../../node_modules/@dexe-network/dexe-mcp/dist/lib/multicall.js", () => ({
   MULTICALL3_ADDRESS: "0xcA11bde05977b3631167028862bE2a173976CA11",
   multicall: vi.fn(async (_provider: unknown, calls: unknown[]) =>
     (calls as Array<{ method: string; args: readonly unknown[] }>).map(answerCall),
@@ -202,8 +205,8 @@ const fakeProvider = {
   getBlock: vi.fn(async () => ({ number: 62_000_000, timestamp: NOW })),
 };
 
-vi.mock("../../src/rpc.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/rpc.js")>();
+vi.mock("../../node_modules/@dexe-network/dexe-mcp/dist/rpc.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>();
   class MockRpcProvider {
     constructor(private readonly cfg: { defaultChainId: number }) {}
     resolveChainId(chainId?: number): number {
@@ -340,7 +343,7 @@ interface ToolResult {
 }
 
 async function callReport(cfg: DexeConfig, args: Record<string, unknown>): Promise<ToolResult> {
-  const { registerReportTools } = await import("../../src/tools/report.js");
+  const { registerReportTools } = await import("@dexe-network/dexe-mcp/core");
   const server = new McpServer({ name: "dexe-mcp-test", version: "0.0.0" }, {});
   registerReportTools(server, { config: cfg } as unknown as ToolContext, { toolsets: SINGLE_SERVER_TOOLSETS });
   const client = new Client({ name: "test-client", version: "0.0.0" });
@@ -396,7 +399,7 @@ let tmp: string;
 // run, which would otherwise land entirely inside whichever test imports it
 // first and blow the default 5s budget. Pay it once, in a hook.
 beforeAll(async () => {
-  await import("../../src/tools/report.js");
+  await import("@dexe-network/dexe-mcp/core");
 }, 60_000);
 
 beforeEach(() => {
@@ -560,7 +563,7 @@ describe("dexe_dao_report — every degraded shape names callable tools", () => 
 
 describe("toolRef / toolsetHint", () => {
   it("annotates exactly the tools outside the default profile", async () => {
-    const { toolRef, toolsetHint } = await import("../../src/tools/report.js");
+    const { toolRef, toolsetHint } = await import("@dexe-network/dexe-mcp/core");
     for (const tool of ALL_TOOLS) {
       const hint = toolsetHint(tool, SINGLE_SERVER_TOOLSETS);
       if (DEFAULT_PROFILE.has(tool)) {
@@ -581,32 +584,11 @@ describe("toolRef / toolsetHint", () => {
   });
 
   it("falls back to `full` for a name no named set carries", async () => {
-    const { toolsetHint } = await import("../../src/tools/report.js");
+    const { toolsetHint } = await import("@dexe-network/dexe-mcp/core");
     expect(toolsetHint("dexe_not_a_real_tool", SINGLE_SERVER_TOOLSETS)).toBe("DEXE_TOOLSETS=full");
   });
 });
 
-// ---------- 4. structural guard ----------
-
-describe("src/tools/report.ts", () => {
-  it("routes every tool name it can print through the annotator", async () => {
-    // The runtime tests above can only cover the follow-up paths a scenario
-    // reaches. This closes the rest: a bare "dexe_…" literal is a name that
-    // would reach a user un-annotated, so it must go through toolRef().
-    const src = readFileSync(
-      fileURLToPath(new URL("../../src/tools/report.ts", import.meta.url)),
-      "utf8",
-    );
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    const bare: string[] = [];
-    for (const m of code.matchAll(/(toolRef\(\s*")?(dexe_[a-z0-9_]+)/g)) {
-      // The tool's own name: its registration and its error-context labels.
-      if (!m[1] && m[2] !== "dexe_dao_report") bare.push(m[2]!);
-    }
-    expect(
-      bare,
-      "these tool names are printed literally — wrap them in toolRef() so the " +
-        "reader is told which DEXE_TOOLSETS value makes them callable",
-    ).toEqual([]);
-  });
-});
+// The structural guard over the report's source (every dexe_* literal it can
+// print goes through toolRef()) lives with that source, in the read edition's
+// copy of this file (@dexe-network/dexe-mcp, tests/tools/report-followup-callable.test.ts).

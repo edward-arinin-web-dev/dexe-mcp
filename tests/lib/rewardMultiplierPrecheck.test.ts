@@ -50,7 +50,8 @@ const state = vi.hoisted(() => ({
   getStorageThrows: false,
 }));
 
-vi.mock("../../src/rpc.js", () => {
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>();
   const fakeProvider = {
     async getCode(addr: string) {
       const byAddr = state.codeByAddr[(addr ?? "").toLowerCase()];
@@ -70,6 +71,7 @@ vi.mock("../../src/rpc.js", () => {
     },
   };
   return {
+    ...actual,
     RpcProvider: class {
       constructor(_config: unknown) {}
       requireProvider() {

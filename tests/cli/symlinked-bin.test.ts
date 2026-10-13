@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { isMainModule } from "../../src/stdioRuntime.js";
+import { isMainModule } from "@dexe-network/dexe-mcp/core";
 
 /**
  * npm installs a package's bins on Linux and macOS as SYMLINKS

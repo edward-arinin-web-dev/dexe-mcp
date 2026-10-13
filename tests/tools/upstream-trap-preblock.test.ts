@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../../src/config.js";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
@@ -20,7 +20,8 @@ import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 // `multicall` is the only network touch on the OTC read paths; stub it so the
 // claim_all decision logic can be exercised offline.
 const multicallMock = vi.fn();
-vi.mock("../../src/lib/multicall.js", () => ({
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
   multicall: (...args: unknown[]) => multicallMock(...args),
 }));
 

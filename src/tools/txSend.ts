@@ -3,7 +3,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { HOT_KEY_SAFETY, KEYSTORE_SAFETY, type SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { resolveChain, type DexeConfig } from "../config.js";
-import { createChainProvider } from "../rpc.js";
+import {
+  createChainProvider,
+  findForbiddenSelector,
+  forbiddenBroadcastError,
+  forbiddenSelectors,
+  scanForbiddenCalldata,
+  selectorOf,
+  type ForbiddenSelector,
+} from "@dexe-network/dexe-mcp/core";
 import { runBroadcastGuards, BroadcastGuardError } from "../lib/broadcastGuards.js";
 import { waitWithTimeout, waitForHashWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/writeErrors.js";
@@ -18,14 +26,6 @@ import { buildReview } from "../lib/approval/review.js";
 import { currentToolScope } from "../lib/approval/scope.js";
 import { wcPairingContent } from "../lib/qr.js";
 import { withActionContext } from "../lib/agentLedger.js";
-import {
-  findForbiddenSelector,
-  forbiddenSelectors,
-  selectorOf,
-  scanForbiddenCalldata,
-  forbiddenBroadcastError,
-  type ForbiddenSelector,
-} from "../lib/dangerousSelectors.js";
 
 /**
  * R3 — receipt.status===0 (mined but REVERTED) must surface as a failure, not

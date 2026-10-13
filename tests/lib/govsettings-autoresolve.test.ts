@@ -10,10 +10,12 @@ import { Interface } from "ethers";
  * still wins and is still validated.
  */
 
-vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
+  multicall: vi.fn(),
+}));
 
-import { multicall } from "../../src/lib/multicall.js";
-import { RpcProvider } from "../../src/rpc.js";
+import { multicall, RpcProvider } from "@dexe-network/dexe-mcp/core";
 import { PROPOSAL_BUILDERS } from "../../src/lib/proposalBuilders.js";
 
 const mc = vi.mocked(multicall);

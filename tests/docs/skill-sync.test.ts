@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { renderSkillRecipe } from "../../src/knowledge/render.js";
+import { renderSkillRecipe } from "@dexe-network/dexe-mcp/core";
 import { WRITE_CORPUS } from "../../src/knowledge/write/index.js";
 
 /**

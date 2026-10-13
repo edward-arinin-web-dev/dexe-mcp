@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runAllChecks, type CheckResult } from "../../src/diag/checks.js";
+import { runAllChecks, type CheckResult } from "@dexe-network/dexe-mcp/core";
 import { writeDoctorChecks } from "../../src/diag/writeChecks.js";
 
 /** The doctor as the single server runs it: read checks + the write checks, which own the probe. */

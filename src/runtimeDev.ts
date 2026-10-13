@@ -6,7 +6,7 @@ import { execFile } from "node:child_process";
 /**
  * Portable runtime helpers for spawning `npm`, `npx`, `hardhat`, and `git`
  * without depending on the MCP process's PATH. Dev-toolchain code (bootstrap,
- * hardhat); the `DEXE_DEBUG` diagnostics every edition uses are in ./runtime.ts.
+ * hardhat); the `DEXE_DEBUG` diagnostics every edition uses are in the read edition's runtime.ts.
  *
  * Claude Code (and other MCP clients) spawn servers with a minimal PATH.
  * On Windows in particular, `npm`/`npx` are `.cmd` shims that `CreateProcess`

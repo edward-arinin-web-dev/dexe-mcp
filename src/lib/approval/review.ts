@@ -1,6 +1,17 @@
 import { AbiCoder, getAddress, Interface, keccak256, formatUnits, type JsonRpcProvider } from "ethers";
 import type { DexeConfig } from "../../config.js";
-import { RpcProvider } from "../../rpc.js";
+import {
+  bundledAbiSnapshot,
+  CalldataDecoder,
+  classifyGovernanceActions,
+  CONTRACT_NAMES,
+  CONTRACTS_REGISTRY_BY_CHAIN,
+  renderUntrusted,
+  RpcProvider,
+  sanitizeRevertReason,
+  SelectorIndex,
+  type DecodedCall,
+} from "@dexe-network/dexe-mcp/core";
 import {
   assertAllowlistAndValueCap,
   assertChainCoherence,
@@ -8,13 +19,6 @@ import {
   BroadcastGuardError,
 } from "../broadcastGuards.js";
 import { simulateCalldata } from "../simulate.js";
-import { sanitizeRevertReason } from "../errors.js";
-import { bundledAbiSnapshot } from "../abiSnapshot.js";
-import { CalldataDecoder, type DecodedCall } from "../decoders.js";
-import { SelectorIndex } from "../selectors.js";
-import { renderUntrusted } from "../sanitize.js";
-import { classifyGovernanceActions } from "../governanceHits.js";
-import { CONTRACTS_REGISTRY_BY_CHAIN, CONTRACT_NAMES } from "../addresses.js";
 
 /**
  * ── What the human is shown before typing the password ─────────────────────

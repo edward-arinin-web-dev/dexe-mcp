@@ -2,8 +2,8 @@ import { z } from "zod";
 import { resolveTreasuryGuardMode, TREASURY_GUARD_MODES } from "../lib/treasuryGate.js";
 import { SIGNER_MODES } from "../lib/signerMode.js";
 import {
-  ENV_SPEC_READ,
   enumStr,
+  ENV_SPEC_READ,
   intStr,
   isKnownEnvKey as isKnownInSpec,
   urlStr,
@@ -11,7 +11,7 @@ import {
   type EnvEntry,
   type EnvSpec,
   type EnvSurface,
-} from "./schemaRead.js";
+} from "@dexe-network/dexe-mcp/core";
 
 /**
  * Single source of truth for every DEXE_* env var the single server
@@ -42,7 +42,7 @@ export {
   type EnvFlow,
   type EnvSpec,
   type EnvSurface,
-} from "./schemaRead.js";
+} from "@dexe-network/dexe-mcp/core";
 
 const hex64 = /^0x[0-9a-fA-F]{64}$/;
 

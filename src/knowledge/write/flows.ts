@@ -1,4 +1,4 @@
-import type { Flow } from "../types.js";
+import type { Flow } from "@dexe-network/dexe-mcp/core";
 
 /**
  * The flow corpus — ordered multi-step journeys through DeXe governance.

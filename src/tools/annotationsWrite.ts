@@ -1,5 +1,5 @@
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import { LOCAL_READ, READ_ANNOTATIONS, READ_ONLY, type AnnotationTable } from "./annotations.js";
+import { LOCAL_READ, READ_ANNOTATIONS, READ_ONLY, type AnnotationTable } from "@dexe-network/dexe-mcp/core";
 
 /**
  * ── MCP tool annotations: the write edition, and the single server ─────────

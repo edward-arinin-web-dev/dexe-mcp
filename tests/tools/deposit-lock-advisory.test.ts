@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ZodTypeAny } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import { multicall, type ToolContext } from "@dexe-network/dexe-mcp/core";
 
 /**
  * 0.33.0 findings — the deposit-lock guard, wired and made truthful.
@@ -25,9 +25,11 @@ import type { ToolContext } from "../../src/tools/context.js";
  * about what IS. Calldata is untouched in every case.
  */
 
-vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
+  multicall: vi.fn(),
+}));
 
-import { multicall } from "../../src/lib/multicall.js";
 import { loadConfig } from "../../src/config.js";
 import { registerVoteBuildTools } from "../../src/tools/voteBuild.js";
 import { checkTokensUnlocked } from "../../src/lib/preflight.js";

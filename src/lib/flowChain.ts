@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { nextAfter } from "../knowledge/write/nextSteps.js";
-import type { StateStore } from "./stateStore.js";
+import type { StateStore } from "@dexe-network/dexe-mcp/core";
 
 /**
  * Composite-side glue for the knowledge layer's structured chaining (Phase B).

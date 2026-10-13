@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { registerIpfsReadTools } from "../../src/tools/ipfsRead.js";
+import { registerIpfsReadTools, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import { registerIpfsCidForJsonTool, registerIpfsUploadTools } from "../../src/tools/ipfsWrite.js";
 import { registerSafeTools } from "../../src/tools/safe.js";
-import type { ToolContext } from "../../src/tools/context.js";
 import { SignerManager } from "../../src/lib/signer.js";
 import type { DexeConfig } from "../../src/config.js";
 

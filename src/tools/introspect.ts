@@ -4,8 +4,12 @@ import { join, isAbsolute } from "node:path";
 import { FunctionFragment, id as keccakId } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { ArtifactsMissingError, type Artifacts, type ArtifactRecord } from "../artifacts.js";
-import { safeErrorMessage } from "../lib/redact.js";
+import {
+  ArtifactsMissingError,
+  safeErrorMessage,
+  type ArtifactRecord,
+  type Artifacts,
+} from "@dexe-network/dexe-mcp/core";
 
 export function registerIntrospectTools(server: McpServer, ctx: WriteToolContext): void {
   registerListContracts(server, ctx);

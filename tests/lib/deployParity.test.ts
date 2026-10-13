@@ -5,8 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { buildDeployGovPool, type DeployParams } from "../../src/tools/daoDeploy.js";
 import { synthesizeParams } from "../../src/tools/daoCreate.js";
-import type { ToolContext } from "../../src/tools/context.js";
-import type { RpcProvider } from "../../src/rpc.js";
+import type { RpcProvider, ToolContext } from "@dexe-network/dexe-mcp/core";
 
 /**
  * Golden-vector parity — byte-for-byte regression net for deployGovPool

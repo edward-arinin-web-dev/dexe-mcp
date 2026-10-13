@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cidForJson, pinataCidForJson } from "../../src/lib/ipfs.js";
+import { cidForJson, pinataCidForJson } from "@dexe-network/dexe-mcp/core";
 import { pinJsonOrPreview, type PinataClient } from "../../src/lib/ipfsPin.js";
 
 /**

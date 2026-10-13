@@ -4,7 +4,7 @@ import type { DexeConfig } from "../config.js";
 import type { SignerManager } from "../lib/signer.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { wcPairingContent } from "../lib/qr.js";
-import { safeErrorMessage } from "../lib/redact.js";
+import { safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 
 /**
  * C12 — WalletConnect tools.

@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
-import { StateStore } from "../../src/lib/stateStore.js";
+import { StateStore } from "@dexe-network/dexe-mcp/core";
 
 const dirs: string[] = [];
 afterEach(() => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeToolsets } from "../../src/tools/operationalContext.js";
+import { describeToolsets } from "@dexe-network/dexe-mcp/core";
 import {
   TOOLSETS,
   DEFAULT_TOOLSETS,

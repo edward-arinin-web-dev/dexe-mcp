@@ -1,16 +1,25 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, extname, join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MODULE_CLASSES, MODULE_GROUPS, type ModuleClass } from "./modules.js";
-import { loadSrcTree, resolveIn, scanModule, type Tree } from "./scan.js";
+import { REPO, loadSrcTree, resolveIn, scanModule, type Tree } from "./scan.js";
 
 /**
  * The read/write edition boundary, enforced on the import graph.
  *
- * Walks every static import (value AND type-only — the read package has to
- * compile without the write files), every `export … from`, and every literal
- * `import("…")` (including type-position `import("./x.js").T`), starting from
- * every read-side module (`read` + `mixed` in ./modules.ts). An edge from the
- * read side into a `write` or `root` module is a CROSSING. Today's crossings are
- * listed below, each with what removes it.
+ * The read edition is a dependency of this package, @dexe-network/dexe-mcp:
+ * src/ holds no read module, and this repo reaches the read code only through
+ * the package's entry points (`/core`, and `/bin` for the binary's shim). The
+ * package cannot import this repo at all, so read → write is closed by
+ * construction; the "dependency, not a copy" block below holds src/ to that.
+ *
+ * What is left of the walk: every static import (value AND type-only), every
+ * `export … from`, and every literal `import("…")` (including type-position
+ * `import("./x.js").T`), starting from every read-side module of this repo
+ * (`mixed` + `shim` in ./modules.ts). An edge from the read side into a `write`
+ * or `root` module is a CROSSING. Today's crossings are listed below, each with
+ * what removes it.
  *
  * Every list here is a ratchet in both directions:
  *   - an entry that is not listed fails (nothing new sneaks onto the read side),
@@ -41,15 +50,16 @@ const KNOWN_CROSSINGS: Readonly<Record<string, string>> = {};
 
 /**
  * Read-side files that write the local disk. The read edition is meant to run
- * as a shared server, so every local write on its side is listed here.
+ * as a shared server, so every local write on its side is listed here. (The
+ * read package's own disk writers — the state.json store — are held to the same
+ * rule in its repo.)
  *
  * `dexe_dao_report` is not here: its snapshot store is injected
- * (src/tools/report.ts `ReportSnapshotStore`), the file implementation lives on
- * the write side (src/lib/reportStoreFile.ts), and the read edition passes none.
+ * (`ReportSnapshotStore`, @dexe-network/dexe-mcp/core), the file implementation
+ * lives on the write side (src/lib/reportStoreFile.ts), and the read edition
+ * passes none.
  */
 const KNOWN_DISK_WRITERS: Readonly<Record<string, string>> = {
-  "lib/stateStore.ts":
-    "the state.json writer. Only write flows call it; read tools call getState / findKnownDao.",
   "cli/init.ts":
     "the setup wizard writes ~/.dexe-mcp/.env and copies skills. A CLI command, not a tool.",
 };
@@ -82,7 +92,7 @@ interface Report {
   staleOpaqueLoads: string[];
 }
 
-const isReadSide = (c: ModuleClass | undefined): boolean => c === "read" || c === "mixed";
+const isReadSide = (c: ModuleClass | undefined): boolean => c === "mixed" || c === "shim";
 
 function analyse(tree: Tree, classes: ReadonlyMap<string, ModuleClass>, allow: Allowlists): Report {
   const files = [...tree.keys()].sort();
@@ -162,8 +172,8 @@ describe("read/write edition boundary — import graph", () => {
   });
 
   it("analysed the real tree — otherwise every assertion here is vacuous", () => {
-    expect(report.files.length).toBeGreaterThan(100);
-    expect(report.edgeCount, "almost no imports found — is the scanner broken?").toBeGreaterThan(300);
+    expect(report.files.length).toBeGreaterThan(80);
+    expect(report.edgeCount, "almost no imports found — is the scanner broken?").toBeGreaterThan(150);
     // Zero crossings since A7. That is only meaningful if the walk can still SEE
     // one: the fixture block below proves detection, and this proves the real
     // graph does reach write modules — from the composition roots, which are
@@ -189,7 +199,7 @@ describe("read/write edition boundary — import graph", () => {
     expect(twice, "listed more than once in tests/boundary/modules.ts").toEqual([]);
     expect(
       report.unclassified,
-      "new src files need a class (read / write / mixed / root) in tests/boundary/modules.ts",
+      "new src files need a class (write / mixed / root / shim) in tests/boundary/modules.ts — read code goes to @dexe-network/dexe-mcp",
     ).toEqual([]);
     expect(report.staleClasses, "classified in tests/boundary/modules.ts but no such file under src/").toEqual([]);
     expect(report.unresolved, "relative imports that resolve to no src file").toEqual([]);
@@ -201,7 +211,7 @@ describe("read/write edition boundary — import graph", () => {
       [
         "New read → write import(s). The read edition must build without the write files.",
         "Fix one of:",
-        "  1. Move the shared, side-effect-free code into a read-side module and import it from both.",
+        "  1. Move the shared, side-effect-free code into the read edition (@dexe-network/dexe-mcp/core) and import it from there.",
         "  2. If the importing file is really write code, classify it `write` in tests/boundary/modules.ts.",
         "Listing the edge in KNOWN_CROSSINGS is for pre-existing debt only.",
       ].join("\n"),
@@ -227,19 +237,154 @@ describe("read/write edition boundary — import graph", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The read edition is a dependency, not a copy
+// ---------------------------------------------------------------------------
+
+const READ_PACKAGE = "@dexe-network/dexe-mcp";
+/** Entry points this repo may import, and from where. */
+const ENTRY_POINTS: Readonly<Record<string, (from: string, cls: ModuleClass | undefined) => boolean>> = {
+  // the library API: any module
+  [`${READ_PACKAGE}/core`]: () => true,
+  // the read edition's binary: only its bin shim
+  [`${READ_PACKAGE}/bin`]: (_from, cls) => cls === "shim",
+};
+
+/**
+ * src paths the read package also ships that are NOT copies: the same file name
+ * for a different module. Each says what the package's file is instead.
+ */
+const SAME_NAME_NOT_A_COPY: Readonly<Record<string, string>> = {
+  "index.ts":
+    "this package's CLI and stdio server; the package's index.ts is its library entry (createReadServer, the `.` export)",
+  "editions.ts":
+    "lists BOTH editions' tools (READ_TOOLS + WRITE_TOOLS); the package's lists its own READ_TOOLS — " +
+    "tests/boundary/edition-manifest.test.ts keeps the two READ_TOOLS equal",
+};
+
+const pkgRoot = dirname(createRequire(join(REPO, "package.json")).resolve(`${READ_PACKAGE}/package.json`));
+
+/** dist-relative module paths the installed read package ships, as src-relative .ts names. */
+function readPackageModules(): Set<string> {
+  const out = new Set<string>();
+  const dist = join(pkgRoot, "dist");
+  const walk = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (extname(p) === ".js") out.add(relative(dist, p).split(sep).join("/").replace(/\.js$/, ".ts"));
+    }
+  };
+  walk(dist);
+  return out;
+}
+
+/** Every .ts/.mjs/.js under scripts/ (repo-relative path → source). */
+function loadScripts(): Map<string, string> {
+  const out = new Map<string, string>();
+  const walk = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if ([".ts", ".mjs", ".js"].includes(extname(p))) out.set(relative(REPO, p).split(sep).join("/"), readFileSync(p, "utf8"));
+    }
+  };
+  walk(join(REPO, "scripts"));
+  return out;
+}
+
+describe("the read edition is a dependency, not a copy", () => {
+  const tree = loadSrcTree();
+  const pkgModules = readPackageModules();
+
+  it("the installed package is the read edition, and the walk below has something to compare", () => {
+    const pkg = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")) as {
+      name: string;
+      exports: Record<string, unknown>;
+      dependencies?: Record<string, string>;
+    };
+    expect(pkg.name).toBe(READ_PACKAGE);
+    expect(Object.keys(pkg.exports)).toEqual(expect.arrayContaining([".", "./core", "./bin"]));
+    expect(pkgModules.size, "the read package ships no modules — is it installed?").toBeGreaterThan(80);
+    expect(pkgModules.has("core.ts")).toBe(true);
+    // No cycle: the read edition never depends on the write edition.
+    expect(Object.keys(pkg.dependencies ?? {})).not.toContain("dexe-mcp");
+  });
+
+  it("src/ keeps no copy of a read module", () => {
+    // A src path the package also ships is a module that exists twice — the
+    // copy here would drift from the one the read edition actually serves.
+    // The shim is the one same-named file: it is how this package's
+    // `dexe-mcp-read` bin reaches the package's binary.
+    const shims = new Set(MODULE_GROUPS.shim);
+    const copies = [...tree.keys()]
+      .filter((f) => pkgModules.has(f) && !shims.has(f) && !(f in SAME_NAME_NOT_A_COPY))
+      .sort();
+    expect(copies, "these src modules are the read edition's — import them from @dexe-network/dexe-mcp/core").toEqual([]);
+    for (const f of shims) expect(pkgModules.has(f), `${f} shims a package module that no longer exists`).toBe(true);
+    for (const f of Object.keys(SAME_NAME_NOT_A_COPY)) {
+      expect(tree.has(f) && pkgModules.has(f), `${f} no longer exists on both sides — delete it from SAME_NAME_NOT_A_COPY`).toBe(true);
+    }
+  });
+
+  it("src/ and scripts/ reach the read edition only through its entry points", () => {
+    const bad: string[] = [];
+    const check = (file: string, text: string, cls: ModuleClass | undefined): void => {
+      for (const spec of scanModule(text).specifiers) {
+        if (spec !== READ_PACKAGE && !spec.startsWith(`${READ_PACKAGE}/`)) continue;
+        const allowed = ENTRY_POINTS[spec];
+        if (!allowed || !allowed(file, cls)) bad.push(`${file}: ${spec}`);
+      }
+    };
+    for (const [f, text] of tree) check(`src/${f}`, text, MODULE_CLASSES.get(f));
+    for (const [f, text] of loadScripts()) check(f, text, undefined);
+    expect(bad, "deep or unlisted imports of the read package — use its entry points (ENTRY_POINTS)").toEqual([]);
+  });
+
+  it("src/ does use the read edition through core — otherwise the check above is vacuous", () => {
+    const importers = [...tree].filter(([, text]) =>
+      scanModule(text).specifiers.includes(`${READ_PACKAGE}/core`),
+    );
+    expect(importers.length).toBeGreaterThan(40);
+  });
+
+  it("a shim imports nothing but the read edition's entry points", () => {
+    for (const f of MODULE_GROUPS.shim) {
+      const specs = scanModule(tree.get(f)!).specifiers;
+      expect(specs.filter((s) => s.startsWith(".")), `${f} imports a src module`).toEqual([]);
+      expect(specs.filter((s) => !(s in ENTRY_POINTS)), `${f} imports something besides the read edition`).toEqual([]);
+      expect(specs, `${f} starts nothing`).toContain(`${READ_PACKAGE}/bin`);
+    }
+  });
+
+  it("the vendored tarball, when used, is the version package.json names", () => {
+    // Until @dexe-network/dexe-mcp is on npm the dependency is a committed
+    // tarball (vendor/); a stale or missing one would make CI install something
+    // else than what was tested here.
+    const own = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8")) as { dependencies: Record<string, string> };
+    const spec = own.dependencies[READ_PACKAGE]!;
+    expect(spec).toBeDefined();
+    if (!spec.startsWith("file:")) return;
+    const tarball = join(REPO, spec.slice("file:".length));
+    expect(existsSync(tarball), `${spec} is not in the repo`).toBe(true);
+    const installed = (JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")) as { version: string }).version;
+    expect(spec, "the tarball name and the installed version disagree — re-run npm install").toContain(`-${installed}.tgz`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Self-test: the checker on fixtures
 // ---------------------------------------------------------------------------
 
 describe("boundary checker self-test", () => {
   const CLASSES = new Map<string, ModuleClass>([
-    ["r.ts", "read"],
+    ["r.ts", "shim"],
     ["m.ts", "mixed"],
     ["w.ts", "write"],
     ["root.ts", "root"],
   ]);
   const NONE: Allowlists = { crossings: {}, diskWriters: {}, opaqueLoads: {} };
 
-  /** Analyse a tree whose read module r.ts has `src`; m.ts and w.ts are inert. */
+  /** Analyse a tree whose read-side module r.ts has `src`; m.ts and w.ts are inert. */
   const run = (src: string, allow: Allowlists = NONE, mixed = "export const m = 1;\n"): Report =>
     analyse(
       new Map([

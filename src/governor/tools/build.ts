@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { resolveGovernor } from "../loader.js";
+import { resolveGovernor } from "@dexe-network/dexe-mcp/core";
 import {
   buildDelegate,
   buildExecute,

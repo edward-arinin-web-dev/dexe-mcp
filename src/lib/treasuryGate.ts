@@ -1,4 +1,4 @@
-import { classifyTreasuryActions, type TreasuryHit } from "./quorumRisk.js";
+import { classifyTreasuryActions, type TreasuryHit } from "@dexe-network/dexe-mcp/core";
 
 /**
  * The treasury guard as it acts on writes: the posture parser the write config

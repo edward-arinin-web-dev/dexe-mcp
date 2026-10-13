@@ -10,7 +10,7 @@ import {
   alwaysLoadedToolNames as alwaysLoadedIn,
   classifiedToolNames as classifiedIn,
   titledToolNames as titledIn,
-} from "../../src/tools/annotations.js";
+} from "@dexe-network/dexe-mcp/core";
 import { SINGLE_SERVER_ANNOTATIONS } from "../../src/tools/annotationsWrite.js";
 import { READ_TOOLS } from "../../src/editions.js";
 import { DEPRECATED_ALIASES } from "../../src/tools/aliases.js";

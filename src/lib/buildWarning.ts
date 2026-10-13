@@ -31,7 +31,7 @@
  *                        surfaces annotate and still return the calldata.
  *   block: "hard"        refused everywhere, no override, at every surface.
  *
- * Why "confirmable" does not refuse a pure builder: `src/lib/quorumRisk.ts`
+ * Why "confirmable" does not refuse a pure builder: the read edition's `lib/quorumRisk.ts`
  * states the project posture — "`build` — emits calldata only. NEVER blocks
  * (refusing here just routes the caller to a hand-crafted custom_abi with no
  * guard at all)". The build tools exist so an agent can INSPECT actions before

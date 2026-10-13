@@ -20,7 +20,7 @@
  *   • `block: "confirmable"` refuses ONLY when the surface actually has an
  *     override input (i.e. it passed `confirmRisky`). A pure calldata builder
  *     with no override never refuses — it annotates and returns the calldata,
- *     which is the posture src/lib/quorumRisk.ts states for the build stage
+ *     which is the posture the read edition's lib/quorumRisk.ts states for the build stage
  *     ("emits calldata only. NEVER blocks") and the reason the `proposals`
  *     toolset exists at all: to inspect actions before creating them. The gate
  *     that matters lives on the composites, which do broadcast.

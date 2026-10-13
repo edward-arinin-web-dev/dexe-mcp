@@ -29,9 +29,10 @@ vi.mock("ethers", async (importOriginal) => {
   return { ...actual, Wallet: SpiedWallet };
 });
 
-const { loadReadConfig } = await import("../../src/configRead.js");
+// The read loader is the read edition's, from the package. vitest.config.ts
+// inlines the package, so the `ethers` mock above reaches its imports too.
+const { loadEnvFile, loadReadConfig } = await import("@dexe-network/dexe-mcp/core");
 const { loadConfig } = await import("../../src/config.js");
-const { loadEnvFile, resetEnvLoadState } = await import("../../src/env/loader.js");
 const { FULL_ENV_SURFACE } = await import("../../src/env/schema.js");
 
 // Well-known throwaway keys (Hardhat's default accounts #1–#3) — never funded.
@@ -217,14 +218,15 @@ describe("loadReadConfig next to the write edition's secrets", () => {
 });
 
 describe(".env loading with the read surface", () => {
+  // loadEnvFile's process-wide load record is not reset here (that hook is not
+  // part of the read edition's API); nothing below reads it, and the inlined
+  // package gives every test file its own copy.
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "dexe-read-env-"));
-    resetEnvLoadState();
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
-    resetEnvLoadState();
   });
 
   it("does not call the write edition's vars typos — but still catches real ones", () => {

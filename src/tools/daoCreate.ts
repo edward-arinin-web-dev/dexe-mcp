@@ -2,11 +2,20 @@ import { z } from "zod";
 import { parseUnits, formatUnits, ZeroAddress, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { RpcProvider } from "../rpc.js";
+import {
+  checkQuorumMargin,
+  humanDuration,
+  QUORUM_TURNOUT_CEILING,
+  quorumPctFromRaw,
+  resolveGateways,
+  RpcProvider,
+  safeErrorMessage,
+  toCidV1,
+  type StateStore,
+} from "@dexe-network/dexe-mcp/core";
 import { SignerManager } from "../lib/signer.js";
 import { ApprovalHaltError } from "../lib/approval/scope.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
-import { toCidV1 } from "../lib/ipfs.js";
 import { pinJsonOrPreview } from "../lib/ipfsPin.js";
 import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
@@ -19,9 +28,7 @@ import {
   previewBlock,
   DEPLOY_RESUME_RECHECKS,
 } from "./flow.js";
-import { humanDuration } from "../lib/time.js";
 import { buildDeployGovPool, DeployParamsSchema, type DeployParams } from "./daoDeploy.js";
-import type { StateStore } from "../lib/stateStore.js";
 import {
   checkDeployCap,
   checkUserKeeperAsset,
@@ -37,16 +44,9 @@ import { simulateDeployGovPool } from "../lib/deploySim.js";
 import { mapDeployRevert } from "../lib/deployRevertMap.js";
 import { flowChainFields, flowContextSchema } from "../lib/flowChain.js";
 import { signerKeyParam } from "../lib/writeParams.js";
-import {
-  quorumPctFromRaw,
-  checkQuorumMargin,
-  QUORUM_TURNOUT_CEILING,
-} from "../lib/quorumRisk.js";
 import { treasuryGate, treasuryGuardMode } from "../lib/treasuryGate.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
-import { resolveGateways } from "./ipfsRead.js";
-import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/writeErrors.js";
 
 /**

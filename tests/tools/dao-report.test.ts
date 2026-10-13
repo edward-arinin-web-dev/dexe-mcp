@@ -6,8 +6,7 @@ import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { multicall } from "../../src/lib/multicall.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import { multicall, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig, SubgraphEndpoints } from "../../src/config.js";
 
 /**
@@ -201,7 +200,12 @@ function answerCall(c: { method: string; target: string; args: readonly unknown[
   }
 }
 
-vi.mock("../../src/lib/multicall.js", () => ({
+// dexe_dao_report is the read edition's tool: it calls multicall and RpcProvider
+// from inside @dexe-network/dexe-mcp, where a mock of the core re-export does not
+// reach. So both stubs replace the package's own modules (vitest.config.ts
+// inlines the package, which is what makes these paths mockable); anything that
+// imports them through @dexe-network/dexe-mcp/core sees the same stubs.
+vi.mock("../../node_modules/@dexe-network/dexe-mcp/dist/lib/multicall.js", () => ({
   MULTICALL3_ADDRESS: "0xcA11bde05977b3631167028862bE2a173976CA11",
   multicall: vi.fn(async (_provider: unknown, calls: unknown[]) =>
     (calls as Array<{ method: string; target: string; args: readonly unknown[] }>).map(answerCall),
@@ -220,8 +224,8 @@ const fakeProvider = {
   getBlock: vi.fn(async () => ({ number: 62_000_000, timestamp: NOW })),
 };
 
-vi.mock("../../src/rpc.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/rpc.js")>();
+vi.mock("../../node_modules/@dexe-network/dexe-mcp/dist/rpc.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>();
   class MockRpcProvider {
     constructor(private readonly cfg: { defaultChainId: number }) {}
     resolveChainId(chainId?: number): number {
@@ -457,7 +461,7 @@ interface ToolResult {
  * the read edition, which keeps nothing between calls.
  */
 async function registerReport(server: McpServer, cfg: DexeConfig, opts: { store?: boolean } = {}): Promise<void> {
-  const { registerReportTools } = await import("../../src/tools/report.js");
+  const { registerReportTools } = await import("@dexe-network/dexe-mcp/core");
   const { FileReportStore, reportStorePath } = await import("../../src/lib/reportStoreFile.js");
   const { SINGLE_SERVER_TOOLSETS } = await import("../../src/tools/gate.js");
   registerReportTools(
@@ -655,7 +659,7 @@ describe("dexe_dao_report — full report over a mocked stack", () => {
 
 describe("dexe_dao_report — structured payload is typed", () => {
   it("validates against the tool's declared outputSchema", async () => {
-    const { DAO_REPORT_OUTPUT_SHAPE } = await import("../../src/tools/report.js");
+    const { DAO_REPORT_OUTPUT_SHAPE } = await import("@dexe-network/dexe-mcp/core");
     const schema = z.object(DAO_REPORT_OUTPUT_SHAPE);
     const res = await callReport(config({ statePath: statePath() }), { govPool: DAO });
     const parsed = schema.safeParse(res.structuredContent);
@@ -663,7 +667,7 @@ describe("dexe_dao_report — structured payload is typed", () => {
   });
 
   it("validates in the degraded and since-diff shapes too", async () => {
-    const { DAO_REPORT_OUTPUT_SHAPE } = await import("../../src/tools/report.js");
+    const { DAO_REPORT_OUTPUT_SHAPE } = await import("@dexe-network/dexe-mcp/core");
     const schema = z.object(DAO_REPORT_OUTPUT_SHAPE);
 
     const degraded = await callReport(config({ subgraphs: {}, statePath: statePath() }), {
@@ -938,7 +942,7 @@ describe("dexe_dao_report — `since` returns what CHANGED", () => {
 
 describe("parseSince", () => {
   it("reads ISO-8601, Unix seconds, blocks and 'last'", async () => {
-    const { parseSince } = await import("../../src/tools/report.js");
+    const { parseSince } = await import("@dexe-network/dexe-mcp/core");
     expect(parseSince("last")).toEqual({ kind: "lastRun" });
     expect(parseSince("2026-01-01T00:00:00Z")).toEqual({
       kind: "timestamp",
@@ -952,7 +956,7 @@ describe("parseSince", () => {
   });
 
   it("explains itself on garbage instead of silently defaulting", async () => {
-    const { parseSince } = await import("../../src/tools/report.js");
+    const { parseSince } = await import("@dexe-network/dexe-mcp/core");
     const bad = parseSince("yesterday");
     expect(bad.kind).toBe("error");
     expect((bad as { message: string }).message).toContain("ISO-8601");

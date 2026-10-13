@@ -3,10 +3,15 @@ import type { WriteConfig } from "../config.js";
 import { DEFAULTS, hotKeyEnvNames } from "../config.js";
 import { ignoredHotKeySentence } from "../lib/signerMode.js";
 import { keystorePermissionIssues, parseKeystoreMeta, weakKdfReason } from "../lib/keystore.js";
-import { safeErrorMessage } from "../lib/redact.js";
+import {
+  fetchJsonWithTimeout,
+  safeErrorMessage,
+  type CheckResult,
+  type DoctorText,
+  type EnvFileWording,
+  type ExtraChecks,
+} from "@dexe-network/dexe-mcp/core";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
-import { fetchJsonWithTimeout, type CheckResult, type EnvFileWording, type ExtraChecks } from "./checks.js";
-import type { DoctorText } from "../tools/doctor.js";
 
 /**
  * The doctor's wording on a server that runs these checks: Pinata among the

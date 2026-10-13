@@ -1,8 +1,7 @@
 import type { DexeConfig } from "../config.js";
-import { RpcProvider } from "../rpc.js";
+import { RpcProvider, safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 import { simulateCalldata } from "./simulate.js";
 import { mapDeployRevert, type DeployRevertVerdict } from "./deployRevertMap.js";
-import { safeErrorMessage } from "./redact.js";
 
 /**
  * Pre-sign simulation for the GovPool deploy — the one on-chain check no

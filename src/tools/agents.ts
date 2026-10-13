@@ -3,13 +3,15 @@ import { Interface, Wallet, formatEther, formatUnits, isAddress, parseUnits } fr
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SignerManager } from "../lib/signer.js";
 import { resolveChain, type DexeConfig } from "../config.js";
-import { createChainProvider } from "../rpc.js";
-import { multicall } from "../lib/multicall.js";
+import {
+  chainIdParam,
+  createChainProvider,
+  multicall,
+  parseAmount,
+  safeErrorMessage,
+} from "@dexe-network/dexe-mcp/core";
 import { waitWithTimeout, txWaitTimeoutMs } from "../lib/txWait.js";
 import { toActionableError } from "../lib/writeErrors.js";
-import { chainIdParam } from "../lib/params.js";
-import { parseAmount } from "../lib/units.js";
-import { safeErrorMessage } from "../lib/redact.js";
 import {
   BroadcastGuardError,
   assertAllowlistAndValueCap,

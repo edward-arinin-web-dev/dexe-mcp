@@ -1,13 +1,18 @@
 import { z } from "zod";
 import { keccak256, toUtf8Bytes } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { RpcProvider } from "../../rpc.js";
-import { resolveGovernor } from "../loader.js";
-import { governorContract, isBravo } from "../adapter.js";
-import { governorProvider, rpcNote } from "../rpc.js";
-import { safeErrorMessage } from "../../lib/redact.js";
+import {
+  governorContract,
+  governorIdSchema,
+  governorProvider,
+  isBravo,
+  PID_GOV,
+  resolveGovernor,
+  rpcNote,
+  RpcProvider,
+  safeErrorMessage,
+} from "@dexe-network/dexe-mcp/core";
 import { buildCancel, decodeGovernorWrite, type QueueExecuteArgs } from "../encoder.js";
-import { governorIdSchema, PID_GOV } from "./extras.js";
 
 /**
  * Governor calldata and hash helpers for the write path: `dexe_gov_build_cancel`,

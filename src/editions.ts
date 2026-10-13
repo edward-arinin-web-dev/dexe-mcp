@@ -50,7 +50,7 @@ export const READ_TOOLS: readonly string[] = [
   "dexe_vote_user_power",
   "dexe_vote_get_votes",
 
-  // ── on-chain reads (src/tools/read.ts)
+  // ── on-chain reads (the read edition's tools/read.ts)
   "dexe_read_multicall",
   "dexe_read_treasury",
   "dexe_read_token_holders",
@@ -66,7 +66,7 @@ export const READ_TOOLS: readonly string[] = [
   "dexe_read_staking_info",
   "dexe_read_privacy_policy_status",
 
-  // ── subgraph reads (src/tools/subgraph.ts)
+  // ── subgraph reads (the read edition's tools/subgraph.ts)
   "dexe_graph_query",
   "dexe_graph_schema",
   "dexe_read_dao_list",

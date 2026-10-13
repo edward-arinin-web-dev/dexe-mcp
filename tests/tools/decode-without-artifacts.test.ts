@@ -6,13 +6,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Interface, type JsonRpcProvider } from "ethers";
-import { registerGovTools, type GovToolOptions } from "../../src/tools/gov.js";
+import {
+  Artifacts,
+  bundledAbiSnapshot,
+  registerGovTools,
+  RpcProvider,
+  SelectorIndex,
+  type GovToolOptions,
+  type ToolContext,
+} from "@dexe-network/dexe-mcp/core";
 import { LOCAL_COMPILE_DECODE_HINT } from "../../src/tools/index.js";
-import { Artifacts } from "../../src/artifacts.js";
-import { SelectorIndex } from "../../src/lib/selectors.js";
-import { bundledAbiSnapshot } from "../../src/lib/abiSnapshot.js";
-import { RpcProvider } from "../../src/rpc.js";
-import type { ToolContext } from "../../src/tools/context.js";
 import type { DexeConfig } from "../../src/config.js";
 
 /**

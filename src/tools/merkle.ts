@@ -6,9 +6,9 @@ import {
   buildAddressMerkleTree,
   buildMerkleTree,
   computeLeafHash,
+  safeErrorMessage,
   verifyProof,
-} from "../lib/merkleTree.js";
-import { safeErrorMessage } from "../lib/redact.js";
+} from "@dexe-network/dexe-mcp/core";
 
 /**
  * Merkle utility tools — produce roots and proofs compatible with

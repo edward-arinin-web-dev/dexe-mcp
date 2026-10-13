@@ -6,7 +6,7 @@
  * broadcast, with its newlines and bidi overrides intact.
  */
 import { describe, it, expect } from "vitest";
-import { sanitizeRevertReason } from "../../src/lib/errors.js";
+import { sanitizeRevertReason } from "@dexe-network/dexe-mcp/core";
 import { readFileSync } from "node:fs";
 
 describe("sanitizeRevertReason", () => {

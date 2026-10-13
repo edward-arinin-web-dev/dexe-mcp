@@ -5,7 +5,7 @@ import {
   READ_KNOWN_FAILURES,
   registerKnownFailures,
   toActionableError,
-} from "../../src/lib/errors.js";
+} from "@dexe-network/dexe-mcp/core";
 import { COMBINED_KNOWN_FAILURES, WRITE_KNOWN_FAILURES } from "../../src/lib/writeErrors.js";
 import { WRITE_TOOLS } from "../../src/editions.js";
 

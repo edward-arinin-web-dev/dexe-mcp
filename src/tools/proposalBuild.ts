@@ -5,12 +5,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
 import { checkBlacklist, blacklistError } from "../lib/blacklist.js";
-import { findForbiddenSelector, dangerousSelectorError } from "../lib/dangerousSelectors.js";
+import {
+  dangerousSelectorError,
+  findForbiddenSelector,
+  govPoolParam,
+  safeErrorMessage,
+} from "@dexe-network/dexe-mcp/core";
 import { CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY } from "../lib/protocolAdvisories.js";
 import { buildTimeTreasuryAdvisory } from "../lib/treasuryGate.js";
 import { assessActions, withWarnings, type BuildWarning } from "./buildResult.js";
 import { warningsOutputField } from "../lib/buildWarning.js";
-import { govPoolParam } from "../lib/params.js";
 import { buildChainIdParam } from "../lib/writeParams.js";
 import { DEFAULTS } from "../config.js";
 import {
@@ -20,7 +24,6 @@ import {
   INTERNAL_PROPOSAL_TYPE_LABELS,
   type ProposalTypeEntry,
 } from "../lib/proposalCatalog.js";
-import { safeErrorMessage } from "../lib/redact.js";
 
 const GOV_POOL_ABI = [
   "function createProposal(string descriptionURL, tuple(address executor, uint256 value, bytes data)[] actionsOnFor, tuple(address executor, uint256 value, bytes data)[] actionsOnAgainst)",

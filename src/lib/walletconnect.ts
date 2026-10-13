@@ -1,5 +1,5 @@
 import { resolveChain, type DexeConfig } from "../config.js";
-import { safeErrorMessage } from "./redact.js";
+import { safeErrorMessage } from "@dexe-network/dexe-mcp/core";
 
 /**
  * C12 Phase B — WalletConnect (Reown) signer session.

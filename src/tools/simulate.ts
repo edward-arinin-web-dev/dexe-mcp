@@ -3,9 +3,13 @@ import { Interface, ZeroAddress, isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { SignerManager } from "../lib/signer.js";
-import { RpcProvider } from "../rpc.js";
-import { chainIdParam, govPoolParam, PROPOSAL_ID_DESC } from "../lib/params.js";
-import { safeErrorMessage } from "../lib/redact.js";
+import {
+  chainIdParam,
+  govPoolParam,
+  PROPOSAL_ID_DESC,
+  RpcProvider,
+  safeErrorMessage,
+} from "@dexe-network/dexe-mcp/core";
 import { simulateCalldata, decodeRevert } from "../lib/simulate.js";
 
 function errorResult(message: string) {

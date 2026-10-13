@@ -14,7 +14,7 @@
  */
 
 import { Contract, JsonRpcProvider } from "ethers";
-import { AddressBook, CONTRACT_NAMES } from "../../src/lib/addresses.js";
+import { AddressBook, CONTRACT_NAMES } from "@dexe-network/dexe-mcp/core";
 
 const IS_GOV_POOL_ABI = ["function isGovPool(address) view returns (bool)"] as const;
 const TOKEN_ADDRESS_ABI = ["function tokenAddress() view returns (address)"] as const;

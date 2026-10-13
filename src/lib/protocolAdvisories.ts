@@ -6,14 +6,19 @@
  */
 
 import { Interface } from "ethers";
-import { quorumPctFromRaw, judgeQuorum } from "./quorumRisk.js";
+import {
+  judgeQuorum,
+  quorumPctFromRaw,
+  upstream,
+  UPSTREAM_DOC,
+  type UpstreamAdvisory,
+} from "@dexe-network/dexe-mcp/core";
 import { lowQuorumAdvisory } from "./treasuryGate.js";
 import { checkTokensUnlocked } from "./preflight.js";
-import { UPSTREAM_DOC, upstream, VESTING_WITHDRAW_ADVISORY, type UpstreamAdvisory } from "./upstreamAdvisories.js";
 
-// The advisory shape, its constructor and F15 live in ./upstreamAdvisories.ts
-// (a read surface needs F15 too); re-exported so existing importers keep working.
-export { UPSTREAM_DOC, VESTING_WITHDRAW_ADVISORY };
+// The advisory shape and its constructor come from the read edition
+// (@dexe-network/dexe-mcp/core); re-exported so existing importers keep working.
+export { UPSTREAM_DOC };
 export type { UpstreamAdvisory };
 
 function toBig(s: string): bigint | null {
@@ -41,8 +46,22 @@ export function renderAdvisories(
 }
 
 // ---------- F15 — TokenSaleProposal.vestingWithdraw is blocked (funds-loss) --
-//
-// VESTING_WITHDRAW_ADVISORY itself is in ./upstreamAdvisories.ts.
+
+/**
+ * F15: on every SphereX-era pool, `vestingWithdraw` reverts in EVERY call shape
+ * (raw and multicall-wrapped — the DeXe frontend uses only those two, so the
+ * official UI fails identically). A tier opened with `vestingPercentage > 0`
+ * therefore strands its vested allocation permanently. `claim` (the instant
+ * portion) still works.
+ */
+export const VESTING_WITHDRAW_ADVISORY = upstream(
+  "F15",
+  "DANGER",
+  "TokenSaleProposal.vestingWithdraw reverts \"SphereX error: disallowed tx pattern\" in every call shape on " +
+    "current pools, so the VESTED portion of a purchase can never be withdrawn — the tokens are stranded, with " +
+    "no client-side workaround. Only `claim` (the instant portion) works. Open tiers with vestingPercentage " +
+    "\"0\" and hold back the remainder off-chain, or wait for the protocol fix.",
+);
 
 /** A tier whose vesting leg would be stranded by F15. */
 export interface VestingTierRisk {

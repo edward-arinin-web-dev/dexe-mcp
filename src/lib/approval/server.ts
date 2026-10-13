@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import { checkOrigin } from "../../http/security.js";
+import { checkOrigin } from "@dexe-network/dexe-mcp/core";
 import { safeEqual, type ApprovalRecord, type ApprovalStore } from "./store.js";
 import { renderApprovalPage, renderClosedPage, renderNotFoundPage } from "./page.js";
 

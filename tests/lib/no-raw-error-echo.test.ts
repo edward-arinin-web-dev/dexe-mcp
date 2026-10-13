@@ -123,31 +123,12 @@ function render(hits: Hit[]): string {
   ].join("\n");
 }
 
-/**
- * The read surface is where a stalled/erroring endpoint is most likely to be
- * met, and where an unexplained failure does the most damage: an agent reads
- * "failed" as "no data" and reports an empty DAO. `read.ts` and `subgraph.ts`
- * are pure read files — every tool they register must hand its failures to the
- * actionable layer, labelled with its own name so the remedy's "re-run" advice
- * names a runnable call.
+/*
+ * The read surface (read.ts, subgraph.ts: every tool hands its failures to the
+ * actionable layer under its own name) is the read edition's source, and that
+ * wiring check lives with it, in @dexe-network/dexe-mcp's copy of this file.
  */
-const READ_SURFACE = ["read.ts", "subgraph.ts"] as const;
-
-function registeredTools(source: string): string[] {
-  return [...source.matchAll(/^\s*"(dexe_[a-z0-9_]+)",\s*$/gm)].map((m) => m[1]!);
-}
-
 describe("actionable-error wiring", () => {
-  it.each(READ_SURFACE)("every tool in %s routes failures through toActionableError", (file) => {
-    const source = readFileSync(join(SRC, "tools", file), "utf8");
-    const tools = registeredTools(source);
-    expect(tools.length, `no tools found in ${file} — did the registration shape change?`).toBeGreaterThan(0);
-    const unwired = tools.filter(
-      (t) => !new RegExp(`toActionableError\\([A-Za-z_$][\\w$]*, "${t}"\\)`).test(source),
-    );
-    expect(unwired, `${file}: not wired to the actionable layer: ${unwired.join(", ")}`).toEqual([]);
-  });
-
   it("classifies the dexe_tx_send broadcast — the most common failure in the server", () => {
     // A throw out of wallet.sendTransaction used to escape the handler entirely
     // and surface as an ethers dump (RPC URL included). All three legs of the

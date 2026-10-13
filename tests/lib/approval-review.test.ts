@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { AbiCoder, Interface } from "ethers";
 import { buildReview } from "../../src/lib/approval/review.js";
-import { CONTRACTS_REGISTRY_BY_CHAIN } from "../../src/lib/addresses.js";
+import { CONTRACTS_REGISTRY_BY_CHAIN } from "@dexe-network/dexe-mcp/core";
 import type { DexeConfig } from "../../src/config.js";
 
 /**

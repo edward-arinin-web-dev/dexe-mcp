@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { Interface } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import { multicall, RpcProvider, type ToolContext } from "@dexe-network/dexe-mcp/core";
 import type { SignerManager } from "../../src/lib/signer.js";
 import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
 
@@ -31,8 +31,6 @@ import type { WalletConnectManager } from "../../src/lib/walletconnect.js";
  * claim is checked against what the flow would actually put on the wire.
  */
 
-vi.mock("../../src/lib/multicall.js", () => ({ multicall: vi.fn() }));
-
 // PinataClient is the only other network dependency in the create path. The
 // fake CID is a hash of the pinned JSON, so "the same call re-derives the same
 // descriptionURL" — the property the whole duplicate guard rests on — is
@@ -46,11 +44,15 @@ vi.mock("../../src/lib/ipfsPin.js", async (importOriginal) => ({
   },
 }));
 
-// W10's registered-GovPool probe is a live eth_call. Make the registry
-// unresolvable so `assertRegisteredGovPool` takes its documented
-// "cannot verify → proceed" branch instead of hitting the network.
-vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/lib/addresses.js")>()),
+// multicall (every RPC read is faked per test) and the registry lookup both come
+// from the read edition's API: one partial mock, since a second vi.mock of the
+// same specifier would replace the first. W10's registered-GovPool probe is a
+// live eth_call; the registry is made unresolvable so `assertRegisteredGovPool`
+// takes its documented "cannot verify → proceed" branch instead of hitting the
+// network.
+vi.mock("@dexe-network/dexe-mcp/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dexe-network/dexe-mcp/core")>()),
+  multicall: vi.fn(),
   AddressBook: class {
     async resolve(): Promise<string> {
       throw new Error("offline test — registry unresolvable");
@@ -58,9 +60,7 @@ vi.mock("../../src/lib/addresses.js", async (importOriginal) => ({
   },
 }));
 
-import { multicall } from "../../src/lib/multicall.js";
 import { loadConfig } from "../../src/config.js";
-import { RpcProvider } from "../../src/rpc.js";
 import {
   runProposalCreate,
   registerFlowTools,

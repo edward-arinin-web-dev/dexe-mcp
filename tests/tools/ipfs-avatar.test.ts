@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerIpfsUploadTools } from "../../src/tools/ipfsWrite.js";
-import type { ToolContext } from "../../src/tools/context.js";
+import type { ToolContext } from "@dexe-network/dexe-mcp/core";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<{
   isError?: boolean;

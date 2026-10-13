@@ -21,8 +21,16 @@ import { checkBlacklist, blacklistError } from "./blacklist.js";
 import { settingsAdvisories } from "./protocolAdvisories.js";
 import { assessBuildPure, assertStakingWindow } from "./buildAdvisories.js";
 import { warningLine, worstBlock, type BuildWarning } from "./buildWarning.js";
-import { quorumPctFromRaw, judgeQuorum } from "./quorumRisk.js";
-import { findForbiddenSelector, dangerousSelectorError } from "./dangerousSelectors.js";
+import {
+  dangerousSelectorError,
+  findForbiddenSelector,
+  judgeQuorum,
+  multicall,
+  parseAmount,
+  parseUintString,
+  quorumPctFromRaw,
+  RpcProvider,
+} from "@dexe-network/dexe-mcp/core";
 import {
   ProposalSettingsSchema,
   toSettingsTuple,
@@ -46,10 +54,6 @@ import {
   precheckMultiplierContract,
 } from "../tools/proposalBuildComplex.js";
 import { VALIDATORS_EXEC_ABI } from "../tools/proposalBuildInternal.js";
-import { parseUintString } from "./amount.js";
-import { parseAmount } from "./units.js";
-import { RpcProvider } from "../rpc.js";
-import { multicall } from "./multicall.js";
 
 const DECIMALS_IFACE = new Interface(["function decimals() view returns (uint8)"]);
 
