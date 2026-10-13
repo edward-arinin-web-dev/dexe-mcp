@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,7 +20,11 @@ import { isMainModule } from "@dexe-network/dexe-mcp/core";
  */
 
 const ROOT = resolve(__dirname, "..", "..");
-const version = (JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")) as { version: string }).version;
+const versionOf = (pkgJson: string) => (JSON.parse(readFileSync(pkgJson, "utf8")) as { version: string }).version;
+const version = versionOf(resolve(ROOT, "package.json"));
+// `dexe-mcp-read` is the read edition's binary (src/read/bin.ts is a shim over
+// @dexe-network/dexe-mcp/bin): it reports that package's version.
+const readVersion = versionOf(createRequire(resolve(ROOT, "package.json")).resolve("@dexe-network/dexe-mcp/package.json"));
 const work = mkdtempSync(join(tmpdir(), "dexe-symlink-bin-"));
 
 function canSymlink(): boolean {
@@ -56,14 +61,14 @@ describe("isMainModule", () => {
 
 describe.skipIf(!symlinks)("the built binaries, launched through a symlink", () => {
   it.each([
-    ["dexe-mcp", resolve(ROOT, "dist", "index.js")],
-    ["dexe-mcp-read", resolve(ROOT, "dist", "read", "bin.js")],
-  ])("%s --version answers", (name, target) => {
+    ["dexe-mcp", resolve(ROOT, "dist", "index.js"), version],
+    ["dexe-mcp-read", resolve(ROOT, "dist", "read", "bin.js"), readVersion],
+  ])("%s --version answers", (name, target, expected) => {
     if (!existsSync(target)) return; // needs `npm run build`, like tests/cli/usage.test.ts
     const link = join(work, name);
     symlinkSync(target, link);
     const r = spawnSync(process.execPath, [link, "--version"], { encoding: "utf8", timeout: 15_000, input: "" });
     expect(r.status).toBe(0);
-    expect(r.stdout.trim()).toBe(version);
+    expect(r.stdout.trim()).toBe(expected);
   });
 });
