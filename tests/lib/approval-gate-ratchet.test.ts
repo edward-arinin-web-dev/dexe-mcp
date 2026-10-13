@@ -107,6 +107,12 @@ describe("the approval gate has no off switch", () => {
     );
   });
 
+  it("no lower-level signing primitive is used anywhere (raw digest / raw transaction signing)", () => {
+    // A SigningKey or signTransaction() signs without any of the checks above:
+    // a digest of anything, a transaction nobody reviewed. None may exist in src.
+    expect(hits(/\bsigningKey\.sign\(|\.signDigest\(|\bsignTransaction\(|new SigningKey\(|\bSigningKey\b.*\.sign\(/)).toEqual([]);
+  });
+
   it("typed data is signed for SafeTx only; permits never", async () => {
     const { SIGNABLE_PRIMARY_TYPES } = await import("../../src/lib/approval/signing.js");
     expect([...SIGNABLE_PRIMARY_TYPES]).toEqual(["SafeTx"]);
@@ -116,6 +122,11 @@ describe("the approval gate has no off switch", () => {
     const ctl = FILES.find((f) => f.rel === "lib/approval/control.ts")!.text;
     const ops = [...ctl.matchAll(/case "([a-z-]+)":/g)].map((m) => m[1]).sort();
     expect(ops).toEqual(["approve", "decline", "hello", "list"]);
+    // The secret never crosses the wire (a request carrying one is refused), and
+    // a password is accepted only sealed — never as a plain request field.
+    expect(ctl).toMatch(/"secret" in msg/);
+    expect(ctl).not.toMatch(/req\.password\b/);
+    expect(ctl).toMatch(/openPassword\(this\.secret/);
     const cli = FILES.find((f) => f.rel === "cli/approve.ts")!.text;
     // No password from an argument, the environment, a file or a pipe.
     expect(cli).not.toMatch(/process\.env/);

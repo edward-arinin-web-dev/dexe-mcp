@@ -10,7 +10,7 @@ import {
   type TypedDataDomain,
   type TypedDataField,
 } from "ethers";
-import { SAFE_TX_TYPES } from "../ethersProvider.js";
+import { SAFE_TX_TYPES, safeTxRefundFields } from "../ethersProvider.js";
 import { safeErrorMessage } from "../redact.js";
 import { ApprovalDeviationError, type ApprovalStore, type KeyHolder } from "./store.js";
 import type { RiskFlag } from "./review.js";
@@ -94,23 +94,37 @@ export interface MessageReview {
 }
 
 /**
- * Characters that hide, fake or reorder text: C0/C1 controls (newline is the
- * one exception — it renders as a line break), DEL, no-break and other
- * look-alike spaces, soft hyphen, zero-width and joiner characters, bidi
- * marks / embeddings / overrides / isolates, line/paragraph separators,
- * variation selectors, the BOM, the Hangul fillers and the Unicode tag block.
- * The marker brackets themselves (⟨ ⟩) are included so a message cannot fake a
- * marker by spelling one.
+ * Characters that hide, fake or reorder text, as one regex source shared by
+ * the page and the terminal (`dexe-mcp approve`):
+ *
+ *   - every control character (Unicode Cc) except the newline, which renders
+ *     as a line break;
+ *   - every FORMAT character (Unicode Cf): zero-width spaces / joiners, bidi
+ *     marks, embeddings, overrides and isolates (incl. U+061C), soft hyphen,
+ *     word joiner and invisible operators, the BOM, interlinear annotation,
+ *     the tag block — by property, so a new one is covered without a list;
+ *   - line / paragraph separators (Zl, Zp) and every space that is not the
+ *     plain ASCII space (no-break, en/em/thin/hair, ideographic, Ogham…);
+ *   - characters that render blank but are letters or symbols: Braille blank
+ *     U+2800, the Hangul fillers U+115F / U+1160 / U+3164 / U+FFA0, Khmer
+ *     inherent vowels U+17B4 / U+17B5, combining grapheme joiner U+034F, the
+ *     variation selectors.
+ *
+ * Exported for the terminal, which marks the same set.
  */
-const HIDDEN_CLASS =
-  "[\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u00A0\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F" +
-  "\\u2000-\\u200F\\u2028-\\u202F\\u205F-\\u206F\\u27E8\\u27E9\\u3000\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB" +
-  "\\u{E0000}-\\u{E007F}\\u{E0100}-\\u{E01EF}]";
+export const HIDDEN_CHAR_SOURCE =
+  "(?:(?!\\n)\\p{Cc})|[\\p{Cf}\\p{Zl}\\p{Zp}\\u00A0\\u1680\\u2000-\\u200A\\u202F\\u205F\\u3000" +
+  "\\u2800\\u3164\\u115F\\u1160\\uFFA0\\u17B4\\u17B5\\u034F\\u180B-\\u180F\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}]";
+/**
+ * The page additionally marks the marker brackets themselves (⟨ ⟩), so a
+ * message cannot fake a marker by spelling one.
+ */
+const HIDDEN_CLASS = `${HIDDEN_CHAR_SOURCE}|[\\u27E8\\u27E9]`;
 const HIDDEN_RE = new RegExp(HIDDEN_CLASS, "gu");
 /** Non-global twin for single-character tests (a /g regex's .test() is stateful). */
-const HIDDEN_ONE = new RegExp(`^${HIDDEN_CLASS}$`, "u");
+const HIDDEN_ONE = new RegExp(`^(?:${HIDDEN_CLASS})$`, "u");
 
-function markOf(ch: string): string {
+export function markOf(ch: string): string {
   if (ch === "\r") return "CR";
   if (ch === "\t") return "TAB";
   return `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`;
@@ -155,8 +169,12 @@ const URL_RE = /\bhttps?:\/\/[^\s"'<>]+/gi;
  * `purpose` is the calling tool's server-written description of what the
  * signature is for (e.g. "Log in to the DeXe backend at https://api.dexe.io").
  */
-export function reviewMessage(bytes: Uint8Array, ctx: { from: string; purpose: string }): MessageReview {
-  const risks: RiskFlag[] = [];
+export function reviewMessage(
+  bytes: Uint8Array,
+  ctx: { from: string; purpose: string; serverRisks?: readonly RiskFlag[] },
+): MessageReview {
+  // Flags the calling tool derived itself (e.g. a non-default backend) come first.
+  const risks: RiskFlag[] = [...(ctx.serverRisks ?? [])];
   const text = decodeUtf8Strict(bytes);
   const hex = hexlify(bytes);
   const review: MessageReview = {
@@ -204,6 +222,23 @@ export function reviewMessage(bytes: Uint8Array, ctx: { from: string; purpose: s
     });
   } else if (hidden.length > 0) {
     risks.push({ level: "info", text: "Contains carriage returns / tabs, shown as ⟨CR⟩ / ⟨TAB⟩." });
+  }
+  // Long blank stretches push text out of view (below the fold, or off to the side).
+  const blankLines = Math.max(0, ...[...text.matchAll(/(?:\n[ \t]*){2,}/g)].map((m) => (m[0].match(/\n/g) ?? []).length - 1));
+  if (blankLines >= 4) {
+    risks.push({
+      level: "danger",
+      text:
+        `Contains ${blankLines} blank lines in a row — text further down can be pushed out of view. The whole message ` +
+        "is shown above: scroll to its end before deciding.",
+    });
+  }
+  const longestRun = Math.max(0, ...[...text.matchAll(/[ \t]{24,}/g)].map((m) => m[0].length));
+  if (longestRun > 0) {
+    risks.push({
+      level: "danger",
+      text: `Contains a run of ${longestRun} spaces / tabs — text can be pushed off to the side, out of view.`,
+    });
   }
 
   const nonAscii = [...new Set([...text].filter((c) => (c.codePointAt(0) ?? 0) > 0x7e && !HIDDEN_ONE.test(c)))];
@@ -305,7 +340,7 @@ function permitShaped(fields: readonly TypedDataField[]): boolean {
  * SafeTx-only allowlist, the exact type set, and the domain.
  */
 export function assertSignableTypedData(
-  td: { domain: TypedDataDomain; types: Record<string, TypedDataField[]> },
+  td: { domain: TypedDataDomain; types: Record<string, TypedDataField[]>; message?: Record<string, unknown> },
   expect: { chainId: number; verifyingContract?: string },
 ): string {
   const types = Object.fromEntries(Object.entries(td.types).filter(([k]) => k !== "EIP712Domain"));
@@ -357,6 +392,18 @@ export function assertSignableTypedData(
   if (expect.verifyingContract && (!vc || getAddress(vc) !== getAddress(expect.verifyingContract))) {
     throw new SignatureRefusal(
       `Refused: the typed-data domain names ${vc ?? "no contract"}, not the reviewed Safe ${expect.verifyingContract}.`,
+    );
+  }
+  // The value itself: a SafeTx that pays a gas refund is never signed here.
+  // There is no opt-in — a flag or env switch would be one the AI could flip,
+  // and nothing this server builds needs a refund.
+  if (!td.message) throw new SignatureRefusal("Refused: no SafeTx value to check.");
+  const refund = safeTxRefundFields(td.message as Parameters<typeof safeTxRefundFields>[0]);
+  if (refund.length > 0) {
+    throw new SignatureRefusal(
+      `Refused: this SafeTx pays a gas refund on execution (${refund.join(", ")}). With gasPrice > 0 the Safe pays ` +
+        "(gas used + baseGas) × gasPrice — in the native coin to whoever executes it when gasToken and refundReceiver " +
+        "are zero. The keystore signs a SafeTx only with gasPrice, baseGas, gasToken and refundReceiver all zero.",
     );
   }
   return primaryType;
@@ -450,7 +497,7 @@ export class ApprovedSignature implements KeyHolder {
     const key = this.take("safeTx");
     try {
       assertSignableTypedData(
-        { domain, types },
+        { domain, types, message: value },
         { chainId: this.chainId, ...(this.deps.verifyingContract ? { verifyingContract: this.deps.verifyingContract } : {}) },
       );
     } catch (e) {

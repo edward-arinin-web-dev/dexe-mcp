@@ -1,6 +1,7 @@
 import type { DecodedView, Prechecks, ReviewStep, RiskFlag } from "./review.js";
 import type { SigningReview } from "./store.js";
-import { segmentsToText } from "./signing.js";
+import { HIDDEN_CHAR_SOURCE, markOf, segmentsToText } from "./signing.js";
+import { describeSafeTxRefund, safeTxRefundFields } from "../ethersProvider.js";
 
 /**
  * ── The review, as `dexe-mcp approve` prints it ────────────────────────────
@@ -34,16 +35,14 @@ export interface TerminalReview {
   resumeNote?: Array<{ label: string; txHash: string }>;
 }
 
-// C0 (but newline), DEL, C1, and the bidi / zero-width / separator characters.
-// Built from escapes on purpose: the source file itself must hold no invisible characters.
-const TERMINAL_UNSAFE = new RegExp(
-  "[\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF]",
-  "g",
-);
+// The SAME set the page marks (signing.ts HIDDEN_CHAR_SOURCE): controls but
+// the newline, every Unicode format character (bidi incl. U+061C, zero-width,
+// BOM, tags…), separators, non-ASCII spaces and blank-looking letters.
+const TERMINAL_UNSAFE = new RegExp(HIDDEN_CHAR_SOURCE, "gu");
 
-/** Make a string safe to print: no escape sequences, no bidi reordering, newlines kept. */
+/** Make a string safe to print: no escape sequences, no bidi reordering, nothing invisible; newlines kept. */
 export function tsafe(s: unknown): string {
-  return String(s).replace(TERMINAL_UNSAFE, (c) => `⟨U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}⟩`);
+  return String(s).replace(TERMINAL_UNSAFE, (c) => `⟨${markOf(c)}⟩`);
 }
 
 function oneLine(s: unknown): string {
@@ -114,8 +113,10 @@ export function renderTerminalReview(r: TerminalReview): string[] {
       `  Message — ${m.byteLength} bytes, ${m.encoding === "utf8" ? "UTF-8 text, shown in full between the lines" : "binary, shown as hex"}:`,
     );
     out.push("  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄");
-    const body = m.encoding === "utf8" && m.segments ? segmentsToText(m.segments) : m.hex;
-    for (const line of tsafe(body).split("\n")) out.push(`  ${line}`);
+    // Segments already split out every hidden character as a marker; the text
+    // runs hold none (tsafe on top would mark the marker brackets themselves).
+    const body = m.encoding === "utf8" && m.segments ? segmentsToText(m.segments) : tsafe(m.hex);
+    for (const line of body.split("\n")) out.push(`  ${line}`);
     out.push("  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄");
     out.push("  (⟨U+…⟩ / ⟨CR⟩ / ⟨TAB⟩ mark characters that could hide or reorder text.)");
     out.push(`  EIP-191 hash  ${oneLine(m.eip191Hash)}`);
@@ -127,9 +128,14 @@ export function renderTerminalReview(r: TerminalReview): string[] {
     out.push(`  owners        threshold ${oneLine(s.threshold)} of ${s.ownerCount} · you are an owner (checked on-chain)`);
     out.push(`  operation     ${s.operation === 1 ? "DELEGATECALL (1)" : "CALL (0)"}`);
     out.push(`  nonce         ${oneLine(s.nonce)} (the Safe's next nonce is ${oneLine(s.currentNonce)})`);
-    if (s.gasPrice !== "0") {
-      out.push(`  gas refund    gasPrice ${oneLine(s.gasPrice)} in ${oneLine(s.gasToken)} to ${oneLine(s.refundReceiver)}`);
-    }
+    // Every signed gas field, always — a refund hides in baseGas × gasPrice.
+    out.push(`  gas fields    safeTxGas ${oneLine(s.safeTxGas)} · baseGas ${oneLine(s.baseGas)} · gasPrice ${oneLine(s.gasPrice)}`);
+    out.push(`                gasToken ${oneLine(s.gasToken)} · refundReceiver ${oneLine(s.refundReceiver)}`);
+    out.push(
+      safeTxRefundFields(s).length
+        ? `!! DANGER     ${oneLine(describeSafeTxRefund(s) ?? `non-zero refund fields: ${safeTxRefundFields(s).join(", ")}`)}`
+        : "                no gas refund: the Safe pays nothing to whoever executes it",
+    );
     out.push(`  safeTxHash    ${oneLine(s.safeTxHash ?? "")}  (EIP-712, chain ${r.chainId}, verifyingContract = the Safe)`);
     if (s.multiSend?.length) {
       out.push(`  MultiSend sub-calls (${s.multiSend.length}, in order):`);

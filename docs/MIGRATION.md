@@ -53,9 +53,13 @@ Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
    `npx dexe-mcp approve`, then re-run the same call. Code that matched the old
    refusal text ("not supported in keystore mode yet") should handle
    `awaiting_approval` / `declined` instead. A Safe is signed only if the
-   keystore address is one of its owners on-chain; permit-style typed data is
-   never signed. `dexe_auth_login` in keystore mode logs in as the keystore
-   address only (an `address` override must equal it). The library constant
+   keystore address is one of its owners on-chain and the Safe's own
+   `getTransactionHash` matches; permit-style typed data is never signed, nor
+   a SafeTx with a non-zero `gasPrice` / `baseGas` / `gasToken` /
+   `refundReceiver` (no gas refunds in keystore mode). `dexe_auth_login` in
+   keystore mode logs in as the keystore address only (an `address` override
+   must equal it), and after a decline it is refused for 10 minutes without a
+   new nonce. The library constant
    `KEYSTORE_NO_MESSAGE_SIGNING` keeps its name but now says which tools sign
    through an approval.
 

@@ -3,6 +3,7 @@ import type { DecodedView, ReviewStep, RiskFlag } from "./review.js";
 import { chainLabel, isMainnet } from "./review.js";
 import type { MessageReview, MessageSegment } from "./signing.js";
 import type { SafeReview } from "./safeReview.js";
+import { describeSafeTxRefund, safeTxRefundFields } from "../ethersProvider.js";
 
 /**
  * ── The approval page ──────────────────────────────────────────────────────
@@ -98,6 +99,8 @@ export interface PageOptions {
   approvePath: string;
   declinePath: string;
   statusPath: string;
+  /** The terminal channel is up: mention `npx dexe-mcp approve`. */
+  terminal?: boolean;
 }
 
 function renderSegments(segments: readonly MessageSegment[]): string {
@@ -137,8 +140,14 @@ function renderSafe(s: SafeReview, chainId: number): string {
         )
         .join("")}</ul></div>`
     : "";
-  const zero = "0x0000000000000000000000000000000000000000";
-  const refund = s.gasPrice !== "0" ? `gasPrice ${esc(s.gasPrice)} · gasToken <code>${esc(s.gasToken)}</code> · refundReceiver <code>${esc(s.refundReceiver)}</code>` : "none";
+  // Every signed gas field, always — a refund hides in baseGas × gasPrice.
+  const refundFields = safeTxRefundFields(s);
+  const gas =
+    `safeTxGas ${esc(s.safeTxGas)} · baseGas ${esc(s.baseGas)} · gasPrice ${esc(s.gasPrice)}<br>` +
+    `gasToken <code>${esc(s.gasToken)}</code> · refundReceiver <code>${esc(s.refundReceiver)}</code>` +
+    (refundFields.length
+      ? `<div class="bad">${esc(describeSafeTxRefund(s) ?? `non-zero refund fields: ${refundFields.join(", ")}`)}</div>`
+      : `<div class="note">no gas refund: the Safe pays nothing to whoever executes it</div>`);
   return `<section class="card step">
 <h2>The Safe</h2>
 <div class="grid">
@@ -146,7 +155,7 @@ function renderSafe(s: SafeReview, chainId: number): string {
 <div class="k">Owners</div><div>threshold ${esc(s.threshold)} of ${esc(s.ownerCount)} · you are an owner (checked on-chain)</div>
 <div class="k">Operation</div><div>${s.operation === 1 ? '<span class="mk">DELEGATECALL (1)</span>' : "CALL (0)"}</div>
 <div class="k">Nonce</div><div>${esc(s.nonce)} <span class="note">(the Safe's next nonce is ${esc(s.currentNonce)})</span></div>
-<div class="k">Gas refund</div><div>${s.gasPrice === "0" && s.gasToken === zero ? "none" : refund}</div>
+<div class="k">Gas fields</div><div>${gas}</div>
 <div class="k">safeTxHash</div><div><code>${esc(s.safeTxHash ?? "")}</code><div class="note">EIP-712 domain: chain ${esc(chainId)}, verifyingContract = this Safe. Compare with the hash your other owners see.</div></div>
 </div>
 ${ms}
@@ -218,7 +227,7 @@ ${body}
 <section class="card" id="decide">
 <label for="pw">Keystore password</label>
 <input id="pw" type="password" autocomplete="off" spellcheck="false" maxlength="1024">
-<p class="note">Type it here only — never in the chat. It unlocks the key once, for ${esc(what)}, and is not stored. Do not let your browser save it. (You can also decide in a terminal: <code>npx dexe-mcp approve</code>.)</p>
+<p class="note">Type it here only — never in the chat. It unlocks the key once, for ${esc(what)}, and is not stored. Do not let your browser save it.${o.terminal ? " (You can also decide in a terminal: <code>npx dexe-mcp approve</code>.)" : ""}</p>
 <div class="actions"><button id="approve" class="primary">Approve and sign</button><button id="decline">Decline</button></div>
 <div id="msg" role="status"></div>
 </section>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { AbiCoder, getAddress, Interface, solidityPacked, Wallet, zeroPadValue } from "ethers";
 import { buildSafeTxReview, unpackMultiSend } from "../../src/lib/approval/safeReview.js";
-import { buildSafeTx } from "../../src/lib/ethersProvider.js";
+import { buildSafeTx, computeSafeTxHash } from "../../src/lib/ethersProvider.js";
 import type { DexeConfig } from "../../src/config.js";
 
 /**
@@ -25,6 +25,9 @@ const SAFE_IFACE = new Interface([
   "function getOwners() view returns (address[])",
   "function VERSION() view returns (string)",
   "function swapOwner(address prevOwner, address oldOwner, address newOwner)",
+  "function getTransactionHash(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 _nonce) view returns (bytes32)",
+  "function approveHash(bytes32 hashToApprove)",
+  "function signMessage(bytes _data)",
 ]);
 const coder = AbiCoder.defaultAbiCoder();
 
@@ -36,6 +39,8 @@ interface FakeSafe {
   version?: string;
   singleton?: string;
   answersLikeSafe?: boolean;
+  /** Hash getTransactionHash() returns; default: the real EIP-712 hash of the fields. */
+  txHash?: string;
 }
 
 function provider(s: FakeSafe = {}) {
@@ -68,6 +73,22 @@ function provider(s: FakeSafe = {}) {
           return coder.encode(["address[]"], [cfg.owners]);
         case "VERSION":
           return coder.encode(["string"], [cfg.version]);
+        case "getTransactionHash": {
+          const a = SAFE_IFACE.decodeFunctionData("getTransactionHash", String(tx.data));
+          const t = buildSafeTx({
+            to: String(a[0]),
+            value: String(a[1]),
+            data: String(a[2]),
+            operation: Number(a[3]),
+            safeTxGas: String(a[4]),
+            baseGas: String(a[5]),
+            gasPrice: String(a[6]),
+            gasToken: String(a[7]),
+            refundReceiver: String(a[8]),
+            nonce: String(a[9]),
+          });
+          return coder.encode(["bytes32"], [cfg.txHash ?? computeSafeTxHash(CHAIN, SAFE, t)]);
+        }
         default:
           return "0x";
       }
@@ -161,17 +182,27 @@ describe("buildSafeTxReview — the Safe is verified before anything is put up f
       OTHER_OWNER,
       Wallet.createRandom().address,
     ]);
-    const packed = `0x${[pack(0, TARGET, 0n, "0x"), pack(1, TARGET, 0n, "0x"), pack(0, SAFE, 0n, swap)].map((p) => p.slice(2)).join("")}`;
-    expect(unpackMultiSend(packed)).toHaveLength(3);
+    const approveElsewhere = SAFE_IFACE.encodeFunctionData("approveHash", [`0x${"22".repeat(32)}`]);
+    const packed = `0x${[
+      pack(0, TARGET, 0n, "0x"),
+      pack(1, TARGET, 0n, "0x"),
+      pack(0, SAFE, 0n, swap),
+      pack(0, getAddress("0x5afe00000000000000000000000000000000beef"), 0n, approveElsewhere),
+    ]
+      .map((p) => p.slice(2))
+      .join("")}`;
+    expect(unpackMultiSend(packed)).toHaveLength(4);
     const data = new Interface(["function multiSend(bytes transactions)"]).encodeFunctionData("multiSend", [packed]);
     const r = await review({}, { to: MULTISEND_141, data, operation: 1 });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.steps[0]!.toLabel).toBe("Safe MultiSend 1.4.1 (canonical)");
-    expect(r.safe.multiSend?.map((c) => c.operation)).toEqual([0, 1, 0]);
+    expect(r.safe.multiSend?.map((c) => c.operation)).toEqual([0, 1, 0, 0]);
     const d = texts(r, "danger");
     expect(d).toMatch(/MultiSend call 2: DELEGATECALL/);
-    expect(d).toMatch(/MultiSend call 3: calls the Safe itself/);
+    expect(d).toMatch(/MultiSend call 3: Calls the Safe itself: swapOwner\(/);
+    expect(d).toMatch(/MultiSend call 4: approveHash\(.*ANOTHER Safe/);
+    expect(r.safe.multiSend?.[3]?.decoded?.signature).toMatch(/^approveHash\(/);
   });
 
   it("a malformed MultiSend payload is DANGER, not silently shown as one call", () => {
@@ -186,7 +217,42 @@ describe("buildSafeTxReview — the Safe is verified before anything is put up f
     const solo = await review({ threshold: 1n });
     expect(texts(solo, "warn")).toMatch(/threshold is 1/);
     const refund = await review({}, { gasPrice: "5", gasToken: TARGET, refundReceiver: OTHER_OWNER });
-    expect(texts(refund, "warn")).toMatch(/pays a gas refund/);
+    expect(texts(refund, "danger")).toMatch(/pays a gas refund/);
+  });
+
+  it("review probe: gasPrice 1 gwei + baseGas 1e12 with NO token / receiver is a native refund to the executor (DANGER)", async () => {
+    const r = await review({}, { gasPrice: "1000000000", baseGas: "1000000000000" });
+    expect(r.ok).toBe(true);
+    const d = texts(r, "danger");
+    expect(d).toMatch(/in the native coin to whoever executes it \(tx\.origin\)/);
+    expect(d).toMatch(/at least 1000000000000000000000 wei \(1,000 native coin\)/);
+    // and every gas field is in the review for the page / terminal
+    expect(r.ok && [r.safe.safeTxGas, r.safe.baseGas, r.safe.gasPrice]).toEqual(["0", "1000000000000", "1000000000"]);
+  });
+
+  it("refuses when the Safe's own getTransactionHash differs (it would not run what is shown)", async () => {
+    const r = await review({ txHash: `0x${"ab".repeat(32)}` });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/hashes this transaction to 0xabab/);
+    expect((await review()).ok && (await review()).ok).toBe(true);
+    const ok = await review();
+    expect(ok.ok && ok.safe.onChainSafeTxHash).toBe(
+      computeSafeTxHash(CHAIN, SAFE, buildSafeTx({ to: TARGET, value: "0", data: "0x", nonce: "7" })),
+    );
+  });
+
+  it("Safe functions are decoded on ANY target: approveHash on another Safe, a message signature via DELEGATECALL", async () => {
+    const otherSafe = getAddress("0x5afe00000000000000000000000000000000beef");
+    const approve = await review({}, { to: otherSafe, data: SAFE_IFACE.encodeFunctionData("approveHash", [`0x${"11".repeat(32)}`]) });
+    expect(texts(approve, "danger")).toMatch(/approveHash\(0x1111.*on 0x5aFE.*ANOTHER Safe/i);
+    const signLib = "0xd53cd0aB83D845Ac265BE939c57F53AD838012c9";
+    const sign = await review({}, { to: signLib, operation: 1, data: SAFE_IFACE.encodeFunctionData("signMessage", ["0x1234"]) });
+    expect(texts(sign, "danger")).toMatch(/DELEGATECALL signMessage\(0x1234\) via .*SIGNS A MESSAGE \(EIP-1271\)/);
+    const swapElsewhere = await review({}, {
+      to: otherSafe,
+      data: SAFE_IFACE.encodeFunctionData("swapOwner", ["0x0000000000000000000000000000000000000001", OWNER, OTHER_OWNER]),
+    });
+    expect(texts(swapElsewhere, "danger")).toMatch(/swapOwner\(.*on 0x5aFE.*changes the owners/i);
   });
 
   it("the broadcast guards refuse the inner call (B6 allowlist) — no signature is requested", async () => {

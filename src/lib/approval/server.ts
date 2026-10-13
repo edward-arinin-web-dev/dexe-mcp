@@ -43,6 +43,8 @@ export interface ApprovalServerDeps {
    * channel). Never logs the password.
    */
   attemptApprove(record: ApprovalRecord, password: string): Promise<ApproveAttempt>;
+  /** Is the terminal channel (`dexe-mcp approve`) up? The page mentions it only then. */
+  terminalAvailable?: () => boolean;
   log?: (line: string) => void;
 }
 
@@ -169,6 +171,7 @@ export class ApprovalServer {
             approvePath: `${base}/approve`,
             declinePath: `${base}/decline`,
             statusPath: `${base}/status`,
+            terminal: this.deps.terminalAvailable?.() ?? false,
           }),
         );
       } else {

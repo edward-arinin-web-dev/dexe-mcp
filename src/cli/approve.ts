@@ -1,8 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { isInteractive, promptHidden } from "./key.js";
 import {
-  ControlConnectError,
-  controlRequest,
   currentIdentity,
   defaultRunDir,
   discoverServers,
@@ -10,6 +8,7 @@ import {
   type PosixIdentity,
   type RendezvousInfo,
 } from "../lib/approval/rendezvous.js";
+import { ControlAuthError, ControlConnectError, controlCall } from "../lib/approval/controlProtocol.js";
 import { renderTerminalReview, tsafe, type TerminalReview } from "../lib/approval/terminalReview.js";
 import { safeErrorMessage } from "../lib/redact.js";
 
@@ -132,11 +131,17 @@ export async function run(argv: readonly string[], opts: ApproveOptions = {}): P
   for (const s of disc.servers) {
     if (pid !== undefined && s.info.pid !== pid) continue;
     try {
-      const hello = await controlRequest(s.info.endpoint, { v: 1, secret: s.info.secret, op: "hello" }, 10_000);
+      // The server proves it holds this rendezvous's secret before anything secret is sent.
+      const hello = await controlCall(s.info, { op: "hello" }, 10_000);
       if (hello.ok === true && hello.address === s.info.address) live.push(s);
       else io.err(`[dexe-mcp approve] server ${s.info.pid} did not authenticate (${tsafe(String(hello.status ?? "?"))}) — ignored.`);
     } catch (e) {
-      if (e instanceof ControlConnectError && GONE.has(e.code ?? "")) {
+      if (e instanceof ControlAuthError) {
+        io.err(
+          `[dexe-mcp approve] NOT TRUSTED: whatever answers for server ${s.info.pid} could not prove it is that server — ` +
+            "ignored; nothing secret was sent to it.",
+        );
+      } else if (e instanceof ControlConnectError && GONE.has(e.code ?? "")) {
         removeRendezvous(s.file, id); // a server that died without cleaning up
       } else {
         io.err(`[dexe-mcp approve] server ${s.info.pid}: ${tsafe(safeErrorMessage(e))}`);
@@ -155,7 +160,7 @@ export async function run(argv: readonly string[], opts: ApproveOptions = {}): P
   const waiting: Array<{ server: LiveServer; review: TerminalReview }> = [];
   for (const s of live) {
     try {
-      const res = await controlRequest(s.info.endpoint, { v: 1, secret: s.info.secret, op: "list" }, 30_000);
+      const res = await controlCall(s.info, { op: "list" }, 30_000);
       for (const r of (res.approvals as TerminalReview[] | undefined) ?? []) {
         if (!approvalId || r.approvalId === approvalId) waiting.push({ server: s, review: r });
       }
@@ -225,7 +230,7 @@ export async function run(argv: readonly string[], opts: ApproveOptions = {}): P
 
 async function send(server: LiveServer, body: Record<string, unknown>, io: ApproveIo): Promise<Record<string, unknown> | null> {
   try {
-    const res = await controlRequest(server.info.endpoint, { v: 1, secret: server.info.secret, ...body }, 150_000);
+    const res = await controlCall(server.info, body, 150_000);
     io.out(`  ${res.ok === true ? "✔" : "✗"} ${tsafe(String(res.message ?? res.status ?? ""))}`);
     return res;
   } catch (e) {

@@ -419,7 +419,24 @@ async function keystoreLogin(base: string, signer: SignerManager, address: strin
   }
   const purpose = `Log in to the DeXe backend at ${base} as ${from}`;
   const tool = "dexe_auth_login";
+  // A login to anything but the baked-in DeXe backend hands THAT service a
+  // session as the owner — server-derived, shown first on the page.
+  const defaultBase = DEFAULTS.backendApiUrl.replace(/\/$/, "");
+  const serverRisks =
+    base.toLowerCase() === defaultBase.toLowerCase()
+      ? []
+      : [
+          {
+            level: "danger" as const,
+            text:
+              `This login goes to ${base}, NOT the DeXe backend ${defaultBase} (DEXE_BACKEND_API_URL is set). A signed ` +
+              "login hands that service a session as you. Approve only if you set that URL yourself.",
+          },
+        ];
   try {
+    // Declined recently? Refuse before asking the backend for another nonce
+    // (each nonce is a new message — a per-message cooldown would never hold).
+    approvals.assertNoRecentDecline({ kind: "message", tool, from, chainId: BACKEND_AUTH_CHAIN_ID });
     let message = approvals.findOpenMessage({ tool, from, chainId: BACKEND_AUTH_CHAIN_ID, purpose });
     if (!message) {
       const nonce = await fetchNonceMessage(base, from);
@@ -428,7 +445,7 @@ async function keystoreLogin(base: string, signer: SignerManager, address: strin
     }
     const scope = currentToolScope();
     const approved = await approvals.requestSignature(
-      { kind: "message", tool, chainId: BACKEND_AUTH_CHAIN_ID, from, message, purpose },
+      { kind: "message", tool, chainId: BACKEND_AUTH_CHAIN_ID, from, message, purpose, serverRisks },
       { ...(scope?.signal ? { signal: scope.signal } : {}), ...(scope ? { progress: (m: string) => scope.progress(m) } : {}) },
     );
     const signature = await approved.signMessage(message);

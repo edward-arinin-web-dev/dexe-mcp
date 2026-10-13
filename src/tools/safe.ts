@@ -11,6 +11,8 @@ import { resolveChain } from "../config.js";
 import {
   buildSafeTx,
   computeSafeTxHash,
+  describeSafeTxRefund,
+  safeTxRefundFields,
   readSafeState,
   resolveSafeServiceEndpoint,
   safeTxDomain,
@@ -150,18 +152,17 @@ export function assertSafeOperationAllowed(
  */
 function gasRefundWarnings(tx: {
   gasPrice: string;
+  baseGas: string;
   gasToken: string;
   refundReceiver: string;
 }): { warnings?: string[] } {
-  const zero = "0x0000000000000000000000000000000000000000";
-  const paysRefund =
-    tx.gasPrice !== "0" &&
-    (tx.gasToken.toLowerCase() !== zero || tx.refundReceiver.toLowerCase() !== zero);
-  if (!paysRefund) return {};
+  // Any gasPrice > 0 pays — with gasToken and refundReceiver both zero it pays
+  // the NATIVE coin to tx.origin (the executor), which the old check missed.
+  const refund = describeSafeTxRefund(tx);
+  if (!refund) return {};
   return {
     warnings: [
-      `This SafeTx pays a gas refund in ${tx.gasToken} to ${tx.refundReceiver} on execution. ` +
-        "The value cap (DEXE_SIGNER_MAX_VALUE_WEI) only inspects native value and does not bound this.",
+      `${refund} The value cap (DEXE_SIGNER_MAX_VALUE_WEI) only inspects native value and does not bound this.`,
     ],
   };
 }
@@ -459,6 +460,17 @@ export function registerSafeTools(
               "DEXE_SIGNER_MODE=keystore but no usable keystore was found — nothing was signed. In a terminal (not " +
                 "through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run; or " +
                 "re-run with dryRun:true and sign:false for the unsigned body + safeTxHash.",
+            );
+          }
+          // No gas refunds, ever, in keystore mode (no opt-in: a flag would be a
+          // switch the AI could flip). The signing primitive refuses too.
+          const refund = safeTxRefundFields(tx);
+          if (refund.length > 0) {
+            return err(
+              `Refused: in keystore mode a Safe transaction is signed only with gasPrice, baseGas, gasToken and ` +
+                `refundReceiver all zero; got ${refund.join(", ")}. A refund makes the Safe pay its executor on ` +
+                "execution — with gasPrice > 0 and the rest zero, (gas used + baseGas) × gasPrice in the native coin. " +
+                "Nothing was put up for approval. Drop those fields.",
             );
           }
           const from = getAddress(signer.getAddress());

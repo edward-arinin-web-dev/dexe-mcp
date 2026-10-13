@@ -289,6 +289,30 @@ export class ApprovalStore {
     return undefined;
   }
 
+  /**
+   * A decline of ANY approval of this flow (kind + tool + signer + chain)
+   * inside the cooldown window — for kinds whose bytes change on every call
+   * (a login nonce), where a per-binding cooldown would never match.
+   */
+  recentFlowDecline(kind: ApprovalKind, tool: string, from: string, chainId: number): ApprovalRecord | undefined {
+    const t = this.now();
+    let newest: ApprovalRecord | undefined;
+    for (const r of this.records.values()) {
+      if (
+        r.kind === kind &&
+        r.tool === tool &&
+        r.from === getAddress(from) &&
+        r.chainId === chainId &&
+        r.status === "declined" &&
+        (r.decidedAt ?? 0) + this.cooldownMs > t &&
+        (!newest || (r.decidedAt ?? 0) > (newest.decidedAt ?? 0))
+      ) {
+        newest = r;
+      }
+    }
+    return newest;
+  }
+
   cooldownEndsAt(r: ApprovalRecord): number {
     return (r.decidedAt ?? r.createdAt) + this.cooldownMs;
   }

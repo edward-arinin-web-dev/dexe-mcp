@@ -212,6 +212,7 @@ const WRITE = [
   // and text review (2c Phase B)
   "lib/approval/approvedSigner.ts",
   "lib/approval/control.ts",
+  "lib/approval/controlProtocol.ts",
   "lib/approval/index.ts",
   "lib/approval/openBrowser.ts",
   "lib/approval/page.ts",

@@ -155,6 +155,20 @@ describe("what the owner is told about a message (from its bytes)", () => {
     expect(text).toMatch(/warn:Contains non-ASCII characters \(.*р U\+0440/);
   });
 
+  it("every Unicode format character and blank-looking letter is a marker (U+061C, U+2800, U+3164, U+115F, U+FFA0, tags)", () => {
+    for (const c of [0x061c, 0x2800, 0x3164, 0x115f, 0x1160, 0xffa0, 0x00ad, 0x2066, 0xe0041, 0x180e, 0x1680]) {
+      const r = review(`a${cp(c)}b`);
+      expect(r.segments).toContainEqual({ t: "mark", v: `U+${c.toString(16).toUpperCase().padStart(4, "0")}` });
+      expect(dangers(r).join(" ")).toMatch(/invisible, control or direction-changing/);
+    }
+  });
+
+  it("long blank stretches that push text out of view are DANGER", () => {
+    expect(dangers(review(`Sign in.${"\n".repeat(6)}Also: transfer everything`)).join(" ")).toMatch(/5 blank lines in a row/);
+    expect(dangers(review(`Sign in.${" ".repeat(60)}hidden on the right`)).join(" ")).toMatch(/run of 60 spaces/);
+    expect(dangers(review("Line one\n\nLine two"))).toEqual([]);
+  });
+
   it("a BOM is kept and shown, not swallowed by the decoder", () => {
     const r = review(Uint8Array.from([0xef, 0xbb, 0xbf, 0x68, 0x69]));
     expect(r.segments?.[0]).toEqual({ t: "mark", v: "U+FEFF" });
@@ -164,6 +178,7 @@ describe("what the owner is told about a message (from its bytes)", () => {
 // ---------------------------------------------------------------------------
 
 const SAFE = getAddress("0x5afe5afe5afe5afe5afe5afe5afe5afe5afe5afe");
+const TO_X = "0x4444444444444444444444444444444444444444";
 const tx = (over: Partial<Parameters<typeof buildSafeTx>[0]> = {}) =>
   buildSafeTx({ to: "0x2222222222222222222222222222222222222222", value: "0", data: "0x", nonce: "4", ...over });
 const typed = (chainId = 97, safeTx = tx()) => ({
@@ -303,6 +318,32 @@ describe("message approvals end to end (page)", () => {
     expect(again.retryAfter).toBeTruthy();
   });
 
+  it("a decline holds for the whole flow: a NEW message of the same tool/signer/chain is refused without a page", async () => {
+    const m = manager();
+    const halt = await halted(m.requestSignature(msgReq("Sign in: nonce one")));
+    await declineAsHuman(halt.url!);
+    // dexe_auth_login's next call brings a fresh nonce — a different message.
+    const again = await halted(m.requestSignature(msgReq("Sign in: nonce two")));
+    expect(again.status).toBe("declined");
+    expect(again.approvalId).toBe(halt.approvalId);
+    expect(() => m.assertNoRecentDecline({ kind: "message", tool: "dexe_auth_login", from: KEY.address, chainId: 56 })).toThrow(
+      ApprovalHaltError,
+    );
+    expect(m.store.open()).toEqual([]);
+    // another flow (another tool) is unaffected
+    const other = await halted(m.requestSignature({ ...msgReq("Sign in: nonce three"), tool: "some_other_tool" }));
+    expect(other.status).toBe("pending");
+  });
+
+  it("server-written flags come first (e.g. a login to a non-default backend is DANGER)", async () => {
+    const m = manager();
+    const halt = await halted(
+      m.requestSignature({ ...msgReq(), serverRisks: [{ level: "danger", text: "This login goes to https://evil.example, NOT the DeXe backend" }] }),
+    );
+    const page = (await rawRequest(halt.url!)).body;
+    expect(page).toMatch(/risk r-danger[^<]*This login goes to https:\/\/evil\.example, NOT the DeXe backend/);
+  });
+
   it("expiry: an approval nobody decided ends, and a fresh request makes a new one", async () => {
     const m = manager({}, 0, 80);
     const halt = await halted(m.requestSignature(msgReq()));
@@ -310,6 +351,17 @@ describe("message approvals end to end (page)", () => {
     expect(m.view(halt.approvalId)!.status).toBe("expired");
     expect((await approveAsHuman(halt.url!, PW).catch(() => null))?.status ?? 0).not.toBe(200);
     const again = await halted(m.requestSignature(msgReq()));
+    expect(again.approvalId).not.toBe(halt.approvalId);
+  });
+
+  it("an internal hand-over failure revokes the approval (never left 'executing' with a key)", async () => {
+    const m = manager();
+    const halt = await halted(m.requestSignature(msgReq("internal path")));
+    await approveAsHuman(halt.url!, PW);
+    // Simulate the manager losing track of the key holder.
+    (m as unknown as { holders: Map<string, unknown> }).holders.delete(halt.approvalId);
+    const again = await halted(m.requestSignature(msgReq("internal path")));
+    expect(m.view(halt.approvalId)!.status).toBe("revoked");
     expect(again.approvalId).not.toBe(halt.approvalId);
   });
 
@@ -367,16 +419,26 @@ const innerStep: ReviewStep = {
   risks: [],
 };
 
-const safeReq = (t = typed(), review = safeReview()) => ({
-  kind: "safeTx" as const,
-  tool: "dexe_safe_propose_tx",
-  chainId: 97,
-  from: KEY.address,
-  typedData: t,
-  safe: review,
-  steps: [innerStep],
-  prechecks: { guards: "pass" as const, simulation: "skipped" as const },
-});
+const safeReq = (t = typed(), review = safeReview(), steps: ReviewStep[] = [innerStep]) => {
+  let onChain = review.onChainSafeTxHash;
+  if (!onChain) {
+    try {
+      onChain = TypedDataEncoder.hash(t.domain, t.types, t.message); // what a real Safe's getTransactionHash returns
+    } catch {
+      onChain = undefined;
+    }
+  }
+  return {
+    kind: "safeTx" as const,
+    tool: "dexe_safe_propose_tx",
+    chainId: 97,
+    from: KEY.address,
+    typedData: t,
+    safe: { ...review, ...(onChain ? { onChainSafeTxHash: onChain } : {}) },
+    steps,
+    prechecks: { guards: "pass" as const, simulation: "skipped" as const },
+  };
+};
 
 describe("Safe transaction approvals end to end (page)", () => {
   it("pending → page shows the verified Safe and the inner call → approve → signs exactly that SafeTx", async () => {
@@ -428,6 +490,49 @@ describe("Safe transaction approvals end to end (page)", () => {
     const s = await m.requestSignature(safeReq());
     const other = typed(97, tx({ nonce: "5" }));
     await expect(s.signTypedData(other.domain, other.types, other.message)).rejects.toThrow(/differs from what the owner approved/);
+  });
+
+  it("review probe: a SafeTx paying a gas refund is refused at the primitive — before any page AND at sign time", async () => {
+    // gasPrice 1 gwei + baseGas 1e12, token and receiver zero: ≥ 1000 native coin to the executor.
+    const probe = typed(97, tx({ gasPrice: "1000000000", baseGas: "1000000000000" }));
+    expect(() => assertSignableTypedData(probe, { chainId: 97, verifyingContract: SAFE })).toThrow(
+      /pays a gas refund on execution \(gasPrice 1000000000, baseGas 1000000000000\)/,
+    );
+    for (const over of [{ gasPrice: "1" }, { baseGas: "1" }, { gasToken: TO_X }, { refundReceiver: TO_X }]) {
+      expect(() => assertSignableTypedData(typed(97, tx(over)), { chainId: 97, verifyingContract: SAFE })).toThrow(/gas refund/);
+    }
+    const m = manager();
+    await expect(m.requestSignature(safeReq(probe))).rejects.toThrow(/gas refund/);
+    expect(m.store.open()).toEqual([]);
+    // and an approved signer for a clean SafeTx will not sign the refund variant
+    const halt = await halted(m.requestSignature(safeReq()));
+    await approveAsHuman(halt.url!, PW);
+    const s = await m.requestSignature(safeReq());
+    await expect(s.signTypedData(probe.domain, probe.types, probe.message)).rejects.toThrow(/gas refund/);
+    expect(m.view(halt.approvalId)!.status).toBe("revoked");
+  });
+
+  it("the page shows every gas field, and the Safe fields come from the typed data, not the caller's review", async () => {
+    const m = manager();
+    // A review that lies about the nonce / gas: the page shows the signed values.
+    const lying = safeReview({ nonce: "999", safeTxGas: "1", gasPrice: "0" });
+    const t = typed(97, tx({ safeTxGas: "21000" }));
+    const halt = await halted(m.requestSignature(safeReq(t, lying)));
+    const page = (await rawRequest(halt.url!)).body;
+    expect(page).toMatch(/safeTxGas 21000 · baseGas 0 · gasPrice 0/);
+    expect(page).toMatch(/no gas refund/);
+    expect(page).toMatch(/Nonce<\/div><div>4 /);
+    expect(page).not.toContain(">999 ");
+  });
+
+  it("refuses when the reviewed call is not the SafeTx's call, or the Safe's own hash differs", async () => {
+    const m = manager();
+    const otherStep = { ...innerStep, to: "0x3333333333333333333333333333333333333333" };
+    await expect(m.requestSignature(safeReq(typed(), safeReview(), [otherStep]))).rejects.toThrow(/reviewed call is not the one/);
+    await expect(m.requestSignature(safeReq(typed(), safeReview({ onChainSafeTxHash: `0x${"cd".repeat(32)}` })))).rejects.toThrow(
+      /getTransactionHash .* differs/,
+    );
+    expect(m.store.open()).toEqual([]);
   });
 
   it("permit typed data never reaches the store", async () => {

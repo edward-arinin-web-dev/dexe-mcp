@@ -35,7 +35,8 @@
  *      on-chain → approve → the re-run returns a signature that recovers to
  *      the throwaway AND passes the Safe's own checkSignatures(). Then a
  *      DELEGATECALL into the canonical MultiSend renders DANGER and is
- *      declined in the terminal.
+ *      declined in the terminal, and a SafeTx paying a gas refund is refused
+ *      with no page at all.
  *
  * Funding: a funded testnet key from the swarm environment (`E2E_FUNDER_PK`,
  * else `AGENT_PK_8`) sends the throwaway a little tBNB and, if it holds the
@@ -67,7 +68,8 @@ import {
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { encryptPrivateKey, writeKeystoreFile } from "../../../src/lib/keystore.js";
-import { controlRequest, discoverServers, type RendezvousInfo } from "../../../src/lib/approval/rendezvous.js";
+import { discoverServers, type RendezvousInfo } from "../../../src/lib/approval/rendezvous.js";
+import { controlCall } from "../../../src/lib/approval/controlProtocol.js";
 import { safeTxDomain, SAFE_TX_TYPES, type SafeTx } from "../../../src/lib/ethersProvider.js";
 import { approveAsHuman, declineAsHuman, rawRequest } from "../../helpers/approvalHttp.js";
 
@@ -223,7 +225,8 @@ async function terminalOf(runDir: string, pid: number | null, address: string): 
     if (pid !== null && s.info.pid !== pid) continue;
     if (s.info.address !== address) continue;
     try {
-      const hello = await controlRequest(s.info.endpoint, { v: 1, secret: s.info.secret, op: "hello" }, 10_000);
+      // Protocol v2: the server proves it holds the secret before anything secret is sent.
+      const hello = await controlCall(s.info, { op: "hello" }, 10_000);
       if (hello.ok === true) return s.info;
     } catch {
       /* a server that is gone */
@@ -233,7 +236,7 @@ async function terminalOf(runDir: string, pid: number | null, address: string): 
 }
 
 function terminalCall(ch: RendezvousInfo, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return controlRequest(ch.endpoint, { v: 1, secret: ch.secret, ...body }, 60_000);
+  return controlCall(ch, body, 60_000);
 }
 
 const SAFE_PROXY_FACTORY_141 = "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67";
@@ -658,6 +661,16 @@ export async function runApprovalE2E(o: E2EOptions): Promise<E2EResult> {
       : undefined;
     const dec = ch2 && s3r ? await terminalCall(ch2, { op: "decline", approvalId: s3r.approvalId, binding: s3r.binding }) : {};
     const s4 = await d.call("dexe_safe_propose_tx", { ...proposeArgs, to: MULTISEND_141, data: msData, operation: 1, allowDelegateCall: true });
+    // 8e: the security-review probe — a gas refund (gasPrice 1 gwei, baseGas 1e12,
+    // token / receiver zero = ≥ 1000 tBNB to the executor) is refused before any page.
+    const probe = await d.call("dexe_safe_propose_tx", { ...proposeArgs, gasPrice: "1000000000", baseGas: "1000000000000" });
+    const ch3 = await terminalOf(runDir, d.pid, throwaway.address);
+    const waiting = ch3 ? (((await terminalCall(ch3, { op: "list" })).approvals as unknown[] | undefined) ?? []) : [];
+    record(
+      "8e a SafeTx that pays a gas refund is refused in keystore mode — no page, nothing waiting",
+      probe.isError && /Refused: in keystore mode/.test(probe.text) && !probe.json?.approval && waiting.length === 0,
+      probe.text.slice(0, 140),
+    );
     record(
       "8d DELEGATECALL into MultiSend renders DANGER; declined in the terminal → the re-run is refused (cooldown)",
       /risk r-danger[^<]*DELEGATECALL/.test(s3page) &&

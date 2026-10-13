@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, afterEach, beforeEach } from "vitest";
-import { getAddress, verifyMessage, verifyTypedData, Wallet } from "ethers";
+import { getAddress, keccak256, verifyMessage, verifyTypedData, Wallet } from "ethers";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -12,7 +12,7 @@ import type { DexeConfig } from "../../src/config.js";
 import type { ToolContext } from "../../src/tools/context.js";
 import { registerSafeTools } from "../../src/tools/safe.js";
 import { registerProposalBuildOffchainTools } from "../../src/tools/proposalBuildOffchain.js";
-import { safeTxDomain, SAFE_TX_TYPES, type SafeTx } from "../../src/lib/ethersProvider.js";
+import { buildSafeTx, computeSafeTxHash, safeTxDomain, SAFE_TX_TYPES, type SafeTx } from "../../src/lib/ethersProvider.js";
 import { approveAsHuman, declineAsHuman } from "../helpers/approvalHttp.js";
 
 /**
@@ -109,6 +109,8 @@ describe("dexe_safe_propose_tx — keystore mode signs only an owner-approved Sa
       gasPrice: "0",
       gasToken: "0x0000000000000000000000000000000000000000",
       refundReceiver: "0x0000000000000000000000000000000000000000",
+      // what the real Safe's getTransactionHash returns for the call below
+      onChainSafeTxHash: computeSafeTxHash(97, SAFE, buildSafeTx({ to: TO, value: "0", data: "0x", nonce: "3" })),
       risks: [],
     },
     steps: [
@@ -120,7 +122,7 @@ describe("dexe_safe_propose_tx — keystore mode signs only an owner-approved Sa
         valueHuman: "0.0 tBNB",
         selector: null,
         dataBytes: 0,
-        dataHash: "0x",
+        dataHash: keccak256("0x"),
         dataPreview: "0x",
         decoded: null,
         risks: [],
@@ -193,6 +195,20 @@ describe("dexe_safe_propose_tx — keystore mode signs only an owner-approved Sa
     const sender = await propose({ sender: Wallet.createRandom().address });
     expect(sender.isError).toBe(true);
     expect(sender.content[0]!.text).toMatch(/is not the keystore address/);
+    expect(approvals.store.open()).toEqual([]);
+  });
+
+  it("review probe: any gas refund field is refused in keystore mode before any page (no opt-in)", async () => {
+    const { propose, approvals } = await setup();
+    // gasPrice 1 gwei + baseGas 1e12, token/receiver zero → ≥ 1000 native coin to the executor.
+    const probe = await propose({ gasPrice: "1000000000", baseGas: "1000000000000" });
+    expect(probe.isError).toBe(true);
+    expect(probe.content[0]!.text).toMatch(/gasPrice 1000000000, baseGas 1000000000000.*Nothing was put up for approval/s);
+    for (const over of [{ gasPrice: "1" }, { baseGas: "1" }, { gasToken: TO }, { refundReceiver: TO }]) {
+      const r = await propose(over);
+      expect(r.isError).toBe(true);
+      expect(r.content[0]!.text).toMatch(/Refused: in keystore mode/);
+    }
     expect(approvals.store.open()).toEqual([]);
   });
 
@@ -282,13 +298,25 @@ describe("dexe_auth_login — keystore mode signs only the owner-approved nonce 
     expect(nonceCalls).toBe(0);
   });
 
-  it("a decline is an error result; nothing is posted to the backend", async () => {
-    const { login } = await setup();
+  it("a decline is an error result; re-runs are refused WITHOUT a new nonce or page for the cooldown", async () => {
+    const { login, approvals } = await setup();
     const first = body(await login());
     await declineAsHuman((first.approval as Record<string, string>).url!);
-    const r = await login();
-    expect(r.isError).toBe(true);
-    expect(body(r).mode).toBe("declined");
+    expect(nonceCalls).toBe(1);
+    for (let i = 0; i < 3; i++) {
+      const r = await login();
+      expect(r.isError).toBe(true);
+      expect(body(r).mode).toBe("declined");
+    }
+    expect(nonceCalls).toBe(1); // the backend was not asked again → no new message, no new page
+    expect(approvals.store.open()).toEqual([]);
     expect(loginBody).toBeUndefined();
+  });
+
+  it("a login to a non-default backend is DANGER on the page", async () => {
+    const { login } = await setup();
+    const first = body(await login());
+    const page = await (await import("../helpers/approvalHttp.js")).rawRequest((first.approval as Record<string, string>).url!);
+    expect(page.body).toMatch(/risk r-danger[^<]*This login goes to https:\/\/backend\.example, NOT the DeXe backend https:\/\/api\.dexe\.io/);
   });
 });

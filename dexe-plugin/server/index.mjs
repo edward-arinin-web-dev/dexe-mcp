@@ -10422,8 +10422,8 @@ var init_units = __esm({
 });
 
 // node_modules/ethers/lib.esm/utils/uuid.js
-function uuidV4(randomBytes11) {
-  const bytes2 = getBytes(randomBytes11, "randomBytes");
+function uuidV4(randomBytes12) {
+  const bytes2 = getBytes(randomBytes12, "randomBytes");
   bytes2[6] = bytes2[6] & 15 | 64;
   bytes2[8] = bytes2[8] & 63 | 128;
   const value = hexlify(bytes2);
@@ -13413,7 +13413,7 @@ function weierstrass(curveDef) {
   function prepSig(msgHash, privateKey, opts = defaultSigOpts) {
     if (["recovered", "canonical"].some((k5) => k5 in opts))
       throw new Error("sign() legacy options not supported");
-    const { hash: hash3, randomBytes: randomBytes11 } = CURVE;
+    const { hash: hash3, randomBytes: randomBytes12 } = CURVE;
     let { lowS, prehash, extraEntropy: ent } = opts;
     if (lowS == null)
       lowS = true;
@@ -13424,7 +13424,7 @@ function weierstrass(curveDef) {
     const d3 = normPrivateKeyToScalar(privateKey);
     const seedArgs = [int2octets(d3), int2octets(h1int)];
     if (ent != null) {
-      const e2 = ent === true ? randomBytes11(Fp3.BYTES) : ent;
+      const e2 = ent === true ? randomBytes12(Fp3.BYTES) : ent;
       seedArgs.push(ensureBytes("extraEntropy", e2));
     }
     const seed = concatBytes2(...seedArgs);
@@ -30735,7 +30735,7 @@ var require_websocket = __commonJS({
     var http2 = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes11, createHash: createHash3 } = __require("crypto");
+    var { randomBytes: randomBytes12, createHash: createHash3 } = __require("crypto");
     var { Duplex: Duplex4, Readable: Readable4 } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -31273,7 +31273,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes11(16).toString("base64");
+      const key = randomBytes12(16).toString("base64");
       const request = isSecure ? https2.request : http2.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -39989,6 +39989,21 @@ var init_store = __esm({
         }
         return void 0;
       }
+      /**
+       * A decline of ANY approval of this flow (kind + tool + signer + chain)
+       * inside the cooldown window — for kinds whose bytes change on every call
+       * (a login nonce), where a per-binding cooldown would never match.
+       */
+      recentFlowDecline(kind, tool, from10, chainId) {
+        const t2 = this.now();
+        let newest;
+        for (const r2 of this.records.values()) {
+          if (r2.kind === kind && r2.tool === tool && r2.from === getAddress(from10) && r2.chainId === chainId && r2.status === "declined" && (r2.decidedAt ?? 0) + this.cooldownMs > t2 && (!newest || (r2.decidedAt ?? 0) > (newest.decidedAt ?? 0))) {
+            newest = r2;
+          }
+        }
+        return newest;
+      }
       cooldownEndsAt(r2) {
         return (r2.decidedAt ?? r2.createdAt) + this.cooldownMs;
       }
@@ -40278,6 +40293,42 @@ function buildSafeTx(input3) {
     nonce: input3.nonce.toString()
   };
 }
+function big(v7) {
+  try {
+    return BigInt(String(v7 ?? "0"));
+  } catch {
+    return -1n;
+  }
+}
+function isZeroAddress(v7) {
+  try {
+    return getAddress(String(v7 ?? ZeroAddress)) === ZeroAddress;
+  } catch {
+    return false;
+  }
+}
+function safeTxRefundFields(tx) {
+  const out2 = [];
+  if (big(tx.gasPrice) !== 0n)
+    out2.push(`gasPrice ${String(tx.gasPrice)}`);
+  if (big(tx.baseGas) !== 0n)
+    out2.push(`baseGas ${String(tx.baseGas)}`);
+  if (!isZeroAddress(tx.gasToken))
+    out2.push(`gasToken ${String(tx.gasToken)}`);
+  if (!isZeroAddress(tx.refundReceiver))
+    out2.push(`refundReceiver ${String(tx.refundReceiver)}`);
+  return out2;
+}
+function describeSafeTxRefund(tx) {
+  const gasPrice = big(tx.gasPrice);
+  if (gasPrice === 0n)
+    return null;
+  const baseGas = big(tx.baseGas);
+  const native = isZeroAddress(tx.gasToken);
+  const minimum = baseGas > 0n && gasPrice > 0n ? baseGas * gasPrice : 0n;
+  const minText = native ? `${minimum.toString()} wei (${(Number(minimum) / 1e18).toLocaleString("en-US", { maximumFractionDigits: 6 })} native coin)` : `${minimum.toString()} base units of ${String(tx.gasToken)}`;
+  return `On execution the Safe pays a gas refund of (gas used + baseGas ${String(tx.baseGas)}) \xD7 gasPrice ${String(tx.gasPrice)} in ${native ? "the native coin" : String(tx.gasToken)} to ${isZeroAddress(tx.refundReceiver) ? "whoever executes it (tx.origin)" : String(tx.refundReceiver)} \u2014 at least ${minText} before the gas used.`;
+}
 function computeSafeTxHash(chainId, safeAddress, tx) {
   return TypedDataEncoder.hash(safeTxDomain(chainId, safeAddress), SAFE_TX_TYPES, tx);
 }
@@ -40383,7 +40434,7 @@ function segmentsToText(segments) {
   return segments.map((s2) => s2.t === "text" ? s2.v : `\u27E8${s2.v}\u27E9`).join("");
 }
 function reviewMessage(bytes2, ctx) {
-  const risks2 = [];
+  const risks2 = [...ctx.serverRisks ?? []];
   const text5 = decodeUtf8Strict(bytes2);
   const hex4 = hexlify(bytes2);
   const review = {
@@ -40422,6 +40473,20 @@ function reviewMessage(bytes2, ctx) {
     });
   } else if (hidden3.length > 0) {
     risks2.push({ level: "info", text: "Contains carriage returns / tabs, shown as \u27E8CR\u27E9 / \u27E8TAB\u27E9." });
+  }
+  const blankLines = Math.max(0, ...[...text5.matchAll(/(?:\n[ \t]*){2,}/g)].map((m3) => (m3[0].match(/\n/g) ?? []).length - 1));
+  if (blankLines >= 4) {
+    risks2.push({
+      level: "danger",
+      text: `Contains ${blankLines} blank lines in a row \u2014 text further down can be pushed out of view. The whole message is shown above: scroll to its end before deciding.`
+    });
+  }
+  const longestRun = Math.max(0, ...[...text5.matchAll(/[ \t]{24,}/g)].map((m3) => m3[0].length));
+  if (longestRun > 0) {
+    risks2.push({
+      level: "danger",
+      text: `Contains a run of ${longestRun} spaces / tabs \u2014 text can be pushed off to the side, out of view.`
+    });
   }
   const nonAscii = [...new Set([...text5].filter((c4) => (c4.codePointAt(0) ?? 0) > 126 && !HIDDEN_ONE.test(c4)))];
   if (nonAscii.length > 0) {
@@ -40520,9 +40585,15 @@ function assertSignableTypedData(td, expect) {
   if (expect.verifyingContract && (!vc || getAddress(vc) !== getAddress(expect.verifyingContract))) {
     throw new SignatureRefusal(`Refused: the typed-data domain names ${vc ?? "no contract"}, not the reviewed Safe ${expect.verifyingContract}.`);
   }
+  if (!td.message)
+    throw new SignatureRefusal("Refused: no SafeTx value to check.");
+  const refund = safeTxRefundFields(td.message);
+  if (refund.length > 0) {
+    throw new SignatureRefusal(`Refused: this SafeTx pays a gas refund on execution (${refund.join(", ")}). With gasPrice > 0 the Safe pays (gas used + baseGas) \xD7 gasPrice \u2014 in the native coin to whoever executes it when gasToken and refundReceiver are zero. The keystore signs a SafeTx only with gasPrice, baseGas, gasToken and refundReceiver all zero.`);
+  }
   return primaryType;
 }
-var MESSAGE_MAX_BYTES, TAG_MESSAGE, TAG_TYPED, HIDDEN_CLASS, HIDDEN_RE, HIDDEN_ONE, APPROVAL_WORDS, ADDRESS_RE2, AMOUNT_RE, URL_RE2, SignatureRefusal, SIGNABLE_PRIMARY_TYPES, PERMIT2, ApprovedSignature;
+var MESSAGE_MAX_BYTES, TAG_MESSAGE, TAG_TYPED, HIDDEN_CHAR_SOURCE, HIDDEN_CLASS, HIDDEN_RE, HIDDEN_ONE, APPROVAL_WORDS, ADDRESS_RE2, AMOUNT_RE, URL_RE2, SignatureRefusal, SIGNABLE_PRIMARY_TYPES, PERMIT2, ApprovedSignature;
 var init_signing = __esm({
   "dist/lib/approval/signing.js"() {
     "use strict";
@@ -40533,9 +40604,10 @@ var init_signing = __esm({
     MESSAGE_MAX_BYTES = 4096;
     TAG_MESSAGE = keccak256(toUtf8Bytes("dexe-mcp/approval/message/v1"));
     TAG_TYPED = keccak256(toUtf8Bytes("dexe-mcp/approval/typed-data/v1"));
-    HIDDEN_CLASS = "[\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u00A0\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u2000-\\u200F\\u2028-\\u202F\\u205F-\\u206F\\u27E8\\u27E9\\u3000\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{E0000}-\\u{E007F}\\u{E0100}-\\u{E01EF}]";
+    HIDDEN_CHAR_SOURCE = "(?:(?!\\n)\\p{Cc})|[\\p{Cf}\\p{Zl}\\p{Zp}\\u00A0\\u1680\\u2000-\\u200A\\u202F\\u205F\\u3000\\u2800\\u3164\\u115F\\u1160\\uFFA0\\u17B4\\u17B5\\u034F\\u180B-\\u180F\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}]";
+    HIDDEN_CLASS = `${HIDDEN_CHAR_SOURCE}|[\\u27E8\\u27E9]`;
     HIDDEN_RE = new RegExp(HIDDEN_CLASS, "gu");
-    HIDDEN_ONE = new RegExp(`^${HIDDEN_CLASS}$`, "u");
+    HIDDEN_ONE = new RegExp(`^(?:${HIDDEN_CLASS})$`, "u");
     APPROVAL_WORDS = /\b(permit2?|allowance|spender|approve|approval|setApprovalForAll|transferFrom|transfer|withdraw)\b/i;
     ADDRESS_RE2 = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
     AMOUNT_RE = /\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+(?:\.\d+)?\s*(?:t?BNB|ETH|USDT|USDC|BUSD|DEXE|wei|gwei|ether|tokens?)\b|(?<![0-9a-fA-Fx])\d{7,}(?![0-9a-fA-F])/gi;
@@ -40609,7 +40681,7 @@ var init_signing = __esm({
       async signTypedData(domain3, types, value) {
         const key = this.take("safeTx");
         try {
-          assertSignableTypedData({ domain: domain3, types }, { chainId: this.chainId, ...this.deps.verifyingContract ? { verifyingContract: this.deps.verifyingContract } : {} });
+          assertSignableTypedData({ domain: domain3, types, message: value }, { chainId: this.chainId, ...this.deps.verifyingContract ? { verifyingContract: this.deps.verifyingContract } : {} });
         } catch (e2) {
           this.refuse(safeErrorMessage(e2));
         }
@@ -40645,8 +40717,187 @@ var init_signing = __esm({
   }
 });
 
-// dist/lib/approval/rendezvous.js
+// dist/lib/approval/controlProtocol.js
+import { createCipheriv, createDecipheriv, createHmac as createHmac2, hkdfSync, randomBytes as randomBytes8, timingSafeEqual as timingSafeEqual2 } from "node:crypto";
 import { connect as netConnect } from "node:net";
+function newNonce() {
+  return randomBytes8(32).toString("base64url");
+}
+function isNonce(v7) {
+  return typeof v7 === "string" && NONCE_RE.test(v7);
+}
+function hmac2(secret, label, parts) {
+  const h3 = createHmac2("sha256", Buffer.from(secret, "utf8"));
+  h3.update(label);
+  for (const p4 of parts) {
+    h3.update("\n");
+    h3.update(p4);
+  }
+  return h3.digest("hex");
+}
+function serverProof(secret, clientNonce, serverNonce, pid) {
+  return hmac2(secret, L_SERVER, [clientNonce, serverNonce, String(pid)]);
+}
+function requestMac(secret, clientNonce, serverNonce, payload) {
+  return hmac2(secret, L_REQUEST, [clientNonce, serverNonce, payload]);
+}
+function macEqual(a3, b7) {
+  if (typeof a3 !== "string" || !/^[0-9a-f]{64}$/.test(a3) || !/^[0-9a-f]{64}$/.test(b7))
+    return false;
+  return timingSafeEqual2(Buffer.from(a3, "hex"), Buffer.from(b7, "hex"));
+}
+function passwordKey(secret, clientNonce, serverNonce) {
+  return Buffer.from(hkdfSync("sha256", Buffer.from(secret, "utf8"), Buffer.from(`${clientNonce}
+${serverNonce}`, "utf8"), L_PASSWORD, 32));
+}
+function sealPassword(secret, clientNonce, serverNonce, approvalId, password) {
+  const iv = randomBytes8(12);
+  const c4 = createCipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), iv);
+  c4.setAAD(Buffer.from(approvalId, "utf8"));
+  const ct4 = Buffer.concat([c4.update(password, "utf8"), c4.final()]);
+  return { iv: iv.toString("base64url"), ct: ct4.toString("base64url"), tag: c4.getAuthTag().toString("base64url") };
+}
+function openPassword(secret, clientNonce, serverNonce, approvalId, sealed) {
+  const s2 = sealed;
+  if (!s2 || typeof s2.iv !== "string" || typeof s2.ct !== "string" || typeof s2.tag !== "string")
+    return null;
+  try {
+    const d3 = createDecipheriv("aes-256-gcm", passwordKey(secret, clientNonce, serverNonce), Buffer.from(s2.iv, "base64url"));
+    d3.setAAD(Buffer.from(approvalId, "utf8"));
+    d3.setAuthTag(Buffer.from(s2.tag, "base64url"));
+    return Buffer.concat([d3.update(Buffer.from(s2.ct, "base64url")), d3.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+function lineConn(endpoint, timeoutMs) {
+  const sock = netConnect(endpoint);
+  sock.setEncoding("utf8");
+  let buf = "";
+  const lines = [];
+  let failure2 = null;
+  let waiter = null;
+  const fail2 = (e2) => {
+    if (failure2)
+      return;
+    failure2 = e2;
+    if (waiter) {
+      waiter.reject(e2);
+      waiter = null;
+    }
+  };
+  const pump = () => {
+    if (!waiter || lines.length === 0)
+      return;
+    const line2 = lines.shift();
+    const w5 = waiter;
+    waiter = null;
+    try {
+      w5.resolve(JSON.parse(line2));
+    } catch {
+      w5.reject(new ControlConnectError("malformed response", "EPROTO"));
+    }
+  };
+  const timer = setTimeout(() => {
+    fail2(new ControlConnectError("the server did not answer in time", "ETIMEDOUT"));
+    sock.destroy();
+  }, timeoutMs);
+  sock.on("data", (chunk) => {
+    buf += chunk;
+    if (buf.length > 4 * 1024 * 1024) {
+      fail2(new ControlConnectError("response too large", "E2BIG"));
+      sock.destroy();
+      return;
+    }
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      lines.push(buf.slice(0, nl));
+      buf = buf.slice(nl + 1);
+    }
+    pump();
+  });
+  sock.on("end", () => fail2(new ControlConnectError("the server closed the connection", "ECONNRESET")));
+  sock.on("error", (e2) => fail2(new ControlConnectError(e2.message, e2.code)));
+  sock.on("close", () => clearTimeout(timer));
+  const queued = [];
+  let connected = false;
+  sock.on("connect", () => {
+    connected = true;
+    for (const q6 of queued.splice(0))
+      sock.write(q6);
+  });
+  return {
+    send(obj) {
+      const line2 = `${JSON.stringify(obj)}
+`;
+      if (connected)
+        sock.write(line2);
+      else
+        queued.push(line2);
+    },
+    next() {
+      return new Promise((resolveNext, reject) => {
+        if (lines.length === 0 && failure2)
+          return reject(failure2);
+        waiter = { resolve: resolveNext, reject };
+        pump();
+      });
+    },
+    close() {
+      clearTimeout(timer);
+      sock.destroy();
+    }
+  };
+}
+async function controlCall(server, body, timeoutMs = 12e4) {
+  const conn = lineConn(server.endpoint, timeoutMs);
+  try {
+    const clientNonce = newNonce();
+    conn.send({ v: PROTOCOL_VERSION, op: "hello", nonce: clientNonce });
+    const hello = await conn.next();
+    const serverNonce = hello.serverNonce;
+    if (hello.ok !== true || !isNonce(serverNonce) || !macEqual(hello.proof, serverProof(server.secret, clientNonce, serverNonce, server.pid))) {
+      throw new ControlAuthError(`the process at ${server.endpoint} could not prove it is the dexe-mcp server that wrote this rendezvous (no proof of its secret) \u2014 nothing secret was sent to it`);
+    }
+    const { password, ...rest } = body;
+    const req = { ...rest };
+    if (typeof password === "string") {
+      req.sealedPassword = sealPassword(server.secret, clientNonce, serverNonce, String(rest.approvalId ?? ""), password);
+    }
+    const payload = JSON.stringify(req);
+    conn.send({ v: PROTOCOL_VERSION, payload, mac: requestMac(server.secret, clientNonce, serverNonce, payload) });
+    return await conn.next();
+  } finally {
+    conn.close();
+  }
+}
+var PROTOCOL_VERSION, L_SERVER, L_REQUEST, L_PASSWORD, NONCE_RE, ControlConnectError, ControlAuthError;
+var init_controlProtocol = __esm({
+  "dist/lib/approval/controlProtocol.js"() {
+    "use strict";
+    PROTOCOL_VERSION = 2;
+    L_SERVER = "dexe-mcp/approve/v2/server-proof";
+    L_REQUEST = "dexe-mcp/approve/v2/request";
+    L_PASSWORD = "dexe-mcp/approve/v2/password";
+    NONCE_RE = /^[A-Za-z0-9_-]{32,128}$/;
+    ControlConnectError = class extends Error {
+      code;
+      constructor(message, code6) {
+        super(message);
+        this.code = code6;
+        this.name = "ControlConnectError";
+      }
+    };
+    ControlAuthError = class extends ControlConnectError {
+      constructor(message) {
+        super(message, "EAUTH");
+        this.name = "ControlAuthError";
+      }
+    };
+  }
+});
+
+// dist/lib/approval/rendezvous.js
 import { chmodSync as chmodSync2, closeSync as closeSync3, constants as fsConstants, existsSync as existsSync10, fstatSync, lstatSync, mkdirSync as mkdirSync5, openSync as openSync3, readdirSync as readdirSync4, readFileSync as readFileSync10, unlinkSync as unlinkSync2, writeSync as writeSync3 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { isAbsolute as isAbsolute3, join as join10 } from "node:path";
@@ -40785,9 +41036,14 @@ function discoverServers(dir, opts = {}) {
       continue;
     }
     const pid = Number(m3[1]);
-    if (state(pid) === "gone") {
+    const ps = state(pid);
+    if (ps === "gone") {
       removeRendezvous(file2, id2);
       out2.removed.push(file2);
+      continue;
+    }
+    if (ps === "other") {
+      out2.ignored.push({ file: file2, reason: `pid ${pid} belongs to another user now (the server that wrote it is gone)` });
       continue;
     }
     const info = parseInfo(read3.raw, pid);
@@ -40850,44 +41106,7 @@ function removeRendezvous(file2, id2 = currentIdentity()) {
     }
   }
 }
-function controlRequest(endpoint, body, timeoutMs = 12e4) {
-  return new Promise((resolveReq, reject) => {
-    const sock = netConnect(endpoint);
-    let buf = "";
-    let settled = false;
-    const done = (err16, value) => {
-      if (settled)
-        return;
-      settled = true;
-      clearTimeout(timer);
-      sock.destroy();
-      if (err16)
-        reject(err16);
-      else
-        resolveReq(value);
-    };
-    const timer = setTimeout(() => done(new ControlConnectError("the server did not answer in time", "ETIMEDOUT")), timeoutMs);
-    sock.setEncoding("utf8");
-    sock.on("connect", () => sock.write(`${JSON.stringify(body)}
-`));
-    sock.on("data", (chunk) => {
-      buf += chunk;
-      if (buf.length > 4 * 1024 * 1024)
-        return done(new ControlConnectError("response too large", "E2BIG"));
-      const nl = buf.indexOf("\n");
-      if (nl < 0)
-        return;
-      try {
-        done(null, JSON.parse(buf.slice(0, nl)));
-      } catch {
-        done(new ControlConnectError("malformed response", "EPROTO"));
-      }
-    });
-    sock.on("end", () => done(new ControlConnectError("the server closed the connection", "ECONNRESET")));
-    sock.on("error", (e2) => done(new ControlConnectError(e2.message, e2.code)));
-  });
-}
-var RENDEZVOUS_VERSION, FILE_RE, PIPE_PREFIX, ControlConnectError;
+var RENDEZVOUS_VERSION, FILE_RE, PIPE_PREFIX;
 var init_rendezvous = __esm({
   "dist/lib/approval/rendezvous.js"() {
     "use strict";
@@ -40896,14 +41115,6 @@ var init_rendezvous = __esm({
     RENDEZVOUS_VERSION = 1;
     FILE_RE = /^approve-(\d{1,10})\.json$/;
     PIPE_PREFIX = "\\\\.\\pipe\\dexe-mcp-approve-";
-    ControlConnectError = class extends Error {
-      code;
-      constructor(message, code6) {
-        super(message);
-        this.code = code6;
-        this.name = "ControlConnectError";
-      }
-    };
   }
 });
 
@@ -45103,13 +45314,13 @@ var require_terminal_small = __commonJS({
 // node_modules/qrcode/lib/renderer/terminal.js
 var require_terminal2 = __commonJS({
   "node_modules/qrcode/lib/renderer/terminal.js"(exports) {
-    var big = require_terminal();
+    var big2 = require_terminal();
     var small = require_terminal_small();
     exports.render = function(qrData, options, cb) {
       if (options && options.small) {
         return small.render(qrData, options, cb);
       }
-      return big.render(qrData, options, cb);
+      return big2.render(qrData, options, cb);
     };
   }
 });
@@ -51110,7 +51321,7 @@ function createOptHasher(hashCons) {
   hashC.create = (opts) => hashCons(opts);
   return hashC;
 }
-function randomBytes9(bytesLength = 32) {
+function randomBytes10(bytesLength = 32) {
   if (crypto5 && typeof crypto5.getRandomValues === "function") {
     return crypto5.getRandomValues(new Uint8Array(bytesLength));
   }
@@ -51547,7 +51758,7 @@ function createHasher2(hashCons) {
   hashC.create = () => hashCons();
   return hashC;
 }
-function randomBytes10(bytesLength = 32) {
+function randomBytes11(bytesLength = 32) {
   if (crypto6 && typeof crypto6.getRandomValues === "function") {
     return crypto6.getRandomValues(new Uint8Array(bytesLength));
   }
@@ -53304,7 +53515,7 @@ var init_Rlp = __esm({
 });
 
 // node_modules/ox/node_modules/@noble/hashes/esm/hmac.js
-var HMAC2, hmac2;
+var HMAC2, hmac3;
 var init_hmac3 = __esm({
   "node_modules/ox/node_modules/@noble/hashes/esm/hmac.js"() {
     init_utils6();
@@ -53372,8 +53583,8 @@ var init_hmac3 = __esm({
         this.iHash.destroy();
       }
     };
-    hmac2 = (hash3, key, message) => new HMAC2(hash3, key).update(message).digest();
-    hmac2.create = (hash3, key) => new HMAC2(hash3, key);
+    hmac3 = (hash3, key, message) => new HMAC2(hash3, key).update(message).digest();
+    hmac3.create = (hash3, key) => new HMAC2(hash3, key);
   }
 });
 
@@ -54564,7 +54775,7 @@ function weierstrass2(curveDef) {
   function prepSig(msgHash, privateKey, opts = defaultSigOpts) {
     if (["recovered", "canonical"].some((k5) => k5 in opts))
       throw new Error("sign() legacy options not supported");
-    const { hash: hash3, randomBytes: randomBytes11 } = CURVE;
+    const { hash: hash3, randomBytes: randomBytes12 } = CURVE;
     let { lowS, prehash, extraEntropy: ent } = opts;
     if (lowS == null)
       lowS = true;
@@ -54576,7 +54787,7 @@ function weierstrass2(curveDef) {
     const d3 = normPrivateKeyToScalar(privateKey);
     const seedArgs = [int2octets(d3), int2octets(h1int)];
     if (ent != null && ent !== false) {
-      const e2 = ent === true ? randomBytes11(Fp3.BYTES) : ent;
+      const e2 = ent === true ? randomBytes12(Fp3.BYTES) : ent;
       seedArgs.push(ensureBytes2("extraEntropy", e2));
     }
     const seed = concatBytes5(...seedArgs);
@@ -54797,8 +55008,8 @@ var init_weierstrass2 = __esm({
 function getHash2(hash3) {
   return {
     hash: hash3,
-    hmac: (key, ...msgs) => hmac2(hash3, key, concatBytes4(...msgs)),
-    randomBytes: randomBytes10
+    hmac: (key, ...msgs) => hmac3(hash3, key, concatBytes4(...msgs)),
+    randomBytes: randomBytes11
   };
 }
 function createCurve2(curveDef, defHash) {
@@ -60449,7 +60660,7 @@ var init_chacha = __esm({
 });
 
 // node_modules/@walletconnect/utils/node_modules/@noble/hashes/esm/hmac.js
-var HMAC3, hmac3;
+var HMAC3, hmac4;
 var init_hmac4 = __esm({
   "node_modules/@walletconnect/utils/node_modules/@noble/hashes/esm/hmac.js"() {
     init_utils5();
@@ -60517,8 +60728,8 @@ var init_hmac4 = __esm({
         this.iHash.destroy();
       }
     };
-    hmac3 = (hash3, key, message) => new HMAC3(hash3, key).update(message).digest();
-    hmac3.create = (hash3, key) => new HMAC3(hash3, key);
+    hmac4 = (hash3, key, message) => new HMAC3(hash3, key).update(message).digest();
+    hmac4.create = (hash3, key) => new HMAC3(hash3, key);
   }
 });
 
@@ -60527,7 +60738,7 @@ function extract3(hash3, ikm, salt) {
   ahash(hash3);
   if (salt === void 0)
     salt = new Uint8Array(hash3.outputLen);
-  return hmac3(hash3, toBytes2(salt), toBytes2(ikm));
+  return hmac4(hash3, toBytes2(salt), toBytes2(ikm));
 }
 function expand(hash3, prk, info, length3 = 32) {
   ahash(hash3);
@@ -60539,7 +60750,7 @@ function expand(hash3, prk, info, length3 = 32) {
   if (info === void 0)
     info = EMPTY_BUFFER;
   const okm = new Uint8Array(blocks * olen);
-  const HMAC4 = hmac3.create(hash3, prk);
+  const HMAC4 = hmac4.create(hash3, prk);
   const HMACTmp = HMAC4._cloneInto();
   const T13 = new Uint8Array(HMAC4.outputLen);
   for (let counter = 0; counter < blocks; counter++) {
@@ -61680,7 +61891,7 @@ function eddsa(Point2, cHash, eddsaOpts = {}) {
   });
   const { prehash } = eddsaOpts;
   const { BASE, Fp: Fp3, Fn: Fn2 } = Point2;
-  const randomBytes11 = eddsaOpts.randomBytes || randomBytes9;
+  const randomBytes12 = eddsaOpts.randomBytes || randomBytes10;
   const adjustScalarBytes2 = eddsaOpts.adjustScalarBytes || ((bytes2) => bytes2);
   const domain3 = eddsaOpts.domain || ((data4, ctx, phflag) => {
     _abool2(phflag, "phflag");
@@ -61762,7 +61973,7 @@ function eddsa(Point2, cHash, eddsaOpts = {}) {
     signature: 2 * _size2,
     seed: _size2
   };
-  function randomSecretKey(seed = randomBytes11(lengths.seed)) {
+  function randomSecretKey(seed = randomBytes12(lengths.seed)) {
     return _abytes2(seed, lengths.seed, "seed");
   }
   function keygen(seed) {
@@ -61957,7 +62168,7 @@ function montgomery(curveDef) {
   const is25519 = type === "x25519";
   if (!is25519 && type !== "x448")
     throw new Error("invalid type");
-  const randomBytes_ = rand || randomBytes9;
+  const randomBytes_ = rand || randomBytes10;
   const montgomeryBits = is25519 ? 255 : 448;
   const fieldLen = is25519 ? 32 : 56;
   const Gu = is25519 ? BigInt(9) : BigInt(5);
@@ -62829,7 +63040,7 @@ function getWLengths(Fp3, Fn2) {
 }
 function ecdh(Point2, ecdhOpts = {}) {
   const { Fn: Fn2 } = Point2;
-  const randomBytes_ = ecdhOpts.randomBytes || randomBytes9;
+  const randomBytes_ = ecdhOpts.randomBytes || randomBytes10;
   const lengths = Object.assign(getWLengths(Point2.Fp, Fn2), { seed: getMinHashLength3(Fn2.ORDER) });
   function isValidSecretKey(secretKey) {
     try {
@@ -62904,8 +63115,8 @@ function ecdsa(Point2, hash3, ecdsaOpts = {}) {
     bits2int: "function",
     bits2int_modN: "function"
   });
-  const randomBytes11 = ecdsaOpts.randomBytes || randomBytes9;
-  const hmac4 = ecdsaOpts.hmac || ((key, ...msgs) => hmac3(hash3, key, concatBytes3(...msgs)));
+  const randomBytes12 = ecdsaOpts.randomBytes || randomBytes10;
+  const hmac5 = ecdsaOpts.hmac || ((key, ...msgs) => hmac4(hash3, key, concatBytes3(...msgs)));
   const { Fp: Fp3, Fn: Fn2 } = Point2;
   const { ORDER: CURVE_ORDER, BITS: fnBits } = Fn2;
   const { keygen, getPublicKey: getPublicKey2, getSharedSecret: getSharedSecret2, utils, lengths } = ecdh(Point2, ecdsaOpts);
@@ -63059,7 +63270,7 @@ function ecdsa(Point2, hash3, ecdsaOpts = {}) {
     const d3 = _normFnElement(Fn2, privateKey);
     const seedArgs = [int2octets(d3), int2octets(h1int)];
     if (extraEntropy2 != null && extraEntropy2 !== false) {
-      const e2 = extraEntropy2 === true ? randomBytes11(lengths.secretKey) : extraEntropy2;
+      const e2 = extraEntropy2 === true ? randomBytes12(lengths.secretKey) : extraEntropy2;
       seedArgs.push(ensureBytes3("extraEntropy", e2));
     }
     const seed = concatBytes3(...seedArgs);
@@ -63089,7 +63300,7 @@ function ecdsa(Point2, hash3, ecdsaOpts = {}) {
   function sign2(message, secretKey, opts = {}) {
     message = ensureBytes3("message", message);
     const { seed, k2sig } = prepSig(message, secretKey, opts);
-    const drbg = createHmacDrbg3(hash3.outputLen, Fn2.BYTES, hmac4);
+    const drbg = createHmacDrbg3(hash3.outputLen, Fn2.BYTES, hmac5);
     const sig = drbg(seed, k2sig);
     return sig;
   }
@@ -64872,7 +65083,7 @@ function Pr() {
   return { privateKey: toString6(e2, y3), publicKey: toString6(t2, y3) };
 }
 function kr() {
-  const e2 = randomBytes9($e2);
+  const e2 = randomBytes10($e2);
   return toString6(e2, y3);
 }
 function _r(e2, t2) {
@@ -64903,7 +65114,7 @@ function ne2(e2) {
 function Mr(e2) {
   const t2 = Re2(typeof e2.type < "u" ? e2.type : Ie2);
   if (j(t2) === D2 && typeof e2.senderPublicKey > "u") throw new Error("Missing sender public key for type 1 envelope");
-  const n4 = typeof e2.senderPublicKey < "u" ? fromString2(e2.senderPublicKey, y3) : void 0, r2 = typeof e2.iv < "u" ? fromString2(e2.iv, y3) : randomBytes9(q3), o3 = fromString2(e2.symKey, y3), s2 = chacha20poly1305(o3, r2).encrypt(fromString2(e2.message, _)), i3 = Ue2({ type: t2, sealed: s2, iv: r2, senderPublicKey: n4 });
+  const n4 = typeof e2.senderPublicKey < "u" ? fromString2(e2.senderPublicKey, y3) : void 0, r2 = typeof e2.iv < "u" ? fromString2(e2.iv, y3) : randomBytes10(q3), o3 = fromString2(e2.symKey, y3), s2 = chacha20poly1305(o3, r2).encrypt(fromString2(e2.message, _)), i3 = Ue2({ type: t2, sealed: s2, iv: r2, senderPublicKey: n4 });
   return e2.encoding === te2 ? $t(i3) : i3;
 }
 function Lr(e2) {
@@ -64912,7 +65123,7 @@ function Lr(e2) {
   return toString6(o3, _);
 }
 function Kr2(e2, t2) {
-  const n4 = Re2(F), r2 = randomBytes9(q3), o3 = fromString2(e2, _), s2 = Ue2({ type: n4, sealed: o3, iv: r2 });
+  const n4 = Re2(F), r2 = randomBytes10(q3), o3 = fromString2(e2, _), s2 = Ue2({ type: n4, sealed: o3, iv: r2 });
   return t2 === te2 ? $t(s2) : s2;
 }
 function Fr(e2, t2) {
@@ -64934,7 +65145,7 @@ function re2(e2) {
     return { type: r2, sealed: p4, iv: u4, senderPublicKey: d3 };
   }
   if (j(r2) === F) {
-    const l2 = n4.slice(o3), a3 = randomBytes9(q3);
+    const l2 = n4.slice(o3), a3 = randomBytes10(q3);
     return { type: r2, sealed: l2, iv: a3 };
   }
   const s2 = o3 + q3, i3 = n4.slice(o3, s2), c4 = n4.slice(s2);
@@ -75236,7 +75447,7 @@ var init_key = __esm({
 
 // dist/lib/approval/terminalReview.js
 function tsafe(s2) {
-  return String(s2).replace(TERMINAL_UNSAFE, (c4) => `\u27E8U+${c4.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}\u27E9`);
+  return String(s2).replace(TERMINAL_UNSAFE, (c4) => `\u27E8${markOf(c4)}\u27E9`);
 }
 function oneLine(s2) {
   return tsafe(String(s2).replace(/\n/g, "\u23CE"));
@@ -75296,8 +75507,8 @@ function renderTerminalReview(r2) {
     out2.push(`  For: ${oneLine(m3.purpose)}  (stated by the server)`);
     out2.push(`  Message \u2014 ${m3.byteLength} bytes, ${m3.encoding === "utf8" ? "UTF-8 text, shown in full between the lines" : "binary, shown as hex"}:`);
     out2.push("  \u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504");
-    const body = m3.encoding === "utf8" && m3.segments ? segmentsToText(m3.segments) : m3.hex;
-    for (const line2 of tsafe(body).split("\n"))
+    const body = m3.encoding === "utf8" && m3.segments ? segmentsToText(m3.segments) : tsafe(m3.hex);
+    for (const line2 of body.split("\n"))
       out2.push(`  ${line2}`);
     out2.push("  \u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504");
     out2.push("  (\u27E8U+\u2026\u27E9 / \u27E8CR\u27E9 / \u27E8TAB\u27E9 mark characters that could hide or reorder text.)");
@@ -75310,9 +75521,9 @@ function renderTerminalReview(r2) {
     out2.push(`  owners        threshold ${oneLine(s2.threshold)} of ${s2.ownerCount} \xB7 you are an owner (checked on-chain)`);
     out2.push(`  operation     ${s2.operation === 1 ? "DELEGATECALL (1)" : "CALL (0)"}`);
     out2.push(`  nonce         ${oneLine(s2.nonce)} (the Safe's next nonce is ${oneLine(s2.currentNonce)})`);
-    if (s2.gasPrice !== "0") {
-      out2.push(`  gas refund    gasPrice ${oneLine(s2.gasPrice)} in ${oneLine(s2.gasToken)} to ${oneLine(s2.refundReceiver)}`);
-    }
+    out2.push(`  gas fields    safeTxGas ${oneLine(s2.safeTxGas)} \xB7 baseGas ${oneLine(s2.baseGas)} \xB7 gasPrice ${oneLine(s2.gasPrice)}`);
+    out2.push(`                gasToken ${oneLine(s2.gasToken)} \xB7 refundReceiver ${oneLine(s2.refundReceiver)}`);
+    out2.push(safeTxRefundFields(s2).length ? `!! DANGER     ${oneLine(describeSafeTxRefund(s2) ?? `non-zero refund fields: ${safeTxRefundFields(s2).join(", ")}`)}` : "                no gas refund: the Safe pays nothing to whoever executes it");
     out2.push(`  safeTxHash    ${oneLine(s2.safeTxHash ?? "")}  (EIP-712, chain ${r2.chainId}, verifyingContract = the Safe)`);
     if (s2.multiSend?.length) {
       out2.push(`  MultiSend sub-calls (${s2.multiSend.length}, in order):`);
@@ -75345,7 +75556,8 @@ var init_terminalReview = __esm({
   "dist/lib/approval/terminalReview.js"() {
     "use strict";
     init_signing();
-    TERMINAL_UNSAFE = new RegExp("[\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF]", "g");
+    init_ethersProvider();
+    TERMINAL_UNSAFE = new RegExp(HIDDEN_CHAR_SOURCE, "gu");
     LEVEL = { danger: "!! DANGER", warn: " ! warn  ", info: " \xB7 note  " };
     HEADINGS2 = { "tx-batch": "Approve transaction(s)", message: "Sign a message", safeTx: "Sign a Safe transaction" };
   }
@@ -75436,13 +75648,15 @@ ${approveUsage()}`);
     if (pid !== void 0 && s2.info.pid !== pid)
       continue;
     try {
-      const hello = await controlRequest(s2.info.endpoint, { v: 1, secret: s2.info.secret, op: "hello" }, 1e4);
+      const hello = await controlCall(s2.info, { op: "hello" }, 1e4);
       if (hello.ok === true && hello.address === s2.info.address)
         live.push(s2);
       else
         io2.err(`[dexe-mcp approve] server ${s2.info.pid} did not authenticate (${tsafe(String(hello.status ?? "?"))}) \u2014 ignored.`);
     } catch (e2) {
-      if (e2 instanceof ControlConnectError && GONE.has(e2.code ?? "")) {
+      if (e2 instanceof ControlAuthError) {
+        io2.err(`[dexe-mcp approve] NOT TRUSTED: whatever answers for server ${s2.info.pid} could not prove it is that server \u2014 ignored; nothing secret was sent to it.`);
+      } else if (e2 instanceof ControlConnectError && GONE.has(e2.code ?? "")) {
         removeRendezvous(s2.file, id2);
       } else {
         io2.err(`[dexe-mcp approve] server ${s2.info.pid}: ${tsafe(safeErrorMessage(e2))}`);
@@ -75456,7 +75670,7 @@ ${approveUsage()}`);
   const waiting = [];
   for (const s2 of live) {
     try {
-      const res = await controlRequest(s2.info.endpoint, { v: 1, secret: s2.info.secret, op: "list" }, 3e4);
+      const res = await controlCall(s2.info, { op: "list" }, 3e4);
       for (const r2 of res.approvals ?? []) {
         if (!approvalId || r2.approvalId === approvalId)
           waiting.push({ server: s2, review: r2 });
@@ -75527,7 +75741,7 @@ ${approveUsage()}`);
 }
 async function send(server, body, io2) {
   try {
-    const res = await controlRequest(server.info.endpoint, { v: 1, secret: server.info.secret, ...body }, 15e4);
+    const res = await controlCall(server.info, body, 15e4);
     io2.out(`  ${res.ok === true ? "\u2714" : "\u2717"} ${tsafe(String(res.message ?? res.status ?? ""))}`);
     return res;
   } catch (e2) {
@@ -75541,6 +75755,7 @@ var init_approve = __esm({
     "use strict";
     init_key();
     init_rendezvous();
+    init_controlProtocol();
     init_terminalReview();
     init_redact();
     GONE = /* @__PURE__ */ new Set(["ENOENT", "ECONNREFUSED", "EPIPE", "ECONNRESET"]);
@@ -133753,13 +133968,13 @@ function renderAvatarJpeg(daoName, size3 = 512) {
   const hue2 = (hue1 + 40 + (h3 >>> 8) % 80) % 360;
   const c1 = hslToRgb(hue1, 0.7, 0.55);
   const c22 = hslToRgb(hue2, 0.7, 0.35);
-  const big = size3 * SUPERSAMPLE;
-  const rgba = new Uint8Array(big * big * 4);
-  const denom = 2 * (big - 1) || 1;
-  for (let y6 = 0; y6 < big; y6++) {
-    for (let x6 = 0; x6 < big; x6++) {
+  const big2 = size3 * SUPERSAMPLE;
+  const rgba = new Uint8Array(big2 * big2 * 4);
+  const denom = 2 * (big2 - 1) || 1;
+  for (let y6 = 0; y6 < big2; y6++) {
+    for (let x6 = 0; x6 < big2; x6++) {
       const t2 = (x6 + y6) / denom;
-      const i3 = (y6 * big + x6) * 4;
+      const i3 = (y6 * big2 + x6) * 4;
       rgba[i3] = Math.round(c1[0] + (c22[0] - c1[0]) * t2);
       rgba[i3 + 1] = Math.round(c1[1] + (c22[1] - c1[1]) * t2);
       rgba[i3 + 2] = Math.round(c1[2] + (c22[2] - c1[2]) * t2);
@@ -133783,11 +133998,11 @@ function renderAvatarJpeg(daoName, size3 = 512) {
     return { minCol, width: maxCol - minCol + 1 };
   });
   const blockCols = bounds.reduce((sum, b7) => sum + b7.width, 0) + (glyphs.length - 1) * GLYPH_GAP_COLS;
-  const scale = Math.max(1, Math.min(Math.floor(big * BLOCK_WIDTH_RATIO / blockCols), Math.floor(big * BLOCK_WIDTH_RATIO / 8)));
+  const scale = Math.max(1, Math.min(Math.floor(big2 * BLOCK_WIDTH_RATIO / blockCols), Math.floor(big2 * BLOCK_WIDTH_RATIO / 8)));
   const blockW = blockCols * scale;
   const blockH = 8 * scale;
-  const originX = big - blockW >> 1;
-  const originY = big - blockH >> 1;
+  const originX = big2 - blockW >> 1;
+  const originY = big2 - blockH >> 1;
   let glyphX = originX;
   glyphs.forEach((glyph, gi) => {
     const { minCol, width } = bounds[gi];
@@ -133801,7 +134016,7 @@ function renderAvatarJpeg(daoName, size3 = 512) {
         const px = glyphX + (col - minCol) * scale;
         const py = originY + row2 * scale;
         for (let dy = 0; dy < scale; dy++) {
-          const rowBase = (py + dy) * big;
+          const rowBase = (py + dy) * big2;
           for (let dx = 0; dx < scale; dx++) {
             const i3 = (rowBase + px + dx) * 4;
             rgba[i3] = 255;
@@ -133822,7 +134037,7 @@ function renderAvatarJpeg(daoName, size3 = 512) {
       let b7 = 0;
       for (let dy = 0; dy < SUPERSAMPLE; dy++) {
         for (let dx = 0; dx < SUPERSAMPLE; dx++) {
-          const i3 = ((y6 * SUPERSAMPLE + dy) * big + x6 * SUPERSAMPLE + dx) * 4;
+          const i3 = ((y6 * SUPERSAMPLE + dy) * big2 + x6 * SUPERSAMPLE + dx) * 4;
           r2 += rgba[i3];
           g3 += rgba[i3 + 1];
           b7 += rgba[i3 + 2];
@@ -135266,7 +135481,7 @@ function forAssumedChain(w5, explicit, chainId) {
 }
 function govSettingsBoundViolations(s2) {
   const out2 = [];
-  const big = (v7) => {
+  const big2 = (v7) => {
     try {
       if (typeof v7 === "bigint")
         return v7;
@@ -135277,22 +135492,22 @@ function govSettingsBoundViolations(s2) {
     }
   };
   const push3 = (field, raw, revert) => out2.push({ field, got: String(raw), revert });
-  const d3 = big(s2.duration);
+  const d3 = big2(s2.duration);
   if (d3 === null)
     push3("duration", s2.duration, "");
   else if (d3 === 0n)
     push3("duration", s2.duration, "GovSettings: invalid vote duration value");
-  const dv = big(s2.durationValidators);
+  const dv = big2(s2.durationValidators);
   if (dv === null)
     push3("durationValidators", s2.durationValidators, "");
   else if (dv === 0n)
     push3("durationValidators", s2.durationValidators, "GovSettings: invalid validator vote duration value");
-  const q6 = big(s2.quorum);
+  const q6 = big2(s2.quorum);
   if (q6 === null)
     push3("quorum", s2.quorum, "");
   else if (q6 === 0n || q6 > PERCENTAGE_1003)
     push3("quorum", s2.quorum, "GovSettings: invalid quorum value");
-  const qv = big(s2.quorumValidators);
+  const qv = big2(s2.quorumValidators);
   if (qv === null)
     push3("quorumValidators", s2.quorumValidators, "");
   else if (qv > PERCENTAGE_1003)
@@ -139923,6 +140138,7 @@ async function buildReview(payloads, ctx) {
 }
 
 // dist/lib/approval/page.js
+init_ethersProvider();
 function esc2(s2) {
   return String(s2).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -139998,8 +140214,8 @@ ${renderRisks(m3.risks)}
 }
 function renderSafe(s2, chainId) {
   const ms2 = s2.multiSend?.length ? `<div class="nested"><div class="note">The MultiSend runs ${s2.multiSend.length} call(s), in order:</div><ul class="args">${s2.multiSend.map((c4, k5) => `<li>${k5 + 1}. ${c4.operation === 1 ? '<span class="mk">DELEGATECALL</span>' : "CALL"} <code>${esc2(c4.to)}</code> \xB7 value ${esc2(c4.value)} wei \xB7 ${c4.decoded ? renderDecoded(c4.decoded) : `<span class="bad">${c4.dataBytes ? "not decodable" : "no calldata"}</span> ${c4.selector ? `<code>${esc2(c4.selector)}</code>` : ""}`}</li>`).join("")}</ul></div>` : "";
-  const zero = "0x0000000000000000000000000000000000000000";
-  const refund = s2.gasPrice !== "0" ? `gasPrice ${esc2(s2.gasPrice)} \xB7 gasToken <code>${esc2(s2.gasToken)}</code> \xB7 refundReceiver <code>${esc2(s2.refundReceiver)}</code>` : "none";
+  const refundFields = safeTxRefundFields(s2);
+  const gas = `safeTxGas ${esc2(s2.safeTxGas)} \xB7 baseGas ${esc2(s2.baseGas)} \xB7 gasPrice ${esc2(s2.gasPrice)}<br>gasToken <code>${esc2(s2.gasToken)}</code> \xB7 refundReceiver <code>${esc2(s2.refundReceiver)}</code>` + (refundFields.length ? `<div class="bad">${esc2(describeSafeTxRefund(s2) ?? `non-zero refund fields: ${refundFields.join(", ")}`)}</div>` : `<div class="note">no gas refund: the Safe pays nothing to whoever executes it</div>`);
   return `<section class="card step">
 <h2>The Safe</h2>
 <div class="grid">
@@ -140007,7 +140223,7 @@ function renderSafe(s2, chainId) {
 <div class="k">Owners</div><div>threshold ${esc2(s2.threshold)} of ${esc2(s2.ownerCount)} \xB7 you are an owner (checked on-chain)</div>
 <div class="k">Operation</div><div>${s2.operation === 1 ? '<span class="mk">DELEGATECALL (1)</span>' : "CALL (0)"}</div>
 <div class="k">Nonce</div><div>${esc2(s2.nonce)} <span class="note">(the Safe's next nonce is ${esc2(s2.currentNonce)})</span></div>
-<div class="k">Gas refund</div><div>${s2.gasPrice === "0" && s2.gasToken === zero ? "none" : refund}</div>
+<div class="k">Gas fields</div><div>${gas}</div>
 <div class="k">safeTxHash</div><div><code>${esc2(s2.safeTxHash ?? "")}</code><div class="note">EIP-712 domain: chain ${esc2(chainId)}, verifyingContract = this Safe. Compare with the hash your other owners see.</div></div>
 </div>
 ${ms2}
@@ -140057,7 +140273,7 @@ ${body}
 <section class="card" id="decide">
 <label for="pw">Keystore password</label>
 <input id="pw" type="password" autocomplete="off" spellcheck="false" maxlength="1024">
-<p class="note">Type it here only \u2014 never in the chat. It unlocks the key once, for ${esc2(what)}, and is not stored. Do not let your browser save it. (You can also decide in a terminal: <code>npx dexe-mcp approve</code>.)</p>
+<p class="note">Type it here only \u2014 never in the chat. It unlocks the key once, for ${esc2(what)}, and is not stored. Do not let your browser save it.${o3.terminal ? " (You can also decide in a terminal: <code>npx dexe-mcp approve</code>.)" : ""}</p>
 <div class="actions"><button id="approve" class="primary">Approve and sign</button><button id="decline">Decline</button></div>
 <div id="msg" role="status"></div>
 </section>
@@ -140217,7 +140433,8 @@ var ApprovalServer = class {
           nonce,
           approvePath: `${base3}/approve`,
           declinePath: `${base3}/decline`,
-          statusPath: `${base3}/status`
+          statusPath: `${base3}/status`,
+          terminal: this.deps.terminalAvailable?.() ?? false
         }));
       } else {
         this.html(res, 200, (nonce) => renderClosedPage(record2, nonce));
@@ -140422,10 +140639,10 @@ init_signing();
 
 // dist/lib/approval/control.js
 init_redact();
-init_store();
+init_controlProtocol();
 init_rendezvous();
 import { createServer as createServer2 } from "node:net";
-import { randomBytes as randomBytes8 } from "node:crypto";
+import { randomBytes as randomBytes9 } from "node:crypto";
 import { chmodSync as chmodSync3, existsSync as existsSync11, lstatSync as lstatSync2, unlinkSync as unlinkSync3 } from "node:fs";
 import { join as join11 } from "node:path";
 var MAX_REQUEST = 16 * 1024;
@@ -140463,8 +140680,8 @@ var ControlChannel = class {
   async doStart() {
     prepareRunDir(this.deps.runDir, this.id);
     discoverServers(this.deps.runDir, { id: this.id });
-    this.secret = randomBytes8(32).toString("base64url");
-    this.endpoint = this.id.platform === "win32" ? `\\\\.\\pipe\\dexe-mcp-approve-${this.pid}-${randomBytes8(16).toString("hex")}` : join11(this.deps.runDir, `approve-${this.pid}.sock`);
+    this.secret = randomBytes9(32).toString("base64url");
+    this.endpoint = this.id.platform === "win32" ? `\\\\.\\pipe\\dexe-mcp-approve-${this.pid}-${randomBytes9(16).toString("hex")}` : join11(this.deps.runDir, `approve-${this.pid}.sock`);
     if (this.id.platform !== "win32") {
       if (Buffer.byteLength(this.endpoint) > 100) {
         throw new Error(`the socket path ${this.endpoint} is too long for a unix socket (set a shorter HOME)`);
@@ -140529,40 +140746,67 @@ var ControlChannel = class {
     sock.setEncoding("utf8");
     sock.setTimeout(15e4, () => sock.destroy());
     let buf = "";
-    let handled = false;
-    const reply = (body) => {
+    let stage = "hello";
+    let clientNonce = "";
+    let serverNonce = "";
+    const send2 = (body) => {
+      if (sock.writable)
+        sock.write(`${JSON.stringify(body)}
+`);
+    };
+    const finish = (body) => {
+      stage = "done";
       if (sock.writable)
         sock.end(`${JSON.stringify(body)}
 `);
     };
+    const onLine = (line2) => {
+      let msg;
+      try {
+        msg = JSON.parse(line2);
+      } catch {
+        return finish({ ok: false, status: "refused", message: "malformed request" });
+      }
+      if (stage === "hello") {
+        if (msg.v !== PROTOCOL_VERSION || msg.op !== "hello" || !isNonce(msg.nonce) || "secret" in msg) {
+          return finish({ ok: false, status: "refused", message: `protocol v${PROTOCOL_VERSION} hello expected` });
+        }
+        clientNonce = msg.nonce;
+        serverNonce = newNonce();
+        stage = "request";
+        return send2({ ok: true, v: PROTOCOL_VERSION, serverNonce, proof: serverProof(this.secret, clientNonce, serverNonce, this.pid) });
+      }
+      stage = "done";
+      const payload = msg.payload;
+      if (typeof payload !== "string" || !macEqual(msg.mac, requestMac(this.secret, clientNonce, serverNonce, payload))) {
+        return finish({ ok: false, status: "unauthorized", message: "request not authenticated" });
+      }
+      let req;
+      try {
+        req = JSON.parse(payload);
+      } catch {
+        return finish({ ok: false, status: "refused", message: "malformed request" });
+      }
+      this.handle(req, { clientNonce, serverNonce }).then(finish, () => finish({ ok: false, status: "error", message: "internal error" }));
+    };
     sock.on("error", () => void 0);
     sock.on("data", (chunk) => {
-      if (handled)
+      if (stage === "done")
         return;
       buf += chunk;
       if (buf.length > MAX_REQUEST) {
-        handled = true;
-        reply({ ok: false, status: "refused", message: "request too large" });
+        finish({ ok: false, status: "refused", message: "request too large" });
         return;
       }
-      const nl = buf.indexOf("\n");
-      if (nl < 0)
-        return;
-      handled = true;
-      let req;
-      try {
-        req = JSON.parse(buf.slice(0, nl));
-      } catch {
-        reply({ ok: false, status: "refused", message: "malformed request" });
-        return;
+      let nl;
+      while (stage !== "done" && (nl = buf.indexOf("\n")) >= 0) {
+        const line2 = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        onLine(line2);
       }
-      this.handle(req).then(reply, () => reply({ ok: false, status: "error", message: "internal error" }));
     });
   }
-  async handle(req) {
-    if (typeof req.secret !== "string" || !safeEqual(req.secret, this.secret)) {
-      return { ok: false, status: "unauthorized", message: "wrong or missing secret" };
-    }
+  async handle(req, session) {
     const store2 = this.deps.store;
     switch (req.op) {
       case "hello":
@@ -140591,7 +140835,7 @@ var ControlChannel = class {
           this.deps.log?.(`[dexe-mcp] approval ${record2.approvalId} declined in the terminal`);
           return { ok: true, status: "declined", message: "Declined. Nothing was signed." };
         }
-        const password = typeof req.password === "string" ? req.password : "";
+        const password = openPassword(this.secret, session.clientNonce, session.serverNonce, record2.approvalId, req.sealedPassword) ?? "";
         if (!password || password.length > 1024)
           return { ok: false, status: "refused", message: "enter the keystore password" };
         const out2 = await this.deps.attemptApprove(record2, password);
@@ -140809,6 +141053,8 @@ var ApprovalManager = class {
     this.server = new ApprovalServer({
       store: this.store,
       attemptApprove: (r2, pw) => this.passwordAttempt(r2, pw),
+      // The page mentions `dexe-mcp approve` only when the channel is really up.
+      terminalAvailable: () => this.control?.started ?? false,
       log: opts.log
     });
     this.control = opts.terminal ? new ControlChannel({
@@ -140913,8 +141159,12 @@ var ApprovalManager = class {
     const holder = this.store.take(r2.approvalId);
     const mine = this.holders.get(r2.approvalId);
     this.holders.delete(r2.approvalId);
-    if (!holder || !mine || holder !== mine)
+    if (!holder || !mine || holder !== mine) {
+      holder?.drop();
+      mine?.drop();
+      this.store.revoke(r2.approvalId, "internal: the approved key holder could not be handed over");
       return void 0;
+    }
     return holder;
   }
   /** Start the page server and (when configured) the terminal channel. */
@@ -141029,7 +141279,7 @@ var ApprovalManager = class {
       }
     }, ro2);
     if (!(h3 instanceof ApprovedSigner)) {
-      h3.drop();
+      this.abandon(h3, "internal: an approval of another kind matched this batch");
       throw new Error("internal: an approval of another kind matched this batch \u2014 nothing was signed");
     }
     return h3;
@@ -141049,8 +141299,9 @@ var ApprovalManager = class {
       if (req.message.length > MESSAGE_MAX_BYTES) {
         throw new SignatureRefusal(`Refused: the message is ${req.message.length} bytes. The approval page shows a message in full, so messages over ${MESSAGE_MAX_BYTES} bytes are never put up for signing.`);
       }
+      this.assertNoRecentDecline({ kind: "message", tool: req.tool, from: from10, chainId: req.chainId });
       const binding = messageBindingHash(req.chainId, from10, req.message);
-      const message = reviewMessage(req.message, { from: from10, purpose: req.purpose });
+      const message = reviewMessage(req.message, { from: from10, purpose: req.purpose, serverRisks: req.serverRisks ?? [] });
       spec = {
         binding,
         tool: req.tool,
@@ -141072,10 +141323,34 @@ var ApprovalManager = class {
         })
       };
     } else {
-      assertSignableTypedData({ domain: req.typedData.domain, types: req.typedData.types }, { chainId: req.chainId, verifyingContract: req.safe.safe });
+      assertSignableTypedData({ domain: req.typedData.domain, types: req.typedData.types, message: req.typedData.message }, { chainId: req.chainId, verifyingContract: req.safe.safe });
       const digest3 = TypedDataEncoder.hash(req.typedData.domain, req.typedData.types, req.typedData.message);
       const binding = typedDataBindingHash(req.chainId, from10, digest3);
-      const safe = { ...req.safe, safeTxHash: digest3 };
+      if (!req.safe.onChainSafeTxHash || req.safe.onChainSafeTxHash.toLowerCase() !== digest3.toLowerCase()) {
+        throw new SignatureRefusal(`Refused: the Safe's own getTransactionHash (${req.safe.onChainSafeTxHash ?? "unread"}) differs from the SafeTx digest to be signed (${digest3}). Nothing was put up for approval.`);
+      }
+      const m3 = req.typedData.message;
+      const step2 = req.steps[0];
+      let sameCall = false;
+      try {
+        sameCall = req.steps.length === 1 && !!step2 && getAddress(step2.to) === getAddress(String(m3.to)) && BigInt(step2.value) === BigInt(String(m3.value)) && step2.dataHash.toLowerCase() === keccak256(String(m3.data || "0x")).toLowerCase();
+      } catch {
+        sameCall = false;
+      }
+      if (!sameCall) {
+        throw new SignatureRefusal("Refused: the reviewed call is not the one in the SafeTx to be signed. Nothing was put up for approval.");
+      }
+      const safe = {
+        ...req.safe,
+        nonce: String(m3.nonce),
+        operation: Number(m3.operation) === 1 ? 1 : 0,
+        safeTxGas: String(m3.safeTxGas),
+        baseGas: String(m3.baseGas),
+        gasPrice: String(m3.gasPrice),
+        gasToken: getAddress(String(m3.gasToken)),
+        refundReceiver: getAddress(String(m3.refundReceiver)),
+        safeTxHash: digest3
+      };
       spec = {
         binding,
         tool: req.tool,
@@ -141099,10 +141374,32 @@ var ApprovalManager = class {
     }
     const h3 = await this.acquire(spec, ro2);
     if (!(h3 instanceof ApprovedSignature) || h3.kind !== req.kind) {
-      h3.drop();
+      this.abandon(h3, "internal: an approval of another kind matched this signature");
       throw new Error("internal: an approval of another kind matched this signature \u2014 nothing was signed");
     }
     return h3;
+  }
+  /**
+   * Refuse, without a page, when the owner declined an approval of this flow
+   * (same kind, tool, signer, chain) within the cooldown. Used for messages,
+   * whose bytes change on every call (a login nonce), and by dexe_auth_login
+   * before it even asks the backend for a nonce.
+   */
+  assertNoRecentDecline(q6) {
+    const d3 = this.store.recentFlowDecline(q6.kind, q6.tool, getAddress(q6.from), q6.chainId);
+    if (!d3)
+      return;
+    throw new ApprovalHaltError({
+      ...this.haltOf(d3, "declined", `The owner declined this ${q6.kind === "message" ? "signature request" : "request"} recently; nothing was signed. It is not asked again until the cooldown ends.`),
+      retryAfter: new Date(this.store.cooldownEndsAt(d3)).toISOString()
+    });
+  }
+  /** Drop a key holder AND close its record — never leave an approval "executing" with no one to finish it. */
+  abandon(h3, reason) {
+    h3.drop();
+    const id2 = h3.approvalId;
+    if (typeof id2 === "string")
+      this.store.revoke(id2, reason);
   }
   /**
    * The newest open (pending or approved-unused) message approval of a flow —
@@ -141766,7 +142063,15 @@ async function keystoreLogin(base3, signer, address) {
   }
   const purpose = `Log in to the DeXe backend at ${base3} as ${from10}`;
   const tool = "dexe_auth_login";
+  const defaultBase = DEFAULTS2.backendApiUrl.replace(/\/$/, "");
+  const serverRisks = base3.toLowerCase() === defaultBase.toLowerCase() ? [] : [
+    {
+      level: "danger",
+      text: `This login goes to ${base3}, NOT the DeXe backend ${defaultBase} (DEXE_BACKEND_API_URL is set). A signed login hands that service a session as you. Approve only if you set that URL yourself.`
+    }
+  ];
   try {
+    approvals.assertNoRecentDecline({ kind: "message", tool, from: from10, chainId: BACKEND_AUTH_CHAIN_ID });
     let message = approvals.findOpenMessage({ tool, from: from10, chainId: BACKEND_AUTH_CHAIN_ID, purpose });
     if (!message) {
       const nonce = await fetchNonceMessage(base3, from10);
@@ -141775,7 +142080,7 @@ async function keystoreLogin(base3, signer, address) {
       message = toUtf8Bytes(nonce.message);
     }
     const scope2 = currentToolScope();
-    const approved = await approvals.requestSignature({ kind: "message", tool, chainId: BACKEND_AUTH_CHAIN_ID, from: from10, message, purpose }, { ...scope2?.signal ? { signal: scope2.signal } : {}, ...scope2 ? { progress: (m3) => scope2.progress(m3) } : {} });
+    const approved = await approvals.requestSignature({ kind: "message", tool, chainId: BACKEND_AUTH_CHAIN_ID, from: from10, message, purpose, serverRisks }, { ...scope2?.signal ? { signal: scope2.signal } : {}, ...scope2 ? { progress: (m3) => scope2.progress(m3) } : {} });
     const signature = await approved.signMessage(message);
     return await postLogin(base3, from10, signature, "keystore", { safety: KEYSTORE_LOGIN_SAFETY });
   } catch (err16) {
@@ -157291,9 +157596,10 @@ var SAFE_READ = new Interface([
   "function nonce() view returns (uint256)",
   "function getThreshold() view returns (uint256)",
   "function getOwners() view returns (address[])",
-  "function VERSION() view returns (string)"
+  "function VERSION() view returns (string)",
+  "function getTransactionHash(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 _nonce) view returns (bytes32)"
 ]);
-var SAFE_ADMIN = new Interface([
+var SAFE_ABI2 = new Interface([
   "function addOwnerWithThreshold(address owner, uint256 _threshold)",
   "function removeOwner(address prevOwner, address owner, uint256 _threshold)",
   "function swapOwner(address prevOwner, address oldOwner, address newOwner)",
@@ -157302,8 +157608,58 @@ var SAFE_ADMIN = new Interface([
   "function disableModule(address prevModule, address module)",
   "function setGuard(address guard)",
   "function setModuleGuard(address moduleGuard)",
-  "function setFallbackHandler(address handler)"
+  "function setFallbackHandler(address handler)",
+  "function approveHash(bytes32 hashToApprove)",
+  "function execTransaction(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, bytes signatures) returns (bool)",
+  "function signMessage(bytes _data)"
 ]);
+var SAFE_ADMIN_FNS = /* @__PURE__ */ new Set([
+  "addOwnerWithThreshold",
+  "removeOwner",
+  "swapOwner",
+  "changeThreshold",
+  "enableModule",
+  "disableModule",
+  "setGuard",
+  "setModuleGuard",
+  "setFallbackHandler"
+]);
+function safeCallRisk(data4, target, safe, operation) {
+  let p4;
+  try {
+    p4 = SAFE_ABI2.parseTransaction({ data: data4 });
+  } catch {
+    return null;
+  }
+  if (!p4)
+    return null;
+  const args = p4.args.map((a3) => {
+    const s2 = String(a3);
+    return s2.length > 74 ? `${s2.slice(0, 66)}\u2026` : s2;
+  });
+  const call = `${p4.name}(${args.join(", ")})`;
+  const self2 = getAddress(target) === getAddress(safe);
+  const where = self2 ? "this Safe" : `${target}`;
+  if (p4.name === "signMessage") {
+    return {
+      call,
+      risk: `${operation === 1 ? "DELEGATECALL" : "call"} ${call} via ${target}: the Safe SIGNS A MESSAGE (EIP-1271). A Safe-signed message can authorize a permit or an off-chain order \u2014 this page cannot show what it is for.`
+    };
+  }
+  if (p4.name === "approveHash" || p4.name === "execTransaction") {
+    return {
+      call,
+      risk: self2 ? `${call} on this Safe itself \u2014 it approves or executes another transaction of this Safe.` : `${call} on ${target}: this Safe ${p4.name === "approveHash" ? "approves a transaction hash of" : "executes a transaction on"} ANOTHER Safe (a nested owner signature) \u2014 what that transaction does is not shown here.`
+    };
+  }
+  if (SAFE_ADMIN_FNS.has(p4.name)) {
+    return {
+      call,
+      risk: self2 ? `Calls the Safe itself: ${call} \u2014 this can change its owners, threshold, modules or guard.` : `${call} on ${where}: changes the owners / threshold / modules of that contract (another Safe?).`
+    };
+  }
+  return null;
+}
 var MULTISEND = new Interface(["function multiSend(bytes transactions)"]);
 var MULTISEND_SEL = MULTISEND.getFunction("multiSend").selector;
 async function withTimeout2(p4, ms2) {
@@ -157400,6 +157756,37 @@ async function buildSafeTxReview(ctx) {
       reason: `Safe ${safe} is version ${v7}. Safes before 1.3.0 sign a domain without a chain id; this server only signs for 1.3.0+.`
     };
   }
+  const localHash = computeSafeTxHash(ctx.chainId, safe, ctx.tx);
+  const onChainRaw = await call(SAFE_READ.encodeFunctionData("getTransactionHash", [
+    ctx.tx.to,
+    ctx.tx.value,
+    ctx.tx.data,
+    ctx.tx.operation,
+    ctx.tx.safeTxGas,
+    ctx.tx.baseGas,
+    ctx.tx.gasPrice,
+    ctx.tx.gasToken,
+    ctx.tx.refundReceiver,
+    ctx.tx.nonce
+  ]));
+  let onChainSafeTxHash;
+  try {
+    onChainSafeTxHash = onChainRaw ? String(SAFE_READ.decodeFunctionResult("getTransactionHash", onChainRaw)[0]) : void 0;
+  } catch {
+    onChainSafeTxHash = void 0;
+  }
+  if (!onChainSafeTxHash) {
+    return {
+      ok: false,
+      reason: `Could not read the Safe's own getTransactionHash() for this SafeTx on ${chainLabel(ctx.chainId)} \u2014 nothing was put up for signing.`
+    };
+  }
+  if (onChainSafeTxHash.toLowerCase() !== localHash.toLowerCase()) {
+    return {
+      ok: false,
+      reason: `The Safe hashes this transaction to ${onChainSafeTxHash}, but this server computes ${localHash}. The signature would not be for what the Safe executes \u2014 nothing was put up for signing.`
+    };
+  }
   const risks2 = [];
   if (!m3)
     risks2.push({ level: "warn", text: `The Safe reports version "${v7}" \u2014 not a version this server recognises.` });
@@ -157441,13 +157828,9 @@ async function buildSafeTxReview(ctx) {
       text: `DELEGATECALL: the Safe runs the code at ${ctx.tx.to} inside its OWN storage. A wrong or hostile target can rewrite the owners, the threshold and the implementation and take the Safe for good.`
     });
   }
-  const zero = "0x0000000000000000000000000000000000000000";
-  if (ctx.tx.gasPrice !== "0" && (ctx.tx.gasToken.toLowerCase() !== zero || ctx.tx.refundReceiver.toLowerCase() !== zero)) {
-    risks2.push({
-      level: "warn",
-      text: `On execution the Safe pays a gas refund (gasPrice ${ctx.tx.gasPrice}) in ${ctx.tx.gasToken === zero ? "the native coin" : ctx.tx.gasToken} to ${ctx.tx.refundReceiver === zero ? "the executor" : ctx.tx.refundReceiver}. The value cap does not see it.`
-    });
-  }
+  const refund = describeSafeTxRefund(ctx.tx);
+  if (refund)
+    risks2.push({ level: "danger", text: `${refund} The value cap does not see it.` });
   const inner = await buildReview([{ to: ctx.tx.to, data: ctx.tx.data, value: ctx.tx.value }], {
     chainId: ctx.chainId,
     from: safe,
@@ -157459,25 +157842,16 @@ async function buildSafeTxReview(ctx) {
     return { ok: false, guard: inner.guard, reason: inner.reason };
   const step2 = inner.steps[0];
   const to = getAddress(ctx.tx.to);
-  if (to === safe) {
-    let call2 = null;
-    try {
-      const p4 = SAFE_ADMIN.parseTransaction({ data: ctx.tx.data });
-      if (p4)
-        call2 = `${p4.name}(${p4.args.map((a3) => String(a3)).join(", ")})`;
-    } catch {
-      call2 = null;
-    }
-    risks2.push({
-      level: "danger",
-      text: `Calls the Safe itself${call2 ? `: ${call2}` : ""} \u2014 this can change its owners, threshold, modules or guard.`
-    });
-    if (call2) {
-      step2.toLabel = "this Safe";
-      step2.decoded = { signature: call2, contract: "Safe", args: [], nested: [] };
-      step2.risks = step2.risks.filter((r2) => !/could not be decoded/.test(r2.text));
-    }
+  const sc = safeCallRisk(ctx.tx.data, to, safe, operation);
+  if (sc) {
+    risks2.push({ level: "danger", text: sc.risk });
+    step2.decoded = { signature: sc.call, contract: to === safe ? "Safe" : null, args: [], nested: [] };
+    step2.risks = step2.risks.filter((r2) => !/could not be decoded/.test(r2.text));
+  } else if (to === safe) {
+    risks2.push({ level: "danger", text: "Calls the Safe itself \u2014 this can change its owners, threshold, modules or guard." });
   }
+  if (to === safe)
+    step2.toLabel = "this Safe";
   const msLabel = KNOWN_MULTISEND[to.toLowerCase()];
   if (msLabel)
     step2.toLabel = msLabel;
@@ -157519,8 +157893,14 @@ async function buildSafeTxReview(ctx) {
           risks2.push({ level: "danger", text: `${where}DELEGATECALL to ${s2.to} \u2014 runs in the Safe's own storage.` });
         if (s2.operation !== 0 && s2.operation !== 1)
           risks2.push({ level: "danger", text: `${where}unknown operation ${s2.operation}.` });
-        if (getAddress(s2.to) === safe)
+        const subSafe = safeCallRisk(s2.data, s2.to, safe, s2.operation);
+        if (subSafe)
+          risks2.push({ level: "danger", text: `${where}${subSafe.risk}` });
+        else if (getAddress(s2.to) === safe) {
           risks2.push({ level: "danger", text: `${where}calls the Safe itself (owners / threshold / modules).` });
+        }
+        if (subSafe && multiSend?.[k5])
+          multiSend[k5].decoded = { signature: subSafe.call, contract: null, args: [], nested: [] };
         if (s2.value > 0n)
           risks2.push({ level: "warn", text: `${where}sends ${formatUnits(s2.value, 18)} native coin.` });
         if (subReview?.ok) {
@@ -157547,6 +157927,7 @@ async function buildSafeTxReview(ctx) {
       gasPrice: ctx.tx.gasPrice,
       gasToken: ctx.tx.gasToken,
       refundReceiver: ctx.tx.refundReceiver,
+      onChainSafeTxHash,
       ...multiSend ? { multiSend } : {},
       risks: risks2
     },
@@ -157601,13 +157982,12 @@ function assertSafeOperationAllowed(operation, to, allowDelegateCall) {
   }
 }
 function gasRefundWarnings(tx) {
-  const zero = "0x0000000000000000000000000000000000000000";
-  const paysRefund = tx.gasPrice !== "0" && (tx.gasToken.toLowerCase() !== zero || tx.refundReceiver.toLowerCase() !== zero);
-  if (!paysRefund)
+  const refund = describeSafeTxRefund(tx);
+  if (!refund)
     return {};
   return {
     warnings: [
-      `This SafeTx pays a gas refund in ${tx.gasToken} to ${tx.refundReceiver} on execution. The value cap (DEXE_SIGNER_MAX_VALUE_WEI) only inspects native value and does not bound this.`
+      `${refund} The value cap (DEXE_SIGNER_MAX_VALUE_WEI) only inspects native value and does not bound this.`
     ]
   };
 }
@@ -157771,6 +158151,10 @@ ${pr2.remediation}`);
         const approvals = signer.approvals;
         if (!approvals || !signer.hasSigner()) {
           return err7("DEXE_SIGNER_MODE=keystore but no usable keystore was found \u2014 nothing was signed. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run; or re-run with dryRun:true and sign:false for the unsigned body + safeTxHash.");
+        }
+        const refund = safeTxRefundFields(tx);
+        if (refund.length > 0) {
+          return err7(`Refused: in keystore mode a Safe transaction is signed only with gasPrice, baseGas, gasToken and refundReceiver all zero; got ${refund.join(", ")}. A refund makes the Safe pay its executor on execution \u2014 with gasPrice > 0 and the rest zero, (gas used + baseGas) \xD7 gasPrice in the native coin. Nothing was put up for approval. Drop those fields.`);
         }
         const from10 = getAddress(signer.getAddress());
         if (sender && sender !== from10) {

@@ -44,7 +44,10 @@ owner, its implementation is a canonical Safe 1.3.0 / 1.4.1, threshold, nonce,
 `safeTxHash` — and the inner call decoded, with DELEGATECALL, calls to the
 Safe itself and MultiSend sub-calls flagged. Approve with the keystore
 password and re-run the same call; the signature covers exactly that SafeTx,
-once. Permit-style typed data is never signed. Details:
+once. Permit-style typed data is never signed, and neither is a SafeTx that
+pays a gas refund: in keystore mode `gasPrice`, `baseGas`, `gasToken` and
+`refundReceiver` must all be zero (with `gasPrice > 0` the Safe pays whoever
+executes it). Details:
 [SIGNING.md](./SIGNING.md#messages-and-safe-transactions-since-100).
 
 **With a hot key (bots / CI):**

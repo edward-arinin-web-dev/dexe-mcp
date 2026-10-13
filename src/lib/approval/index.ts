@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { getAddress, TypedDataEncoder, type TypedDataDomain, type TypedDataField } from "ethers";
+import { getAddress, keccak256, TypedDataEncoder, type TypedDataDomain, type TypedDataField } from "ethers";
 import { registerLedgerSecrets } from "../agentLedger.js";
 import {
   decryptKeystore,
@@ -13,6 +13,7 @@ import { ApprovalServer, type ApproveAttempt } from "./server.js";
 import {
   ApprovalStore,
   dataHashOf,
+  type ApprovalKind,
   type ApprovalRecord,
   type KeyHolder,
   type NewApproval,
@@ -27,6 +28,7 @@ import {
   type Prechecks,
   type ReviewPayload,
   type ReviewStep,
+  type RiskFlag,
 } from "./review.js";
 import {
   ApprovedSignature,
@@ -108,6 +110,8 @@ export interface MessageSignatureRequest {
   message: Uint8Array;
   /** Server-written: what the signature is for. Never model text. */
   purpose: string;
+  /** Server-derived flags shown first (e.g. a login going to a non-default backend). */
+  serverRisks?: RiskFlag[];
 }
 
 export interface SafeTxSignatureRequest {
@@ -158,6 +162,8 @@ export class ApprovalManager {
     this.server = new ApprovalServer({
       store: this.store,
       attemptApprove: (r, pw) => this.passwordAttempt(r, pw),
+      // The page mentions `dexe-mcp approve` only when the channel is really up.
+      terminalAvailable: () => this.control?.started ?? false,
       log: opts.log,
     });
     this.control = opts.terminal
@@ -275,7 +281,13 @@ export class ApprovalManager {
     const holder = this.store.take(r.approvalId);
     const mine = this.holders.get(r.approvalId);
     this.holders.delete(r.approvalId);
-    if (!holder || !mine || holder !== mine) return undefined;
+    if (!holder || !mine || holder !== mine) {
+      // Never leave it "executing" with a key and no one to finish it.
+      holder?.drop();
+      mine?.drop();
+      this.store.revoke(r.approvalId, "internal: the approved key holder could not be handed over");
+      return undefined;
+    }
     return holder;
   }
 
@@ -413,7 +425,7 @@ export class ApprovalManager {
       ro,
     );
     if (!(h instanceof ApprovedSigner)) {
-      h.drop();
+      this.abandon(h, "internal: an approval of another kind matched this batch");
       throw new Error("internal: an approval of another kind matched this batch — nothing was signed");
     }
     return h;
@@ -436,8 +448,12 @@ export class ApprovalManager {
             `messages over ${MESSAGE_MAX_BYTES} bytes are never put up for signing.`,
         );
       }
+      // A login nonce changes on every call, so a per-message cooldown would be
+      // worn down by simply calling again: a decline of ANY message of this
+      // flow holds for the whole cooldown.
+      this.assertNoRecentDecline({ kind: "message", tool: req.tool, from, chainId: req.chainId });
       const binding = messageBindingHash(req.chainId, from, req.message);
-      const message = reviewMessage(req.message, { from, purpose: req.purpose });
+      const message = reviewMessage(req.message, { from, purpose: req.purpose, serverRisks: req.serverRisks ?? [] });
       spec = {
         binding,
         tool: req.tool,
@@ -460,12 +476,49 @@ export class ApprovalManager {
       };
     } else {
       assertSignableTypedData(
-        { domain: req.typedData.domain, types: req.typedData.types },
+        { domain: req.typedData.domain, types: req.typedData.types, message: req.typedData.message },
         { chainId: req.chainId, verifyingContract: req.safe.safe },
       );
       const digest = TypedDataEncoder.hash(req.typedData.domain, req.typedData.types, req.typedData.message);
       const binding = typedDataBindingHash(req.chainId, from, digest);
-      const safe: SafeReview = { ...req.safe, safeTxHash: digest };
+      // The Safe itself must compute the same hash (getTransactionHash, read by
+      // buildSafeTxReview) — otherwise this is not the transaction it will run.
+      if (!req.safe.onChainSafeTxHash || req.safe.onChainSafeTxHash.toLowerCase() !== digest.toLowerCase()) {
+        throw new SignatureRefusal(
+          `Refused: the Safe's own getTransactionHash (${req.safe.onChainSafeTxHash ?? "unread"}) differs from the ` +
+            `SafeTx digest to be signed (${digest}). Nothing was put up for approval.`,
+        );
+      }
+      // What the page shows is derived from the typed data that will be signed,
+      // never taken from the caller's review: the SafeTx fields directly, and
+      // the reviewed inner call must be exactly the SafeTx's (to, value, data).
+      const m = req.typedData.message;
+      const step = req.steps[0];
+      let sameCall = false;
+      try {
+        sameCall =
+          req.steps.length === 1 &&
+          !!step &&
+          getAddress(step.to) === getAddress(String(m.to)) &&
+          BigInt(step.value) === BigInt(String(m.value)) &&
+          step.dataHash.toLowerCase() === keccak256(String(m.data || "0x")).toLowerCase();
+      } catch {
+        sameCall = false;
+      }
+      if (!sameCall) {
+        throw new SignatureRefusal("Refused: the reviewed call is not the one in the SafeTx to be signed. Nothing was put up for approval.");
+      }
+      const safe: SafeReview = {
+        ...req.safe,
+        nonce: String(m.nonce),
+        operation: Number(m.operation) === 1 ? 1 : 0,
+        safeTxGas: String(m.safeTxGas),
+        baseGas: String(m.baseGas),
+        gasPrice: String(m.gasPrice),
+        gasToken: getAddress(String(m.gasToken)),
+        refundReceiver: getAddress(String(m.refundReceiver)),
+        safeTxHash: digest,
+      };
       spec = {
         binding,
         tool: req.tool,
@@ -489,10 +542,37 @@ export class ApprovalManager {
     }
     const h = await this.acquire(spec, ro);
     if (!(h instanceof ApprovedSignature) || h.kind !== req.kind) {
-      h.drop();
+      this.abandon(h, "internal: an approval of another kind matched this signature");
       throw new Error("internal: an approval of another kind matched this signature — nothing was signed");
     }
     return h;
+  }
+
+  /**
+   * Refuse, without a page, when the owner declined an approval of this flow
+   * (same kind, tool, signer, chain) within the cooldown. Used for messages,
+   * whose bytes change on every call (a login nonce), and by dexe_auth_login
+   * before it even asks the backend for a nonce.
+   */
+  assertNoRecentDecline(q: { kind: ApprovalKind; tool: string; from: string; chainId: number }): void {
+    const d = this.store.recentFlowDecline(q.kind, q.tool, getAddress(q.from), q.chainId);
+    if (!d) return;
+    throw new ApprovalHaltError({
+      ...this.haltOf(
+        d,
+        "declined",
+        `The owner declined this ${q.kind === "message" ? "signature request" : "request"} recently; nothing was signed. ` +
+          "It is not asked again until the cooldown ends.",
+      ),
+      retryAfter: new Date(this.store.cooldownEndsAt(d)).toISOString(),
+    });
+  }
+
+  /** Drop a key holder AND close its record — never leave an approval "executing" with no one to finish it. */
+  private abandon(h: KeyHolder, reason: string): void {
+    h.drop();
+    const id = (h as { approvalId?: unknown }).approvalId;
+    if (typeof id === "string") this.store.revoke(id, reason);
   }
 
   /**

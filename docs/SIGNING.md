@@ -111,7 +111,10 @@ hashes. It is read-only: no tool can approve or decline anything.
 
 - **Decline** → the tool reports `declined` ("Owner declined; nothing
   signed. Do not retry unless the user asks."). The same batch is refused,
-  without a new page, for 10 minutes.
+  without a new page, for 10 minutes. For a login message (whose nonce changes
+  on every call) the decline holds for the whole flow: `dexe_auth_login` is
+  refused for 10 minutes — no new nonce, no new page — whatever message the
+  backend would send next.
 - **Wrong passwords** are counted across **all** approvals, not per page:
   five within an hour lock password entry everywhere for a minute, then 2,
   4, … up to an hour — doubling for the life of the server; a correct password
@@ -151,32 +154,56 @@ re-run asks again for a fresh one.
 **What the page shows for a message** — derived from the bytes, never from the
 AI: the exact text, in full (messages over 4 KB are refused, so nothing is
 ever cut off), its size and hex, and the EIP-191 hash. Characters that could
-hide or reorder text — control characters, zero-width and direction-changing
-characters, look-alike spaces, the BOM — are shown as `⟨U+202E⟩` markers and
-never dropped. Flags: DANGER for binary data, exactly 32 raw bytes (a hash in
-disguise), hex text, EIP-712 JSON passed as a message, an encoded
-transaction, hidden characters; warnings for addresses (your own is noted as
-yours), amounts, approval / permit / transfer wording and non-ASCII letters.
-The "For:" line ("Log in to the DeXe backend at https://api.dexe.io as 0x…")
-is written by the server.
+hide or reorder text are shown as `⟨U+202E⟩` markers and never dropped: every
+control character but the newline, every Unicode *format* character (zero-width,
+bidi marks / overrides / isolates incl. U+061C, the BOM, tags…), every
+non-ASCII space, and characters that render blank (Braille blank U+2800, the
+Hangul fillers, variation selectors). The terminal marks the same set. Flags:
+DANGER for binary data, exactly 32 raw bytes (a hash in disguise), hex text,
+EIP-712 JSON passed as a message, an encoded transaction, hidden characters,
+4+ blank lines in a row or a run of 24+ spaces (text pushed out of view);
+warnings for addresses (your own is noted as yours), amounts, approval /
+permit / transfer wording and non-ASCII letters. The "For:" line ("Log in to
+the DeXe backend at https://api.dexe.io as 0x…") is written by the server,
+and a login to anything but the built-in backend (`DEXE_BACKEND_API_URL` set
+to another URL) is DANGER on top of the page.
 
 **What the page shows for a Safe transaction** — checked on-chain before the
 page exists: the address holds code and answers like a Safe, version 1.3.0 or
 later, **your keystore address is one of its owners** (otherwise nothing is
 put up — a non-owner signature is worthless), and its implementation is a
-canonical Safe 1.3.0 / 1.4.1 deployment (anything else is DANGER). Shown: the
-threshold (a threshold of 1 is a warning — your signature alone lets anyone
-execute it), the nonce against the Safe's next nonce, the `safeTxHash` to
-compare with your co-owners, and what the Safe will do — the inner call
-decoded with the same decoder, labels and handover checks as a transaction.
-`DELEGATECALL` is DANGER, a call to the Safe itself is named
-(`swapOwner(…)`, `changeThreshold(…)` …) and DANGER, a MultiSend is unpacked
-into its sub-calls (each checked; an inner DELEGATECALL or self-call is
-DANGER), a gas refund is a warning. The broadcast guards (B6 / B7 / B11 / B12,
-and B13 for DELEGATECALL) run on the inner call and every MultiSend sub-call
-first. With `dryRun: false` the Safe service endpoint and its API key are
-checked before you are asked, so an approval is never spent on a POST that
-cannot happen.
+canonical Safe 1.3.0 / 1.4.1 deployment (anything else is DANGER), and **the
+Safe's own `getTransactionHash()` returns the same `safeTxHash`** this server
+will sign (otherwise nothing is put up). Every field the page shows is taken
+from the typed data that is signed, never from the tool's own description.
+Shown: the threshold (a threshold of 1 is a warning — your signature alone
+lets anyone execute it), the nonce against the Safe's next nonce, every gas
+field (`safeTxGas`, `baseGas`, `gasPrice`, `gasToken`, `refundReceiver`), the
+`safeTxHash` to compare with your co-owners, and what the Safe will do — the
+inner call decoded with the same decoder, labels and handover checks as a
+transaction. `DELEGATECALL` is DANGER. Safe functions are named and DANGER on
+**any** target: on this Safe (`swapOwner(…)`, `changeThreshold(…)` …), on
+another Safe (`approveHash` / `execTransaction` — a nested owner signature
+whose content is not shown), and a message-signing library such as
+SignMessageLib (`signMessage` — the Safe signs an EIP-1271 message, which can be
+a permit). A MultiSend is unpacked into its sub-calls, each checked the same
+way. The broadcast guards (B6 / B7 / B11 / B12, and B13 for DELEGATECALL) run
+on the inner call and every MultiSend sub-call first. With `dryRun: false` the
+Safe service endpoint and its API key are checked before you are asked, so an
+approval is never spent on a POST that cannot happen.
+
+**No gas refunds in keystore mode.** A SafeTx with any non-zero `gasPrice`,
+`baseGas`, `gasToken` or `refundReceiver` is refused before any page, and the
+signer refuses it again at signing time. With `gasPrice > 0` the Safe pays
+`(gas used + baseGas) × gasPrice` on execution — with `gasToken` and
+`refundReceiver` both zero, in the native coin to whoever executes it
+(`gasPrice = 1 gwei`, `baseGas = 1e12` is ≥ 1000 BNB). Nothing this server
+builds needs a refund, and there is deliberately no flag or variable to allow
+one (it would be a switch the AI could flip). In unattended mode the response
+carries a warning that says what the refund pays.
+
+(When MultiSend 1.5.0 support is added: there a sub-call with `to = 0` is a
+call to the Safe itself.)
 
 **Refused on this path, always** (no page): typed data other than a
 canonical `SafeTx`; anything permit-shaped — ERC-2612 `Permit`, Uniswap
@@ -184,10 +211,11 @@ Permit2 (`PermitSingle`, `PermitBatch`, `PermitTransferFrom`, the Permit2
 contract as the domain) or any struct with a spender plus an amount or
 deadline — because a signed permit moves tokens with no transaction for you to
 review; a typed-data domain whose `chainId` is not the approval's chain or
-whose contract is not the reviewed Safe; empty messages and messages over
-4 KB. At signing time the approved signer re-checks all of it: other bytes,
-another digest, another domain chain or a second use revoke the approval and
-drop the key.
+whose contract is not the reviewed Safe; a SafeTx that pays a gas refund; a
+review whose call is not the SafeTx's call, or a Safe whose own hash
+differs; empty messages and messages over 4 KB. At signing time the approved
+signer re-checks all of it: other bytes, another digest, another domain chain,
+a refund or a second use revoke the approval and drop the key.
 
 `dexe_agents_fund` runs only in unattended mode. `signerKey` (the agent
 keyring) does not apply: a keystore server has one key.
@@ -219,7 +247,16 @@ How it finds the server — owner-only, by design:
 - The server opens the channel with its first approval and writes
   `~/.dexe-mcp/run/approve-<pid>.json` (directory `0700`, file `0600`,
   written atomically) holding its pid, keystore address, endpoint and a
-  256-bit per-process secret. Every request must carry the secret.
+  256-bit per-process secret.
+- **The secret never crosses the channel, and the server proves itself
+  first.** `dexe-mcp approve` opens with a random nonce; the server must
+  answer with an HMAC of that nonce under the secret before the CLI sends
+  anything secret. Only then does the request go out, authenticated by an HMAC
+  over both nonces; a password travels only sealed (AES-256-GCM under a key
+  derived from the secret and both nonces, bound to the approval). A process
+  that answers at the endpoint without the secret — a stale rendezvous whose
+  pipe name someone else re-created, a squatted socket — is reported as NOT
+  TRUSTED and gets nothing: no secret, no request, no password.
 - The endpoint is a unix socket in that directory (`0600`; the kernel refuses
   other users before a byte is exchanged) on macOS/Linux, and a named pipe
   with 128 random bits in its name on Windows (created as the first instance,
@@ -229,8 +266,15 @@ How it finds the server — owner-only, by design:
 - `dexe-mcp approve` trusts a rendezvous file only if the directory, the file
   and the socket are owned by you, grant nothing to group or others, and are
   not symlinks — a file planted by another local user would point at their
-  socket and collect your password. Node cannot read Windows ACLs, so on
-  Windows this rests on your profile folder's default permissions.
+  socket and collect your password — and only while its pid is still one of
+  your processes (a pid that now belongs to another user is ignored).
+- **Windows, plainly:** Node can read neither file ACLs nor the process id of
+  a named-pipe server, so the CLI cannot check who owns the rendezvous file or
+  the pipe. What holds there: the file sits in your profile folder (by default
+  only you, SYSTEM and Administrators), the pipe name carries 128 random bits,
+  and a pipe server that does not hold the secret fails the proof above
+  before anything secret is sent. An administrator, or anything running as
+  you, is not stopped by any of this.
 - A decision names the approval's binding hash, so it is always about the
   review the terminal displayed.
 - Stale files: the server removes its file when it exits; a killed server's
@@ -322,7 +366,9 @@ approval is bound to exactly what is signed — the batch (`keccak(chainId,
 from, ordered (to, value, keccak(data)))`), the message bytes, or the SafeTx
 EIP-712 digest — and is single-use: an approval for one call cannot be spent
 on another, and a changed call gets its own page. Permits are never signed
-here. Declines cannot be worn down by retries (10-minute cooldown).
+here, nor a SafeTx that pays a gas refund. Declines cannot be worn down by
+retries (10-minute cooldown — per batch / SafeTx, and per flow for logins,
+whose nonce changes on every call).
 
 **T2 — the AI itself working around the gate.**
 - There is no tool, parameter or environment variable that approves, skips or
@@ -400,9 +446,11 @@ expensive to brute-force.
 - **`navigator.webdriver` is reported by the browser** and an agent that
   controls the browser (or crafts its own request) can lie about it. It only
   catches standard automation; the password is the real gate.
-- **The decline cooldown is keyed to the exact batch.** A 1-wei variation is a
-  new batch and gets a new page — it still needs your password, and the
-  3-open / 6-per-minute limits bound how often you can be asked.
+- **The decline cooldown is keyed to the exact batch** (and to the exact
+  SafeTx). A 1-wei variation is a new batch and gets a new page — it still
+  needs your password, and the 3-open / 6-per-minute limits bound how often you
+  can be asked. Logins are the exception: a declined login blocks every login
+  of that signer for the cooldown.
 - **An agent can lock you out on purpose.** Wrong guesses on the page lock
   password entry for everyone — during a lockout even the correct password is
   refused (HTTP 429), for up to an hour as the lockout doubles. That is a

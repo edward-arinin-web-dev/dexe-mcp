@@ -7,8 +7,10 @@ import { keccak256, toUtf8Bytes, verifyMessage, Wallet } from "ethers";
 import { encryptPrivateKey } from "../../src/lib/keystore.js";
 import { ApprovalManager } from "../../src/lib/approval/index.js";
 import { ApprovalHaltError } from "../../src/lib/approval/scope.js";
+import { createServer, connect as netConnect } from "node:net";
+import { randomBytes } from "node:crypto";
+import { ControlAuthError, controlCall, requestMac, serverProof } from "../../src/lib/approval/controlProtocol.js";
 import {
-  controlRequest,
   discoverServers,
   rendezvousFile,
   trustProblem,
@@ -114,7 +116,38 @@ function serverInfo(runDir: string): RendezvousInfo {
   return d.servers[0]!.info;
 }
 
-const call = (info: RendezvousInfo, body: Record<string, unknown>) => controlRequest(info.endpoint, { v: 1, secret: info.secret, ...body }, 30_000);
+const call = (info: RendezvousInfo, body: Record<string, unknown>) => controlCall(info, body, 30_000);
+
+/** Speak the channel protocol by hand (what a hostile or buggy client would send). */
+function rawSession(endpoint: string) {
+  const sock = netConnect(endpoint);
+  sock.setEncoding("utf8");
+  let buf = "";
+  const lines: string[] = [];
+  const waiters: Array<(l: string) => void> = [];
+  sock.on("data", (c: string) => {
+    buf += c;
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const l = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      const w = waiters.shift();
+      if (w) w(l);
+      else lines.push(l);
+    }
+  });
+  sock.on("error", () => undefined);
+  return {
+    send: (o: Record<string, unknown>) => void sock.write(`${JSON.stringify(o)}\n`),
+    next: () =>
+      new Promise<Record<string, unknown>>((r) => {
+        const l = lines.shift();
+        if (l !== undefined) r(JSON.parse(l) as Record<string, unknown>);
+        else waiters.push((x) => r(JSON.parse(x) as Record<string, unknown>));
+      }),
+    close: () => sock.destroy(),
+  };
+}
 
 // ---------------------------------------------------------------------------
 
@@ -136,10 +169,106 @@ describe("terminal channel (server side)", () => {
       expect(info.endpoint).toMatch(/^\\\\\.\\pipe\\dexe-mcp-approve-\d+-[0-9a-f]{32}$/);
     }
     expect((await call(info, { op: "hello" })).ok).toBe(true);
-    const wrong = await controlRequest(info.endpoint, { v: 1, secret: "x".repeat(43), op: "list" });
-    expect(wrong).toMatchObject({ ok: false, status: "unauthorized" });
-    const none = await controlRequest(info.endpoint, { v: 1, op: "hello" });
-    expect(none.status).toBe("unauthorized");
+    // A client with the wrong secret cannot verify the server's proof: it stops before sending anything.
+    await expect(controlCall({ ...info, secret: "x".repeat(43) }, { op: "list" })).rejects.toBeInstanceOf(ControlAuthError);
+  });
+
+  it("protocol: the secret is never accepted on the wire; a request needs a MAC over this session's nonces; a password only sealed", async () => {
+    const runDir = join(tempDir(), "run");
+    const { m } = manager(runDir);
+    const halt = await pending(m.request(txReq()));
+    const info = serverInfo(runDir);
+    // v1 (raw secret) — refused outright.
+    const v1 = rawSession(info.endpoint);
+    v1.send({ v: 1, secret: info.secret, op: "list" });
+    expect(await v1.next()).toMatchObject({ ok: false, status: "refused" });
+    v1.close();
+    // v2 hello is answered with a proof (no secret in it) …
+    const s = rawSession(info.endpoint);
+    const nonce = "n".repeat(43);
+    s.send({ v: 2, op: "hello", nonce });
+    const hello = await s.next();
+    expect(hello.proof).toBe(serverProof(info.secret, nonce, String(hello.serverNonce), info.pid));
+    expect(JSON.stringify(hello)).not.toContain(info.secret);
+    // … and a request with a bad MAC is unauthorized.
+    s.send({ v: 2, payload: JSON.stringify({ op: "list" }), mac: "00".repeat(32) });
+    expect(await s.next()).toMatchObject({ status: "unauthorized" });
+    s.close();
+    // A correctly MAC'd approve with a PLAIN password is refused (only sealed passwords open).
+    const p = rawSession(info.endpoint);
+    p.send({ v: 2, op: "hello", nonce });
+    const h2 = await p.next();
+    const rec = m.store.get(halt.approvalId)!;
+    const payload = JSON.stringify({ op: "approve", approvalId: rec.approvalId, binding: rec.batchHash, password: PW });
+    p.send({ v: 2, payload, mac: requestMac(info.secret, nonce, String(h2.serverNonce), payload) });
+    expect(await p.next()).toMatchObject({ status: "refused", message: "enter the keystore password" });
+    p.close();
+    expect(m.view(halt.approvalId)!.status).toBe("pending");
+  });
+
+  it("a fake server that does not hold the secret gets NOTHING secret: no secret, no MAC'd request, no password", async () => {
+    const runDir = tempDir();
+    if (POSIX) chmodSync(runDir, 0o700);
+    const endpoint = POSIX
+      ? join(runDir, `approve-${process.pid}.sock`)
+      : `\\\\.\\pipe\\dexe-mcp-approve-${process.pid}-${randomBytes(16).toString("hex")}`;
+    const received: string[] = [];
+    const fake = createServer((sock) => {
+      sock.setEncoding("utf8");
+      sock.on("data", (d: string) => {
+        received.push(d);
+        // Answer like a server — but it cannot compute the proof.
+        sock.write(`${JSON.stringify({ ok: true, v: 2, serverNonce: "s".repeat(43), proof: "ab".repeat(32) })}\n`);
+      });
+      sock.on("error", () => undefined);
+    });
+    await new Promise<void>((r) => fake.listen(endpoint, () => r()));
+    cleanups.push(() => new Promise<void>((r) => fake.close(() => r())));
+    if (POSIX) chmodSync(endpoint, 0o600);
+    const secret = randomBytes(32).toString("base64url");
+    writeFileSync(
+      rendezvousFile(runDir, process.pid),
+      JSON.stringify({ v: 1, pid: process.pid, address: KEY.address, endpoint, secret, createdAt: "", version: "" }),
+      { mode: 0o600 },
+    );
+    // Directly:
+    await expect(
+      controlCall({ endpoint, secret, pid: process.pid }, { op: "approve", approvalId: "apr_x", binding: "0x", password: PW }),
+    ).rejects.toBeInstanceOf(ControlAuthError);
+    // Through the CLI, interactive, with a password ready to be typed:
+    const out: string[] = [];
+    const prompts: string[] = [];
+    const io: ApproveIo = {
+      isInteractive: () => true,
+      promptHidden: async (q) => {
+        prompts.push(q);
+        return PW;
+      },
+      ask: async () => "a",
+      out: (l = "") => void out.push(l),
+      err: (l) => void out.push(l),
+    };
+    expect(await approveCli([], { runDir, io })).toBe(0);
+    expect(out.join("\n")).toMatch(/NOT TRUSTED: whatever answers for server \d+ could not prove/);
+    expect(prompts).toEqual([]); // never even asked for the password
+    const all = received.join("");
+    expect(all).not.toContain(secret);
+    expect(all).not.toContain(PW);
+    expect(all).not.toMatch(/"mac"|"payload"|sealedPassword/);
+    for (const line of all.split("\n").filter(Boolean)) expect(JSON.parse(line)).toMatchObject({ v: 2, op: "hello" });
+  });
+
+  it("a rendezvous whose pid now belongs to another user is not trusted", () => {
+    const runDir = tempDir();
+    if (POSIX) chmodSync(runDir, 0o700);
+    const file = rendezvousFile(runDir, 4242);
+    writeFileSync(file, JSON.stringify({ v: 1, pid: 4242, address: KEY.address, endpoint: "/x.sock", secret: "s".repeat(43) }), {
+      mode: 0o600,
+    });
+    const d = discoverServers(runDir, { pidState: () => "other" });
+    expect(d.servers).toEqual([]);
+    expect(d.ignored[0]!.reason).toMatch(/belongs to another user/);
+    expect(existsSync(file)).toBe(true); // not ours to delete either
   });
 
   it("list → the same review as the page (no page token, no CSRF) → approve with the password → the call signs", async () => {
@@ -399,6 +528,8 @@ describe("dexe-mcp approve (CLI, in process)", () => {
 
   it("the terminal review cannot rewrite the screen (escape sequences are made visible)", () => {
     expect(tsafe(`a${String.fromCodePoint(0x1b)}[2Jb${String.fromCodePoint(0x202e)}c`)).toBe("a⟨U+001B⟩[2Jb⟨U+202E⟩c");
+    // the same set the page marks — incl. the Arabic letter mark and blank-looking letters
+    expect(tsafe(`x${String.fromCodePoint(0x61c)}y${String.fromCodePoint(0x2800)}z`)).toBe("x⟨U+061C⟩y⟨U+2800⟩z");
     const lines = renderTerminalReview({
       approvalId: "apr_x",
       kind: "tx-batch",

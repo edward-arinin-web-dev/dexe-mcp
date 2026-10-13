@@ -3,7 +3,8 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { safeErrorMessage } from "../redact.js";
-import { safeEqual, type ApprovalRecord, type ApprovalStore } from "./store.js";
+import type { ApprovalRecord, ApprovalStore } from "./store.js";
+import { isNonce, macEqual, newNonce, openPassword, PROTOCOL_VERSION, requestMac, serverProof } from "./controlProtocol.js";
 import type { ApproveAttempt } from "./server.js";
 import {
   currentIdentity,
@@ -25,17 +26,19 @@ import {
  * the guesses come through.
  *
  * Transport and discovery: see rendezvous.ts (owner-only IPC endpoint + a
- * per-process secret in an owner-only file). Protocol: one newline-terminated
- * JSON request per connection, one JSON response.
+ * per-process secret in an owner-only file). Protocol v2 (controlProtocol.ts):
+ * the client's hello carries only a nonce, this server answers with a proof
+ * of the secret, then ONE request arrives as a MAC'd payload:
  *
- *   { v, secret, op: "hello" }                                  → server identity
- *   { v, secret, op: "list" }                                   → pending approvals, reviewed
- *   { v, secret, op: "approve", approvalId, binding, password }  → the password check
- *   { v, secret, op: "decline", approvalId, binding }            → decline
+ *   { op: "hello" }                                                    → server identity
+ *   { op: "list" }                                                     → pending approvals, reviewed
+ *   { op: "approve", approvalId, binding, sealedPassword }             → the password check
+ *   { op: "decline", approvalId, binding }                             → decline
  *
- * `binding` must equal the approval's binding hash, so a decision is always
- * about the review the terminal displayed. There is no op that approves
- * without a password.
+ * The secret itself is never accepted on the wire (a v1 `{ secret }` request
+ * is refused). `binding` must equal the approval's binding hash, so a decision
+ * is always about the review the terminal displayed. There is no op that
+ * approves without a password.
  */
 
 export interface ControlDeps {
@@ -166,37 +169,71 @@ export class ControlChannel {
     sock.setEncoding("utf8");
     sock.setTimeout(150_000, () => sock.destroy());
     let buf = "";
-    let handled = false;
-    const reply = (body: Record<string, unknown>) => {
+    let stage: "hello" | "request" | "done" = "hello";
+    let clientNonce = "";
+    let serverNonce = "";
+    const send = (body: Record<string, unknown>) => {
+      if (sock.writable) sock.write(`${JSON.stringify(body)}\n`);
+    };
+    const finish = (body: Record<string, unknown>) => {
+      stage = "done";
       if (sock.writable) sock.end(`${JSON.stringify(body)}\n`);
+    };
+    const onLine = (line: string) => {
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        return finish({ ok: false, status: "refused", message: "malformed request" });
+      }
+      if (stage === "hello") {
+        // Step 1: prove THIS server holds the secret, before the client sends anything secret.
+        if (msg.v !== PROTOCOL_VERSION || msg.op !== "hello" || !isNonce(msg.nonce) || "secret" in msg) {
+          return finish({ ok: false, status: "refused", message: `protocol v${PROTOCOL_VERSION} hello expected` });
+        }
+        clientNonce = msg.nonce;
+        serverNonce = newNonce();
+        stage = "request";
+        return send({ ok: true, v: PROTOCOL_VERSION, serverNonce, proof: serverProof(this.secret, clientNonce, serverNonce, this.pid) });
+      }
+      // Step 2: exactly one request, authenticated by its MAC over these nonces.
+      stage = "done";
+      const payload = msg.payload;
+      if (typeof payload !== "string" || !macEqual(msg.mac, requestMac(this.secret, clientNonce, serverNonce, payload))) {
+        return finish({ ok: false, status: "unauthorized", message: "request not authenticated" });
+      }
+      let req: Record<string, unknown>;
+      try {
+        req = JSON.parse(payload) as Record<string, unknown>;
+      } catch {
+        return finish({ ok: false, status: "refused", message: "malformed request" });
+      }
+      this.handle(req, { clientNonce, serverNonce }).then(finish, () =>
+        finish({ ok: false, status: "error", message: "internal error" }),
+      );
     };
     sock.on("error", () => undefined);
     sock.on("data", (chunk: string) => {
-      if (handled) return;
+      if (stage === "done") return;
       buf += chunk;
       if (buf.length > MAX_REQUEST) {
-        handled = true;
-        reply({ ok: false, status: "refused", message: "request too large" });
+        finish({ ok: false, status: "refused", message: "request too large" });
         return;
       }
-      const nl = buf.indexOf("\n");
-      if (nl < 0) return;
-      handled = true;
-      let req: Record<string, unknown>;
-      try {
-        req = JSON.parse(buf.slice(0, nl)) as Record<string, unknown>;
-      } catch {
-        reply({ ok: false, status: "refused", message: "malformed request" });
-        return;
+      let nl: number;
+      // (onLine moves `stage` forward; re-read it each turn.)
+      while ((stage as string) !== "done" && (nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        onLine(line);
       }
-      this.handle(req).then(reply, () => reply({ ok: false, status: "error", message: "internal error" }));
     });
   }
 
-  private async handle(req: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (typeof req.secret !== "string" || !safeEqual(req.secret, this.secret)) {
-      return { ok: false, status: "unauthorized", message: "wrong or missing secret" };
-    }
+  private async handle(
+    req: Record<string, unknown>,
+    session: { clientNonce: string; serverNonce: string },
+  ): Promise<Record<string, unknown>> {
     const store = this.deps.store;
     switch (req.op) {
       case "hello":
@@ -227,7 +264,9 @@ export class ControlChannel {
           this.deps.log?.(`[dexe-mcp] approval ${record.approvalId} declined in the terminal`);
           return { ok: true, status: "declined", message: "Declined. Nothing was signed." };
         }
-        const password = typeof req.password === "string" ? req.password : "";
+        // Only a sealed password is accepted (never plain text on the wire).
+        const password =
+          openPassword(this.secret, session.clientNonce, session.serverNonce, record.approvalId, req.sealedPassword) ?? "";
         if (!password || password.length > 1024) return { ok: false, status: "refused", message: "enter the keystore password" };
         const out = await this.deps.attemptApprove(record, password);
         if (out.kind === "approved") {

@@ -1,4 +1,3 @@
-import { connect as netConnect } from "node:net";
 import {
   chmodSync,
   closeSync,
@@ -37,16 +36,22 @@ import { renameWithRetry, tempStatePath } from "../stateStore.js";
  *                      pre-created squatting pipe makes the server's bind fail
  *                      instead of sharing it; the default pipe DACL lets only
  *                      you, SYSTEM and Administrators write to it)
- *   secret    256 random bits, per process. Every request carries it; the
- *             server compares in constant time.
+ *   secret    256 random bits, per process. It never crosses the channel:
+ *             the server first proves it holds it (HMAC over the client's
+ *             nonce), then each request carries an HMAC instead and the
+ *             password travels sealed (controlProtocol.ts).
  *
  * Owner-only, twice: the file system (only you can read the secret or the
  * socket) and the secret (only a reader of your file can speak to the
- * channel). The CLI trusts a rendezvous file only if the directory, the file
- * and (POSIX) the socket are owned by the current user, grant nothing to group
- * or others, and are not symlinks — a file another local user planted would
- * point at THEIR socket and harvest your password. Node cannot read Windows
- * ACLs, so on Windows that check is the profile directory's default ACL
+ * channel, and the server must prove it holds it before the CLI sends
+ * anything secret). The CLI trusts a rendezvous file only if the directory,
+ * the file and (POSIX) the socket are owned by the current user, grant nothing
+ * to group or others, and are not symlinks — a file another local user
+ * planted would point at THEIR socket and harvest your password — and only
+ * while its pid is ours (EPERM = another user's process now: untrusted). Node
+ * cannot read Windows ACLs or a pipe server's process id
+ * (GetNamedPipeServerProcessId is not reachable), so on Windows the profile
+ * directory's default ACL plus the server's proof of the secret carry it
  * (documented in docs/SIGNING.md).
  *
  * What it does NOT stop: a process running as YOU (an AI agent with a shell)
@@ -230,9 +235,16 @@ export function discoverServers(
       continue;
     }
     const pid = Number(m[1]);
-    if (state(pid) === "gone") {
+    const ps = state(pid);
+    if (ps === "gone") {
       removeRendezvous(file, id);
       out.removed.push(file);
+      continue;
+    }
+    if (ps === "other") {
+      // Alive but not ours to signal: that pid now belongs to another user —
+      // whatever answers at the endpoint is not the server that wrote this.
+      out.ignored.push({ file, reason: `pid ${pid} belongs to another user now (the server that wrote it is gone)` });
       continue;
     }
     const info = parseInfo(read.raw, pid);
@@ -303,51 +315,4 @@ export function removeRendezvous(file: string, id: PosixIdentity = currentIdenti
       /* gone */
     }
   }
-}
-
-export class ControlConnectError extends Error {
-  constructor(
-    message: string,
-    readonly code: string | undefined,
-  ) {
-    super(message);
-    this.name = "ControlConnectError";
-  }
-}
-
-/** One request, one response: newline-delimited JSON over the IPC endpoint. */
-export function controlRequest(
-  endpoint: string,
-  body: Record<string, unknown>,
-  timeoutMs = 120_000,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolveReq, reject) => {
-    const sock = netConnect(endpoint);
-    let buf = "";
-    let settled = false;
-    const done = (err: Error | null, value?: Record<string, unknown>) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      sock.destroy();
-      if (err) reject(err);
-      else resolveReq(value!);
-    };
-    const timer = setTimeout(() => done(new ControlConnectError("the server did not answer in time", "ETIMEDOUT")), timeoutMs);
-    sock.setEncoding("utf8");
-    sock.on("connect", () => sock.write(`${JSON.stringify(body)}\n`));
-    sock.on("data", (chunk: string) => {
-      buf += chunk;
-      if (buf.length > 4 * 1024 * 1024) return done(new ControlConnectError("response too large", "E2BIG"));
-      const nl = buf.indexOf("\n");
-      if (nl < 0) return;
-      try {
-        done(null, JSON.parse(buf.slice(0, nl)) as Record<string, unknown>);
-      } catch {
-        done(new ControlConnectError("malformed response", "EPROTO"));
-      }
-    });
-    sock.on("end", () => done(new ControlConnectError("the server closed the connection", "ECONNRESET")));
-    sock.on("error", (e: NodeJS.ErrnoException) => done(new ControlConnectError(e.message, e.code)));
-  });
 }
