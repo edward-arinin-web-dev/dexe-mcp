@@ -104050,8 +104050,6 @@ function resolveSignerMode(inputs) {
       return { mode: norm, source: "explicit" };
     return { mode: inputs.walletConnectConfigured ? "walletconnect" : "readonly", source: "default", invalid: raw };
   }
-  if (inputs.hasHotKey)
-    return { mode: "unattended", source: "implicit-hot-key" };
   return { mode: inputs.walletConnectConfigured ? "walletconnect" : "readonly", source: "default" };
 }
 var DEFAULT_UNATTENDED_CHAINS = [97];
@@ -104069,14 +104067,15 @@ function parseUnattendedChains(raw) {
   }
   return out2.length > 0 ? out2 : null;
 }
-function unattendedChainFence(source, configured) {
-  if (configured)
-    return configured;
-  if (source === "explicit")
-    return [...DEFAULT_UNATTENDED_CHAINS];
-  return null;
+function unattendedChainFence(configured) {
+  return configured ? [...configured] : [...DEFAULT_UNATTENDED_CHAINS];
 }
-var IMPLICIT_UNATTENDED_DEPRECATION = "DEPRECATED: a hot key is set but DEXE_SIGNER_MODE is not, so this server signs UNATTENDED (no human confirmation) by implicit default. Set DEXE_SIGNER_MODE=unattended explicitly (then it signs only on DEXE_UNATTENDED_CHAINS, default 97), or move the key into an encrypted keystore with `dexe-mcp key import --from-env` and set DEXE_SIGNER_MODE=keystore. The implicit default flips in the next major: an unset mode will no longer sign with a hot key.";
+var HOT_KEY_WAYS_OUT = "Ways out, safest first: delete the key lines and connect a phone wallet with dexe_wc_connect; or, in a terminal, run `dexe-mcp key import --from-env` (encrypts DEXE_PRIVATE_KEY, removes the plaintext line, sets DEXE_SIGNER_MODE=keystore \u2014 the owner then approves every batch); or, for bots/CI and only with the owner's go-ahead, set DEXE_SIGNER_MODE=unattended (signs with NO confirmation, only on DEXE_UNATTENDED_CHAINS, default 97; the agent keyring DEXE_AGENT_PK_* / AGENT_PK_* exists only in that mode). Restart after editing .env.";
+var UNSET_MODE_HOT_KEY_IGNORED = "A hot key is set but DEXE_SIGNER_MODE is not, so the key is IGNORED: since dexe-mcp 1.0.0 an unset mode never signs with a hot key (0.37 and earlier signed unattended by default). " + HOT_KEY_WAYS_OUT;
+var INVALID_MODE_HOT_KEY_IGNORED = "A hot key is set but DEXE_SIGNER_MODE was rejected as invalid, so this server runs walletconnect and the key is IGNORED. Valid modes: walletconnect | keystore | readonly | unattended. " + HOT_KEY_WAYS_OUT;
+function ignoredHotKeySentence(ignored) {
+  return `${ignored.vars.join(", ")}: ${ignored.reason === "invalid" ? INVALID_MODE_HOT_KEY_IGNORED : UNSET_MODE_HOT_KEY_IGNORED}`;
+}
 function signerDispatch(mode, hasSigner, safeServiceUrl) {
   switch (mode) {
     case "unattended":
@@ -104422,7 +104421,7 @@ var ENV_SPEC_WRITE = {
     category: "signer",
     required: false,
     example: "walletconnect",
-    doc: "How this server signs: walletconnect (default \u2014 the phone wallet signs) | keystore (encrypted local key; the owner approves every batch with its password on a local page) | readonly (never signs) | unattended (hot keys, NO human confirmation, only on DEXE_UNATTENDED_CHAINS). Unset + a hot key = unattended by a DEPRECATED implicit default that flips in the next major.",
+    doc: "How this server signs: walletconnect (default \u2014 the phone wallet signs) | keystore (encrypted local key; the owner approves every batch with its password on a local page) | readonly (never signs) | unattended (hot keys, NO human confirmation, only on DEXE_UNATTENDED_CHAINS). Unset = walletconnect even when a hot key is present (since 1.0.0; 0.37 signed unattended then).",
     enablesFlows: ["broadcast"]
   },
   DEXE_PRIVATE_KEY: {
@@ -104430,7 +104429,7 @@ var ENV_SPEC_WRITE = {
     category: "signer",
     required: false,
     example: "0x<64-hex>",
-    doc: "Hot EOA key \u2014 read ONLY in DEXE_SIGNER_MODE=unattended (or the deprecated implicit default). Plaintext on disk; move it into the encrypted keystore with `dexe-mcp key import --from-env`. Requires an RPC.",
+    doc: "Hot EOA key \u2014 read ONLY when DEXE_SIGNER_MODE=unattended is set; ignored otherwise. Plaintext on disk; move it into the encrypted keystore with `dexe-mcp key import --from-env`. Requires an RPC.",
     enablesFlows: ["broadcast"],
     secret: true
   },
@@ -105136,14 +105135,16 @@ async function loadWriteConfig() {
   const hotKeyVars = hotKeyEnvNames(process.env);
   const modeRes = resolveSignerMode({
     requested: process.env.DEXE_SIGNER_MODE,
-    // A rejected (malformed) mode must not fall through to the implicit hot-key default.
-    hasHotKey: hotKeyVars.length > 0 && !rejected.includes("DEXE_SIGNER_MODE"),
     // The shared default project id makes WalletConnect available on every install.
     walletConnectConfigured: true
   });
   const signerMode = modeRes.mode;
   const signerModeSource = modeRes.source;
-  if (signerMode !== "unattended" && hotKeyVars.length > 0) {
+  const hotKeysIgnored = signerModeSource === "default" && hotKeyVars.length > 0 ? { vars: hotKeyVars, reason: rejected.includes("DEXE_SIGNER_MODE") ? "invalid" : "unset" } : void 0;
+  if (hotKeysIgnored) {
+    process.stderr.write(`[dexe-mcp] \u26A0\uFE0F ${ignoredHotKeySentence(hotKeysIgnored)}
+`);
+  } else if (signerMode !== "unattended" && hotKeyVars.length > 0) {
     process.stderr.write(`[dexe-mcp] ${hotKeyVars.join(", ")} ${hotKeyVars.length === 1 ? "is" : "are"} IGNORED: DEXE_SIGNER_MODE=${signerMode} never signs with a hot key. Move the key into the encrypted keystore with \`dexe-mcp key import --from-env\` (it removes the plaintext line), or set DEXE_SIGNER_MODE=unattended to sign with it unattended.
 `);
   }
@@ -105272,15 +105273,10 @@ async function loadWriteConfig() {
   }
   const parsedChains = parseUnattendedChains(process.env.DEXE_UNATTENDED_CHAINS);
   const fenceRejected = rejected.includes("DEXE_UNATTENDED_CHAINS") || parsedChains !== null && !Array.isArray(parsedChains);
-  const unattendedChains = signerMode !== "unattended" ? null : fenceRejected ? [97] : unattendedChainFence(signerModeSource, Array.isArray(parsedChains) ? parsedChains : null);
+  const unattendedChains = signerMode !== "unattended" ? null : fenceRejected ? [97] : unattendedChainFence(Array.isArray(parsedChains) ? parsedChains : null);
   if (signerMode === "unattended" && (privateKey || Object.keys(agentKeys).length > 0)) {
-    if (signerModeSource === "implicit-hot-key") {
-      process.stderr.write(`[dexe-mcp] \u26A0\uFE0F ${IMPLICIT_UNATTENDED_DEPRECATION}
+    process.stderr.write(`[dexe-mcp] signer mode: unattended \u2014 hot keys sign with NO human confirmation, on chain(s) ${unattendedChains?.join(", ") ?? "any"} only (DEXE_UNATTENDED_CHAINS).
 `);
-    } else {
-      process.stderr.write(`[dexe-mcp] signer mode: unattended \u2014 hot keys sign with NO human confirmation, on chain(s) ${unattendedChains?.join(", ") ?? "any"} only (DEXE_UNATTENDED_CHAINS).
-`);
-    }
   }
   let keystore;
   if (signerMode === "keystore") {
@@ -105359,6 +105355,7 @@ async function loadWriteConfig() {
     statePath: read3.statePath,
     signerMode,
     signerModeSource,
+    hotKeysIgnored,
     unattendedChains,
     keystore,
     approvalWaitMs,
@@ -139784,15 +139781,23 @@ var SignerManager = class {
     this.config = config2;
     const hasHot = !!config2.privateKey || Object.keys(config2.agentKeys ?? {}).length > 0;
     this.mode = config2.signerMode ?? (hasHot ? "unattended" : "walletconnect");
-    this.modeSource = config2.signerModeSource ?? (config2.signerMode ? "explicit" : hasHot ? "implicit-hot-key" : "default");
+    this.modeSource = config2.signerModeSource ?? (config2.signerMode || hasHot ? "explicit" : "default");
     this.key = this.mode === "unattended" ? config2.privateKey : void 0;
     this.agentKeys = this.mode === "unattended" ? config2.agentKeys ?? {} : {};
     this.keystore = this.mode === "keystore" ? config2.keystore : void 0;
     registerLedgerSecrets([this.key, ...Object.values(this.agentKeys)]);
   }
-  /** The chains unattended mode may sign on; null = no fence (transitional implicit mode). */
+  /**
+   * The chains unattended mode may sign on. The env loader always sets it
+   * (default [97]); a config built in code that leaves it out gets the same
+   * default. Only an explicit `unattendedChains: null` means "no fence" — an
+   * embedder's or a test's deliberate opt-out, never reachable from env.
+   */
   get unattendedChains() {
-    return this.mode === "unattended" ? this.config.unattendedChains ?? null : null;
+    if (this.mode !== "unattended")
+      return null;
+    const configured = this.config.unattendedChains;
+    return configured === void 0 ? [...DEFAULT_UNATTENDED_CHAINS] : configured;
   }
   /** keystore mode: the approval flow (created on first use). Undefined in every other mode. */
   get approvals() {
@@ -140221,7 +140226,7 @@ function registerAuthLoginComposite(server, signer, wc) {
     }
     if (!eoa && !wcConnected) {
       return jsonResult({
-        note: "No signer configured \u2014 cannot sign the auth nonce internally. Either set DEXE_PRIVATE_KEY (or run dexe_wc_connect), then re-call dexe_auth_login; OR do it manually: dexe_auth_request_nonce \u2192 sign the returned `message` with your wallet \u2192 dexe_auth_login_request with the signature."
+        note: "No signer configured \u2014 cannot sign the auth nonce internally. Either run dexe_wc_connect (or set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY), then re-call dexe_auth_login; OR do it manually: dexe_auth_request_nonce \u2192 sign the returned `message` with your wallet \u2192 dexe_auth_login_request with the signature."
       });
     }
     const signerAddress = address ?? (eoa ? signer.getAddress() : wc.account());
@@ -148016,7 +148021,7 @@ var FLOWS = [
         // (default is `core`, which carries none of the keyring surface), the
         // tool present but empty is the KEYRING. Naming the toolset here is the
         // earliest place it can be said — step 1 is where the flow dies.
-        purpose: "Discover the personas this session HAS: signerKey ('agent1'\u2026'agent16', 'funder'), address, native balance, and \u2014 with `token` \u2014 gov-token balance. Assign roles only to slots you can see. Tool not found = the PROFILE, not the keyring: DEXE_TOOLSETS=core,agents unlocks dexe_agents_list, dexe_agents_fund and dexe_agents_ledger (add `vote` for the raw builders), then restart. Tool there but roster empty = keyring unset (DEXE_AGENT_PK_1..16). Either way the flow stops here.",
+        purpose: "Discover the personas this session HAS: signerKey ('agent1'\u2026'agent16', 'funder'), address, native balance, and \u2014 with `token` \u2014 gov-token balance. Assign roles only to slots you can see. Tool not found = the PROFILE, not the keyring: DEXE_TOOLSETS=core,agents unlocks dexe_agents_list, dexe_agents_fund and dexe_agents_ledger (add `vote` for the raw builders), then restart. Tool there but roster empty = keyring unset or mode not unattended. Either way the flow stops here.",
         paramsTemplate: { chainId: "{{chainId}}", token: "\u2026gov token address\u2026" },
         reportOnSuccess: "Show signerKey \u2192 address \u2192 balances and the role for each; confirm the map before any broadcast \u2014 the last cheap moment.",
         next: [{ when: "role map confirmed", stepId: "fund", why: "personas need gas" }]
@@ -148607,6 +148612,11 @@ ${pr2.remediation}`);
   };
 }
 var ENABLE_WRITES_HINT = "\u26A0\uFE0F Read-only session \u2014 the steps below are UNSIGNED transaction payloads; nothing was broadcast. To actually execute this write:\n  \u2022 \u2705 RECOMMENDED \u2014 connect a wallet: if WalletConnect is configured, a scannable QR is already attached to this response \u2014 just scan it and approve on your phone (keys never touch this machine). Otherwise run `dexe_wc_connect` to print one.\n  \u2022 Encrypted local key \u2014 in a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), set DEXE_SIGNER_MODE=keystore and restart: every batch then waits for your password on a local approval page.\n  \u2022 \u26A0\uFE0F NOT SAFE \u2014 a hot key (`DEXE_PRIVATE_KEY` with DEXE_SIGNER_MODE=unattended) signs with no confirmation from PLAINTEXT on disk, testnet only by default. Throwaway wallets only. Restart Claude Code after editing .env.\nThen re-run this call to broadcast.";
+function enableWritesHint(signer) {
+  const ignored = signer.getConfig?.().hotKeysIgnored;
+  return ignored ? `${ENABLE_WRITES_HINT}
+\u26A0\uFE0F ${ignoredHotKeySentence(ignored)}` : ENABLE_WRITES_HINT;
+}
 var KEYSTORE_MISSING_HINT = "\u26A0\uFE0F DEXE_SIGNER_MODE=keystore but no usable keystore was found \u2014 the steps below are UNSIGNED payloads; nothing was broadcast. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run this call. dexe_doctor shows the path it looked in.";
 var READONLY_MODE_HINT = "DEXE_SIGNER_MODE=readonly \u2014 this server never signs. The steps below are UNSIGNED payloads for your own wallet; nothing was broadcast.";
 var KEYSTORE_SIGNERKEY_REFUSAL = "signerKey selects a hot key from the agent keyring, and hot keys sign only in DEXE_SIGNER_MODE=unattended. This server is in keystore mode (one encrypted key, approved per batch) \u2014 omit signerKey.";
@@ -148783,7 +148793,7 @@ async function sendOrCollect(signer, payloads, opts) {
     return {
       mode: "payloads",
       steps,
-      enableWrites: signer.mode === "readonly" ? READONLY_MODE_HINT : ENABLE_WRITES_HINT,
+      enableWrites: signer.mode === "readonly" ? READONLY_MODE_HINT : enableWritesHint(signer),
       ...paired ? { pairing: paired.pairing, pairingContent: paired.content } : {}
     };
   }
@@ -148952,7 +148962,7 @@ Note: the backend indexes BSC mainnet (56) DAOs only.`);
   const pinata = pin.ok;
   const user = input3.user ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
   if (!user)
-    return err2("Provide 'user' address or set DEXE_PRIVATE_KEY.");
+    return err2("Provide 'user' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
   const ipfsArtifacts = [...input3.extraIpfsArtifacts ?? []];
   const chain2 = resolveChain(ctx.config, input3.chainId);
   const chainId = chain2.chainId;
@@ -149716,7 +149726,7 @@ function registerFlowTools(server, ctx, signer, wc, state) {
       proposalMetadataExtra: external_exports.record(external_exports.string(), external_exports.unknown()).optional().describe("Extra fields merged into IPFS metadata."),
       voteAmount: external_exports.string().optional().describe("Auto-vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: all available power."),
       voteNftIds: external_exports.array(external_exports.string()).default([]).describe(NFT_IDS_OWN_DESC),
-      user: external_exports.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      user: external_exports.string().optional().describe("User address. Required when no signer is loaded."),
       signerKey: signerKeyParam,
       dryRun: external_exports.boolean().default(false).describe("Preview: no broadcast, no IPFS pin, no Pinata key needed. The metadata CID is right but unpinned \u2014 do NOT broadcast this calldata."),
       confirmRisky: external_exports.boolean().default(false).describe("Required when the built proposal carries a DANGER governance-safety advisory. Without it the flow refuses BEFORE any transaction."),
@@ -149746,8 +149756,8 @@ function registerFlowTools(server, ctx, signer, wc, state) {
       depositFirst: external_exports.union([external_exports.boolean(), external_exports.literal("auto")]).default("auto").describe("'auto': deposit exactly what is missing when deposited power is short. true: deposit the whole wallet balance. false: never deposit."),
       autoExecute: external_exports.boolean().default(true).describe("Attempt execute if proposal passes after vote"),
       driveValidatorRound: external_exports.boolean().default(true).describe("With autoExecute, drive the validator stage too: moveProposalToValidators, cast the signer's validator vote if it is one, then execute. False stops after the member vote."),
-      dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
-      user: external_exports.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded (preview without broadcasting)."),
+      user: external_exports.string().optional().describe("User address. Required when no signer is loaded."),
       signerKey: signerKeyParam,
       flowContext: flowContextSchema
     },
@@ -149756,7 +149766,7 @@ function registerFlowTools(server, ctx, signer, wc, state) {
     (input3) => withActionContext({ tool: "dexe_proposal_vote_and_execute" }, async () => {
       const user = input3.user ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
       if (!user)
-        return err2("Provide 'user' address or set DEXE_PRIVATE_KEY.");
+        return err2("Provide 'user' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
       const chain2 = resolveChain(ctx.config, input3.chainId);
       const chainId = chain2.chainId;
       const pr2 = rpc.tryProvider(chainId);
@@ -150302,7 +150312,7 @@ function registerTxTools(server, config2, signer, wc) {
         content: [
           {
             type: "text",
-            text: "signerKey selects a DEXE_AGENT_PK_* hot key \u2014 it is not available in WalletConnect mode (the phone wallet owns the only key). Unset signerKey, or configure DEXE_PRIVATE_KEY + DEXE_AGENT_PK_* for keyring mode."
+            text: "signerKey selects a DEXE_AGENT_PK_* hot key \u2014 it is not available in WalletConnect mode (the phone wallet owns the only key). Unset signerKey, or set DEXE_SIGNER_MODE=unattended with DEXE_PRIVATE_KEY + DEXE_AGENT_PK_* for keyring mode."
           }
         ],
         isError: true
@@ -150419,7 +150429,7 @@ function registerTxTools(server, config2, signer, wc) {
               status: "rejected",
               reason: sg.error,
               remediation: sg.remediation,
-              enableWrites: ENABLE_WRITES_HINT,
+              enableWrites: enableWritesHint(signer),
               chainId: chain2.chainId
             }, null, 2)
           }
@@ -150721,6 +150731,12 @@ function resolveFundTargets(keyring, requested, sourceKey) {
 function err3(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
+function emptyKeyringMessage(signer) {
+  if (signer.mode !== "unattended") {
+    return `Agent keyring is not loaded: the keyring exists only in DEXE_SIGNER_MODE=unattended (this server runs ${signer.mode}). Unattended keys sign with NO human confirmation \u2014 ask the user before switching. To use it: set DEXE_SIGNER_MODE=unattended (signs only on DEXE_UNATTENDED_CHAINS, default 97) plus DEXE_AGENT_PK_1..16 (or AGENT_PK_1..16 / AGENT_FUNDER_PK) in .env, then restart.`;
+  }
+  return "Agent keyring is empty. Set DEXE_AGENT_PK_1..16 (or the swarm naming AGENT_PK_1..16 / AGENT_FUNDER_PK) in .env \u2014 one hot key per agent persona \u2014 and restart. The primary DEXE_PRIVATE_KEY stays the default signer; keyring keys are selected per call via signerKey.";
+}
 var bigintReplacer2 = (_k, v7) => typeof v7 === "bigint" ? v7.toString() : v7;
 function ok5(data4) {
   return {
@@ -150799,9 +150815,8 @@ function registerAgentTools(server, config2, signer) {
     }
   }, async ({ chainId, token: token2 }) => {
     const agents = signer.listAgents();
-    if (agents.length === 0) {
-      return err3("Agent keyring is empty. Set DEXE_AGENT_PK_1..16 (or the swarm naming AGENT_PK_1..16 / AGENT_FUNDER_PK) in .env \u2014 one hot key per agent persona \u2014 and restart. The primary DEXE_PRIVATE_KEY stays the default signer; keyring keys are selected per call via signerKey.");
-    }
+    if (agents.length === 0)
+      return err3(emptyKeyringMessage(signer));
     if (token2 && !isAddress(token2))
       return err3(`Invalid token: ${token2}`);
     const chain2 = resolveChain(config2, chainId);
@@ -150863,9 +150878,8 @@ function registerAgentTools(server, config2, signer) {
       return err3(`dexe_agents_fund runs only in DEXE_SIGNER_MODE=unattended (this server is in ${signer.mode} mode): it sends value between hot keys with no human confirmation. Fund the agent addresses from your own wallet instead, or run the agent keyring in unattended mode (testnet by default).`);
     }
     const keyring = signer.listAgents();
-    if (keyring.length === 0) {
-      return err3("Agent keyring is empty \u2014 set DEXE_AGENT_PK_1..16 (or AGENT_PK_1..16 / AGENT_FUNDER_PK) first.");
-    }
+    if (keyring.length === 0)
+      return err3(emptyKeyringMessage(signer));
     if (!source && !signer.hasSigner()) {
       return err3("Funding requires a source wallet: set the primary DEXE_PRIVATE_KEY, or pass source:'funder' to send from the AGENT_FUNDER_PK keyring slot.");
     }
@@ -152320,23 +152334,13 @@ function signerModeChecks(config2, env = process.env) {
   const hasHotKeyLoaded = !!config2.privateKey || Object.keys(config2.agentKeys ?? {}).length > 0;
   if (mode === "unattended") {
     const fence = config2.unattendedChains ?? null;
-    if (config2.signerModeSource === "implicit-hot-key") {
-      out2.push({
-        id: "signer.mode",
-        category: "signer",
-        status: "warn",
-        message: `unattended (implicit, DEPRECATED) \u2014 hot keys sign with NO human confirmation on every configured chain. ${IMPLICIT_UNATTENDED_DEPRECATION}`,
-        remediation: "Recommended: `npx dexe-mcp key import --from-env` then DEXE_SIGNER_MODE=keystore (or walletconnect). To keep unattended signing, set DEXE_SIGNER_MODE=unattended explicitly (testnet 97 only unless DEXE_UNATTENDED_CHAINS lists more)."
-      });
-    } else {
-      out2.push({
-        id: "signer.mode",
-        category: "signer",
-        status: hasHotKeyLoaded ? "warn" : "fail",
-        message: hasHotKeyLoaded ? `unattended \u2014 hot keys sign with NO human confirmation, on chain(s) ${fence?.join(", ") ?? "any"} only` : "DEXE_SIGNER_MODE=unattended but no hot key is loaded \u2014 nothing can sign",
-        ...hasHotKeyLoaded ? {} : { remediation: "Set DEXE_PRIVATE_KEY (or the keyring), or pick another DEXE_SIGNER_MODE." }
-      });
-    }
+    out2.push({
+      id: "signer.mode",
+      category: "signer",
+      status: hasHotKeyLoaded ? "warn" : "fail",
+      message: hasHotKeyLoaded ? `unattended \u2014 hot keys sign with NO human confirmation, on chain(s) ${fence?.join(", ") ?? "any"} only` : "DEXE_SIGNER_MODE=unattended but no hot key is loaded \u2014 nothing can sign",
+      ...hasHotKeyLoaded ? {} : { remediation: "Set DEXE_PRIVATE_KEY (or the keyring), or pick another DEXE_SIGNER_MODE." }
+    });
     const mainnet = fence === null || fence.includes(56) || fence.includes(1);
     if (hasHotKeyLoaded && mainnet && !(config2.signerAllowlist?.length && config2.signerMaxValueWei !== void 0)) {
       out2.push({
@@ -152355,7 +152359,15 @@ function signerModeChecks(config2, env = process.env) {
       message: mode === "walletconnect" ? "walletconnect \u2014 your phone wallet signs every transaction (recommended)" : mode === "readonly" ? "readonly \u2014 this server never signs; write tools return unsigned payloads" : config2.keystore ? `keystore \u2014 ${config2.keystore.address} signs after the owner approves each batch with its password on a local page` : "keystore \u2014 but no usable keystore was found, so nothing can sign",
       ...mode === "keystore" && !config2.keystore ? { remediation: "In a terminal: `npx dexe-mcp key create` (or `key import`), then restart. See the startup row for the path." } : {}
     });
-    if (hot.length > 0) {
+    if (config2.hotKeysIgnored) {
+      out2.push({
+        id: "signer.hotKeyIgnored",
+        category: "signer",
+        status: "fail",
+        message: ignoredHotKeySentence(config2.hotKeysIgnored),
+        remediation: "Ask the owner which: (1) delete the key lines and use dexe_wc_connect (recommended); (2) `npx dexe-mcp key import --from-env` in a terminal \u2192 keystore, the owner approves each batch; (3) bots/CI only: DEXE_SIGNER_MODE=unattended (no confirmation; DEXE_UNATTENDED_CHAINS, default 97). Then restart."
+      });
+    } else if (hot.length > 0) {
       out2.push({
         id: "signer.hotKeyIgnored",
         category: "signer",
@@ -152569,7 +152581,7 @@ function registerWalletConnectTools(server, config2, signer, wc) {
     };
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   });
-  server.tool("dexe_wc_connect", "Writes to a remote service. Starts a WalletConnect session and renders a scannable QR (ASCII + PNG). RECOMMENDED signer \u2014 the phone signs and broadcasts, so no private key touches this machine. Poll dexe_wc_status until `connected`. A hot DEXE_PRIVATE_KEY keeps signing precedence.", {
+  server.tool("dexe_wc_connect", "Writes to a remote service. Starts a WalletConnect session and renders a scannable QR (ASCII + PNG). RECOMMENDED signer \u2014 the phone signs and broadcasts, so no private key touches this machine. Poll dexe_wc_status until `connected`. In DEXE_SIGNER_MODE=unattended a hot key signs instead.", {
     chainId: external_exports.number().int().positive().optional().describe("Chain to request in the session namespace. Defaults to the MCP's default chain.")
   }, async ({ chainId }) => {
     if (!wc.isConfigured()) {
@@ -152970,7 +152982,7 @@ function registerDaoCreateTools(server, ctx, signer, wc, state) {
   }, async (input3) => {
     const deployer = input3.deployer ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!deployer)
-      return err4("Provide 'deployer' address or set DEXE_PRIVATE_KEY.");
+      return err4("Provide 'deployer' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
     const chain2 = resolveChain(ctx.config, input3.chainId);
     const chainId = chain2.chainId;
     const isMainnet2 = chainId === 56 || chainId === 1;
@@ -153625,9 +153637,8 @@ function registerWriteContextTool(server, config2, signer, state) {
         recommended: "walletconnect",
         ...mode === "unattended" ? {
           unattendedChains: signer.unattendedChains,
-          ...address ? { safety: HOT_KEY_SAFETY } : {},
-          ...signer.modeSource === "implicit-hot-key" ? { deprecation: IMPLICIT_UNATTENDED_DEPRECATION } : {}
-        } : {},
+          ...address ? { safety: HOT_KEY_SAFETY } : {}
+        } : config2.hotKeysIgnored ? { hotKeyIgnored: ignoredHotKeySentence(config2.hotKeysIgnored) } : {},
         ...mode === "keystore" ? {
           keystore: address ? { address, file: config2.keystore?.file ?? null } : null,
           pendingApprovals: approvals?.openApprovals() ?? []
@@ -155295,7 +155306,7 @@ function registerOtcBuyerTools(server, ctx, signer, wc) {
     whitelistUsers: external_exports.array(external_exports.string()).default([]).describe("Optional whitelist for proof gen"),
     user: external_exports.string().optional().describe("Buyer address; defaults to the configured signer."),
     signerKey: signerKeyParam,
-    dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+    dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded."),
     simulateFirst: external_exports.boolean().default(false).describe("eth_call-simulate buy() first; aborts with the revertReason if the sim fails.")
   }, async (input3) => {
     if (!isAddress(input3.tokenSaleProposal))
@@ -155304,7 +155315,7 @@ function registerOtcBuyerTools(server, ctx, signer, wc) {
       return err5(`Invalid tokenToBuyWith`);
     const userResolved = input3.user ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!userResolved)
-      return err5(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
+      return err5(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
     const userAddr = getAddress(userResolved);
     const tierIdBn = parseUintString(input3.tierId, "tierId");
     let amountBn;
@@ -155437,14 +155448,14 @@ ${pr2.remediation}`);
     tierIds: external_exports.array(external_exports.string()).min(1).describe("Tier ids to sweep, decimal strings."),
     user: external_exports.string().optional().describe("Claimer address; defaults to the configured signer."),
     signerKey: signerKeyParam,
-    dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set."),
+    dryRun: external_exports.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded."),
     includeVesting: external_exports.boolean().default(false).describe("Attempt `vestingWithdraw` too; it reverts on every current pool (upstream F15).")
   }, async (input3) => {
     if (!isAddress(input3.tokenSaleProposal))
       return err5(`Invalid tokenSaleProposal`);
     const userResolved = input3.user ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!userResolved)
-      return err5(`Provide 'user' or set DEXE_PRIVATE_KEY.`);
+      return err5(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
     const userAddr = getAddress(userResolved);
     const tierIdBns = input3.tierIds.map((s2) => parseUintString(s2, "tierId"));
     const chain2 = resolveChain(ctx.config, input3.chainId);
@@ -156074,7 +156085,7 @@ ${sg.remediation}`);
           sender = sender ?? getAddress(signer.getAddress());
         }
       } else if (input3.sign === true) {
-        signHint = "sign:true was requested but no signer is configured \u2014 set DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
+        signHint = "sign:true was requested but no signer is configured \u2014 set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
       }
       const body = {
         to: tx.to,
@@ -156121,7 +156132,7 @@ ${sg.remediation}`);
         });
       }
       if (!signature || !sender) {
-        return err7("Live POST requires a signature. Set DEXE_PRIVATE_KEY (a Safe owner) so the tool can sign the safeTxHash, or run with dryRun=true.");
+        return err7("Live POST requires a signature. Set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) so the tool can sign the safeTxHash, or run with dryRun=true.");
       }
       const ep = resolveSafeServiceEndpoint(chainId, serviceUrl);
       const url2 = ep.multisigTransactions(safe);

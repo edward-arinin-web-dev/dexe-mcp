@@ -5,14 +5,17 @@ import { hintFor, type EnvGuardResult } from "./requireEnv.js";
 import { ENV_SPEC } from "../env/schema.js";
 import { safeErrorMessage } from "./redact.js";
 import { attachBroadcastRecorder, registerLedgerSecrets } from "./agentLedger.js";
-import { type SignerMode, type SignerModeSource } from "./signerMode.js";
+import { DEFAULT_UNATTENDED_CHAINS, type SignerMode, type SignerModeSource } from "./signerMode.js";
 import { ApprovalManager } from "./approval/index.js";
 
 export {
   resolveSignerMode,
   signerDispatch,
   humanConfirms,
-  IMPLICIT_UNATTENDED_DEPRECATION,
+  UNSET_MODE_HOT_KEY_IGNORED,
+  INVALID_MODE_HOT_KEY_IGNORED,
+  ignoredHotKeySentence,
+  type IgnoredHotKeys,
   type SignerMode,
   type SignerModeSource,
 } from "./signerMode.js";
@@ -85,12 +88,13 @@ export class SignerManager {
 
   constructor(config: DexeConfig) {
     this.config = config;
-    // A config built by hand (tests, embedders) carries no mode: infer the
-    // pre-0.37 behaviour - keys sign unattended, no key means WalletConnect.
+    // A config built by hand (tests, embedders) carries no mode. A key handed
+    // over in code is that caller's explicit choice — unlike a key that merely
+    // sits in the environment, which the env loader never turns into a mode —
+    // so keys sign unattended; no key means WalletConnect.
     const hasHot = !!config.privateKey || Object.keys(config.agentKeys ?? {}).length > 0;
     this.mode = config.signerMode ?? (hasHot ? "unattended" : "walletconnect");
-    this.modeSource =
-      config.signerModeSource ?? (config.signerMode ? "explicit" : hasHot ? "implicit-hot-key" : "default");
+    this.modeSource = config.signerModeSource ?? (config.signerMode || hasHot ? "explicit" : "default");
     // Hot keys exist ONLY in unattended mode. The config loader already drops
     // them in every other mode; this is the second lock on the same door.
     this.key = this.mode === "unattended" ? config.privateKey : undefined;
@@ -102,9 +106,16 @@ export class SignerManager {
     registerLedgerSecrets([this.key, ...Object.values(this.agentKeys)]);
   }
 
-  /** The chains unattended mode may sign on; null = no fence (transitional implicit mode). */
+  /**
+   * The chains unattended mode may sign on. The env loader always sets it
+   * (default [97]); a config built in code that leaves it out gets the same
+   * default. Only an explicit `unattendedChains: null` means "no fence" — an
+   * embedder's or a test's deliberate opt-out, never reachable from env.
+   */
   get unattendedChains(): number[] | null {
-    return this.mode === "unattended" ? (this.config.unattendedChains ?? null) : null;
+    if (this.mode !== "unattended") return null;
+    const configured = this.config.unattendedChains;
+    return configured === undefined ? [...DEFAULT_UNATTENDED_CHAINS] : configured;
   }
 
   /** keystore mode: the approval flow (created on first use). Undefined in every other mode. */

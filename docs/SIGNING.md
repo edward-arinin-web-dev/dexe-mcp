@@ -15,11 +15,11 @@ signs — and whether a human confirms each transaction.
 confirms (`signer.humanConfirmation`), and any approvals waiting on you.
 `npx dexe-mcp doctor` checks the setup.
 
-> **0.37 transition.** If `DEXE_SIGNER_MODE` is unset and a hot key is present,
-> the server still signs `unattended` (today's behaviour, every configured
-> chain) and prints a deprecation warning. The next major removes that implicit
-> default: set the mode explicitly now. [MIGRATION.md](./MIGRATION.md) has the
-> steps.
+> **Since 1.0.0 a hot key alone never signs.** With `DEXE_SIGNER_MODE` unset,
+> a `DEXE_PRIVATE_KEY` (or keyring slot) in the environment is ignored — the
+> mode is `walletconnect` — and `dexe_doctor` fails `signer.hotKeyIgnored` with
+> the three ways out. 0.37 signed `unattended` on every chain in that setup.
+> [MIGRATION.md](./MIGRATION.md) has the steps.
 
 ## Keystore mode
 

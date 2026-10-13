@@ -43,6 +43,8 @@ const WC_ID = "0123456789abcdef0123456789abcdef";
 const SAFE_KEY = "safe-api-key-for-test";
 
 const WRITE_ENV: Record<string, string> = {
+  // the one mode that loads hot keys — so the control below really signs
+  DEXE_SIGNER_MODE: "unattended",
   DEXE_PRIVATE_KEY: KEY_1,
   DEXE_AGENT_PK_1: KEY_2,
   AGENT_PK_2: KEY_3,

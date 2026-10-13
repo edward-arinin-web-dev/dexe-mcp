@@ -79,6 +79,8 @@ In `.env` at the repo root (never in `.claude.json` — the host `env` block
 silently shadows `.env`), then **restart** the MCP server:
 
 ```bash
+DEXE_SIGNER_MODE=unattended             # the keyring loads in this mode only (since 1.0.0)
+DEXE_UNATTENDED_CHAINS=97               # where it may sign; add 56 deliberately
 DEXE_AGENT_PK_1=0x<burner-key>
 DEXE_AGENT_PK_2=0x<burner-key>
 DEXE_AGENT_PK_3=0x<burner-key>
@@ -279,7 +281,7 @@ field is dropped, not written.
 
 | Var | Purpose |
 |---|---|
-| `DEXE_SIGNER_MODE` | must be `unattended` for a keyring fleet (0.37.0); unset still works but is deprecated. Hot keys sign only on `DEXE_UNATTENDED_CHAINS` (default `97`) — see [SIGNING.md](./SIGNING.md) |
+| `DEXE_SIGNER_MODE` | must be `unattended` for a keyring fleet — with the mode unset, keyring slots are ignored (since 1.0.0). Hot keys sign only on `DEXE_UNATTENDED_CHAINS` (default `97`) — see [SIGNING.md](./SIGNING.md) |
 | `DEXE_AGENT_PK_1..16` (alias `AGENT_PK_*`) | persona hot keys → `signerKey: "agent<n>"` |
 | `DEXE_AGENT_FUNDER_PK` (alias `AGENT_FUNDER_PK`) | gas funder → `signerKey: "funder"`, `source: "funder"` |
 | `DEXE_AGENT_FUND_MAX_WEI` | per-transfer funding cap (default 0.1 native) |

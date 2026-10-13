@@ -74,7 +74,16 @@ console.log(`poolName: ${POOL_NAME}`);
 const transport = new StdioClientTransport({
   command: "node",
   args: [resolve("dist/index.js")],
-  env: { ...process.env, ...env, DEXE_RPC_URL: RPC, DEXE_CHAIN_ID: String(CHAIN_ID) },
+  // Since 1.0.0 a hot key signs only in an explicit unattended mode, fenced to
+  // DEXE_UNATTENDED_CHAINS: this harness signs on its own chain and no other.
+  env: {
+    ...process.env,
+    ...env,
+    DEXE_RPC_URL: RPC,
+    DEXE_CHAIN_ID: String(CHAIN_ID),
+    DEXE_SIGNER_MODE: "unattended",
+    DEXE_UNATTENDED_CHAINS: String(CHAIN_ID),
+  },
   cwd: process.cwd(),
 });
 const mcp = new Client({ name: "lifecycle-otc", version: "0.1.0" });

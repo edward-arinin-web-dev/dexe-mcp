@@ -4,7 +4,7 @@ import type { WriteConfig } from "../config.js";
 import { WRITE_DEFAULTS } from "../config.js";
 import {
   HOT_KEY_SAFETY,
-  IMPLICIT_UNATTENDED_DEPRECATION,
+  ignoredHotKeySentence,
   humanConfirms,
   signerDispatch,
   type SignerManager,
@@ -247,9 +247,10 @@ export function registerWriteContextTool(
             ? {
                 unattendedChains: signer.unattendedChains,
                 ...(address ? { safety: HOT_KEY_SAFETY } : {}),
-                ...(signer.modeSource === "implicit-hot-key" ? { deprecation: IMPLICIT_UNATTENDED_DEPRECATION } : {}),
               }
-            : {}),
+            : config.hotKeysIgnored
+              ? { hotKeyIgnored: ignoredHotKeySentence(config.hotKeysIgnored) }
+              : {}),
           ...(mode === "keystore"
             ? {
                 keystore: address ? { address, file: config.keystore?.file ?? null } : null,

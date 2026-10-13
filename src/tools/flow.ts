@@ -11,7 +11,14 @@ import { ipfsPreviewBlock, type IpfsArtifact } from "../lib/ipfsPreview.js";
 import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../lib/avatarUpload.js";
 import { checkAvatarCidBytes } from "../lib/imageSniff.js";
 import { resolveGateways } from "./ipfsRead.js";
-import { SignerManager, HOT_KEY_SAFETY, KEYSTORE_SAFETY, hotKeySafetyFields, safetyForMode } from "../lib/signer.js";
+import {
+  SignerManager,
+  HOT_KEY_SAFETY,
+  KEYSTORE_SAFETY,
+  hotKeySafetyFields,
+  ignoredHotKeySentence,
+  safetyForMode,
+} from "../lib/signer.js";
 import { buildReview } from "../lib/approval/review.js";
 import { currentToolScope } from "../lib/approval/scope.js";
 import { StateStore } from "../lib/stateStore.js";
@@ -812,6 +819,18 @@ export const ENABLE_WRITES_HINT =
   "from PLAINTEXT on disk, testnet only by default. Throwaway wallets only. Restart Claude Code after editing .env.\n" +
   "Then re-run this call to broadcast.";
 
+/**
+ * ENABLE_WRITES_HINT, plus the reason when hot keys sit in the environment
+ * with DEXE_SIGNER_MODE unset or invalid — a pre-1.0 setup that used to sign
+ * unattended and now returns payloads. Without it the caller sees "read-only
+ * session" and goes looking for a key that is already there.
+ */
+export function enableWritesHint(signer: Partial<Pick<SignerManager, "getConfig">>): string {
+  const ignored = signer.getConfig?.().hotKeysIgnored;
+  return ignored ? `${ENABLE_WRITES_HINT}
+⚠️ ${ignoredHotKeySentence(ignored)}` : ENABLE_WRITES_HINT;
+}
+
 /** keystore mode with no usable keystore file. */
 export const KEYSTORE_MISSING_HINT =
   "⚠️ DEXE_SIGNER_MODE=keystore but no usable keystore was found — the steps below are UNSIGNED payloads; nothing " +
@@ -1284,7 +1303,7 @@ export async function sendOrCollect(
     return {
       mode: "payloads",
       steps,
-      enableWrites: signer.mode === "readonly" ? READONLY_MODE_HINT : ENABLE_WRITES_HINT,
+      enableWrites: signer.mode === "readonly" ? READONLY_MODE_HINT : enableWritesHint(signer),
       ...(paired ? { pairing: paired.pairing, pairingContent: paired.content } : {}),
     };
   }
@@ -1637,7 +1656,7 @@ export async function runProposalCreate(
 
       const user =
         input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
-      if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
+      if (!user) return err("Provide 'user' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
 
       const ipfsArtifacts: IpfsArtifact[] = [...(input.extraIpfsArtifacts ?? [])];
       const chain = resolveChain(ctx.config, input.chainId);
@@ -2881,7 +2900,7 @@ export function registerFlowTools(
           "Auto-vote amount: raw wei (digits only) or human units with a decimal point ('12.5'). Default: all available power.",
         ),
       voteNftIds: z.array(z.string()).default([]).describe(NFT_IDS_OWN_DESC),
-      user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      user: z.string().optional().describe("User address. Required when no signer is loaded."),
       signerKey: signerKeyParam,
       dryRun: z
         .boolean()
@@ -2963,8 +2982,8 @@ export function registerFlowTools(
           "With autoExecute, drive the validator stage too: moveProposalToValidators, cast the signer's " +
             "validator vote if it is one, then execute. False stops after the member vote.",
         ),
-      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when DEXE_PRIVATE_KEY is set (preview without broadcasting)."),
-      user: z.string().optional().describe("User address. Required when DEXE_PRIVATE_KEY not set."),
+      dryRun: z.boolean().default(false).describe("If true, return ordered TxPayloads even when a signer is loaded (preview without broadcasting)."),
+      user: z.string().optional().describe("User address. Required when no signer is loaded."),
       signerKey: signerKeyParam,
       flowContext: flowContextSchema,
     },
@@ -2973,7 +2992,7 @@ export function registerFlowTools(
     (input) => withActionContext({ tool: "dexe_proposal_vote_and_execute" }, async () => {
       const user =
         input.user ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
-      if (!user) return err("Provide 'user' address or set DEXE_PRIVATE_KEY.");
+      if (!user) return err("Provide 'user' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
 
       const chain = resolveChain(ctx.config, input.chainId);
       const chainId = chain.chainId;

@@ -106,7 +106,7 @@ These are defense-in-depth, **not** a substitute for keeping the key off-host. F
 
 Threat model, plainly: this stops prompt injection and mistakes. It does **not** stop an AI agent that can drive your browser (it can read the password as typed) or run shell commands (it can fake the page or read process memory) — for such agents use WalletConnect. Local malware is out of scope. Details: [docs/SIGNING.md](./docs/SIGNING.md#threat-model).
 
-Unattended mode (`DEXE_SIGNER_MODE=unattended`) is the only mode that reads `DEXE_PRIVATE_KEY` / the agent keyring, and signs only on `DEXE_UNATTENDED_CHAINS` (default `97`). In 0.37 an unset mode with a hot key present still signs unattended on every chain, with a deprecation warning; the next major removes that default.
+Unattended mode (`DEXE_SIGNER_MODE=unattended`) is the only mode that reads `DEXE_PRIVATE_KEY` / the agent keyring, and signs only on `DEXE_UNATTENDED_CHAINS` (default `97`). Since 1.0.0 an unset mode never signs with a hot key (0.37 signed unattended on every chain then).
 
 ## WalletConnect signer mode (C12)
 

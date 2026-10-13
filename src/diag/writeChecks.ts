@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { WriteConfig } from "../config.js";
 import { DEFAULTS, hotKeyEnvNames } from "../config.js";
-import { IMPLICIT_UNATTENDED_DEPRECATION } from "../lib/signerMode.js";
+import { ignoredHotKeySentence } from "../lib/signerMode.js";
 import { keystorePermissionIssues, parseKeystoreMeta, weakKdfReason } from "../lib/keystore.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { FULL_ENV_SURFACE } from "../env/schema.js";
@@ -209,27 +209,15 @@ export function signerModeChecks(config: WriteConfig | undefined, env: NodeJS.Pr
 
   if (mode === "unattended") {
     const fence = config.unattendedChains ?? null;
-    if (config.signerModeSource === "implicit-hot-key") {
-      out.push({
-        id: "signer.mode",
-        category: "signer",
-        status: "warn",
-        message: `unattended (implicit, DEPRECATED) — hot keys sign with NO human confirmation on every configured chain. ${IMPLICIT_UNATTENDED_DEPRECATION}`,
-        remediation:
-          "Recommended: `npx dexe-mcp key import --from-env` then DEXE_SIGNER_MODE=keystore (or walletconnect). To keep " +
-          "unattended signing, set DEXE_SIGNER_MODE=unattended explicitly (testnet 97 only unless DEXE_UNATTENDED_CHAINS lists more).",
-      });
-    } else {
-      out.push({
-        id: "signer.mode",
-        category: "signer",
-        status: hasHotKeyLoaded ? "warn" : "fail",
-        message: hasHotKeyLoaded
-          ? `unattended — hot keys sign with NO human confirmation, on chain(s) ${fence?.join(", ") ?? "any"} only`
-          : "DEXE_SIGNER_MODE=unattended but no hot key is loaded — nothing can sign",
-        ...(hasHotKeyLoaded ? {} : { remediation: "Set DEXE_PRIVATE_KEY (or the keyring), or pick another DEXE_SIGNER_MODE." }),
-      });
-    }
+    out.push({
+      id: "signer.mode",
+      category: "signer",
+      status: hasHotKeyLoaded ? "warn" : "fail",
+      message: hasHotKeyLoaded
+        ? `unattended — hot keys sign with NO human confirmation, on chain(s) ${fence?.join(", ") ?? "any"} only`
+        : "DEXE_SIGNER_MODE=unattended but no hot key is loaded — nothing can sign",
+      ...(hasHotKeyLoaded ? {} : { remediation: "Set DEXE_PRIVATE_KEY (or the keyring), or pick another DEXE_SIGNER_MODE." }),
+    });
     const mainnet = fence === null || fence.includes(56) || fence.includes(1);
     if (hasHotKeyLoaded && mainnet && !(config.signerAllowlist?.length && config.signerMaxValueWei !== undefined)) {
       out.push({
@@ -260,7 +248,21 @@ export function signerModeChecks(config: WriteConfig | undefined, env: NodeJS.Pr
         ? { remediation: "In a terminal: `npx dexe-mcp key create` (or `key import`), then restart. See the startup row for the path." }
         : {}),
     });
-    if (hot.length > 0) {
+    if (config.hotKeysIgnored) {
+      // The setup that signed unattended before 1.0.0. It now signs nothing
+      // with the key, so the owner has to choose — a fail, not a warn. Safest
+      // way out first; unattended only with the owner's go-ahead.
+      out.push({
+        id: "signer.hotKeyIgnored",
+        category: "signer",
+        status: "fail",
+        message: ignoredHotKeySentence(config.hotKeysIgnored),
+        remediation:
+          "Ask the owner which: (1) delete the key lines and use dexe_wc_connect (recommended); (2) `npx dexe-mcp key " +
+          "import --from-env` in a terminal → keystore, the owner approves each batch; (3) bots/CI only: " +
+          "DEXE_SIGNER_MODE=unattended (no confirmation; DEXE_UNATTENDED_CHAINS, default 97). Then restart.",
+      });
+    } else if (hot.length > 0) {
       out.push({
         id: "signer.hotKeyIgnored",
         category: "signer",

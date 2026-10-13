@@ -42,7 +42,7 @@ Then ask:
 
 > "Show the treasury of `0x…` on BSC."
 
-Reads work with no configuration: on-chain data, subgraphs, the DeXe backend, and IPFS all have public defaults, and WalletConnect signing is available immediately (`dexe_wc_connect`). Eight skills install with the plugin — `dexe-setup`, `dexe-create-dao`, `dexe-create-proposal`, `dexe-vote-execute`, `dexe-otc`, `dexe-staking`, `dexe-report` (zero-config), and `dexe-agent-team` (needs `DEXE_TOOLSETS=core,agents` and hot keys).
+Reads work with no configuration: on-chain data, subgraphs, the DeXe backend, and IPFS all have public defaults, and WalletConnect signing is available immediately (`dexe_wc_connect`). Eight skills install with the plugin — `dexe-setup`, `dexe-create-dao`, `dexe-create-proposal`, `dexe-vote-execute`, `dexe-otc`, `dexe-staking`, `dexe-report` (zero-config), and `dexe-agent-team` (needs `DEXE_TOOLSETS=core,agents` and hot keys in `DEXE_SIGNER_MODE=unattended`).
 
 To create DAOs or proposals, or to broadcast transactions, run `/dexe-setup` — it walks through the two keys that unlock those paths (a Pinata token for IPFS uploads, a signer) and writes them to the `.env` the server actually loads (`~/.dexe-mcp/.env` for a plugin install).
 
@@ -211,7 +211,7 @@ No variable is required to start the server; tools that need a missing one fail 
 | `DEXE_IPFS_DISABLE_PUBLIC_FALLBACK` | hardening | Set `1` to disable public gateway fallback. |
 | `DEXE_WALLETCONNECT_PROJECT_ID` | WalletConnect signing | A shared default ships; set your own project ID for production use. |
 | `DEXE_SIGNER_MODE` | signing | `walletconnect` (default) · `keystore` (encrypted key, password per batch on a local page — `npx dexe-mcp key create`) · `readonly` · `unattended` (hot keys, no confirmation, `DEXE_UNATTENDED_CHAINS` only, default 97). See [docs/SIGNING.md](./docs/SIGNING.md). |
-| `DEXE_PRIVATE_KEY` | unattended mode | Hot-key signing, read only in `DEXE_SIGNER_MODE=unattended`. Unset mode + a hot key still signs in 0.37 (deprecated; flips in the next major). Move it into the keystore with `npx dexe-mcp key import --from-env`. |
+| `DEXE_PRIVATE_KEY` | unattended mode | Hot-key signing, read only in `DEXE_SIGNER_MODE=unattended`. With the mode unset, a hot key is ignored (since 1.0.0). Move it into the keystore with `npx dexe-mcp key import --from-env`. |
 | `DEXE_TOOLSETS` | tool gating | Comma list of profiles; default `core` (v0.31.0; was `core,proposals`). Valid: `core`, `proposals`, `read`, `vote`, `agents`, `governor`, `dev`, `full`. `agents` (v0.32.0) adds the keyring fleet tools — `DEXE_TOOLSETS=core,agents`. |
 | `DEXE_SUBGRAPH_POOLS_URL` / `_VALIDATORS_URL` / `_INTERACTIONS_URL` | subgraph reads | The Graph endpoints; defaults target the decentralized network. |
 | `DEXE_GRAPH_API_KEY` | subgraph reads | Only when the URL doesn't embed the key. |

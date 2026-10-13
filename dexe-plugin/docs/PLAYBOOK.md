@@ -241,7 +241,7 @@ Drive several keyring personas (proposer / voter / validator / delegator) throug
 - `dailyBudget` (optional) — Daily spend ceiling, BNB (SWARM_DAILY_BNB_BUDGET)? · default `0.05` · ⚠ Checked against the ledger's rolling 24h spend (value + gas); a crossing broadcast is refused. Unset on faucet testnets it is NOT armed.
 
 **Steps:**
-1. `dexe_agents_list` — Discover the personas this session HAS: signerKey ('agent1'…'agent16', 'funder'), address, native balance, and — with `token` — gov-token balance. Assign roles only to slots you can see. Tool not found = the PROFILE, not the keyring: DEXE_TOOLSETS=core,agents unlocks dexe_agents_list, dexe_agents_fund and dexe_agents_ledger (add `vote` for the raw builders), then restart. Tool there but roster empty = keyring unset (DEXE_AGENT_PK_1..16). Either way the flow stops here.
+1. `dexe_agents_list` — Discover the personas this session HAS: signerKey ('agent1'…'agent16', 'funder'), address, native balance, and — with `token` — gov-token balance. Assign roles only to slots you can see. Tool not found = the PROFILE, not the keyring: DEXE_TOOLSETS=core,agents unlocks dexe_agents_list, dexe_agents_fund and dexe_agents_ledger (add `vote` for the raw builders), then restart. Tool there but roster empty = keyring unset or mode not unattended. Either way the flow stops here.
 2. `dexe_agents_fund` — Top the personas up from the primary signer (or source:'funder'). PREVIEWS FIRST: the call returns who would be funded plus the budget impact, and broadcasts only on a second call with confirm:true. Run again with `token: <govToken>` to give voters power. Recipients can ONLY be keyring addresses; amounts are top-up-to-target, so re-running is safe.
 3. `dexe_vote_build_delegate` — Delegation leg in the order that works on-chain (swarm S01): the delegator first approves the UserKeeper and deposits its OWN tokens (dexe_vote_build_erc20_approve → dexe_vote_build_deposit), then delegates to the hub. Build each payload here; the next step signs it. _(skip when: the scenario has no delegation leg)_
 4. `dexe_tx_send` — Broadcast a built payload AS one persona: its to/data/value plus signerKey:'agent<n>'. The pattern for every per-persona action the composites don't cover (deposit, delegate, validator vote, claims, withdraw). Send it VERBATIM — raw vote()/delegate() revert on fresh SphereX-era pools and the builders already emit the multicall([call]) wrapper. signerKey is hot-key only; WalletConnect rejects it. _(skip when: no per-persona raw action is needed)_
@@ -476,8 +476,10 @@ Sets are additive and may overlap; `dexe_context` reports which are off and what
 1. **WalletConnect (recommended)** — zero config: any write (or `dexe_wc_connect`)
    prints a QR; scan with a mobile wallet (MetaMask/Trust/SafePal), approve each tx
    on the phone. Keys never touch this machine.
-2. **Hot key (NOT SAFE — throwaway wallets only)** — `DEXE_PRIVATE_KEY=0x…` in `.env`
-   + restart. Plaintext on disk; never a treasury or personal key.
+2. **Hot key (NOT SAFE — throwaway wallets only)** — `DEXE_SIGNER_MODE=unattended`
+   + `DEXE_PRIVATE_KEY=0x…` in `.env` + restart (signs only on
+   `DEXE_UNATTENDED_CHAINS`, default 97; without the mode the key is ignored).
+   Plaintext on disk; never a treasury or personal key.
 3. **Gas**: the signer needs BNB on the target chain. Testnet 97 faucet:
    https://www.bnbchain.org/en/testnet-faucet (alt: https://faucet.quicknode.com/binance-smart-chain/bnb-testnet).
    Mainnet fees are cents (~0.1 gwei), not Ethereum-scale.

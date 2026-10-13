@@ -10,6 +10,7 @@ import { registerAll } from "../../src/tools/index.js";
 import { loadConfig } from "../../src/config.js";
 import { SignerManager } from "../../src/lib/signer.js";
 import { keyringReport } from "../../src/tools/operationalContextWrite.js";
+import { enableWritesHint, ENABLE_WRITES_HINT } from "../../src/tools/flow.js";
 import { getAgentLedger, __resetAgentLedgerCache } from "../../src/lib/agentLedger.js";
 
 /**
@@ -34,6 +35,8 @@ const PK_FUNDER = "0x00000000000000000000000000000000000000000000000000000000000
 const ADDR = (pk: string) => new Wallet(pk).address;
 
 const ENV_KEYS = [
+  "DEXE_SIGNER_MODE",
+  "DEXE_TOOLSETS",
   "DEXE_PRIVATE_KEY",
   "DEXE_AGENT_PK_1",
   "DEXE_AGENT_PK_2",
@@ -61,6 +64,8 @@ function scratch(): string {
   dirs.push(dir);
   process.env.DEXE_STATE_PATH = join(dir, "state.json");
   process.env.DEXE_AGENT_LEDGER_PATH = join(dir, "ledger.json");
+  // The keyring is an unattended-mode feature: hot keys load only when the mode says so.
+  process.env.DEXE_SIGNER_MODE = "unattended";
   __resetAgentLedgerCache();
   return dir;
 }
@@ -305,5 +310,58 @@ describe("keyringReport — balance probe degrades, never throws", () => {
     expect(calls).toBe(0);
     expect(report.configured).toBe(3);
     expect(report.balanceChainId).toBeNull();
+  });
+});
+
+describe("1.0.0 — hot keys in .env with no DEXE_SIGNER_MODE", () => {
+  async function callTool(name: string, args: Record<string, unknown>) {
+    const config = await loadConfig();
+    const server = new McpServer({ name: "keyring-test", version: "0.0.0" }, {});
+    registerAll(server, config);
+    const client = new Client({ name: "c", version: "0.0.0" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    const res = (await client.callTool({ name, arguments: args })) as {
+      content: { type: string; text: string }[];
+      isError?: boolean;
+    };
+    await client.close();
+    await server.close();
+    return res;
+  }
+
+  it("dexe_write_context says the keys are ignored and why — no 0.37 deprecation field", async () => {
+    scratch();
+    delete process.env.DEXE_SIGNER_MODE;
+    process.env.DEXE_PRIVATE_KEY = PK_PRIMARY;
+    process.env.DEXE_AGENT_PK_1 = PK_A1;
+    const { parsed, text } = await callContext();
+    expect(parsed.signer.mode).toBe("walletconnect");
+    expect(parsed.signer.hotKeyIgnored).toMatch(
+      /^DEXE_PRIVATE_KEY, DEXE_AGENT_PK_1: A hot key is set but DEXE_SIGNER_MODE is not/,
+    );
+    expect(parsed.signer.deprecation).toBeUndefined();
+    expect(text).not.toContain(PK_PRIMARY.slice(2));
+    expect(text).not.toContain(PK_A1.slice(2));
+  });
+
+  it("dexe_agents_list explains an unloaded keyring instead of asking for keys that are already set", async () => {
+    scratch();
+    delete process.env.DEXE_SIGNER_MODE;
+    process.env.DEXE_TOOLSETS = "full";
+    process.env.DEXE_AGENT_PK_1 = PK_A1;
+    const res = await callTool("dexe_agents_list", {});
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/keyring exists only in DEXE_SIGNER_MODE=unattended \(this server runs walletconnect\)/);
+    expect(res.content[0]!.text).toMatch(/ask the user before switching/);
+  });
+
+  it("the no-signer write hint carries the reason when keys were ignored", () => {
+    expect(enableWritesHint({ getConfig: () => ({}) as never })).toBe(ENABLE_WRITES_HINT);
+    const hint = enableWritesHint({
+      getConfig: () => ({ hotKeysIgnored: { vars: ["DEXE_PRIVATE_KEY"], reason: "unset" } }) as never,
+    });
+    expect(hint.startsWith(ENABLE_WRITES_HINT)).toBe(true);
+    expect(hint).toMatch(/DEXE_PRIVATE_KEY: A hot key is set but DEXE_SIGNER_MODE is not/);
   });
 });

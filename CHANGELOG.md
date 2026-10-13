@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.0.0 — unreleased
+
+### Breaking — a hot key alone never signs
+- With `DEXE_SIGNER_MODE` unset, `DEXE_PRIVATE_KEY` and the agent keyring
+  (`DEXE_AGENT_PK_*`, `AGENT_PK_*`, funder) are now **ignored**: the mode is
+  `walletconnect`. 0.37 signed `unattended` in that setup, on every configured
+  chain, with a deprecation warning. Hot keys load only after an explicit
+  `DEXE_SIGNER_MODE=unattended`, and then sign only on
+  `DEXE_UNATTENDED_CHAINS` (default `97`) — there is no unfenced unattended
+  mode left in the env loader.
+- `dexe_doctor` fails `signer.hotKeyIgnored` for that setup and names the three
+  ways out (explicit unattended, `dexe-mcp key import --from-env`, or
+  WalletConnect); the startup banner says the same. `dexe_write_context`
+  reports it as `signer.hotKeyIgnored` instead of the old `signer.deprecation`.
+- Library: `resolveSignerMode()` no longer takes `hasHotKey`;
+  `SignerModeSource` is `"explicit" | "default"`; `unattendedChainFence()`
+  takes only the configured chains and never returns null;
+  `IMPLICIT_UNATTENDED_DEPRECATION` is replaced by `UNSET_MODE_HOT_KEY_IGNORED`.
+  A `SignerManager` built in code with a key and no mode still signs
+  unattended (the caller chose it), reports `modeSource: "explicit"`, and is
+  fenced to 97 unless `unattendedChains` is given (`null` = no fence).
+- The ignored keys are recorded (`config.hotKeysIgnored`) and named — with
+  the reason (unset vs rejected mode) and the ways out, safest first — in the
+  startup banner, `dexe_doctor`, `dexe_write_context` and the `enableWrites`
+  hint of every no-signer write response. `dexe_agents_list` / `dexe_agents_fund`
+  say the keyring is not loaded (mode) instead of asking for keys.
+- Model-facing remedies (`dexe_wc_connect`, `dexe_tx_send`, Safe, auth login,
+  composites) and the docs/skills (WALLETCONNECT, SAFE, OTC, AGENTS, TOOLS,
+  agent-team / create-proposal / otc / vote-execute skills) no longer say a key
+  alone signs.
+
 ## 0.37.1 — 2026-10-13
 
 ### Fixed — text that described a setup the server did not have

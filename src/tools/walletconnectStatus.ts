@@ -13,9 +13,9 @@ import { safeErrorMessage } from "../lib/redact.js";
  * session: `dexe_wc_connect` (returns a pairing URI for the phone to scan) and
  * `dexe_wc_disconnect`, and `dexe_wc_status` now reports the live session state.
  *
- * WalletConnect activates as the signer only when DEXE_WALLETCONNECT_PROJECT_ID
- * is set AND no DEXE_PRIVATE_KEY is present (a hot key, or Safe, takes
- * precedence). When active, `dexe_tx_send` forwards every tx to the phone wallet
+ * WalletConnect is the signer in `walletconnect` mode — the default
+ * DEXE_SIGNER_MODE, also when a hot key is present (since 1.0.0 only an
+ * explicit `unattended` mode signs with one). When active, `dexe_tx_send` forwards every tx to the phone wallet
  * for approval — the wallet signs and broadcasts, so no key ever enters the MCP.
  */
 export function registerWalletConnectTools(
@@ -67,7 +67,7 @@ export function registerWalletConnectTools(
     "dexe_wc_connect",
     "Writes to a remote service. Starts a WalletConnect session and renders a scannable QR (ASCII + PNG). " +
       "RECOMMENDED signer — the phone signs and broadcasts, so no private key touches this machine. " +
-      "Poll dexe_wc_status until `connected`. A hot DEXE_PRIVATE_KEY keeps signing precedence.",
+      "Poll dexe_wc_status until `connected`. In DEXE_SIGNER_MODE=unattended a hot key signs instead.",
     {
       chainId: z
         .number()
@@ -96,8 +96,8 @@ export function registerWalletConnectTools(
           isError: true,
         };
       }
-      // A hot key no longer blocks pairing — but be honest that it still signs
-      // until removed (we keep key-wins precedence to avoid a breaking change).
+      // A loaded hot key (unattended mode) or the keystore does not block
+      // pairing — but be honest that it, not this session, sends transactions.
       const keyPrecedenceNote =
         signer.mode === "keystore"
           ? "This server signs transactions with the encrypted keystore (DEXE_SIGNER_MODE=keystore); this session is used for message signatures (dexe_auth_login). Set DEXE_SIGNER_MODE=walletconnect to send transactions through the phone."

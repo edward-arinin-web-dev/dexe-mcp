@@ -91,7 +91,8 @@ export const ENV_SPEC_WRITE = {
     doc:
       "How this server signs: walletconnect (default — the phone wallet signs) | keystore (encrypted local key; the owner " +
       "approves every batch with its password on a local page) | readonly (never signs) | unattended (hot keys, NO human " +
-      "confirmation, only on DEXE_UNATTENDED_CHAINS). Unset + a hot key = unattended by a DEPRECATED implicit default that flips in the next major.",
+      "confirmation, only on DEXE_UNATTENDED_CHAINS). Unset = walletconnect even when a hot key is present (since 1.0.0; " +
+      "0.37 signed unattended then).",
     enablesFlows: ["broadcast"],
   },
   DEXE_PRIVATE_KEY: {
@@ -100,7 +101,7 @@ export const ENV_SPEC_WRITE = {
     required: false,
     example: "0x<64-hex>",
     doc:
-      "Hot EOA key — read ONLY in DEXE_SIGNER_MODE=unattended (or the deprecated implicit default). Plaintext on disk; " +
+      "Hot EOA key — read ONLY when DEXE_SIGNER_MODE=unattended is set; ignored otherwise. Plaintext on disk; " +
       "move it into the encrypted keystore with `dexe-mcp key import --from-env`. Requires an RPC.",
     enablesFlows: ["broadcast"],
     secret: true,
