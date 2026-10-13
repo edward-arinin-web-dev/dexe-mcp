@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeToolsets } from "@dexe-network/dexe-mcp/core";
+import { describeToolsets } from "@dexe-network/dexe-mcp/testing";
 import {
   TOOLSETS,
   DEFAULT_TOOLSETS,

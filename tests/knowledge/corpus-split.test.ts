@@ -1,11 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  createKnowledge,
-  createToolLocator,
-  READ_CORPUS,
-  READ_GOTCHAS,
-  READ_GUIDE_TEXT,
-} from "@dexe-network/dexe-mcp/core";
+import { createKnowledge, createToolLocator, READ_CORPUS, READ_GOTCHAS } from "@dexe-network/dexe-mcp/core";
+import { READ_GUIDE_TEXT } from "@dexe-network/dexe-mcp/testing";
 import { WRITE_CORPUS, WRITE_GOTCHAS, FLOWS } from "../../src/knowledge/write/index.js";
 import { SINGLE_SERVER_CORPUS, SINGLE_SERVER_KNOWLEDGE } from "../../src/knowledge/index.js";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";

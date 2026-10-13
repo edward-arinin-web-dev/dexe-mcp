@@ -109,7 +109,7 @@ error; for a binary vote use `offchain_single_option` with `voteOptions:["For","
 For any multi-step journey, call `dexe_guide` first — it serves these flows as
 structured plans (interview questions with risk notes, exact step order, and
 the gotcha corpus below) plus session context (known DAOs, active chain).
-This section is GENERATED from `src/knowledge/flows.ts` — edit there, then run
+This section is GENERATED from `src/knowledge/write/flows.ts` — edit there, then run
 `npm run gen:knowledge`.
 
 <!-- BEGIN GENERATED: flows -->
@@ -254,8 +254,9 @@ Drive several keyring personas (proposer / voter / validator / delegator) throug
 ## Reading DAO data (reference topics)
 
 Non-journey knowledge: how to query the subgraph, the backend API, and
-arbitrary contract state. GENERATED from `src/knowledge/topics.ts` — edit
-there, then run `npm run gen:knowledge`. Also served in-band via
+arbitrary contract state. GENERATED from the read edition's topics
+(`knowledge/read/topics.ts` in `@dexe-network/dexe-mcp`) — edit them there, then
+update the dependency and run `npm run gen:knowledge`. Also served in-band via
 `dexe_guide {flow:"read_dao_data"}` and the `dexe://graph-schema` resource.
 
 <!-- BEGIN GENERATED: topics -->
@@ -326,7 +327,9 @@ For anything custom — a filter, a join, a historical slice, a leaderboard the 
 ## Protocol gotchas (the rule corpus)
 
 Every non-obvious DeXe rule, danger-first. GENERATED from
-`src/knowledge/gotchas.ts` — edit there, then run `npm run gen:knowledge`.
+`src/knowledge/write/gotchas.ts` and the read edition's `knowledge/read/gotchas.ts`
+(`@dexe-network/dexe-mcp`) — edit the one that holds the rule, then run
+`npm run gen:knowledge`.
 
 <!-- BEGIN GENERATED: gotchas -->
 - 🔴 **quorum-reachable** — Quorum must be REACHABLE **with margin**: treasury/undistributed tokens cannot vote, so a quorum that only just fits the votable supply is frozen in practice — one holder asleep and nothing passes again, including the fix. dexe_dao_create enforces the margin on all five settings slots — see quorum-turnout-margin.
@@ -393,7 +396,7 @@ Every non-obvious DeXe rule, danger-first. GENERATED from
 | tool not found (`dexe_…`) | Toolset gated off | `dexe_context` lists hidden sets; set `DEXE_TOOLSETS` in `.env` + restart |
 
 Composite failures also carry a stable `slug` (GENERATED from the read table in
-`src/lib/errors.ts` plus the write table `src/lib/writeErrors.ts` registers on
+`lib/errors.ts` (read edition) plus the write table `src/lib/writeErrors.ts` registers on
 top — the classifier the composites actually run):
 
 <!-- BEGIN GENERATED: error-slugs -->

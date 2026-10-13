@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { hintFor, requireEnv } from "@dexe-network/dexe-mcp/core";
+import { hintFor } from "@dexe-network/dexe-mcp/core";
+import { requireEnv } from "@dexe-network/dexe-mcp/testing";
 import { ENV_SPEC } from "../../src/env/schema.js";
 
 /**

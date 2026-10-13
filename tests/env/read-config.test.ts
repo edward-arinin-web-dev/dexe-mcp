@@ -170,7 +170,7 @@ describe("loadReadConfig next to the write edition's secrets", () => {
     expect(stderr.join("")).toMatch(/signing enabled for 0x/);
   });
 
-  it("ignores malformed write values: no issue, no warning, and the values stay put", async () => {
+  it("ignores malformed write values: no issue, no warning — and drops them from the process", async () => {
     Object.assign(process.env, MALFORMED_WRITE_ENV);
 
     const config = await loadReadConfig();
@@ -179,8 +179,9 @@ describe("loadReadConfig next to the write edition's secrets", () => {
     const out = stderr.join("");
     expect(out).not.toMatch(/env error|config issue/);
     for (const k of Object.keys(MALFORMED_WRITE_ENV)) expect(out).not.toContain(k);
-    // Not the read loader's to delete: a write edition in another process may own them.
-    for (const [k, v] of Object.entries(MALFORMED_WRITE_ENV)) expect(process.env[k]).toBe(v);
+    // The read loader deletes every DeXe var it does not read (an allowlist), so
+    // nothing in a read-only process can read a write var back.
+    for (const k of Object.keys(MALFORMED_WRITE_ENV)) expect(process.env[k], k).toBeUndefined();
     expect(walletCtor).not.toHaveBeenCalled();
   });
 

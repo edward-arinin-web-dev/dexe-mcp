@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { defaultToolNames, INSTRUCTIONS_MAX_CHARS, READ_SKILLS, readInstructions } from "@dexe-network/dexe-mcp/core";
+import { defaultToolNames, READ_SKILLS } from "@dexe-network/dexe-mcp/core";
+import { INSTRUCTIONS_MAX_CHARS, readInstructions } from "@dexe-network/dexe-mcp/testing";
 import { serverInstructions, SHIPPED_SKILLS, WRITE_SKILLS, writeInstructions } from "../src/instructionsWrite.js";
 import {
   DEFAULT_TOOLSETS,

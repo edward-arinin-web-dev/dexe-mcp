@@ -76,6 +76,8 @@ const WRITE = [
   "lib/approval/controlProtocol.ts",
   "lib/approval/index.ts",
   "lib/approval/openBrowser.ts",
+  // the approval page's Origin check — the write edition's own, not the read package's
+  "lib/approval/origin.ts",
   "lib/approval/page.ts",
   "lib/approval/rendezvous.ts",
   "lib/approval/review.ts",
@@ -160,6 +162,8 @@ const WRITE = [
   "tools/proposalBuildOffchain.ts",
   "tools/safe.ts",
   "tools/simulate.ts",
+  // F15 on the read edition's dexe_read_token_sale_position, attached at registration
+  "tools/tokenSaleF15.ts",
   "tools/txSend.ts",
   "tools/voteBuild.ts",
   "tools/walletconnectStatus.ts",

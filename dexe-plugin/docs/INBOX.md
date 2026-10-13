@@ -1,7 +1,7 @@
 # Inbox + Forecast + OTC Discovery (v0.5.0)
 
 Three subgraph-backed read tools shipped in v0.5.0. They share the GraphQL
-plumbing in `src/lib/subgraph.ts`, and aim at the read-side of the DAO-ops
+plumbing in `lib/subgraph.ts` (read edition), and aim at the read-side of the DAO-ops
 loop: "what needs my attention?", "will my proposal pass?", "what sales are
 live?".
 

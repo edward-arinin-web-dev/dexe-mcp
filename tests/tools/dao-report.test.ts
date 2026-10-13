@@ -659,7 +659,7 @@ describe("dexe_dao_report — full report over a mocked stack", () => {
 
 describe("dexe_dao_report — structured payload is typed", () => {
   it("validates against the tool's declared outputSchema", async () => {
-    const { DAO_REPORT_OUTPUT_SHAPE } = await import("@dexe-network/dexe-mcp/core");
+    const { DAO_REPORT_OUTPUT_SHAPE } = await import("@dexe-network/dexe-mcp/testing");
     const schema = z.object(DAO_REPORT_OUTPUT_SHAPE);
     const res = await callReport(config({ statePath: statePath() }), { govPool: DAO });
     const parsed = schema.safeParse(res.structuredContent);
@@ -667,7 +667,7 @@ describe("dexe_dao_report — structured payload is typed", () => {
   });
 
   it("validates in the degraded and since-diff shapes too", async () => {
-    const { DAO_REPORT_OUTPUT_SHAPE } = await import("@dexe-network/dexe-mcp/core");
+    const { DAO_REPORT_OUTPUT_SHAPE } = await import("@dexe-network/dexe-mcp/testing");
     const schema = z.object(DAO_REPORT_OUTPUT_SHAPE);
 
     const degraded = await callReport(config({ subgraphs: {}, statePath: statePath() }), {
@@ -942,7 +942,7 @@ describe("dexe_dao_report — `since` returns what CHANGED", () => {
 
 describe("parseSince", () => {
   it("reads ISO-8601, Unix seconds, blocks and 'last'", async () => {
-    const { parseSince } = await import("@dexe-network/dexe-mcp/core");
+    const { parseSince } = await import("@dexe-network/dexe-mcp/testing");
     expect(parseSince("last")).toEqual({ kind: "lastRun" });
     expect(parseSince("2026-01-01T00:00:00Z")).toEqual({
       kind: "timestamp",
@@ -956,7 +956,7 @@ describe("parseSince", () => {
   });
 
   it("explains itself on garbage instead of silently defaulting", async () => {
-    const { parseSince } = await import("@dexe-network/dexe-mcp/core");
+    const { parseSince } = await import("@dexe-network/dexe-mcp/testing");
     const bad = parseSince("yesterday");
     expect(bad.kind).toBe("error");
     expect((bad as { message: string }).message).toContain("ISO-8601");

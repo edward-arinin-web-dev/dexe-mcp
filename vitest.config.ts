@@ -19,10 +19,12 @@ import { defineConfig } from "vitest/config";
 //     known-failure registry the write table is added to, the .env load state,
 //     provider caches); an externalized package is one Node module instance
 //     per worker, shared by every file that worker runs.
-//   - a test can stub what the package's own modules import (`ethers`, or one
-//     of its modules by path — tests/helpers/readPackage.ts). An import from
-//     @dexe-network/dexe-mcp/core is replaced by mocking that specifier; a call
-//     the package makes inside itself is only reachable this way.
+//   - a test can stub what the package's own modules import: `ethers`, or one
+//     of its modules by its dist path (vi.mock("../../node_modules/@dexe-network/
+//     dexe-mcp/dist/lib/multicall.js") in tests/tools/dao-report.test.ts and
+//     three others). An import from @dexe-network/dexe-mcp/core is replaced by
+//     mocking that specifier; a call the package makes inside itself is only
+//     reachable this way.
 export default defineConfig({
   test: {
     exclude: ["**/node_modules/**", "**/dist/**", ".claude/**", "**/.claude/worktrees/**"],

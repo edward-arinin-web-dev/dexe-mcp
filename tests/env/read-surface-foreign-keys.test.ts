@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadEnvFile, READ_ENV_SURFACE } from "@dexe-network/dexe-mcp/core";
+import { loadEnvFile } from "@dexe-network/dexe-mcp/core";
+import { READ_ENV_SURFACE } from "@dexe-network/dexe-mcp/testing";
 import { FULL_ENV_SURFACE } from "../../src/env/schema.js";
 
 /**

@@ -66,10 +66,10 @@ const READ_PACKAGE_ROOT = dirname(
 describe("read edition — static imports of the binary", () => {
   const specs = scanModule(loadSrcTree().get(ENTRY) ?? "").specifiers;
 
-  it("the shim imports no src module, only the read edition's entry points", () => {
+  it("the shim imports no src module, only the read edition's entry points and Node builtins", () => {
     expect(specs.length, `${ENTRY} is missing or imports nothing`).toBeGreaterThan(0);
     expect(specs.filter((s) => s.startsWith("."))).toEqual([]);
-    expect(specs.filter((s) => !s.startsWith("@dexe-network/dexe-mcp/"))).toEqual([]);
+    expect(specs.filter((s) => !s.startsWith("@dexe-network/dexe-mcp/") && !s.startsWith("node:"))).toEqual([]);
   });
 
   it("the read package needs only the read edition's packages", () => {

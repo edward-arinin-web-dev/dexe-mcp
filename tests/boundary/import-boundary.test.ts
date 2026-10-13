@@ -347,26 +347,36 @@ describe("the read edition is a dependency, not a copy", () => {
     expect(importers.length).toBeGreaterThan(40);
   });
 
-  it("a shim imports nothing but the read edition's entry points", () => {
+  it("a shim imports nothing but the read edition's entry points (and Node builtins)", () => {
     for (const f of MODULE_GROUPS.shim) {
       const specs = scanModule(tree.get(f)!).specifiers;
       expect(specs.filter((s) => s.startsWith(".")), `${f} imports a src module`).toEqual([]);
-      expect(specs.filter((s) => !(s in ENTRY_POINTS)), `${f} imports something besides the read edition`).toEqual([]);
+      expect(
+        specs.filter((s) => !(s in ENTRY_POINTS) && !s.startsWith("node:")),
+        `${f} imports something besides the read edition`,
+      ).toEqual([]);
       expect(specs, `${f} starts nothing`).toContain(`${READ_PACKAGE}/bin`);
     }
   });
 
-  it("the vendored tarball, when used, is the version package.json names", () => {
+  it("the dependency is pinned: the vendored tarball, or one EXACT published version", () => {
     // Until @dexe-network/dexe-mcp is on npm the dependency is a committed
     // tarball (vendor/); a stale or missing one would make CI install something
-    // else than what was tested here.
+    // else than what was tested here. Once it is on npm, the spec is an exact
+    // version, never a range: the write edition is checked (tools/list,
+    // doctor, bundle) against one read build, and a range would let an install
+    // pick up another one.
     const own = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8")) as { dependencies: Record<string, string> };
     const spec = own.dependencies[READ_PACKAGE]!;
     expect(spec).toBeDefined();
-    if (!spec.startsWith("file:")) return;
+    const installed = (JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")) as { version: string }).version;
+    if (!spec.startsWith("file:")) {
+      expect(spec, "an exact version, no ^ ~ >= or x").toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
+      expect(spec).toBe(installed);
+      return;
+    }
     const tarball = join(REPO, spec.slice("file:".length));
     expect(existsSync(tarball), `${spec} is not in the repo`).toBe(true);
-    const installed = (JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")) as { version: string }).version;
     expect(spec, "the tarball name and the installed version disagree — re-run npm install").toContain(`-${installed}.tgz`);
   });
 });

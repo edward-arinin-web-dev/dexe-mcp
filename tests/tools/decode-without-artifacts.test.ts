@@ -12,9 +12,9 @@ import {
   registerGovTools,
   RpcProvider,
   SelectorIndex,
-  type GovToolOptions,
   type ToolContext,
 } from "@dexe-network/dexe-mcp/core";
+import { type GovToolOptions } from "@dexe-network/dexe-mcp/testing";
 import { LOCAL_COMPILE_DECODE_HINT } from "../../src/tools/index.js";
 import type { DexeConfig } from "../../src/config.js";
 

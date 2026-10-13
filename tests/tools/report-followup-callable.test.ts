@@ -563,7 +563,7 @@ describe("dexe_dao_report — every degraded shape names callable tools", () => 
 
 describe("toolRef / toolsetHint", () => {
   it("annotates exactly the tools outside the default profile", async () => {
-    const { toolRef, toolsetHint } = await import("@dexe-network/dexe-mcp/core");
+    const { toolRef, toolsetHint } = await import("@dexe-network/dexe-mcp/testing");
     for (const tool of ALL_TOOLS) {
       const hint = toolsetHint(tool, SINGLE_SERVER_TOOLSETS);
       if (DEFAULT_PROFILE.has(tool)) {
@@ -584,7 +584,7 @@ describe("toolRef / toolsetHint", () => {
   });
 
   it("falls back to `full` for a name no named set carries", async () => {
-    const { toolsetHint } = await import("@dexe-network/dexe-mcp/core");
+    const { toolsetHint } = await import("@dexe-network/dexe-mcp/testing");
     expect(toolsetHint("dexe_not_a_real_tool", SINGLE_SERVER_TOOLSETS)).toBe("DEXE_TOOLSETS=full");
   });
 });

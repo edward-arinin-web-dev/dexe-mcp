@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { READ_TOOLS, WRITE_TOOLS } from "../../src/editions.js";
-import { readInstructions } from "@dexe-network/dexe-mcp/core";
+import { readInstructions } from "@dexe-network/dexe-mcp/testing";
 import { listReadEdition, type ReadEditionListing } from "../helpers/readEdition.js";
 import { listTools } from "../helpers/listTools.js";
 

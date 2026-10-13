@@ -50,6 +50,7 @@ import { FLOW_GUIDE_TEXT, activeFlowContext, registerKnowledgePrompts } from "./
 import { SINGLE_SERVER_KNOWLEDGE } from "../knowledge/index.js";
 import { registerMerkleTools } from "./merkle.js";
 import { registerOtcSaleTools, registerOtcBuyerTools } from "./otc.js";
+import { withVestingWithdrawAdvisory } from "./tokenSaleF15.js";
 import { registerSafeTools } from "./safe.js";
 import { registerSimulateTools } from "./simulate.js";
 import { SignerManager } from "../lib/signer.js";
@@ -186,9 +187,11 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   });
   registerKnowledgePrompts(server);
   // OTC: open sale, then the read-only position view (dexe_read_token_sale_position,
-  // kept out of otc.ts), then buy / claim all — the historical tools/list order.
+  // the read edition's), then buy / claim all — the historical tools/list order.
+  // This server attaches F15 (the stranded vested leg) to the position view's
+  // vested tiers, alias included (./tokenSaleF15.ts).
   registerOtcSaleTools(server, ctx, signer, wc, state);
-  registerTokenSaleReadTools(server, ctx);
+  registerTokenSaleReadTools(withVestingWithdrawAdvisory(server), ctx);
   registerOtcBuyerTools(server, ctx, signer, wc);
   registerSafeTools(server, ctx, signer);
   registerSimulateTools(server, ctx, signer);

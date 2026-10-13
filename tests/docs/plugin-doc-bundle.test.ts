@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 // @ts-expect-error -- plain .mjs helper shared with scripts/bundle-plugin.mjs
 import { rehostUpTreeLinks, repoBlobRoot } from "../../scripts/lib/doc-bundle.mjs";
-import { DOC_RESOURCES } from "@dexe-network/dexe-mcp/core";
+import { DOC_RESOURCES } from "@dexe-network/dexe-mcp/testing";
 
 /**
  * `dexe-plugin/docs/` backs the dexe://playbook, dexe://graph-schema and

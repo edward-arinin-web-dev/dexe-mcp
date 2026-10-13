@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { listTools, collectParams, type ParamEntry } from "../helpers/listTools.js";
-import { annotationsFor as annotationsIn } from "@dexe-network/dexe-mcp/core";
+import { annotationsFor as annotationsIn } from "@dexe-network/dexe-mcp/testing";
 import { SINGLE_SERVER_ANNOTATIONS } from "../../src/tools/annotationsWrite.js";
 import { FLOWS, TOPICS } from "../../src/knowledge/index.js";
 
