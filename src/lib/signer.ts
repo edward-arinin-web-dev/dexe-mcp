@@ -12,7 +12,7 @@ export {
   resolveSignerMode,
   signerDispatch,
   humanConfirms,
-  IMPLICIT_UNATTENDED_DEPRECATION,
+  UNSET_MODE_HOT_KEY_IGNORED,
   type SignerMode,
   type SignerModeSource,
 } from "./signerMode.js";
@@ -85,12 +85,13 @@ export class SignerManager {
 
   constructor(config: DexeConfig) {
     this.config = config;
-    // A config built by hand (tests, embedders) carries no mode: infer the
-    // pre-0.37 behaviour - keys sign unattended, no key means WalletConnect.
+    // A config built by hand (tests, embedders) carries no mode. A key handed
+    // over in code is that caller's explicit choice — unlike a key that merely
+    // sits in the environment, which the env loader never turns into a mode —
+    // so keys sign unattended; no key means WalletConnect.
     const hasHot = !!config.privateKey || Object.keys(config.agentKeys ?? {}).length > 0;
     this.mode = config.signerMode ?? (hasHot ? "unattended" : "walletconnect");
-    this.modeSource =
-      config.signerModeSource ?? (config.signerMode ? "explicit" : hasHot ? "implicit-hot-key" : "default");
+    this.modeSource = config.signerModeSource ?? (config.signerMode || hasHot ? "explicit" : "default");
     // Hot keys exist ONLY in unattended mode. The config loader already drops
     // them in every other mode; this is the second lock on the same door.
     this.key = this.mode === "unattended" ? config.privateKey : undefined;
@@ -102,7 +103,10 @@ export class SignerManager {
     registerLedgerSecrets([this.key, ...Object.values(this.agentKeys)]);
   }
 
-  /** The chains unattended mode may sign on; null = no fence (transitional implicit mode). */
+  /**
+   * The chains unattended mode may sign on. Always set by the env loader
+   * (default [97]); null = no fence only for a config built in code without it.
+   */
   get unattendedChains(): number[] | null {
     return this.mode === "unattended" ? (this.config.unattendedChains ?? null) : null;
   }

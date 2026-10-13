@@ -16,37 +16,37 @@ import { encryptPrivateKey, writeKeystoreFile } from "../../src/lib/keystore.js"
 import { signerModeChecks } from "../../src/diag/writeChecks.js";
 
 /**
- * 2c Phase A — one signer-mode resolver, the unattended chain fence, and the
- * 0.37 transition: an unset mode + a hot key still signs (implicit unattended,
- * no fence, deprecated); an EXPLICIT unattended mode is fenced to 97.
+ * 2c — one signer-mode resolver and the unattended chain fence. Since 1.0.0
+ * an unset mode never signs with a hot key (0.37 signed unattended then); only
+ * an EXPLICIT unattended mode reads hot keys, fenced to 97 by default.
  */
 const PK = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const ADDR = new Wallet(PK).address;
 
 describe("resolveSignerMode", () => {
-  const cases: Array<[string | undefined, boolean, string, string]> = [
-    [undefined, false, "walletconnect", "default"],
-    [undefined, true, "unattended", "implicit-hot-key"],
-    ["unattended", true, "unattended", "explicit"],
-    ["UNATTENDED", false, "unattended", "explicit"],
-    ["keystore", true, "keystore", "explicit"],
-    ["walletconnect", true, "walletconnect", "explicit"],
-    [" readonly ", true, "readonly", "explicit"],
+  const cases: Array<[string | undefined, string, string]> = [
+    [undefined, "walletconnect", "default"],
+    ["", "walletconnect", "default"],
+    ["unattended", "unattended", "explicit"],
+    ["UNATTENDED", "unattended", "explicit"],
+    ["keystore", "keystore", "explicit"],
+    ["walletconnect", "walletconnect", "explicit"],
+    [" readonly ", "readonly", "explicit"],
   ];
-  for (const [requested, hasHotKey, mode, source] of cases) {
-    it(`${JSON.stringify(requested)} + hotKey=${hasHotKey} → ${mode} (${source})`, () => {
-      expect(resolveSignerMode({ requested, hasHotKey, walletConnectConfigured: true })).toEqual({ mode, source });
+  for (const [requested, mode, source] of cases) {
+    it(`${JSON.stringify(requested)} → ${mode} (${source})`, () => {
+      expect(resolveSignerMode({ requested, walletConnectConfigured: true })).toEqual({ mode, source });
     });
   }
 
   it("a typo never widens to unattended", () => {
-    const r = resolveSignerMode({ requested: "keysotre", hasHotKey: true, walletConnectConfigured: true });
+    const r = resolveSignerMode({ requested: "keysotre", walletConnectConfigured: true });
     expect(r.mode).toBe("walletconnect");
     expect(r.invalid).toBe("keysotre");
   });
 
   it("no WalletConnect project → readonly default", () => {
-    expect(resolveSignerMode({ hasHotKey: false, walletConnectConfigured: false }).mode).toBe("readonly");
+    expect(resolveSignerMode({ walletConnectConfigured: false }).mode).toBe("readonly");
   });
 
   it("dispatch keeps the pre-0.37 labels", () => {
@@ -67,12 +67,10 @@ describe("unattended chain fence", () => {
     expect(parseUnattendedChains("97,abc")).toEqual({ invalid: "abc" });
   });
 
-  it("explicit unattended defaults to testnet only; the transitional implicit mode has no fence", () => {
+  it("defaults to testnet only, never to no fence", () => {
     expect(DEFAULT_UNATTENDED_CHAINS).toEqual([97]);
-    expect(unattendedChainFence("explicit", null)).toEqual([97]);
-    expect(unattendedChainFence("implicit-hot-key", null)).toBeNull();
-    expect(unattendedChainFence("implicit-hot-key", [97])).toEqual([97]);
-    expect(unattendedChainFence("explicit", [97, 56])).toEqual([97, 56]);
+    expect(unattendedChainFence(null)).toEqual([97]);
+    expect(unattendedChainFence([97, 56])).toEqual([97, 56]);
   });
 });
 
@@ -103,16 +101,19 @@ describe("SignerManager per mode", () => {
     await expect(fenced.signMessage("login")).rejects.toThrow(/unspecified chain/);
     const wide = new SignerManager(cfg({ privateKey: PK, signerMode: "unattended", signerModeSource: "explicit", unattendedChains: [97, 56] }));
     expect(await wide.signMessage("login", undefined, 56)).toMatch(/^0x[0-9a-f]{130}$/);
-    const implicitMode = new SignerManager(cfg({ privateKey: PK }));
-    expect(await implicitMode.signMessage("login", undefined, 56)).toMatch(/^0x/);
+    const inCode = new SignerManager(cfg({ privateKey: PK }));
+    expect(await inCode.signMessage("login", undefined, 56)).toMatch(/^0x/);
   });
 
-  it("implicit (transitional) unattended keeps today's behaviour: every chain", () => {
+  it("a config built in code with a key and no mode: the caller chose unattended, unfenced", () => {
     const s = new SignerManager(cfg({ privateKey: PK }));
     expect(s.mode).toBe("unattended");
-    expect(s.modeSource).toBe("implicit-hot-key");
+    expect(s.modeSource).toBe("explicit");
     expect(s.unattendedChains).toBeNull();
     expect(s.requireSigner(56).address).toBe(ADDR);
+    const none = new SignerManager(cfg({}));
+    expect(none.mode).toBe("walletconnect");
+    expect(none.modeSource).toBe("default");
   });
 
   it("walletconnect / readonly modes ignore a configured hot key", () => {
@@ -148,7 +149,7 @@ describe("SignerManager per mode", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The config loader: the transitional default and the explicit modes.
+// The config loader: the default with a hot key present, and the explicit modes.
 // ---------------------------------------------------------------------------
 
 const TOUCHED = [
@@ -201,26 +202,30 @@ describe("loadConfig — signer modes", () => {
     expect(c.unattendedChains).toBeNull();
   });
 
-  it("TRANSITION: unset mode + DEXE_PRIVATE_KEY → implicit unattended, key loaded, no fence, doctor warns", async () => {
+  it("unset mode + DEXE_PRIVATE_KEY → walletconnect, key NOT loaded, doctor fails with the three ways out", async () => {
     process.env.DEXE_PRIVATE_KEY = PK;
     const c = await loadConfig();
-    expect(c.signerMode).toBe("unattended");
-    expect(c.signerModeSource).toBe("implicit-hot-key");
-    expect(c.privateKey).toBe(PK);
+    expect(c.signerMode).toBe("walletconnect");
+    expect(c.signerModeSource).toBe("default");
+    expect(c.privateKey).toBeUndefined();
     expect(c.unattendedChains).toBeNull();
-    expect(c.startupIssues).toEqual([]); // not a broken value — a deprecation
+    expect(new SignerManager(c).hasSigner()).toBe(false);
     const rows = signerModeChecks(c, process.env);
-    const mode = rows.find((r) => r.id === "signer.mode")!;
-    expect(mode.status).toBe("warn");
-    expect(mode.message).toMatch(/DEPRECATED/);
-    expect(mode.remediation).toMatch(/key import --from-env/);
+    expect(rows.find((r) => r.id === "signer.mode")?.status).toBe("pass");
+    const ignored = rows.find((r) => r.id === "signer.hotKeyIgnored")!;
+    expect(ignored.status).toBe("fail");
+    expect(ignored.message).toMatch(/DEXE_PRIVATE_KEY: .*IGNORED.*since dexe-mcp 1\.0\.0/);
+    expect(ignored.remediation).toMatch(/DEXE_SIGNER_MODE=unattended/);
+    expect(ignored.remediation).toMatch(/key import --from-env/);
+    expect(ignored.remediation).toMatch(/dexe_wc_connect/);
   });
 
-  it("TRANSITION: swarm aliases alone (AGENT_PK_n) also resolve implicit unattended", async () => {
+  it("unset mode + swarm aliases alone (AGENT_PK_n) → no keyring either", async () => {
     process.env.AGENT_PK_1 = PK;
     const c = await loadConfig();
-    expect(c.signerMode).toBe("unattended");
-    expect(Object.keys(c.agentKeys)).toEqual(["agent1"]);
+    expect(c.signerMode).toBe("walletconnect");
+    expect(c.agentKeys).toEqual({});
+    expect(signerModeChecks(c, process.env).find((r) => r.id === "signer.hotKeyIgnored")?.status).toBe("fail");
   });
 
   it("explicit unattended → fenced to 97; DEXE_UNATTENDED_CHAINS widens it deliberately", async () => {
@@ -233,8 +238,9 @@ describe("loadConfig — signer modes", () => {
     expect(signerModeChecks(c, process.env).some((r) => r.id === "signer.unattendedMainnet")).toBe(true);
   });
 
-  it("a malformed DEXE_UNATTENDED_CHAINS fails closed to 97, even in the implicit mode", async () => {
+  it("a malformed DEXE_UNATTENDED_CHAINS fails closed to 97", async () => {
     process.env.DEXE_PRIVATE_KEY = PK;
+    process.env.DEXE_SIGNER_MODE = "unattended";
     process.env.DEXE_UNATTENDED_CHAINS = "97;56";
     const c = await loadConfig();
     expect(c.unattendedChains).toEqual([97]);

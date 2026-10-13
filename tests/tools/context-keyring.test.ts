@@ -34,6 +34,7 @@ const PK_FUNDER = "0x00000000000000000000000000000000000000000000000000000000000
 const ADDR = (pk: string) => new Wallet(pk).address;
 
 const ENV_KEYS = [
+  "DEXE_SIGNER_MODE",
   "DEXE_PRIVATE_KEY",
   "DEXE_AGENT_PK_1",
   "DEXE_AGENT_PK_2",
@@ -61,6 +62,8 @@ function scratch(): string {
   dirs.push(dir);
   process.env.DEXE_STATE_PATH = join(dir, "state.json");
   process.env.DEXE_AGENT_LEDGER_PATH = join(dir, "ledger.json");
+  // The keyring is an unattended-mode feature: hot keys load only when the mode says so.
+  process.env.DEXE_SIGNER_MODE = "unattended";
   __resetAgentLedgerCache();
   return dir;
 }

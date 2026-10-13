@@ -6,6 +6,41 @@ something on your side.
 
 ---
 
+## 0.37.1 → 1.0.0 — read this if you sign with DEXE_PRIVATE_KEY or the agent keyring
+
+Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
+
+1. **A hot key alone no longer signs.** If your `.env` (or MCP host `env`
+   block) sets `DEXE_PRIVATE_KEY` or `DEXE_AGENT_PK_*` / `AGENT_PK_*` and does
+   NOT set `DEXE_SIGNER_MODE`, 1.0 ignores the key and falls back to
+   WalletConnect; `dexe_doctor` fails `signer.hotKeyIgnored`. Pick one and
+   restart:
+
+   ```bash
+   # a) bots / CI — keep signing with the hot key, fenced to testnet:
+   DEXE_SIGNER_MODE=unattended
+   DEXE_UNATTENDED_CHAINS=97          # add 56 deliberately for mainnet, with
+                                      # DEXE_SIGNER_ALLOWLIST + DEXE_SIGNER_MAX_VALUE_WEI
+
+   # b) a person at the keyboard — encrypt the key, approve each batch:
+   npx dexe-mcp key import --from-env # sets DEXE_SIGNER_MODE=keystore
+
+   # c) the phone: delete the key lines and run dexe_wc_connect
+   ```
+
+   If you already set `DEXE_SIGNER_MODE` in 0.37, nothing changes for you.
+
+2. **Mainnet unattended needs `56` in `DEXE_UNATTENDED_CHAINS`.** An implicit
+   0.37 setup signed on every chain; the explicit mode signs only on the listed
+   chains (default `97`).
+
+3. **Code that reads `dexe_write_context`:** `signer.deprecation` is gone;
+   `signer.hotKeyIgnored` (a sentence) appears when a hot key is set without a
+   mode. **Code that imports `src/lib/signerMode`:** see the CHANGELOG
+   "Library" line.
+
+---
+
 ## 0.37.0 → 0.37.1 — no action
 
 Wording fixes, plus `serve-http` now drains on a SIGINT/SIGTERM that arrives

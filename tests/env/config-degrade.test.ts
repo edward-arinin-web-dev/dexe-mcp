@@ -22,6 +22,7 @@ const TOUCHED = [
   "DEXE_SIGNER_ALLOWLIST",
   "DEXE_SIGNER_MAX_VALUE_WEI",
   "DEXE_SIGNER_MAX_BROADCASTS_PER_MIN",
+  "DEXE_SIGNER_MODE",
   "DEXE_PRIVATE_KEY",
   "DEXE_RPC_URL",
   "DEXE_RPC_URL_MAINNET",
@@ -35,6 +36,9 @@ beforeEach(() => {
     saved.set(k, process.env[k]);
     delete process.env[k];
   }
+  // The hot-key paths below exist only in unattended mode; without it the key
+  // is never read and every "signing disabled" assertion would pass vacuously.
+  process.env.DEXE_SIGNER_MODE = "unattended";
 });
 afterEach(() => {
   for (const [k, v] of saved) {

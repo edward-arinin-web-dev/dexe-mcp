@@ -388,10 +388,10 @@ Deep dive: [`WALLETCONNECT.md`](./WALLETCONNECT.md).
   than hanging.
 - `dexe_wc_status` reports the live session; `dexe_wc_disconnect` ends it.
   Sessions are in-memory — re-scan after an MCP server restart.
-- Precedence: a configured `DEXE_PRIVATE_KEY` wins over a WalletConnect
-  session until removed.
+- Precedence: `DEXE_SIGNER_MODE` decides. A `DEXE_PRIVATE_KEY` signs only in
+  `unattended` mode; in every other mode (and with the mode unset) it is ignored.
 
-**Hot key mode** (`DEXE_PRIVATE_KEY` in `.env`) is opt-in and flagged
+**Hot key mode** (`DEXE_SIGNER_MODE=unattended` + `DEXE_PRIVATE_KEY` in `.env`) is opt-in and flagged
 **NOT SAFE** throughout: the key lives in plaintext on disk and in process
 memory. Use a throwaway wallet, never a treasury key.
 

@@ -6,7 +6,7 @@ import { ENV_SPEC } from "./env/schema.js";
 import { safeErrorMessage } from "./lib/redact.js";
 import { resolveTreasuryGuardMode, type TreasuryGuardMode } from "./lib/treasuryGate.js";
 import {
-  IMPLICIT_UNATTENDED_DEPRECATION,
+  UNSET_MODE_HOT_KEY_IGNORED,
   parseUnattendedChains,
   resolveSignerMode,
   unattendedChainFence,
@@ -128,9 +128,13 @@ export interface WriteConfig extends ReadConfig, DevConfig {
    * (`privateKey`, `agentKeys` are empty in every other mode).
    */
   signerMode?: SignerMode;
-  /** explicit (DEXE_SIGNER_MODE set) | implicit-hot-key (transitional, deprecated) | default. */
+  /** explicit (DEXE_SIGNER_MODE set) | default (unset or invalid). */
   signerModeSource?: SignerModeSource;
-  /** Chains unattended signing is allowed on; null = no fence (transitional implicit mode only). */
+  /**
+   * Chains unattended signing is allowed on. The env loader always sets it in
+   * unattended mode (default [97]) and null otherwise; only a config built in
+   * code that leaves it out is unfenced.
+   */
   unattendedChains?: number[] | null;
   /** keystore mode: the selected keystore file and the address it holds. */
   keystore?: { file: string; address: string };
@@ -264,15 +268,13 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
 
   // ---- signer mode (0.37.0) ------------------------------------------------
   // Decided ONCE, here, before any key is read: only `unattended` loads hot
-  // keys. An invalid DEXE_SIGNER_MODE was already rejected by the ENV_SPEC
-  // pass above (deleted + startup issue). It must not resolve as "unset" —
-  // with a hot key present that would be the implicit unattended default, so
-  // a typo of `keystore` would sign unattended. It resolves to WalletConnect.
+  // keys, and only when DEXE_SIGNER_MODE says so — a hot key in the
+  // environment never picks the mode (it did, implicitly, before 1.0.0). An
+  // invalid DEXE_SIGNER_MODE was already rejected by the ENV_SPEC pass above
+  // (deleted + startup issue) and resolves to WalletConnect.
   const hotKeyVars = hotKeyEnvNames(process.env);
   const modeRes = resolveSignerMode({
     requested: process.env.DEXE_SIGNER_MODE,
-    // A rejected (malformed) mode must not fall through to the implicit hot-key default.
-    hasHotKey: hotKeyVars.length > 0 && !rejected.includes("DEXE_SIGNER_MODE"),
     // The shared default project id makes WalletConnect available on every install.
     walletConnectConfigured: true,
   });
@@ -280,9 +282,11 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
   const signerModeSource: SignerModeSource = modeRes.source;
   if (signerMode !== "unattended" && hotKeyVars.length > 0) {
     process.stderr.write(
-      `[dexe-mcp] ${hotKeyVars.join(", ")} ${hotKeyVars.length === 1 ? "is" : "are"} IGNORED: DEXE_SIGNER_MODE=${signerMode} ` +
-        "never signs with a hot key. Move the key into the encrypted keystore with `dexe-mcp key import --from-env` " +
-        "(it removes the plaintext line), or set DEXE_SIGNER_MODE=unattended to sign with it unattended.\n",
+      signerModeSource === "default" && !rejected.includes("DEXE_SIGNER_MODE")
+        ? `[dexe-mcp] ⚠️ ${hotKeyVars.join(", ")}: ${UNSET_MODE_HOT_KEY_IGNORED}\n`
+        : `[dexe-mcp] ${hotKeyVars.join(", ")} ${hotKeyVars.length === 1 ? "is" : "are"} IGNORED: DEXE_SIGNER_MODE=${signerMode} ` +
+            "never signs with a hot key. Move the key into the encrypted keystore with `dexe-mcp key import --from-env` " +
+            "(it removes the plaintext line), or set DEXE_SIGNER_MODE=unattended to sign with it unattended.\n",
     );
   }
 
@@ -497,17 +501,13 @@ export async function loadWriteConfig(): Promise<WriteConfig> {
       ? null
       : fenceRejected
         ? [97]
-        : unattendedChainFence(signerModeSource, Array.isArray(parsedChains) ? parsedChains : null);
+        : unattendedChainFence(Array.isArray(parsedChains) ? parsedChains : null);
   if (signerMode === "unattended" && (privateKey || Object.keys(agentKeys).length > 0)) {
-    if (signerModeSource === "implicit-hot-key") {
-      process.stderr.write(`[dexe-mcp] ⚠️ ${IMPLICIT_UNATTENDED_DEPRECATION}\n`);
-    } else {
-      process.stderr.write(
-        `[dexe-mcp] signer mode: unattended — hot keys sign with NO human confirmation, on chain(s) ${
-          unattendedChains?.join(", ") ?? "any"
-        } only (DEXE_UNATTENDED_CHAINS).\n`,
-      );
-    }
+    process.stderr.write(
+      `[dexe-mcp] signer mode: unattended — hot keys sign with NO human confirmation, on chain(s) ${
+        unattendedChains?.join(", ") ?? "any"
+      } only (DEXE_UNATTENDED_CHAINS).\n`,
+    );
   }
 
   // ---- keystore mode (0.37.0) ----------------------------------------------

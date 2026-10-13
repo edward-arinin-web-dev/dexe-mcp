@@ -476,8 +476,10 @@ Sets are additive and may overlap; `dexe_context` reports which are off and what
 1. **WalletConnect (recommended)** — zero config: any write (or `dexe_wc_connect`)
    prints a QR; scan with a mobile wallet (MetaMask/Trust/SafePal), approve each tx
    on the phone. Keys never touch this machine.
-2. **Hot key (NOT SAFE — throwaway wallets only)** — `DEXE_PRIVATE_KEY=0x…` in `.env`
-   + restart. Plaintext on disk; never a treasury or personal key.
+2. **Hot key (NOT SAFE — throwaway wallets only)** — `DEXE_SIGNER_MODE=unattended`
+   + `DEXE_PRIVATE_KEY=0x…` in `.env` + restart (signs only on
+   `DEXE_UNATTENDED_CHAINS`, default 97; without the mode the key is ignored).
+   Plaintext on disk; never a treasury or personal key.
 3. **Gas**: the signer needs BNB on the target chain. Testnet 97 faucet:
    https://www.bnbchain.org/en/testnet-faucet (alt: https://faucet.quicknode.com/binance-smart-chain/bnb-testnet).
    Mainnet fees are cents (~0.1 gwei), not Ethereum-scale.

@@ -17,11 +17,10 @@
  *   unattended     hot keys (DEXE_PRIVATE_KEY, the agent keyring). Nobody
  *                  confirms anything. The ONLY mode that reads hot keys.
  *
- * Transitional rule (0.37.x, removed in the next major): with
- * `DEXE_SIGNER_MODE` unset and a hot key present, the mode is `unattended`
- * IMPLICITLY — today's behaviour, chain fence off — and every surface says it
- * is deprecated. Set `DEXE_SIGNER_MODE=unattended` to keep it (fenced to
- * `DEXE_UNATTENDED_CHAINS`, default 97), or move the key into the keystore.
+ * An unset `DEXE_SIGNER_MODE` never signs with a hot key (since 1.0.0; 0.37.x
+ * signed unattended implicitly when one was present). A hot key is read only
+ * after an explicit `DEXE_SIGNER_MODE=unattended`, and then only on
+ * `DEXE_UNATTENDED_CHAINS` (default 97).
  *
  * Pure: no env reads, no I/O. Inputs in, decision out — so it can be tested
  * exhaustively and called from the config loader before anything else exists.
@@ -32,11 +31,11 @@ export type SignerMode = (typeof SIGNER_MODES)[number];
 
 /**
  * Where the mode came from:
- *   explicit          DEXE_SIGNER_MODE was set (and valid)
- *   implicit-hot-key  unset, but a hot key is present → unattended (deprecated)
- *   default           unset, no hot key → walletconnect (or readonly without a WC project id)
+ *   explicit  DEXE_SIGNER_MODE was set (and valid)
+ *   default   unset or invalid → walletconnect (or readonly without a WC project
+ *             id), whether or not a hot key is present
  */
-export type SignerModeSource = "explicit" | "implicit-hot-key" | "default";
+export type SignerModeSource = "explicit" | "default";
 
 export interface SignerModeResolution {
   mode: SignerMode;
@@ -48,8 +47,6 @@ export interface SignerModeResolution {
 export interface SignerModeInputs {
   /** Raw `DEXE_SIGNER_MODE`, untrimmed. */
   requested?: string;
-  /** Any hot key configured: DEXE_PRIVATE_KEY or any keyring slot (DEXE_AGENT_PK_* / AGENT_PK_* / funder). */
-  hasHotKey: boolean;
   /** A WalletConnect project id is available (the shared default counts). */
   walletConnectConfigured: boolean;
 }
@@ -65,10 +62,10 @@ export function resolveSignerMode(inputs: SignerModeInputs): SignerModeResolutio
     const norm = raw.toLowerCase();
     if (isSignerMode(norm)) return { mode: norm, source: "explicit" };
     // A typo must never widen what signs: an unrecognized value falls to the
-    // default for a session WITHOUT a hot key — never to `unattended`.
+    // default — never to `unattended`.
     return { mode: inputs.walletConnectConfigured ? "walletconnect" : "readonly", source: "default", invalid: raw };
   }
-  if (inputs.hasHotKey) return { mode: "unattended", source: "implicit-hot-key" };
+  // No hot-key branch: a key in the environment is not a choice of mode.
   return { mode: inputs.walletConnectConfigured ? "walletconnect" : "readonly", source: "default" };
 }
 
@@ -92,32 +89,24 @@ export function parseUnattendedChains(raw: string | undefined): number[] | null 
 }
 
 /**
- * The chain fence for unattended signing, or null for "no fence".
- *
- *   - `DEXE_UNATTENDED_CHAINS` set → exactly those chains, whatever the source.
- *   - explicit `DEXE_SIGNER_MODE=unattended` → the default fence (97).
- *   - implicit (transitional) unattended → null: today's behaviour, every
- *     configured chain. The next major removes this branch.
+ * The chain fence for unattended signing: `DEXE_UNATTENDED_CHAINS` when set,
+ * else the default (97). Never "no fence".
  */
-export function unattendedChainFence(
-  source: SignerModeSource,
-  configured: number[] | null,
-): number[] | null {
-  if (configured) return configured;
-  if (source === "explicit") return [...DEFAULT_UNATTENDED_CHAINS];
-  return null;
+export function unattendedChainFence(configured: number[] | null): number[] {
+  return configured ? [...configured] : [...DEFAULT_UNATTENDED_CHAINS];
 }
 
 /**
- * The deprecation sentence for the implicit hot-key default. One string: the
+ * Said when a hot key is present but `DEXE_SIGNER_MODE` is unset — the setup
+ * that signed unattended before 1.0.0 and does not any more. One string: the
  * startup banner, dexe_doctor and dexe_write_context all print it.
  */
-export const IMPLICIT_UNATTENDED_DEPRECATION =
-  "DEPRECATED: a hot key is set but DEXE_SIGNER_MODE is not, so this server signs UNATTENDED (no human " +
-  "confirmation) by implicit default. Set DEXE_SIGNER_MODE=unattended explicitly (then it signs only on " +
-  "DEXE_UNATTENDED_CHAINS, default 97), or move the key into an encrypted keystore with " +
-  "`dexe-mcp key import --from-env` and set DEXE_SIGNER_MODE=keystore. The implicit default flips in the next " +
-  "major: an unset mode will no longer sign with a hot key.";
+export const UNSET_MODE_HOT_KEY_IGNORED =
+  "A hot key is set but DEXE_SIGNER_MODE is not, so the key is IGNORED: since dexe-mcp 1.0.0 an unset mode " +
+  "never signs with a hot key (0.37 and earlier signed unattended by default). To sign with it unattended, set " +
+  "DEXE_SIGNER_MODE=unattended (it then signs only on DEXE_UNATTENDED_CHAINS, default 97); to approve every " +
+  "batch yourself, run `dexe-mcp key import --from-env` (encrypts the key, removes the plaintext line, sets " +
+  "DEXE_SIGNER_MODE=keystore); or delete the key and connect a wallet with dexe_wc_connect.";
 
 /**
  * The legacy dispatch label `dexe_write_context` / `dexe_wc_status` reported

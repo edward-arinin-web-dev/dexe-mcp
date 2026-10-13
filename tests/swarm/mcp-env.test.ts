@@ -4,8 +4,8 @@ import { resolveSignerMode, unattendedChainFence } from "../../src/lib/signerMod
 
 /**
  * 0.37.0 — the swarm fleet signs with hot keys, so its MCP child must say
- * `DEXE_SIGNER_MODE=unattended` explicitly (not lean on the deprecated
- * implicit default) and fence itself to the run's chain.
+ * `DEXE_SIGNER_MODE=unattended` explicitly (since 1.0.0 a hot key with no mode
+ * signs nothing) and fence itself to the run's chain.
  */
 describe("swarm MCP child env", () => {
   it("is explicit unattended, fenced to the run's chain, full toolset", () => {
@@ -32,8 +32,8 @@ describe("swarm MCP child env", () => {
 
   it("the server reads that env as explicit, fenced unattended", () => {
     const env = mcpChildEnv({}, { primary: "0x1", chainId: 97 });
-    const r = resolveSignerMode({ requested: env.DEXE_SIGNER_MODE, hasHotKey: true, walletConnectConfigured: true });
+    const r = resolveSignerMode({ requested: env.DEXE_SIGNER_MODE, walletConnectConfigured: true });
     expect(r).toEqual({ mode: "unattended", source: "explicit" });
-    expect(unattendedChainFence(r.source, [Number(env.DEXE_UNATTENDED_CHAINS)])).toEqual([97]);
+    expect(unattendedChainFence([Number(env.DEXE_UNATTENDED_CHAINS)])).toEqual([97]);
   });
 });

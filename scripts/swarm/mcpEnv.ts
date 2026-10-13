@@ -4,9 +4,8 @@
  * Since 0.37.0 the server signs with hot keys only in
  * `DEXE_SIGNER_MODE=unattended`, and an explicit unattended mode signs only on
  * `DEXE_UNATTENDED_CHAINS`. The swarm IS an unattended fleet, on exactly one
- * chain per run — so it says both explicitly instead of leaning on the
- * deprecated implicit default (a hot key with no mode), which the next major
- * removes. The fence is the run's own chain: a scenario that drifts to another
+ * chain per run — so it says both explicitly (since 1.0.0 a hot key with no
+ * mode signs nothing). The fence is the run's own chain: a scenario that drifts to another
  * chain is refused by the server, not just by the allowlist guards here.
  */
 export function mcpChildEnv(
