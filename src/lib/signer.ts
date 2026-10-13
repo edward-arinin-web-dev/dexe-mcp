@@ -7,6 +7,7 @@ import { safeErrorMessage } from "./redact.js";
 import { attachBroadcastRecorder, registerLedgerSecrets } from "./agentLedger.js";
 import { DEFAULT_UNATTENDED_CHAINS, type SignerMode, type SignerModeSource } from "./signerMode.js";
 import { ApprovalManager } from "./approval/index.js";
+import { defaultRunDir } from "./approval/rendezvous.js";
 
 export {
   resolveSignerMode,
@@ -47,11 +48,16 @@ export class SignerModeRefusal extends Error {
   }
 }
 
-/** One message for "keystore mode does not do this yet" (Safe typed data, EIP-191). */
+/**
+ * Why a raw message / typed-data signing path refuses in keystore mode. The
+ * keystore signs a message or a Safe transaction only through an approval
+ * (dexe_auth_login, dexe_safe_propose_tx — the owner approves the exact bytes
+ * on the page or with `dexe-mcp approve`); nothing else may sign with it.
+ */
 export const KEYSTORE_NO_MESSAGE_SIGNING =
-  "Keystore mode signs transactions only (each batch approved on the local page). Message and typed-data " +
-  "signatures (off-chain login, Safe transactions) are not supported in keystore mode yet - connect a phone " +
-  "wallet with dexe_wc_connect for this step, or take the unsigned payload and sign it in your own wallet.";
+  "Keystore mode signs a message or typed data only through an owner approval of the exact bytes (dexe_auth_login " +
+  "and dexe_safe_propose_tx ask for one); this path cannot. Use one of those tools, connect a phone wallet with " +
+  "dexe_wc_connect, or take the unsigned payload and sign it in your own wallet.";
 
 /**
  * Signer registry. The primary key (`DEXE_PRIVATE_KEY`) is the default; the
@@ -133,6 +139,8 @@ export class SignerManager {
         connect: (pk, chainId) => this.walletFor(pk, chainId, "keystore"),
         lock: (chainId, task) => this.withBroadcastLock(chainId, task, ks.address),
         log: (line) => void process.stderr.write(`${line}\n`),
+        // `dexe-mcp approve`: an owner-only rendezvous in ~/.dexe-mcp/run.
+        terminal: { runDir: defaultRunDir() },
       });
     }
     return this.approvalManager;
@@ -254,7 +262,8 @@ export class SignerManager {
       throw new SignerModeRefusal(
         "Keystore mode signs only through an approved batch (dexe_tx_send and the composites ask the owner on a " +
           "local approval page). Nothing on this path may sign with the keystore.",
-        "Use dexe_tx_send or a composite; for message / Safe signatures connect WalletConnect (dexe_wc_connect).",
+        "Use dexe_tx_send or a composite; for a login or a Safe signature use dexe_auth_login / dexe_safe_propose_tx " +
+          "(the owner approves the exact bytes), or connect WalletConnect (dexe_wc_connect).",
       );
     }
     const key = this.resolveKey(signerKey);

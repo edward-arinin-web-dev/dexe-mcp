@@ -1,6 +1,9 @@
 import type { ApprovalRecord } from "./store.js";
-import type { DecodedView, ReviewStep } from "./review.js";
+import type { DecodedView, ReviewStep, RiskFlag } from "./review.js";
 import { chainLabel, isMainnet } from "./review.js";
+import type { MessageReview, MessageSegment } from "./signing.js";
+import type { SafeReview } from "./safeReview.js";
+import { describeSafeTxRefund, safeTxRefundFields } from "../ethersProvider.js";
 
 /**
  * ── The approval page ──────────────────────────────────────────────────────
@@ -49,6 +52,9 @@ button{font-size:15px;font-weight:600;padding:10px 18px;border-radius:8px;border
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button:disabled{opacity:.5;cursor:default}
 #msg{margin-top:10px;font-weight:600}.ok{color:var(--ok)}.bad{color:var(--danger)}
+pre.message{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;margin:8px 0;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:14px;max-height:420px;overflow:auto}
+.mk{background:var(--danger-bg);color:var(--danger);border-radius:4px;padding:0 3px;font-weight:700}
+details summary{cursor:pointer;color:var(--muted)}
 `;
 
 function renderDecoded(d: DecodedView): string {
@@ -63,10 +69,19 @@ function renderDecoded(d: DecodedView): string {
   return `<div><code>${esc(d.contract ? `${d.contract}.` : "")}${esc(d.signature)}</code>${args}${nested}</div>`;
 }
 
-function renderStep(s: ReviewStep, total: number): string {
-  const risks = s.risks.map((r) => `<div class="risk r-${r.level}">${esc(r.text)}</div>`).join("");
+function renderRisks(risks: readonly RiskFlag[]): string {
+  // Danger first, then warnings, then notes — the eye lands on what matters.
+  const order = { danger: 0, warn: 1, info: 2 } as const;
+  return [...risks]
+    .sort((a, b) => order[a.level] - order[b.level])
+    .map((r) => `<div class="risk r-${r.level}">${r.level === "danger" ? "DANGER — " : ""}${esc(r.text)}</div>`)
+    .join("");
+}
+
+function renderStep(s: ReviewStep, total: number, title?: string): string {
+  const risks = renderRisks(s.risks);
   return `<section class="card step">
-<h2>Transaction ${s.index + 1} of ${total}</h2>
+<h2>${title ? esc(title) : `Transaction ${s.index + 1} of ${total}`}</h2>
 <div class="grid">
 <div class="k">To</div><div><code>${esc(s.to)}</code><br><span>${esc(s.toLabel)}</span></div>
 <div class="k">Value</div><div>${esc(s.valueHuman)}</div>
@@ -84,11 +99,81 @@ export interface PageOptions {
   approvePath: string;
   declinePath: string;
   statusPath: string;
+  /** The terminal channel is up: mention `npx dexe-mcp approve`. */
+  terminal?: boolean;
 }
+
+function renderSegments(segments: readonly MessageSegment[]): string {
+  return segments.map((s) => (s.t === "text" ? esc(s.v) : `<span class="mk">⟨${esc(s.v)}⟩</span>`)).join("");
+}
+
+/** The message card: the exact text (or hex), its size, hash and every flag. */
+function renderMessage(m: MessageReview): string {
+  const body =
+    m.encoding === "utf8" && m.segments
+      ? `<pre class="message">${renderSegments(m.segments)}</pre>`
+      : `<pre class="message">${esc(m.hex)}</pre>`;
+  return `<section class="card step">
+<h2>The message</h2>
+<div class="grid">
+<div class="k">For</div><div>${esc(m.purpose)} <span class="note">(stated by this server)</span></div>
+<div class="k">Size</div><div>${esc(m.byteLength)} bytes · ${m.encoding === "utf8" ? "UTF-8 text, shown in full" : "binary — shown as hex"}</div>
+</div>
+${body}
+<div class="note">Characters that could hide or reorder text are shown as <span class="mk">⟨U+…⟩</span>; a line break is a real line break.</div>
+${m.encoding === "utf8" ? `<details><summary>Raw bytes (hex)</summary><pre class="message">${esc(m.hex)}</pre></details>` : ""}
+<div class="grid"><div class="k">EIP-191 hash</div><div><code>${esc(m.eip191Hash)}</code></div></div>
+${renderRisks(m.risks)}
+<div class="risk r-info">A message signature sends nothing on-chain by itself, but whoever receives it can present it as you to the service it is for.</div>
+</section>`;
+}
+
+/** The Safe card: what was verified on-chain about the Safe, and the SafeTx fields. */
+function renderSafe(s: SafeReview, chainId: number): string {
+  const ms = s.multiSend?.length
+    ? `<div class="nested"><div class="note">The MultiSend runs ${s.multiSend.length} call(s), in order:</div><ul class="args">${s.multiSend
+        .map(
+          (c, k) =>
+            `<li>${k + 1}. ${c.operation === 1 ? '<span class="mk">DELEGATECALL</span>' : "CALL"} <code>${esc(c.to)}</code> · value ${esc(c.value)} wei · ${
+              c.decoded ? renderDecoded(c.decoded) : `<span class="bad">${c.dataBytes ? "not decodable" : "no calldata"}</span> ${c.selector ? `<code>${esc(c.selector)}</code>` : ""}`
+            }</li>`,
+        )
+        .join("")}</ul></div>`
+    : "";
+  // Every signed gas field, always — a refund hides in baseGas × gasPrice.
+  const refundFields = safeTxRefundFields(s);
+  const gas =
+    `safeTxGas ${esc(s.safeTxGas)} · baseGas ${esc(s.baseGas)} · gasPrice ${esc(s.gasPrice)}<br>` +
+    `gasToken <code>${esc(s.gasToken)}</code> · refundReceiver <code>${esc(s.refundReceiver)}</code>` +
+    (refundFields.length
+      ? `<div class="bad">${esc(describeSafeTxRefund(s) ?? `non-zero refund fields: ${refundFields.join(", ")}`)}</div>`
+      : `<div class="note">no gas refund: the Safe pays nothing to whoever executes it</div>`);
+  return `<section class="card step">
+<h2>The Safe</h2>
+<div class="grid">
+<div class="k">Safe</div><div><code>${esc(s.safe)}</code><br><span>${s.singletonLabel ? esc(s.singletonLabel) : '<span class="bad">implementation not recognised</span>'} · reports version ${esc(s.version)}</span></div>
+<div class="k">Owners</div><div>threshold ${esc(s.threshold)} of ${esc(s.ownerCount)} · you are an owner (checked on-chain)</div>
+<div class="k">Operation</div><div>${s.operation === 1 ? '<span class="mk">DELEGATECALL (1)</span>' : "CALL (0)"}</div>
+<div class="k">Nonce</div><div>${esc(s.nonce)} <span class="note">(the Safe's next nonce is ${esc(s.currentNonce)})</span></div>
+<div class="k">Gas fields</div><div>${gas}</div>
+<div class="k">safeTxHash</div><div><code>${esc(s.safeTxHash ?? "")}</code><div class="note">EIP-712 domain: chain ${esc(chainId)}, verifyingContract = this Safe. Compare with the hash your other owners see.</div></div>
+</div>
+${ms}
+${renderRisks(s.risks)}
+<div class="risk r-info">This signs only; nothing is sent on-chain now. Once ${esc(s.threshold)} owner(s) have signed, anyone can execute it.</div>
+</section>`;
+}
+
+const HEADINGS = {
+  "tx-batch": (n: number) => `Approve ${n} transaction${n === 1 ? "" : "s"}`,
+  message: () => "Sign a message",
+  safeTx: () => "Sign a Safe transaction",
+} as const;
 
 export function renderApprovalPage(r: ApprovalRecord, o: PageOptions): string {
   const mainnet = isMainnet(r.chainId);
   const expiresIn = Math.max(0, Math.round((r.expiresAt - Date.now()) / 60_000));
+  const heading = HEADINGS[r.kind](r.steps.length);
   const resume = r.resumeNote?.length
     ? `<section class="card"><strong>Earlier in this flow</strong><div class="note">These already landed on-chain before a failure and are NOT part of this approval:</div><ul class="args">${r.resumeNote
         .map((l) => `<li>${esc(l.label)} — <code>${esc(l.txHash)}</code></li>`)
@@ -100,26 +185,49 @@ export function renderApprovalPage(r: ApprovalRecord, o: PageOptions): string {
       : r.prechecks.simulation === "unavailable"
         ? "simulation unavailable (RPC) — retried at send time"
         : "not simulated";
+  const network =
+    r.kind === "message"
+      ? `<div class="k">Network</div><div>a message signature carries no chain id; this one is for an account on ${esc(chainLabel(r.chainId))}</div>`
+      : `<div class="k">Network</div><div><span class="badge ${mainnet ? "b-main" : "b-test"}">${mainnet ? "MAINNET" : "testnet"}</span>${esc(chainLabel(r.chainId))}</div>`;
+  const checks =
+    r.kind === "tx-batch"
+      ? `<div class="k">Checks</div><div>allowlist / value cap / wrong-chain / denylist passed · ${esc(sim)}${r.prechecks.simulationNote ? `<div class="note">${esc(r.prechecks.simulationNote)}</div>` : ""}</div>`
+      : r.kind === "safeTx"
+        ? `<div class="k">Checks</div><div>Safe verified on-chain · allowlist / value cap / wrong-chain / denylist passed for the inner call</div>`
+        : "";
+  const sub =
+    r.kind === "tx-batch"
+      ? "Nothing is signed until you enter your keystore password below."
+      : r.kind === "message"
+        ? "It asks your keystore to sign the message below (EIP-191 personal_sign). Nothing is signed until you enter your keystore password."
+        : "It asks your keystore to sign a Safe transaction as one of the Safe's owners (EIP-712 SafeTx). Nothing is signed until you enter your keystore password.";
+  let body: string;
+  if (r.signing?.kind === "message") body = renderMessage(r.signing.message);
+  else if (r.signing?.kind === "safeTx") {
+    body = `${renderSafe(r.signing.safe, r.chainId)}\n${r.steps.map((s) => renderStep(s, 1, "What the Safe will do")).join("\n")}`;
+  } else body = r.steps.map((s) => renderStep(s, r.steps.length)).join("\n");
+  const what =
+    r.kind === "tx-batch" ? "exactly these transactions" : r.kind === "message" ? "exactly this message" : "exactly this Safe transaction";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer"><title>Approve ${esc(r.steps.length)} transaction(s) — dexe-mcp</title>
+<meta name="referrer" content="no-referrer"><title>${esc(heading)} — dexe-mcp</title>
 <style nonce="${esc(o.nonce)}">${STYLE}</style></head>
 <body><main>
-<h1>Approve ${esc(r.steps.length)} transaction${r.steps.length === 1 ? "" : "s"}</h1>
-<p class="sub">Requested by the <code>${esc(r.tool)}</code> tool of your local dexe-mcp server. Nothing is signed until you enter your keystore password below.</p>
+<h1>${esc(heading)}</h1>
+<p class="sub">Requested by the <code>${esc(r.tool)}</code> tool of your local dexe-mcp server. ${esc(sub)}</p>
 <section class="card"><div class="grid">
-<div class="k">Network</div><div><span class="badge ${mainnet ? "b-main" : "b-test"}">${mainnet ? "MAINNET" : "testnet"}</span>${esc(chainLabel(r.chainId))}</div>
-<div class="k">From</div><div><code>${esc(r.from)}</code></div>
+${network}
+<div class="k">${r.kind === "tx-batch" ? "From" : "Signer"}</div><div><code>${esc(r.from)}</code></div>
 <div class="k">Fingerprint</div><div><span class="fp">${esc(r.fingerprint)}</span><div class="note">The tool reported the same code in your chat. If they differ, decline.</div></div>
-<div class="k">Checks</div><div>allowlist / value cap / wrong-chain / denylist passed · ${esc(sim)}${r.prechecks.simulationNote ? `<div class="note">${esc(r.prechecks.simulationNote)}</div>` : ""}</div>
+${checks}
 <div class="k">Expires</div><div>in about ${esc(expiresIn)} min</div>
 </div></section>
 ${resume}
-${r.steps.map((s) => renderStep(s, r.steps.length)).join("\n")}
+${body}
 <section class="card" id="decide">
 <label for="pw">Keystore password</label>
 <input id="pw" type="password" autocomplete="off" spellcheck="false" maxlength="1024">
-<p class="note">Type it here only — never in the chat. It unlocks the key once, for exactly these transactions, and is not stored. Do not let your browser save it.</p>
+<p class="note">Type it here only — never in the chat. It unlocks the key once, for ${esc(what)}, and is not stored. Do not let your browser save it.${o.terminal ? " (You can also decide in a terminal: <code>npx dexe-mcp approve</code>.)" : ""}</p>
 <div class="actions"><button id="approve" class="primary">Approve and sign</button><button id="decline">Decline</button></div>
 <div id="msg" role="status"></div>
 </section>
@@ -155,7 +263,7 @@ pw.addEventListener("keydown",function(e){if(e.key==="Enter")a.click();});
 
 /** Page for an approval that is no longer pending (decided, expired) — no form. */
 export function renderClosedPage(r: ApprovalRecord, nonce: string): string {
-  const landed = r.landed.length
+  const landed = r.kind === "tx-batch" && r.landed.length
     ? `<ul class="args">${r.landed.map((l) => `<li>#${l.index + 1} <code>${esc(l.txHash)}</code></li>`).join("")}</ul>`
     : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

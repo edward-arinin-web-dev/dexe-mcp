@@ -9,7 +9,8 @@ import { ENV_SPEC } from "../../src/env/schema.js";
  *
  * The design's promise is "no parameter or env var disables the gate": the
  * only way from `pending` to `approved` is the owner's password on the
- * loopback page. This ratchet greps src/ for every shape a future shortcut
+ * loopback page or in `dexe-mcp approve` (a TTY), for transaction batches,
+ * messages and Safe transactions alike. This ratchet greps src/ for every shape a future shortcut
  * would take — an env flag, a tool parameter, a second caller of the store's
  * approve(), a decrypt outside the known places, an approve/decline tool — and
  * fails the build on it. Adding one must be a deliberate edit HERE, in review.
@@ -56,13 +57,95 @@ describe("the approval gate has no off switch", () => {
     ).toEqual([]);
   });
 
-  it("ApprovalStore.approve() has exactly one caller: the password check behind the loopback page", () => {
+  it("ApprovalStore.approve() has exactly one caller: the password check behind the page and the terminal", () => {
     const callers = hits(/\bstore\.approve\(/);
     expect(callers).toHaveLength(1);
     expect(callers[0]).toMatch(/^lib\/approval\/index\.ts:/);
-    // ...and that function is reached only from the HTTP server's password POST.
+    // ...and that function is reached only from the HTTP server's password POST
+    // and the terminal channel's `approve` op (2c Phase B), both through the
+    // manager's one queued, lockout-checked password check.
     const attempt = hits(/attemptApprove\(/).map((h) => h.split(":")[0]);
-    expect(new Set(attempt)).toEqual(new Set(["lib/approval/index.ts", "lib/approval/server.ts"]));
+    expect(new Set(attempt)).toEqual(
+      new Set(["lib/approval/index.ts", "lib/approval/server.ts", "lib/approval/control.ts"]),
+    );
+    const idx = FILES.find((f) => f.rel === "lib/approval/index.ts")!.text;
+    // Both channels are wired to passwordAttempt (queue + lockout), never to the raw decrypt.
+    expect(idx.match(/attemptApprove: \(r, pw\) => this\.passwordAttempt\(r, pw\)/g)).toHaveLength(2);
+    // The terminal channel reaches it only with a non-empty password.
+    const ctl = FILES.find((f) => f.rel === "lib/approval/control.ts")!.text;
+    const pwCheck = ctl.indexOf("if (!password || password.length > 1024)");
+    const call = ctl.indexOf("this.deps.attemptApprove(record, password)");
+    expect(pwCheck).toBeGreaterThan(0);
+    expect(call).toBeGreaterThan(pwCheck);
+  });
+
+  it("key holders (transaction batches AND signatures) are created only inside the password check", () => {
+    const signers = hits(/new ApprovedSigner\(/).map((h) => h.split(":")[0]);
+    const signatures = hits(/new ApprovedSignature\(/).map((h) => h.split(":")[0]);
+    expect(signers).toEqual(["lib/approval/index.ts"]);
+    expect(signatures).toEqual(["lib/approval/index.ts"]);
+  });
+
+  it("every message / typed-data signature is a known path: an approval, unattended, or WalletConnect", () => {
+    // A new raw `.signMessage(` / `.signTypedData(` anywhere is a new way to
+    // sign without the owner — it must be added here, in review.
+    const sites = hits(/\.(signMessage|signTypedData)\(/).map((h) => h.replace(/:\d+:/, ":").replace(/\s+/g, " "));
+    expect(sites.sort()).toEqual(
+      [
+        // the ApprovedSignature: exactly the approved bytes / digest, once
+        "lib/approval/signing.ts: return await new Wallet(key).signMessage(bytes);",
+        "lib/approval/signing.ts: return await new Wallet(key).signTypedData(domain, types, value);",
+        // unattended hot key (keystore mode throws before it, see signer-mode tests)
+        "lib/signer.ts: return new Wallet(key).signMessage(message);",
+        // dexe_auth_login: unattended / WalletConnect, and the keystore approval
+        "tools/proposalBuildOffchain.ts: const signature = eoa ? await signer.signMessage(message, undefined, BACKEND_AUTH_CHAIN_ID) : await wc.signMessage(message);",
+        "tools/proposalBuildOffchain.ts: const signature = await approved.signMessage(message);",
+        // dexe_safe_propose_tx: the keystore approval, and the unattended wallet
+        "tools/safe.ts: signature = await approved.signTypedData(typed.domain, typed.types, typed.message);",
+        "tools/safe.ts: signature = await wallet.signTypedData(safeTxDomain(chainId, safe), SAFE_TX_TYPES, tx);",
+      ].sort(),
+    );
+  });
+
+  it("no lower-level signing primitive is used anywhere (raw digest / raw transaction signing)", () => {
+    // A SigningKey or signTransaction() signs without any of the checks above:
+    // a digest of anything, a transaction nobody reviewed; signMessageSync()
+    // bypasses the enumerated message sites; authorize() / authorizeSync()
+    // sign an EIP-7702 delegation — handing the EOA's code to a contract. None
+    // may exist in src.
+    expect(
+      hits(
+        /\bsigningKey\.sign\(|\.signDigest\(|\bsignTransaction\(|new SigningKey\(|\bSigningKey\b.*\.sign\(|\bsignMessageSync\(|\.authorize\(|\bauthorizeSync\(/,
+      ),
+    ).toEqual([]);
+  });
+
+  it("typed data is signed for SafeTx only; permits never", async () => {
+    const { SIGNABLE_PRIMARY_TYPES } = await import("../../src/lib/approval/signing.js");
+    expect([...SIGNABLE_PRIMARY_TYPES]).toEqual(["SafeTx"]);
+  });
+
+  it("the terminal channel has no op that decides without the password, and the CLI reads it only from a TTY", () => {
+    const ctl = FILES.find((f) => f.rel === "lib/approval/control.ts")!.text;
+    const ops = [...ctl.matchAll(/case "([a-z-]+)":/g)].map((m) => m[1]).sort();
+    expect(ops).toEqual(["approve", "decline", "hello", "list"]);
+    // The secret never crosses the wire (a request carrying one is refused), and
+    // a password is accepted only sealed — never as a plain request field.
+    expect(ctl).toMatch(/"secret" in msg/);
+    expect(ctl).not.toMatch(/req\.password\b/);
+    expect(ctl).toMatch(/openPassword\(this\.secret/);
+    const cli = FILES.find((f) => f.rel === "cli/approve.ts")!.text;
+    // No password from an argument, the environment, a file or a pipe.
+    expect(cli).not.toMatch(/process\.env/);
+    expect(cli).not.toMatch(/--password|PASSWORD|readFileSync|stdin\.on\(/);
+    expect(cli).toMatch(/password = await io\.promptHidden\(/);
+    // Deciding refuses without an interactive terminal, before anything else runs.
+    const refusal = cli.indexOf("if (!listOnly && !io.isInteractive())");
+    expect(refusal).toBeGreaterThan(0);
+    expect(refusal).toBeLessThan(cli.indexOf("discoverServers(runDir"));
+    // The hidden prompt itself reads raw keystrokes from the TTY only.
+    const key = FILES.find((f) => f.rel === "cli/key.ts")!.text;
+    expect(key).toMatch(/stdin\.setRawMode\(true\)/);
   });
 
   it("the keystore is decrypted only on the approval page, by the key CLI, and for unattended password files", () => {
@@ -86,7 +169,9 @@ describe("the approval gate has no off switch", () => {
     // openBrowser.ts is the one exception: it checks DISPLAY / WAYLAND_DISPLAY to
     // know whether there is a desktop to open a tab on — never a gate setting.
     const envReads = hits(/process\.env/).filter(
-      (h) => h.startsWith("lib/approval/") && !/^lib\/approval\/openBrowser\.ts:\d+: .*deps\.env \?\? process\.env/.test(h),
+      (h) =>
+        (h.startsWith("lib/approval/") || h.startsWith("cli/approve.ts")) &&
+        !/^lib\/approval\/openBrowser\.ts:\d+: .*deps\.env \?\? process\.env/.test(h),
     );
     expect(envReads).toEqual([]);
   });

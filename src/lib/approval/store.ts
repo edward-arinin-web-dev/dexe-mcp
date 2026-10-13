@@ -2,6 +2,8 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { getAddress, keccak256 } from "ethers";
 import type { Prechecks, ReviewStep } from "./review.js";
+import type { MessageReview } from "./signing.js";
+import type { SafeReview } from "./safeReview.js";
 
 /**
  * ── The approval state machine (in memory only) ────────────────────────────
@@ -18,13 +20,25 @@ import type { Prechecks, ReviewStep } from "./review.js";
  * CAN do is make sure no reference outlives the approval, which is what every
  * transition out of `approved`/`executing` does.
  *
- * An approval is bound to its batch: chain, sender and the ordered list of
- * (to, value, keccak(data)) — `batchHash`. The ApprovedSigner signs exactly
- * those transactions, in that order, once each; anything else revokes it.
+ * An approval is bound to what will be signed — `batchHash`, the binding hash:
+ *
+ *   tx-batch  chain, sender and the ordered (to, value, keccak(data)) list. The
+ *             ApprovedSigner signs exactly those transactions, in that order,
+ *             once each; anything else revokes it.
+ *   message   chain, sender and keccak(message bytes) (signing.ts).
+ *   safeTx    chain, sender and the EIP-712 SafeTx digest (signing.ts).
+ *
+ * The two signature kinds are held by an ApprovedSignature, which produces
+ * exactly that one signature, once.
  */
 
 export type ApprovalStatus = "pending" | "approved" | "executing" | "consumed" | "declined" | "expired" | "revoked";
 const TERMINAL: ReadonlySet<ApprovalStatus> = new Set(["consumed", "declined", "expired", "revoked"]);
+
+export type ApprovalKind = "tx-batch" | "message" | "safeTx";
+
+/** What a signature approval shows, beside (safeTx) or instead of (message) the steps. */
+export type SigningReview = { kind: "message"; message: MessageReview } | { kind: "safeTx"; safe: SafeReview };
 
 export interface ExpectedTx {
   to: string;
@@ -38,13 +52,18 @@ export interface ApprovalRecord {
   pathToken: string;
   /** Per-approval CSRF token, delivered only inside the page. */
   csrf: string;
-  kind: "tx-batch";
+  kind: ApprovalKind;
   tool: string;
   chainId: number;
   from: string;
+  /** tx-batch: the batch. safeTx: the one inner call the Safe will make. message: empty. */
   steps: ReviewStep[];
+  /** tx-batch only. */
   expected: ExpectedTx[];
   prechecks: Prechecks;
+  /** message / safeTx: what is signed, as the owner sees it. */
+  signing?: SigningReview;
+  /** The binding hash (for every kind; see the header). */
   batchHash: string;
   fingerprint: string;
   createdAt: number;
@@ -120,12 +139,15 @@ export function safeEqual(a: string, b: string): boolean {
 }
 
 export interface NewApproval {
+  /** Default "tx-batch". */
+  kind?: ApprovalKind;
   tool: string;
   chainId: number;
   from: string;
   steps: ReviewStep[];
   expected: ExpectedTx[];
   prechecks: Prechecks;
+  signing?: SigningReview;
   batchHash: string;
   fingerprint: string;
   resumeNote?: Array<{ label: string; txHash: string }>;
@@ -206,13 +228,14 @@ export class ApprovalStore {
       approvalId: `apr_${token(9)}`,
       pathToken: token(24),
       csrf: token(24),
-      kind: "tx-batch",
+      kind: input.kind ?? "tx-batch",
       tool: input.tool,
       chainId: input.chainId,
       from: getAddress(input.from),
       steps: input.steps,
       expected: input.expected,
       prechecks: input.prechecks,
+      ...(input.signing ? { signing: input.signing } : {}),
       batchHash: input.batchHash,
       fingerprint: input.fingerprint,
       createdAt: t,
@@ -264,6 +287,30 @@ export class ApprovalStore {
       if (r.batchHash === batchHash && r.status === "declined" && (r.decidedAt ?? 0) + this.cooldownMs > t) return r;
     }
     return undefined;
+  }
+
+  /**
+   * A decline of ANY approval of this flow (kind + tool + signer + chain)
+   * inside the cooldown window — for kinds whose bytes change on every call
+   * (a login nonce), where a per-binding cooldown would never match.
+   */
+  recentFlowDecline(kind: ApprovalKind, tool: string, from: string, chainId: number): ApprovalRecord | undefined {
+    const t = this.now();
+    let newest: ApprovalRecord | undefined;
+    for (const r of this.records.values()) {
+      if (
+        r.kind === kind &&
+        r.tool === tool &&
+        r.from === getAddress(from) &&
+        r.chainId === chainId &&
+        r.status === "declined" &&
+        (r.decidedAt ?? 0) + this.cooldownMs > t &&
+        (!newest || (r.decidedAt ?? 0) > (newest.decidedAt ?? 0))
+      ) {
+        newest = r;
+      }
+    }
+    return newest;
   }
 
   cooldownEndsAt(r: ApprovalRecord): number {

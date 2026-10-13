@@ -162,6 +162,62 @@ export function buildSafeTx(input: {
   };
 }
 
+type RefundFields = { gasPrice: unknown; baseGas: unknown; gasToken: unknown; refundReceiver: unknown };
+
+function big(v: unknown): bigint {
+  try {
+    return BigInt(String(v ?? "0"));
+  } catch {
+    return -1n; // unparseable counts as non-zero: never treated as "no refund"
+  }
+}
+
+function isZeroAddress(v: unknown): boolean {
+  try {
+    return getAddress(String(v ?? ZeroAddress)) === ZeroAddress;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The refund fields of a SafeTx that are not zero. Empty = the transaction
+ * pays nothing to anyone on execution.
+ *
+ * Why all four, not just "gasPrice with a token or receiver": Safe's
+ * `execTransaction` calls `handlePayment` whenever `gasPrice > 0`, and with
+ * gasToken AND refundReceiver both zero it pays `(gasUsed + baseGas) ×
+ * min(gasPrice, tx.gasprice)` in the NATIVE coin to `tx.origin` — whoever
+ * executes it. `gasPrice = 1 gwei, baseGas = 1e12` is a 1000-BNB payout to the
+ * executor that no other field shows.
+ */
+export function safeTxRefundFields(tx: RefundFields): string[] {
+  const out: string[] = [];
+  if (big(tx.gasPrice) !== 0n) out.push(`gasPrice ${String(tx.gasPrice)}`);
+  if (big(tx.baseGas) !== 0n) out.push(`baseGas ${String(tx.baseGas)}`);
+  if (!isZeroAddress(tx.gasToken)) out.push(`gasToken ${String(tx.gasToken)}`);
+  if (!isZeroAddress(tx.refundReceiver)) out.push(`refundReceiver ${String(tx.refundReceiver)}`);
+  return out;
+}
+
+/** What a SafeTx pays on execution, as one sentence; null when it pays nothing (gasPrice 0). */
+export function describeSafeTxRefund(tx: RefundFields): string | null {
+  const gasPrice = big(tx.gasPrice);
+  if (gasPrice === 0n) return null;
+  const baseGas = big(tx.baseGas);
+  const native = isZeroAddress(tx.gasToken);
+  const minimum = baseGas > 0n && gasPrice > 0n ? baseGas * gasPrice : 0n;
+  const minText = native
+    ? `${minimum.toString()} wei (${(Number(minimum) / 1e18).toLocaleString("en-US", { maximumFractionDigits: 6 })} native coin)`
+    : `${minimum.toString()} base units of ${String(tx.gasToken)}`;
+  return (
+    `On execution the Safe pays a gas refund of (gas used + baseGas ${String(tx.baseGas)}) × gasPrice ${String(tx.gasPrice)}` +
+    ` in ${native ? "the native coin" : String(tx.gasToken)} to ${
+      isZeroAddress(tx.refundReceiver) ? "whoever executes it (tx.origin)" : String(tx.refundReceiver)
+    } — at least ${minText} before the gas used.`
+  );
+}
+
 /**
  * Deterministic `safeTxHash` — the value owners sign and the service indexes
  * the transaction under. Equivalent to `Safe.getTransactionHash(...)` on-chain.

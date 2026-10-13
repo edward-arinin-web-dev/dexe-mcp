@@ -196,7 +196,8 @@ function flag(argv: readonly string[], name: string): string | undefined {
   return i >= 0 ? argv[i + 1] : undefined;
 }
 
-function isInteractive(): boolean {
+/** stdin AND stdout are a terminal a human types into (an agent's shell, a pipe or CI is not). */
+export function isInteractive(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY && typeof process.stdin.setRawMode === "function");
 }
 

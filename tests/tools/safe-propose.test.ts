@@ -245,6 +245,13 @@ describe("dexe_safe_propose_tx — DELEGATECALL (B13)", () => {
     expect(p.warnings?.join(" ")).toMatch(/DEXE_SIGNER_MAX_VALUE_WEI/);
   });
 
+  it("review probe: a NATIVE refund to the executor (gasPrice + baseGas, no token / receiver) is warned about too", async () => {
+    const res = await propose(client, { gasPrice: "1000000000", baseGas: "1000000000000" });
+    const p = JSON.parse(textOf(res)) as { warnings?: string[] };
+    expect(p.warnings?.join(" ")).toMatch(/in the native coin to whoever executes it \(tx\.origin\)/);
+    expect(p.warnings?.join(" ")).toMatch(/1,000 native coin/);
+  });
+
   it("no gas-refund warning on an ordinary payload", async () => {
     const p = JSON.parse(textOf(await propose(client))) as { warnings?: string[] };
     expect(p.warnings).toBeUndefined();

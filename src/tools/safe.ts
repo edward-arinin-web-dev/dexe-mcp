@@ -2,12 +2,17 @@ import { z } from "zod";
 import { isAddress, getAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { KEYSTORE_NO_MESSAGE_SIGNING, SignerManager } from "../lib/signer.js";
+import { SignerManager } from "../lib/signer.js";
+import { buildSafeTxReview } from "../lib/approval/safeReview.js";
+import { ApprovalHaltError, currentToolScope } from "../lib/approval/scope.js";
+import { SignatureRefusal } from "../lib/approval/signing.js";
 import { RpcProvider } from "../rpc.js";
 import { resolveChain } from "../config.js";
 import {
   buildSafeTx,
   computeSafeTxHash,
+  describeSafeTxRefund,
+  safeTxRefundFields,
   readSafeState,
   resolveSafeServiceEndpoint,
   safeTxDomain,
@@ -23,6 +28,12 @@ import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/writeErrors.js";
 
 // ---------- helpers ----------
+
+/** Carried by a Safe signature the keystore produced. */
+export const KEYSTORE_SIGNATURE_SAFETY =
+  "Signed with the encrypted keystore after the owner approved this exact SafeTx (Safe and owner checked on-chain) " +
+  "on the local approval page or with `dexe-mcp approve`. That stops prompt injection and mistakes; it does not " +
+  "stop an agent that can drive your browser or shell - for such agents WalletConnect is the recommended signer.";
 
 function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -141,18 +152,17 @@ export function assertSafeOperationAllowed(
  */
 function gasRefundWarnings(tx: {
   gasPrice: string;
+  baseGas: string;
   gasToken: string;
   refundReceiver: string;
 }): { warnings?: string[] } {
-  const zero = "0x0000000000000000000000000000000000000000";
-  const paysRefund =
-    tx.gasPrice !== "0" &&
-    (tx.gasToken.toLowerCase() !== zero || tx.refundReceiver.toLowerCase() !== zero);
-  if (!paysRefund) return {};
+  // Any gasPrice > 0 pays — with gasToken and refundReceiver both zero it pays
+  // the NATIVE coin to tx.origin (the executor), which the old check missed.
+  const refund = describeSafeTxRefund(tx);
+  if (!refund) return {};
   return {
     warnings: [
-      `This SafeTx pays a gas refund in ${tx.gasToken} to ${tx.refundReceiver} on execution. ` +
-        "The value cap (DEXE_SIGNER_MAX_VALUE_WEI) only inspects native value and does not bound this.",
+      `${refund} The value cap (DEXE_SIGNER_MAX_VALUE_WEI) only inspects native value and does not bound this.`,
     ],
   };
 }
@@ -293,7 +303,8 @@ export function registerSafeTools(
       "to co-sign and execute. Takes a TxPayload, reads the Safe's next nonce on-chain (unless `nonce` " +
       "is given), computes the EIP-712 `safeTxHash`. " +
       "**dryRun defaults to true and is UNSIGNED** — payload, safeTxHash and POST target only, no " +
-      "signature. dryRun=false signs with DEXE_PRIVATE_KEY (which must be a Safe owner) and POSTs " +
+      "signature. dryRun=false signs with the configured signer, which must be a Safe owner (keystore mode: " +
+      "after the owner approves the exact SafeTx — awaiting_approval until then; re-run the same call) and POSTs " +
       "(api.safe.global needs DEXE_SAFE_API_KEY); sign=true returns the signed body without POSTing. " +
       "operation=1 (DELEGATECALL) is refused unless allowDelegateCall=true.",
     {
@@ -436,16 +447,88 @@ export function registerSafeTools(
         let signature: string | undefined;
         let sender = input.sender ? getAddress(input.sender) : undefined;
         let signHint: string | undefined;
+        let signedWith: string | undefined;
         if (signer.mode === "keystore" && produceSignature) {
-          // Phase B adds a `safeTx` approval kind. Until then the keystore never
-          // signs typed data: an EIP-712 Safe signature is as good as a
-          // transaction once the threshold is met.
-          return err(
-            `${KEYSTORE_NO_MESSAGE_SIGNING} For a Safe: re-run with dryRun:true (and sign:false) to get the unsigned ` +
-              "body + safeTxHash, then sign it in the Safe app or a wallet.",
-          );
-        }
-        if (signer.hasSigner()) {
+          // An EIP-712 Safe signature is as good as a transaction once the
+          // threshold is met, so the keystore signs one only after the owner
+          // approves exactly this SafeTx (page or `dexe-mcp approve`): the Safe
+          // verified on-chain with the keystore as an owner, the inner call
+          // decoded, DELEGATECALL / self-calls / refunds flagged.
+          const approvals = signer.approvals;
+          if (!approvals || !signer.hasSigner()) {
+            return err(
+              "DEXE_SIGNER_MODE=keystore but no usable keystore was found — nothing was signed. In a terminal (not " +
+                "through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run; or " +
+                "re-run with dryRun:true and sign:false for the unsigned body + safeTxHash.",
+            );
+          }
+          // No gas refunds, ever, in keystore mode (no opt-in: a flag would be a
+          // switch the AI could flip). The signing primitive refuses too.
+          const refund = safeTxRefundFields(tx);
+          if (refund.length > 0) {
+            return err(
+              `Refused: in keystore mode a Safe transaction is signed only with gasPrice, baseGas, gasToken and ` +
+                `refundReceiver all zero; got ${refund.join(", ")}. A refund makes the Safe pay its executor on ` +
+                "execution — with gasPrice > 0 and the rest zero, (gas used + baseGas) × gasPrice in the native coin. " +
+                "Nothing was put up for approval. Drop those fields.",
+            );
+          }
+          const from = getAddress(signer.getAddress());
+          if (sender && sender !== from) {
+            return err(
+              `sender ${sender} is not the keystore address ${from}. In keystore mode the proposer is the key that ` +
+                "signs — omit sender.",
+            );
+          }
+          // A live POST that cannot happen must fail BEFORE the owner is asked —
+          // never spend an approval (and leave a queue-ready signature) on it.
+          if (!input.dryRun) {
+            const { serviceUrl, apiKey } = safeEnv();
+            try {
+              const ep = resolveSafeServiceEndpoint(chainId, serviceUrl);
+              if (ep.hosted && !apiKey) {
+                return err(
+                  "api.safe.global requires an API key. Set DEXE_SAFE_API_KEY, or point DEXE_SAFE_TX_SERVICE_URL at a " +
+                    "service that doesn't require one — nothing was put up for approval.",
+                );
+              }
+            } catch (e) {
+              return err(`${safeErrorMessage(e)} Nothing was put up for approval.`);
+            }
+          }
+          const pr = rpc.tryProvider(chainId);
+          if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+          const review = await buildSafeTxReview({ chainId, from, safe, tx, config: signer.getConfig(), provider: pr.ok });
+          if (!review.ok) return err(`${review.guard ? `[${review.guard}] ` : ""}${review.reason}`);
+          const typed = {
+            domain: safeTxDomain(chainId, safe),
+            types: SAFE_TX_TYPES,
+            message: tx as unknown as Record<string, unknown>,
+          };
+          const scope = currentToolScope();
+          let approved;
+          try {
+            approved = await approvals.requestSignature(
+              {
+                kind: "safeTx",
+                tool: "dexe_safe_propose_tx",
+                chainId,
+                from,
+                typedData: typed,
+                safe: review.safe,
+                steps: review.steps,
+                prechecks: review.prechecks,
+              },
+              { ...(scope?.signal ? { signal: scope.signal } : {}), ...(scope ? { progress: (m: string) => scope.progress(m) } : {}) },
+            );
+          } catch (e) {
+            if (e instanceof SignatureRefusal) return err(e.message);
+            throw e;
+          }
+          signature = await approved.signTypedData(typed.domain, typed.types, typed.message);
+          sender = from;
+          signedWith = "keystore";
+        } else if (signer.hasSigner()) {
           if (produceSignature) {
             const sg = signer.trySigner(chainId);
             if ("error" in sg) return err(`${sg.error}\n${sg.remediation}`);
@@ -459,7 +542,7 @@ export function registerSafeTools(
           }
         } else if (input.sign === true) {
           signHint =
-            "sign:true was requested but no signer is configured — set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
+            "sign:true was requested but no signer is configured — use DEXE_SIGNER_MODE=keystore (a Safe owner's keystore; the owner approves the SafeTx) or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
         }
 
         // Assemble the Safe-TX-Service create-multisig-transaction body. Field
@@ -506,6 +589,7 @@ export function registerSafeTools(
             safeTxHash,
             signedBy: signature ? sender : null,
             signaturePresent: !!signature,
+            ...(signedWith ? { signer: signedWith, safety: KEYSTORE_SIGNATURE_SAFETY } : {}),
             note:
               signHint ??
               (signature
@@ -520,7 +604,7 @@ export function registerSafeTools(
         // Live POST path.
         if (!signature || !sender) {
           return err(
-            "Live POST requires a signature. Set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) so the tool can sign the safeTxHash, or run with dryRun=true.",
+            "Live POST requires a signature. Use DEXE_SIGNER_MODE=keystore with a keystore that is a Safe owner (the owner approves the exact SafeTx), or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner), or run with dryRun=true.",
           );
         }
         const ep = resolveSafeServiceEndpoint(chainId, serviceUrl);
@@ -548,12 +632,16 @@ export function registerSafeTools(
           nonce,
           safeTxHash,
           sender,
+          ...(signedWith ? { signer: signedWith, safety: KEYSTORE_SIGNATURE_SAFETY } : {}),
           postUrl: stripUrlUserinfo(url),
           status: res.status,
           ...gasRefundWarnings(tx),
           response: res.text ? safeJsonParse(res.text) : null,
         });
       } catch (e) {
+        // Not approved yet / declined: the approval scope renders it as
+        // awaiting_approval / declined.
+        if (e instanceof ApprovalHaltError) throw e;
         return err(safeToolError(e, "dexe_safe_propose_tx"));
       }
     },

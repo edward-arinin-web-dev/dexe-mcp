@@ -19,9 +19,11 @@ import { renderApprovalPage, renderClosedPage, renderNotFoundPage } from "./page
  *   4. POSTs need `Origin: http://127.0.0.1:<port>` (same-origin), a JSON
  *      body (a cross-site form cannot send one without a preflight), ≤ 4 KB,
  *      and the per-approval CSRF token from the page.
- *   5. Password attempts are serialized (one scrypt at a time), refused while
- *      the lockout runs, and refused outright from an automated browser
- *      (`navigator.webdriver`).
+ *   5. Password attempts are refused outright from an automated browser
+ *      (`navigator.webdriver`) and while the lockout runs; the rest go to the
+ *      manager's password check, which serializes them (one scrypt at a time)
+ *      together with the terminal channel's (`dexe-mcp approve`) under the
+ *      same global lockout.
  *
  * Every response: `Cache-Control: no-store`, `Referrer-Policy: no-referrer`,
  * `X-Frame-Options: DENY`, nosniff; HTML adds a nonce-only CSP.
@@ -35,8 +37,14 @@ export type ApproveAttempt =
 
 export interface ApprovalServerDeps {
   store: ApprovalStore;
-  /** Decrypt with `password` and, on success, approve `record`. Never logs the password. */
+  /**
+   * Decrypt with `password` and, on success, approve `record` — the manager's
+   * queued, lockout-checked password check (shared with the terminal
+   * channel). Never logs the password.
+   */
   attemptApprove(record: ApprovalRecord, password: string): Promise<ApproveAttempt>;
+  /** Is the terminal channel (`dexe-mcp approve`) up? The page mentions it only then. */
+  terminalAvailable?: () => boolean;
   log?: (line: string) => void;
 }
 
@@ -46,8 +54,6 @@ export class ApprovalServer {
   private server: Server | undefined;
   private starting: Promise<number> | undefined;
   private port = 0;
-  /** One password check at a time — scrypt is the rate limit, never run in parallel. */
-  private attemptChain: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: ApprovalServerDeps) {}
 
@@ -151,7 +157,7 @@ export class ApprovalServer {
 
     if (method === "GET") {
       if (action === "status") {
-        this.json(res, 200, { status: record.status, landed: record.landed, reason: record.reason ?? null });
+        this.json(res, 200, { status: record.status, kind: record.kind, landed: record.landed, reason: record.reason ?? null });
         return;
       }
       if (action) {
@@ -165,6 +171,7 @@ export class ApprovalServer {
             approvePath: `${base}/approve`,
             declinePath: `${base}/decline`,
             statusPath: `${base}/status`,
+            terminal: this.deps.terminalAvailable?.() ?? false,
           }),
         );
       } else {
@@ -230,9 +237,9 @@ export class ApprovalServer {
         { "Retry-After": String(s) },
       );
     };
-    // Checked here (cheap early refusal) AND again inside the queue right
-    // before the password is verified: attempts queued behind a lockout must
-    // not run once it starts.
+    // Checked here (cheap early refusal) AND again inside the manager's queue
+    // right before the password is verified: attempts queued behind a lockout
+    // must not run once it starts.
     const locked = this.deps.store.lockedForMs();
     if (locked > 0) {
       locked429(locked);
@@ -243,17 +250,9 @@ export class ApprovalServer {
       this.json(res, 400, { status: "refused", message: "enter the keystore password" });
       return;
     }
-    const attempt = this.attemptChain.then((): Promise<ApproveAttempt> => {
-      const lockedNow = this.deps.store.lockedForMs();
-      if (lockedNow > 0) return Promise.resolve({ kind: "locked", retryAfterMs: lockedNow });
-      return record.status === "pending"
-        ? this.deps.attemptApprove(record, password)
-        : Promise.resolve({ kind: "error", message: `this approval is already ${record.status}` });
-    });
-    this.attemptChain = attempt.catch(() => undefined);
     let out: ApproveAttempt;
     try {
-      out = await attempt;
+      out = await this.deps.attemptApprove(record, password);
     } catch {
       out = { kind: "error", message: "could not check the password" };
     }
@@ -262,8 +261,10 @@ export class ApprovalServer {
       this.json(res, 200, {
         status: "approved",
         message:
-          "Approved. If the tool call is still waiting it signs now — keep this tab open to watch the transactions " +
-          `land. If it already returned, re-run it within ${mins} min; after that the key is dropped and you approve again.`,
+          (record.kind === "tx-batch"
+            ? "Approved. If the tool call is still waiting it signs now — keep this tab open to watch the transactions land. "
+            : "Approved. If the tool call is still waiting it signs now. ") +
+          `If it already returned, re-run it within ${mins} min; after that the key is dropped and you approve again.`,
       });
       return;
     }

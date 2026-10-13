@@ -22,6 +22,21 @@
  *      fourth approval is refused outright.
  *   6. what the page says: an approval to a plain wallet and a DeXe protocol
  *      call on a non-DeXe contract both render DANGER (then are declined).
+ *   7. message approval (2c Phase B): dexe_auth_login against a LOCAL fake
+ *      DeXe backend on 127.0.0.1 (the real one authenticates mainnet accounts
+ *      only, so there is no testnet target) → awaiting_approval → the owner
+ *      approves in the TERMINAL channel (the rendezvous `dexe-mcp approve`
+ *      uses; its TTY prompt cannot be driven from here, so the harness speaks
+ *      the channel protocol itself) → the re-run reuses the same nonce, and the
+ *      fake backend recovers the throwaway's address from the signature.
+ *   8. Safe typed-data approval (2c Phase B): a 1-of-1 Safe 1.4.1 owned by the
+ *      throwaway is deployed on 97 by the funder → dexe_safe_propose_tx
+ *      sign:true (dryRun, nothing POSTed) → the page shows the Safe verified
+ *      on-chain → approve → the re-run returns a signature that recovers to
+ *      the throwaway AND passes the Safe's own checkSignatures(). Then a
+ *      DELEGATECALL into the canonical MultiSend renders DANGER and is
+ *      declined in the terminal, and a SafeTx paying a gas refund is refused
+ *      with no page at all.
  *
  * Funding: a funded testnet key from the swarm environment (`E2E_FUNDER_PK`,
  * else `AGENT_PK_8`) sends the throwaway a little tBNB and, if it holds the
@@ -32,13 +47,30 @@
  * refuses any RPC that is not BSC testnet.
  */
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { createServer, type Server as HttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
-import { Contract, Interface, JsonRpcProvider, Wallet, formatEther, formatUnits, parseEther } from "ethers";
+import {
+  Contract,
+  Interface,
+  JsonRpcProvider,
+  Wallet,
+  ZeroAddress,
+  formatEther,
+  formatUnits,
+  parseEther,
+  solidityPacked,
+  verifyMessage,
+  verifyTypedData,
+} from "ethers";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { encryptPrivateKey, writeKeystoreFile } from "../../../src/lib/keystore.js";
+import { discoverServers, type RendezvousInfo } from "../../../src/lib/approval/rendezvous.js";
+import { controlCall } from "../../../src/lib/approval/controlProtocol.js";
+import { safeTxDomain, SAFE_TX_TYPES, type SafeTx } from "../../../src/lib/ethersProvider.js";
 import { approveAsHuman, declineAsHuman, rawRequest } from "../../helpers/approvalHttp.js";
 
 export interface E2EOptions {
@@ -111,8 +143,153 @@ class Server {
     return { isError: !!r.isError, text, json: lastJson(content), ...(r.structuredContent ? { structured: r.structuredContent } : {}) };
   }
 
+  /** The server process id (finds its terminal-channel rendezvous). */
+  get pid(): number | null {
+    return (this.transport as unknown as { pid?: number | null }).pid ?? null;
+  }
+
   async close(): Promise<void> {
     await this.client.close().catch(() => undefined);
+  }
+}
+
+// ---- 2c Phase B helpers --------------------------------------------------------
+
+/**
+ * A stand-in for the DeXe backend's nonce login, on 127.0.0.1: issues a fresh
+ * nonce message per request and accepts a login only when the signature
+ * recovers to the address it was issued for. Records what it saw.
+ */
+async function startFakeBackend(): Promise<{
+  base: string;
+  issued: string[];
+  logins: Array<{ address: string; message: string; signature: string }>;
+  close(): Promise<void>;
+}> {
+  const issued: string[] = [];
+  const byAddress = new Map<string, string>();
+  const logins: Array<{ address: string; message: string; signature: string }> = [];
+  const srv: HttpServer = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c: Buffer) => (raw += c.toString("utf8")));
+    req.on("end", () => {
+      const send = (code: number, body: unknown) => {
+        res.statusCode = code;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify(body));
+      };
+      try {
+        const j = JSON.parse(raw || "{}") as { data?: { attributes?: Record<string, unknown> } };
+        if (req.url?.endsWith("/nonce-auth-svc/nonce")) {
+          const address = String(j.data?.attributes?.address ?? "");
+          const message = `Sign in to DeXe (e2e)\nAddress: ${address}\nNonce: ${randomBytes(8).toString("hex")}`;
+          issued.push(message);
+          byAddress.set(address.toLowerCase(), message);
+          return send(200, { data: { attributes: { message } } });
+        }
+        if (req.url?.endsWith("/nonce-auth-svc/login")) {
+          const pair = j.data?.attributes?.auth_pair as { address: string; signed_message: string };
+          const message = byAddress.get(String(pair?.address).toLowerCase());
+          if (!message) return send(400, { errors: [{ title: "no nonce" }] });
+          let ok = false;
+          try {
+            ok = verifyMessage(message, pair.signed_message).toLowerCase() === pair.address.toLowerCase();
+          } catch {
+            ok = false;
+          }
+          if (!ok) return send(401, { errors: [{ title: "bad signature" }] });
+          logins.push({ address: pair.address, message, signature: pair.signed_message });
+          return send(200, {
+            data: { relationships: { access_token: { data: { id: "e2e-access-token" } }, refresh_token: { data: { id: "e2e-refresh" } } } },
+          });
+        }
+        send(404, {});
+      } catch {
+        send(400, {});
+      }
+    });
+  });
+  await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+  const port = (srv.address() as AddressInfo).port;
+  return {
+    base: `http://127.0.0.1:${port}`,
+    issued,
+    logins,
+    close: () => new Promise<void>((r) => srv.close(() => r())),
+  };
+}
+
+/** The terminal channel of the server under test, found the way `dexe-mcp approve` finds it. */
+async function terminalOf(runDir: string, pid: number | null, address: string): Promise<RendezvousInfo | undefined> {
+  for (const s of discoverServers(runDir).servers) {
+    if (pid !== null && s.info.pid !== pid) continue;
+    if (s.info.address !== address) continue;
+    try {
+      // Protocol v2: the server proves it holds the secret before anything secret is sent.
+      const hello = await controlCall(s.info, { op: "hello" }, 10_000);
+      if (hello.ok === true) return s.info;
+    } catch {
+      /* a server that is gone */
+    }
+  }
+  return undefined;
+}
+
+function terminalCall(ch: RendezvousInfo, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return controlCall(ch, body, 60_000);
+}
+
+const SAFE_PROXY_FACTORY_141 = "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67";
+const SAFE_L2_141 = "0x29fcB43b46531BcA003ddC8FCB67FFE91900C762";
+const SAFE_FALLBACK_141 = "0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99";
+const SAFE_IFACE = new Interface([
+  "function setup(address[] _owners, uint256 _threshold, address to, bytes data, address fallbackHandler, address paymentToken, uint256 payment, address paymentReceiver)",
+  "function getTransactionHash(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 _nonce) view returns (bytes32)",
+  "function encodeTransactionData(address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 _nonce) view returns (bytes)",
+  "function checkSignatures(bytes32 dataHash, bytes data, bytes signatures) view",
+]);
+const FACTORY_IFACE = new Interface(["function createProxyWithNonce(address _singleton, bytes initializer, uint256 saltNonce) returns (address proxy)"]);
+
+/** Deploy a 1-of-1 Safe 1.4.1 (canonical L2 singleton) owned by `owner`, paid by `funder`. */
+async function deploySafe(
+  provider: JsonRpcProvider,
+  funder: Wallet,
+  owner: string,
+  log: (l: string) => void,
+): Promise<{ address: string; txHash?: string }> {
+  const initializer = SAFE_IFACE.encodeFunctionData("setup", [[owner], 1n, ZeroAddress, "0x", SAFE_FALLBACK_141, ZeroAddress, 0n, ZeroAddress]);
+  const data = FACTORY_IFACE.encodeFunctionData("createProxyWithNonce", [SAFE_L2_141, initializer, BigInt(Date.now())]);
+  try {
+    const predicted = String(
+      FACTORY_IFACE.decodeFunctionResult("createProxyWithNonce", await provider.call({ from: funder.address, to: SAFE_PROXY_FACTORY_141, data }))[0],
+    );
+    const t = await funder.sendTransaction({ to: SAFE_PROXY_FACTORY_141, data });
+    await t.wait();
+    const code = await provider.getCode(predicted);
+    if (/^0x0*$/i.test(code)) return { address: "", txHash: t.hash };
+    log(`Safe ${predicted} deployed: ${t.hash}`);
+    return { address: predicted, txHash: t.hash };
+  } catch (e) {
+    log(`Safe deploy failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`);
+    return { address: "" };
+  }
+}
+
+/** Does the Safe itself accept `sig` for `tx` (its getTransactionHash + checkSignatures, eth_call)? */
+async function safeAccepts(provider: JsonRpcProvider, safe: string, tx: SafeTx, safeTxHash: string, sig: string): Promise<string> {
+  const args = [tx.to, tx.value, tx.data, tx.operation, tx.safeTxGas, tx.baseGas, tx.gasPrice, tx.gasToken, tx.refundReceiver, tx.nonce];
+  try {
+    const onChainHash = String(
+      SAFE_IFACE.decodeFunctionResult("getTransactionHash", await provider.call({ to: safe, data: SAFE_IFACE.encodeFunctionData("getTransactionHash", args) }))[0],
+    );
+    if (onChainHash.toLowerCase() !== safeTxHash.toLowerCase()) return `hash mismatch (Safe says ${onChainHash})`;
+    const txData = String(
+      SAFE_IFACE.decodeFunctionResult("encodeTransactionData", await provider.call({ to: safe, data: SAFE_IFACE.encodeFunctionData("encodeTransactionData", args) }))[0],
+    );
+    await provider.call({ to: safe, data: SAFE_IFACE.encodeFunctionData("checkSignatures", [safeTxHash, txData, sig]) });
+    return "ok";
+  } catch (e) {
+    return `reverted: ${e instanceof Error ? e.message.slice(0, 160) : String(e)}`;
   }
 }
 
@@ -388,6 +565,124 @@ export async function runApprovalE2E(o: E2EOptions): Promise<E2EResult> {
     }
   } finally {
     await c.close();
+  }
+
+  // ===== server D: signature approvals (message + Safe typed data) =========
+  const backend = await startFakeBackend();
+  // dexe_auth_login / dexe_safe_propose_tx are outside the default `core` toolset.
+  const d = new Server(dist, { ...childEnv(0), DEXE_BACKEND_API_URL: backend.base, DEXE_TOOLSETS: "full" }, work);
+  await d.start();
+  const runDir = join(work, ".dexe-mcp", "run");
+  try {
+    // ---- 7. message: dexe_auth_login, approved in the terminal channel ------
+    const l1 = await d.call("dexe_auth_login", {});
+    const la = (l1.json?.approval ?? {}) as Record<string, string>;
+    record("7a auth_login → awaiting_approval (nothing signed)", l1.json?.mode === "awaiting_approval" && !l1.isError, `fingerprint ${la.fingerprint}`);
+    const ch = await terminalOf(runDir, d.pid, throwaway.address);
+    const listed = ch ? await terminalCall(ch, { op: "list" }) : {};
+    const mr = ((listed.approvals as Array<Record<string, unknown>> | undefined) ?? []).find((x) => x.approvalId === la.approvalId);
+    const shownText = (() => {
+      const s = (mr?.signing as { message?: { segments?: Array<{ t: string; v: string }> } } | undefined)?.message?.segments ?? [];
+      return s.map((x) => (x.t === "text" ? x.v : `⟨${x.v}⟩`)).join("");
+    })();
+    record(
+      "7b terminal channel lists the message review: the exact backend nonce text, same fingerprint",
+      !!ch && mr?.kind === "message" && mr?.fingerprint === la.fingerprint && shownText === backend.issued[0],
+      ch ? `server pid ${ch.pid} (rendezvous in ${runDir})` : "no terminal channel found",
+    );
+    const ta = ch && mr ? await terminalCall(ch, { op: "approve", approvalId: mr.approvalId, binding: mr.binding, password }) : {};
+    record("7c owner approves in the terminal with the password", ta.status === "approved", String(ta.message ?? ta.status));
+    const l2 = await d.call("dexe_auth_login", {});
+    const recovered = backend.logins[0] ? verifyMessage(backend.logins[0].message, backend.logins[0].signature) : "";
+    record(
+      "7d re-run logs in: same nonce reused, the backend recovers the throwaway's address",
+      !l2.isError &&
+        l2.structured?.accessToken === "e2e-access-token" &&
+        backend.issued.length === 1 &&
+        recovered === throwaway.address,
+      `nonces issued ${backend.issued.length}; recovered ${recovered}`,
+    );
+
+    // ---- 8. Safe typed data -------------------------------------------------
+    const safe = await deploySafe(provider, new Wallet(o.funderKey, provider), throwaway.address, log);
+    record("8a 1-of-1 Safe 1.4.1 owned by the throwaway deployed on 97", !!safe.address, safe.address, safe.txHash ? [safe.txHash] : []);
+    const proposeArgs = { safe: safe.address, to: funder.address, value: "0", data: "0x", chainId: CHAIN, dryRun: true, sign: true };
+    const s1 = await d.call("dexe_safe_propose_tx", proposeArgs);
+    const sa = (s1.json?.approval ?? {}) as Record<string, string>;
+    const spage = sa.url ? (await rawRequest(sa.url)).body : "";
+    record(
+      "8b propose sign:true → awaiting_approval; page shows the Safe verified on-chain",
+      s1.json?.mode === "awaiting_approval" &&
+        /Sign a Safe transaction/.test(spage) &&
+        /Safe 1\.4\.1 L2 \(canonical\)/.test(spage) &&
+        /threshold 1 of 1/.test(spage) &&
+        spage.includes(sa.fingerprint ?? "-"),
+      sa.fingerprint ? `fingerprint ${sa.fingerprint}` : s1.text.slice(0, 200),
+    );
+    const happ = sa.url ? await approveAsHuman(sa.url, password) : null;
+    const s2 = await d.call("dexe_safe_propose_tx", proposeArgs);
+    const body = (s2.json?.body ?? {}) as Record<string, unknown>;
+    const sig = String(body.signature ?? "");
+    const safeTx = {
+      to: body.to,
+      value: body.value,
+      data: body.data,
+      operation: body.operation,
+      safeTxGas: body.safeTxGas,
+      baseGas: body.baseGas,
+      gasPrice: body.gasPrice,
+      gasToken: body.gasToken,
+      refundReceiver: body.refundReceiver,
+      nonce: body.nonce,
+    } as unknown as SafeTx;
+    const sRecovered = sig ? verifyTypedData(safeTxDomain(CHAIN, safe.address), SAFE_TX_TYPES, safeTx, sig) : "";
+    const onChain = sig ? await safeAccepts(provider, safe.address, safeTx, String(s2.json?.safeTxHash ?? ""), sig) : "no signature";
+    record(
+      "8c re-run returns the owner signature: recovers to the throwaway and passes Safe.checkSignatures() on-chain",
+      happ?.status === 200 && s2.json?.signer === "keystore" && sRecovered === throwaway.address && onChain === "ok",
+      `recovered ${sRecovered}; safeTxHash ${String(s2.json?.safeTxHash)}; checkSignatures: ${onChain}`,
+    );
+
+    const MULTISEND_141 = "0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526";
+    const packed = solidityPacked(["uint8", "address", "uint256", "uint256", "bytes"], [0, funder.address, 0n, 0n, "0x"]);
+    const msData = new Interface(["function multiSend(bytes transactions)"]).encodeFunctionData("multiSend", [packed]);
+    const s3 = await d.call("dexe_safe_propose_tx", {
+      ...proposeArgs,
+      to: MULTISEND_141,
+      data: msData,
+      operation: 1,
+      allowDelegateCall: true,
+    });
+    const s3a = (s3.json?.approval ?? {}) as Record<string, string>;
+    const s3page = s3a.url ? (await rawRequest(s3a.url)).body : "";
+    const ch2 = await terminalOf(runDir, d.pid, throwaway.address);
+    const s3r = ch2
+      ? ((await terminalCall(ch2, { op: "list" })).approvals as Array<Record<string, unknown>> | undefined)?.find((x) => x.approvalId === s3a.approvalId)
+      : undefined;
+    const dec = ch2 && s3r ? await terminalCall(ch2, { op: "decline", approvalId: s3r.approvalId, binding: s3r.binding }) : {};
+    const s4 = await d.call("dexe_safe_propose_tx", { ...proposeArgs, to: MULTISEND_141, data: msData, operation: 1, allowDelegateCall: true });
+    // 8e: the security-review probe — a gas refund (gasPrice 1 gwei, baseGas 1e12,
+    // token / receiver zero = ≥ 1000 tBNB to the executor) is refused before any page.
+    const probe = await d.call("dexe_safe_propose_tx", { ...proposeArgs, gasPrice: "1000000000", baseGas: "1000000000000" });
+    const ch3 = await terminalOf(runDir, d.pid, throwaway.address);
+    const waiting = ch3 ? (((await terminalCall(ch3, { op: "list" })).approvals as unknown[] | undefined) ?? []) : [];
+    record(
+      "8e a SafeTx that pays a gas refund is refused in keystore mode — no page, nothing waiting",
+      probe.isError && /Refused: in keystore mode/.test(probe.text) && !probe.json?.approval && waiting.length === 0,
+      probe.text.slice(0, 140),
+    );
+    record(
+      "8d DELEGATECALL into MultiSend renders DANGER; declined in the terminal → the re-run is refused (cooldown)",
+      /risk r-danger[^<]*DELEGATECALL/.test(s3page) &&
+        /Safe MultiSend 1\.4\.1 \(canonical\)/.test(s3page) &&
+        dec.status === "declined" &&
+        s4.isError &&
+        s4.json?.mode === "declined",
+      `decline: ${String(dec.status)}; re-run mode=${String(s4.json?.mode)}`,
+    );
+  } finally {
+    await d.close();
+    await backend.close();
   }
 
   // ===== server B: blocking — the call waits while the owner approves =====

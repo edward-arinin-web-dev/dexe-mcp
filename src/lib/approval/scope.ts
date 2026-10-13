@@ -90,10 +90,11 @@ export class ApprovalHaltError extends Error {
 }
 
 export const AWAITING_APPROVAL_NEXT =
-  "Nothing was signed yet. Tell the user to open the approval page (url) in their own browser, check the " +
-  "fingerprint matches, and approve with their keystore password there — never ask for the password in chat. " +
-  "Then re-run this same call promptly — an approved batch is held only ~2 minutes (DEXE_APPROVAL_USE_S) and is " +
-  "signed without asking again — or wait with " +
+  "Nothing was signed yet. Tell the user to open the approval page (url) in their own browser — or run " +
+  "`npx dexe-mcp approve` in their own terminal — check the fingerprint matches, and approve with their keystore " +
+  "password there; never ask for the password in chat. " +
+  "Then re-run this same call promptly — an approval is held only ~2 minutes (DEXE_APPROVAL_USE_S) and is " +
+  "used without asking again — or wait with " +
   "dexe_tx_approval_status {\"approvalId\":\"<approvalId>\",\"waitMs\":60000} first.";
 
 export const DECLINED_MESSAGE = "Owner declined; nothing signed. Do not retry unless the user asks.";
