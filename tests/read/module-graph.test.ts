@@ -46,7 +46,9 @@ const FORBIDDEN = [
 ];
 
 /** Packages the read edition may import — what its own package.json lists. */
-const READ_PACKAGES = new Set(["@modelcontextprotocol/sdk", "ethers", "zod", "multiformats", "p-limit"]);
+// The read edition serves on the v2 MCP SDK (`@modelcontextprotocol/server`); this
+// package's own server is still on v1 (`@modelcontextprotocol/sdk`).
+const READ_PACKAGES = new Set(["@modelcontextprotocol/server", "ethers", "zod", "multiformats", "p-limit"]);
 /** Packages only write code uses. */
 const WRITE_PACKAGES = [
   "@walletconnect/universal-provider",
