@@ -127,6 +127,28 @@ export async function runServeHttp(argv: readonly string[], version: string): Pr
 
   installHttpProcessGuards();
 
+  // Armed BEFORE the listening line: until process.on() runs, SIGINT/SIGTERM
+  // still have their default action and kill the process outright, so a
+  // supervisor (or a test) that signals as soon as it reads "listening"
+  // would skip the drain.
+  //
+  // Idempotent and kept installed: Ctrl+C in a terminal reaches this process
+  // twice when `dexe-mcp serve-http` started it (once from the terminal, once
+  // forwarded), and a one-shot handler would let the second one kill the
+  // process mid-drain.
+  let stopping = false;
+  const stop = (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    logLine("info", "shutdown", { signal, inflight: app.inflight() });
+    void app.close(10_000).then(() => process.exit(0));
+  };
+  process.on("SIGTERM", () => stop("SIGTERM"));
+  process.on("SIGINT", () => stop("SIGINT"));
+  // Started by `dexe-mcp serve-http` (an IPC channel is open): when that
+  // parent goes away — even by SIGKILL — stop too, instead of holding the port.
+  if (process.send) process.once("disconnect", () => stop("parent-exit"));
+
   const bound = app.server.address();
   logLine("info", "listening", {
     mode: "serve-http",
@@ -149,21 +171,4 @@ export async function runServeHttp(argv: readonly string[], version: string): Pr
     // A count, not names: env var names alone can say what else runs on the box.
     removedEnvVars: removedEnvCount,
   });
-
-  // Idempotent and kept installed: Ctrl+C in a terminal reaches this process
-  // twice when `dexe-mcp serve-http` started it (once from the terminal, once
-  // forwarded), and a one-shot handler would let the second one kill the
-  // process mid-drain.
-  let stopping = false;
-  const stop = (signal: string) => {
-    if (stopping) return;
-    stopping = true;
-    logLine("info", "shutdown", { signal, inflight: app.inflight() });
-    void app.close(10_000).then(() => process.exit(0));
-  };
-  process.on("SIGTERM", () => stop("SIGTERM"));
-  process.on("SIGINT", () => stop("SIGINT"));
-  // Started by `dexe-mcp serve-http` (an IPC channel is open): when that
-  // parent goes away — even by SIGKILL — stop too, instead of holding the port.
-  if (process.send) process.once("disconnect", () => stop("parent-exit"));
 }
