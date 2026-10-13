@@ -31,6 +31,87 @@
   agent-team / create-proposal / otc / vote-execute skills) no longer say a key
   alone signs.
 
+### Added — keystore approvals for messages and Safe typed data (2c Phase B, part 1)
+Tool count unchanged (170). [docs/SIGNING.md](./docs/SIGNING.md#messages-and-safe-transactions-since-100).
+- **Two new approval kinds** through the same store, page, password check,
+  global lockout, decline cooldown, TTL and single-use rule as a transaction
+  batch: `message` (EIP-191, bound to `keccak(chainId, from, keccak(bytes))`)
+  and `safeTx` (EIP-712 SafeTx, bound to `keccak(chainId, from, digest)`); the
+  binding tags keep the kinds in separate namespaces. An `ApprovedSignature`
+  holds the decrypted key and produces exactly the approved signature once;
+  other bytes, another digest, another domain chain / contract or a second use
+  revoke the approval and drop the key.
+- **`dexe_auth_login` in keystore mode** asks the owner to approve the exact
+  backend nonce message, then signs and logs in; a re-run reuses the nonce
+  already put up for approval (held server-side, never model text). Logs in as
+  the keystore address only. Before: refused with a WalletConnect pointer.
+- **`dexe_safe_propose_tx` `sign: true` / `dryRun: false` in keystore mode**
+  verifies the Safe on-chain first (code, answers like a Safe, version ≥ 1.3.0,
+  the keystore is an owner — otherwise nothing is asked — canonical 1.3.0 /
+  1.4.1 implementation, else DANGER), runs B6/B7/B11/B12 on the inner call and
+  every MultiSend sub-call, and shows the Safe, threshold, nonce vs the Safe's
+  next nonce, `safeTxHash` and the inner call decoded — DELEGATECALL, calls to
+  the Safe itself (`swapOwner`, `changeThreshold`, …) and inner MultiSend
+  DELEGATECALLs as DANGER, gas refunds and threshold 1 as warnings. With
+  `dryRun: false` the Safe service endpoint / API key is checked before the
+  owner is asked. Responses carry `signer: "keystore"` + a `safety` note.
+  Before: refused with a WalletConnect pointer.
+- **What a message review shows**, from the bytes: the exact text in full
+  (messages over 4 KB are refused), hex, EIP-191 hash; control, zero-width,
+  bidi, look-alike-space and BOM characters as visible `⟨U+…⟩` markers (never
+  dropped; a message cannot spell a fake marker); DANGER for binary data, 32
+  raw bytes, hex text, EIP-712 JSON as a message, an encoded transaction,
+  hidden characters; warnings for addresses, amounts, approval / permit wording,
+  non-ASCII letters.
+- **Refused before any page:** typed data other than the canonical SafeTx
+  struct; anything permit-shaped (ERC-2612 `Permit`, Permit2 types or the
+  Permit2 contract, any struct with a spender plus amount/deadline); a domain
+  whose `chainId` is not the approval's chain or whose contract is not the
+  reviewed Safe; empty and over-long messages.
+
+### Added — `dexe-mcp approve`, the terminal approval channel
+- New subcommand: lists the approvals waiting in the running keystore-mode
+  server(s), prints the same review as the page (decoded calls, labels, flags,
+  the exact message, the verified Safe, fingerprint; every line stripped of
+  terminal escape sequences), and approves (password typed with echo off) or
+  declines. Deciding refuses without an interactive terminal; `--list` prints
+  only. One password queue and ONE global lockout for page and terminal.
+- Discovery is owner-only: `~/.dexe-mcp/run/approve-<pid>.json` (dir `0700`,
+  file `0600`, atomic) with a 256-bit per-process secret; the endpoint is a
+  `0600` unix socket in that directory, or a named pipe with 128 random bits
+  in its name (first-instance, default owner/SYSTEM/Administrators write ACL)
+  on Windows. The CLI trusts a rendezvous only if the directory, file and
+  socket are owned by the user, grant nothing to group/other and are not
+  symlinks; a decision carries the approval's binding hash. Stale files of
+  dead servers are removed by the next server or the CLI. The channel starts
+  with the first approval; nothing listens before.
+- Docs: the threat model in SIGNING.md / SECURITY.md / docs/SECURITY.md says
+  plainly that an agent with a shell can still fake the terminal (secret,
+  rendezvous, `PATH`, pseudo-terminal) — WalletConnect stays the
+  recommendation for agents with shell or browser control.
+
+### Changed
+- The password check moved from the HTTP server into the approval manager, so
+  the page and the terminal share one serialized queue and lockout.
+  `dexe_tx_approval_status` / `dexe_write_context` approvals carry `kind`; the
+  page puts danger flags first and prefixes them "DANGER —".
+- `awaiting_approval.next` and the page mention `npx dexe-mcp approve`.
+
+### Tests
+Message review flags and markers, binding namespaces, typed-data policy
+(Permit / Permit2 / permit-shaped / non-SafeTx / domain chain and contract),
+message + SafeTx approvals over HTTP (replay, deviation, expiry, decline
+cooldown, lockout), the on-chain Safe review (not a Safe, not an owner, < 1.3.0,
+unknown singleton, DELEGATECALL, self-call, MultiSend, nonce, refund, B6), the
+terminal channel (secret, binding, shared lockout with the page, cleanup),
+rendezvous trust (ownership, mode, symlink) and stale-server cleanup, the CLI
+(no-TTY refusal in process and from the built bin, `--list`, approve / retry /
+decline), both tools in keystore mode through the approval scope, and the
+ratchet extended to the new kinds and the CLI. E2E on BSC testnet 97: a login
+approved in the terminal channel (local stand-in backend recovers the address)
+and a SafeTx for a freshly deployed 1-of-1 Safe 1.4.1 that the Safe's own
+`checkSignatures` accepts.
+
 ## 0.37.1 — 2026-10-13
 
 ### Fixed — text that described a setup the server did not have

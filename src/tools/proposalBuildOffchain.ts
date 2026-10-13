@@ -1,8 +1,10 @@
 import { z } from "zod";
-import { isAddress } from "ethers";
+import { getAddress, isAddress, toUtf8Bytes } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
-import { KEYSTORE_NO_MESSAGE_SIGNING, SignerModeRefusal, type SignerManager } from "../lib/signer.js";
+import { SignerModeRefusal, type SignerManager } from "../lib/signer.js";
+import { ApprovalHaltError, approvalHaltResult, currentToolScope } from "../lib/approval/scope.js";
+import { SignatureRefusal } from "../lib/approval/signing.js";
 import type { WalletConnectManager } from "../lib/walletconnect.js";
 import { markdownToSlate } from "../lib/markdownToSlate.js";
 import { DEFAULTS } from "../config.js";
@@ -265,12 +267,12 @@ function registerAuthLoginComposite(
     {
       title: "Off-chain auth — one call: fetch nonce, sign, log in, return Bearer token",
       description:
-        "Writes to a remote service. Off-chain backend auth in one call: with a signer available (DEXE_PRIVATE_KEY or a connected WalletConnect session) it fetches the nonce, signs it INSIDE the server, posts the login and returns the Bearer access token — so agent code never touches the private key. Pass the returned accessToken as `Authorization: Bearer <accessToken>` on off-chain proposal/vote requests. With no signer it returns the manual dexe_auth_request_nonce + dexe_auth_login_request path instead.",
+        "Writes to a remote service. Off-chain backend auth in one call: with a signer available (a connected WalletConnect session, the keystore — after the owner approves the exact nonce message; awaiting_approval until then, re-run the same call — or an unattended DEXE_PRIVATE_KEY) it fetches the nonce, signs it INSIDE the server, posts the login and returns the Bearer access token — so agent code never touches the private key. Pass the returned accessToken as `Authorization: Bearer <accessToken>` on off-chain proposal/vote requests. With no signer it returns the manual dexe_auth_request_nonce + dexe_auth_login_request path instead.",
       inputSchema: {
         address: z
           .string()
           .optional()
-          .describe("Override the signer address (defaults to the configured EOA / connected WC account)."),
+          .describe("Override the signer address (defaults to the configured EOA / connected WC account; keystore mode: the keystore address only)."),
       },
       outputSchema: {
         accessToken: z.string().optional(),
@@ -279,23 +281,24 @@ function registerAuthLoginComposite(
         expiresIn: z.number().optional(),
         signerMode: z.string().optional(),
         note: z.string().optional(),
+        safety: z.string().optional(),
+        // keystore mode, before the owner approved: see docs/SIGNING.md
+        mode: z.string().optional(),
+        status: z.string().optional(),
       },
     },
     async ({ address }) => {
       const base = requireBase();
       if (typeof base !== "string") return errorResult(base.error);
 
+      // Keystore mode: the owner approves the exact nonce message (page or
+      // `dexe-mcp approve`), then the keystore signs it once.
+      if (signer.mode === "keystore") return keystoreLogin(base, signer, address);
+
       // Resolve which signer to use — an unattended hot key takes precedence,
-      // else a live WC session. Keystore mode signs transactions only (each
-      // batch approved on the local page); a message signature there needs WC.
+      // else a live WC session.
       const eoa = (signer.mode ?? "unattended") === "unattended" && signer.hasSigner();
       const wcConnected = wc.isConnected();
-      if (signer.mode === "keystore" && !wcConnected) {
-        return errorResult(
-          `${KEYSTORE_NO_MESSAGE_SIGNING} Or do it manually: dexe_auth_request_nonce → sign the returned \`message\` ` +
-            "in your own wallet → dexe_auth_login_request with the signature.",
-        );
-      }
       if (!eoa && !wcConnected) {
         return jsonResult({
           note:
@@ -312,17 +315,9 @@ function registerAuthLoginComposite(
 
       try {
         // Step 1 — nonce.
-        const nonceRes = await authPost(
-          `${base}${NONCE_ENDPOINT}`,
-          { data: { type: "auth_nonce_request", attributes: { address: signerAddress } } },
-          "Nonce request",
-        );
-        if (!nonceRes.ok) {
-          return errorResult(`Nonce request failed (HTTP ${nonceRes.status}): ${await safeBody(nonceRes)}`);
-        }
-        const nonceJson = (await nonceRes.json()) as { data?: { attributes?: { message?: string } } };
-        const message = nonceJson.data?.attributes?.message;
-        if (!message) return errorResult(`Nonce response missing message field: ${JSON.stringify(nonceJson)}`);
+        const nonce = await fetchNonceMessage(base, signerAddress);
+        if ("error" in nonce) return errorResult(nonce.error);
+        const message = nonce.message;
 
         // Step 2 — sign (never exposes the key to the caller).
         // Deliberately NOT under a deadline, unlike the two HTTP steps: on the
@@ -336,35 +331,7 @@ function registerAuthLoginComposite(
         const signature = eoa ? await signer.signMessage(message, undefined, BACKEND_AUTH_CHAIN_ID) : await wc.signMessage(message);
 
         // Step 3 — login.
-        const loginRes = await authPost(
-          `${base}${LOGIN_ENDPOINT}`,
-          {
-            data: { type: "login_request", attributes: { auth_pair: { address: signerAddress, signed_message: signature } } },
-          },
-          "Login request",
-        );
-        if (!loginRes.ok) {
-          return errorResult(`Login failed (HTTP ${loginRes.status}): ${await safeBody(loginRes)}`);
-        }
-        const loginJson = (await loginRes.json()) as {
-          data?: { relationships?: { access_token?: { data?: { id?: string } }; refresh_token?: { data?: { id?: string } } } };
-          included?: Array<{ type?: string; attributes?: { expires_in?: number } }>;
-        };
-        const accessToken = loginJson.data?.relationships?.access_token?.data?.id;
-        const refreshToken = loginJson.data?.relationships?.refresh_token?.data?.id;
-        if (!accessToken) return errorResult(`Login response missing access_token: ${JSON.stringify(loginJson)}`);
-        const expiresIn = loginJson.included?.find((i) => i.type === "access_jwt")?.attributes?.expires_in;
-
-        return jsonResult({
-          accessToken,
-          refreshToken,
-          address: signerAddress,
-          expiresIn,
-          signerMode,
-          note:
-            "Logged in. Use `Authorization: Bearer <accessToken>` on off-chain requests " +
-            "(dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry.",
-        });
+        return await postLogin(base, signerAddress, signature, signerMode);
       } catch (err) {
         return errorResult(
           `Auth login failed: ${safeErrorMessage(err)}${err instanceof SignerModeRefusal ? ` ${err.remediation}` : ""}`,
@@ -373,6 +340,116 @@ function registerAuthLoginComposite(
     },
   );
 }
+
+/** Step 1 of the login: the nonce message the backend wants signed. */
+async function fetchNonceMessage(base: string, address: string): Promise<{ message: string } | { error: string }> {
+  const nonceRes = await authPost(
+    `${base}${NONCE_ENDPOINT}`,
+    { data: { type: "auth_nonce_request", attributes: { address } } },
+    "Nonce request",
+  );
+  if (!nonceRes.ok) return { error: `Nonce request failed (HTTP ${nonceRes.status}): ${await safeBody(nonceRes)}` };
+  const nonceJson = (await nonceRes.json()) as { data?: { attributes?: { message?: string } } };
+  const message = nonceJson.data?.attributes?.message;
+  if (!message) return { error: `Nonce response missing message field: ${JSON.stringify(nonceJson)}` };
+  return { message };
+}
+
+/** Step 3 of the login: exchange the signature for the Bearer token. */
+async function postLogin(base: string, address: string, signature: string, signerMode: string, extra: Record<string, unknown> = {}) {
+  const loginRes = await authPost(
+    `${base}${LOGIN_ENDPOINT}`,
+    { data: { type: "login_request", attributes: { auth_pair: { address, signed_message: signature } } } },
+    "Login request",
+  );
+  if (!loginRes.ok) {
+    return errorResult(
+      `Login failed (HTTP ${loginRes.status}): ${await safeBody(loginRes)}` +
+        (signerMode === "keystore"
+          ? " The signed nonce may have expired while it waited for approval — re-run dexe_auth_login for a fresh one."
+          : ""),
+    );
+  }
+  const loginJson = (await loginRes.json()) as {
+    data?: { relationships?: { access_token?: { data?: { id?: string } }; refresh_token?: { data?: { id?: string } } } };
+    included?: Array<{ type?: string; attributes?: { expires_in?: number } }>;
+  };
+  const accessToken = loginJson.data?.relationships?.access_token?.data?.id;
+  const refreshToken = loginJson.data?.relationships?.refresh_token?.data?.id;
+  if (!accessToken) return errorResult(`Login response missing access_token: ${JSON.stringify(loginJson)}`);
+  const expiresIn = loginJson.included?.find((i) => i.type === "access_jwt")?.attributes?.expires_in;
+  return jsonResult({
+    accessToken,
+    refreshToken,
+    address,
+    expiresIn,
+    signerMode,
+    ...extra,
+    note:
+      "Logged in. Use `Authorization: Bearer <accessToken>` on off-chain requests " +
+      "(dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry.",
+  });
+}
+
+/**
+ * Keystore mode: the owner approves the EXACT nonce message the backend sent
+ * (shown in full on the page / in `dexe-mcp approve`, flagged if it looks like
+ * anything but a login), then the keystore signs it once.
+ *
+ * Re-run path: a backend nonce changes on every request, so a re-run reuses
+ * the message of the approval this flow already has open (held server-side,
+ * from the backend — never model text) instead of fetching a new one that
+ * would need a new page.
+ */
+async function keystoreLogin(base: string, signer: SignerManager, address: string | undefined) {
+  const approvals = signer.approvals;
+  if (!approvals || !signer.hasSigner()) {
+    return errorResult(
+      "DEXE_SIGNER_MODE=keystore but no usable keystore was found — not logged in, nothing was signed. In a terminal " +
+        "(not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run.",
+    );
+  }
+  const from = getAddress(signer.getAddress());
+  if (address !== undefined) {
+    if (!isAddress(address) || getAddress(address) !== from) {
+      return errorResult(
+        `In keystore mode dexe_auth_login logs in as the keystore address ${from} only (got ${address}) — omit address.`,
+      );
+    }
+  }
+  const purpose = `Log in to the DeXe backend at ${base} as ${from}`;
+  const tool = "dexe_auth_login";
+  try {
+    let message = approvals.findOpenMessage({ tool, from, chainId: BACKEND_AUTH_CHAIN_ID, purpose });
+    if (!message) {
+      const nonce = await fetchNonceMessage(base, from);
+      if ("error" in nonce) return errorResult(nonce.error);
+      message = toUtf8Bytes(nonce.message);
+    }
+    const scope = currentToolScope();
+    const approved = await approvals.requestSignature(
+      { kind: "message", tool, chainId: BACKEND_AUTH_CHAIN_ID, from, message, purpose },
+      { ...(scope?.signal ? { signal: scope.signal } : {}), ...(scope ? { progress: (m: string) => scope.progress(m) } : {}) },
+    );
+    const signature = await approved.signMessage(message);
+    return await postLogin(base, from, signature, "keystore", { safety: KEYSTORE_LOGIN_SAFETY });
+  } catch (err) {
+    // Not approved yet / declined → awaiting_approval / declined, rendered
+    // here rather than by the approval scope: this tool declares an output
+    // schema, so a non-error result must carry structuredContent too.
+    if (err instanceof ApprovalHaltError) {
+      const r = approvalHaltResult(err.halt);
+      return { ...r, structuredContent: JSON.parse(r.content[0]!.text) as Record<string, unknown> };
+    }
+    if (err instanceof SignatureRefusal) return errorResult(err.message);
+    return errorResult(`Auth login failed: ${safeErrorMessage(err)}`);
+  }
+}
+
+/** Carried by a login the keystore signed. */
+const KEYSTORE_LOGIN_SAFETY =
+  "Signed with the encrypted keystore after the owner approved this exact login message on the local approval page " +
+  "or with `dexe-mcp approve`.";
 
 async function safeBody(res: Response): Promise<string> {
   try {

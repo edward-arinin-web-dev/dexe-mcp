@@ -3360,9 +3360,9 @@ var require_utils = __commonJS({
           const hex4 = input3.slice(i3 + 1, i3 + 3);
           if (isHexPair(hex4)) {
             const normalizedHex = hex4.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (decodeUnreserved && isUnreserved(decoded)) {
-              output4 += decoded;
+            const decoded2 = String.fromCharCode(parseInt(normalizedHex, 16));
+            if (decodeUnreserved && isUnreserved(decoded2)) {
+              output4 += decoded2;
             } else {
               output4 += "%" + normalizedHex;
             }
@@ -3401,9 +3401,9 @@ var require_utils = __commonJS({
           const hex4 = input3.slice(i3 + 1, i3 + 3);
           if (isHexPair(hex4)) {
             const normalizedHex = hex4.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (decoded !== "." && isUnreserved(decoded)) {
-              output4 += decoded;
+            const decoded2 = String.fromCharCode(parseInt(normalizedHex, 16));
+            if (decoded2 !== "." && isUnreserved(decoded2)) {
+              output4 += decoded2;
             } else {
               output4 += "%" + normalizedHex;
             }
@@ -3481,9 +3481,9 @@ var require_utils = __commonJS({
           const hex4 = input3.slice(i3 + 1, i3 + 3);
           if (isHexPair(hex4)) {
             const normalizedHex = hex4.toUpperCase();
-            const decoded = String.fromCharCode(parseInt(normalizedHex, 16));
-            if (isUnreserved(decoded)) {
-              output4 += decoded;
+            const decoded2 = String.fromCharCode(parseInt(normalizedHex, 16));
+            if (isUnreserved(decoded2)) {
+              output4 += decoded2;
             } else {
               output4 += "%" + normalizedHex;
             }
@@ -10260,9 +10260,9 @@ function unarrayifyInteger(data4, offset, length3) {
 function _decodeChildren(data4, offset, childOffset, length3) {
   const result = [];
   while (childOffset < offset + 1 + length3) {
-    const decoded = _decode3(data4, childOffset);
-    result.push(decoded.result);
-    childOffset += decoded.consumed;
+    const decoded2 = _decode3(data4, childOffset);
+    result.push(decoded2.result);
+    childOffset += decoded2.consumed;
     assert2(childOffset <= offset + 1 + length3, "child data too short", "BUFFER_OVERRUN", {
       buffer: data4,
       length: length3,
@@ -10311,9 +10311,9 @@ function _decode3(data4, offset) {
 }
 function decodeRlp(_data) {
   const data4 = getBytes(_data, "data");
-  const decoded = _decode3(data4, 0);
-  assertArgument(decoded.consumed === data4.length, "unexpected junk after rlp payload", "data", _data);
-  return decoded.result;
+  const decoded2 = _decode3(data4, 0);
+  assertArgument(decoded2.consumed === data4.length, "unexpected junk after rlp payload", "data", _data);
+  return decoded2.result;
 }
 var init_rlp_decode = __esm({
   "node_modules/ethers/lib.esm/utils/rlp-decode.js"() {
@@ -10422,8 +10422,8 @@ var init_units = __esm({
 });
 
 // node_modules/ethers/lib.esm/utils/uuid.js
-function uuidV4(randomBytes10) {
-  const bytes2 = getBytes(randomBytes10, "randomBytes");
+function uuidV4(randomBytes11) {
+  const bytes2 = getBytes(randomBytes11, "randomBytes");
   bytes2[6] = bytes2[6] & 15 | 64;
   bytes2[8] = bytes2[8] & 63 | 128;
   const value = hexlify(bytes2);
@@ -13413,7 +13413,7 @@ function weierstrass(curveDef) {
   function prepSig(msgHash, privateKey, opts = defaultSigOpts) {
     if (["recovered", "canonical"].some((k5) => k5 in opts))
       throw new Error("sign() legacy options not supported");
-    const { hash: hash3, randomBytes: randomBytes10 } = CURVE;
+    const { hash: hash3, randomBytes: randomBytes11 } = CURVE;
     let { lowS, prehash, extraEntropy: ent } = opts;
     if (lowS == null)
       lowS = true;
@@ -13424,7 +13424,7 @@ function weierstrass(curveDef) {
     const d3 = normPrivateKeyToScalar(privateKey);
     const seedArgs = [int2octets(d3), int2octets(h1int)];
     if (ent != null) {
-      const e2 = ent === true ? randomBytes10(Fp3.BYTES) : ent;
+      const e2 = ent === true ? randomBytes11(Fp3.BYTES) : ent;
       seedArgs.push(ensureBytes("extraEntropy", e2));
     }
     const seed = concatBytes2(...seedArgs);
@@ -22535,7 +22535,7 @@ function buildWrappedFallback(contract) {
       throw error62;
     }
   };
-  const send = async function(overrides2) {
+  const send2 = async function(overrides2) {
     const runner = contract.runner;
     assert2(canSend(runner), "contract runner does not support sending transactions", "UNSUPPORTED_OPERATION", { operation: "sendTransaction" });
     const tx = await runner.sendTransaction(await populateTransaction(overrides2));
@@ -22548,13 +22548,13 @@ function buildWrappedFallback(contract) {
     return await runner.estimateGas(await populateTransaction(overrides2));
   };
   const method = async (overrides2) => {
-    return await send(overrides2);
+    return await send2(overrides2);
   };
   defineProperties(method, {
     _contract: contract,
     estimateGas,
     populateTransaction,
-    send,
+    send: send2,
     staticCall
   });
   return method;
@@ -22593,7 +22593,7 @@ function buildWrappedMethod(contract, key) {
     }
     return result;
   };
-  const send = async function(...args) {
+  const send2 = async function(...args) {
     const runner = contract.runner;
     assert2(canSend(runner), "contract runner does not support sending transactions", "UNSUPPORTED_OPERATION", { operation: "sendTransaction" });
     const tx = await runner.sendTransaction(await populateTransaction(...args));
@@ -22626,7 +22626,7 @@ function buildWrappedMethod(contract, key) {
     if (fragment.constant) {
       return await staticCall(...args);
     }
-    return await send(...args);
+    return await send2(...args);
   };
   defineProperties(method, {
     name: contract.interface.getFunctionName(key),
@@ -22635,7 +22635,7 @@ function buildWrappedMethod(contract, key) {
     getFragment,
     estimateGas,
     populateTransaction,
-    send,
+    send: send2,
     staticCall,
     staticCallResult
   });
@@ -30735,7 +30735,7 @@ var require_websocket = __commonJS({
     var http2 = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes10, createHash: createHash3 } = __require("crypto");
+    var { randomBytes: randomBytes11, createHash: createHash3 } = __require("crypto");
     var { Duplex: Duplex4, Readable: Readable4 } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -31273,11 +31273,11 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes10(16).toString("base64");
+      const key = randomBytes11(16).toString("base64");
       const request = isSecure ? https2.request : http2.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
-      opts.createConnection = opts.createConnection || (isSecure ? tlsConnect : netConnect);
+      opts.createConnection = opts.createConnection || (isSecure ? tlsConnect : netConnect2);
       opts.defaultPort = opts.defaultPort || defaultPort;
       opts.port = parsedUrl.port || defaultPort;
       opts.host = parsedUrl.hostname.startsWith("[") ? parsedUrl.hostname.slice(1, -1) : parsedUrl.hostname;
@@ -31475,7 +31475,7 @@ var require_websocket = __commonJS({
       websocket.emit("error", err16);
       websocket.emitClose();
     }
-    function netConnect(options) {
+    function netConnect2(options) {
       options.path = options.socketPath;
       return net.connect(options);
     }
@@ -37241,7 +37241,7 @@ var require_which = __commonJS({
         opt = {};
       const { pathEnv, pathExt, pathExtExe } = getPathInfo(cmd, opt);
       const found = [];
-      const step = (i3) => new Promise((resolve9, reject) => {
+      const step2 = (i3) => new Promise((resolve9, reject) => {
         if (i3 === pathEnv.length)
           return opt.all && found.length ? resolve9(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i3];
@@ -37252,7 +37252,7 @@ var require_which = __commonJS({
       });
       const subStep = (p4, i3, ii) => new Promise((resolve9, reject) => {
         if (ii === pathExt.length)
-          return resolve9(step(i3 + 1));
+          return resolve9(step2(i3 + 1));
         const ext = pathExt[ii];
         isexe(p4 + ext, { pathExt: pathExtExe }, (er2, is2) => {
           if (!er2 && is2) {
@@ -37264,7 +37264,7 @@ var require_which = __commonJS({
           return resolve9(subStep(p4, i3, ii + 1));
         });
       });
-      return cb ? step(0).then((res) => cb(null, res), cb) : step(0);
+      return cb ? step2(0).then((res) => cb(null, res), cb) : step2(0);
     };
     var whichSync = (cmd, opt) => {
       opt = opt || {};
@@ -39811,6 +39811,1087 @@ var require_jpeg_js = __commonJS({
     module.exports = {
       encode: encode10,
       decode: decode14
+    };
+  }
+});
+
+// dist/lib/approval/store.js
+import { randomBytes as randomBytes6, timingSafeEqual } from "node:crypto";
+import { EventEmitter as EventEmitter2 } from "node:events";
+function token(bytes2 = 24) {
+  return randomBytes6(bytes2).toString("base64url");
+}
+function safeEqual(a3, b7) {
+  const ab = Buffer.from(a3);
+  const bb = Buffer.from(b7);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+function dataHashOf(data4) {
+  return keccak256(data4 && data4 !== "" ? data4 : "0x");
+}
+function matchesExpected(exp, tx) {
+  let value;
+  try {
+    value = BigInt(tx.value || 0);
+  } catch {
+    return false;
+  }
+  return exp.to.toLowerCase() === tx.to.toLowerCase() && exp.value === value && exp.dataHash === dataHashOf(tx.data);
+}
+var TERMINAL, ApprovalDeviationError, DEFAULT_DECLINE_COOLDOWN_MS, DEFAULT_MAX_FAILURES, DEFAULT_BASE_LOCKOUT_MS, DEFAULT_USE_WINDOW_MS, DEFAULT_MAX_PENDING, DEFAULT_MAX_CREATES_PER_MINUTE, DEFAULT_GLOBAL_FAILURE_THRESHOLD, FAILURE_WINDOW_MS, MAX_LOCKOUT_MS, ApprovalStore;
+var init_store = __esm({
+  "dist/lib/approval/store.js"() {
+    "use strict";
+    init_lib2();
+    TERMINAL = /* @__PURE__ */ new Set(["consumed", "declined", "expired", "revoked"]);
+    ApprovalDeviationError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "ApprovalDeviationError";
+      }
+    };
+    DEFAULT_DECLINE_COOLDOWN_MS = 10 * 6e4;
+    DEFAULT_MAX_FAILURES = 5;
+    DEFAULT_BASE_LOCKOUT_MS = 6e4;
+    DEFAULT_USE_WINDOW_MS = 12e4;
+    DEFAULT_MAX_PENDING = 3;
+    DEFAULT_MAX_CREATES_PER_MINUTE = 6;
+    DEFAULT_GLOBAL_FAILURE_THRESHOLD = 5;
+    FAILURE_WINDOW_MS = 60 * 6e4;
+    MAX_LOCKOUT_MS = 60 * 6e4;
+    ApprovalStore = class {
+      opts;
+      records = /* @__PURE__ */ new Map();
+      byToken = /* @__PURE__ */ new Map();
+      holders = /* @__PURE__ */ new Map();
+      timers = /* @__PURE__ */ new Map();
+      events = new EventEmitter2();
+      now;
+      cooldownMs;
+      maxFailures;
+      baseLockoutMs;
+      useWindowMs;
+      maxPending;
+      maxCreatesPerMinute;
+      globalThreshold;
+      /** Lockouts so far — for the process lifetime; each one doubles the next. */
+      lockouts = 0;
+      lockedUntilMs = 0;
+      /** Wrong passwords since the last lockout, across every approval (timestamps). */
+      failureTimes = [];
+      /** Approval creations in the last minute (timestamps). */
+      createTimes = [];
+      useTimers = /* @__PURE__ */ new Map();
+      /** tool|from|chain → steps that landed before a revoke, for the next approval's page. */
+      resumeNotes = /* @__PURE__ */ new Map();
+      constructor(opts) {
+        this.opts = opts;
+        this.now = opts.now ?? Date.now;
+        this.cooldownMs = opts.declineCooldownMs ?? DEFAULT_DECLINE_COOLDOWN_MS;
+        this.maxFailures = opts.maxFailures ?? DEFAULT_MAX_FAILURES;
+        this.baseLockoutMs = opts.baseLockoutMs ?? DEFAULT_BASE_LOCKOUT_MS;
+        this.useWindowMs = Math.min(opts.useWindowMs ?? DEFAULT_USE_WINDOW_MS, opts.ttlMs);
+        this.maxPending = opts.maxPending ?? DEFAULT_MAX_PENDING;
+        this.maxCreatesPerMinute = opts.maxCreatesPerMinute ?? DEFAULT_MAX_CREATES_PER_MINUTE;
+        this.globalThreshold = opts.globalFailureThreshold ?? DEFAULT_GLOBAL_FAILURE_THRESHOLD;
+        this.events.setMaxListeners(0);
+      }
+      /**
+       * May a NEW approval be created now? Bounds two things an agent could
+       * otherwise use against the owner: guessing passwords across a stream of
+       * fresh approvals (each with its own per-approval counter), and nagging the
+       * owner with a page per 1-wei variation of a declined batch.
+       */
+      admitCreate() {
+        const t2 = this.now();
+        this.createTimes = this.createTimes.filter((x6) => x6 > t2 - 6e4);
+        const pending = this.open().filter((r2) => r2.status === "pending");
+        if (pending.length >= this.maxPending) {
+          return {
+            ok: false,
+            reason: `${pending.length} approvals are already waiting for the owner (limit ${this.maxPending}) \u2014 approve or decline those first; nothing new is put up for approval until then.`,
+            retryAfterMs: Math.max(1e3, Math.min(...pending.map((r2) => r2.expiresAt - t2)))
+          };
+        }
+        if (this.createTimes.length >= this.maxCreatesPerMinute) {
+          const retry = this.createTimes[0] + 6e4 - t2;
+          return {
+            ok: false,
+            reason: `${this.createTimes.length} approvals were requested in the last minute (limit ${this.maxCreatesPerMinute}).`,
+            retryAfterMs: Math.max(1e3, retry)
+          };
+        }
+        return { ok: true };
+      }
+      create(input3) {
+        const t2 = this.now();
+        this.prune(t2);
+        this.createTimes.push(t2);
+        const rec = {
+          approvalId: `apr_${token(9)}`,
+          pathToken: token(24),
+          csrf: token(24),
+          kind: input3.kind ?? "tx-batch",
+          tool: input3.tool,
+          chainId: input3.chainId,
+          from: getAddress(input3.from),
+          steps: input3.steps,
+          expected: input3.expected,
+          prechecks: input3.prechecks,
+          ...input3.signing ? { signing: input3.signing } : {},
+          batchHash: input3.batchHash,
+          fingerprint: input3.fingerprint,
+          createdAt: t2,
+          expiresAt: t2 + this.opts.ttlMs,
+          status: "pending",
+          failures: 0,
+          landed: [],
+          ...input3.resumeNote?.length ? { resumeNote: input3.resumeNote } : {}
+        };
+        this.records.set(rec.approvalId, rec);
+        this.byToken.set(rec.pathToken, rec.approvalId);
+        const timer = setTimeout(() => this.expire(rec.approvalId), Math.max(0, rec.expiresAt - t2));
+        timer.unref?.();
+        this.timers.set(rec.approvalId, timer);
+        return rec;
+      }
+      get(approvalId) {
+        const r2 = this.records.get(approvalId);
+        if (r2)
+          this.expireIfDue(r2);
+        return r2;
+      }
+      getByToken(pathToken) {
+        const id2 = this.byToken.get(pathToken);
+        return id2 ? this.get(id2) : void 0;
+      }
+      /** Every approval that is still open (pending or approved-unused). */
+      open() {
+        return [...this.records.values()].filter((r2) => {
+          this.expireIfDue(r2);
+          return r2.status === "pending" || r2.status === "approved";
+        });
+      }
+      findByBatch(batchHash, status) {
+        for (const r2 of this.records.values()) {
+          this.expireIfDue(r2);
+          if (r2.batchHash === batchHash && r2.status === status)
+            return r2;
+        }
+        return void 0;
+      }
+      /** A decline of this exact batch inside the cooldown window, if any. */
+      recentDecline(batchHash) {
+        const t2 = this.now();
+        for (const r2 of this.records.values()) {
+          if (r2.batchHash === batchHash && r2.status === "declined" && (r2.decidedAt ?? 0) + this.cooldownMs > t2)
+            return r2;
+        }
+        return void 0;
+      }
+      cooldownEndsAt(r2) {
+        return (r2.decidedAt ?? r2.createdAt) + this.cooldownMs;
+      }
+      // ---- password attempts -------------------------------------------------------
+      /** Milliseconds until password attempts are accepted again (0 = not locked). */
+      lockedForMs() {
+        return Math.max(0, this.lockedUntilMs - this.now());
+      }
+      /**
+       * Count a wrong password.
+       *
+       * The lockout is GLOBAL: wrong passwords are counted across every approval
+       * (a fresh approval does not get a fresh counter), and every
+       * `globalFailureThreshold` of them within an hour locks ALL password entry
+       * for 1 min, 2, 4, … ≤ 1 h — doubling for the process lifetime; a correct
+       * password does not reset it. Separately, the fifth wrong password on one
+       * approval declines that approval.
+       */
+      recordFailure(approvalId) {
+        const t2 = this.now();
+        this.failureTimes = this.failureTimes.filter((x6) => x6 > t2 - FAILURE_WINDOW_MS);
+        this.failureTimes.push(t2);
+        let lockedMs = 0;
+        if (this.failureTimes.length >= this.globalThreshold) {
+          this.lockouts += 1;
+          lockedMs = Math.min(MAX_LOCKOUT_MS, this.baseLockoutMs * 2 ** (this.lockouts - 1));
+          this.lockedUntilMs = t2 + lockedMs;
+          this.failureTimes = [];
+        }
+        const r2 = this.records.get(approvalId);
+        if (!r2 || r2.status !== "pending")
+          return { declined: false, remaining: 0, lockedMs };
+        r2.failures += 1;
+        if (r2.failures >= this.maxFailures) {
+          this.decline(approvalId, `${r2.failures} wrong passwords \u2014 auto-declined`);
+          return { declined: true, remaining: 0, lockedMs };
+        }
+        return { declined: false, remaining: this.maxFailures - r2.failures, lockedMs };
+      }
+      // ---- transitions -------------------------------------------------------------
+      /** pending → approved, holding the key. Supersedes any other approved-unused batch for the same tool/sender/chain. */
+      approve(approvalId, holder) {
+        const r2 = this.get(approvalId);
+        if (!r2 || r2.status !== "pending") {
+          holder.drop();
+          return false;
+        }
+        for (const other of this.records.values()) {
+          if (other !== r2 && other.status === "approved" && other.tool === r2.tool && other.from === r2.from && other.chainId === r2.chainId) {
+            this.close(other, "revoked", "superseded by a newer approval for the same flow");
+          }
+        }
+        r2.status = "approved";
+        r2.decidedAt = this.now();
+        this.holders.set(approvalId, holder);
+        const useTimer = setTimeout(() => {
+          const cur = this.records.get(approvalId);
+          if (cur && cur.status === "approved") {
+            this.close(cur, "expired", `approved but not used within ${Math.round(this.useWindowMs / 1e3)} s \u2014 the key was dropped`);
+          }
+        }, this.useWindowMs);
+        useTimer.unref?.();
+        this.useTimers.set(approvalId, useTimer);
+        this.emit(r2);
+        return true;
+      }
+      /** How long an approved batch may wait to be used (ms). */
+      get approvedUseWindowMs() {
+        return this.useWindowMs;
+      }
+      decline(approvalId, reason = "declined by the owner") {
+        const r2 = this.records.get(approvalId);
+        if (!r2 || r2.status !== "pending" && r2.status !== "approved")
+          return false;
+        this.close(r2, "declined", reason);
+        return true;
+      }
+      /** approved → executing; hands the key holder to the caller. */
+      take(approvalId) {
+        const r2 = this.get(approvalId);
+        if (!r2 || r2.status !== "approved")
+          return void 0;
+        const h3 = this.holders.get(approvalId);
+        if (!h3)
+          return void 0;
+        r2.status = "executing";
+        const useTimer = this.useTimers.get(approvalId);
+        if (useTimer) {
+          clearTimeout(useTimer);
+          this.useTimers.delete(approvalId);
+        }
+        this.emit(r2);
+        return h3;
+      }
+      markLanded(approvalId, index2, txHash) {
+        const r2 = this.records.get(approvalId);
+        if (!r2)
+          return;
+        r2.landed.push({ index: index2, txHash });
+        this.emit(r2);
+      }
+      /** executing → consumed (all steps sent). Drops the key. */
+      finish(approvalId) {
+        const r2 = this.records.get(approvalId);
+        if (r2 && r2.status === "executing")
+          this.close(r2, "consumed");
+      }
+      /** Any open state → revoked. Drops the key. Remembers what landed for the next approval of the same flow. */
+      revoke(approvalId, reason, landedLabels = []) {
+        const r2 = this.records.get(approvalId);
+        if (!r2 || TERMINAL.has(r2.status))
+          return;
+        if (landedLabels.length > 0) {
+          this.resumeNotes.set(this.flowKey(r2.tool, r2.from, r2.chainId), { at: this.now(), landed: landedLabels });
+        }
+        this.close(r2, "revoked", reason);
+      }
+      /** Landed steps from a revoked approval of the same flow within the TTL (shown on the next page). */
+      resumeNoteFor(tool, from10, chainId) {
+        const k5 = this.flowKey(tool, from10, chainId);
+        const n4 = this.resumeNotes.get(k5);
+        if (!n4)
+          return void 0;
+        if (n4.at + this.opts.ttlMs < this.now()) {
+          this.resumeNotes.delete(k5);
+          return void 0;
+        }
+        return n4.landed;
+      }
+      clearResumeNote(tool, from10, chainId) {
+        this.resumeNotes.delete(this.flowKey(tool, from10, chainId));
+      }
+      /** Resolve when the record leaves `pending` (or the wait ends). Returns the record either way. */
+      waitForDecision(approvalId, ms2, signal) {
+        const r2 = this.get(approvalId);
+        if (!r2 || r2.status !== "pending" || ms2 <= 0 || signal?.aborted)
+          return Promise.resolve(r2);
+        return new Promise((resolveWait) => {
+          const done = () => {
+            clearTimeout(timer);
+            this.events.off(approvalId, onChange);
+            signal?.removeEventListener("abort", done);
+            resolveWait(this.get(approvalId));
+          };
+          const onChange = (rec) => {
+            if (rec.status !== "pending")
+              done();
+          };
+          const timer = setTimeout(done, ms2);
+          timer.unref?.();
+          this.events.on(approvalId, onChange);
+          signal?.addEventListener("abort", done, { once: true });
+        });
+      }
+      /** Resolve on ANY change of the record (or the wait ends) — the status long-poll. */
+      waitForChange(approvalId, ms2, signal) {
+        const r2 = this.get(approvalId);
+        if (!r2 || TERMINAL.has(r2.status) || ms2 <= 0 || signal?.aborted)
+          return Promise.resolve(r2);
+        return new Promise((resolveWait) => {
+          const done = () => {
+            clearTimeout(timer);
+            this.events.off(approvalId, done);
+            signal?.removeEventListener("abort", done);
+            resolveWait(this.get(approvalId));
+          };
+          const timer = setTimeout(done, ms2);
+          timer.unref?.();
+          this.events.on(approvalId, done);
+          signal?.addEventListener("abort", done, { once: true });
+        });
+      }
+      // ---- internals ---------------------------------------------------------------
+      /**
+       * Forget closed approvals once nothing can still refer to them: past the
+       * decline cooldown and the TTL (so dexe_tx_approval_status keeps answering
+       * for a while). Keeps a long session's memory flat.
+       */
+      prune(t2) {
+        const keepMs = Math.max(this.cooldownMs, this.opts.ttlMs) * 2;
+        for (const [id2, r2] of this.records) {
+          if (TERMINAL.has(r2.status) && (r2.decidedAt ?? r2.createdAt) + keepMs < t2) {
+            this.records.delete(id2);
+            this.byToken.delete(r2.pathToken);
+          }
+        }
+      }
+      flowKey(tool, from10, chainId) {
+        return `${tool}|${from10.toLowerCase()}|${chainId}`;
+      }
+      expire(approvalId) {
+        const r2 = this.records.get(approvalId);
+        if (!r2)
+          return;
+        if (r2.status === "pending" || r2.status === "approved")
+          this.close(r2, "expired", "the approval window ended");
+      }
+      expireIfDue(r2) {
+        const t2 = this.now();
+        if ((r2.status === "pending" || r2.status === "approved") && t2 >= r2.expiresAt) {
+          this.close(r2, "expired", "the approval window ended");
+        } else if (r2.status === "approved" && r2.decidedAt !== void 0 && t2 >= r2.decidedAt + this.useWindowMs) {
+          this.close(r2, "expired", `approved but not used within ${Math.round(this.useWindowMs / 1e3)} s \u2014 the key was dropped`);
+        }
+      }
+      close(r2, status, reason) {
+        r2.status = status;
+        r2.decidedAt ??= this.now();
+        if (status !== "consumed")
+          r2.decidedAt = this.now();
+        if (reason)
+          r2.reason = reason;
+        const h3 = this.holders.get(r2.approvalId);
+        if (h3) {
+          h3.drop();
+          this.holders.delete(r2.approvalId);
+        }
+        const timer = this.timers.get(r2.approvalId);
+        if (timer) {
+          clearTimeout(timer);
+          this.timers.delete(r2.approvalId);
+        }
+        const useTimer = this.useTimers.get(r2.approvalId);
+        if (useTimer) {
+          clearTimeout(useTimer);
+          this.useTimers.delete(r2.approvalId);
+        }
+        this.emit(r2);
+      }
+      emit(r2) {
+        this.events.emit(r2.approvalId, r2);
+      }
+    };
+  }
+});
+
+// dist/lib/ethersProvider.js
+async function readSafeState(provider, safeAddress) {
+  if (!isAddress(safeAddress))
+    throw new Error(`Invalid Safe address: ${safeAddress}`);
+  const safe = getAddress(safeAddress);
+  const c4 = new Contract(safe, SAFE_ABI, provider);
+  const [nonce, threshold, owners] = await Promise.all([
+    c4.getFunction("nonce").staticCall(),
+    c4.getFunction("getThreshold").staticCall(),
+    c4.getFunction("getOwners").staticCall()
+  ]);
+  let version5 = "unknown";
+  try {
+    version5 = await c4.getFunction("VERSION").staticCall();
+  } catch {
+  }
+  return {
+    safe,
+    nonce,
+    threshold,
+    owners: owners.map((o3) => getAddress(o3)),
+    version: version5
+  };
+}
+function safeTxDomain(chainId, safeAddress) {
+  return { chainId, verifyingContract: getAddress(safeAddress) };
+}
+function buildSafeTx(input3) {
+  if (!isAddress(input3.to))
+    throw new Error(`Invalid 'to' address: ${input3.to}`);
+  const operation = input3.operation ?? SAFE_OPERATION.CALL;
+  if (operation !== SAFE_OPERATION.CALL && operation !== SAFE_OPERATION.DELEGATECALL) {
+    throw new Error(`operation must be 0 (CALL) or 1 (DELEGATECALL), got ${operation}`);
+  }
+  const gasToken = input3.gasToken ?? ZeroAddress;
+  const refundReceiver = input3.refundReceiver ?? ZeroAddress;
+  if (!isAddress(gasToken))
+    throw new Error(`Invalid gasToken: ${gasToken}`);
+  if (!isAddress(refundReceiver))
+    throw new Error(`Invalid refundReceiver: ${refundReceiver}`);
+  return {
+    to: getAddress(input3.to),
+    value: (input3.value ?? "0").toString(),
+    data: input3.data && input3.data.length > 0 ? input3.data : "0x",
+    operation,
+    safeTxGas: (input3.safeTxGas ?? "0").toString(),
+    baseGas: (input3.baseGas ?? "0").toString(),
+    gasPrice: (input3.gasPrice ?? "0").toString(),
+    gasToken: getAddress(gasToken),
+    refundReceiver: getAddress(refundReceiver),
+    nonce: input3.nonce.toString()
+  };
+}
+function computeSafeTxHash(chainId, safeAddress, tx) {
+  return TypedDataEncoder.hash(safeTxDomain(chainId, safeAddress), SAFE_TX_TYPES, tx);
+}
+function resolveSafeServiceEndpoint(chainId, override) {
+  let base3;
+  let hosted;
+  if (override && override.trim().length > 0) {
+    base3 = override.trim().replace(/\/+$/, "");
+    hosted = /api\.safe\.global/i.test(base3);
+  } else {
+    const shortname = SAFE_TX_SERVICE_SHORTNAMES[chainId];
+    if (!shortname) {
+      throw new Error(`No Safe Transaction Service endpoint known for chainId=${chainId}. Set DEXE_SAFE_TX_SERVICE_URL to the service base (e.g. https://api.safe.global/tx-service/<shortname>/api/v2).`);
+    }
+    base3 = `https://api.safe.global/tx-service/${shortname}/api/v2`;
+    hosted = true;
+  }
+  return {
+    base: base3,
+    hosted,
+    multisigTransactions: (safe) => `${base3}/safes/${getAddress(safe)}/multisig-transactions/`
+  };
+}
+var SAFE_ABI, SAFE_OPERATION, SAFE_TX_TYPES, SAFE_TX_SERVICE_SHORTNAMES;
+var init_ethersProvider = __esm({
+  "dist/lib/ethersProvider.js"() {
+    "use strict";
+    init_lib2();
+    SAFE_ABI = [
+      "function nonce() view returns (uint256)",
+      "function getThreshold() view returns (uint256)",
+      "function getOwners() view returns (address[])",
+      "function isOwner(address owner) view returns (bool)",
+      "function VERSION() view returns (string)"
+    ];
+    SAFE_OPERATION = { CALL: 0, DELEGATECALL: 1 };
+    SAFE_TX_TYPES = {
+      SafeTx: [
+        { name: "to", type: "address" },
+        { name: "value", type: "uint256" },
+        { name: "data", type: "bytes" },
+        { name: "operation", type: "uint8" },
+        { name: "safeTxGas", type: "uint256" },
+        { name: "baseGas", type: "uint256" },
+        { name: "gasPrice", type: "uint256" },
+        { name: "gasToken", type: "address" },
+        { name: "refundReceiver", type: "address" },
+        { name: "nonce", type: "uint256" }
+      ]
+    };
+    SAFE_TX_SERVICE_SHORTNAMES = {
+      1: "eth",
+      10: "oeth",
+      56: "bnb",
+      100: "gno",
+      137: "matic",
+      324: "zksync",
+      8453: "base",
+      42161: "arb1",
+      43114: "avax",
+      11155111: "sep",
+      84532: "basesep"
+    };
+  }
+});
+
+// dist/lib/approval/signing.js
+function messageBindingHash(chainId, from10, message) {
+  return keccak256(AbiCoder.defaultAbiCoder().encode(["bytes32", "uint256", "address", "bytes32"], [TAG_MESSAGE, BigInt(chainId), getAddress(from10), keccak256(message)]));
+}
+function typedDataBindingHash(chainId, from10, digest3) {
+  return keccak256(AbiCoder.defaultAbiCoder().encode(["bytes32", "uint256", "address", "bytes32"], [TAG_TYPED, BigInt(chainId), getAddress(from10), digest3]));
+}
+function markOf(ch) {
+  if (ch === "\r")
+    return "CR";
+  if (ch === "	")
+    return "TAB";
+  return `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`;
+}
+function decodeUtf8Strict(bytes2) {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes2);
+  } catch {
+    return null;
+  }
+}
+function segmentsOf(text5) {
+  const out2 = [];
+  let last = 0;
+  for (const m3 of text5.matchAll(HIDDEN_RE)) {
+    const i3 = m3.index ?? 0;
+    if (i3 > last)
+      out2.push({ t: "text", v: text5.slice(last, i3) });
+    out2.push({ t: "mark", v: markOf(m3[0]) });
+    last = i3 + m3[0].length;
+  }
+  if (last < text5.length)
+    out2.push({ t: "text", v: text5.slice(last) });
+  return out2;
+}
+function segmentsToText(segments) {
+  return segments.map((s2) => s2.t === "text" ? s2.v : `\u27E8${s2.v}\u27E9`).join("");
+}
+function reviewMessage(bytes2, ctx) {
+  const risks2 = [];
+  const text5 = decodeUtf8Strict(bytes2);
+  const hex4 = hexlify(bytes2);
+  const review = {
+    purpose: ctx.purpose,
+    byteLength: bytes2.length,
+    encoding: text5 === null ? "binary" : "utf8",
+    hex: hex4,
+    eip191Hash: hashMessage(bytes2),
+    risks: risks2
+  };
+  if (text5 === null) {
+    if (bytes2.length === 32) {
+      risks2.push({
+        level: "danger",
+        text: "The message is exactly 32 bytes \u2014 the size of a transaction or typed-data hash. Signing a hash you cannot read can authorize something you never see. Decline unless you know exactly what it is."
+      });
+    }
+    risks2.push({
+      level: "danger",
+      text: `Not text: ${bytes2.length} bytes of binary data (shown as hex). A signature over raw bytes can be a transaction, permit or typed-data hash in disguise.`
+    });
+    const first = bytes2[0];
+    if (first !== void 0 && (first <= 4 || first >= 192)) {
+      risks2.push({ level: "danger", text: "The bytes start like an encoded transaction or RLP list." });
+    }
+    return review;
+  }
+  review.segments = segmentsOf(text5);
+  const hidden3 = review.segments.filter((s2) => s2.t === "mark");
+  const hiddenNonLayout = hidden3.filter((s2) => s2.v !== "CR" && s2.v !== "TAB");
+  if (hiddenNonLayout.length > 0) {
+    const kinds = [...new Set(hiddenNonLayout.map((s2) => s2.v))].slice(0, 8).join(", ");
+    risks2.push({
+      level: "danger",
+      text: `Contains ${hiddenNonLayout.length} invisible, control or direction-changing character(s) (${kinds}), shown as \u27E8U+\u2026\u27E9. They can hide or reorder what you read. Decline unless you expected them.`
+    });
+  } else if (hidden3.length > 0) {
+    risks2.push({ level: "info", text: "Contains carriage returns / tabs, shown as \u27E8CR\u27E9 / \u27E8TAB\u27E9." });
+  }
+  const nonAscii = [...new Set([...text5].filter((c4) => (c4.codePointAt(0) ?? 0) > 126 && !HIDDEN_ONE.test(c4)))];
+  if (nonAscii.length > 0) {
+    const sample = nonAscii.slice(0, 8).map((c4) => `${c4} U+${c4.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}`).join(", ");
+    risks2.push({
+      level: "warn",
+      text: `Contains non-ASCII characters (${sample}${nonAscii.length > 8 ? ", \u2026" : ""}) \u2014 look-alike letters are possible.`
+    });
+  }
+  const trimmed = text5.trim();
+  if (/^0x[0-9a-fA-F]*$/.test(trimmed) && trimmed.length > 2) {
+    risks2.push({
+      level: "danger",
+      text: `The text is hex data (${(trimmed.length - 2) / 2} bytes), not readable words.${trimmed.length === 66 ? " 32 bytes is the size of a transaction / typed-data hash." : ""}`
+    });
+  }
+  if (/^[{[]/.test(trimmed)) {
+    try {
+      const j5 = JSON.parse(trimmed);
+      if (j5 && typeof j5 === "object" && ("types" in j5 || "primaryType" in j5 || "domain" in j5)) {
+        risks2.push({
+          level: "danger",
+          text: "This looks like EIP-712 typed data sent as a plain message. A wallet normally shows typed data as structured fields; as a message it can carry a permit or an order you would not recognise."
+        });
+      }
+    } catch {
+    }
+  }
+  if (APPROVAL_WORDS.test(text5)) {
+    risks2.push({
+      level: "warn",
+      text: "Mentions token approvals, permits or transfers. A login or a vote never needs them \u2014 read it carefully."
+    });
+  }
+  const addrs = [...new Set(text5.match(ADDRESS_RE2) ?? [])];
+  for (const a3 of addrs.slice(0, 6)) {
+    let mine = false;
+    try {
+      mine = getAddress(a3) === getAddress(ctx.from);
+    } catch {
+      mine = false;
+    }
+    risks2.push(mine ? { level: "info", text: `Mentions your own address ${a3}.` } : { level: "warn", text: `Mentions the address ${a3} \u2014 make sure you know who that is.` });
+  }
+  if (addrs.length > 6)
+    risks2.push({ level: "warn", text: `Mentions ${addrs.length - 6} more address(es).` });
+  const amounts = [...new Set(text5.match(AMOUNT_RE) ?? [])];
+  if (amounts.length > 0) {
+    risks2.push({ level: "warn", text: `Mentions amounts or large numbers: ${amounts.slice(0, 4).join(", ")}${amounts.length > 4 ? ", \u2026" : ""}.` });
+  }
+  const urls = [...new Set(text5.match(URL_RE2) ?? [])];
+  if (urls.length > 0) {
+    risks2.push({ level: "info", text: `Mentions ${urls.length === 1 ? "a link" : "links"}: ${urls.slice(0, 3).join(" ")}` });
+  }
+  return review;
+}
+function permitShaped(fields) {
+  const names2 = new Set(fields.map((f3) => f3.name.toLowerCase()));
+  const hasSpender = names2.has("spender") || names2.has("operator");
+  const hasExpiry = names2.has("deadline") || names2.has("sigdeadline") || names2.has("expiration") || names2.has("expiry");
+  const hasAmount = names2.has("value") || names2.has("amount") || names2.has("allowed");
+  return hasSpender && (hasExpiry || hasAmount);
+}
+function assertSignableTypedData(td, expect) {
+  const types = Object.fromEntries(Object.entries(td.types).filter(([k5]) => k5 !== "EIP712Domain"));
+  let primaryType;
+  try {
+    primaryType = TypedDataEncoder.getPrimaryType(types);
+  } catch (e2) {
+    throw new SignatureRefusal(`Malformed typed data: ${safeErrorMessage(e2)}`);
+  }
+  const typeNames = Object.keys(types);
+  const vc = td.domain.verifyingContract ? String(td.domain.verifyingContract) : void 0;
+  if (typeNames.some((n4) => /permit/i.test(n4)) || vc !== void 0 && vc.toLowerCase() === PERMIT2.toLowerCase() || Object.values(types).some((fields) => permitShaped(fields))) {
+    throw new SignatureRefusal("Refused: this is permit-style typed data (ERC-2612 Permit / Uniswap Permit2 or the same shape). A signed permit lets someone move your tokens with no transaction for you to review, so the keystore never signs one. Use an on-chain approve instead (it is shown decoded on the approval page).");
+  }
+  if (!SIGNABLE_PRIMARY_TYPES.has(primaryType)) {
+    throw new SignatureRefusal(`Refused: the keystore signs typed data of type SafeTx only (a Safe owner signature); got "${primaryType}".`);
+  }
+  if (JSON.stringify(types) !== JSON.stringify(SAFE_TX_TYPES)) {
+    throw new SignatureRefusal("Refused: the SafeTx type set differs from the canonical Safe EIP-712 SafeTx struct.");
+  }
+  const domainKeys = Object.keys(td.domain).filter((k5) => td.domain[k5] !== void 0);
+  if (domainKeys.sort().join(",") !== "chainId,verifyingContract") {
+    throw new SignatureRefusal(`Refused: a SafeTx domain is exactly { chainId, verifyingContract } (Safe 1.3.0+); got { ${domainKeys.join(", ")} }.`);
+  }
+  let domainChain;
+  try {
+    domainChain = Number(BigInt(td.domain.chainId));
+  } catch {
+    throw new SignatureRefusal("Refused: the typed-data domain has no usable chainId.");
+  }
+  if (domainChain !== expect.chainId) {
+    throw new SignatureRefusal(`Refused: the typed-data domain is for chain ${domainChain}, but this approval is for chain ${expect.chainId}. A signature for another chain is never produced under this approval.`);
+  }
+  if (expect.verifyingContract && (!vc || getAddress(vc) !== getAddress(expect.verifyingContract))) {
+    throw new SignatureRefusal(`Refused: the typed-data domain names ${vc ?? "no contract"}, not the reviewed Safe ${expect.verifyingContract}.`);
+  }
+  return primaryType;
+}
+var MESSAGE_MAX_BYTES, TAG_MESSAGE, TAG_TYPED, HIDDEN_CLASS, HIDDEN_RE, HIDDEN_ONE, APPROVAL_WORDS, ADDRESS_RE2, AMOUNT_RE, URL_RE2, SignatureRefusal, SIGNABLE_PRIMARY_TYPES, PERMIT2, ApprovedSignature;
+var init_signing = __esm({
+  "dist/lib/approval/signing.js"() {
+    "use strict";
+    init_lib2();
+    init_ethersProvider();
+    init_redact();
+    init_store();
+    MESSAGE_MAX_BYTES = 4096;
+    TAG_MESSAGE = keccak256(toUtf8Bytes("dexe-mcp/approval/message/v1"));
+    TAG_TYPED = keccak256(toUtf8Bytes("dexe-mcp/approval/typed-data/v1"));
+    HIDDEN_CLASS = "[\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u00A0\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u2000-\\u200F\\u2028-\\u202F\\u205F-\\u206F\\u27E8\\u27E9\\u3000\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\u{E0000}-\\u{E007F}\\u{E0100}-\\u{E01EF}]";
+    HIDDEN_RE = new RegExp(HIDDEN_CLASS, "gu");
+    HIDDEN_ONE = new RegExp(`^${HIDDEN_CLASS}$`, "u");
+    APPROVAL_WORDS = /\b(permit2?|allowance|spender|approve|approval|setApprovalForAll|transferFrom|transfer|withdraw)\b/i;
+    ADDRESS_RE2 = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
+    AMOUNT_RE = /\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+(?:\.\d+)?\s*(?:t?BNB|ETH|USDT|USDC|BUSD|DEXE|wei|gwei|ether|tokens?)\b|(?<![0-9a-fA-Fx])\d{7,}(?![0-9a-fA-F])/gi;
+    URL_RE2 = /\bhttps?:\/\/[^\s"'<>]+/gi;
+    SignatureRefusal = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "SignatureRefusal";
+      }
+    };
+    SIGNABLE_PRIMARY_TYPES = /* @__PURE__ */ new Set(["SafeTx"]);
+    PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+    ApprovedSignature = class {
+      approvalId;
+      address;
+      kind;
+      chainId;
+      binding;
+      deps;
+      /** ES private: not reachable by property access, Object.keys, JSON or spread. */
+      #key;
+      #used = false;
+      constructor(approvalId, address, privateKey, kind, chainId, binding, deps) {
+        this.approvalId = approvalId;
+        this.address = address;
+        this.kind = kind;
+        this.chainId = chainId;
+        this.binding = binding;
+        this.deps = deps;
+        this.#key = privateKey;
+      }
+      drop() {
+        this.#key = null;
+      }
+      get active() {
+        return this.#key !== null && !this.#used;
+      }
+      toJSON() {
+        return "[ApprovedSignature redacted]";
+      }
+      [/* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom")]() {
+        return `ApprovedSignature { approvalId: ${this.approvalId}, kind: ${this.kind}, address: ${this.address}, key: [redacted] }`;
+      }
+      refuse(reason) {
+        this.revoke(`deviation: ${reason}`);
+        throw new ApprovalDeviationError(`Refused to sign: ${reason}. The approval was revoked and the key dropped; nothing was signed. Re-run the call to request a fresh approval for what you actually want to sign.`);
+      }
+      take(kind) {
+        if (this.#key === null || this.#used) {
+          throw new ApprovalDeviationError("This approval is no longer active (used, revoked, superseded or expired) \u2014 nothing was signed.");
+        }
+        if (kind !== this.kind)
+          this.refuse(`this approval is for a ${this.kind} signature, not a ${kind} one`);
+        return this.#key;
+      }
+      /** EIP-191 personal_sign of exactly the approved bytes. */
+      async signMessage(message) {
+        const key = this.take("message");
+        const bytes2 = typeof message === "string" ? toUtf8Bytes(message) : message;
+        if (messageBindingHash(this.chainId, this.address, bytes2) !== this.binding) {
+          this.refuse("the message differs from the one the owner approved");
+        }
+        this.#used = true;
+        try {
+          return await new Wallet(key).signMessage(bytes2);
+        } finally {
+          this.finish();
+        }
+      }
+      /** EIP-712 signature of exactly the approved SafeTx. */
+      async signTypedData(domain3, types, value) {
+        const key = this.take("safeTx");
+        try {
+          assertSignableTypedData({ domain: domain3, types }, { chainId: this.chainId, ...this.deps.verifyingContract ? { verifyingContract: this.deps.verifyingContract } : {} });
+        } catch (e2) {
+          this.refuse(safeErrorMessage(e2));
+        }
+        let digest3;
+        try {
+          digest3 = TypedDataEncoder.hash(domain3, types, value);
+        } catch (e2) {
+          this.refuse(`the typed data does not encode (${safeErrorMessage(e2)})`);
+        }
+        if (typedDataBindingHash(this.chainId, this.address, digest3) !== this.binding) {
+          this.refuse("the typed data differs from what the owner approved");
+        }
+        this.#used = true;
+        try {
+          return await new Wallet(key).signTypedData(domain3, types, value);
+        } finally {
+          this.finish();
+        }
+      }
+      /** Signed (or abandoned) → consumed / revoked. Drops the key. */
+      finish() {
+        if (this.#used)
+          this.deps.store.finish(this.approvalId);
+        else
+          this.deps.store.revoke(this.approvalId, "the approved signature was not produced");
+        this.drop();
+      }
+      revoke(reason) {
+        this.drop();
+        this.deps.store.revoke(this.approvalId, reason);
+      }
+    };
+  }
+});
+
+// dist/lib/approval/rendezvous.js
+import { connect as netConnect } from "node:net";
+import { chmodSync as chmodSync2, closeSync as closeSync3, existsSync as existsSync10, lstatSync, mkdirSync as mkdirSync5, openSync as openSync3, readdirSync as readdirSync4, readFileSync as readFileSync10, unlinkSync as unlinkSync2, writeSync as writeSync3 } from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import { isAbsolute as isAbsolute3, join as join10 } from "node:path";
+function currentIdentity() {
+  return { platform: process.platform, uid: typeof process.getuid === "function" ? process.getuid() : -1 };
+}
+function defaultRunDir(home = homedir5()) {
+  return join10(home, ".dexe-mcp", "run");
+}
+function rendezvousFile(runDir, pid) {
+  return join10(runDir, `approve-${pid}.json`);
+}
+function trustProblem(st3, expect, id2) {
+  if (id2.platform === "win32")
+    return null;
+  if (st3.isSymbolicLink())
+    return "is a symbolic link";
+  if (expect === "dir" && !st3.isDirectory())
+    return "is not a directory";
+  if (expect === "file" && !st3.isFile())
+    return "is not a regular file";
+  if (expect === "socket" && !st3.isSocket())
+    return "is not a unix socket";
+  if (st3.uid !== id2.uid)
+    return `is owned by uid ${st3.uid}, not by you (uid ${id2.uid})`;
+  const loose = st3.mode & 63;
+  if (loose !== 0)
+    return `grants group/other permissions (mode ${(st3.mode & 511).toString(8).padStart(4, "0")})`;
+  return null;
+}
+function prepareRunDir(dir, id2 = currentIdentity()) {
+  mkdirSync5(dir, { recursive: true, mode: 448 });
+  if (id2.platform === "win32")
+    return;
+  let st3 = lstatSync(dir);
+  if (st3.isDirectory() && !st3.isSymbolicLink() && st3.uid === id2.uid && (st3.mode & 63) !== 0) {
+    chmodSync2(dir, 448);
+    st3 = lstatSync(dir);
+  }
+  const p4 = trustProblem(st3, "dir", id2);
+  if (p4)
+    throw new Error(`${dir} ${p4} \u2014 refusing to put the terminal-approval secret there.`);
+}
+function writeRendezvous(dir, info) {
+  const path7 = rendezvousFile(dir, info.pid);
+  const tmp = tempStatePath(path7);
+  const fd = openSync3(tmp, "wx", 384);
+  try {
+    writeSync3(fd, `${JSON.stringify(info)}
+`);
+  } finally {
+    closeSync3(fd);
+  }
+  try {
+    renameWithRetry(tmp, path7);
+  } catch (e2) {
+    try {
+      unlinkSync2(tmp);
+    } catch {
+    }
+    throw e2;
+  }
+  return path7;
+}
+function pidState(pid) {
+  try {
+    process.kill(pid, 0);
+    return "alive";
+  } catch (e2) {
+    const code6 = e2.code;
+    return code6 === "EPERM" ? "other" : "gone";
+  }
+}
+function parseInfo(raw, pidFromName) {
+  let j5;
+  try {
+    j5 = JSON.parse(raw);
+  } catch {
+    return "is not JSON";
+  }
+  if (j5.v !== RENDEZVOUS_VERSION)
+    return `has version ${String(j5.v)}, expected ${RENDEZVOUS_VERSION}`;
+  if (j5.pid !== pidFromName)
+    return "names another pid than its file name";
+  if (typeof j5.secret !== "string" || j5.secret.length < 32)
+    return "has no usable secret";
+  if (typeof j5.address !== "string" || !isAddress(j5.address))
+    return "has no keystore address";
+  if (typeof j5.endpoint !== "string")
+    return "has no endpoint";
+  return {
+    v: 1,
+    pid: j5.pid,
+    address: getAddress(j5.address),
+    endpoint: j5.endpoint,
+    secret: j5.secret,
+    createdAt: String(j5.createdAt ?? ""),
+    version: String(j5.version ?? "")
+  };
+}
+function endpointProblem(endpoint, id2) {
+  if (id2.platform === "win32") {
+    return endpoint.startsWith(PIPE_PREFIX) && /^[A-Za-z0-9\\.:_-]+$/.test(endpoint) ? null : "is not a dexe-mcp named pipe";
+  }
+  if (!isAbsolute3(endpoint) || !endpoint.endsWith(".sock"))
+    return "is not an absolute unix-socket path";
+  let st3;
+  try {
+    st3 = lstatSync(endpoint);
+  } catch {
+    return "does not exist (the server is gone)";
+  }
+  return trustProblem(st3, "socket", id2);
+}
+function discoverServers(dir, opts = {}) {
+  const id2 = opts.id ?? currentIdentity();
+  const state = opts.pidState ?? pidState;
+  const out2 = { servers: [], ignored: [], removed: [] };
+  if (!existsSync10(dir))
+    return out2;
+  const dirProblem = trustProblem(lstatSync(dir), "dir", id2);
+  if (dirProblem) {
+    out2.ignored.push({ file: dir, reason: `the directory ${dirProblem}` });
+    return out2;
+  }
+  for (const name2 of readdirSync4(dir)) {
+    const m3 = FILE_RE.exec(name2);
+    if (!m3)
+      continue;
+    const file2 = join10(dir, name2);
+    let st3;
+    try {
+      st3 = lstatSync(file2);
+    } catch {
+      continue;
+    }
+    const p4 = trustProblem(st3, "file", id2);
+    if (p4) {
+      out2.ignored.push({ file: file2, reason: p4 });
+      continue;
+    }
+    const pid = Number(m3[1]);
+    if (state(pid) === "gone") {
+      removeRendezvous(file2, id2);
+      out2.removed.push(file2);
+      continue;
+    }
+    let raw;
+    try {
+      raw = readFileSync10(file2, "utf8");
+    } catch {
+      continue;
+    }
+    const info = parseInfo(raw, pid);
+    if (typeof info === "string") {
+      out2.ignored.push({ file: file2, reason: info });
+      continue;
+    }
+    const ep = endpointProblem(info.endpoint, id2);
+    if (ep) {
+      if (/does not exist/.test(ep)) {
+        removeRendezvous(file2, id2);
+        out2.removed.push(file2);
+      } else {
+        out2.ignored.push({ file: file2, reason: `its endpoint ${ep}` });
+      }
+      continue;
+    }
+    out2.servers.push({ file: file2, info });
+  }
+  return out2;
+}
+function removeRendezvous(file2, id2 = currentIdentity()) {
+  let endpoint;
+  try {
+    endpoint = JSON.parse(readFileSync10(file2, "utf8")).endpoint;
+  } catch {
+    endpoint = void 0;
+  }
+  try {
+    unlinkSync2(file2);
+  } catch {
+  }
+  if (endpoint && id2.platform !== "win32" && isAbsolute3(endpoint) && endpoint.endsWith(".sock")) {
+    try {
+      const st3 = lstatSync(endpoint);
+      if (st3.isSocket() && st3.uid === id2.uid)
+        unlinkSync2(endpoint);
+    } catch {
+    }
+  }
+}
+function controlRequest(endpoint, body, timeoutMs = 12e4) {
+  return new Promise((resolveReq, reject) => {
+    const sock = netConnect(endpoint);
+    let buf = "";
+    let settled = false;
+    const done = (err16, value) => {
+      if (settled)
+        return;
+      settled = true;
+      clearTimeout(timer);
+      sock.destroy();
+      if (err16)
+        reject(err16);
+      else
+        resolveReq(value);
+    };
+    const timer = setTimeout(() => done(new ControlConnectError("the server did not answer in time", "ETIMEDOUT")), timeoutMs);
+    sock.setEncoding("utf8");
+    sock.on("connect", () => sock.write(`${JSON.stringify(body)}
+`));
+    sock.on("data", (chunk) => {
+      buf += chunk;
+      if (buf.length > 4 * 1024 * 1024)
+        return done(new ControlConnectError("response too large", "E2BIG"));
+      const nl = buf.indexOf("\n");
+      if (nl < 0)
+        return;
+      try {
+        done(null, JSON.parse(buf.slice(0, nl)));
+      } catch {
+        done(new ControlConnectError("malformed response", "EPROTO"));
+      }
+    });
+    sock.on("end", () => done(new ControlConnectError("the server closed the connection", "ECONNRESET")));
+    sock.on("error", (e2) => done(new ControlConnectError(e2.message, e2.code)));
+  });
+}
+var RENDEZVOUS_VERSION, FILE_RE, PIPE_PREFIX, ControlConnectError;
+var init_rendezvous = __esm({
+  "dist/lib/approval/rendezvous.js"() {
+    "use strict";
+    init_lib2();
+    init_stateStore();
+    RENDEZVOUS_VERSION = 1;
+    FILE_RE = /^approve-(\d{1,10})\.json$/;
+    PIPE_PREFIX = "\\\\.\\pipe\\dexe-mcp-approve-";
+    ControlConnectError = class extends Error {
+      code;
+      constructor(message, code6) {
+        super(message);
+        this.code = code6;
+        this.name = "ControlConnectError";
+      }
     };
   }
 });
@@ -44416,22 +45497,22 @@ function __awaiter(thisArg, _arguments, P4, generator) {
   return new (P4 || (P4 = Promise))(function(resolve9, reject) {
     function fulfilled(value) {
       try {
-        step(generator.next(value));
+        step2(generator.next(value));
       } catch (e2) {
         reject(e2);
       }
     }
     function rejected(value) {
       try {
-        step(generator["throw"](value));
+        step2(generator["throw"](value));
       } catch (e2) {
         reject(e2);
       }
     }
-    function step(result) {
+    function step2(result) {
       result.done ? resolve9(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
-    step((generator = generator.apply(thisArg, _arguments || [])).next());
+    step2((generator = generator.apply(thisArg, _arguments || [])).next());
   });
 }
 function __generator(thisArg, body) {
@@ -44444,10 +45525,10 @@ function __generator(thisArg, body) {
   }), g3;
   function verb(n4) {
     return function(v7) {
-      return step([n4, v7]);
+      return step2([n4, v7]);
     };
   }
-  function step(op) {
+  function step2(op) {
     if (f3) throw new TypeError("Generator is already executing.");
     while (_3) try {
       if (f3 = 1, y6 && (t2 = op[0] & 2 ? y6["return"] : op[0] ? y6["throw"] || ((t2 = y6["return"]) && t2.call(y6), 0) : y6.next) && !(t2 = t2.call(y6, op[1])).done) return t2;
@@ -44568,12 +45649,12 @@ function __asyncGenerator(thisArg, _arguments, generator) {
   }
   function resume(n4, v7) {
     try {
-      step(g3[n4](v7));
+      step2(g3[n4](v7));
     } catch (e2) {
       settle2(q6[0][3], e2);
     }
   }
-  function step(r2) {
+  function step2(r2) {
     r2.value instanceof __await ? Promise.resolve(r2.value.v).then(fulfill, reject) : settle2(q6[0][2], r2);
   }
   function fulfill(value) {
@@ -44922,22 +46003,22 @@ function __awaiter2(thisArg, _arguments, P4, generator) {
   return new (P4 || (P4 = Promise))(function(resolve9, reject) {
     function fulfilled(value) {
       try {
-        step(generator.next(value));
+        step2(generator.next(value));
       } catch (e2) {
         reject(e2);
       }
     }
     function rejected(value) {
       try {
-        step(generator["throw"](value));
+        step2(generator["throw"](value));
       } catch (e2) {
         reject(e2);
       }
     }
-    function step(result) {
+    function step2(result) {
       result.done ? resolve9(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
-    step((generator = generator.apply(thisArg, _arguments || [])).next());
+    step2((generator = generator.apply(thisArg, _arguments || [])).next());
   });
 }
 function __generator2(thisArg, body) {
@@ -44950,10 +46031,10 @@ function __generator2(thisArg, body) {
   }), g3;
   function verb(n4) {
     return function(v7) {
-      return step([n4, v7]);
+      return step2([n4, v7]);
     };
   }
-  function step(op) {
+  function step2(op) {
     if (f3) throw new TypeError("Generator is already executing.");
     while (_3) try {
       if (f3 = 1, y6 && (t2 = op[0] & 2 ? y6["return"] : op[0] ? y6["throw"] || ((t2 = y6["return"]) && t2.call(y6), 0) : y6.next) && !(t2 = t2.call(y6, op[1])).done) return t2;
@@ -45074,12 +46155,12 @@ function __asyncGenerator2(thisArg, _arguments, generator) {
   }
   function resume(n4, v7) {
     try {
-      step(g3[n4](v7));
+      step2(g3[n4](v7));
     } catch (e2) {
       settle2(q6[0][3], e2);
     }
   }
-  function step(r2) {
+  function step2(r2) {
     r2.value instanceof __await2 ? Promise.resolve(r2.value.v).then(fulfill, reject) : settle2(q6[0][2], r2);
   }
   function fulfill(value) {
@@ -50018,7 +51099,7 @@ function createOptHasher(hashCons) {
   hashC.create = (opts) => hashCons(opts);
   return hashC;
 }
-function randomBytes8(bytesLength = 32) {
+function randomBytes9(bytesLength = 32) {
   if (crypto5 && typeof crypto5.getRandomValues === "function") {
     return crypto5.getRandomValues(new Uint8Array(bytesLength));
   }
@@ -50455,7 +51536,7 @@ function createHasher2(hashCons) {
   hashC.create = () => hashCons();
   return hashC;
 }
-function randomBytes9(bytesLength = 32) {
+function randomBytes10(bytesLength = 32) {
   if (crypto6 && typeof crypto6.getRandomValues === "function") {
     return crypto6.getRandomValues(new Uint8Array(bytesLength));
   }
@@ -53472,7 +54553,7 @@ function weierstrass2(curveDef) {
   function prepSig(msgHash, privateKey, opts = defaultSigOpts) {
     if (["recovered", "canonical"].some((k5) => k5 in opts))
       throw new Error("sign() legacy options not supported");
-    const { hash: hash3, randomBytes: randomBytes10 } = CURVE;
+    const { hash: hash3, randomBytes: randomBytes11 } = CURVE;
     let { lowS, prehash, extraEntropy: ent } = opts;
     if (lowS == null)
       lowS = true;
@@ -53484,7 +54565,7 @@ function weierstrass2(curveDef) {
     const d3 = normPrivateKeyToScalar(privateKey);
     const seedArgs = [int2octets(d3), int2octets(h1int)];
     if (ent != null && ent !== false) {
-      const e2 = ent === true ? randomBytes10(Fp3.BYTES) : ent;
+      const e2 = ent === true ? randomBytes11(Fp3.BYTES) : ent;
       seedArgs.push(ensureBytes2("extraEntropy", e2));
     }
     const seed = concatBytes5(...seedArgs);
@@ -53706,7 +54787,7 @@ function getHash2(hash3) {
   return {
     hash: hash3,
     hmac: (key, ...msgs) => hmac2(hash3, key, concatBytes4(...msgs)),
-    randomBytes: randomBytes9
+    randomBytes: randomBytes10
   };
 }
 function createCurve2(curveDef, defHash) {
@@ -54285,7 +55366,7 @@ function alphabet2(letters) {
   };
 }
 // @__NO_SIDE_EFFECTS__
-function join11(separator = "") {
+function join13(separator = "") {
   astr("join", separator);
   return {
     encode: (from10) => {
@@ -54456,8 +55537,8 @@ var init_esm = __esm({
         res.push(2 ** i3);
       return res;
     })();
-    base323 = /* @__PURE__ */ chain(/* @__PURE__ */ radix2(5), /* @__PURE__ */ alphabet2("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"), /* @__PURE__ */ padding2(5), /* @__PURE__ */ join11(""));
-    genBase58 = /* @__NO_SIDE_EFFECTS__ */ (abc) => /* @__PURE__ */ chain(/* @__PURE__ */ radix(58), /* @__PURE__ */ alphabet2(abc), /* @__PURE__ */ join11(""));
+    base323 = /* @__PURE__ */ chain(/* @__PURE__ */ radix2(5), /* @__PURE__ */ alphabet2("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"), /* @__PURE__ */ padding2(5), /* @__PURE__ */ join13(""));
+    genBase58 = /* @__NO_SIDE_EFFECTS__ */ (abc) => /* @__PURE__ */ chain(/* @__PURE__ */ radix(58), /* @__PURE__ */ alphabet2(abc), /* @__PURE__ */ join13(""));
     base58 = /* @__PURE__ */ genBase58("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz");
   }
 });
@@ -58103,17 +59184,17 @@ var require_Decoder = __commonJS({
         }
         try {
           this.entered = true;
-          let decoded = false;
+          let decoded2 = false;
           let object4;
           for await (const buffer of stream) {
-            if (decoded) {
+            if (decoded2) {
               this.entered = false;
               throw this.createExtraByteError(this.totalPos);
             }
             this.appendBuffer(buffer);
             try {
               object4 = this.doDecodeSync();
-              decoded = true;
+              decoded2 = true;
             } catch (e2) {
               if (!(e2 instanceof RangeError)) {
                 throw e2;
@@ -58121,7 +59202,7 @@ var require_Decoder = __commonJS({
             }
             this.totalPos += this.pos;
           }
-          if (decoded) {
+          if (decoded2) {
             if (this.hasRemaining(1)) {
               throw this.createExtraByteError(this.totalPos);
             }
@@ -60588,7 +61669,7 @@ function eddsa(Point2, cHash, eddsaOpts = {}) {
   });
   const { prehash } = eddsaOpts;
   const { BASE, Fp: Fp3, Fn: Fn2 } = Point2;
-  const randomBytes10 = eddsaOpts.randomBytes || randomBytes8;
+  const randomBytes11 = eddsaOpts.randomBytes || randomBytes9;
   const adjustScalarBytes2 = eddsaOpts.adjustScalarBytes || ((bytes2) => bytes2);
   const domain3 = eddsaOpts.domain || ((data4, ctx, phflag) => {
     _abool2(phflag, "phflag");
@@ -60670,7 +61751,7 @@ function eddsa(Point2, cHash, eddsaOpts = {}) {
     signature: 2 * _size2,
     seed: _size2
   };
-  function randomSecretKey(seed = randomBytes10(lengths.seed)) {
+  function randomSecretKey(seed = randomBytes11(lengths.seed)) {
     return _abytes2(seed, lengths.seed, "seed");
   }
   function keygen(seed) {
@@ -60865,7 +61946,7 @@ function montgomery(curveDef) {
   const is25519 = type === "x25519";
   if (!is25519 && type !== "x448")
     throw new Error("invalid type");
-  const randomBytes_ = rand || randomBytes8;
+  const randomBytes_ = rand || randomBytes9;
   const montgomeryBits = is25519 ? 255 : 448;
   const fieldLen = is25519 ? 32 : 56;
   const Gu = is25519 ? BigInt(9) : BigInt(5);
@@ -61737,7 +62818,7 @@ function getWLengths(Fp3, Fn2) {
 }
 function ecdh(Point2, ecdhOpts = {}) {
   const { Fn: Fn2 } = Point2;
-  const randomBytes_ = ecdhOpts.randomBytes || randomBytes8;
+  const randomBytes_ = ecdhOpts.randomBytes || randomBytes9;
   const lengths = Object.assign(getWLengths(Point2.Fp, Fn2), { seed: getMinHashLength3(Fn2.ORDER) });
   function isValidSecretKey(secretKey) {
     try {
@@ -61812,7 +62893,7 @@ function ecdsa(Point2, hash3, ecdsaOpts = {}) {
     bits2int: "function",
     bits2int_modN: "function"
   });
-  const randomBytes10 = ecdsaOpts.randomBytes || randomBytes8;
+  const randomBytes11 = ecdsaOpts.randomBytes || randomBytes9;
   const hmac4 = ecdsaOpts.hmac || ((key, ...msgs) => hmac3(hash3, key, concatBytes3(...msgs)));
   const { Fp: Fp3, Fn: Fn2 } = Point2;
   const { ORDER: CURVE_ORDER, BITS: fnBits } = Fn2;
@@ -61967,7 +63048,7 @@ function ecdsa(Point2, hash3, ecdsaOpts = {}) {
     const d3 = _normFnElement(Fn2, privateKey);
     const seedArgs = [int2octets(d3), int2octets(h1int)];
     if (extraEntropy2 != null && extraEntropy2 !== false) {
-      const e2 = extraEntropy2 === true ? randomBytes10(lengths.secretKey) : extraEntropy2;
+      const e2 = extraEntropy2 === true ? randomBytes11(lengths.secretKey) : extraEntropy2;
       seedArgs.push(ensureBytes3("extraEntropy", e2));
     }
     const seed = concatBytes3(...seedArgs);
@@ -63780,7 +64861,7 @@ function Pr() {
   return { privateKey: toString6(e2, y3), publicKey: toString6(t2, y3) };
 }
 function kr() {
-  const e2 = randomBytes8($e2);
+  const e2 = randomBytes9($e2);
   return toString6(e2, y3);
 }
 function _r(e2, t2) {
@@ -63811,7 +64892,7 @@ function ne2(e2) {
 function Mr(e2) {
   const t2 = Re2(typeof e2.type < "u" ? e2.type : Ie2);
   if (j(t2) === D2 && typeof e2.senderPublicKey > "u") throw new Error("Missing sender public key for type 1 envelope");
-  const n4 = typeof e2.senderPublicKey < "u" ? fromString2(e2.senderPublicKey, y3) : void 0, r2 = typeof e2.iv < "u" ? fromString2(e2.iv, y3) : randomBytes8(q3), o3 = fromString2(e2.symKey, y3), s2 = chacha20poly1305(o3, r2).encrypt(fromString2(e2.message, _)), i3 = Ue2({ type: t2, sealed: s2, iv: r2, senderPublicKey: n4 });
+  const n4 = typeof e2.senderPublicKey < "u" ? fromString2(e2.senderPublicKey, y3) : void 0, r2 = typeof e2.iv < "u" ? fromString2(e2.iv, y3) : randomBytes9(q3), o3 = fromString2(e2.symKey, y3), s2 = chacha20poly1305(o3, r2).encrypt(fromString2(e2.message, _)), i3 = Ue2({ type: t2, sealed: s2, iv: r2, senderPublicKey: n4 });
   return e2.encoding === te2 ? $t(i3) : i3;
 }
 function Lr(e2) {
@@ -63820,7 +64901,7 @@ function Lr(e2) {
   return toString6(o3, _);
 }
 function Kr2(e2, t2) {
-  const n4 = Re2(F), r2 = randomBytes8(q3), o3 = fromString2(e2, _), s2 = Ue2({ type: n4, sealed: o3, iv: r2 });
+  const n4 = Re2(F), r2 = randomBytes9(q3), o3 = fromString2(e2, _), s2 = Ue2({ type: n4, sealed: o3, iv: r2 });
   return t2 === te2 ? $t(s2) : s2;
 }
 function Fr(e2, t2) {
@@ -63842,7 +64923,7 @@ function re2(e2) {
     return { type: r2, sealed: p4, iv: u4, senderPublicKey: d3 };
   }
   if (j(r2) === F) {
-    const l2 = n4.slice(o3), a3 = randomBytes8(q3);
+    const l2 = n4.slice(o3), a3 = randomBytes9(q3);
     return { type: r2, sealed: l2, iv: a3 };
   }
   const s2 = o3 + q3, i3 = n4.slice(o3, s2), c4 = n4.slice(s2);
@@ -64503,22 +65584,22 @@ function __awaiter3(thisArg, _arguments, P4, generator) {
   return new (P4 || (P4 = Promise))(function(resolve9, reject) {
     function fulfilled(value) {
       try {
-        step(generator.next(value));
+        step2(generator.next(value));
       } catch (e2) {
         reject(e2);
       }
     }
     function rejected(value) {
       try {
-        step(generator["throw"](value));
+        step2(generator["throw"](value));
       } catch (e2) {
         reject(e2);
       }
     }
-    function step(result) {
+    function step2(result) {
       result.done ? resolve9(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
-    step((generator = generator.apply(thisArg, _arguments || [])).next());
+    step2((generator = generator.apply(thisArg, _arguments || [])).next());
   });
 }
 function __generator3(thisArg, body) {
@@ -64531,10 +65612,10 @@ function __generator3(thisArg, body) {
   }), g3;
   function verb(n4) {
     return function(v7) {
-      return step([n4, v7]);
+      return step2([n4, v7]);
     };
   }
-  function step(op) {
+  function step2(op) {
     if (f3) throw new TypeError("Generator is already executing.");
     while (_3) try {
       if (f3 = 1, y6 && (t2 = op[0] & 2 ? y6["return"] : op[0] ? y6["throw"] || ((t2 = y6["return"]) && t2.call(y6), 0) : y6.next) && !(t2 = t2.call(y6, op[1])).done) return t2;
@@ -64655,12 +65736,12 @@ function __asyncGenerator3(thisArg, _arguments, generator) {
   }
   function resume(n4, v7) {
     try {
-      step(g3[n4](v7));
+      step2(g3[n4](v7));
     } catch (e2) {
       settle2(q6[0][3], e2);
     }
   }
-  function step(r2) {
+  function step2(r2) {
     r2.value instanceof __await3 ? Promise.resolve(r2.value.v).then(fulfill, reject) : settle2(q6[0][2], r2);
   }
   function fulfill(value) {
@@ -64922,22 +66003,22 @@ function __awaiter4(thisArg, _arguments, P4, generator) {
   return new (P4 || (P4 = Promise))(function(resolve9, reject) {
     function fulfilled(value) {
       try {
-        step(generator.next(value));
+        step2(generator.next(value));
       } catch (e2) {
         reject(e2);
       }
     }
     function rejected(value) {
       try {
-        step(generator["throw"](value));
+        step2(generator["throw"](value));
       } catch (e2) {
         reject(e2);
       }
     }
-    function step(result) {
+    function step2(result) {
       result.done ? resolve9(result.value) : adopt(result.value).then(fulfilled, rejected);
     }
-    step((generator = generator.apply(thisArg, _arguments || [])).next());
+    step2((generator = generator.apply(thisArg, _arguments || [])).next());
   });
 }
 function __generator4(thisArg, body) {
@@ -64950,10 +66031,10 @@ function __generator4(thisArg, body) {
   }), g3;
   function verb(n4) {
     return function(v7) {
-      return step([n4, v7]);
+      return step2([n4, v7]);
     };
   }
-  function step(op) {
+  function step2(op) {
     if (f3) throw new TypeError("Generator is already executing.");
     while (_3) try {
       if (f3 = 1, y6 && (t2 = op[0] & 2 ? y6["return"] : op[0] ? y6["throw"] || ((t2 = y6["return"]) && t2.call(y6), 0) : y6.next) && !(t2 = t2.call(y6, op[1])).done) return t2;
@@ -65074,12 +66155,12 @@ function __asyncGenerator4(thisArg, _arguments, generator) {
   }
   function resume(n4, v7) {
     try {
-      step(g3[n4](v7));
+      step2(g3[n4](v7));
     } catch (e2) {
       settle2(q6[0][3], e2);
     }
   }
-  function step(r2) {
+  function step2(r2) {
     r2.value instanceof __await4 ? Promise.resolve(r2.value.v).then(fulfill, reject) : settle2(q6[0][2], r2);
   }
   function fulfill(value) {
@@ -70238,9 +71319,9 @@ var require_url_state_machine = __commonJS({
         return failure2;
       }
       let output4 = "";
-      const decoded = punycode.ucs2.decode(input3);
-      for (let i3 = 0; i3 < decoded.length; ++i3) {
-        output4 += percentEncodeChar(decoded[i3], isC0ControlPercentEncode);
+      const decoded2 = punycode.ucs2.decode(input3);
+      for (let i3 = 0; i3 < decoded2.length; ++i3) {
+        output4 += percentEncodeChar(decoded2[i3], isC0ControlPercentEncode);
       }
       return output4;
     }
@@ -70945,16 +72026,16 @@ var require_url_state_machine = __commonJS({
     };
     module.exports.setTheUsername = function(url2, username) {
       url2.username = "";
-      const decoded = punycode.ucs2.decode(username);
-      for (let i3 = 0; i3 < decoded.length; ++i3) {
-        url2.username += percentEncodeChar(decoded[i3], isUserinfoPercentEncode);
+      const decoded2 = punycode.ucs2.decode(username);
+      for (let i3 = 0; i3 < decoded2.length; ++i3) {
+        url2.username += percentEncodeChar(decoded2[i3], isUserinfoPercentEncode);
       }
     };
     module.exports.setThePassword = function(url2, password) {
       url2.password = "";
-      const decoded = punycode.ucs2.decode(password);
-      for (let i3 = 0; i3 < decoded.length; ++i3) {
-        url2.password += percentEncodeChar(decoded[i3], isUserinfoPercentEncode);
+      const decoded2 = punycode.ucs2.decode(password);
+      for (let i3 = 0; i3 < decoded2.length; ++i3) {
+        url2.password += percentEncodeChar(decoded2[i3], isUserinfoPercentEncode);
       }
     };
     module.exports.serializeHost = serializeHost;
@@ -72328,7 +73409,7 @@ var require_lib4 = __commonJS({
       return new fetch2.Promise(function(resolve9, reject) {
         const request = new Request2(url2, opts);
         const options = getNodeRequestOptions(request);
-        const send = (options.protocol === "https:" ? https2 : http2).request;
+        const send2 = (options.protocol === "https:" ? https2 : http2).request;
         const signal = request.signal;
         let response = null;
         const abort = function abort2() {
@@ -72348,7 +73429,7 @@ var require_lib4 = __commonJS({
           abort();
           finalize2();
         };
-        const req = send(options);
+        const req = send2(options);
         let reqTimeout;
         if (signal) {
           signal.addEventListener("abort", abortAndFinalize);
@@ -73297,9 +74378,9 @@ __export(init_exports, {
 });
 import { createInterface } from "node:readline/promises";
 import { stdin as input2, stdout as output3 } from "node:process";
-import { existsSync as existsSync14, readFileSync as readFileSync15, writeFileSync as writeFileSync6, mkdirSync as mkdirSync6, readdirSync as readdirSync4, statSync as statSync5, copyFileSync } from "node:fs";
-import { resolve as resolve6, dirname as dirname7, join as join12 } from "node:path";
-import { homedir as homedir5 } from "node:os";
+import { existsSync as existsSync16, readFileSync as readFileSync16, writeFileSync as writeFileSync6, mkdirSync as mkdirSync7, readdirSync as readdirSync5, statSync as statSync5, copyFileSync } from "node:fs";
+import { resolve as resolve6, dirname as dirname7, join as join14 } from "node:path";
+import { homedir as homedir6 } from "node:os";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 async function run2() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
@@ -73451,16 +74532,16 @@ async function run2() {
     if (wcProjectId)
       updates.DEXE_WALLETCONNECT_PROJECT_ID = wcProjectId;
     let envPath;
-    if (existsSync14(resolve6(repoRoot, "src"))) {
+    if (existsSync16(resolve6(repoRoot, "src"))) {
       envPath = resolve6(repoRoot, ".env");
     } else {
-      const homeConfigDir = resolve6(homedir5(), ".dexe-mcp");
-      mkdirSync6(homeConfigDir, { recursive: true });
+      const homeConfigDir = resolve6(homedir6(), ".dexe-mcp");
+      mkdirSync7(homeConfigDir, { recursive: true });
       envPath = resolve6(homeConfigDir, ".env");
     }
     let existingEnv = null;
     try {
-      existingEnv = readFileSync15(envPath, "utf8");
+      existingEnv = readFileSync16(envPath, "utf8");
     } catch (err16) {
       if (err16.code !== "ENOENT")
         throw err16;
@@ -73502,7 +74583,7 @@ async function run2() {
 }
 async function maybeInstallSkills(rl, repoRoot) {
   const skillsSrc = resolve6(repoRoot, "dexe-plugin", "skills");
-  if (!existsSync14(skillsSrc))
+  if (!existsSync16(skillsSrc))
     return;
   output3.write(line(""));
   const want = await yn(rl, "Install dexe-mcp Claude Code skills (create-dao / create-proposal / vote-execute / otc / staking / setup)?", true);
@@ -73512,7 +74593,7 @@ async function maybeInstallSkills(rl, repoRoot) {
     ["p", "project \u2014 ./.claude/skills (this repo only, recommended)"],
     ["g", "global  \u2014 ~/.claude/skills (all your projects)"]
   ], "p");
-  const targetRoot = scope2 === "g" ? resolve6(homedir5(), ".claude", "skills") : resolve6(process.cwd(), ".claude", "skills");
+  const targetRoot = scope2 === "g" ? resolve6(homedir6(), ".claude", "skills") : resolve6(process.cwd(), ".claude", "skills");
   const summary = installSkills(skillsSrc, targetRoot);
   output3.write(line(`\u2714 Skills \u2192 ${targetRoot}`));
   for (const s2 of summary)
@@ -73520,26 +74601,26 @@ async function maybeInstallSkills(rl, repoRoot) {
 }
 function installSkills(srcRoot, targetRoot) {
   const out2 = [];
-  mkdirSync6(targetRoot, { recursive: true });
-  for (const entry of readdirSync4(srcRoot)) {
-    const srcDir = join12(srcRoot, entry);
+  mkdirSync7(targetRoot, { recursive: true });
+  for (const entry of readdirSync5(srcRoot)) {
+    const srcDir = join14(srcRoot, entry);
     if (!statSync5(srcDir).isDirectory())
       continue;
-    const srcSkill = join12(srcDir, "SKILL.md");
-    if (!existsSync14(srcSkill))
+    const srcSkill = join14(srcDir, "SKILL.md");
+    if (!existsSync16(srcSkill))
       continue;
-    const destDir = join12(targetRoot, entry);
-    const destSkill = join12(destDir, "SKILL.md");
-    const next = readFileSync15(srcSkill, "utf8");
+    const destDir = join14(targetRoot, entry);
+    const destSkill = join14(destDir, "SKILL.md");
+    const next = readFileSync16(srcSkill, "utf8");
     let status;
-    if (!existsSync14(destSkill)) {
+    if (!existsSync16(destSkill)) {
       status = "installed";
     } else {
-      const prev = readFileSync15(destSkill, "utf8");
+      const prev = readFileSync16(destSkill, "utf8");
       status = prev === next ? "unchanged" : "updated";
     }
     if (status !== "unchanged") {
-      mkdirSync6(destDir, { recursive: true });
+      mkdirSync7(destDir, { recursive: true });
       copyFileSync(srcSkill, destSkill);
     }
     out2.push(`${entry} (${status})`);
@@ -73640,7 +74721,7 @@ function findRepoRoot() {
   const here = dirname7(fileURLToPath5(import.meta.url));
   let cur = here;
   for (let i3 = 0; i3 < 6; i3++) {
-    if (existsSync14(resolve6(cur, "package.json")))
+    if (existsSync16(resolve6(cur, "package.json")))
       return cur;
     cur = resolve6(cur, "..");
   }
@@ -73677,6 +74758,7 @@ var init_init = __esm({
 var key_exports = {};
 __export(key_exports, {
   isCommentedKeyLine: () => isCommentedKeyLine,
+  isInteractive: () => isInteractive,
   keyUsage: () => keyUsage,
   parseEnvAssignment: () => parseEnvAssignment,
   promptHidden: () => promptHidden,
@@ -73686,7 +74768,7 @@ __export(key_exports, {
   writeFileAtomic: () => writeFileAtomic
 });
 import { createInterface as createInterface2 } from "node:readline/promises";
-import { closeSync as closeSync3, existsSync as existsSync15, openSync as openSync3, readFileSync as readFileSync16, statSync as statSync6, unlinkSync as unlinkSync2, writeSync as writeSync3 } from "node:fs";
+import { closeSync as closeSync4, existsSync as existsSync17, openSync as openSync4, readFileSync as readFileSync17, statSync as statSync6, unlinkSync as unlinkSync4, writeSync as writeSync4 } from "node:fs";
 import { basename as basename2, dirname as dirname8 } from "node:path";
 function keyUsage() {
   return [
@@ -73782,17 +74864,17 @@ function writeFileAtomic(path7, content3) {
   } catch {
   }
   const tmp = tempStatePath(path7);
-  const fd = openSync3(tmp, "wx", mode);
+  const fd = openSync4(tmp, "wx", mode);
   try {
-    writeSync3(fd, content3);
+    writeSync4(fd, content3);
   } finally {
-    closeSync3(fd);
+    closeSync4(fd);
   }
   try {
     renameWithRetry(tmp, path7);
   } catch (err16) {
     try {
-      unlinkSync2(tmp);
+      unlinkSync4(tmp);
     } catch {
     }
     throw err16;
@@ -73982,7 +75064,7 @@ ${keyUsage()}`);
         const jsonPath = flag(argv, "--json");
         let privateKey;
         if (jsonPath) {
-          const raw = readFileSync16(jsonPath, "utf8");
+          const raw = readFileSync17(jsonPath, "utf8");
           const meta3 = parseKeystoreMeta(raw);
           out(`Importing keystore for ${meta3.address} from ${jsonPath}`);
           const oldPw = await promptHidden("Its current password: ");
@@ -74047,7 +75129,7 @@ ${keyUsage()}`);
           return 1;
         }
         out(`Changing the password of ${sel.address} (${sel.file})`);
-        const raw = readFileSync16(sel.file, "utf8");
+        const raw = readFileSync17(sel.file, "utf8");
         const oldPw = await promptHidden("Current password: ");
         let pk;
         try {
@@ -74078,7 +75160,7 @@ ${keyUsage()}`);
           out("Not confirmed \u2014 nothing deleted.");
           return 1;
         }
-        unlinkSync2(sel.file);
+        unlinkSync4(sel.file);
         out(`\u2714 Removed ${basename2(sel.file)}.`);
         return 0;
       }
@@ -74095,9 +75177,9 @@ ${keyUsage()}`);
   return 2;
 }
 async function stripFromEnvFiles(files, privateKey) {
-  const scanned = files.filter((f3) => existsSync15(f3)).map((f3) => {
+  const scanned = files.filter((f3) => existsSync17(f3)).map((f3) => {
     try {
-      const content3 = readFileSync16(f3, "utf8");
+      const content3 = readFileSync17(f3, "utf8");
       return { f: f3, ...removeEnvKeyValue(content3, "DEXE_PRIVATE_KEY", privateKey) };
     } catch {
       return null;
@@ -74141,15 +75223,328 @@ var init_key = __esm({
   }
 });
 
+// dist/lib/approval/terminalReview.js
+function tsafe(s2) {
+  return String(s2).replace(TERMINAL_UNSAFE, (c4) => `\u27E8U+${c4.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}\u27E9`);
+}
+function oneLine(s2) {
+  return tsafe(String(s2).replace(/\n/g, "\u23CE"));
+}
+function risks(list3, indent2) {
+  const order2 = { danger: 0, warn: 1, info: 2 };
+  return [...list3].sort((a3, b7) => order2[a3.level] - order2[b7.level]).map((r2) => `${indent2}${LEVEL[r2.level]} ${oneLine(r2.text)}`);
+}
+function decoded(d3, indent2) {
+  const out2 = [`${indent2}${oneLine(`${d3.contract ? `${d3.contract}.` : ""}${d3.signature}`)}`];
+  for (const a3 of d3.args)
+    out2.push(`${indent2}    ${oneLine(a3.name)} = ${oneLine(a3.value)}`);
+  if (d3.nested.length) {
+    out2.push(`${indent2}    contains ${d3.nested.length} inner call(s):`);
+    for (const n4 of d3.nested)
+      out2.push(...decoded(n4, `${indent2}      `));
+  }
+  return out2;
+}
+function step(s2, title) {
+  const out2 = [`  ${title}`];
+  out2.push(`    to        ${oneLine(s2.to)}  (${oneLine(s2.toLabel)})`);
+  out2.push(`    value     ${oneLine(s2.valueHuman)}`);
+  if (s2.decoded) {
+    const [first, ...rest] = decoded(s2.decoded, "");
+    out2.push(`    call      ${first}`);
+    for (const l2 of rest)
+      out2.push(`              ${l2}`);
+  } else {
+    out2.push(`    call      NOT DECODABLE \u2014 ${oneLine(s2.dataPreview)}`);
+  }
+  out2.push(`    calldata  ${s2.dataBytes} bytes \xB7 keccak ${oneLine(s2.dataHash)}`);
+  if (s2.builderNote)
+    out2.push(`    tool's note (written by the calling tool, not verified): ${oneLine(s2.builderNote)}`);
+  out2.push(...risks(s2.risks, "    "));
+  return out2;
+}
+function renderTerminalReview(r2) {
+  const rule = "\u2500".repeat(72);
+  const out2 = [rule];
+  out2.push(`${HEADINGS2[r2.kind] ?? "Approval"} \u2014 ${oneLine(r2.approvalId)}   [${r2.kind === "message" ? "message" : r2.mainnet ? "MAINNET \u2014 real funds" : "testnet"}]`);
+  out2.push(`  requested by  ${oneLine(r2.tool)}`);
+  out2.push(r2.kind === "message" ? `  network       none in the signature (for an account on ${oneLine(r2.chain)})` : `  network       ${oneLine(r2.chain)}`);
+  out2.push(`  ${r2.kind === "tx-batch" ? "from    " : "signer  "}      ${oneLine(r2.from)}`);
+  out2.push(`  fingerprint   ${oneLine(r2.fingerprint)}   \u2190 must match the code in your chat; if not, decline`);
+  out2.push(`  expires       ${oneLine(r2.expiresAt)}`);
+  if (r2.failures > 0)
+    out2.push(`  wrong passwords so far on this approval: ${r2.failures}`);
+  if (r2.resumeNote?.length) {
+    out2.push("  Earlier in this flow (already on-chain, NOT part of this approval):");
+    for (const l2 of r2.resumeNote)
+      out2.push(`    ${oneLine(l2.label)} \u2014 ${oneLine(l2.txHash)}`);
+  }
+  out2.push("");
+  if (r2.signing?.kind === "message") {
+    const m3 = r2.signing.message;
+    out2.push(`  For: ${oneLine(m3.purpose)}  (stated by the server)`);
+    out2.push(`  Message \u2014 ${m3.byteLength} bytes, ${m3.encoding === "utf8" ? "UTF-8 text, shown in full between the lines" : "binary, shown as hex"}:`);
+    out2.push("  \u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504");
+    const body = m3.encoding === "utf8" && m3.segments ? segmentsToText(m3.segments) : m3.hex;
+    for (const line2 of tsafe(body).split("\n"))
+      out2.push(`  ${line2}`);
+    out2.push("  \u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504");
+    out2.push("  (\u27E8U+\u2026\u27E9 / \u27E8CR\u27E9 / \u27E8TAB\u27E9 mark characters that could hide or reorder text.)");
+    out2.push(`  EIP-191 hash  ${oneLine(m3.eip191Hash)}`);
+    out2.push(...risks(m3.risks, "  "));
+    out2.push("   \xB7 note   A message signature sends nothing on-chain, but whoever receives it can present it as you.");
+  } else if (r2.signing?.kind === "safeTx") {
+    const s2 = r2.signing.safe;
+    out2.push(`  Safe          ${oneLine(s2.safe)}  (${s2.singletonLabel ? oneLine(s2.singletonLabel) : "IMPLEMENTATION NOT RECOGNISED"}, version ${oneLine(s2.version)})`);
+    out2.push(`  owners        threshold ${oneLine(s2.threshold)} of ${s2.ownerCount} \xB7 you are an owner (checked on-chain)`);
+    out2.push(`  operation     ${s2.operation === 1 ? "DELEGATECALL (1)" : "CALL (0)"}`);
+    out2.push(`  nonce         ${oneLine(s2.nonce)} (the Safe's next nonce is ${oneLine(s2.currentNonce)})`);
+    if (s2.gasPrice !== "0") {
+      out2.push(`  gas refund    gasPrice ${oneLine(s2.gasPrice)} in ${oneLine(s2.gasToken)} to ${oneLine(s2.refundReceiver)}`);
+    }
+    out2.push(`  safeTxHash    ${oneLine(s2.safeTxHash ?? "")}  (EIP-712, chain ${r2.chainId}, verifyingContract = the Safe)`);
+    if (s2.multiSend?.length) {
+      out2.push(`  MultiSend sub-calls (${s2.multiSend.length}, in order):`);
+      s2.multiSend.forEach((c4, k5) => {
+        const call = c4.decoded ? oneLine(`${c4.decoded.contract ? `${c4.decoded.contract}.` : ""}${c4.decoded.signature}`) : c4.selector ?? "(no calldata)";
+        out2.push(`    ${k5 + 1}. ${c4.operation === 1 ? "DELEGATECALL" : "CALL"} ${oneLine(c4.to)} value ${oneLine(c4.value)} wei \u2014 ${call}`);
+      });
+    }
+    out2.push(...risks(s2.risks, "  "));
+    out2.push("");
+    for (const st3 of r2.steps)
+      out2.push(...step(st3, "What the Safe will do"));
+    out2.push("   \xB7 note   This signs only; nothing is sent on-chain now. Once the threshold is met, anyone can execute it.");
+  } else {
+    const sim = r2.prechecks.simulation === "pass" ? "transaction 1 simulated OK" : r2.prechecks.simulation === "unavailable" ? "simulation unavailable (RPC) \u2014 retried at send time" : "not simulated";
+    out2.push(`  checks        allowlist / value cap / wrong-chain / denylist passed \xB7 ${sim}`);
+    if (r2.prechecks.simulationNote)
+      out2.push(`                ${oneLine(r2.prechecks.simulationNote)}`);
+    out2.push("");
+    r2.steps.forEach((s2, k5) => {
+      out2.push(...step(s2, `Transaction ${k5 + 1} of ${r2.steps.length}`));
+      out2.push("");
+    });
+  }
+  out2.push(rule);
+  return out2;
+}
+var TERMINAL_UNSAFE, LEVEL, HEADINGS2;
+var init_terminalReview = __esm({
+  "dist/lib/approval/terminalReview.js"() {
+    "use strict";
+    init_signing();
+    TERMINAL_UNSAFE = new RegExp("[\\u0000-\\u0009\\u000B-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2069\\uFEFF]", "g");
+    LEVEL = { danger: "!! DANGER", warn: " ! warn  ", info: " \xB7 note  " };
+    HEADINGS2 = { "tx-batch": "Approve transaction(s)", message: "Sign a message", safeTx: "Sign a Safe transaction" };
+  }
+});
+
+// dist/cli/approve.js
+var approve_exports = {};
+__export(approve_exports, {
+  approveUsage: () => approveUsage,
+  run: () => run4
+});
+import { createInterface as createInterface3 } from "node:readline/promises";
+function approveUsage() {
+  return [
+    "dexe-mcp approve [<approvalId>] [--list] [--pid <n>]",
+    "",
+    "  Review and approve / decline the keystore approvals waiting in the running dexe-mcp server(s),",
+    "  here in the terminal. The password is typed with echo off and checked by the server, under the",
+    "  same wrong-password lockout as the approval page.",
+    "",
+    "  <approvalId>     only this approval (apr_\u2026)",
+    "  --list           print the reviews and exit (no terminal needed, decides nothing)",
+    "  --pid <n>        only the server with this process id",
+    "",
+    "Deciding needs an interactive terminal \u2014 run it yourself, not through an AI agent.",
+    ""
+  ].join("\n");
+}
+function defaultIo() {
+  return {
+    isInteractive,
+    promptHidden,
+    async ask(question) {
+      const rl = createInterface3({ input: process.stdin, output: process.stdout });
+      try {
+        return (await rl.question(question)).trim();
+      } finally {
+        rl.close();
+      }
+    },
+    out: (line2 = "") => void process.stdout.write(`${line2}
+`),
+    err: (line2) => void process.stderr.write(`${line2}
+`)
+  };
+}
+async function run4(argv, opts = {}) {
+  const io2 = opts.io ?? defaultIo();
+  const id2 = opts.id ?? currentIdentity();
+  const runDir = opts.runDir ?? defaultRunDir();
+  if (argv.includes("--help") || argv.includes("-h") || argv[0] === "help") {
+    io2.out(approveUsage());
+    return 0;
+  }
+  const listOnly = argv.includes("--list");
+  let pid;
+  let approvalId;
+  for (let i3 = 0; i3 < argv.length; i3++) {
+    const a3 = argv[i3];
+    if (a3 === "--list")
+      continue;
+    if (a3 === "--pid") {
+      pid = Number(argv[++i3]);
+      if (!Number.isInteger(pid) || pid <= 0) {
+        io2.err("[dexe-mcp approve] --pid needs a process id.");
+        return 2;
+      }
+      continue;
+    }
+    if (/^apr_[A-Za-z0-9_-]{4,40}$/.test(a3) && !approvalId) {
+      approvalId = a3;
+      continue;
+    }
+    io2.err(`[dexe-mcp approve] unexpected argument '${tsafe(a3)}'.
+
+${approveUsage()}`);
+    return 2;
+  }
+  if (!listOnly && !io2.isInteractive()) {
+    io2.err("[dexe-mcp approve] deciding an approval needs an interactive terminal (stdin/stdout is not a TTY here). An AI agent's shell or a pipe cannot type the keystore password, by design. Run `npx dexe-mcp approve` yourself in a terminal, or approve on the page the tool printed. (`--list` only prints the reviews.)");
+    return 2;
+  }
+  const disc = discoverServers(runDir, { id: id2 });
+  for (const g3 of disc.ignored)
+    io2.err(`[dexe-mcp approve] not trusted, ignored: ${tsafe(g3.file)} \u2014 ${tsafe(g3.reason)}`);
+  const live = [];
+  for (const s2 of disc.servers) {
+    if (pid !== void 0 && s2.info.pid !== pid)
+      continue;
+    try {
+      const hello = await controlRequest(s2.info.endpoint, { v: 1, secret: s2.info.secret, op: "hello" }, 1e4);
+      if (hello.ok === true && hello.address === s2.info.address)
+        live.push(s2);
+      else
+        io2.err(`[dexe-mcp approve] server ${s2.info.pid} did not authenticate (${tsafe(String(hello.status ?? "?"))}) \u2014 ignored.`);
+    } catch (e2) {
+      if (e2 instanceof ControlConnectError && GONE.has(e2.code ?? "")) {
+        removeRendezvous(s2.file, id2);
+      } else {
+        io2.err(`[dexe-mcp approve] server ${s2.info.pid}: ${tsafe(safeErrorMessage(e2))}`);
+      }
+    }
+  }
+  if (live.length === 0) {
+    io2.out(`No running dexe-mcp server has terminal approvals open (looked in ${runDir}). The channel starts with the first approval a keystore-mode server asks for; approvals of a server that restarted are gone.`);
+    return approvalId ? 1 : 0;
+  }
+  const waiting = [];
+  for (const s2 of live) {
+    try {
+      const res = await controlRequest(s2.info.endpoint, { v: 1, secret: s2.info.secret, op: "list" }, 3e4);
+      for (const r2 of res.approvals ?? []) {
+        if (!approvalId || r2.approvalId === approvalId)
+          waiting.push({ server: s2, review: r2 });
+      }
+      const locked7 = Number(res.lockedForMs ?? 0);
+      if (locked7 > 0)
+        io2.out(`(server ${s2.info.pid}: password entry is locked for another ${Math.ceil(locked7 / 1e3)} s after wrong passwords)`);
+    } catch (e2) {
+      io2.err(`[dexe-mcp approve] server ${s2.info.pid}: ${tsafe(safeErrorMessage(e2))}`);
+    }
+  }
+  if (waiting.length === 0) {
+    io2.out(approvalId ? `Approval ${approvalId} is not waiting (decided, expired, or unknown).` : "No approvals are waiting.");
+    return approvalId ? 1 : 0;
+  }
+  if (live.length > 1) {
+    io2.out(`${live.length} dexe-mcp servers are running; each approval below names its server (pid) and keystore address.`);
+  }
+  let failed = false;
+  for (const { server, review } of waiting) {
+    io2.out("");
+    for (const line2 of renderTerminalReview(review))
+      io2.out(line2);
+    io2.out(`  server pid ${server.info.pid} \xB7 keystore ${server.info.address}`);
+    if (listOnly)
+      continue;
+    let decided = false;
+    while (!decided) {
+      const choice = (await io2.ask("Approve (a), decline (d) or skip (s)? ")).toLowerCase();
+      if (choice === "s" || choice === "skip" || choice === "") {
+        io2.out("  skipped \u2014 nothing changed.");
+        break;
+      }
+      if (choice === "d" || choice === "decline") {
+        const res = await send(server, { op: "decline", approvalId: review.approvalId, binding: review.binding }, io2);
+        if (!res)
+          failed = true;
+        decided = true;
+        continue;
+      }
+      if (choice !== "a" && choice !== "approve")
+        continue;
+      io2.out(`  Check: the fingerprint above (${review.fingerprint}) is the one in your chat.`);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let password;
+        try {
+          password = await io2.promptHidden("  Keystore password (hidden): ");
+        } catch {
+          io2.out("  aborted \u2014 nothing changed.");
+          return 1;
+        }
+        if (!password) {
+          io2.out("  empty \u2014 nothing sent.");
+          break;
+        }
+        const res = await send(server, { op: "approve", approvalId: review.approvalId, binding: review.binding, password }, io2);
+        password = "";
+        if (res?.status === "wrong-password")
+          continue;
+        if (!res || res.ok !== true)
+          failed = true;
+        break;
+      }
+      decided = true;
+    }
+  }
+  return failed ? 1 : 0;
+}
+async function send(server, body, io2) {
+  try {
+    const res = await controlRequest(server.info.endpoint, { v: 1, secret: server.info.secret, ...body }, 15e4);
+    io2.out(`  ${res.ok === true ? "\u2714" : "\u2717"} ${tsafe(String(res.message ?? res.status ?? ""))}`);
+    return res;
+  } catch (e2) {
+    io2.err(`  \u2717 could not reach the server: ${tsafe(safeErrorMessage(e2))}`);
+    return null;
+  }
+}
+var GONE;
+var init_approve = __esm({
+  "dist/cli/approve.js"() {
+    "use strict";
+    init_key();
+    init_rendezvous();
+    init_terminalReview();
+    init_redact();
+    GONE = /* @__PURE__ */ new Set(["ENOENT", "ECONNREFUSED", "EPIPE", "ECONNRESET"]);
+  }
+});
+
 // dist/cli/skills.js
 var skills_exports = {};
 __export(skills_exports, {
-  run: () => run4
+  run: () => run5
 });
 import { resolve as resolve7 } from "node:path";
-import { homedir as homedir6 } from "node:os";
-import { existsSync as existsSync16 } from "node:fs";
-async function run4(argv) {
+import { homedir as homedir7 } from "node:os";
+import { existsSync as existsSync18 } from "node:fs";
+async function run5(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write("dexe-mcp skills [--global]\n\n  copies the DeXe recipe skills into ./.claude/skills (default)\n  --global, -g   install into ~/.claude/skills instead (every project)\n\nRestart Claude Code afterwards so it picks them up.\n");
     return;
@@ -74157,12 +75552,12 @@ async function run4(argv) {
   const global3 = argv.includes("--global") || argv.includes("-g");
   const repoRoot = findRepoRoot();
   const skillsSrc = resolve7(repoRoot, "dexe-plugin", "skills");
-  if (!existsSync16(skillsSrc)) {
+  if (!existsSync18(skillsSrc)) {
     process.stderr.write(`[dexe-mcp skills] bundled skills not found (dev checkout without build?). Looked in ${skillsSrc}.
 `);
     process.exit(2);
   }
-  const targetRoot = global3 ? resolve7(homedir6(), ".claude", "skills") : resolve7(process.cwd(), ".claude", "skills");
+  const targetRoot = global3 ? resolve7(homedir7(), ".claude", "skills") : resolve7(process.cwd(), ".claude", "skills");
   const summary = installSkills(skillsSrc, targetRoot);
   process.stdout.write(`Skills \u2192 ${targetRoot}
 `);
@@ -74181,7 +75576,7 @@ var init_skills = __esm({
 });
 
 // dist/index.js
-import { existsSync as existsSync17, readFileSync as readFileSync17 } from "node:fs";
+import { existsSync as existsSync19, readFileSync as readFileSync18 } from "node:fs";
 import { resolve as resolve8, dirname as dirname9 } from "node:path";
 import { fileURLToPath as fileURLToPath6 } from "node:url";
 
@@ -75075,14 +76470,14 @@ function isValidJWT(jwt2, alg) {
     if (!header)
       return false;
     const base644 = header.replace(/-/g, "+").replace(/_/g, "/").padEnd(header.length + (4 - header.length % 4) % 4, "=");
-    const decoded = JSON.parse(atob(base644));
-    if (typeof decoded !== "object" || decoded === null)
+    const decoded2 = JSON.parse(atob(base644));
+    if (typeof decoded2 !== "object" || decoded2 === null)
       return false;
-    if ("typ" in decoded && decoded?.typ !== "JWT")
+    if ("typ" in decoded2 && decoded2?.typ !== "JWT")
       return false;
-    if (!decoded.alg)
+    if (!decoded2.alg)
       return false;
-    if (alg && decoded.alg !== alg)
+    if (alg && decoded2.alg !== alg)
       return false;
     return true;
   } catch {
@@ -75644,12 +77039,12 @@ ZodString.create = (params) => {
     ...processCreateParams(params)
   });
 };
-function floatSafeRemainder(val, step) {
+function floatSafeRemainder(val, step2) {
   const valDecCount = (val.toString().split(".")[1] || "").length;
-  const stepDecCount = (step.toString().split(".")[1] || "").length;
+  const stepDecCount = (step2.toString().split(".")[1] || "").length;
   const decCount = valDecCount > stepDecCount ? valDecCount : stepDecCount;
   const valInt = Number.parseInt(val.toFixed(decCount).replace(".", ""));
-  const stepInt = Number.parseInt(step.toFixed(decCount).replace(".", ""));
+  const stepInt = Number.parseInt(step2.toFixed(decCount).replace(".", ""));
   return valInt % stepInt / 10 ** decCount;
 }
 var ZodNumber = class _ZodNumber extends ZodType {
@@ -78530,8 +79925,8 @@ function cleanRegex(source) {
   const end = source.endsWith("$") ? source.length - 1 : source.length;
   return source.slice(start, end);
 }
-function floatSafeRemainder2(val, step) {
-  const ratio = val / step;
+function floatSafeRemainder2(val, step2) {
+  const ratio = val / step2;
   const roundedRatio = Math.round(ratio);
   const tolerance = 4 * Number.EPSILON * Math.max(Math.abs(ratio), 1);
   if (Math.abs(ratio - roundedRatio) < tolerance)
@@ -94812,7 +96207,7 @@ function visit(schema, fnOrHandlers) {
     return h3 ? h3(node3, rewritten) : node3;
   };
   const cache3 = /* @__PURE__ */ new Map();
-  function run5(s2) {
+  function run6(s2) {
     const cached3 = cache3.get(s2);
     if (cached3 === RESOLVING) {
       return new $ZodLazy({
@@ -94838,21 +96233,21 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newShape = {};
         for (const k5 of keys) {
-          const mapped = run5(oldShape[k5]);
+          const mapped = run6(oldShape[k5]);
           if (mapped !== oldShape[k5])
             changed = true;
           newShape[k5] = mapped;
         }
         let newCatchall = def.catchall;
         if (def.catchall) {
-          newCatchall = run5(def.catchall);
+          newCatchall = run6(def.catchall);
           if (newCatchall !== def.catchall)
             changed = true;
         }
         return changed ? clone(s2, { ...def, shape: newShape, catchall: newCatchall }) : s2;
       }
       case "array": {
-        const mapped = run5(def.element);
+        const mapped = run6(def.element);
         return mapped === def.element ? s2 : clone(s2, { ...def, element: mapped });
       }
       case "tuple": {
@@ -94860,14 +96255,14 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newItems = [];
         for (const item of oldItems) {
-          const mapped = run5(item);
+          const mapped = run6(item);
           if (mapped !== item)
             changed = true;
           newItems.push(mapped);
         }
         let newRest = def.rest;
         if (def.rest) {
-          newRest = run5(def.rest);
+          newRest = run6(def.rest);
           if (newRest !== def.rest)
             changed = true;
         }
@@ -94875,12 +96270,12 @@ function visit(schema, fnOrHandlers) {
       }
       case "record":
       case "map": {
-        const newKey = run5(def.keyType);
-        const newVal = run5(def.valueType);
+        const newKey = run6(def.keyType);
+        const newVal = run6(def.valueType);
         return newKey === def.keyType && newVal === def.valueType ? s2 : clone(s2, { ...def, keyType: newKey, valueType: newVal });
       }
       case "set": {
-        const newVal = run5(def.valueType);
+        const newVal = run6(def.valueType);
         return newVal === def.valueType ? s2 : clone(s2, { ...def, valueType: newVal });
       }
       case "union": {
@@ -94888,7 +96283,7 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newOptions = [];
         for (const opt of oldOptions) {
-          const mapped = run5(opt);
+          const mapped = run6(opt);
           if (mapped !== opt)
             changed = true;
           newOptions.push(mapped);
@@ -94896,8 +96291,8 @@ function visit(schema, fnOrHandlers) {
         return changed ? clone(s2, { ...def, options: newOptions }) : s2;
       }
       case "intersection": {
-        const newLeft = run5(def.left);
-        const newRight = run5(def.right);
+        const newLeft = run6(def.left);
+        const newRight = run6(def.right);
         return newLeft === def.left && newRight === def.right ? s2 : clone(s2, { ...def, left: newLeft, right: newRight });
       }
       case "optional":
@@ -94909,23 +96304,23 @@ function visit(schema, fnOrHandlers) {
       case "nonoptional":
       case "promise":
       case "success": {
-        const newInner = run5(def.innerType);
+        const newInner = run6(def.innerType);
         return newInner === def.innerType ? s2 : clone(s2, { ...def, innerType: newInner });
       }
       case "pipe": {
-        const newIn = run5(def.in);
-        const newOut = run5(def.out);
+        const newIn = run6(def.in);
+        const newOut = run6(def.out);
         return newIn === def.in && newOut === def.out ? s2 : clone(s2, { ...def, in: newIn, out: newOut });
       }
       case "function": {
-        const newInput = run5(def.input);
-        const newOutput = run5(def.output);
+        const newInput = run6(def.input);
+        const newOutput = run6(def.output);
         return newInput === def.input && newOutput === def.output ? s2 : clone(s2, { ...def, input: newInput, output: newOutput });
       }
       case "lazy": {
         const original = def.getter;
         const { _cachedInner, ...rest } = def;
-        return clone(s2, { ...rest, getter: () => run5(original()) });
+        return clone(s2, { ...rest, getter: () => run6(original()) });
       }
       // A leaf by choice: `parts` are regex fragments, not data positions.
       case "template_literal":
@@ -94956,7 +96351,7 @@ function visit(schema, fnOrHandlers) {
       }
     }
   }
-  return run5(schema);
+  return run6(schema);
 }
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
@@ -103949,9 +105344,9 @@ function classifyTreasuryActions(actions) {
     let amount = null;
     try {
       const iface = new Interface([`function ${match.sig}`]);
-      const decoded = iface.decodeFunctionData(match.sig, a3.data);
-      recipient = String(decoded[match.recipientArg]);
-      amount = decoded[match.amountArg].toString();
+      const decoded2 = iface.decodeFunctionData(match.sig, a3.data);
+      recipient = String(decoded2[match.recipientArg]);
+      amount = decoded2[match.amountArg].toString();
     } catch {
     }
     hits.push({ index: index2, executor: a3.executor, selector: sel, kind: match.kind, recipient, amount });
@@ -112431,7 +113826,7 @@ function pLimit(concurrency) {
     activeCount--;
     resumeNext();
   };
-  const run5 = async (function_, resolve9, arguments_) => {
+  const run6 = async (function_, resolve9, arguments_) => {
     const result = (async () => function_(...arguments_))();
     resolve9(result);
     try {
@@ -112445,7 +113840,7 @@ function pLimit(concurrency) {
     new Promise((internalResolve) => {
       queueItem.run = internalResolve;
       queue.enqueue(queueItem);
-    }).then(run5.bind(void 0, function_, resolve9, arguments_));
+    }).then(run6.bind(void 0, function_, resolve9, arguments_));
     if (activeCount < concurrency) {
       resumeNext();
     }
@@ -113627,7 +115022,7 @@ var CalldataDecoder = class _CalldataDecoder {
       return { primary: null, alternatives: [] };
     }
     const candidates = this.selectors.find(selector).filter((h3) => h3.kind === "function");
-    const decoded = [];
+    const decoded2 = [];
     const seen = /* @__PURE__ */ new Set();
     for (const cand of candidates) {
       if (seen.has(cand.contract))
@@ -113637,15 +115032,15 @@ var CalldataDecoder = class _CalldataDecoder {
       for (const r2 of records) {
         const hit = tryDecodeWith(r2.abi, data4);
         if (hit) {
-          decoded.push(stamp({ contract: r2.contractName, sourceName: r2.sourceName, ...hit }));
+          decoded2.push(stamp({ contract: r2.contractName, sourceName: r2.sourceName, ...hit }));
           break;
         }
       }
     }
-    if (decoded.length === 0) {
+    if (decoded2.length === 0) {
       return { primary: null, alternatives: [] };
     }
-    return { primary: decoded[0], alternatives: decoded.slice(1) };
+    return { primary: decoded2[0], alternatives: decoded2.slice(1) };
   }
   /**
    * Given a ProposalAction tuple, find the executor contract and decode `data`
@@ -115535,10 +116930,10 @@ function registerKnownFailures(reg) {
 function knownFailures() {
   return activeTable;
 }
-function toActionableError(err16, step, table = knownFailures()) {
+function toActionableError(err16, step2, table = knownFailures()) {
   const raw = safeErrorMessage(err16);
   const hit = table.find((k5) => k5.match.test(raw));
-  const prefix = step ? `${step} failed: ` : "";
+  const prefix = step2 ? `${step2} failed: ` : "";
   if (!hit)
     return { message: `${prefix}${raw}` };
   return {
@@ -115821,9 +117216,9 @@ function formatActions(actions) {
 
 --- ${actions[0].side.toUpperCase()} actions ---
 ` + actions.map((a3, i3) => {
-    const decoded = a3.decoded ? renderDecodedCall(a3.decoded, "     ") : "     (no matching ABI)";
+    const decoded2 = a3.decoded ? renderDecodedCall(a3.decoded, "     ") : "     (no matching ABI)";
     return `  ${i3}: executor=${a3.executor} value=${a3.value}
-${decoded}`;
+${decoded2}`;
   }).join("\n");
 }
 function registerReadGovState(server, _ctx, addresses, rpc) {
@@ -116060,8 +117455,8 @@ async function multicall(provider, calls) {
       return { success: false, value: null, raw: r2.returnData, error: "call reverted" };
     }
     try {
-      const decoded = c4.iface.decodeFunctionResult(c4.method, r2.returnData);
-      const value = decoded.length === 1 ? decoded[0] : decoded;
+      const decoded2 = c4.iface.decodeFunctionResult(c4.method, r2.returnData);
+      const value = decoded2.length === 1 ? decoded2[0] : decoded2;
       return { success: true, value, raw: r2.returnData };
     } catch (err16) {
       return {
@@ -116564,13 +117959,13 @@ function urlReplacements(raw) {
   for (const seg of u4.pathname.split("/")) {
     if (keyLike(seg))
       out2.push([seg, "***"]);
-    let decoded = seg;
+    let decoded2 = seg;
     try {
-      decoded = decodeURIComponent(seg);
+      decoded2 = decodeURIComponent(seg);
     } catch {
     }
-    if (decoded !== seg && keyLike(decoded))
-      out2.push([decoded, "***"]);
+    if (decoded2 !== seg && keyLike(decoded2))
+      out2.push([decoded2, "***"]);
   }
   for (const value of u4.searchParams.values())
     if (value.length >= MIN_SECRET_LEN)
@@ -116758,13 +118153,13 @@ function missingRelationField(err16) {
   const msg = safeErrorMessage(err16);
   return MISSING_RELATION_RE.exec(msg)?.[1] ?? PREFETCH_FAULT_RE.exec(msg)?.[1] ?? null;
 }
-async function withOrphanVoterFallback(run5) {
+async function withOrphanVoterFallback(run6) {
   try {
-    return { data: await run5(true), degraded: false };
+    return { data: await run6(true), degraded: false };
   } catch (err16) {
     if (missingRelationField(err16) !== "voter")
       throw err16;
-    return { data: await run5(false), degraded: true };
+    return { data: await run6(false), degraded: true };
   }
 }
 function scrubEndpointEcho(text5, endpoint, apiKey) {
@@ -118138,9 +119533,9 @@ function registerDaoStats(server, rpc) {
       let sampled = rows2;
       if (rows2.length > maxPoints) {
         sampled = [];
-        const step = (rows2.length - 1) / (maxPoints - 1);
+        const step2 = (rows2.length - 1) / (maxPoints - 1);
         for (let i3 = 0; i3 < maxPoints; i3++)
-          sampled.push(rows2[Math.round(i3 * step)]);
+          sampled.push(rows2[Math.round(i3 * step2)]);
       }
       const structured = {
         govPool,
@@ -118167,9 +119562,9 @@ function downsample(rows2, max) {
   if (rows2.length <= max)
     return rows2;
   const out2 = [];
-  const step = (rows2.length - 1) / (max - 1);
+  const step2 = (rows2.length - 1) / (max - 1);
   for (let i3 = 0; i3 < max; i3++)
-    out2.push(rows2[Math.round(i3 * step)]);
+    out2.push(rows2[Math.round(i3 * step2)]);
   return out2;
 }
 function registerProtocolStats(server) {
@@ -120094,28 +121489,28 @@ function shrinkJson(value, budgetBytes, mode) {
     return { value, report: { originalBytes, returnedBytes: originalBytes, arrays: [], strings: 0, keys: 0, fits: true } };
   }
   const max = maxima(value);
-  const run5 = (lim2) => {
+  const run6 = (lim2) => {
     const stats = { arrays: /* @__PURE__ */ new Map(), strings: 0, keys: 0 };
     const out2 = apply(value, lim2, mode, stats);
     return { out: out2, stats, bytes: jsonBytes(out2) };
   };
   let lim = { arr: max.arr, str: Math.max(STR_FLOOR, Math.min(max.str, 16384)), keys: max.keys };
-  let best = run5(lim);
+  let best = run6(lim);
   if (best.bytes > budgetBytes && max.arr > 1) {
     let hi = max.arr;
     let lo2 = Math.max(1, Math.floor(max.arr / 2));
-    let probe = run5({ ...lim, arr: lo2 });
+    let probe = run6({ ...lim, arr: lo2 });
     while (probe.bytes > budgetBytes && lo2 > 1) {
       hi = lo2;
       lo2 = Math.max(1, Math.floor(lo2 / 2));
-      probe = run5({ ...lim, arr: lo2 });
+      probe = run6({ ...lim, arr: lo2 });
     }
     if (probe.bytes <= budgetBytes) {
       let fit = probe;
       let fitArr = lo2;
       for (let i3 = 0; i3 < 12 && hi - fitArr > 1; i3++) {
         const mid = Math.floor((fitArr + hi) / 2);
-        const r2 = run5({ ...lim, arr: mid });
+        const r2 = run6({ ...lim, arr: mid });
         if (r2.bytes <= budgetBytes) {
           fit = r2;
           fitArr = mid;
@@ -120138,7 +121533,7 @@ function shrinkJson(value, budgetBytes, mode) {
       lim = { ...lim, arr: lim.arr > 1 ? Math.floor(lim.arr / 2) : 0 };
     else
       break;
-    best = run5(lim);
+    best = run6(lim);
   }
   const arrays = [...best.stats.arrays.values()].sort((a3, b7) => b7.total - b7.kept - (a3.total - a3.kept)).slice(0, 5);
   return {
@@ -120164,11 +121559,11 @@ function registerIpfsReadTools(server, ctx, opts = {}) {
 function errorResult7(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-function ipfsToolError(err16, step, classify = toActionableError) {
+function ipfsToolError(err16, step2, classify = toActionableError) {
   const raw = safeErrorMessage(err16);
   if (/IPFS fetch failed|IPFS content too large|client cancelled/i.test(raw))
-    return `${step} failed: ${raw}`;
-  return classify(err16, step).message;
+    return `${step2} failed: ${raw}`;
+  return classify(err16, step2).message;
 }
 function gatewayContentUrl(gateway, cid) {
   try {
@@ -120446,9 +121841,9 @@ function ok() {
 // node_modules/trough/lib/index.js
 function trough() {
   const fns = [];
-  const pipeline = { run: run5, use };
+  const pipeline = { run: run6, use };
   return pipeline;
-  function run5(...values) {
+  function run6(...values) {
     let middlewareIndex = -1;
     const callback = values.pop();
     if (typeof callback !== "function") {
@@ -128892,7 +130287,7 @@ function visitParents(tree, test, visitor, reverse) {
     check2 = test;
   }
   const is2 = convert(check2);
-  const step = reverse ? -1 : 1;
+  const step2 = reverse ? -1 : 1;
   factory(tree, void 0, [])();
   function factory(node3, index2, parents) {
     const value = (
@@ -128929,7 +130324,7 @@ function visitParents(tree, test, visitor, reverse) {
           node3
         );
         if (nodeAsParent.children && result[0] !== SKIP) {
-          offset = (reverse ? nodeAsParent.children.length : -1) + step;
+          offset = (reverse ? nodeAsParent.children.length : -1) + step2;
           grandparents = parents.concat(nodeAsParent);
           while (offset > -1 && offset < nodeAsParent.children.length) {
             const child = nodeAsParent.children[offset];
@@ -128937,7 +130332,7 @@ function visitParents(tree, test, visitor, reverse) {
             if (subresult[0] === EXIT) {
               return subresult;
             }
-            offset = typeof subresult[1] === "number" ? subresult[1] : offset + step;
+            offset = typeof subresult[1] === "number" ? subresult[1] : offset + step2;
           }
         }
       }
@@ -132674,8 +134069,8 @@ var WRITE_KNOWN_FAILURES = {
 };
 var COMBINED_KNOWN_FAILURES = mergeKnownFailures(READ_KNOWN_FAILURES, WRITE_KNOWN_FAILURES);
 registerKnownFailures(WRITE_KNOWN_FAILURES);
-function toActionableError2(err16, step) {
-  return toActionableError(err16, step, COMBINED_KNOWN_FAILURES);
+function toActionableError2(err16, step2) {
+  return toActionableError(err16, step2, COMBINED_KNOWN_FAILURES);
 }
 
 // dist/tools/ipfsWrite.js
@@ -132695,8 +134090,8 @@ function registerIpfsCidForJsonTool(server) {
 function errorResult8(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-function ipfsToolError2(err16, step) {
-  return ipfsToolError(err16, step, toActionableError2);
+function ipfsToolError2(err16, step2) {
+  return ipfsToolError(err16, step2, toActionableError2);
 }
 async function warmDexeIpfsCache(cidV0) {
   try {
@@ -133525,8 +134920,8 @@ function decodeCreateTiersVesting(data4) {
     return [];
   }
   try {
-    const decoded = CREATE_TIERS_IFACE.decodeFunctionData("createTiers", data4);
-    const tiers = decoded[0];
+    const decoded2 = CREATE_TIERS_IFACE.decodeFunctionData("createTiers", data4);
+    const tiers = decoded2[0];
     const out2 = [];
     [...tiers].forEach((t2, index2) => {
       const tier = t2;
@@ -133555,17 +134950,17 @@ function decodeBlacklistAdditions(data4) {
   if (typeof data4 !== "string" || !data4.toLowerCase().startsWith(BLACKLIST_SELECTOR))
     return [];
   try {
-    const decoded = BLACKLIST_IFACE.decodeFunctionData("blacklist", data4);
-    if (decoded[1] !== true)
+    const decoded2 = BLACKLIST_IFACE.decodeFunctionData("blacklist", data4);
+    if (decoded2[1] !== true)
       return [];
-    return [...decoded[0]].map((a3) => String(a3));
+    return [...decoded2[0]].map((a3) => String(a3));
   } catch {
     return [];
   }
 }
-function vestingRefusalText(risks, overrideWith) {
-  const listed = risks.map((r2) => `  \u2022 tier[${r2.index}] "${r2.name}" \u2014 vestingPercentage=${r2.vestingPercentage}`).join("\n");
-  return `REFUSED before building any calldata \u2014 ${risks.length} tier(s) would strand their vested allocation:
+function vestingRefusalText(risks2, overrideWith) {
+  const listed = risks2.map((r2) => `  \u2022 tier[${r2.index}] "${r2.name}" \u2014 vestingPercentage=${r2.vestingPercentage}`).join("\n");
+  return `REFUSED before building any calldata \u2014 ${risks2.length} tier(s) would strand their vested allocation:
 ${listed}
 
 ${VESTING_WITHDRAW_ADVISORY.text}
@@ -133814,9 +135209,9 @@ function classifyGovernanceActions(actions, ctx) {
     if (entry) {
       kind = entry.kind;
       try {
-        const decoded = entry.iface.decodeFunctionData(entry.name, data4);
+        const decoded2 = entry.iface.decodeFunctionData(entry.name, data4);
         for (const argIdx of entry.targetArgs) {
-          const v7 = decoded[argIdx];
+          const v7 = decoded2[argIdx];
           if (Array.isArray(v7))
             targets.push(...v7.map((x6) => String(x6)));
           else if (typeof v7 === "string")
@@ -133941,8 +135336,8 @@ function settingsInCalldata(data4) {
   if (!isAdd && !isEdit)
     return [];
   try {
-    const decoded = SETTINGS_DECODE_IFACE.decodeFunctionData(isAdd ? "addSettings" : "editSettings", data4);
-    const tuples = isAdd ? decoded[0] : decoded[1];
+    const decoded2 = SETTINGS_DECODE_IFACE.decodeFunctionData(isAdd ? "addSettings" : "editSettings", data4);
+    const tuples = isAdd ? decoded2[0] : decoded2[1];
     return [...tuples].map((t2) => {
       const r2 = t2;
       return {
@@ -137761,7 +139156,8 @@ function describeTx(tx) {
 }
 
 // dist/lib/approval/index.js
-import { readFileSync as readFileSync10 } from "node:fs";
+init_lib2();
+import { readFileSync as readFileSync11 } from "node:fs";
 init_keystore();
 
 // dist/lib/approval/server.js
@@ -137785,408 +139181,8 @@ function checkOrigin(header, allowed) {
   return allowed.includes(origin) ? "allowed" : "rejected";
 }
 
-// dist/lib/approval/store.js
-init_lib2();
-import { randomBytes as randomBytes6, timingSafeEqual } from "node:crypto";
-import { EventEmitter as EventEmitter2 } from "node:events";
-var TERMINAL = /* @__PURE__ */ new Set(["consumed", "declined", "expired", "revoked"]);
-var ApprovalDeviationError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "ApprovalDeviationError";
-  }
-};
-var DEFAULT_DECLINE_COOLDOWN_MS = 10 * 6e4;
-var DEFAULT_MAX_FAILURES = 5;
-var DEFAULT_BASE_LOCKOUT_MS = 6e4;
-var DEFAULT_USE_WINDOW_MS = 12e4;
-var DEFAULT_MAX_PENDING = 3;
-var DEFAULT_MAX_CREATES_PER_MINUTE = 6;
-var DEFAULT_GLOBAL_FAILURE_THRESHOLD = 5;
-var FAILURE_WINDOW_MS = 60 * 6e4;
-var MAX_LOCKOUT_MS = 60 * 6e4;
-function token(bytes2 = 24) {
-  return randomBytes6(bytes2).toString("base64url");
-}
-function safeEqual(a3, b7) {
-  const ab = Buffer.from(a3);
-  const bb = Buffer.from(b7);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
-}
-var ApprovalStore = class {
-  opts;
-  records = /* @__PURE__ */ new Map();
-  byToken = /* @__PURE__ */ new Map();
-  holders = /* @__PURE__ */ new Map();
-  timers = /* @__PURE__ */ new Map();
-  events = new EventEmitter2();
-  now;
-  cooldownMs;
-  maxFailures;
-  baseLockoutMs;
-  useWindowMs;
-  maxPending;
-  maxCreatesPerMinute;
-  globalThreshold;
-  /** Lockouts so far — for the process lifetime; each one doubles the next. */
-  lockouts = 0;
-  lockedUntilMs = 0;
-  /** Wrong passwords since the last lockout, across every approval (timestamps). */
-  failureTimes = [];
-  /** Approval creations in the last minute (timestamps). */
-  createTimes = [];
-  useTimers = /* @__PURE__ */ new Map();
-  /** tool|from|chain → steps that landed before a revoke, for the next approval's page. */
-  resumeNotes = /* @__PURE__ */ new Map();
-  constructor(opts) {
-    this.opts = opts;
-    this.now = opts.now ?? Date.now;
-    this.cooldownMs = opts.declineCooldownMs ?? DEFAULT_DECLINE_COOLDOWN_MS;
-    this.maxFailures = opts.maxFailures ?? DEFAULT_MAX_FAILURES;
-    this.baseLockoutMs = opts.baseLockoutMs ?? DEFAULT_BASE_LOCKOUT_MS;
-    this.useWindowMs = Math.min(opts.useWindowMs ?? DEFAULT_USE_WINDOW_MS, opts.ttlMs);
-    this.maxPending = opts.maxPending ?? DEFAULT_MAX_PENDING;
-    this.maxCreatesPerMinute = opts.maxCreatesPerMinute ?? DEFAULT_MAX_CREATES_PER_MINUTE;
-    this.globalThreshold = opts.globalFailureThreshold ?? DEFAULT_GLOBAL_FAILURE_THRESHOLD;
-    this.events.setMaxListeners(0);
-  }
-  /**
-   * May a NEW approval be created now? Bounds two things an agent could
-   * otherwise use against the owner: guessing passwords across a stream of
-   * fresh approvals (each with its own per-approval counter), and nagging the
-   * owner with a page per 1-wei variation of a declined batch.
-   */
-  admitCreate() {
-    const t2 = this.now();
-    this.createTimes = this.createTimes.filter((x6) => x6 > t2 - 6e4);
-    const pending = this.open().filter((r2) => r2.status === "pending");
-    if (pending.length >= this.maxPending) {
-      return {
-        ok: false,
-        reason: `${pending.length} approvals are already waiting for the owner (limit ${this.maxPending}) \u2014 approve or decline those first; nothing new is put up for approval until then.`,
-        retryAfterMs: Math.max(1e3, Math.min(...pending.map((r2) => r2.expiresAt - t2)))
-      };
-    }
-    if (this.createTimes.length >= this.maxCreatesPerMinute) {
-      const retry = this.createTimes[0] + 6e4 - t2;
-      return {
-        ok: false,
-        reason: `${this.createTimes.length} approvals were requested in the last minute (limit ${this.maxCreatesPerMinute}).`,
-        retryAfterMs: Math.max(1e3, retry)
-      };
-    }
-    return { ok: true };
-  }
-  create(input3) {
-    const t2 = this.now();
-    this.prune(t2);
-    this.createTimes.push(t2);
-    const rec = {
-      approvalId: `apr_${token(9)}`,
-      pathToken: token(24),
-      csrf: token(24),
-      kind: "tx-batch",
-      tool: input3.tool,
-      chainId: input3.chainId,
-      from: getAddress(input3.from),
-      steps: input3.steps,
-      expected: input3.expected,
-      prechecks: input3.prechecks,
-      batchHash: input3.batchHash,
-      fingerprint: input3.fingerprint,
-      createdAt: t2,
-      expiresAt: t2 + this.opts.ttlMs,
-      status: "pending",
-      failures: 0,
-      landed: [],
-      ...input3.resumeNote?.length ? { resumeNote: input3.resumeNote } : {}
-    };
-    this.records.set(rec.approvalId, rec);
-    this.byToken.set(rec.pathToken, rec.approvalId);
-    const timer = setTimeout(() => this.expire(rec.approvalId), Math.max(0, rec.expiresAt - t2));
-    timer.unref?.();
-    this.timers.set(rec.approvalId, timer);
-    return rec;
-  }
-  get(approvalId) {
-    const r2 = this.records.get(approvalId);
-    if (r2)
-      this.expireIfDue(r2);
-    return r2;
-  }
-  getByToken(pathToken) {
-    const id2 = this.byToken.get(pathToken);
-    return id2 ? this.get(id2) : void 0;
-  }
-  /** Every approval that is still open (pending or approved-unused). */
-  open() {
-    return [...this.records.values()].filter((r2) => {
-      this.expireIfDue(r2);
-      return r2.status === "pending" || r2.status === "approved";
-    });
-  }
-  findByBatch(batchHash, status) {
-    for (const r2 of this.records.values()) {
-      this.expireIfDue(r2);
-      if (r2.batchHash === batchHash && r2.status === status)
-        return r2;
-    }
-    return void 0;
-  }
-  /** A decline of this exact batch inside the cooldown window, if any. */
-  recentDecline(batchHash) {
-    const t2 = this.now();
-    for (const r2 of this.records.values()) {
-      if (r2.batchHash === batchHash && r2.status === "declined" && (r2.decidedAt ?? 0) + this.cooldownMs > t2)
-        return r2;
-    }
-    return void 0;
-  }
-  cooldownEndsAt(r2) {
-    return (r2.decidedAt ?? r2.createdAt) + this.cooldownMs;
-  }
-  // ---- password attempts -------------------------------------------------------
-  /** Milliseconds until password attempts are accepted again (0 = not locked). */
-  lockedForMs() {
-    return Math.max(0, this.lockedUntilMs - this.now());
-  }
-  /**
-   * Count a wrong password.
-   *
-   * The lockout is GLOBAL: wrong passwords are counted across every approval
-   * (a fresh approval does not get a fresh counter), and every
-   * `globalFailureThreshold` of them within an hour locks ALL password entry
-   * for 1 min, 2, 4, … ≤ 1 h — doubling for the process lifetime; a correct
-   * password does not reset it. Separately, the fifth wrong password on one
-   * approval declines that approval.
-   */
-  recordFailure(approvalId) {
-    const t2 = this.now();
-    this.failureTimes = this.failureTimes.filter((x6) => x6 > t2 - FAILURE_WINDOW_MS);
-    this.failureTimes.push(t2);
-    let lockedMs = 0;
-    if (this.failureTimes.length >= this.globalThreshold) {
-      this.lockouts += 1;
-      lockedMs = Math.min(MAX_LOCKOUT_MS, this.baseLockoutMs * 2 ** (this.lockouts - 1));
-      this.lockedUntilMs = t2 + lockedMs;
-      this.failureTimes = [];
-    }
-    const r2 = this.records.get(approvalId);
-    if (!r2 || r2.status !== "pending")
-      return { declined: false, remaining: 0, lockedMs };
-    r2.failures += 1;
-    if (r2.failures >= this.maxFailures) {
-      this.decline(approvalId, `${r2.failures} wrong passwords \u2014 auto-declined`);
-      return { declined: true, remaining: 0, lockedMs };
-    }
-    return { declined: false, remaining: this.maxFailures - r2.failures, lockedMs };
-  }
-  // ---- transitions -------------------------------------------------------------
-  /** pending → approved, holding the key. Supersedes any other approved-unused batch for the same tool/sender/chain. */
-  approve(approvalId, holder) {
-    const r2 = this.get(approvalId);
-    if (!r2 || r2.status !== "pending") {
-      holder.drop();
-      return false;
-    }
-    for (const other of this.records.values()) {
-      if (other !== r2 && other.status === "approved" && other.tool === r2.tool && other.from === r2.from && other.chainId === r2.chainId) {
-        this.close(other, "revoked", "superseded by a newer approval for the same flow");
-      }
-    }
-    r2.status = "approved";
-    r2.decidedAt = this.now();
-    this.holders.set(approvalId, holder);
-    const useTimer = setTimeout(() => {
-      const cur = this.records.get(approvalId);
-      if (cur && cur.status === "approved") {
-        this.close(cur, "expired", `approved but not used within ${Math.round(this.useWindowMs / 1e3)} s \u2014 the key was dropped`);
-      }
-    }, this.useWindowMs);
-    useTimer.unref?.();
-    this.useTimers.set(approvalId, useTimer);
-    this.emit(r2);
-    return true;
-  }
-  /** How long an approved batch may wait to be used (ms). */
-  get approvedUseWindowMs() {
-    return this.useWindowMs;
-  }
-  decline(approvalId, reason = "declined by the owner") {
-    const r2 = this.records.get(approvalId);
-    if (!r2 || r2.status !== "pending" && r2.status !== "approved")
-      return false;
-    this.close(r2, "declined", reason);
-    return true;
-  }
-  /** approved → executing; hands the key holder to the caller. */
-  take(approvalId) {
-    const r2 = this.get(approvalId);
-    if (!r2 || r2.status !== "approved")
-      return void 0;
-    const h3 = this.holders.get(approvalId);
-    if (!h3)
-      return void 0;
-    r2.status = "executing";
-    const useTimer = this.useTimers.get(approvalId);
-    if (useTimer) {
-      clearTimeout(useTimer);
-      this.useTimers.delete(approvalId);
-    }
-    this.emit(r2);
-    return h3;
-  }
-  markLanded(approvalId, index2, txHash) {
-    const r2 = this.records.get(approvalId);
-    if (!r2)
-      return;
-    r2.landed.push({ index: index2, txHash });
-    this.emit(r2);
-  }
-  /** executing → consumed (all steps sent). Drops the key. */
-  finish(approvalId) {
-    const r2 = this.records.get(approvalId);
-    if (r2 && r2.status === "executing")
-      this.close(r2, "consumed");
-  }
-  /** Any open state → revoked. Drops the key. Remembers what landed for the next approval of the same flow. */
-  revoke(approvalId, reason, landedLabels = []) {
-    const r2 = this.records.get(approvalId);
-    if (!r2 || TERMINAL.has(r2.status))
-      return;
-    if (landedLabels.length > 0) {
-      this.resumeNotes.set(this.flowKey(r2.tool, r2.from, r2.chainId), { at: this.now(), landed: landedLabels });
-    }
-    this.close(r2, "revoked", reason);
-  }
-  /** Landed steps from a revoked approval of the same flow within the TTL (shown on the next page). */
-  resumeNoteFor(tool, from10, chainId) {
-    const k5 = this.flowKey(tool, from10, chainId);
-    const n4 = this.resumeNotes.get(k5);
-    if (!n4)
-      return void 0;
-    if (n4.at + this.opts.ttlMs < this.now()) {
-      this.resumeNotes.delete(k5);
-      return void 0;
-    }
-    return n4.landed;
-  }
-  clearResumeNote(tool, from10, chainId) {
-    this.resumeNotes.delete(this.flowKey(tool, from10, chainId));
-  }
-  /** Resolve when the record leaves `pending` (or the wait ends). Returns the record either way. */
-  waitForDecision(approvalId, ms2, signal) {
-    const r2 = this.get(approvalId);
-    if (!r2 || r2.status !== "pending" || ms2 <= 0 || signal?.aborted)
-      return Promise.resolve(r2);
-    return new Promise((resolveWait) => {
-      const done = () => {
-        clearTimeout(timer);
-        this.events.off(approvalId, onChange);
-        signal?.removeEventListener("abort", done);
-        resolveWait(this.get(approvalId));
-      };
-      const onChange = (rec) => {
-        if (rec.status !== "pending")
-          done();
-      };
-      const timer = setTimeout(done, ms2);
-      timer.unref?.();
-      this.events.on(approvalId, onChange);
-      signal?.addEventListener("abort", done, { once: true });
-    });
-  }
-  /** Resolve on ANY change of the record (or the wait ends) — the status long-poll. */
-  waitForChange(approvalId, ms2, signal) {
-    const r2 = this.get(approvalId);
-    if (!r2 || TERMINAL.has(r2.status) || ms2 <= 0 || signal?.aborted)
-      return Promise.resolve(r2);
-    return new Promise((resolveWait) => {
-      const done = () => {
-        clearTimeout(timer);
-        this.events.off(approvalId, done);
-        signal?.removeEventListener("abort", done);
-        resolveWait(this.get(approvalId));
-      };
-      const timer = setTimeout(done, ms2);
-      timer.unref?.();
-      this.events.on(approvalId, done);
-      signal?.addEventListener("abort", done, { once: true });
-    });
-  }
-  // ---- internals ---------------------------------------------------------------
-  /**
-   * Forget closed approvals once nothing can still refer to them: past the
-   * decline cooldown and the TTL (so dexe_tx_approval_status keeps answering
-   * for a while). Keeps a long session's memory flat.
-   */
-  prune(t2) {
-    const keepMs = Math.max(this.cooldownMs, this.opts.ttlMs) * 2;
-    for (const [id2, r2] of this.records) {
-      if (TERMINAL.has(r2.status) && (r2.decidedAt ?? r2.createdAt) + keepMs < t2) {
-        this.records.delete(id2);
-        this.byToken.delete(r2.pathToken);
-      }
-    }
-  }
-  flowKey(tool, from10, chainId) {
-    return `${tool}|${from10.toLowerCase()}|${chainId}`;
-  }
-  expire(approvalId) {
-    const r2 = this.records.get(approvalId);
-    if (!r2)
-      return;
-    if (r2.status === "pending" || r2.status === "approved")
-      this.close(r2, "expired", "the approval window ended");
-  }
-  expireIfDue(r2) {
-    const t2 = this.now();
-    if ((r2.status === "pending" || r2.status === "approved") && t2 >= r2.expiresAt) {
-      this.close(r2, "expired", "the approval window ended");
-    } else if (r2.status === "approved" && r2.decidedAt !== void 0 && t2 >= r2.decidedAt + this.useWindowMs) {
-      this.close(r2, "expired", `approved but not used within ${Math.round(this.useWindowMs / 1e3)} s \u2014 the key was dropped`);
-    }
-  }
-  close(r2, status, reason) {
-    r2.status = status;
-    r2.decidedAt ??= this.now();
-    if (status !== "consumed")
-      r2.decidedAt = this.now();
-    if (reason)
-      r2.reason = reason;
-    const h3 = this.holders.get(r2.approvalId);
-    if (h3) {
-      h3.drop();
-      this.holders.delete(r2.approvalId);
-    }
-    const timer = this.timers.get(r2.approvalId);
-    if (timer) {
-      clearTimeout(timer);
-      this.timers.delete(r2.approvalId);
-    }
-    const useTimer = this.useTimers.get(r2.approvalId);
-    if (useTimer) {
-      clearTimeout(useTimer);
-      this.useTimers.delete(r2.approvalId);
-    }
-    this.emit(r2);
-  }
-  emit(r2) {
-    this.events.emit(r2.approvalId, r2);
-  }
-};
-function dataHashOf(data4) {
-  return keccak256(data4 && data4 !== "" ? data4 : "0x");
-}
-function matchesExpected(exp, tx) {
-  let value;
-  try {
-    value = BigInt(tx.value || 0);
-  } catch {
-    return false;
-  }
-  return exp.to.toLowerCase() === tx.to.toLowerCase() && exp.value === value && exp.dataHash === dataHashOf(tx.data);
-}
+// dist/lib/approval/server.js
+init_store();
 
 // dist/lib/approval/review.js
 init_lib2();
@@ -138200,20 +139196,20 @@ function decodeRevert(error62) {
   const data4 = e2?.data ?? e2?.info?.error?.data ?? e2?.error?.data;
   if (typeof data4 === "string" && data4.startsWith(ERROR_STRING_SELECTOR)) {
     try {
-      const decoded = new Interface([
+      const decoded2 = new Interface([
         "function Error(string)"
       ]).decodeFunctionData("Error", data4);
-      return { revertReason: String(decoded[0]), returnData: data4 };
+      return { revertReason: String(decoded2[0]), returnData: data4 };
     } catch {
     }
   }
   if (typeof data4 === "string" && data4.startsWith(PANIC_SELECTOR)) {
     try {
-      const decoded = new Interface([
+      const decoded2 = new Interface([
         "function Panic(uint256)"
       ]).decodeFunctionData("Panic", data4);
       return {
-        revertReason: `Panic(0x${BigInt(decoded[0]).toString(16)})`,
+        revertReason: `Panic(0x${BigInt(decoded2[0]).toString(16)})`,
         returnData: data4
       };
     } catch {
@@ -138243,12 +139239,12 @@ ${pr0.remediation}` };
     result.success = true;
     result.returnData = returnData;
   } catch (e2) {
-    const decoded = decodeRevert(e2);
-    result.revertReason = decoded.revertReason;
-    if (decoded.returnData)
-      result.returnData = decoded.returnData;
+    const decoded2 = decodeRevert(e2);
+    result.revertReason = decoded2.revertReason;
+    if (decoded2.returnData)
+      result.returnData = decoded2.returnData;
     const code6 = e2?.code;
-    const isRevert = code6 === "CALL_EXCEPTION" || decoded.returnData !== void 0;
+    const isRevert = code6 === "CALL_EXCEPTION" || decoded2.returnData !== void 0;
     if (!isRevert)
       result.networkError = true;
     return result;
@@ -138801,18 +139797,18 @@ async function buildReview(payloads, ctx) {
   const steps = [];
   for (const [i3, p4] of payloads.entries()) {
     const to = getAddress(p4.to);
-    const risks = [];
+    const risks2 = [];
     const value = BigInt(p4.value || "0");
     const data4 = p4.data || "0x";
     const selector = data4.length >= 10 ? data4.slice(0, 10).toLowerCase() : null;
     if (i3 === 0 && registryNote)
-      risks.push({ level: "warn", text: registryNote });
+      risks2.push({ level: "warn", text: registryNote });
     let toLabel = labels.get(to.toLowerCase());
     const code6 = await codeAt(to);
     const fake = fakePools.get(to.toLowerCase());
     if (fake) {
       toLabel = "contract claiming to be a GovPool \u2014 NOT a registered DeXe DAO";
-      risks.push({ level: "danger", text: fake });
+      risks2.push({ level: "danger", text: fake });
     }
     if (!toLabel) {
       if (code6 !== null && /^0x0*$/i.test(code6))
@@ -138830,36 +139826,36 @@ async function buildReview(payloads, ctx) {
       } else
         toLabel = code6 === null ? "unlabelled address (code not checked)" : "unlabelled contract";
     }
-    let decoded = null;
+    let decoded2 = null;
     try {
       const r2 = decoder().decodeCalldata(data4);
       if (r2.primary)
-        decoded = viewOf(r2.primary);
+        decoded2 = viewOf(r2.primary);
     } catch {
-      decoded = null;
+      decoded2 = null;
     }
-    if (!decoded && data4 !== "0x") {
-      risks.push({ level: "warn", text: "calldata could not be decoded with the bundled DeXe ABIs \u2014 check the raw bytes" });
+    if (!decoded2 && data4 !== "0x") {
+      risks2.push({ level: "warn", text: "calldata could not be decoded with the bundled DeXe ABIs \u2014 check the raw bytes" });
     }
-    const pr2 = protocolRisk(decoded, to, "");
+    const pr2 = protocolRisk(decoded2, to, "");
     if (pr2) {
       if (!fake)
-        risks.push(pr2);
-      if (pr2.level === "danger" && decoded)
-        decoded = withoutContractNames(decoded);
+        risks2.push(pr2);
+      if (pr2.level === "danger" && decoded2)
+        decoded2 = withoutContractNames(decoded2);
     }
     if (value > 0n) {
-      risks.push({
+      risks2.push({
         level: "warn",
         text: `sends ${formatUnits(value, 18)} ${NATIVE[ctx.chainId] ?? "native coin"} with the call`
       });
     }
-    risks.push(...await handoverRisks(data4, ""));
+    risks2.push(...await handoverRisks(data4, ""));
     if (selector === MULTICALL_SEL) {
       try {
         const inner = GOV_POOL.decodeFunctionData("multicall", data4)[0];
         for (const [k5, d3] of inner.entries())
-          risks.push(...await handoverRisks(d3, `inner call ${k5 + 1}: `));
+          risks2.push(...await handoverRisks(d3, `inner call ${k5 + 1}: `));
       } catch {
       }
     }
@@ -138867,7 +139863,7 @@ async function buildReview(payloads, ctx) {
     if (proposalActions.length > 0) {
       const hits = classifyGovernanceActions(proposalActions, { protocolAddresses: [...confirmed] });
       for (const h3 of hits) {
-        risks.push({
+        risks2.push({
           level: "warn",
           text: `proposal action #${h3.index + 1} changes governance (${h3.kind}) on ${h3.executor}`
         });
@@ -138875,12 +139871,12 @@ async function buildReview(payloads, ctx) {
       for (const [k5, a3] of proposalActions.entries()) {
         const where = `proposal action #${k5 + 1}: `;
         if (BigInt(a3.value || "0") > 0n) {
-          risks.push({ level: "warn", text: `${where}moves ${formatUnits(BigInt(a3.value), 18)} native coin` });
+          risks2.push({ level: "warn", text: `${where}moves ${formatUnits(BigInt(a3.value), 18)} native coin` });
         }
         if (a3.data.slice(0, 10).toLowerCase() === TRANSFER_SEL) {
-          risks.push({ level: "warn", text: `${where}transfers tokens from the DAO treasury (${a3.executor})` });
+          risks2.push({ level: "warn", text: `${where}transfers tokens from the DAO treasury (${a3.executor})` });
         }
-        risks.push(...await handoverRisks(a3.data, where));
+        risks2.push(...await handoverRisks(a3.data, where));
         let actionCall = null;
         try {
           const r2 = decoder().decodeCalldata(a3.data);
@@ -138891,11 +139887,11 @@ async function buildReview(payloads, ctx) {
         }
         const ar2 = protocolRisk(actionCall, a3.executor, where);
         if (ar2)
-          risks.push(ar2);
+          risks2.push(ar2);
       }
     }
     if (isMainnet(ctx.chainId) && i3 === 0) {
-      risks.push({ level: "warn", text: `${chainLabel(ctx.chainId)} \u2014 real funds` });
+      risks2.push({ level: "warn", text: `${chainLabel(ctx.chainId)} \u2014 real funds` });
     }
     steps.push({
       index: i3,
@@ -138907,9 +139903,9 @@ async function buildReview(payloads, ctx) {
       dataBytes: Math.max(0, (data4.length - 2) / 2),
       dataHash: keccak256(data4),
       dataPreview: data4.length > 2 + 72 ? `${data4.slice(0, 2 + 72)}\u2026` : data4,
-      decoded,
+      decoded: decoded2,
       ...p4.description ? { builderNote: renderUntrusted(p4.description, 160) } : {},
-      risks
+      risks: risks2
     });
   }
   return { ok: true, steps, prechecks };
@@ -138943,16 +139939,23 @@ button{font-size:15px;font-weight:600;padding:10px 18px;border-radius:8px;border
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 button:disabled{opacity:.5;cursor:default}
 #msg{margin-top:10px;font-weight:600}.ok{color:var(--ok)}.bad{color:var(--danger)}
+pre.message{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;margin:8px 0;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:14px;max-height:420px;overflow:auto}
+.mk{background:var(--danger-bg);color:var(--danger);border-radius:4px;padding:0 3px;font-weight:700}
+details summary{cursor:pointer;color:var(--muted)}
 `;
 function renderDecoded(d3) {
   const args = d3.args.length ? `<ul class="args">${d3.args.map((a3) => `<li><span class="k">${esc2(a3.name)}</span> <code>${esc2(a3.value)}</code></li>`).join("")}</ul>` : "";
   const nested = d3.nested.length ? `<div class="nested"><div class="note">contains ${d3.nested.length} inner call(s):</div>${d3.nested.map((n4) => renderDecoded(n4)).join("")}</div>` : "";
   return `<div><code>${esc2(d3.contract ? `${d3.contract}.` : "")}${esc2(d3.signature)}</code>${args}${nested}</div>`;
 }
-function renderStep(s2, total) {
-  const risks = s2.risks.map((r2) => `<div class="risk r-${r2.level}">${esc2(r2.text)}</div>`).join("");
+function renderRisks(risks2) {
+  const order2 = { danger: 0, warn: 1, info: 2 };
+  return [...risks2].sort((a3, b7) => order2[a3.level] - order2[b7.level]).map((r2) => `<div class="risk r-${r2.level}">${r2.level === "danger" ? "DANGER \u2014 " : ""}${esc2(r2.text)}</div>`).join("");
+}
+function renderStep(s2, total, title) {
+  const risks2 = renderRisks(s2.risks);
   return `<section class="card step">
-<h2>Transaction ${s2.index + 1} of ${total}</h2>
+<h2>${title ? esc2(title) : `Transaction ${s2.index + 1} of ${total}`}</h2>
 <div class="grid">
 <div class="k">To</div><div><code>${esc2(s2.to)}</code><br><span>${esc2(s2.toLabel)}</span></div>
 <div class="k">Value</div><div>${esc2(s2.valueHuman)}</div>
@@ -138960,34 +139963,90 @@ function renderStep(s2, total) {
 <div class="k">Calldata</div><div class="note">${esc2(s2.dataBytes)} bytes \xB7 keccak <code>${esc2(s2.dataHash)}</code></div>
 ${s2.builderNote ? `<div class="k">Tool's note</div><div class="note">${esc2(s2.builderNote)} <em>(written by the calling tool \u2014 not verified)</em></div>` : ""}
 </div>
-${risks}
+${risks2}
 </section>`;
 }
+function renderSegments(segments) {
+  return segments.map((s2) => s2.t === "text" ? esc2(s2.v) : `<span class="mk">\u27E8${esc2(s2.v)}\u27E9</span>`).join("");
+}
+function renderMessage(m3) {
+  const body = m3.encoding === "utf8" && m3.segments ? `<pre class="message">${renderSegments(m3.segments)}</pre>` : `<pre class="message">${esc2(m3.hex)}</pre>`;
+  return `<section class="card step">
+<h2>The message</h2>
+<div class="grid">
+<div class="k">For</div><div>${esc2(m3.purpose)} <span class="note">(stated by this server)</span></div>
+<div class="k">Size</div><div>${esc2(m3.byteLength)} bytes \xB7 ${m3.encoding === "utf8" ? "UTF-8 text, shown in full" : "binary \u2014 shown as hex"}</div>
+</div>
+${body}
+<div class="note">Characters that could hide or reorder text are shown as <span class="mk">\u27E8U+\u2026\u27E9</span>; a line break is a real line break.</div>
+${m3.encoding === "utf8" ? `<details><summary>Raw bytes (hex)</summary><pre class="message">${esc2(m3.hex)}</pre></details>` : ""}
+<div class="grid"><div class="k">EIP-191 hash</div><div><code>${esc2(m3.eip191Hash)}</code></div></div>
+${renderRisks(m3.risks)}
+<div class="risk r-info">A message signature sends nothing on-chain by itself, but whoever receives it can present it as you to the service it is for.</div>
+</section>`;
+}
+function renderSafe(s2, chainId) {
+  const ms2 = s2.multiSend?.length ? `<div class="nested"><div class="note">The MultiSend runs ${s2.multiSend.length} call(s), in order:</div><ul class="args">${s2.multiSend.map((c4, k5) => `<li>${k5 + 1}. ${c4.operation === 1 ? '<span class="mk">DELEGATECALL</span>' : "CALL"} <code>${esc2(c4.to)}</code> \xB7 value ${esc2(c4.value)} wei \xB7 ${c4.decoded ? renderDecoded(c4.decoded) : `<span class="bad">${c4.dataBytes ? "not decodable" : "no calldata"}</span> ${c4.selector ? `<code>${esc2(c4.selector)}</code>` : ""}`}</li>`).join("")}</ul></div>` : "";
+  const zero = "0x0000000000000000000000000000000000000000";
+  const refund = s2.gasPrice !== "0" ? `gasPrice ${esc2(s2.gasPrice)} \xB7 gasToken <code>${esc2(s2.gasToken)}</code> \xB7 refundReceiver <code>${esc2(s2.refundReceiver)}</code>` : "none";
+  return `<section class="card step">
+<h2>The Safe</h2>
+<div class="grid">
+<div class="k">Safe</div><div><code>${esc2(s2.safe)}</code><br><span>${s2.singletonLabel ? esc2(s2.singletonLabel) : '<span class="bad">implementation not recognised</span>'} \xB7 reports version ${esc2(s2.version)}</span></div>
+<div class="k">Owners</div><div>threshold ${esc2(s2.threshold)} of ${esc2(s2.ownerCount)} \xB7 you are an owner (checked on-chain)</div>
+<div class="k">Operation</div><div>${s2.operation === 1 ? '<span class="mk">DELEGATECALL (1)</span>' : "CALL (0)"}</div>
+<div class="k">Nonce</div><div>${esc2(s2.nonce)} <span class="note">(the Safe's next nonce is ${esc2(s2.currentNonce)})</span></div>
+<div class="k">Gas refund</div><div>${s2.gasPrice === "0" && s2.gasToken === zero ? "none" : refund}</div>
+<div class="k">safeTxHash</div><div><code>${esc2(s2.safeTxHash ?? "")}</code><div class="note">EIP-712 domain: chain ${esc2(chainId)}, verifyingContract = this Safe. Compare with the hash your other owners see.</div></div>
+</div>
+${ms2}
+${renderRisks(s2.risks)}
+<div class="risk r-info">This signs only; nothing is sent on-chain now. Once ${esc2(s2.threshold)} owner(s) have signed, anyone can execute it.</div>
+</section>`;
+}
+var HEADINGS = {
+  "tx-batch": (n4) => `Approve ${n4} transaction${n4 === 1 ? "" : "s"}`,
+  message: () => "Sign a message",
+  safeTx: () => "Sign a Safe transaction"
+};
 function renderApprovalPage(r2, o3) {
   const mainnet = isMainnet(r2.chainId);
   const expiresIn = Math.max(0, Math.round((r2.expiresAt - Date.now()) / 6e4));
+  const heading2 = HEADINGS[r2.kind](r2.steps.length);
   const resume = r2.resumeNote?.length ? `<section class="card"><strong>Earlier in this flow</strong><div class="note">These already landed on-chain before a failure and are NOT part of this approval:</div><ul class="args">${r2.resumeNote.map((l2) => `<li>${esc2(l2.label)} \u2014 <code>${esc2(l2.txHash)}</code></li>`).join("")}</ul></section>` : "";
   const sim = r2.prechecks.simulation === "pass" ? "transaction 1 simulated OK" : r2.prechecks.simulation === "unavailable" ? "simulation unavailable (RPC) \u2014 retried at send time" : "not simulated";
+  const network = r2.kind === "message" ? `<div class="k">Network</div><div>a message signature carries no chain id; this one is for an account on ${esc2(chainLabel(r2.chainId))}</div>` : `<div class="k">Network</div><div><span class="badge ${mainnet ? "b-main" : "b-test"}">${mainnet ? "MAINNET" : "testnet"}</span>${esc2(chainLabel(r2.chainId))}</div>`;
+  const checks = r2.kind === "tx-batch" ? `<div class="k">Checks</div><div>allowlist / value cap / wrong-chain / denylist passed \xB7 ${esc2(sim)}${r2.prechecks.simulationNote ? `<div class="note">${esc2(r2.prechecks.simulationNote)}</div>` : ""}</div>` : r2.kind === "safeTx" ? `<div class="k">Checks</div><div>Safe verified on-chain \xB7 allowlist / value cap / wrong-chain / denylist passed for the inner call</div>` : "";
+  const sub = r2.kind === "tx-batch" ? "Nothing is signed until you enter your keystore password below." : r2.kind === "message" ? "It asks your keystore to sign the message below (EIP-191 personal_sign). Nothing is signed until you enter your keystore password." : "It asks your keystore to sign a Safe transaction as one of the Safe's owners (EIP-712 SafeTx). Nothing is signed until you enter your keystore password.";
+  let body;
+  if (r2.signing?.kind === "message")
+    body = renderMessage(r2.signing.message);
+  else if (r2.signing?.kind === "safeTx") {
+    body = `${renderSafe(r2.signing.safe, r2.chainId)}
+${r2.steps.map((s2) => renderStep(s2, 1, "What the Safe will do")).join("\n")}`;
+  } else
+    body = r2.steps.map((s2) => renderStep(s2, r2.steps.length)).join("\n");
+  const what = r2.kind === "tx-batch" ? "exactly these transactions" : r2.kind === "message" ? "exactly this message" : "exactly this Safe transaction";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer"><title>Approve ${esc2(r2.steps.length)} transaction(s) \u2014 dexe-mcp</title>
+<meta name="referrer" content="no-referrer"><title>${esc2(heading2)} \u2014 dexe-mcp</title>
 <style nonce="${esc2(o3.nonce)}">${STYLE}</style></head>
 <body><main>
-<h1>Approve ${esc2(r2.steps.length)} transaction${r2.steps.length === 1 ? "" : "s"}</h1>
-<p class="sub">Requested by the <code>${esc2(r2.tool)}</code> tool of your local dexe-mcp server. Nothing is signed until you enter your keystore password below.</p>
+<h1>${esc2(heading2)}</h1>
+<p class="sub">Requested by the <code>${esc2(r2.tool)}</code> tool of your local dexe-mcp server. ${esc2(sub)}</p>
 <section class="card"><div class="grid">
-<div class="k">Network</div><div><span class="badge ${mainnet ? "b-main" : "b-test"}">${mainnet ? "MAINNET" : "testnet"}</span>${esc2(chainLabel(r2.chainId))}</div>
-<div class="k">From</div><div><code>${esc2(r2.from)}</code></div>
+${network}
+<div class="k">${r2.kind === "tx-batch" ? "From" : "Signer"}</div><div><code>${esc2(r2.from)}</code></div>
 <div class="k">Fingerprint</div><div><span class="fp">${esc2(r2.fingerprint)}</span><div class="note">The tool reported the same code in your chat. If they differ, decline.</div></div>
-<div class="k">Checks</div><div>allowlist / value cap / wrong-chain / denylist passed \xB7 ${esc2(sim)}${r2.prechecks.simulationNote ? `<div class="note">${esc2(r2.prechecks.simulationNote)}</div>` : ""}</div>
+${checks}
 <div class="k">Expires</div><div>in about ${esc2(expiresIn)} min</div>
 </div></section>
 ${resume}
-${r2.steps.map((s2) => renderStep(s2, r2.steps.length)).join("\n")}
+${body}
 <section class="card" id="decide">
 <label for="pw">Keystore password</label>
 <input id="pw" type="password" autocomplete="off" spellcheck="false" maxlength="1024">
-<p class="note">Type it here only \u2014 never in the chat. It unlocks the key once, for exactly these transactions, and is not stored. Do not let your browser save it.</p>
+<p class="note">Type it here only \u2014 never in the chat. It unlocks the key once, for ${esc2(what)}, and is not stored. Do not let your browser save it. (You can also decide in a terminal: <code>npx dexe-mcp approve</code>.)</p>
 <div class="actions"><button id="approve" class="primary">Approve and sign</button><button id="decline">Decline</button></div>
 <div id="msg" role="status"></div>
 </section>
@@ -139021,7 +140080,7 @@ pw.addEventListener("keydown",function(e){if(e.key==="Enter")a.click();});
 </body></html>`;
 }
 function renderClosedPage(r2, nonce) {
-  const landed = r2.landed.length ? `<ul class="args">${r2.landed.map((l2) => `<li>#${l2.index + 1} <code>${esc2(l2.txHash)}</code></li>`).join("")}</ul>` : "";
+  const landed = r2.kind === "tx-batch" && r2.landed.length ? `<ul class="args">${r2.landed.map((l2) => `<li>#${l2.index + 1} <code>${esc2(l2.txHash)}</code></li>`).join("")}</ul>` : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Approval ${esc2(r2.status)} \u2014 dexe-mcp</title><style nonce="${esc2(nonce)}">${STYLE}</style></head>
 <body><main><h1>This approval is ${esc2(r2.status)}</h1>
@@ -139042,8 +140101,6 @@ var ApprovalServer = class {
   server;
   starting;
   port = 0;
-  /** One password check at a time — scrypt is the rate limit, never run in parallel. */
-  attemptChain = Promise.resolve();
   constructor(deps) {
     this.deps = deps;
   }
@@ -139137,7 +140194,7 @@ var ApprovalServer = class {
     const base3 = `/a/${record2.pathToken}`;
     if (method === "GET") {
       if (action === "status") {
-        this.json(res, 200, { status: record2.status, landed: record2.landed, reason: record2.reason ?? null });
+        this.json(res, 200, { status: record2.status, kind: record2.kind, landed: record2.landed, reason: record2.reason ?? null });
         return;
       }
       if (action) {
@@ -139212,16 +140269,9 @@ var ApprovalServer = class {
       this.json(res, 400, { status: "refused", message: "enter the keystore password" });
       return;
     }
-    const attempt = this.attemptChain.then(() => {
-      const lockedNow = this.deps.store.lockedForMs();
-      if (lockedNow > 0)
-        return Promise.resolve({ kind: "locked", retryAfterMs: lockedNow });
-      return record2.status === "pending" ? this.deps.attemptApprove(record2, password) : Promise.resolve({ kind: "error", message: `this approval is already ${record2.status}` });
-    });
-    this.attemptChain = attempt.catch(() => void 0);
     let out2;
     try {
-      out2 = await attempt;
+      out2 = await this.deps.attemptApprove(record2, password);
     } catch {
       out2 = { kind: "error", message: "could not check the password" };
     }
@@ -139229,7 +140279,7 @@ var ApprovalServer = class {
       const mins = Math.max(1, Math.round(this.deps.store.approvedUseWindowMs / 6e4));
       this.json(res, 200, {
         status: "approved",
-        message: `Approved. If the tool call is still waiting it signs now \u2014 keep this tab open to watch the transactions land. If it already returned, re-run it within ${mins} min; after that the key is dropped and you approve again.`
+        message: (record2.kind === "tx-batch" ? "Approved. If the tool call is still waiting it signs now \u2014 keep this tab open to watch the transactions land. " : "Approved. If the tool call is still waiting it signs now. ") + `If it already returned, re-run it within ${mins} min; after that the key is dropped and you approve again.`
       });
       return;
     }
@@ -139270,7 +140320,11 @@ function readBody(req, max) {
   });
 }
 
+// dist/lib/approval/index.js
+init_store();
+
 // dist/lib/approval/approvedSigner.js
+init_store();
 var APPROVED_GAS_CAP = 30000000n;
 var ApprovedSigner = class {
   approvalId;
@@ -139352,6 +140406,218 @@ var ApprovedSigner = class {
   }
 };
 
+// dist/lib/approval/index.js
+init_signing();
+
+// dist/lib/approval/control.js
+init_redact();
+init_store();
+init_rendezvous();
+import { createServer as createServer2 } from "node:net";
+import { randomBytes as randomBytes8 } from "node:crypto";
+import { chmodSync as chmodSync3, existsSync as existsSync11, lstatSync as lstatSync2, unlinkSync as unlinkSync3 } from "node:fs";
+import { join as join11 } from "node:path";
+var MAX_REQUEST = 16 * 1024;
+var ControlChannel = class {
+  deps;
+  server;
+  starting;
+  secret = "";
+  endpoint = "";
+  file = "";
+  id;
+  pid;
+  exitHook;
+  constructor(deps) {
+    this.deps = deps;
+    this.id = deps.identity ?? currentIdentity();
+    this.pid = deps.pid ?? process.pid;
+  }
+  get started() {
+    return !!this.server;
+  }
+  /** Where the rendezvous file is (tests). */
+  get rendezvousPath() {
+    return this.file;
+  }
+  /** Start once. Never throws: on failure the channel stays off and the page still works. */
+  start() {
+    this.starting ??= this.doStart().catch((e2) => {
+      this.deps.log?.(`[dexe-mcp] terminal approvals (dexe-mcp approve) are unavailable: ${safeErrorMessage(e2)}. Approve on the page instead.`);
+      this.starting = void 0;
+      return false;
+    });
+    return this.starting;
+  }
+  async doStart() {
+    prepareRunDir(this.deps.runDir, this.id);
+    discoverServers(this.deps.runDir, { id: this.id });
+    this.secret = randomBytes8(32).toString("base64url");
+    this.endpoint = this.id.platform === "win32" ? `\\\\.\\pipe\\dexe-mcp-approve-${this.pid}-${randomBytes8(16).toString("hex")}` : join11(this.deps.runDir, `approve-${this.pid}.sock`);
+    if (this.id.platform !== "win32") {
+      if (Buffer.byteLength(this.endpoint) > 100) {
+        throw new Error(`the socket path ${this.endpoint} is too long for a unix socket (set a shorter HOME)`);
+      }
+      if (existsSync11(this.endpoint)) {
+        const st3 = lstatSync2(this.endpoint);
+        if (st3.isSocket() && st3.uid === this.id.uid)
+          unlinkSync3(this.endpoint);
+      }
+    }
+    const srv = createServer2((sock) => this.onConnection(sock));
+    await new Promise((resolveListen, reject) => {
+      srv.once("error", reject);
+      srv.listen(this.endpoint, () => {
+        srv.off("error", reject);
+        resolveListen();
+      });
+    });
+    srv.unref();
+    srv.on("error", () => void 0);
+    if (this.id.platform !== "win32")
+      chmodSync3(this.endpoint, 384);
+    this.server = srv;
+    this.file = writeRendezvous(this.deps.runDir, {
+      v: RENDEZVOUS_VERSION,
+      pid: this.pid,
+      address: this.deps.address,
+      endpoint: this.endpoint,
+      secret: this.secret,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      version: this.deps.version
+    });
+    this.exitHook = () => this.cleanupSync();
+    process.once("exit", this.exitHook);
+    return true;
+  }
+  cleanupSync() {
+    if (this.file)
+      removeRendezvous(this.file, this.id);
+    else if (this.endpoint && this.id.platform !== "win32") {
+      try {
+        unlinkSync3(this.endpoint);
+      } catch {
+      }
+    }
+  }
+  async close() {
+    const s2 = this.server;
+    this.server = void 0;
+    this.starting = void 0;
+    if (this.exitHook)
+      process.off("exit", this.exitHook);
+    this.exitHook = void 0;
+    if (s2)
+      await new Promise((r2) => s2.close(() => r2()));
+    this.cleanupSync();
+    this.file = "";
+    this.endpoint = "";
+  }
+  // ---------------------------------------------------------------------------
+  onConnection(sock) {
+    sock.setEncoding("utf8");
+    sock.setTimeout(15e4, () => sock.destroy());
+    let buf = "";
+    let handled = false;
+    const reply = (body) => {
+      if (sock.writable)
+        sock.end(`${JSON.stringify(body)}
+`);
+    };
+    sock.on("error", () => void 0);
+    sock.on("data", (chunk) => {
+      if (handled)
+        return;
+      buf += chunk;
+      if (buf.length > MAX_REQUEST) {
+        handled = true;
+        reply({ ok: false, status: "refused", message: "request too large" });
+        return;
+      }
+      const nl = buf.indexOf("\n");
+      if (nl < 0)
+        return;
+      handled = true;
+      let req;
+      try {
+        req = JSON.parse(buf.slice(0, nl));
+      } catch {
+        reply({ ok: false, status: "refused", message: "malformed request" });
+        return;
+      }
+      this.handle(req).then(reply, () => reply({ ok: false, status: "error", message: "internal error" }));
+    });
+  }
+  async handle(req) {
+    if (typeof req.secret !== "string" || !safeEqual(req.secret, this.secret)) {
+      return { ok: false, status: "unauthorized", message: "wrong or missing secret" };
+    }
+    const store2 = this.deps.store;
+    switch (req.op) {
+      case "hello":
+        return { ok: true, pid: this.pid, address: this.deps.address, version: this.deps.version, lockedForMs: store2.lockedForMs() };
+      case "list":
+        return {
+          ok: true,
+          pid: this.pid,
+          address: this.deps.address,
+          lockedForMs: store2.lockedForMs(),
+          approvals: store2.open().filter((r2) => r2.status === "pending").map((r2) => this.deps.reviewOf(r2))
+        };
+      case "approve":
+      case "decline": {
+        const record2 = typeof req.approvalId === "string" ? store2.get(req.approvalId) : void 0;
+        if (!record2)
+          return { ok: false, status: "not-found", message: "no such approval (expired, or the server restarted)" };
+        if (typeof req.binding !== "string" || req.binding !== record2.batchHash) {
+          return { ok: false, status: "refused", message: "the approval does not match the review you saw \u2014 list again" };
+        }
+        if (record2.status !== "pending") {
+          return { ok: false, status: record2.status, message: `this approval is already ${record2.status}` };
+        }
+        if (req.op === "decline") {
+          store2.decline(record2.approvalId, "declined by the owner in the terminal (dexe-mcp approve)");
+          this.deps.log?.(`[dexe-mcp] approval ${record2.approvalId} declined in the terminal`);
+          return { ok: true, status: "declined", message: "Declined. Nothing was signed." };
+        }
+        const password = typeof req.password === "string" ? req.password : "";
+        if (!password || password.length > 1024)
+          return { ok: false, status: "refused", message: "enter the keystore password" };
+        const out2 = await this.deps.attemptApprove(record2, password);
+        if (out2.kind === "approved") {
+          this.deps.log?.(`[dexe-mcp] approval ${record2.approvalId} approved in the terminal`);
+          const mins = Math.max(1, Math.round(store2.approvedUseWindowMs / 6e4));
+          return {
+            ok: true,
+            status: "approved",
+            message: `Approved. If the tool call is still waiting it signs now; if it already returned, ask the AI to re-run it within ${mins} min (after that the key is dropped and you approve again).`
+          };
+        }
+        if (out2.kind === "locked") {
+          return {
+            ok: false,
+            status: "locked",
+            retryAfterMs: out2.retryAfterMs,
+            message: `Too many wrong passwords \u2014 password entry is locked; try again in ${Math.ceil(out2.retryAfterMs / 1e3)} s.`
+          };
+        }
+        if (out2.kind === "wrong-password") {
+          return {
+            ok: false,
+            status: out2.declined ? "declined" : "wrong-password",
+            remaining: out2.remaining,
+            lockedMs: out2.lockedMs,
+            message: (out2.declined ? "Too many wrong passwords \u2014 this approval was declined." : `Wrong password. ${out2.remaining} attempt(s) left for this approval.`) + (out2.lockedMs > 0 ? ` Password entry is now locked for ${Math.ceil(out2.lockedMs / 1e3)} s.` : "")
+          };
+        }
+        return { ok: false, status: "error", message: out2.message };
+      }
+      default:
+        return { ok: false, status: "refused", message: "unknown op" };
+    }
+  }
+};
+
 // dist/lib/approval/openBrowser.js
 import { spawn as nodeSpawn } from "node:child_process";
 function browserCommand(url2, platform4, env) {
@@ -139419,7 +140685,7 @@ var ApprovalHaltError = class extends Error {
     this.name = "ApprovalHaltError";
   }
 };
-var AWAITING_APPROVAL_NEXT = 'Nothing was signed yet. Tell the user to open the approval page (url) in their own browser, check the fingerprint matches, and approve with their keystore password there \u2014 never ask for the password in chat. Then re-run this same call promptly \u2014 an approved batch is held only ~2 minutes (DEXE_APPROVAL_USE_S) and is signed without asking again \u2014 or wait with dexe_tx_approval_status {"approvalId":"<approvalId>","waitMs":60000} first.';
+var AWAITING_APPROVAL_NEXT = 'Nothing was signed yet. Tell the user to open the approval page (url) in their own browser \u2014 or run `npx dexe-mcp approve` in their own terminal \u2014 check the fingerprint matches, and approve with their keystore password there; never ask for the password in chat. Then re-run this same call promptly \u2014 an approval is held only ~2 minutes (DEXE_APPROVAL_USE_S) and is used without asking again \u2014 or wait with dexe_tx_approval_status {"approvalId":"<approvalId>","waitMs":60000} first.';
 var DECLINED_MESSAGE = "Owner declined; nothing signed. Do not retry unless the user asks.";
 function approvalHaltResult(halt, landedThisCall = []) {
   if (halt.status === "throttled") {
@@ -139515,32 +140781,69 @@ function applyApprovalScope(server, tools) {
 }
 
 // dist/lib/approval/index.js
+init_store();
+init_signing();
 var HEARTBEAT_MS = 15e3;
 var ApprovalManager = class {
   opts;
   store;
   server;
-  signers = /* @__PURE__ */ new Map();
+  control;
+  holders = /* @__PURE__ */ new Map();
+  /** One password check at a time, page and terminal alike — scrypt is the rate limit, never run in parallel. */
+  attemptChain = Promise.resolve();
   constructor(opts) {
     this.opts = opts;
     this.store = new ApprovalStore({ ttlMs: opts.ttlMs, ...opts.storeOptions ?? {} });
     this.server = new ApprovalServer({
       store: this.store,
-      attemptApprove: (r2, pw) => this.attemptApprove(r2, pw),
+      attemptApprove: (r2, pw) => this.passwordAttempt(r2, pw),
       log: opts.log
     });
+    this.control = opts.terminal ? new ControlChannel({
+      store: this.store,
+      address: getAddress(opts.address),
+      runDir: opts.terminal.runDir,
+      version: opts.terminal.version ?? "",
+      attemptApprove: (r2, pw) => this.passwordAttempt(r2, pw),
+      reviewOf: (r2) => this.reviewOf(r2),
+      log: opts.log
+    }) : void 0;
   }
   get address() {
     return this.opts.address;
   }
-  /** Approve with the password typed on the page. The only path from `pending` to `approved`. */
+  /** The terminal channel, when configured (tests, diagnostics). */
+  get terminal() {
+    return this.control;
+  }
+  /**
+   * The ONE entry for a typed password, from the page or the terminal:
+   * refused while password entry is locked, serialized, and re-checked for
+   * the lockout inside the queue — guesses queued before a lockout never run
+   * after it, whichever channel they came through.
+   */
+  passwordAttempt(record2, password) {
+    const locked7 = this.store.lockedForMs();
+    if (locked7 > 0)
+      return Promise.resolve({ kind: "locked", retryAfterMs: locked7 });
+    const attempt = this.attemptChain.then(() => {
+      const lockedNow = this.store.lockedForMs();
+      if (lockedNow > 0)
+        return Promise.resolve({ kind: "locked", retryAfterMs: lockedNow });
+      return record2.status === "pending" ? this.attemptApprove(record2, password) : Promise.resolve({ kind: "error", message: `this approval is already ${record2.status}` });
+    });
+    this.attemptChain = attempt.catch(() => void 0);
+    return attempt;
+  }
+  /** Decrypt with the password and approve. The only path from `pending` to `approved`. */
   async attemptApprove(record2, password) {
     const locked7 = this.store.lockedForMs();
     if (locked7 > 0)
       return { kind: "locked", retryAfterMs: locked7 };
     let json2;
     try {
-      json2 = this.opts.readKeystore ? this.opts.readKeystore() : readFileSync10(this.opts.keystoreFile, "utf8");
+      json2 = this.opts.readKeystore ? this.opts.readKeystore() : readFileSync11(this.opts.keystoreFile, "utf8");
     } catch {
       return { kind: "error", message: "The keystore file could not be read \u2014 nothing was signed." };
     }
@@ -139567,15 +140870,18 @@ var ApprovalManager = class {
       return { kind: "error", message: "The keystore could not be decrypted \u2014 nothing was signed." };
     }
     registerLedgerSecrets([account.privateKey]);
-    const signer = new ApprovedSigner(record2.approvalId, account.address, account.privateKey, record2.chainId, record2.expected, {
+    const holder = record2.kind === "tx-batch" ? new ApprovedSigner(record2.approvalId, account.address, account.privateKey, record2.chainId, record2.expected, {
       store: this.store,
       connect: (pk) => this.opts.connect(pk, record2.chainId),
       lock: (task) => this.opts.lock(record2.chainId, task)
+    }) : new ApprovedSignature(record2.approvalId, account.address, account.privateKey, record2.kind, record2.chainId, record2.batchHash, {
+      store: this.store,
+      ...record2.signing?.kind === "safeTx" ? { verifyingContract: record2.signing.safe.safe } : {}
     });
-    if (!this.store.approve(record2.approvalId, signer)) {
+    if (!this.store.approve(record2.approvalId, holder)) {
       return { kind: "error", message: `this approval is already ${record2.status}` };
     }
-    this.signers.set(record2.approvalId, signer);
+    this.holders.set(record2.approvalId, holder);
     this.opts.log?.(`[dexe-mcp] approval ${record2.approvalId} approved by the owner`);
     return { kind: "approved" };
   }
@@ -139588,39 +140894,44 @@ var ApprovalManager = class {
       expiresAt: new Date(r2.expiresAt).toISOString(),
       chainId: r2.chainId,
       from: r2.from,
-      steps: stepLabels(r2.steps),
+      steps: summaryOf(r2),
       message
     };
   }
   takeApproved(r2) {
     const holder = this.store.take(r2.approvalId);
-    const signer = this.signers.get(r2.approvalId);
-    this.signers.delete(r2.approvalId);
-    if (!holder || !signer || holder !== signer)
+    const mine = this.holders.get(r2.approvalId);
+    this.holders.delete(r2.approvalId);
+    if (!holder || !mine || holder !== mine)
       return void 0;
-    return signer;
+    return holder;
   }
-  /** Get an ApprovedSigner for this batch, or throw ApprovalHaltError. */
-  async request(req, ro2 = {}) {
-    const batchHash = computeBatchHash(req.chainId, req.from, req.payloads);
-    const approved = this.store.findByBatch(batchHash, "approved");
+  /** Start the page server and (when configured) the terminal channel. */
+  async startChannels() {
+    await this.server.start();
+    return this.control ? this.control.start() : false;
+  }
+  /** The shared request flow. Returns the approved key holder, or throws ApprovalHaltError. */
+  async acquire(spec, ro2) {
+    const approved = this.store.findByBatch(spec.binding, "approved");
     if (approved) {
-      const s2 = this.takeApproved(approved);
-      if (s2)
-        return s2;
+      const h3 = this.takeApproved(approved);
+      if (h3)
+        return h3;
     }
-    const declined = this.store.recentDecline(batchHash);
+    const declined = this.store.recentDecline(spec.binding);
     if (declined) {
       throw new ApprovalHaltError({
-        ...this.haltOf(declined, "declined", "The owner declined this exact batch recently; nothing was signed."),
+        ...this.haltOf(declined, "declined", "The owner declined exactly this recently; nothing was signed."),
         retryAfter: new Date(this.store.cooldownEndsAt(declined)).toISOString()
       });
     }
-    const executing = this.store.findByBatch(batchHash, "executing");
+    const executing = this.store.findByBatch(spec.binding, "executing");
     if (executing) {
-      throw new ApprovalHaltError(this.haltOf(executing, "executing", "This exact batch is being signed by another call right now \u2014 wait for it, then re-check."));
+      throw new ApprovalHaltError(this.haltOf(executing, "executing", "Exactly this is being signed by another call right now \u2014 wait for it, then re-check."));
     }
-    let record2 = this.store.findByBatch(batchHash, "pending");
+    let record2 = this.store.findByBatch(spec.binding, "pending");
+    let terminal = false;
     if (!record2) {
       const admit = this.store.admitCreate();
       if (!admit.ok) {
@@ -139628,10 +140939,10 @@ var ApprovalManager = class {
         throw new ApprovalHaltError({
           status: "throttled",
           approvalId: "",
-          fingerprint: fingerprintOf(batchHash),
-          chainId: req.chainId,
-          from: req.from,
-          steps: stepLabels(req.steps),
+          fingerprint: fingerprintOf(spec.binding),
+          chainId: spec.chainId,
+          from: spec.from,
+          steps: spec.labels,
           message: `Not put up for approval: ${admit.reason}`,
           retryAfter: new Date(Date.now() + admit.retryAfterMs).toISOString(),
           open: open2.map((r3) => ({
@@ -139641,42 +140952,32 @@ var ApprovalManager = class {
           }))
         });
       }
-      const resumeNote = this.store.resumeNoteFor(req.tool, req.from, req.chainId);
-      record2 = this.store.create({
-        tool: req.tool,
-        chainId: req.chainId,
-        from: req.from,
-        steps: req.steps,
-        expected: req.payloads.map((p4) => ({ to: p4.to, value: BigInt(p4.value || "0"), dataHash: dataHashOf(p4.data) })),
-        prechecks: req.prechecks,
-        batchHash,
-        fingerprint: fingerprintOf(batchHash),
-        ...resumeNote ? { resumeNote } : {}
-      });
-      await this.server.start();
+      record2 = this.store.create(spec.create());
+      terminal = await this.startChannels();
       const url3 = this.server.urlFor(record2);
-      this.opts.log?.(`[dexe-mcp] APPROVAL NEEDED \u2014 ${req.tool}: ${record2.steps.length} tx on ${chainLabel(req.chainId)} from ${req.from}. Open ${url3} and check fingerprint ${record2.fingerprint}.`);
+      this.opts.log?.(`[dexe-mcp] APPROVAL NEEDED \u2014 ${spec.tool}: ${spec.what} on ${chainLabel(spec.chainId)} from ${spec.from}. Open ${url3}${terminal ? " (or run `npx dexe-mcp approve` in a terminal)" : ""} and check fingerprint ${record2.fingerprint}.`);
       if (this.opts.openBrowser)
         (this.opts.opener ?? openBrowser)(url3);
     } else {
-      await this.server.start();
+      terminal = await this.startChannels();
     }
     const url2 = this.server.urlFor(record2);
+    const where = `${url2}${terminal ? " or with `npx dexe-mcp approve` in a terminal" : ""}`;
     const waitMs = Math.max(0, Math.min(ro2.waitMs ?? this.opts.waitMs, record2.expiresAt - Date.now()));
     const deadline = Date.now() + waitMs;
-    await ro2.progress?.(`Waiting for the owner to approve ${record2.steps.length} transaction(s) at ${url2} (fingerprint ${record2.fingerprint}).`);
+    await ro2.progress?.(`Waiting for the owner to approve ${spec.what} at ${where} (fingerprint ${record2.fingerprint}).`);
     let current = record2;
     while (current?.status === "pending" && Date.now() < deadline && !ro2.signal?.aborted) {
       current = await this.store.waitForDecision(record2.approvalId, Math.min(HEARTBEAT_MS, deadline - Date.now()), ro2.signal);
       if (current?.status === "pending" && Date.now() < deadline) {
-        await ro2.progress?.(`Still waiting for approval at ${url2} (fingerprint ${record2.fingerprint}).`);
+        await ro2.progress?.(`Still waiting for approval at ${where} (fingerprint ${record2.fingerprint}).`);
       }
     }
     const r2 = current ?? record2;
     if (r2.status === "approved") {
-      const s2 = this.takeApproved(r2);
-      if (s2)
-        return s2;
+      const h3 = this.takeApproved(r2);
+      if (h3)
+        return h3;
     }
     if (r2.status === "declined") {
       this.opts.log?.(`[dexe-mcp] approval ${r2.approvalId} declined: ${r2.reason ?? "by the owner"}`);
@@ -139688,34 +140989,173 @@ var ApprovalManager = class {
     if (r2.status === "expired") {
       throw new ApprovalHaltError(this.haltOf(r2, "expired", "The approval window ended before the owner approved; nothing was signed. Re-run the call for a fresh link."));
     }
-    throw new ApprovalHaltError(this.haltOf(r2, "pending", `Waiting for the owner to approve ${r2.steps.length} transaction(s) on ${chainLabel(r2.chainId)} in the browser (fingerprint ${r2.fingerprint}). Nothing was signed yet.`, url2));
+    throw new ApprovalHaltError(this.haltOf(r2, "pending", `Waiting for the owner to approve ${spec.what} on ${chainLabel(r2.chainId)} in the browser${terminal ? " or the terminal" : ""} (fingerprint ${r2.fingerprint}). Nothing was signed yet.`, url2));
+  }
+  /** Get an ApprovedSigner for this transaction batch, or throw ApprovalHaltError. */
+  async request(req, ro2 = {}) {
+    const batchHash = computeBatchHash(req.chainId, req.from, req.payloads);
+    const h3 = await this.acquire({
+      binding: batchHash,
+      tool: req.tool,
+      chainId: req.chainId,
+      from: req.from,
+      what: `${req.steps.length} transaction(s)`,
+      labels: stepLabels(req.steps),
+      create: () => {
+        const resumeNote = this.store.resumeNoteFor(req.tool, req.from, req.chainId);
+        return {
+          kind: "tx-batch",
+          tool: req.tool,
+          chainId: req.chainId,
+          from: req.from,
+          steps: req.steps,
+          expected: req.payloads.map((p4) => ({ to: p4.to, value: BigInt(p4.value || "0"), dataHash: dataHashOf(p4.data) })),
+          prechecks: req.prechecks,
+          batchHash,
+          fingerprint: fingerprintOf(batchHash),
+          ...resumeNote ? { resumeNote } : {}
+        };
+      }
+    }, ro2);
+    if (!(h3 instanceof ApprovedSigner)) {
+      h3.drop();
+      throw new Error("internal: an approval of another kind matched this batch \u2014 nothing was signed");
+    }
+    return h3;
+  }
+  /**
+   * Get an ApprovedSignature for exactly this message / SafeTx, or throw
+   * ApprovalHaltError. Throws {@link SignatureRefusal} — before any page —
+   * for what this path never signs: empty or over-long messages, typed data
+   * other than a canonical SafeTx, permits, a domain for another chain.
+   */
+  async requestSignature(req, ro2 = {}) {
+    const from10 = getAddress(req.from);
+    let spec;
+    if (req.kind === "message") {
+      if (req.message.length === 0)
+        throw new SignatureRefusal("Refused: the message to sign is empty.");
+      if (req.message.length > MESSAGE_MAX_BYTES) {
+        throw new SignatureRefusal(`Refused: the message is ${req.message.length} bytes. The approval page shows a message in full, so messages over ${MESSAGE_MAX_BYTES} bytes are never put up for signing.`);
+      }
+      const binding = messageBindingHash(req.chainId, from10, req.message);
+      const message = reviewMessage(req.message, { from: from10, purpose: req.purpose });
+      spec = {
+        binding,
+        tool: req.tool,
+        chainId: req.chainId,
+        from: from10,
+        what: "a message signature",
+        labels: [`sign a message (${req.message.length} bytes) \u2014 ${req.purpose}`],
+        create: () => ({
+          kind: "message",
+          tool: req.tool,
+          chainId: req.chainId,
+          from: from10,
+          steps: [],
+          expected: [],
+          prechecks: { guards: "pass", simulation: "skipped" },
+          signing: { kind: "message", message },
+          batchHash: binding,
+          fingerprint: fingerprintOf(binding)
+        })
+      };
+    } else {
+      assertSignableTypedData({ domain: req.typedData.domain, types: req.typedData.types }, { chainId: req.chainId, verifyingContract: req.safe.safe });
+      const digest3 = TypedDataEncoder.hash(req.typedData.domain, req.typedData.types, req.typedData.message);
+      const binding = typedDataBindingHash(req.chainId, from10, digest3);
+      const safe = { ...req.safe, safeTxHash: digest3 };
+      spec = {
+        binding,
+        tool: req.tool,
+        chainId: req.chainId,
+        from: from10,
+        what: "a Safe transaction signature",
+        labels: [`sign Safe transaction nonce ${safe.nonce} for Safe ${safe.safe}`],
+        create: () => ({
+          kind: "safeTx",
+          tool: req.tool,
+          chainId: req.chainId,
+          from: from10,
+          steps: req.steps,
+          expected: [],
+          prechecks: req.prechecks,
+          signing: { kind: "safeTx", safe },
+          batchHash: binding,
+          fingerprint: fingerprintOf(binding)
+        })
+      };
+    }
+    const h3 = await this.acquire(spec, ro2);
+    if (!(h3 instanceof ApprovedSignature) || h3.kind !== req.kind) {
+      h3.drop();
+      throw new Error("internal: an approval of another kind matched this signature \u2014 nothing was signed");
+    }
+    return h3;
+  }
+  /**
+   * The newest open (pending or approved-unused) message approval of a flow —
+   * lets dexe_auth_login re-run with the SAME backend nonce it already put up
+   * for approval instead of fetching a new one (which would need a new page).
+   * The message is what the backend sent, held server-side; never model text.
+   */
+  findOpenMessage(q6) {
+    const from10 = getAddress(q6.from);
+    const hits = this.store.open().filter((r2) => r2.kind === "message" && r2.tool === q6.tool && r2.from === from10 && r2.chainId === q6.chainId && r2.signing?.kind === "message" && r2.signing.message.purpose === q6.purpose).sort((a3, b7) => b7.createdAt - a3.createdAt);
+    const rec = hits[0];
+    if (!rec || rec.signing?.kind !== "message")
+      return void 0;
+    return Uint8Array.from(Buffer.from(rec.signing.message.hex.slice(2), "hex"));
+  }
+  /** What the terminal shows for an approval: the page's review, without the page token or the CSRF token. */
+  reviewOf(r2) {
+    return {
+      approvalId: r2.approvalId,
+      kind: r2.kind,
+      tool: r2.tool,
+      chainId: r2.chainId,
+      chain: chainLabel(r2.chainId),
+      mainnet: isMainnet(r2.chainId),
+      from: r2.from,
+      fingerprint: r2.fingerprint,
+      binding: r2.batchHash,
+      createdAt: new Date(r2.createdAt).toISOString(),
+      expiresAt: new Date(r2.expiresAt).toISOString(),
+      failures: r2.failures,
+      steps: r2.steps,
+      prechecks: r2.prechecks,
+      ...r2.signing ? { signing: r2.signing } : {},
+      ...r2.resumeNote?.length ? { resumeNote: r2.resumeNote } : {}
+    };
   }
   /** The read-only view `dexe_tx_approval_status` returns. */
   view(approvalId) {
     const r2 = this.store.get(approvalId);
     if (!r2)
       return void 0;
+    const tx = r2.kind === "tx-batch";
     const next = {
-      pending: "Waiting for the owner. Ask them to approve on the page (never for the password in chat), then re-run the original call.",
-      approved: "Approved and not used yet \u2014 re-run the ORIGINAL call with the same arguments now (the approved batch is held only briefly); it signs without asking again.",
-      executing: "Being signed and sent right now \u2014 check again shortly.",
-      consumed: "Done \u2014 every approved transaction was sent (see landed).",
+      pending: "Waiting for the owner. Ask them to approve on the page or with `npx dexe-mcp approve` in their terminal (never for the password in chat), then re-run the original call.",
+      approved: "Approved and not used yet \u2014 re-run the ORIGINAL call with the same arguments now (the approval is held only briefly); it signs without asking again.",
+      executing: tx ? "Being signed and sent right now \u2014 check again shortly." : "Being signed right now \u2014 check again shortly.",
+      consumed: tx ? "Done \u2014 every approved transaction was sent (see landed)." : "Done \u2014 the approved signature was produced.",
       declined: "The owner declined. Do not retry unless the user asks.",
       expired: "Expired before use. Re-run the original call for a fresh approval link.",
-      revoked: "Revoked (a transaction differed from the approved batch, a step failed, or a newer approval replaced it). Re-run the original call if the user still wants it."
+      revoked: tx ? "Revoked (a transaction differed from the approved batch, a step failed, or a newer approval replaced it). Re-run the original call if the user still wants it." : "Revoked (what was to be signed differed from what was approved, or a newer approval replaced it). Re-run the original call if the user still wants it."
     };
     return {
       approvalId: r2.approvalId,
+      kind: r2.kind,
       status: r2.status,
       tool: r2.tool,
       chainId: r2.chainId,
       from: r2.from,
       fingerprint: r2.fingerprint,
-      steps: stepLabels(r2.steps),
+      steps: summaryOf(r2),
       ...r2.status === "pending" && this.server.started ? { url: this.server.urlFor(r2) } : {},
       createdAt: new Date(r2.createdAt).toISOString(),
       expiresAt: new Date(r2.expiresAt).toISOString(),
-      landed: r2.landed,
+      ...tx ? { landed: r2.landed } : {},
       ...r2.reason ? { reason: r2.reason } : {},
       next: next[r2.status] ?? ""
     };
@@ -139729,16 +141169,18 @@ var ApprovalManager = class {
   openApprovals() {
     return this.store.open().map((r2) => ({
       approvalId: r2.approvalId,
+      kind: r2.kind,
       status: r2.status,
       tool: r2.tool,
       chainId: r2.chainId,
       fingerprint: r2.fingerprint,
-      txCount: r2.steps.length,
+      ...r2.kind === "tx-batch" ? { txCount: r2.steps.length } : {},
       expiresAt: new Date(r2.expiresAt).toISOString()
     }));
   }
   async close() {
     await this.server.close();
+    await this.control?.close();
   }
 };
 function stepLabels(steps) {
@@ -139747,8 +141189,25 @@ function stepLabels(steps) {
     return `${s2.index + 1}. ${call} \u2192 ${s2.toLabel} (${s2.to})`;
   });
 }
+function summaryOf(r2) {
+  if (r2.signing?.kind === "message") {
+    const m3 = r2.signing.message;
+    const preview = m3.segments ? renderUntrusted(segmentsToText(m3.segments), 80) : `${m3.hex.slice(0, 42)}\u2026`;
+    return [`sign a message (${m3.byteLength} bytes, ${m3.encoding}) \u2014 ${m3.purpose}: "${preview}"`];
+  }
+  if (r2.signing?.kind === "safeTx") {
+    const s2 = r2.signing.safe;
+    const inner = r2.steps[0];
+    const call = inner?.decoded ? inner.decoded.signature.split("(")[0] : inner?.selector ?? "transfer";
+    return [
+      `sign Safe transaction nonce ${s2.nonce} for Safe ${s2.safe}: ${s2.operation === 1 ? "DELEGATECALL" : "CALL"} ${call} \u2192 ${inner?.to ?? "?"}`
+    ];
+  }
+  return stepLabels(r2.steps);
+}
 
 // dist/lib/signer.js
+init_rendezvous();
 var NoSignerKeyError = class extends Error {
   constructor(message) {
     super(message);
@@ -139763,7 +141222,7 @@ var SignerModeRefusal = class extends Error {
     this.name = "SignerModeRefusal";
   }
 };
-var KEYSTORE_NO_MESSAGE_SIGNING = "Keystore mode signs transactions only (each batch approved on the local page). Message and typed-data signatures (off-chain login, Safe transactions) are not supported in keystore mode yet - connect a phone wallet with dexe_wc_connect for this step, or take the unsigned payload and sign it in your own wallet.";
+var KEYSTORE_NO_MESSAGE_SIGNING = "Keystore mode signs a message or typed data only through an owner approval of the exact bytes (dexe_auth_login and dexe_safe_propose_tx ask for one); this path cannot. Use one of those tools, connect a phone wallet with dexe_wc_connect, or take the unsigned payload and sign it in your own wallet.";
 var SignerManager = class {
   cache = /* @__PURE__ */ new Map();
   /** Per-(chain, signer-address) broadcast serialization queue (H-12 nonce guard). */
@@ -139815,7 +141274,9 @@ var SignerManager = class {
         connect: (pk, chainId) => this.walletFor(pk, chainId, "keystore"),
         lock: (chainId, task) => this.withBroadcastLock(chainId, task, ks2.address),
         log: (line2) => void process.stderr.write(`${line2}
-`)
+`),
+        // `dexe-mcp approve`: an owner-only rendezvous in ~/.dexe-mcp/run.
+        terminal: { runDir: defaultRunDir() }
       });
     }
     return this.approvalManager;
@@ -139934,7 +141395,7 @@ var SignerManager = class {
    */
   requireSigner(chainId, signerKey) {
     if (this.mode === "keystore") {
-      throw new SignerModeRefusal("Keystore mode signs only through an approved batch (dexe_tx_send and the composites ask the owner on a local approval page). Nothing on this path may sign with the keystore.", "Use dexe_tx_send or a composite; for message / Safe signatures connect WalletConnect (dexe_wc_connect).");
+      throw new SignerModeRefusal("Keystore mode signs only through an approved batch (dexe_tx_send and the composites ask the owner on a local approval page). Nothing on this path may sign with the keystore.", "Use dexe_tx_send or a composite; for a login or a Safe signature use dexe_auth_login / dexe_safe_propose_tx (the owner approves the exact bytes), or connect WalletConnect (dexe_wc_connect).");
     }
     const key = this.resolveKey(signerKey);
     if (!key)
@@ -140009,9 +141470,9 @@ var SignerManager = class {
   async withBroadcastLock(chainId, task, signerAddress) {
     const queueKey = `${chainId}:${(signerAddress ?? "primary").toLowerCase()}`;
     const prev = this.broadcastQueues.get(queueKey) ?? Promise.resolve();
-    const run5 = prev.then(() => task(), () => task());
-    this.broadcastQueues.set(queueKey, run5.then(() => void 0, () => void 0));
-    return run5;
+    const run6 = prev.then(() => task(), () => task());
+    this.broadcastQueues.set(queueKey, run6.then(() => void 0, () => void 0));
+    return run6;
   }
   /**
    * The one message a zero-config user sees when they ask for anything that
@@ -140072,6 +141533,7 @@ function hotKeySafetyFields(broadcast) {
 }
 
 // dist/tools/proposalBuildOffchain.js
+init_signing();
 init_redact();
 var H = "Builds an HTTP request; does not send it. ";
 var PROPOSAL_ENDPOINT = "/integrations/voting/proposals";
@@ -140203,9 +141665,9 @@ var BACKEND_AUTH_CHAIN_ID = 56;
 function registerAuthLoginComposite(server, signer, wc) {
   server.registerTool("dexe_auth_login", {
     title: "Off-chain auth \u2014 one call: fetch nonce, sign, log in, return Bearer token",
-    description: "Writes to a remote service. Off-chain backend auth in one call: with a signer available (DEXE_PRIVATE_KEY or a connected WalletConnect session) it fetches the nonce, signs it INSIDE the server, posts the login and returns the Bearer access token \u2014 so agent code never touches the private key. Pass the returned accessToken as `Authorization: Bearer <accessToken>` on off-chain proposal/vote requests. With no signer it returns the manual dexe_auth_request_nonce + dexe_auth_login_request path instead.",
+    description: "Writes to a remote service. Off-chain backend auth in one call: with a signer available (a connected WalletConnect session, the keystore \u2014 after the owner approves the exact nonce message; awaiting_approval until then, re-run the same call \u2014 or an unattended DEXE_PRIVATE_KEY) it fetches the nonce, signs it INSIDE the server, posts the login and returns the Bearer access token \u2014 so agent code never touches the private key. Pass the returned accessToken as `Authorization: Bearer <accessToken>` on off-chain proposal/vote requests. With no signer it returns the manual dexe_auth_request_nonce + dexe_auth_login_request path instead.",
     inputSchema: {
-      address: external_exports.string().optional().describe("Override the signer address (defaults to the configured EOA / connected WC account).")
+      address: external_exports.string().optional().describe("Override the signer address (defaults to the configured EOA / connected WC account; keystore mode: the keystore address only).")
     },
     outputSchema: {
       accessToken: external_exports.string().optional(),
@@ -140213,17 +141675,20 @@ function registerAuthLoginComposite(server, signer, wc) {
       address: external_exports.string().optional(),
       expiresIn: external_exports.number().optional(),
       signerMode: external_exports.string().optional(),
-      note: external_exports.string().optional()
+      note: external_exports.string().optional(),
+      safety: external_exports.string().optional(),
+      // keystore mode, before the owner approved: see docs/SIGNING.md
+      mode: external_exports.string().optional(),
+      status: external_exports.string().optional()
     }
   }, async ({ address }) => {
     const base3 = requireBase();
     if (typeof base3 !== "string")
       return errorResult12(base3.error);
+    if (signer.mode === "keystore")
+      return keystoreLogin(base3, signer, address);
     const eoa = (signer.mode ?? "unattended") === "unattended" && signer.hasSigner();
     const wcConnected = wc.isConnected();
-    if (signer.mode === "keystore" && !wcConnected) {
-      return errorResult12(`${KEYSTORE_NO_MESSAGE_SIGNING} Or do it manually: dexe_auth_request_nonce \u2192 sign the returned \`message\` in your own wallet \u2192 dexe_auth_login_request with the signature.`);
-    }
     if (!eoa && !wcConnected) {
       return jsonResult({
         note: "No signer configured \u2014 cannot sign the auth nonce internally. Either run dexe_wc_connect (or set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY), then re-call dexe_auth_login; OR do it manually: dexe_auth_request_nonce \u2192 sign the returned `message` with your wallet \u2192 dexe_auth_login_request with the signature."
@@ -140235,40 +141700,84 @@ function registerAuthLoginComposite(server, signer, wc) {
     }
     const signerMode = eoa ? "eoa" : "walletconnect";
     try {
-      const nonceRes = await authPost(`${base3}${NONCE_ENDPOINT}`, { data: { type: "auth_nonce_request", attributes: { address: signerAddress } } }, "Nonce request");
-      if (!nonceRes.ok) {
-        return errorResult12(`Nonce request failed (HTTP ${nonceRes.status}): ${await safeBody(nonceRes)}`);
-      }
-      const nonceJson = await nonceRes.json();
-      const message = nonceJson.data?.attributes?.message;
-      if (!message)
-        return errorResult12(`Nonce response missing message field: ${JSON.stringify(nonceJson)}`);
+      const nonce = await fetchNonceMessage(base3, signerAddress);
+      if ("error" in nonce)
+        return errorResult12(nonce.error);
+      const message = nonce.message;
       const signature = eoa ? await signer.signMessage(message, void 0, BACKEND_AUTH_CHAIN_ID) : await wc.signMessage(message);
-      const loginRes = await authPost(`${base3}${LOGIN_ENDPOINT}`, {
-        data: { type: "login_request", attributes: { auth_pair: { address: signerAddress, signed_message: signature } } }
-      }, "Login request");
-      if (!loginRes.ok) {
-        return errorResult12(`Login failed (HTTP ${loginRes.status}): ${await safeBody(loginRes)}`);
-      }
-      const loginJson = await loginRes.json();
-      const accessToken = loginJson.data?.relationships?.access_token?.data?.id;
-      const refreshToken = loginJson.data?.relationships?.refresh_token?.data?.id;
-      if (!accessToken)
-        return errorResult12(`Login response missing access_token: ${JSON.stringify(loginJson)}`);
-      const expiresIn = loginJson.included?.find((i3) => i3.type === "access_jwt")?.attributes?.expires_in;
-      return jsonResult({
-        accessToken,
-        refreshToken,
-        address: signerAddress,
-        expiresIn,
-        signerMode,
-        note: "Logged in. Use `Authorization: Bearer <accessToken>` on off-chain requests (dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry."
-      });
+      return await postLogin(base3, signerAddress, signature, signerMode);
     } catch (err16) {
       return errorResult12(`Auth login failed: ${safeErrorMessage(err16)}${err16 instanceof SignerModeRefusal ? ` ${err16.remediation}` : ""}`);
     }
   });
 }
+async function fetchNonceMessage(base3, address) {
+  const nonceRes = await authPost(`${base3}${NONCE_ENDPOINT}`, { data: { type: "auth_nonce_request", attributes: { address } } }, "Nonce request");
+  if (!nonceRes.ok)
+    return { error: `Nonce request failed (HTTP ${nonceRes.status}): ${await safeBody(nonceRes)}` };
+  const nonceJson = await nonceRes.json();
+  const message = nonceJson.data?.attributes?.message;
+  if (!message)
+    return { error: `Nonce response missing message field: ${JSON.stringify(nonceJson)}` };
+  return { message };
+}
+async function postLogin(base3, address, signature, signerMode, extra = {}) {
+  const loginRes = await authPost(`${base3}${LOGIN_ENDPOINT}`, { data: { type: "login_request", attributes: { auth_pair: { address, signed_message: signature } } } }, "Login request");
+  if (!loginRes.ok) {
+    return errorResult12(`Login failed (HTTP ${loginRes.status}): ${await safeBody(loginRes)}` + (signerMode === "keystore" ? " The signed nonce may have expired while it waited for approval \u2014 re-run dexe_auth_login for a fresh one." : ""));
+  }
+  const loginJson = await loginRes.json();
+  const accessToken = loginJson.data?.relationships?.access_token?.data?.id;
+  const refreshToken = loginJson.data?.relationships?.refresh_token?.data?.id;
+  if (!accessToken)
+    return errorResult12(`Login response missing access_token: ${JSON.stringify(loginJson)}`);
+  const expiresIn = loginJson.included?.find((i3) => i3.type === "access_jwt")?.attributes?.expires_in;
+  return jsonResult({
+    accessToken,
+    refreshToken,
+    address,
+    expiresIn,
+    signerMode,
+    ...extra,
+    note: "Logged in. Use `Authorization: Bearer <accessToken>` on off-chain requests (dexe_proposal_build_offchain_* / dexe_offchain_build_vote). Token is a JWT; expiresIn is its unix expiry."
+  });
+}
+async function keystoreLogin(base3, signer, address) {
+  const approvals = signer.approvals;
+  if (!approvals || !signer.hasSigner()) {
+    return errorResult12("DEXE_SIGNER_MODE=keystore but no usable keystore was found \u2014 not logged in, nothing was signed. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run.");
+  }
+  const from10 = getAddress(signer.getAddress());
+  if (address !== void 0) {
+    if (!isAddress(address) || getAddress(address) !== from10) {
+      return errorResult12(`In keystore mode dexe_auth_login logs in as the keystore address ${from10} only (got ${address}) \u2014 omit address.`);
+    }
+  }
+  const purpose = `Log in to the DeXe backend at ${base3} as ${from10}`;
+  const tool = "dexe_auth_login";
+  try {
+    let message = approvals.findOpenMessage({ tool, from: from10, chainId: BACKEND_AUTH_CHAIN_ID, purpose });
+    if (!message) {
+      const nonce = await fetchNonceMessage(base3, from10);
+      if ("error" in nonce)
+        return errorResult12(nonce.error);
+      message = toUtf8Bytes(nonce.message);
+    }
+    const scope2 = currentToolScope();
+    const approved = await approvals.requestSignature({ kind: "message", tool, chainId: BACKEND_AUTH_CHAIN_ID, from: from10, message, purpose }, { ...scope2?.signal ? { signal: scope2.signal } : {}, ...scope2 ? { progress: (m3) => scope2.progress(m3) } : {} });
+    const signature = await approved.signMessage(message);
+    return await postLogin(base3, from10, signature, "keystore", { safety: KEYSTORE_LOGIN_SAFETY });
+  } catch (err16) {
+    if (err16 instanceof ApprovalHaltError) {
+      const r2 = approvalHaltResult(err16.halt);
+      return { ...r2, structuredContent: JSON.parse(r2.content[0].text) };
+    }
+    if (err16 instanceof SignatureRefusal)
+      return errorResult12(err16.message);
+    return errorResult12(`Auth login failed: ${safeErrorMessage(err16)}`);
+  }
+}
+var KEYSTORE_LOGIN_SAFETY = "Signed with the encrypted keystore after the owner approved this exact login message on the local approval page or with `dexe-mcp approve`.";
 async function safeBody(res) {
   try {
     return (await res.text()).slice(0, 400);
@@ -142257,9 +143766,9 @@ function roundTripDeployCalldata(data4, iface, expected) {
       mismatches: [{ field: "<decode>", expected: "deployGovPool(...)", got: parsed?.name ?? "unparseable" }]
     };
   }
-  const decoded = parsed.args[0];
+  const decoded2 = parsed.args[0];
   const a3 = extract(expected);
-  const b7 = extract(decoded);
+  const b7 = extract(decoded2);
   const mismatches = [];
   const keys = /* @__PURE__ */ new Set([...Object.keys(a3), ...Object.keys(b7)]);
   for (const k5 of keys) {
@@ -145939,8 +147448,8 @@ function renderReport(p4) {
 init_stateStore();
 init_redact();
 init_runtime();
-import { dirname as dirname5, join as join10 } from "node:path";
-import { existsSync as existsSync10, mkdirSync as mkdirSync5, readFileSync as readFileSync11, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname5, join as join12 } from "node:path";
+import { existsSync as existsSync12, mkdirSync as mkdirSync6, readFileSync as readFileSync12, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
 var MAX_SNAPSHOTS = 100;
 var REPORT_STORE_VERSION = 1;
 var snapshotKey = (chainId, govPool) => `${chainId}:${govPool.toLowerCase()}`;
@@ -145982,9 +147491,9 @@ var FileReportStore = class {
   read() {
     const empty5 = { version: REPORT_STORE_VERSION, snapshots: [] };
     try {
-      if (!existsSync10(this.path))
+      if (!existsSync12(this.path))
         return { raw: null, state: empty5 };
-      const raw = readFileSync11(this.path, "utf8");
+      const raw = readFileSync12(this.path, "utf8");
       const parsed = JSON.parse(raw);
       if (parsed?.version !== REPORT_STORE_VERSION || !Array.isArray(parsed.snapshots)) {
         return { raw, state: empty5 };
@@ -146000,11 +147509,11 @@ var FileReportStore = class {
     const tmp = tempStatePath(this.path);
     try {
       const dir = dirname5(this.path);
-      if (!existsSync10(dir))
-        mkdirSync5(dir, { recursive: true });
+      if (!existsSync12(dir))
+        mkdirSync6(dir, { recursive: true });
       writeFileSync5(tmp, JSON.stringify(file2, null, 2), "utf8");
       if (expect !== void 0) {
-        const now = existsSync10(this.path) ? readFileSync11(this.path, "utf8") : null;
+        const now = existsSync12(this.path) ? readFileSync12(this.path, "utf8") : null;
         if (now !== expect) {
           rmSync3(tmp, { force: true });
           return "stale";
@@ -146024,7 +147533,7 @@ var FileReportStore = class {
   }
 };
 function reportStorePath(config2) {
-  return join10(dirname5(config2.statePath), "reports.json");
+  return join12(dirname5(config2.statePath), "reports.json");
 }
 
 // dist/lib/txWait.js
@@ -148137,10 +149646,10 @@ function nextAfter(flowId, stepId) {
   const idx = flow3.steps.findIndex((s2) => s2.id === stepId);
   if (idx === -1)
     return null;
-  const step = flow3.steps[idx];
+  const step2 = flow3.steps[idx];
   const next = [];
-  if (step.next?.length) {
-    for (const n4 of step.next) {
+  if (step2.next?.length) {
+    for (const n4 of step2.next) {
       if (n4.flowRef) {
         next.push({
           tool: "dexe_guide",
@@ -148177,7 +149686,7 @@ function nextAfter(flowId, stepId) {
     flowProgress: {
       flow: flow3.id,
       title: flow3.title,
-      step: step.id,
+      step: step2.id,
       stepIndex: idx + 1,
       of: flow3.steps.length
     },
@@ -148321,13 +149830,13 @@ async function assessExecuteRisk(provider, govPool, proposalId, cfg) {
   const arr = value;
   if (!Array.isArray(arr) || arr.length === 0)
     return { error: `Proposal ${proposalId} not found` };
-  const decoded = decodeProposalView(arr[0]);
-  if (!decoded)
+  const decoded2 = decodeProposalView(arr[0]);
+  if (!decoded2)
     return { error: "failed to decode proposal view" };
   const floor = cfg.minSafeQuorumPct;
-  const quorumPct = quorumPctFromRaw(decoded.quorumRaw);
+  const quorumPct = quorumPctFromRaw(decoded2.quorumRaw);
   const belowFloor = judgeQuorum(quorumPct, floor) !== "SAFE";
-  const treasuryHits = classifyTreasuryActions(decoded.actionsOnFor);
+  const treasuryHits = classifyTreasuryActions(decoded2.actionsOnFor);
   const reasons = [];
   if (belowFloor) {
     reasons.push(`the proposal's quorum=${Number.isFinite(quorumPct) ? `${quorumPct}%` : "unparseable"} is below the ${floor}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT)`);
@@ -148348,7 +149857,7 @@ async function assessExecuteRisk(provider, govPool, proposalId, cfg) {
     belowFloor,
     controllingHoldersVotedFor,
     reasons,
-    hasAddSettings: findAddSettingsActions(decoded.actionsOnFor).length > 0
+    hasAddSettings: findAddSettingsActions(decoded2.actionsOnFor).length > 0
   };
 }
 async function executeProposal(args) {
@@ -148477,16 +149986,16 @@ async function findLiveProposalByDescriptionURL(provider, govPool, descriptionUR
     if (!Array.isArray(rows2))
       return null;
     for (let i3 = rows2.length - 1; i3 >= 0; i3 -= 1) {
-      const decoded = decodeProposalView(rows2[i3]);
-      if (!decoded || decoded.descriptionURL !== descriptionURL)
+      const decoded2 = decodeProposalView(rows2[i3]);
+      if (!decoded2 || decoded2.descriptionURL !== descriptionURL)
         continue;
-      if (!LIVE_PROPOSAL_STATES.has(decoded.proposalState))
+      if (!LIVE_PROPOSAL_STATES.has(decoded2.proposalState))
         continue;
       return {
         proposalId: offset + i3 + 1,
-        state: decoded.proposalState,
-        stateName: proposalStateName(decoded.proposalState),
-        voteEnd: Number(decoded.voteEnd ?? 0n)
+        state: decoded2.proposalState,
+        stateName: proposalStateName(decoded2.proposalState),
+        voteEnd: Number(decoded2.voteEnd ?? 0n)
       };
     }
     return null;
@@ -148669,9 +150178,9 @@ function broadcastTimeout(err16) {
   const hash3 = /0x[0-9a-fA-F]{64}/.exec(raw);
   return hash3 ? { txHash: hash3[0] } : {};
 }
-function timeoutResume(step, chainId, landed, txHash, rechecks = RESUME_RECHECKS) {
+function timeoutResume(step2, chainId, landed, txHash, rechecks = RESUME_RECHECKS) {
   const hashArg = txHash ? `"${txHash}"` : '"<the 0x\u2026 hash in the error above>"';
-  return `DO NOT re-run this call yet. "${step}" WAS BROADCAST \u2014 the wait for its receipt timed out, which is not the same as the transaction failing, and it may still be mined. Re-sending now risks executing it twice.
+  return `DO NOT re-run this call yet. "${step2}" WAS BROADCAST \u2014 the wait for its receipt timed out, which is not the same as the transaction failing, and it may still be mined. Re-sending now risks executing it twice.
 Next step: dexe_tx_status {"txHash":${hashArg},"chainId":${chainId}}.
   \u2022 reports success \u2192 that step is DONE; re-run this same call to continue from the step after it.
   \u2022 still pending \u2192 wait and check again; do nothing else.
@@ -151193,12 +152702,12 @@ function registerGetConfigTool(server, ctx, opts = {}) {
 // dist/diag/checks.js
 import { lookup as dnsLookup } from "node:dns/promises";
 import { getServers } from "node:dns";
-import { existsSync as existsSync12, accessSync, constants as constants4 } from "node:fs";
+import { existsSync as existsSync14, accessSync, constants as constants4 } from "node:fs";
 import { dirname as dirname6 } from "node:path";
 
 // dist/env/loader.js
 init_redact();
-import { existsSync as existsSync11, readFileSync as readFileSync12 } from "node:fs";
+import { existsSync as existsSync13, readFileSync as readFileSync13 } from "node:fs";
 import { resolve as resolve4 } from "node:path";
 var envSourceState = { candidates: [], reports: [] };
 function getEnvLoadState() {
@@ -151249,7 +152758,7 @@ function scanAssignments(lines) {
 }
 function loadEnvFile(envFilePath, prevEnvSnapshot, surface = READ_ENV_SURFACE) {
   const parseIssues = [];
-  const envFileExists = existsSync11(envFilePath);
+  const envFileExists = existsSync13(envFilePath);
   let envFileLoaded = false;
   let fileKeys = [];
   const keysApplied = [];
@@ -151262,7 +152771,7 @@ function loadEnvFile(envFilePath, prevEnvSnapshot, surface = READ_ENV_SURFACE) {
     let lastLineKey;
     let spaceLines = [];
     try {
-      const raw = readFileSync12(envFilePath);
+      const raw = readFileSync13(envFilePath);
       hasBom = raw.length >= 3 && raw[0] === 239 && raw[1] === 187 && raw[2] === 191;
       missingTrailingNewline = raw.length > 0 && raw[raw.length - 1] !== 10;
       const lines = (hasBom ? raw.subarray(3) : raw).toString("utf8").split(/\r?\n/);
@@ -151586,7 +153095,7 @@ function stateStoreCheck(config2) {
     return [];
   const p4 = config2.statePath;
   let probe = dirname6(p4);
-  while (!existsSync12(probe) && dirname6(probe) !== probe)
+  while (!existsSync14(probe) && dirname6(probe) !== probe)
     probe = dirname6(probe);
   try {
     accessSync(probe, constants4.W_OK);
@@ -152065,13 +153574,13 @@ var REMOTE_NOTE = "This is a hosted read-only server: its operator sets the RPC,
 function hostRow(id2) {
   return id2.startsWith("env.") && id2 !== "env.sharedDefaults" || id2.startsWith("startup.") || id2.startsWith("state.");
 }
-var URL_RE2 = /\b[a-z][a-z0-9+.-]*:\/\/[^\s,;)'"]+/gi;
+var URL_RE3 = /\b[a-z][a-z0-9+.-]*:\/\/[^\s,;)'"]+/gi;
 var HOSTNAME_RE = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/gi;
 var IPV4_RE = /(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?::\d{1,5})?(?![\w.])/g;
 var IPV6_RE = /\[[0-9a-f.%]*:[0-9a-f:.%]*\](?::\d{1,5})?|(?<![\w:])(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?(?![\w:])/gi;
 var ENV_NAME_RE = /\bDEXE_[A-Z0-9_*<>]+/g;
 function redactEndpoints(text5) {
-  return text5.replace(URL_RE2, "<endpoint>").replace(IPV6_RE, "<ip>").replace(IPV4_RE, "<ip>").replace(HOSTNAME_RE, "<host>").replace(ENV_NAME_RE, "a server setting");
+  return text5.replace(URL_RE3, "<endpoint>").replace(IPV6_RE, "<ip>").replace(IPV4_RE, "<ip>").replace(HOSTNAME_RE, "<host>").replace(ENV_NAME_RE, "a server setting");
 }
 function remoteCheckRows(checks) {
   return checks.filter((c4) => !hostRow(c4.id)).map((c4) => ({ id: c4.id, category: c4.category, status: c4.status, message: remoteMessage(c4) }));
@@ -152208,7 +153717,7 @@ function renderText(r2) {
 }
 
 // dist/diag/writeChecks.js
-import { readFileSync as readFileSync13 } from "node:fs";
+import { readFileSync as readFileSync14 } from "node:fs";
 init_keystore();
 init_redact();
 var WRITE_DOCTOR_TEXT = {
@@ -152381,7 +153890,7 @@ function signerModeChecks(config2, env = process.env) {
     const issues = [];
     let status = "pass";
     try {
-      const meta3 = parseKeystoreMeta(readFileSync13(config2.keystore.file, "utf8"));
+      const meta3 = parseKeystoreMeta(readFileSync14(config2.keystore.file, "utf8"));
       const weak = weakKdfReason(meta3);
       if (weak) {
         issues.push(weak);
@@ -153057,17 +154566,17 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
     if (!proof.feasible) {
       return err4(`This DAO would be governance-dead: ${proof.message} ` + (synthesized ? `Adjust so quorumPercent \u2264 ${Math.floor(proof.reachablePct)} (the votable share) while staying \u2265${floorPct}, or lower treasuryPercent to \u2264${proof.minVotablePct === 100 ? 0 : Math.floor(100 - proof.minVotablePct)}.` : ""));
     }
-    const risks = [];
+    const risks2 = [];
     if (!proof.marginOk && proof.marginMessage)
-      risks.push(proof.marginMessage);
+      risks2.push(proof.marginMessage);
     if (!proof.floorOk) {
-      risks.push(`quorum ${Number.isFinite(proof.quorumPct) ? `${proof.quorumPct}%` : "unparseable"} is below the ${floorPct}% treasury-safety floor \u2014 a low quorum lets a small group pass proposals, including ones that drain the treasury. ${floorPct + 1}%+ recommended.`);
+      risks2.push(`quorum ${Number.isFinite(proof.quorumPct) ? `${proof.quorumPct}%` : "unparseable"} is below the ${floorPct}% treasury-safety floor \u2014 a low quorum lets a small group pass proposals, including ones that drain the treasury. ${floorPct + 1}%+ recommended.`);
     }
-    if (risks.length > 0) {
+    if (risks2.length > 0) {
       const gate = treasuryGate({
         mode: guardMode,
         stage: "deploy",
-        reasons: risks,
+        reasons: risks2,
         act: `DAO '${input3.daoName}' on chain ${chainId}`
       });
       if (gate.blocked)
@@ -153078,7 +154587,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
           action: "acknowledge-then-re-run",
           chainId,
           daoName: input3.daoName,
-          risks,
+          risks: risks2,
           ...settingsAdvisories2.length ? { settingsAdvisories: settingsAdvisories2 } : {},
           resolvedQuorumPercent: proof.quorumPct,
           votablePercent: proof.votablePct,
@@ -153106,7 +154615,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
       const cost = await probeDeployCost(rpc, chainId, payer);
       const supplyTokens = formatUnits(t2.mintedTotal || "0", 18);
       const treasuryWei = BigInt(t2.mintedTotal || "0") - t2.amounts.reduce((a3, b7) => a3 + BigInt(b7 || "0"), 0n);
-      const warnings = guardMode === "off" ? [] : [...risks.map((r2) => `\u26A0\uFE0F ${r2} [advisory]`), ...settingsAdvisories2];
+      const warnings = guardMode === "off" ? [] : [...risks2.map((r2) => `\u26A0\uFE0F ${r2} [advisory]`), ...settingsAdvisories2];
       if (isMainnet2)
         warnings.push("\u26A0\uFE0F MAINNET (chain " + chainId + ") \u2014 this will spend real BNB.");
       return ok6({
@@ -155094,10 +156603,10 @@ function err5(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function vestingTierGuard(tiers, acknowledged) {
-  const risks = findVestingTiers(tiers);
-  if (risks.length === 0 || acknowledged)
-    return { risks, refusal: null };
-  return { risks, refusal: vestingRefusalText(risks, "acknowledgeVestingBlocked: true") };
+  const risks2 = findVestingTiers(tiers);
+  if (risks2.length === 0 || acknowledged)
+    return { risks: risks2, refusal: null };
+  return { risks: risks2, refusal: vestingRefusalText(risks2, "acknowledgeVestingBlocked: true") };
 }
 function buildExactApproval(paymentToken, tokenSaleProposal, amount, chainId) {
   return {
@@ -155748,121 +157257,298 @@ ${pr2.remediation}`);
 // dist/tools/safe.js
 init_lib2();
 
-// dist/lib/ethersProvider.js
+// dist/lib/approval/safeReview.js
 init_lib2();
-var SAFE_ABI = [
+init_ethersProvider();
+var KNOWN_SINGLETONS = {
+  "0xd9db270c1b5e3bd161e8c8503c55ceabee709552": "Safe 1.3.0 (canonical)",
+  "0x3e5c63644e683549055b9be8653de26e0b4cd36e": "Safe 1.3.0 L2 (canonical)",
+  "0x69f4d1788e39c87893c980c06edf4b7f686e2938": "Safe 1.3.0 (canonical, EIP-155 deployment)",
+  "0xfb1bffc9d739b8d520daf37df666da4c687191ea": "Safe 1.3.0 L2 (canonical, EIP-155 deployment)",
+  "0x41675c099f32341bf84bfc5382af534df5c7461a": "Safe 1.4.1 (canonical)",
+  "0x29fcb43b46531bca003ddc8fcb67ffe91900c762": "Safe 1.4.1 L2 (canonical)"
+};
+var KNOWN_MULTISEND = {
+  "0xa238cbeb142c10ef7ad8442c6d1f9e89e07e7761": "Safe MultiSend 1.3.0 (canonical)",
+  "0x40a2accbd92bca938b02010e17a5b8929b49130d": "Safe MultiSendCallOnly 1.3.0 (canonical)",
+  "0x998739bfdaadde7c933b942a68053933098f9eda": "Safe MultiSend 1.3.0 (canonical, EIP-155 deployment)",
+  "0xa1dabef33b3b82c7814b6d82a79e50f4ac44102b": "Safe MultiSendCallOnly 1.3.0 (canonical, EIP-155 deployment)",
+  "0x38869bf66a61cf6bdb996a6ae40d5853fd43b526": "Safe MultiSend 1.4.1 (canonical)",
+  "0x9641d764fc13c8b624c04430c7356c1c7c8102e2": "Safe MultiSendCallOnly 1.4.1 (canonical)"
+};
+var SAFE_READ = new Interface([
   "function nonce() view returns (uint256)",
   "function getThreshold() view returns (uint256)",
   "function getOwners() view returns (address[])",
-  "function isOwner(address owner) view returns (bool)",
   "function VERSION() view returns (string)"
-];
-async function readSafeState(provider, safeAddress) {
-  if (!isAddress(safeAddress))
-    throw new Error(`Invalid Safe address: ${safeAddress}`);
-  const safe = getAddress(safeAddress);
-  const c4 = new Contract(safe, SAFE_ABI, provider);
-  const [nonce, threshold, owners] = await Promise.all([
-    c4.getFunction("nonce").staticCall(),
-    c4.getFunction("getThreshold").staticCall(),
-    c4.getFunction("getOwners").staticCall()
-  ]);
-  let version5 = "unknown";
+]);
+var SAFE_ADMIN = new Interface([
+  "function addOwnerWithThreshold(address owner, uint256 _threshold)",
+  "function removeOwner(address prevOwner, address owner, uint256 _threshold)",
+  "function swapOwner(address prevOwner, address oldOwner, address newOwner)",
+  "function changeThreshold(uint256 _threshold)",
+  "function enableModule(address module)",
+  "function disableModule(address prevModule, address module)",
+  "function setGuard(address guard)",
+  "function setModuleGuard(address moduleGuard)",
+  "function setFallbackHandler(address handler)"
+]);
+var MULTISEND = new Interface(["function multiSend(bytes transactions)"]);
+var MULTISEND_SEL = MULTISEND.getFunction("multiSend").selector;
+async function withTimeout2(p4, ms2) {
+  let timer;
   try {
-    version5 = await c4.getFunction("VERSION").staticCall();
+    return await Promise.race([p4, new Promise((r2) => timer = setTimeout(() => r2(void 0), ms2))]);
   } catch {
+    return void 0;
+  } finally {
+    if (timer)
+      clearTimeout(timer);
   }
-  return {
-    safe,
-    nonce,
-    threshold,
-    owners: owners.map((o3) => getAddress(o3)),
-    version: version5
-  };
 }
-var SAFE_OPERATION = { CALL: 0, DELEGATECALL: 1 };
-var SAFE_TX_TYPES = {
-  SafeTx: [
-    { name: "to", type: "address" },
-    { name: "value", type: "uint256" },
-    { name: "data", type: "bytes" },
-    { name: "operation", type: "uint8" },
-    { name: "safeTxGas", type: "uint256" },
-    { name: "baseGas", type: "uint256" },
-    { name: "gasPrice", type: "uint256" },
-    { name: "gasToken", type: "address" },
-    { name: "refundReceiver", type: "address" },
-    { name: "nonce", type: "uint256" }
-  ]
-};
-function safeTxDomain(chainId, safeAddress) {
-  return { chainId, verifyingContract: getAddress(safeAddress) };
-}
-function buildSafeTx(input3) {
-  if (!isAddress(input3.to))
-    throw new Error(`Invalid 'to' address: ${input3.to}`);
-  const operation = input3.operation ?? SAFE_OPERATION.CALL;
-  if (operation !== SAFE_OPERATION.CALL && operation !== SAFE_OPERATION.DELEGATECALL) {
-    throw new Error(`operation must be 0 (CALL) or 1 (DELEGATECALL), got ${operation}`);
+function unpackMultiSend(packedHex) {
+  const hex4 = packedHex.startsWith("0x") ? packedHex.slice(2) : packedHex;
+  const out2 = [];
+  let i3 = 0;
+  while (i3 < hex4.length) {
+    if (hex4.length - i3 < 2 * (1 + 20 + 32 + 32))
+      return null;
+    const operation = parseInt(hex4.slice(i3, i3 + 2), 16);
+    const to = getAddress(`0x${hex4.slice(i3 + 2, i3 + 42)}`);
+    const value = BigInt(`0x${hex4.slice(i3 + 42, i3 + 106)}`);
+    const len = Number(BigInt(`0x${hex4.slice(i3 + 106, i3 + 170)}`));
+    const start = i3 + 170;
+    if (len > (hex4.length - start) / 2)
+      return null;
+    out2.push({ operation, to, value, data: `0x${hex4.slice(start, start + len * 2)}` });
+    i3 = start + len * 2;
+    if (out2.length > 64)
+      return null;
   }
-  const gasToken = input3.gasToken ?? ZeroAddress;
-  const refundReceiver = input3.refundReceiver ?? ZeroAddress;
-  if (!isAddress(gasToken))
-    throw new Error(`Invalid gasToken: ${gasToken}`);
-  if (!isAddress(refundReceiver))
-    throw new Error(`Invalid refundReceiver: ${refundReceiver}`);
-  return {
-    to: getAddress(input3.to),
-    value: (input3.value ?? "0").toString(),
-    data: input3.data && input3.data.length > 0 ? input3.data : "0x",
-    operation,
-    safeTxGas: (input3.safeTxGas ?? "0").toString(),
-    baseGas: (input3.baseGas ?? "0").toString(),
-    gasPrice: (input3.gasPrice ?? "0").toString(),
-    gasToken: getAddress(gasToken),
-    refundReceiver: getAddress(refundReceiver),
-    nonce: input3.nonce.toString()
-  };
+  return out2;
 }
-function computeSafeTxHash(chainId, safeAddress, tx) {
-  return TypedDataEncoder.hash(safeTxDomain(chainId, safeAddress), SAFE_TX_TYPES, tx);
-}
-var SAFE_TX_SERVICE_SHORTNAMES = {
-  1: "eth",
-  10: "oeth",
-  56: "bnb",
-  100: "gno",
-  137: "matic",
-  324: "zksync",
-  8453: "base",
-  42161: "arb1",
-  43114: "avax",
-  11155111: "sep",
-  84532: "basesep"
-};
-function resolveSafeServiceEndpoint(chainId, override) {
-  let base3;
-  let hosted;
-  if (override && override.trim().length > 0) {
-    base3 = override.trim().replace(/\/+$/, "");
-    hosted = /api\.safe\.global/i.test(base3);
-  } else {
-    const shortname = SAFE_TX_SERVICE_SHORTNAMES[chainId];
-    if (!shortname) {
-      throw new Error(`No Safe Transaction Service endpoint known for chainId=${chainId}. Set DEXE_SAFE_TX_SERVICE_URL to the service base (e.g. https://api.safe.global/tx-service/<shortname>/api/v2).`);
+async function buildSafeTxReview(ctx) {
+  const safe = getAddress(ctx.safe);
+  const from10 = getAddress(ctx.from);
+  let provider = ctx.provider;
+  if (!provider) {
+    try {
+      provider = new RpcProvider(ctx.config).requireProvider(ctx.chainId);
+    } catch {
+      provider = void 0;
     }
-    base3 = `https://api.safe.global/tx-service/${shortname}/api/v2`;
-    hosted = true;
+  }
+  if (!provider) {
+    return { ok: false, reason: `No RPC for ${chainLabel(ctx.chainId)} \u2014 the Safe cannot be verified, so nothing is put up for signing.` };
+  }
+  const call = async (data4) => {
+    const r2 = await withTimeout2(provider.call({ to: safe, data: data4 }), 8e3);
+    return r2 && r2 !== "0x" ? r2 : void 0;
+  };
+  const code6 = await withTimeout2(provider.getCode(safe), 8e3);
+  if (code6 === void 0) {
+    return { ok: false, reason: `Could not read ${safe} on ${chainLabel(ctx.chainId)} (RPC) \u2014 nothing was put up for signing.` };
+  }
+  if (/^0x0*$/i.test(code6)) {
+    return { ok: false, reason: `${safe} has no contract code on ${chainLabel(ctx.chainId)} \u2014 it is not a Safe there. Nothing was signed.` };
+  }
+  const read3 = async (fn) => {
+    const r2 = await call(SAFE_READ.encodeFunctionData(fn));
+    if (!r2)
+      return void 0;
+    try {
+      return SAFE_READ.decodeFunctionResult(fn, r2)[0];
+    } catch {
+      return void 0;
+    }
+  };
+  const [nonce, threshold, owners, version5] = await Promise.all([
+    read3("nonce"),
+    read3("getThreshold"),
+    read3("getOwners"),
+    read3("VERSION")
+  ]);
+  if (nonce === void 0 || threshold === void 0 || owners === void 0) {
+    return {
+      ok: false,
+      reason: `${safe} does not answer like a Safe (nonce / getThreshold / getOwners) on ${chainLabel(ctx.chainId)}. Nothing was signed.`
+    };
+  }
+  const ownerList = [...owners].map((o3) => getAddress(o3));
+  if (!ownerList.includes(from10)) {
+    return {
+      ok: false,
+      reason: `The keystore address ${from10} is not an owner of the Safe ${safe} (${ownerList.length} owner(s), threshold ${threshold}). Its signature would be worthless, so none is requested.`
+    };
+  }
+  const v7 = String(version5 ?? "unknown");
+  const m3 = /^(\d+)\.(\d+)\./.exec(v7);
+  if (m3 && (Number(m3[1]) < 1 || Number(m3[1]) === 1 && Number(m3[2]) < 3)) {
+    return {
+      ok: false,
+      reason: `Safe ${safe} is version ${v7}. Safes before 1.3.0 sign a domain without a chain id; this server only signs for 1.3.0+.`
+    };
+  }
+  const risks2 = [];
+  if (!m3)
+    risks2.push({ level: "warn", text: `The Safe reports version "${v7}" \u2014 not a version this server recognises.` });
+  let singleton = null;
+  const slot0 = await withTimeout2(provider.getStorage(safe, 0), 8e3);
+  if (slot0 && /^0x[0-9a-fA-F]{64}$/.test(slot0))
+    singleton = getAddress(`0x${slot0.slice(-40)}`);
+  const singletonLabel = singleton ? KNOWN_SINGLETONS[singleton.toLowerCase()] ?? null : null;
+  if (!singletonLabel) {
+    risks2.push({
+      level: "danger",
+      text: singleton ? `This Safe's singleton (implementation) ${singleton} is not a canonical Safe 1.3.0 / 1.4.1 deployment known to this server. A contract can answer like a Safe without being one \u2014 verify it before you sign.` : "The Safe's implementation (storage slot 0) could not be read, so it could not be checked against the canonical Safe deployments."
+    });
+  }
+  const txNonce = BigInt(ctx.tx.nonce);
+  if (txNonce < nonce) {
+    risks2.push({
+      level: "warn",
+      text: `Nonce ${txNonce} is already used (the Safe is at ${nonce}): this signature can never execute.`
+    });
+  } else if (txNonce > nonce) {
+    risks2.push({
+      level: "warn",
+      text: `Nonce ${txNonce} is ahead of the Safe's next nonce ${nonce}: ${txNonce - nonce} other transaction(s) must execute first.`
+    });
+  }
+  if (threshold <= 1n) {
+    risks2.push({
+      level: "warn",
+      text: "The threshold is 1: your signature alone is enough \u2014 once queued, anyone can execute this transaction."
+    });
+  } else {
+    risks2.push({ level: "info", text: `Threshold ${threshold} of ${ownerList.length}: your signature is one of the ${threshold} needed.` });
+  }
+  const operation = ctx.tx.operation === SAFE_OPERATION.DELEGATECALL ? 1 : 0;
+  if (operation === 1) {
+    risks2.push({
+      level: "danger",
+      text: `DELEGATECALL: the Safe runs the code at ${ctx.tx.to} inside its OWN storage. A wrong or hostile target can rewrite the owners, the threshold and the implementation and take the Safe for good.`
+    });
+  }
+  const zero = "0x0000000000000000000000000000000000000000";
+  if (ctx.tx.gasPrice !== "0" && (ctx.tx.gasToken.toLowerCase() !== zero || ctx.tx.refundReceiver.toLowerCase() !== zero)) {
+    risks2.push({
+      level: "warn",
+      text: `On execution the Safe pays a gas refund (gasPrice ${ctx.tx.gasPrice}) in ${ctx.tx.gasToken === zero ? "the native coin" : ctx.tx.gasToken} to ${ctx.tx.refundReceiver === zero ? "the executor" : ctx.tx.refundReceiver}. The value cap does not see it.`
+    });
+  }
+  const inner = await buildReview([{ to: ctx.tx.to, data: ctx.tx.data, value: ctx.tx.value }], {
+    chainId: ctx.chainId,
+    from: safe,
+    config: ctx.config,
+    simulateFirst: false,
+    ...ctx.innerProvider ? { provider: ctx.innerProvider } : {}
+  });
+  if (!inner.ok)
+    return { ok: false, guard: inner.guard, reason: inner.reason };
+  const step2 = inner.steps[0];
+  const to = getAddress(ctx.tx.to);
+  if (to === safe) {
+    let call2 = null;
+    try {
+      const p4 = SAFE_ADMIN.parseTransaction({ data: ctx.tx.data });
+      if (p4)
+        call2 = `${p4.name}(${p4.args.map((a3) => String(a3)).join(", ")})`;
+    } catch {
+      call2 = null;
+    }
+    risks2.push({
+      level: "danger",
+      text: `Calls the Safe itself${call2 ? `: ${call2}` : ""} \u2014 this can change its owners, threshold, modules or guard.`
+    });
+    if (call2) {
+      step2.toLabel = "this Safe";
+      step2.decoded = { signature: call2, contract: "Safe", args: [], nested: [] };
+      step2.risks = step2.risks.filter((r2) => !/could not be decoded/.test(r2.text));
+    }
+  }
+  const msLabel = KNOWN_MULTISEND[to.toLowerCase()];
+  if (msLabel)
+    step2.toLabel = msLabel;
+  let multiSend;
+  if (ctx.tx.data.slice(0, 10).toLowerCase() === MULTISEND_SEL) {
+    let subs = null;
+    try {
+      subs = unpackMultiSend(String(MULTISEND.decodeFunctionData("multiSend", ctx.tx.data)[0]));
+    } catch {
+      subs = null;
+    }
+    if (!subs) {
+      risks2.push({ level: "danger", text: "The MultiSend payload could not be unpacked \u2014 the sub-calls cannot be shown." });
+    } else {
+      if (operation === 0) {
+        risks2.push({ level: "warn", text: "multiSend called with a plain CALL: the sub-calls would run as the MultiSend contract, not as the Safe." });
+      }
+      if (!msLabel) {
+        risks2.push({ level: "danger", text: `${to} is not a canonical Safe MultiSend deployment known to this server.` });
+      }
+      const subReview = await buildReview(subs.map((s2) => ({ to: s2.to, data: s2.data, value: s2.value.toString() })), { chainId: ctx.chainId, from: safe, config: ctx.config, simulateFirst: false, ...ctx.innerProvider ? { provider: ctx.innerProvider } : {} }).catch(() => null);
+      if (subReview && !subReview.ok) {
+        return { ok: false, guard: subReview.guard, reason: `MultiSend call ${subReview.stepIndex + 1}: ${subReview.reason}` };
+      }
+      multiSend = subs.map((s2, k5) => {
+        const sr2 = subReview && subReview.ok ? subReview.steps[k5] : void 0;
+        return {
+          operation: s2.operation === 1 ? 1 : 0,
+          to: s2.to,
+          value: s2.value.toString(),
+          dataBytes: Math.max(0, (s2.data.length - 2) / 2),
+          decoded: sr2?.decoded ?? null,
+          selector: s2.data.length >= 10 ? s2.data.slice(0, 10).toLowerCase() : null
+        };
+      });
+      for (const [k5, s2] of subs.entries()) {
+        const where = `MultiSend call ${k5 + 1}: `;
+        if (s2.operation === 1)
+          risks2.push({ level: "danger", text: `${where}DELEGATECALL to ${s2.to} \u2014 runs in the Safe's own storage.` });
+        if (s2.operation !== 0 && s2.operation !== 1)
+          risks2.push({ level: "danger", text: `${where}unknown operation ${s2.operation}.` });
+        if (getAddress(s2.to) === safe)
+          risks2.push({ level: "danger", text: `${where}calls the Safe itself (owners / threshold / modules).` });
+        if (s2.value > 0n)
+          risks2.push({ level: "warn", text: `${where}sends ${formatUnits(s2.value, 18)} native coin.` });
+        if (subReview?.ok) {
+          for (const r2 of subReview.steps[k5].risks)
+            risks2.push({ level: r2.level, text: `${where}${r2.text}` });
+        }
+      }
+    }
   }
   return {
-    base: base3,
-    hosted,
-    multisigTransactions: (safe) => `${base3}/safes/${getAddress(safe)}/multisig-transactions/`
+    ok: true,
+    safe: {
+      safe,
+      version: v7,
+      singleton,
+      singletonLabel,
+      threshold: threshold.toString(),
+      ownerCount: ownerList.length,
+      nonce: txNonce.toString(),
+      currentNonce: nonce.toString(),
+      operation,
+      safeTxGas: ctx.tx.safeTxGas,
+      baseGas: ctx.tx.baseGas,
+      gasPrice: ctx.tx.gasPrice,
+      gasToken: ctx.tx.gasToken,
+      refundReceiver: ctx.tx.refundReceiver,
+      ...multiSend ? { multiSend } : {},
+      risks: risks2
+    },
+    steps: [step2],
+    prechecks: { guards: "pass", simulation: "skipped", simulationNote: "a signature is not simulated; the Safe executes it later" }
   };
 }
 
 // dist/tools/safe.js
+init_signing();
+init_ethersProvider();
 init_redact();
+var KEYSTORE_SIGNATURE_SAFETY = "Signed with the encrypted keystore after the owner approved this exact SafeTx (Safe and owner checked on-chain) on the local approval page or with `dexe-mcp approve`. That stops prompt injection and mistakes; it does not stop an agent that can drive your browser or shell - for such agents WalletConnect is the recommended signer.";
 function err7(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
@@ -155878,11 +157564,11 @@ function stripUrlUserinfo(raw) {
     return raw.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^/?#\s@]+@/g, "$1");
   }
 }
-function safeToolError(e2, step) {
+function safeToolError(e2, step2) {
   const raw = safeErrorMessage(e2);
   if (/Safe service POST/i.test(raw))
-    return `${step} failed: ${raw}`;
-  return toActionableError2(e2, step).message;
+    return `${step2} failed: ${raw}`;
+  return toActionableError2(e2, step2).message;
 }
 function ok7(data4) {
   return {
@@ -155992,7 +157678,7 @@ ${pr2.remediation}`);
       return err7(safeToolError(e2, "dexe_safe_info"));
     }
   });
-  server.tool("dexe_safe_propose_tx", "Broadcasts when a signer is configured. Queues a tx in the Safe Transaction Service for the owners to co-sign and execute. Takes a TxPayload, reads the Safe's next nonce on-chain (unless `nonce` is given), computes the EIP-712 `safeTxHash`. **dryRun defaults to true and is UNSIGNED** \u2014 payload, safeTxHash and POST target only, no signature. dryRun=false signs with DEXE_PRIVATE_KEY (which must be a Safe owner) and POSTs (api.safe.global needs DEXE_SAFE_API_KEY); sign=true returns the signed body without POSTing. operation=1 (DELEGATECALL) is refused unless allowDelegateCall=true.", {
+  server.tool("dexe_safe_propose_tx", "Broadcasts when a signer is configured. Queues a tx in the Safe Transaction Service for the owners to co-sign and execute. Takes a TxPayload, reads the Safe's next nonce on-chain (unless `nonce` is given), computes the EIP-712 `safeTxHash`. **dryRun defaults to true and is UNSIGNED** \u2014 payload, safeTxHash and POST target only, no signature. dryRun=false signs with the configured signer, which must be a Safe owner (keystore mode: after the owner approves the exact SafeTx \u2014 awaiting_approval until then; re-run the same call) and POSTs (api.safe.global needs DEXE_SAFE_API_KEY); sign=true returns the signed body without POSTing. operation=1 (DELEGATECALL) is refused unless allowDelegateCall=true.", {
     safe: external_exports.string().describe("Safe Smart Account (multisig) address"),
     to: external_exports.string().describe("Destination contract address (TxPayload.to)"),
     data: external_exports.string().default("0x").describe("ABI-encoded calldata, 0x-prefixed (TxPayload.data)"),
@@ -156069,10 +157755,61 @@ ${pr2.remediation}`);
       let signature;
       let sender = input3.sender ? getAddress(input3.sender) : void 0;
       let signHint;
+      let signedWith;
       if (signer.mode === "keystore" && produceSignature) {
-        return err7(`${KEYSTORE_NO_MESSAGE_SIGNING} For a Safe: re-run with dryRun:true (and sign:false) to get the unsigned body + safeTxHash, then sign it in the Safe app or a wallet.`);
-      }
-      if (signer.hasSigner()) {
+        const approvals = signer.approvals;
+        if (!approvals || !signer.hasSigner()) {
+          return err7("DEXE_SIGNER_MODE=keystore but no usable keystore was found \u2014 nothing was signed. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run; or re-run with dryRun:true and sign:false for the unsigned body + safeTxHash.");
+        }
+        const from10 = getAddress(signer.getAddress());
+        if (sender && sender !== from10) {
+          return err7(`sender ${sender} is not the keystore address ${from10}. In keystore mode the proposer is the key that signs \u2014 omit sender.`);
+        }
+        if (!input3.dryRun) {
+          const { serviceUrl: serviceUrl2, apiKey: apiKey2 } = safeEnv();
+          try {
+            const ep2 = resolveSafeServiceEndpoint(chainId, serviceUrl2);
+            if (ep2.hosted && !apiKey2) {
+              return err7("api.safe.global requires an API key. Set DEXE_SAFE_API_KEY, or point DEXE_SAFE_TX_SERVICE_URL at a service that doesn't require one \u2014 nothing was put up for approval.");
+            }
+          } catch (e2) {
+            return err7(`${safeErrorMessage(e2)} Nothing was put up for approval.`);
+          }
+        }
+        const pr2 = rpc.tryProvider(chainId);
+        if ("error" in pr2)
+          return err7(`${pr2.error}
+${pr2.remediation}`);
+        const review = await buildSafeTxReview({ chainId, from: from10, safe, tx, config: signer.getConfig(), provider: pr2.ok });
+        if (!review.ok)
+          return err7(`${review.guard ? `[${review.guard}] ` : ""}${review.reason}`);
+        const typed = {
+          domain: safeTxDomain(chainId, safe),
+          types: SAFE_TX_TYPES,
+          message: tx
+        };
+        const scope2 = currentToolScope();
+        let approved;
+        try {
+          approved = await approvals.requestSignature({
+            kind: "safeTx",
+            tool: "dexe_safe_propose_tx",
+            chainId,
+            from: from10,
+            typedData: typed,
+            safe: review.safe,
+            steps: review.steps,
+            prechecks: review.prechecks
+          }, { ...scope2?.signal ? { signal: scope2.signal } : {}, ...scope2 ? { progress: (m3) => scope2.progress(m3) } : {} });
+        } catch (e2) {
+          if (e2 instanceof SignatureRefusal)
+            return err7(e2.message);
+          throw e2;
+        }
+        signature = await approved.signTypedData(typed.domain, typed.types, typed.message);
+        sender = from10;
+        signedWith = "keystore";
+      } else if (signer.hasSigner()) {
         if (produceSignature) {
           const sg = signer.trySigner(chainId);
           if ("error" in sg)
@@ -156085,7 +157822,7 @@ ${sg.remediation}`);
           sender = sender ?? getAddress(signer.getAddress());
         }
       } else if (input3.sign === true) {
-        signHint = "sign:true was requested but no signer is configured \u2014 set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
+        signHint = "sign:true was requested but no signer is configured \u2014 use DEXE_SIGNER_MODE=keystore (a Safe owner's keystore; the owner approves the SafeTx) or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) and re-run. The payload below is unsigned.";
       }
       const body = {
         to: tx.to,
@@ -156125,6 +157862,7 @@ ${sg.remediation}`);
           safeTxHash,
           signedBy: signature ? sender : null,
           signaturePresent: !!signature,
+          ...signedWith ? { signer: signedWith, safety: KEYSTORE_SIGNATURE_SAFETY } : {},
           note: signHint ?? (signature ? "SIGNED: `body.signature` is a queue-ready owner signature for this (chain, safe, nonce, payload). Treat it as sensitive \u2014 anyone holding it can POST this transaction into the Safe queue." : "UNSIGNED preview. Check `safeTxHash` against what your wallet shows, then re-run with dryRun:false to sign + POST, or sign:true to get the signed body without POSTing."),
           ...gasRefundWarnings(tx),
           endpoint,
@@ -156132,7 +157870,7 @@ ${sg.remediation}`);
         });
       }
       if (!signature || !sender) {
-        return err7("Live POST requires a signature. Set DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner) so the tool can sign the safeTxHash, or run with dryRun=true.");
+        return err7("Live POST requires a signature. Use DEXE_SIGNER_MODE=keystore with a keystore that is a Safe owner (the owner approves the exact SafeTx), or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner), or run with dryRun=true.");
       }
       const ep = resolveSafeServiceEndpoint(chainId, serviceUrl);
       const url2 = ep.multisigTransactions(safe);
@@ -156156,12 +157894,15 @@ ${sg.remediation}`);
         nonce,
         safeTxHash,
         sender,
+        ...signedWith ? { signer: signedWith, safety: KEYSTORE_SIGNATURE_SAFETY } : {},
         postUrl: stripUrlUserinfo(url2),
         status: res.status,
         ...gasRefundWarnings(tx),
         response: res.text ? safeJsonParse(res.text) : null
       });
     } catch (e2) {
+      if (e2 instanceof ApprovalHaltError)
+        throw e2;
       return err7(safeToolError(e2, "dexe_safe_propose_tx"));
     }
   });
@@ -156264,8 +158005,8 @@ ${pr0.remediation}`);
         const ret = await provider.call({ to: govAddr, data: stateData });
         stateIndex = Number(GOV_POOL_ABI6.decodeFunctionResult("getProposalState", ret)[0]);
       } catch (e2) {
-        const decoded = decodeRevert(e2);
-        return err8(`getProposalState reverted: ${decoded.revertReason}. Proposal may not exist on this GovPool.`);
+        const decoded2 = decodeRevert(e2);
+        return err8(`getProposalState reverted: ${decoded2.revertReason}. Proposal may not exist on this GovPool.`);
       }
       const proposalState = PROPOSAL_STATES[stateIndex] ?? `Unknown(${stateIndex})`;
       if (stateIndex !== 4) {
@@ -156539,15 +158280,15 @@ ${pr2.remediation}`);
     }
     const projectedPct = quorumAttainmentPct(projectedFor, requiredWeight);
     const hitProbability = projectedPct === null ? null : Math.min(1, Math.max(0, projectedPct / 100));
-    const risks = [];
+    const risks2 = [];
     if (decided > 0 && passRate < 0.4)
-      risks.push("voterApathy");
+      risks2.push("voterApathy");
     if ((draft?.actionsOnFor?.length ?? 0) > 5)
-      risks.push("complexityRisk");
+      risks2.push("complexityRisk");
     if (requiredWeight !== null && projectedFor < requiredWeight)
-      risks.push("quorumGap");
+      risks2.push("quorumGap");
     if (requiredWeight === null)
-      risks.push("quorumUnknown");
+      risks2.push("quorumUnknown");
     let recommendation;
     if (hitProbability === null)
       recommendation = "unknown";
@@ -156607,7 +158348,7 @@ ${pr2.remediation}`);
       // endpoint that was queried and refused. Reporting only the first made a
       // broken query indistinguishable from an empty index.
       subgraphNote: noSubgraphReason,
-      risks,
+      risks: risks2,
       recommendation
     });
   });
@@ -156756,12 +158497,12 @@ ${pr2.remediation}`);
         const views = resA[1]?.success ? resA[1].value : null;
         if (!views || views.length === 0)
           return errorResult23(`Proposal ${proposalId} not found at ${govPool}`);
-        const decoded = decodeProposalView(views[0]);
-        if (!decoded)
+        const decoded2 = decodeProposalView(views[0]);
+        if (!decoded2)
           return errorResult23("Failed to decode proposal view");
-        assessedActions = decoded.actionsOnFor;
-        quorumRaw = decoded.quorumRaw;
-        requiredWeight = decoded.requiredQuorum;
+        assessedActions = decoded2.actionsOnFor;
+        quorumRaw = decoded2.quorumRaw;
+        requiredWeight = decoded2.requiredQuorum;
       } else {
         assessedActions = actions.map((a3) => ({ executor: a3.executor, value: a3.value, data: a3.data }));
         const resS = await multicall(provider, [
@@ -158229,10 +159970,10 @@ function buildDelegate(cfg, delegatee) {
 }
 function decodeGovernorWrite(cfg, data4) {
   const iface = governorIface(cfg);
-  const decoded = iface.parseTransaction({ data: data4 });
-  if (!decoded)
+  const decoded2 = iface.parseTransaction({ data: data4 });
+  if (!decoded2)
     throw new Error(`decodeGovernorWrite: could not parse calldata for ${cfg.id}`);
-  return { method: decoded.name, args: decoded.args.toArray() };
+  return { method: decoded2.name, args: decoded2.args.toArray() };
 }
 
 // dist/governor/tools/build.js
@@ -158544,13 +160285,13 @@ function registerDecodeCalldata2(server) {
   }, async ({ governor, data: data4 }) => {
     try {
       const cfg = resolveGovernor(governor);
-      const decoded = decodeGovernorWrite(cfg, data4);
-      const argsOut = decoded.args.map((v7) => typeof v7 === "bigint" ? v7.toString() : Array.isArray(v7) ? v7.map((x6) => typeof x6 === "bigint" ? x6.toString() : x6) : v7);
+      const decoded2 = decodeGovernorWrite(cfg, data4);
+      const argsOut = decoded2.args.map((v7) => typeof v7 === "bigint" ? v7.toString() : Array.isArray(v7) ? v7.map((x6) => typeof x6 === "bigint" ? x6.toString() : x6) : v7);
       return ok15({
         governor: cfg.id,
         governorVersion: cfg.governorVersion,
         family: isBravo(cfg) ? "bravo" : "oz",
-        method: decoded.method,
+        method: decoded2.method,
         args: argsOut
       });
     } catch (e2) {
@@ -159363,7 +161104,7 @@ function serverInstructions() {
 }
 
 // dist/resources.js
-import { existsSync as existsSync13, readFileSync as readFileSync14 } from "node:fs";
+import { existsSync as existsSync15, readFileSync as readFileSync15 } from "node:fs";
 import { resolve as resolve5 } from "node:path";
 var DOC_RESOURCES = [
   {
@@ -159388,14 +161129,14 @@ var DOC_RESOURCES = [
 function registerDocResources(server, baseDir) {
   for (const r2 of DOC_RESOURCES) {
     const path7 = resolve5(baseDir, "docs", r2.file);
-    if (!existsSync13(path7))
+    if (!existsSync15(path7))
       continue;
     server.resource(r2.name, r2.uri, { description: r2.description, mimeType: "text/markdown" }, async () => ({
       contents: [
         {
           uri: r2.uri,
           mimeType: "text/markdown",
-          text: readFileSync14(path7, "utf8")
+          text: readFileSync15(path7, "utf8")
         }
       ]
     }));
@@ -159403,7 +161144,7 @@ function registerDocResources(server, baseDir) {
 }
 
 // dist/index.js
-import { homedir as homedir7 } from "node:os";
+import { homedir as homedir8 } from "node:os";
 init_runtime();
 
 // dist/stdioRuntime.js
@@ -159671,13 +161412,13 @@ Pass --strict (or set DEXE_DOCTOR_STRICT=1) to exit 1 on warnings in CI.
 var __dirname = dirname9(fileURLToPath6(import.meta.url));
 function packageVersion() {
   try {
-    const pkg = JSON.parse(readFileSync17(resolve8(__dirname, "..", "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync18(resolve8(__dirname, "..", "package.json"), "utf8"));
     return pkg.version ?? "0.0.0";
   } catch {
     return "0.0.0";
   }
 }
-var SUBCOMMANDS = ["doctor", "init", "key", "skills", "serve-http"];
+var SUBCOMMANDS = ["doctor", "init", "key", "approve", "skills", "serve-http"];
 var HELP_ARGS = /* @__PURE__ */ new Set(["--help", "-h", "help"]);
 var VERSION_ARGS = /* @__PURE__ */ new Set(["--version", "-v", "-V"]);
 var TRANSPORT_PASSTHROUGH = /* @__PURE__ */ new Set(["--stdio", "--transport=stdio", "--mcp"]);
@@ -159705,6 +161446,8 @@ function usageText(version5) {
     "        [--unattended]            offer the plaintext hot-key option (unattended signing)",
     "  dexe-mcp key <command>          encrypted keystore: create | import [--from-env | --json <file>] |",
     "                                  list | export-address | change-password | remove (`dexe-mcp key --help`)",
+    "  dexe-mcp approve [<approvalId>] review + approve/decline the running server's keystore approvals in this",
+    "        [--list] [--pid <n>]      terminal (password typed hidden; needs a TTY except --list)",
     "  dexe-mcp skills [--global]      copy the shipped Claude skills into ./.claude/skills (or ~ with --global)",
     "  dexe-mcp serve-http [--port <n>] [--host <addr>]",
     "                                  the read edition over MCP Streamable HTTP for remote clients (runs",
@@ -159728,16 +161471,16 @@ Run \`dexe-mcp --help\` for usage.
 }
 function loadEnvironment() {
   const prevSnapshot = new Set(envKeys().filter((k5) => !!process.env[k5]?.trim()));
-  const homeEnvPath = resolve8(homedir7(), ".dexe-mcp", ".env");
+  const homeEnvPath = resolve8(homedir8(), ".dexe-mcp", ".env");
   const envCandidates = resolveEnvCandidates({
     cwd: process.cwd(),
-    home: homedir7(),
+    home: homedir8(),
     pkgDir: __dirname,
     explicit: process.env.DEXE_ENV_FILE
   });
   let envReport;
   for (const candidate of envCandidates) {
-    if (!existsSync17(candidate))
+    if (!existsSync19(candidate))
       continue;
     const report = loadEnvFile(candidate, prevSnapshot, FULL_ENV_SURFACE);
     if (!envReport)
@@ -159764,6 +161507,10 @@ async function runSubcommand(name2, envFiles = []) {
   if (name2 === "key") {
     const mod5 = await Promise.resolve().then(() => (init_key(), key_exports));
     process.exit(await mod5.run(process.argv.slice(3), { envFiles }));
+  }
+  if (name2 === "approve") {
+    const mod5 = await Promise.resolve().then(() => (init_approve(), approve_exports));
+    process.exit(await mod5.run(process.argv.slice(3)));
   }
   const mod4 = await Promise.resolve().then(() => (init_skills(), skills_exports));
   await mod4.run(process.argv.slice(3));
@@ -159826,7 +161573,7 @@ async function main() {
 async function delegateServeHttp(args) {
   const ext = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
   const bin = fileURLToPath6(new URL(`./read/bin${ext}`, import.meta.url));
-  if (!existsSync17(bin)) {
+  if (!existsSync19(bin)) {
     process.stderr.write(`[dexe-mcp] serve-http is served by the read edition, which this install does not carry (${bin} is missing). Run \`npx -p dexe-mcp dexe-mcp-read serve-http\` instead.
 `);
     process.exitCode = 2;

@@ -43,14 +43,18 @@ human-confirmed mode next to WalletConnect.
 
 | Threat | `walletconnect` | `keystore` | `unattended` |
 |---|---|---|---|
-| Prompt injection (proposal text, IPFS, a neighbouring MCP server, a crafted payload) | covered — the phone shows the tx | covered — the password page decodes the bytes; approvals are bound to the batch and single-use | **not covered** — guards only |
+| Prompt injection (proposal text, IPFS, a neighbouring MCP server, a crafted payload, a disguised login message) | covered — the phone shows the tx | covered — the review decodes the bytes / shows the exact message / verifies the Safe; approvals are bound to the batch, message bytes or SafeTx digest and single-use; permits are never signed | **not covered** — guards only |
 | The model calling tools it should not | covered | covered — no tool/param/env approves | **not covered** |
-| An agent that drives your browser | covered (separate device) | **not covered** — it can read the password as typed (`navigator.webdriver` is refused, partial) | not covered |
-| An agent with a shell | covered (separate device) | **not covered** — it can fake the page or read process memory | not covered |
+| An agent that drives your browser | covered (separate device) | **partly** — it can read the password as typed on the page (`navigator.webdriver` is refused, partial); `npx dexe-mcp approve` takes the password in a terminal instead | not covered |
+| An agent with a shell | covered (separate device) | **not covered** — it can fake the page or the terminal, or read process memory | not covered |
+| Another local user | n/a | covered — the page needs the per-approval token + password; the terminal channel is owner-only (`0600` rendezvous, socket / pipe ACL, per-process secret) | not covered (plaintext key) |
 | Local malware | out of scope | out of scope | out of scope |
 
 Hence the recommendation: **for agents with shell or browser control, use
 WalletConnect.** The keystore stops mistakes and injection-driven calls.
+Since 1.0.0 it also signs the off-chain login message and Safe owner
+signatures after the same approval, and refuses every other typed data
+(permits included).
 The approval page's own hardening (exact `Host`, same-origin JSON + CSRF,
 one-time path token, no-store / no-referrer / nonce CSP, password lockout,
 ordered-only signing, key dropped after use) is listed in

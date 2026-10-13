@@ -60,7 +60,9 @@ the key. There is no command that prints the private key.
 ### What happens on a write
 
 1. The AI calls a write tool (`dexe_tx_send`, `dexe_proposal_create`,
-   `dexe_proposal_vote_and_execute`, `dexe_dao_create`, an OTC composite).
+   `dexe_proposal_vote_and_execute`, `dexe_dao_create`, an OTC composite —
+   or, for a signature, `dexe_auth_login` / `dexe_safe_propose_tx`; see
+   [Messages and Safe transactions](#messages-and-safe-transactions-since-100)).
 2. The server builds the whole ordered batch (for a proposal: approve →
    deposit → create-and-vote), checks it, and opens
    `http://127.0.0.1:<port>/a/<token>` in your browser.
@@ -73,7 +75,8 @@ the key. There is no command that prints the private key.
    description of a step is shown only as an escaped "tool's note (not
    verified)".
 4. You compare the fingerprint with the one in the chat, type the password,
-   and press **Approve and sign**. The key is decrypted for exactly that batch:
+   and press **Approve and sign** (or decide in a terminal with
+   [`npx dexe-mcp approve`](#approving-in-a-terminal-dexe-mcp-approve)). The key is decrypted for exactly that batch:
    it signs those transactions, in that order, once each — anything else is
    refused and the approval is revoked. The gas limit is never taken from the
    AI (you did not approve one): it is estimated by the server and refused
@@ -129,14 +132,118 @@ hashes. It is read-only: no tool can approve or decline anything.
   than one (the vote, then the validator round, then the execute are separate
   batches).
 
-### Not available in keystore mode yet
+### Messages and Safe transactions (since 1.0.0)
 
-Message and typed-data signatures — the off-chain login (`dexe_auth_login`)
-and Safe transaction signatures (`dexe_safe_propose_tx` with signing) — are
-refused with a pointer to WalletConnect (`dexe_wc_connect`); a connected
-WalletConnect session is used for `dexe_auth_login`. `dexe_agents_fund` runs
-only in unattended mode. `signerKey` (the agent keyring) does not apply: a
-keystore server has one key.
+Two signatures that are not transactions go through the same approval — same
+page, same password, same lockout, single use:
+
+| Tool | Approval kind | What is signed | Bound to |
+|---|---|---|---|
+| `dexe_auth_login` | `message` | the DeXe backend's login nonce, EIP-191 `personal_sign` | `keccak(chainId, from, keccak(message bytes))` |
+| `dexe_safe_propose_tx` with `sign: true` or `dryRun: false` | `safeTx` | the Safe's EIP-712 `SafeTx` (an owner signature) | `keccak(chainId, from, EIP-712 digest)` |
+
+Both return `awaiting_approval` until you approve, then you re-run the same
+call (or approve while it waits). `dexe_auth_login` re-uses the nonce message
+it already put up for approval, so the page you approved is the message that
+is signed; if the backend's nonce expired meanwhile, the login fails and a
+re-run asks again for a fresh one.
+
+**What the page shows for a message** — derived from the bytes, never from the
+AI: the exact text, in full (messages over 4 KB are refused, so nothing is
+ever cut off), its size and hex, and the EIP-191 hash. Characters that could
+hide or reorder text — control characters, zero-width and direction-changing
+characters, look-alike spaces, the BOM — are shown as `⟨U+202E⟩` markers and
+never dropped. Flags: DANGER for binary data, exactly 32 raw bytes (a hash in
+disguise), hex text, EIP-712 JSON passed as a message, an encoded
+transaction, hidden characters; warnings for addresses (your own is noted as
+yours), amounts, approval / permit / transfer wording and non-ASCII letters.
+The "For:" line ("Log in to the DeXe backend at https://api.dexe.io as 0x…")
+is written by the server.
+
+**What the page shows for a Safe transaction** — checked on-chain before the
+page exists: the address holds code and answers like a Safe, version 1.3.0 or
+later, **your keystore address is one of its owners** (otherwise nothing is
+put up — a non-owner signature is worthless), and its implementation is a
+canonical Safe 1.3.0 / 1.4.1 deployment (anything else is DANGER). Shown: the
+threshold (a threshold of 1 is a warning — your signature alone lets anyone
+execute it), the nonce against the Safe's next nonce, the `safeTxHash` to
+compare with your co-owners, and what the Safe will do — the inner call
+decoded with the same decoder, labels and handover checks as a transaction.
+`DELEGATECALL` is DANGER, a call to the Safe itself is named
+(`swapOwner(…)`, `changeThreshold(…)` …) and DANGER, a MultiSend is unpacked
+into its sub-calls (each checked; an inner DELEGATECALL or self-call is
+DANGER), a gas refund is a warning. The broadcast guards (B6 / B7 / B11 / B12,
+and B13 for DELEGATECALL) run on the inner call and every MultiSend sub-call
+first. With `dryRun: false` the Safe service endpoint and its API key are
+checked before you are asked, so an approval is never spent on a POST that
+cannot happen.
+
+**Refused on this path, always** (no page): typed data other than a
+canonical `SafeTx`; anything permit-shaped — ERC-2612 `Permit`, Uniswap
+Permit2 (`PermitSingle`, `PermitBatch`, `PermitTransferFrom`, the Permit2
+contract as the domain) or any struct with a spender plus an amount or
+deadline — because a signed permit moves tokens with no transaction for you to
+review; a typed-data domain whose `chainId` is not the approval's chain or
+whose contract is not the reviewed Safe; empty messages and messages over
+4 KB. At signing time the approved signer re-checks all of it: other bytes,
+another digest, another domain chain or a second use revoke the approval and
+drop the key.
+
+`dexe_agents_fund` runs only in unattended mode. `signerKey` (the agent
+keyring) does not apply: a keystore server has one key.
+
+### Approving in a terminal: `dexe-mcp approve`
+
+For SSH sessions, or if you would rather not type the password into a browser
+an AI agent might be driving:
+
+```bash
+npx dexe-mcp approve              # every approval waiting in the running server(s)
+npx dexe-mcp approve apr_x1Y2z3   # just that one
+npx dexe-mcp approve --list       # print the reviews only (works without a terminal)
+```
+
+It prints the same review as the page — chain, signer, fingerprint, each call
+decoded with labels and flags, the exact message, the verified Safe — then asks
+`Approve (a), decline (d) or skip (s)?` and the keystore password with echo
+off. The password goes to the server's one password check: the same global
+lockout as the page (wrong guesses on the page and in the terminal add up),
+the same single-use approval. Deciding **refuses without an interactive
+terminal** — an AI agent's shell is a pipe, and an agent piping a password in
+is exactly what this must not allow. On Windows, use Windows Terminal,
+PowerShell or cmd (Git Bash's mintty is not a console Node can read a hidden
+password from).
+
+How it finds the server — owner-only, by design:
+
+- The server opens the channel with its first approval and writes
+  `~/.dexe-mcp/run/approve-<pid>.json` (directory `0700`, file `0600`,
+  written atomically) holding its pid, keystore address, endpoint and a
+  256-bit per-process secret. Every request must carry the secret.
+- The endpoint is a unix socket in that directory (`0600`; the kernel refuses
+  other users before a byte is exchanged) on macOS/Linux, and a named pipe
+  with 128 random bits in its name on Windows (created as the first instance,
+  so a pipe someone pre-created makes the server's bind fail instead of being
+  shared; the default pipe ACL lets only you, SYSTEM and Administrators write
+  to it).
+- `dexe-mcp approve` trusts a rendezvous file only if the directory, the file
+  and the socket are owned by you, grant nothing to group or others, and are
+  not symlinks — a file planted by another local user would point at their
+  socket and collect your password. Node cannot read Windows ACLs, so on
+  Windows this rests on your profile folder's default permissions.
+- A decision names the approval's binding hash, so it is always about the
+  review the terminal displayed.
+- Stale files: the server removes its file when it exits; a killed server's
+  file is deleted by the next server or `dexe-mcp approve` once the pid is gone
+  or the endpoint no longer answers.
+
+**What the terminal channel does not change:** an agent that runs shell
+commands as you can read the secret and talk to the channel (it gains nothing
+the page did not already give it — it still needs the password, under the
+same lockout), and it can also put a fake `dexe-mcp` first on your `PATH` or
+replace the rendezvous file with its own look-alike server to collect the
+password you type. **For agents with shell access, WalletConnect remains the
+recommendation.**
 
 A keystore whose KDF is weaker than scrypt N=2^17 (or uses pbkdf2) is
 **refused** at startup and again at every unlock; `npx dexe-mcp key
@@ -145,8 +252,9 @@ change-password` (or `key import --json`) re-encrypts it at N=2^18.
 ### Headless machines and SSH
 
 The page is served on `127.0.0.1` of the machine running the server. Over SSH,
-forward the port (`ssh -L 53817:127.0.0.1:53817 host`, the port from the link)
-and open the link locally — or use `walletconnect` on headless hosts.
+run `npx dexe-mcp approve` in another SSH session on that machine (same user),
+or forward the port (`ssh -L 53817:127.0.0.1:53817 host`, the port from the
+link) and open the link locally — or use `walletconnect` on headless hosts.
 `DEXE_APPROVAL_OPEN_BROWSER=0` only prints the link (stderr and the tool
 result) instead of opening a browser.
 
@@ -204,13 +312,17 @@ nothing.
 
 **T1 — prompt injection** (text in a proposal, an IPFS document, a token
 symbol, a malicious MCP server next to this one, a crafted `dexe_tx_send`
-payload). **Covered.** Nothing signs without the password typed on the page.
-The page decodes the calldata from the bytes and labels addresses from the
-chain, so a misleading description cannot hide what is signed. An approval is
-bound to its exact batch (`keccak(chainId, from, ordered (to, value,
-keccak(data)))`) and is single-use: an approval for one call cannot be spent
-on another, and a changed call gets its own page. Declines cannot be worn down
-by retries (10-minute cooldown).
+payload, a backend that sends a disguised login message). **Covered.** Nothing
+signs without the password typed on the page or in `dexe-mcp approve`.
+The review decodes the calldata from the bytes and labels addresses from the
+chain, so a misleading description cannot hide what is signed; a message is
+shown in full with hidden characters made visible and hash / transaction /
+typed-data / permit look-alikes flagged; a Safe is verified on-chain. An
+approval is bound to exactly what is signed — the batch (`keccak(chainId,
+from, ordered (to, value, keccak(data)))`), the message bytes, or the SafeTx
+EIP-712 digest — and is single-use: an approval for one call cannot be spent
+on another, and a changed call gets its own page. Permits are never signed
+here. Declines cannot be worn down by retries (10-minute cooldown).
 
 **T2 — the AI itself working around the gate.**
 - There is no tool, parameter or environment variable that approves, skips or
@@ -228,6 +340,14 @@ by retries (10-minute cooldown).
   read this process's memory while a decrypted key is held (from approval
   until the batch is sent, at most `DEXE_APPROVAL_USE_S` before sending starts; JavaScript cannot
   wipe a string).
+- **Limitation: the same AI can fake the terminal too.** `dexe-mcp approve`
+  refuses to read a password from a pipe, and only trusts an owner-only
+  rendezvous — which stops other local users and an agent that merely pipes
+  text, not one that runs code as you: it can read the per-process secret,
+  replace the rendezvous file with its own look-alike server, put a fake
+  `dexe-mcp` on your `PATH`, or run the real one under a pseudo-terminal. The
+  terminal channel is for owners who distrust an AI-driven *browser*; it is no
+  defence against an AI-driven *shell*.
 - **So: for agents with shell or browser access, use WalletConnect.** The
   signature then happens on a separate device the agent cannot reach.
 
@@ -273,6 +393,10 @@ expensive to brute-force.
   That gains an agent nothing: it can only create or import keys it already
   holds, and none of them owns your funds or voting power. Your keystore's
   password never passes through it.
+- **The TTY check on `dexe-mcp approve` can be bypassed the same way** — or
+  skipped by speaking the channel protocol directly with the secret from the
+  rendezvous file. Either way the agent still has to supply the password, and
+  its guesses count toward the same global lockout as the page's.
 - **`navigator.webdriver` is reported by the browser** and an agent that
   controls the browser (or crafts its own request) can lie about it. It only
   catches standard automation; the password is the real gate.
@@ -286,9 +410,22 @@ expensive to brute-force.
   clears the counter (approvals live in memory only), which takes the MCP
   host, you, or a shell able to kill the process.
 - **A decrypted key lives in this process** from your approval until the
-  batch is sent (at most `DEXE_APPROVAL_USE_S` before sending starts), and
-  JavaScript cannot wipe a string. An agent with a shell can read process
-  memory — use WalletConnect for such agents (see the threat model).
+  batch is sent or the signature produced (at most `DEXE_APPROVAL_USE_S`
+  before that starts), and JavaScript cannot wipe a string. An agent with a
+  shell can read process memory — use WalletConnect for such agents (see the
+  threat model).
+- **A message signature is only as safe as what it is for.** The page shows
+  the exact text and flags disguised content, but a login message cannot be
+  checked against the service that issued it: an approved login hands that
+  service (the configured `DEXE_BACKEND_API_URL`, shown on the page) a session
+  as you. Approve logins only to the backend you expect.
+- **A Safe signature does not need to be broadcast to matter.** Once the
+  threshold is met anyone can execute it, until the nonce is used. The page
+  shows the threshold and warns at 1; compare the `safeTxHash` with your
+  co-owners'.
+- **An unknown Safe implementation is flagged, not refused.** Safes on newer
+  or custom singletons exist; such a Safe is shown with DANGER and the decision
+  is yours.
 
 See also [SECURITY.md](./SECURITY.md) (guards, posture) and
 [WALLETCONNECT.md](./WALLETCONNECT.md) (the default mode).

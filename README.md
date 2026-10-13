@@ -135,7 +135,7 @@ dexe_proposal_create({
 
 `dexe_proposal_create` covers every on-chain catalog type; the single-purpose `dexe_proposal_build_*` builders (raw calldata, one tool per type) need `DEXE_TOOLSETS=core,proposals`.
 
-Each write tool returns a `TxPayload` you pass to your wallet. To let the server broadcast instead, connect a wallet over WalletConnect (`dexe_wc_connect`), or create an encrypted key with `npx dexe-mcp key create` and set `DEXE_SIGNER_MODE=keystore` — each batch then opens a local approval page that asks for its password. That enables the composite flows `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, and `dexe_tx_send`. A hot `DEXE_PRIVATE_KEY` signs only with `DEXE_SIGNER_MODE=unattended` (bots, CI); see [docs/SIGNING.md](./docs/SIGNING.md).
+Each write tool returns a `TxPayload` you pass to your wallet. To let the server broadcast instead, connect a wallet over WalletConnect (`dexe_wc_connect`), or create an encrypted key with `npx dexe-mcp key create` and set `DEXE_SIGNER_MODE=keystore` — each batch (and each off-chain login or Safe signature) then opens a local approval page that asks for its password, or you approve in a terminal with `npx dexe-mcp approve`. That enables the composite flows `dexe_proposal_create`, `dexe_proposal_vote_and_execute`, and `dexe_tx_send`. A hot `DEXE_PRIVATE_KEY` signs only with `DEXE_SIGNER_MODE=unattended` (bots, CI); see [docs/SIGNING.md](./docs/SIGNING.md).
 
 ## Requirements
 

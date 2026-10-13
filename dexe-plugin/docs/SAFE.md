@@ -27,7 +27,7 @@ Safe transaction, and — when you tell it to — signs it and posts it to the q
 | Tool | Writes? | Purpose |
 |------|---------|---------|
 | `dexe_safe_info` | no | Read the live Safe (`nonce`, `threshold`, `owners`, version), check whether your signer is an owner, and see which service endpoint this chain resolves to. |
-| `dexe_safe_propose_tx` | POST (opt-in) | Build → `safeTxHash` → assemble the create-multisig-transaction body. **Dry-run and UNSIGNED by default**; `dryRun: false` signs + POSTs; `sign: true` signs without POSTing. `operation: 1` is refused unless `allowDelegateCall: true`. |
+| `dexe_safe_propose_tx` | POST (opt-in) | Build → `safeTxHash` → assemble the create-multisig-transaction body. **Dry-run and UNSIGNED by default**; `dryRun: false` signs + POSTs; `sign: true` signs without POSTing (keystore mode: after the owner approves the exact SafeTx). `operation: 1` is refused unless `allowDelegateCall: true`. |
 
 Both mirror the `registerOtcTools(server, ctx, signer, wc)` wiring and accept an
 optional `chainId` (defaults to the MCP's default chain).
@@ -35,6 +35,19 @@ optional `chainId` (defaults to the MCP's default chain).
 ---
 
 ## Env
+
+**With an encrypted keystore (1.0.0, recommended over a hot key):** set
+`DEXE_SIGNER_MODE=keystore` with a keystore whose address is a Safe owner.
+`sign: true` / `dryRun: false` then returns `awaiting_approval`: the approval
+page (or `npx dexe-mcp approve`) shows the Safe verified on-chain — you are an
+owner, its implementation is a canonical Safe 1.3.0 / 1.4.1, threshold, nonce,
+`safeTxHash` — and the inner call decoded, with DELEGATECALL, calls to the
+Safe itself and MultiSend sub-calls flagged. Approve with the keystore
+password and re-run the same call; the signature covers exactly that SafeTx,
+once. Permit-style typed data is never signed. Details:
+[SIGNING.md](./SIGNING.md#messages-and-safe-transactions-since-100).
+
+**With a hot key (bots / CI):**
 
 ```env
 DEXE_SIGNER_MODE=unattended            # the owner key is a hot key: this mode only

@@ -63,7 +63,7 @@ In scope:
 
 - Calldata-builder tools (`dexe_proposal_build_*`, `dexe_vote_build_*`, `dexe_dao_build_deploy`) that produce calldata that does not match the intended action.
 - Signer mode (`dexe_tx_send`, auto-broadcast in `dexe_proposal_create` / `dexe_proposal_vote_and_execute`) leaking or misusing the configured private key.
-- Keystore mode: any way to get a batch signed without the owner typing the keystore password on the loopback approval page, to sign something other than the approved batch, to reuse an approval, or to reach the approval server from another origin or host.
+- Keystore mode: any way to get a batch, a message or a Safe transaction signed without the owner typing the keystore password on the loopback approval page or in `dexe-mcp approve`, to sign something other than the approved batch / message bytes / SafeTx digest, to get a permit or other non-SafeTx typed data signed, to reuse an approval, to reach the approval server from another origin or host, or to reach the terminal approval channel as another local user.
 - IPFS upload paths that exfiltrate non-public data or accept unsafe input.
 - Hardhat bridge (`dexe_compile`, `dexe_test`, etc.) executing unintended shell commands.
 - Dependency vulnerabilities reachable through `dexe-mcp`'s exposed tool surface.
@@ -76,7 +76,7 @@ Out of scope:
 
 ## Threat Model
 
-`dexe-mcp` runs **locally** alongside an MCP client (Claude Desktop, Claude Code, etc.). It does not expose itself to the public internet; the only port it opens is the keystore approval page, on `127.0.0.1` only, in `DEXE_SIGNER_MODE=keystore`. The interesting attack surfaces are:
+`dexe-mcp` runs **locally** alongside an MCP client (Claude Desktop, Claude Code, etc.). It does not expose itself to the public internet; the only port it opens is the keystore approval page, on `127.0.0.1` only, in `DEXE_SIGNER_MODE=keystore` (plus the owner-only terminal approval channel — a unix socket or named pipe, no TCP port). The interesting attack surfaces are:
 
 1. The operator's key. `DEXE_SIGNER_MODE` decides how it is held ([docs/SIGNING.md](./docs/SIGNING.md)): on a phone (`walletconnect`, the default), encrypted on disk and unlocked per batch by the owner's password (`keystore`), or as a plaintext hot key that signs with no human confirmation (`unattended`, testnet-only by default). Keys are never logged and never sent off-host.
 2. Calldata correctness — every `_build_*` tool emits a `TxPayload` the operator can decode (`dexe_decode_calldata`, `dexe_decode_proposal`) and sign-verify before broadcasting.
@@ -104,7 +104,9 @@ These are defense-in-depth, **not** a substitute for keeping the key off-host. F
 
 `DEXE_SIGNER_MODE=keystore` keeps one key in a keystore v3 file (scrypt N=2^18) and signs only after the owner approves the exact batch — chain, sender and the ordered `(to, value, keccak(data))` list, bound by hash — by typing the keystore password on a page served on `127.0.0.1`. The page decodes the calldata from the bytes and labels addresses from the chain; it is admitted only with the exact `Host`, a same-origin JSON POST carrying a per-approval CSRF token, and refuses automated browsers (`navigator.webdriver`); wrong passwords are counted across all approvals (five → a lockout that doubles up to an hour, re-checked inside the attempt queue), at most three approvals wait at once and six are created per minute. Labels are trusted only through the DeXe registry (`PoolRegistry.isGovPool`); approvals to code-less addresses are flagged. The gas limit is estimated server-side, never taken from the caller; keystores weaker than scrypt N=2^17 are refused. The decrypted key exists only inside the signer for that batch, which refuses any other transaction and is dropped when the batch is sent, fails, is superseded or expires. No tool, parameter or env var can approve (a test enforces it).
 
-Threat model, plainly: this stops prompt injection and mistakes. It does **not** stop an AI agent that can drive your browser (it can read the password as typed) or run shell commands (it can fake the page or read process memory) — for such agents use WalletConnect. Local malware is out of scope. Details: [docs/SIGNING.md](./docs/SIGNING.md#threat-model).
+Since 1.0.0 the same approval covers two signatures: the off-chain login message (`dexe_auth_login`, EIP-191 — bound to the exact bytes, shown in full with hidden characters made visible and hash / transaction / typed-data / permit look-alikes flagged) and a Safe owner signature (`dexe_safe_propose_tx`, EIP-712 SafeTx — bound to the digest; the Safe verified on-chain with the keystore as an owner; DELEGATECALL, self-calls and MultiSend sub-calls flagged; the broadcast guards run on the inner calls). Typed data other than a canonical SafeTx, and anything permit-shaped (ERC-2612, Permit2), is refused. The owner may also decide in a terminal (`dexe-mcp approve`, interactive TTY only) through an owner-only local channel — a unix socket / named pipe found via a `0600` rendezvous file with a per-process secret — under the same lockout as the page.
+
+Threat model, plainly: this stops prompt injection and mistakes. It does **not** stop an AI agent that can drive your browser (it can read the password as typed) or run shell commands (it can fake the page or the terminal, or read process memory) — for such agents use WalletConnect. Local malware is out of scope. Details: [docs/SIGNING.md](./docs/SIGNING.md#threat-model).
 
 Unattended mode (`DEXE_SIGNER_MODE=unattended`) is the only mode that reads `DEXE_PRIVATE_KEY` / the agent keyring, and signs only on `DEXE_UNATTENDED_CHAINS` (default `97`). Since 1.0.0 an unset mode never signs with a hot key (0.37 signed unattended on every chain then).
 

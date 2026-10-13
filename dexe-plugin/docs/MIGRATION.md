@@ -45,6 +45,27 @@ Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
    `unattendedChains`: it now signs only on chain 97 (was: every chain). Pass
    `unattendedChains: [97, 56]` — or `null` for no fence — explicitly.
 
+5. **Keystore mode now signs logins and Safe transactions — after an
+   approval, instead of refusing.** In 0.37 `dexe_auth_login` and
+   `dexe_safe_propose_tx` with `sign: true` / `dryRun: false` returned an error
+   pointing at WalletConnect. In 1.0 they return `mode: "awaiting_approval"`
+   (like a transaction batch): approve on the page or with
+   `npx dexe-mcp approve`, then re-run the same call. Code that matched the old
+   refusal text ("not supported in keystore mode yet") should handle
+   `awaiting_approval` / `declined` instead. A Safe is signed only if the
+   keystore address is one of its owners on-chain; permit-style typed data is
+   never signed. `dexe_auth_login` in keystore mode logs in as the keystore
+   address only (an `address` override must equal it). The library constant
+   `KEYSTORE_NO_MESSAGE_SIGNING` keeps its name but now says which tools sign
+   through an approval.
+
+6. **New subcommand `dexe-mcp approve`** (no action): decide pending keystore
+   approvals in a terminal. A keystore-mode server writes
+   `~/.dexe-mcp/run/approve-<pid>.json` (owner-only) with its first approval
+   and removes it on exit. `dexe_tx_approval_status` and `dexe_write_context`
+   approvals now carry a `kind` (`tx-batch` | `message` | `safeTx`); a
+   signature approval has no `landed` / `txCount`.
+
 ---
 
 ## 0.37.0 → 0.37.1 — no action

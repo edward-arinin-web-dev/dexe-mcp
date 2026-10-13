@@ -43,7 +43,7 @@ function packageVersion(): string {
  * unknown-argument message all read THIS list — never a second hand-written
  * one, so a fourth subcommand cannot land half-documented.
  */
-export const SUBCOMMANDS = ["doctor", "init", "key", "skills", "serve-http"] as const;
+export const SUBCOMMANDS = ["doctor", "init", "key", "approve", "skills", "serve-http"] as const;
 export type Subcommand = (typeof SUBCOMMANDS)[number];
 
 const HELP_ARGS = new Set(["--help", "-h", "help"]);
@@ -95,6 +95,8 @@ export function usageText(version: string): string {
     "        [--unattended]            offer the plaintext hot-key option (unattended signing)",
     "  dexe-mcp key <command>          encrypted keystore: create | import [--from-env | --json <file>] |",
     "                                  list | export-address | change-password | remove (`dexe-mcp key --help`)",
+    "  dexe-mcp approve [<approvalId>] review + approve/decline the running server's keystore approvals in this",
+    "        [--list] [--pid <n>]      terminal (password typed hidden; needs a TTY except --list)",
     "  dexe-mcp skills [--global]      copy the shipped Claude skills into ./.claude/skills (or ~ with --global)",
     "  dexe-mcp serve-http [--port <n>] [--host <addr>]",
     "                                  the read edition over MCP Streamable HTTP for remote clients (runs",
@@ -203,6 +205,10 @@ async function runSubcommand(name: Exclude<Subcommand, "serve-http">, envFiles: 
   if (name === "key") {
     const mod = await import("./cli/key.js");
     process.exit(await mod.run(process.argv.slice(3), { envFiles }));
+  }
+  if (name === "approve") {
+    const mod = await import("./cli/approve.js");
+    process.exit(await mod.run(process.argv.slice(3)));
   }
   const mod = await import("./cli/skills.js");
   await mod.run(process.argv.slice(3));

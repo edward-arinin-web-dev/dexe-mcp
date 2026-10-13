@@ -172,6 +172,8 @@ const READ = [
 
 const WRITE = [
   "bootstrap.ts",
+  // `dexe-mcp approve` — decide keystore approvals in a terminal (2c Phase B)
+  "cli/approve.ts",
   // `dexe-mcp key` — create / import / list / change-password / remove the encrypted keystore
   "cli/key.ts",
   // WriteConfig + the single server's loadConfig; re-exports configRead.ts so
@@ -205,15 +207,22 @@ const WRITE = [
   "knowledge/write/nextSteps.ts",
   "lib/agentLedger.ts",
   // keystore-mode approvals: store, loopback server, page, review, browser opener,
-  // per-call scope, the ordered-only ApprovedSigner (2c Phase A)
+  // per-call scope, the ordered-only ApprovedSigner (2c Phase A); message / SafeTx
+  // signature approvals, the Safe review, the terminal channel + its rendezvous
+  // and text review (2c Phase B)
   "lib/approval/approvedSigner.ts",
+  "lib/approval/control.ts",
   "lib/approval/index.ts",
   "lib/approval/openBrowser.ts",
   "lib/approval/page.ts",
+  "lib/approval/rendezvous.ts",
   "lib/approval/review.ts",
+  "lib/approval/safeReview.ts",
   "lib/approval/scope.ts",
   "lib/approval/server.ts",
+  "lib/approval/signing.ts",
   "lib/approval/store.ts",
+  "lib/approval/terminalReview.ts",
   "lib/avatarImage.ts",
   "lib/avatarUpload.ts",
   "lib/blacklist.ts",
