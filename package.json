@@ -102,11 +102,11 @@
     "proxy-addr": ">=2.0.8"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.6.5",
     "@types/qrcode": "^1.5.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.3"
   },
   "engines": {
     "node": ">=20.12.0"
