@@ -96,7 +96,7 @@
     "express-rate-limit": ">=8.4.0",
     "esbuild": ">=0.28.1",
     "ws": ">=8.21.0",
-    "body-parser": ">=2.3.0",
+    "body-parser": ">=2.4.0",
     "postcss": ">=8.5.26",
     "qs": ">=6.16.0",
     "proxy-addr": ">=2.0.8"
