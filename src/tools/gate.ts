@@ -270,6 +270,9 @@ const AGENTS = [
   "dexe_agents_list",
   "dexe_agents_fund",
   "dexe_agents_ledger",
+  // the agent-treasury preset (k-of-n agents + human validators) — here, not in
+  // core: the default profile sits at its tools/list budget (tests/tools/gate.test.ts)
+  "dexe_agent_treasury_create",
 ];
 
 // ── vote: every direct vote/stake/delegate/execute/claim builder ────────────

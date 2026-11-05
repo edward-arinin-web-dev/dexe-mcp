@@ -48,6 +48,7 @@ import { buildAvatarUrl, pinAvatarFromInput, previewAvatarFromInput } from "../l
 import { resolveGateways } from "./ipfsRead.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/writeErrors.js";
+import { registerAgentTreasuryCreateTool } from "./agentTreasuryCreate.js";
 
 /**
  * `dexe_dao_create` — the one-call DAO deploy composite. Two ways to call it:
@@ -626,6 +627,157 @@ async function probeDeployCost(
   }
 }
 
+/** dexe_dao_create's input shape — shared so presets can reuse its fields. */
+export const DAO_CREATE_SHAPE = {
+  chainId: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Target chain id. Defaults to the MCP's default chain. Use 97 (BSC testnet) to validate; 56 = BSC mainnet (real funds)."),
+  poolFactory: z.string().optional().describe("PoolFactory override; defaults to ContractsRegistry lookup"),
+  deployer: z
+    .string()
+    .optional()
+    .describe("tx.origin that sends the deploy (needed for address prediction). Defaults to the signer address."),
+  daoName: z.string().min(1).describe("DAO name (also the deployGovPool pool name)"),
+  daoDescription: z.string().default("").describe("DAO description (markdown; uploaded to IPFS as slate)"),
+  websiteUrl: z.string().default("").describe("DAO website URL shown on its profile."),
+  socialLinks: z.array(z.tuple([z.string(), z.string()])).default([]).describe("[[network, url], ...]"),
+  documents: z
+    .array(
+      z.object({
+        name: z.string().describe("Link label shown on the DAO profile."),
+        url: z.string().describe("Document URL."),
+      }),
+    )
+    .default([])
+    .describe('External documents shown on the DAO profile, e.g. [{ name: "Whitepaper", url: "https://..." }]'),
+  avatarCID: z.string().default("").describe("IPFS CID of an already-pinned JPEG avatar (dexe_ipfs_upload_avatar)"),
+  avatarFileName: z.string().default("avatar.jpeg").describe("File name stored alongside avatarCID."),
+  avatarPath: z.string().default("").describe(
+    "Local avatar image path (JPEG/PNG/WebP/GIF ≤10 MB) — server validates + pins it. Preferred over avatarCID.",
+  ),
+  // ---- SIMPLE mode fields (used when `params` is omitted) ----
+  symbol: z.string().optional().describe("SIMPLE mode: gov token symbol (e.g. 'GENA'). Required when `params` is omitted."),
+  totalSupply: z
+    .string()
+    .optional()
+    .describe("SIMPLE mode: total token supply in WHOLE tokens (e.g. '1000000'). Required when `params` is omitted."),
+  treasuryPercent: z
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe(
+      `SIMPLE mode: treasury share, percent 0-100 (implicit remainder; it cannot vote). Omit and the tool ` +
+        `picks one that leaves a real voting margin (default ${SAFE_DEFAULT_TREASURY_PCT}).`,
+    ),
+  quorumPercent: z
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe(
+      `SIMPLE mode: quorum, percent 0-100. Omit and the tool picks (default ${SAFE_DEFAULT_QUORUM_PCT}). Must ` +
+        `be >=50 and clearable by at most ${QUORUM_TURNOUT_CEILING * 100}% turnout — a quorum equal to the ` +
+        `votable share freezes the DAO forever.`,
+    ),
+  voteModel: z
+    .enum(["LINEAR", "POLYNOMIAL"])
+    .default("LINEAR")
+    .describe("SIMPLE mode: vote-power model. LINEAR = 1 token = 1 vote (default). POLYNOMIAL = meritocratic curve."),
+  durationSeconds: z.number().int().positive().default(86400).describe("SIMPLE mode: voting duration. Default 86400 (1 day)."),
+  executionDelaySeconds: z.number().int().min(0).default(0).describe("SIMPLE mode: delay before execution. Default 0."),
+  minVotesTokens: z
+    .string()
+    .default("1")
+    .describe(
+      "SIMPLE mode: min tokens to vote AND create proposals, WHOLE tokens. Default '1'. Must be ≤ the largest holder's allocation.",
+    ),
+  recipients: z
+    .array(
+      z.object({
+        address: z.string().describe("Wallet receiving this slice of the supply."),
+        percent: z.number().gt(0).max(100).describe("Share of TOTAL supply, percent 0-100."),
+      }),
+    )
+    .default([])
+    .describe(
+      "SIMPLE mode: split the votable share across wallets (default: deployer only). Percents are of TOTAL " +
+        "supply and must sum to 100 − treasuryPercent.",
+    ),
+  earlyCompletion: z
+    .boolean()
+    .default(true)
+    .describe("SIMPLE mode: end voting as soon as the quorum is reached. Default true."),
+  // Published OPAQUE on purpose. The fully-expanded GovPoolDeployParams
+  // struct serializes to ~5 KB — 5% of the whole default-profile
+  // tools/list — for the mode this tool's own first sentence tells callers
+  // not to use. Validation is unchanged: the same schema runs in the
+  // handler (see the safeParse below), so per-field errors still name the
+  // offending path. The typed surface lives on dexe_dao_build_deploy.
+  params: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "ADVANCED mode: the full deployGovPool params struct. Prefer SIMPLE mode. Field-by-field schema: " +
+        "dexe_dao_build_deploy (needs DEXE_TOOLSETS=core,dev).",
+    ),
+  confirmRisky: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Proceed despite a governance-safety refusal. Read the returned `risks` to the user FIRST — such a " +
+        "config cannot be repaired after deploy, because repairing it needs a proposal passed under it. " +
+        "Ignored when DEXE_TREASURY_GUARD=block.",
+    ),
+  confirm: z
+    .boolean()
+    .default(false)
+    .describe(
+      "True to actually broadcast; without it SIMPLE mode and any mainnet deploy return a review-only " +
+        "preview. Pass it on the FIRST call when the user has already approved the deploy.",
+    ),
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Preview: no broadcast, no IPFS pin, no Pinata key needed. CIDs are right but unpinned — do NOT " +
+        "broadcast this calldata.",
+    ),
+  signerKey: signerKeyParam,
+  flowContext: flowContextSchema,
+};
+
+export type DaoCreateInput = z.infer<z.ZodObject<typeof DAO_CREATE_SHAPE>>;
+export type DaoCreateResult = ReturnType<typeof attachPairingQr>;
+
+/**
+ * What a preset adds on top of a dexe_dao_create deploy. Every field is
+ * optional; an empty object is dexe_dao_create itself.
+ */
+export interface DaoCreateExtras {
+  /** Tool name for attribution, error labels and the re-call hint. */
+  tool?: string;
+  /** Validators seated at deploy (deployGovPool validatorsParams). */
+  validatorsParams?: NonNullable<DeployParams["validatorsParams"]>;
+  /** Sets `durationValidators` on every settings slot (the validator round of a member proposal). */
+  durationValidatorsSeconds?: number;
+  /** Sets `quorumValidators` on every settings slot, percent. */
+  quorumValidatorsPercent?: number;
+  /** Merged into the pinned DAO metadata JSON (descriptionURL). */
+  metadataExtra?: Record<string, unknown>;
+  /** Extra top-level fields on the preview. */
+  previewExtra?: Record<string, unknown>;
+  /** Extra text appended to the preview's `next`. */
+  previewNextExtra?: string;
+  /** Extra top-level fields on the deploy result, given the predicted addresses. */
+  resultExtra?: (predicted: { govToken?: string; govPool?: string | null }) => Record<string, unknown>;
+}
+
+export type DaoCreateRunner = (input: DaoCreateInput, extras?: DaoCreateExtras) => Promise<DaoCreateResult>;
+
 export function registerDaoCreateTools(
   server: McpServer,
   ctx: WriteToolContext,
@@ -647,681 +799,599 @@ export function registerDaoCreateTools(
       "is refused with a classified cause + fix BEFORE any gas is spent, while an RPC outage only downgrades to " +
       "a warning. Mainnet (56) always needs `confirm: true` (real BNB); validate on testnet (97) first. " +
       "`deployer` defaults to the signer. Unsure of the journey or params? Call dexe_guide (flow:'create_dao').",
-    {
-      chainId: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Target chain id. Defaults to the MCP's default chain. Use 97 (BSC testnet) to validate; 56 = BSC mainnet (real funds)."),
-      poolFactory: z.string().optional().describe("PoolFactory override; defaults to ContractsRegistry lookup"),
-      deployer: z
-        .string()
-        .optional()
-        .describe("tx.origin that sends the deploy (needed for address prediction). Defaults to the signer address."),
-      daoName: z.string().min(1).describe("DAO name (also the deployGovPool pool name)"),
-      daoDescription: z.string().default("").describe("DAO description (markdown; uploaded to IPFS as slate)"),
-      websiteUrl: z.string().default("").describe("DAO website URL shown on its profile."),
-      socialLinks: z.array(z.tuple([z.string(), z.string()])).default([]).describe("[[network, url], ...]"),
-      documents: z
-        .array(
-          z.object({
-            name: z.string().describe("Link label shown on the DAO profile."),
-            url: z.string().describe("Document URL."),
-          }),
-        )
-        .default([])
-        .describe('External documents shown on the DAO profile, e.g. [{ name: "Whitepaper", url: "https://..." }]'),
-      avatarCID: z.string().default("").describe("IPFS CID of an already-pinned JPEG avatar (dexe_ipfs_upload_avatar)"),
-      avatarFileName: z.string().default("avatar.jpeg").describe("File name stored alongside avatarCID."),
-      avatarPath: z.string().default("").describe(
-        "Local avatar image path (JPEG/PNG/WebP/GIF ≤10 MB) — server validates + pins it. Preferred over avatarCID.",
-      ),
-      // ---- SIMPLE mode fields (used when `params` is omitted) ----
-      symbol: z.string().optional().describe("SIMPLE mode: gov token symbol (e.g. 'GENA'). Required when `params` is omitted."),
-      totalSupply: z
-        .string()
-        .optional()
-        .describe("SIMPLE mode: total token supply in WHOLE tokens (e.g. '1000000'). Required when `params` is omitted."),
-      treasuryPercent: z
-        .number()
-        .min(0)
-        .max(100)
-        .optional()
-        .describe(
-          `SIMPLE mode: treasury share, percent 0-100 (implicit remainder; it cannot vote). Omit and the tool ` +
-            `picks one that leaves a real voting margin (default ${SAFE_DEFAULT_TREASURY_PCT}).`,
-        ),
-      quorumPercent: z
-        .number()
-        .min(0)
-        .max(100)
-        .optional()
-        .describe(
-          `SIMPLE mode: quorum, percent 0-100. Omit and the tool picks (default ${SAFE_DEFAULT_QUORUM_PCT}). Must ` +
-            `be >=50 and clearable by at most ${QUORUM_TURNOUT_CEILING * 100}% turnout — a quorum equal to the ` +
-            `votable share freezes the DAO forever.`,
-        ),
-      voteModel: z
-        .enum(["LINEAR", "POLYNOMIAL"])
-        .default("LINEAR")
-        .describe("SIMPLE mode: vote-power model. LINEAR = 1 token = 1 vote (default). POLYNOMIAL = meritocratic curve."),
-      durationSeconds: z.number().int().positive().default(86400).describe("SIMPLE mode: voting duration. Default 86400 (1 day)."),
-      executionDelaySeconds: z.number().int().min(0).default(0).describe("SIMPLE mode: delay before execution. Default 0."),
-      minVotesTokens: z
-        .string()
-        .default("1")
-        .describe(
-          "SIMPLE mode: min tokens to vote AND create proposals, WHOLE tokens. Default '1'. Must be ≤ the largest holder's allocation.",
-        ),
-      recipients: z
-        .array(
-          z.object({
-            address: z.string().describe("Wallet receiving this slice of the supply."),
-            percent: z.number().gt(0).max(100).describe("Share of TOTAL supply, percent 0-100."),
-          }),
-        )
-        .default([])
-        .describe(
-          "SIMPLE mode: split the votable share across wallets (default: deployer only). Percents are of TOTAL " +
-            "supply and must sum to 100 − treasuryPercent.",
-        ),
-      earlyCompletion: z
-        .boolean()
-        .default(true)
-        .describe("SIMPLE mode: end voting as soon as the quorum is reached. Default true."),
-      // Published OPAQUE on purpose. The fully-expanded GovPoolDeployParams
-      // struct serializes to ~5 KB — 5% of the whole default-profile
-      // tools/list — for the mode this tool's own first sentence tells callers
-      // not to use. Validation is unchanged: the same schema runs in the
-      // handler (see the safeParse below), so per-field errors still name the
-      // offending path. The typed surface lives on dexe_dao_build_deploy.
-      params: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe(
-          "ADVANCED mode: the full deployGovPool params struct. Prefer SIMPLE mode. Field-by-field schema: " +
-            "dexe_dao_build_deploy (needs DEXE_TOOLSETS=core,dev).",
-        ),
-      confirmRisky: z
-        .boolean()
-        .default(false)
-        .describe(
-          "Proceed despite a governance-safety refusal. Read the returned `risks` to the user FIRST — such a " +
-            "config cannot be repaired after deploy, because repairing it needs a proposal passed under it. " +
-            "Ignored when DEXE_TREASURY_GUARD=block.",
-        ),
-      confirm: z
-        .boolean()
-        .default(false)
-        .describe(
-          "True to actually broadcast; without it SIMPLE mode and any mainnet deploy return a review-only " +
-            "preview. Pass it on the FIRST call when the user has already approved the deploy.",
-        ),
-      dryRun: z
-        .boolean()
-        .default(false)
-        .describe(
-          "Preview: no broadcast, no IPFS pin, no Pinata key needed. CIDs are right but unpinned — do NOT " +
-            "broadcast this calldata.",
-        ),
-      signerKey: signerKeyParam,
-      flowContext: flowContextSchema,
-    },
-    async (input) => {
-      const deployer =
-        input.deployer ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
-      if (!deployer) return err("Provide 'deployer' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
+    DAO_CREATE_SHAPE,
+    (input) => runDaoCreate(input),
+  );
 
-      const chain = resolveChain(ctx.config, input.chainId);
-      const chainId = chain.chainId;
-      const isMainnet = chainId === 56 || chainId === 1;
+  // The whole deploy pipeline, shared by dexe_dao_create and the presets built
+  // on it (dexe_agent_treasury_create). `extras` only ever ADDS to the deploy:
+  // with no extras the behaviour is exactly dexe_dao_create's.
+  async function runDaoCreate(input: DaoCreateInput, extras: DaoCreateExtras = {}): Promise<DaoCreateResult> {
+    const tool = extras.tool ?? "dexe_dao_create";
+    const deployer =
+      input.deployer ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
+    if (!deployer) return err("Provide 'deployer' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
 
-      // The posture in force for THIS call: off | warn | block. `block` turns
-      // every governance-safety advisory below into a refusal (see treasuryGate).
-      const guardMode = treasuryGuardMode({ configured: ctx.config.treasuryGuard });
-      const floorPct = ctx.config.minSafeQuorumPct;
+    const chain = resolveChain(ctx.config, input.chainId);
+    const chainId = chain.chainId;
+    const isMainnet = chainId === 56 || chainId === 1;
 
-      // ---------- resolve the deploy config: SIMPLE synthesis vs ADVANCED params ----------
-      const synthesized = !input.params;
-      let deployParams: DaoCreateParams;
-      let split: QuorumSplit = { treasuryPercent: 0, quorumPercent: 0, adjustments: [] };
-      if (input.params) {
-        // `params` is published opaquely (see the schema note) — re-apply the
-        // real struct here so validation, defaults and error paths are exactly
-        // what the typed schema produced before.
-        const parsed = DaoCreateDeployParams.safeParse(input.params);
-        if (!parsed.success) {
-          return err(
-            "ADVANCED `params` is not a valid GovPoolDeployParams struct: " +
-              parsed.error.issues
-                .map((i) => `params.${i.path.join(".") || "(root)"}: ${i.message}`)
-                .join("; ") +
-              ". Field-by-field schema: dexe_dao_build_deploy (set DEXE_TOOLSETS=core,dev). " +
-              "Or use SIMPLE mode: pass symbol + totalSupply and omit params.",
-          );
-        }
-        deployParams = parsed.data;
-      } else {
-        if (!input.symbol || !input.totalSupply) {
-          return err(
-            "SIMPLE mode needs `symbol` and `totalSupply` (whole tokens), or pass a full `params` struct (ADVANCED mode). " +
-              `Example: { daoName, symbol: 'GENA', totalSupply: '1000000' } → deployer gets ` +
-              `${100 - SAFE_DEFAULT_TREASURY_PCT}%, treasury ${SAFE_DEFAULT_TREASURY_PCT}% (implicit), ` +
-              `quorum ${SAFE_DEFAULT_QUORUM_PCT}%, LINEAR power.`,
-          );
-        }
-        // Omitted treasury/quorum are synthesized into a split that clears the
-        // turnout margin; an explicit pair is kept verbatim and judged below.
-        split = resolveQuorumSplit({
-          ...(input.treasuryPercent !== undefined ? { treasuryPercent: input.treasuryPercent } : {}),
-          ...(input.quorumPercent !== undefined ? { quorumPercent: input.quorumPercent } : {}),
-          floorPct,
-          voteModel: input.voteModel,
-        });
-        if (split.error) return err(`Could not synthesize a governable DAO config: ${split.error}`);
-        try {
-          deployParams = synthesizeParams(
-            {
-              daoName: input.daoName,
-              symbol: input.symbol,
-              totalSupply: input.totalSupply,
-              treasuryPercent: split.treasuryPercent,
-              quorumPercent: split.quorumPercent,
-              voteModel: input.voteModel,
-              durationSeconds: input.durationSeconds,
-              executionDelaySeconds: input.executionDelaySeconds,
-              minVotesTokens: input.minVotesTokens,
-              earlyCompletion: input.earlyCompletion,
-              ...(input.recipients.length > 0 ? { recipients: input.recipients } : {}),
-            },
-            deployer,
-          );
-        } catch (e) {
-          return err(`Could not synthesize DAO config: ${safeErrorMessage(e)}`);
-        }
+    // The posture in force for THIS call: off | warn | block. `block` turns
+    // every governance-safety advisory below into a refusal (see treasuryGate).
+    const guardMode = treasuryGuardMode({ configured: ctx.config.treasuryGuard });
+    const floorPct = ctx.config.minSafeQuorumPct;
+
+    // ---------- resolve the deploy config: SIMPLE synthesis vs ADVANCED params ----------
+    const synthesized = !input.params;
+    let deployParams: DaoCreateParams;
+    let split: QuorumSplit = { treasuryPercent: 0, quorumPercent: 0, adjustments: [] };
+    if (input.params) {
+      // `params` is published opaquely (see the schema note) — re-apply the
+      // real struct here so validation, defaults and error paths are exactly
+      // what the typed schema produced before.
+      const parsed = DaoCreateDeployParams.safeParse(input.params);
+      if (!parsed.success) {
+        return err(
+          "ADVANCED `params` is not a valid GovPoolDeployParams struct: " +
+            parsed.error.issues
+              .map((i) => `params.${i.path.join(".") || "(root)"}: ${i.message}`)
+              .join("; ") +
+            ". Field-by-field schema: dexe_dao_build_deploy (set DEXE_TOOLSETS=core,dev). " +
+            "Or use SIMPLE mode: pass symbol + totalSupply and omit params.",
+        );
       }
-
-      // ---------- fast preflight (predict-independent, fail before RPC/IPFS) ----------
-      // F2: this list must include every confirm-stage check that needs no
-      // prediction/RPC — preview and confirm must fail IDENTICALLY on the
-      // first call, or the preview's "config looks coherent" claim is wrong.
-      const isTokenCreation = deployParams.tokenParams.name.length > 0;
-      try {
-        assertPreflight([
-          checkDeployCap(deployParams.tokenParams.cap, deployParams.tokenParams.mintedTotal, isTokenCreation),
-          checkUserKeeperAsset(
-            deployParams.userKeeperParams.tokenAddress,
-            deployParams.userKeeperParams.nftAddress,
-            isTokenCreation,
-          ),
-          checkTreasuryRemainder(deployParams.tokenParams.mintedTotal, deployParams.tokenParams.amounts, isTokenCreation),
-          checkLinearInitData(deployParams.votePowerParams.voteType, deployParams.votePowerParams.initData),
-          checkCustomVotePower(
-            deployParams.votePowerParams.voteType,
-            deployParams.votePowerParams.initData,
-            deployParams.votePowerParams.presetAddress,
-          ),
-        ]);
-      } catch (e) {
-        return err(safeErrorMessage(e));
+      deployParams = parsed.data;
+    } else {
+      if (!input.symbol || !input.totalSupply) {
+        return err(
+          "SIMPLE mode needs `symbol` and `totalSupply` (whole tokens), or pass a full `params` struct (ADVANCED mode). " +
+            `Example: { daoName, symbol: 'GENA', totalSupply: '1000000' } → deployer gets ` +
+            `${100 - SAFE_DEFAULT_TREASURY_PCT}%, treasury ${SAFE_DEFAULT_TREASURY_PCT}% (implicit), ` +
+            `quorum ${SAFE_DEFAULT_QUORUM_PCT}%, LINEAR power.`,
+        );
       }
-
-      // ---------- EVERY settings slot, not just [0] ----------
-      // deployGovPool takes five settings entries (default / internal /
-      // validators / distributionProposal / tokenSale). A slot whose quorum
-      // exceeds the votable supply, whose min-votes exceed every holder, or
-      // whose duration is 0 makes that entire class of proposal impossible —
-      // and it can never be repaired, because repairing it needs a proposal.
-      const slotVerdict = checkAllProposalSettings({
-        proposalSettings: deployParams.settingsParams.proposalSettings,
-        amounts: deployParams.tokenParams.amounts,
-        mintedTotal: deployParams.tokenParams.mintedTotal,
-        voteType: deployParams.votePowerParams.voteType,
-        isTokenCreation,
+      // Omitted treasury/quorum are synthesized into a split that clears the
+      // turnout margin; an explicit pair is kept verbatim and judged below.
+      split = resolveQuorumSplit({
+        ...(input.treasuryPercent !== undefined ? { treasuryPercent: input.treasuryPercent } : {}),
+        ...(input.quorumPercent !== undefined ? { quorumPercent: input.quorumPercent } : {}),
         floorPct,
+        voteModel: input.voteModel,
       });
-      // Advisories (not the hard issues) honour the `off` opt-out, exactly as
-      // the quorum-floor advisory does in dexe_dao_build_deploy.
-      const settingsAdvisories = guardMode === "off" ? [] : slotVerdict.advisories;
-      const hardSlotIssues = slotVerdict.issues.filter((i) => i.check !== "deploy.quorum-margin");
-      if (hardSlotIssues.length > 0) {
-        return err(
-          `This DAO would be un-governable — ${hardSlotIssues.length} settings slot ` +
-            `${hardSlotIssues.length === 1 ? "issue" : "issues"} (of ` +
-            `${deployParams.settingsParams.proposalSettings.length} supplied; deployGovPool expands 1 → 5):\n` +
-            `${formatSettingsSlotIssues(hardSlotIssues)}`,
-        );
-      }
-
-      // ---------- safety proof (reachability is the hard rule) ----------
-      const proof = computeSafetyProof(deployParams);
-      if (!proof.feasible) {
-        return err(
-          `This DAO would be governance-dead: ${proof.message} ` +
-            (synthesized
-              ? `Adjust so quorumPercent ≤ ${Math.floor(proof.reachablePct)} (the votable share) while staying ≥${floorPct}, ` +
-                `or lower treasuryPercent to ≤${proof.minVotablePct === 100 ? 0 : Math.floor(100 - proof.minVotablePct)}.`
-              : ""),
-        );
-      }
-
-      // ---------- governance-safety gate: BEFORE the irreversible act ----------
-      // A DAO's quorum cannot be repaired after deploy — repairing it requires
-      // passing a proposal under the quorum being repaired. So both risks below
-      // are delivered BEFORE anything is signed, on EVERY path (preview,
-      // dryRun, and the one-call confirm:true path where no preview is shown).
-      // Default posture stays advisory: confirmRisky:true proceeds. Under
-      // DEXE_TREASURY_GUARD=block the gate refuses and confirmRisky is ignored.
-      const risks: string[] = [];
-      if (!proof.marginOk && proof.marginMessage) risks.push(proof.marginMessage);
-      if (!proof.floorOk) {
-        risks.push(
-          `quorum ${Number.isFinite(proof.quorumPct) ? `${proof.quorumPct}%` : "unparseable"} is below the ` +
-            `${floorPct}% treasury-safety floor — a low quorum lets a small group pass proposals, including ` +
-            `ones that drain the treasury. ${floorPct + 1}%+ recommended.`,
-        );
-      }
-      if (risks.length > 0) {
-        const gate = treasuryGate({
-          mode: guardMode,
-          stage: "deploy",
-          reasons: risks,
-          act: `DAO '${input.daoName}' on chain ${chainId}`,
-        });
-        if (gate.blocked) return err(gate.refusal ?? "refused by the treasury guard");
-        if (!input.confirmRisky && guardMode !== "off") {
-          return ok({
-            mode: "blocked-risky",
-            action: "acknowledge-then-re-run",
-            chainId,
+      if (split.error) return err(`Could not synthesize a governable DAO config: ${split.error}`);
+      try {
+        deployParams = synthesizeParams(
+          {
             daoName: input.daoName,
-            risks,
-            ...(settingsAdvisories.length ? { settingsAdvisories } : {}),
-            resolvedQuorumPercent: proof.quorumPct,
-            votablePercent: proof.votablePct,
-            requiredTurnoutPercent: proof.requiredTurnoutPct,
-            safeAlternatives: {
-              maxQuorumPercentForThisDistribution: proof.maxQuorumPct,
-              minVotablePercentForThisQuorum: proof.minVotablePct,
-              ...(synthesized
-                ? { suggestion: `omit treasuryPercent/quorumPercent to get a governable ${SAFE_DEFAULT_TREASURY_PCT}/${SAFE_DEFAULT_QUORUM_PCT} split` }
-                : {}),
-            },
-            next:
-              "NOTHING was broadcast. Read the risks to the user — a DAO cannot fix its own quorum, since fixing " +
-              "it requires passing a proposal under that quorum. To deploy anyway, re-run the SAME call with " +
-              "confirmRisky:true (plus confirm:true to broadcast).",
-          });
-        }
-      }
-
-      // ---------- confirm gate: preview before broadcasting ----------
-      const willBroadcast = !input.dryRun && signer.hasSigner(input.signerKey);
-      const needsConfirm = willBroadcast && !input.confirm && (synthesized || isMainnet);
-      if (needsConfirm) {
-        const t = deployParams.tokenParams;
-        let signerId: { signerKey: string; address: string } | undefined;
-        try {
-          if (signer.hasSigner(input.signerKey)) signerId = signer.describeSigner?.(input.signerKey);
-        } catch {
-          /* naming the payer must never fail a preview */
-        }
-        const payer = signerId?.address ?? deployer;
-        const cost = await probeDeployCost(rpc, chainId, payer);
-        const supplyTokens = formatUnits(t.mintedTotal || "0", 18);
-        const treasuryWei = BigInt(t.mintedTotal || "0") - t.amounts.reduce((a, b) => a + BigInt(b || "0"), 0n);
-        const warnings: string[] =
-          guardMode === "off" ? [] : [...risks.map((r) => `⚠️ ${r} [advisory]`), ...settingsAdvisories];
-        if (isMainnet) warnings.push("⚠️ MAINNET (chain " + chainId + ") — this will spend real BNB.");
-        return ok({
-          mode: "preview",
-          action: "review-then-confirm",
-          chainId,
-          mainnet: isMainnet,
-          daoName: input.daoName,
-          resolvedConfig: {
-            voteModel: deployParams.votePowerParams.voteType === "POLYNOMIAL_VOTES" ? "POLYNOMIAL" : "LINEAR",
-            symbol: t.symbol,
-            totalSupply: supplyTokens,
-            distribution: {
-              recipients: t.users.map((u, i) => ({
-                address: u,
-                tokens: formatUnits(t.amounts[i] ?? "0", 18),
-                percent: proof.supply !== "0" ? Number((BigInt(t.amounts[i] ?? "0") * 10000n) / BigInt(proof.supply)) / 100 : 0,
-                role:
-                  u.toLowerCase() === payer.toLowerCase()
-                    ? "this signer (pays the gas)"
-                    : u.toLowerCase() === deployer.toLowerCase()
-                      ? "deployer"
-                      : "recipient",
-              })),
-              treasury: {
-                tokens: formatUnits(treasuryWei.toString(), 18),
-                percent: 100 - proof.votablePct,
-                note: "implicit remainder held by the DAO — cannot vote",
-              },
-            },
-            quorumPercent: proof.quorumPct,
-            durationSeconds: Number(deployParams.settingsParams.proposalSettings[0]?.duration ?? "0"),
-            executionDelaySeconds: Number(deployParams.settingsParams.proposalSettings[0]?.executionDelay ?? "0"),
-          },
-          safetyProof: {
-            votablePercent: proof.votablePct,
-            quorumPercent: proof.quorumPct,
-            quorumReachable: proof.reachable,
-            maxReachableQuorumPercent: proof.reachablePct,
-            treasuryFloorOk: proof.floorOk,
-            requiredTurnoutPercent: proof.requiredTurnoutPct,
-            turnoutMarginOk: proof.marginOk,
-            maxQuorumPercentWithMargin: proof.maxQuorumPct,
-            settingsSlotsChecked: slotVerdict.slots.length,
-            settingsSlots: settingsSlotsBlock(slotVerdict.slots.length),
+            symbol: input.symbol,
+            totalSupply: input.totalSupply,
+            treasuryPercent: split.treasuryPercent,
+            quorumPercent: split.quorumPercent,
+            voteModel: input.voteModel,
+            durationSeconds: input.durationSeconds,
+            executionDelaySeconds: input.executionDelaySeconds,
+            minVotesTokens: input.minVotesTokens,
+            earlyCompletion: input.earlyCompletion,
+            ...(input.recipients.length > 0 ? { recipients: input.recipients } : {}),
           },
           deployer,
-          ...(signerId ? { signer: signerId } : {}),
-          gasPaidBy: payer,
-          ...(cost ? { cost } : {
-            costNote:
-              "gas price unavailable (RPC unreachable or slow) — cost not estimated; the deploy itself is unaffected",
-          }),
-          ...previewBlock({
-            chainId,
-            act:
-              `Deploys the DAO "${input.daoName}" on chain ${chainId}: a new GovPool with its own ERC20 ` +
-              `(${t.symbol}, ${supplyTokens} minted), UserKeeper, Settings and Validators contracts, ` +
-              `quorum ${proof.quorumPct}% of the ${proof.votablePct}% votable supply.`,
-            ...(signerId ? { who: signerId } : {}),
-            txCount: 1,
-            irreversible: DEPLOY_PERMANENCE,
-            broadcast: false,
-          }),
-          defaults: deployDefaults(deployParams, synthesized),
-          permanence: DEPLOY_PERMANENCE,
-          ...(split.adjustments.length ? { adjustments: split.adjustments } : {}),
-          ...(warnings.length ? { warnings } : {}),
-          next:
-            `${DEPLOY_PERMANENCE} Config looks coherent. Re-call dexe_dao_create with the SAME arguments plus ` +
-            `confirm:true to broadcast` +
-            (isMainnet ? " on MAINNET (spends real BNB). To validate first, set chainId:97 (testnet)." : "."),
-          ...flowChainFields(input.flowContext, state, { chainId }, { landed: false }),
-        });
-      }
-
-      // ---------- build + upload DAO profile metadata ----------
-      // The FIRST real pin happens below — which is why the Pinata key is
-      // demanded here and not at the top of the handler. Everything above
-      // (SIMPLE synthesis, the settings-slot guard, the safety proof, the
-      // quorum/treasury gate, the review preview) writes nothing, so a
-      // zero-config user gets all of it without an IPFS key.
-      const pin = pinataForWrites(
-        ctx.config.pinataJwt,
-        input.dryRun,
-        "to BROADCAST a DAO deploy — the preview and dryRun above need no Pinata key",
-      );
-      if ("error" in pin) return err(pin.error);
-      const pinata = pin.ok;
-
-      // dryRun must stay side-effect-free: compute the CIDs locally and pin
-      // nothing. The local CIDs are byte-identical to what a real pin returns
-      // (see pinataCidForJson), so the preview calldata is the real calldata —
-      // only the content is not on IPFS yet.
-      const ipfsArtifacts: IpfsArtifact[] = [];
-      let descriptionRef = "";
-      if (input.daoDescription && input.daoDescription.length > 0) {
-        const descSlate = markdownToSlate(input.daoDescription);
-        const r = await pinJsonOrPreview(descSlate, {
-          dryRun: input.dryRun,
-          pinata,
-          name: `dao-desc:${input.daoName.slice(0, 30)}`,
-        });
-        descriptionRef = r.uri;
-        ipfsArtifacts.push({ field: "daoDescription", uri: r.uri, pinned: r.pinned, exact: r.exact });
-      }
-      const daoMeta: Record<string, unknown> = {
-        daoName: input.daoName,
-        websiteUrl: input.websiteUrl,
-        description: descriptionRef,
-        socialLinks: input.socialLinks,
-        documents: input.documents,
-      };
-      if (input.avatarPath && input.avatarCID) {
-        return err("Pass either `avatarCID` or `avatarPath`, not both.");
-      }
-      if (input.avatarPath) {
-        // One-call path: read + validate (magic bytes) + pin server-side.
-        //
-        // Under dryRun the read and the magic-byte gate STILL run — only the
-        // upload is skipped. Before 0.34.0 the preview skipped the whole step,
-        // so a missing path / oversized file / SVG impostor sailed through the
-        // preview and blew up on the broadcast call. No CID is synthesized:
-        // Pinata wraps the image in a directory, so any locally derived CID
-        // would yield an `avatarUrl` that can never resolve.
-        try {
-          if (input.dryRun || !pinata) {
-            const preview = await previewAvatarFromInput({ filePath: input.avatarPath });
-            daoMeta.avatarFileName = preview.avatarFileName;
-          } else {
-            const pinned = await pinAvatarFromInput({ filePath: input.avatarPath, pinata });
-            daoMeta.avatarCID = pinned.avatarCID;
-            daoMeta.avatarFileName = pinned.avatarFileName;
-            daoMeta.avatarUrl = pinned.avatarUrl;
-          }
-        } catch (e) {
-          return err(safeErrorMessage(e));
-        }
-      } else if (input.avatarCID) {
-        // avatarCID arrives by reference — the upload tools validate their own
-        // bytes, but nothing forces the caller to have used them. Best-effort
-        // fetch + sniff; hard-block only on confirmed non-raster bytes (an SVG
-        // here becomes a permanently broken avatar on app.dexe.io).
-        const avatarCidV1 = toCidV1(input.avatarCID);
-        const avatarCheck = await checkAvatarCidBytes(avatarCidV1, input.avatarFileName, resolveGateways(ctx));
-        if (!avatarCheck.ok) {
-          return err(avatarCheck.error ?? "avatarCID failed raster validation");
-        }
-        daoMeta.avatarCID = avatarCidV1;
-        daoMeta.avatarFileName = input.avatarFileName;
-        daoMeta.avatarUrl = buildAvatarUrl(avatarCidV1, input.avatarFileName);
-      }
-      let descriptionURL: string;
-      try {
-        const r = await pinJsonOrPreview(daoMeta, {
-          dryRun: input.dryRun,
-          pinata,
-          name: `dao-meta:${input.daoName.slice(0, 30)}`,
-        });
-        descriptionURL = r.uri;
-        ipfsArtifacts.push({ field: "descriptionURL", uri: r.uri, pinned: r.pinned, exact: r.exact });
+        );
       } catch (e) {
-        return err(`Failed to upload DAO metadata to IPFS: ${safeErrorMessage(e)}`);
+        return err(`Could not synthesize DAO config: ${safeErrorMessage(e)}`);
       }
-
-      // ---------- build the deploy tx (shared with dexe_dao_build_deploy) ----------
-      const res = await buildDeployGovPool(
-        {
-          chainId: input.chainId,
-          poolFactory: input.poolFactory,
-          deployer,
-          params: { ...deployParams, descriptionURL, name: input.daoName },
-          dryRun: input.dryRun,
+    }
+    if (
+      extras.validatorsParams ||
+      extras.durationValidatorsSeconds !== undefined ||
+      extras.quorumValidatorsPercent !== undefined
+    ) {
+      const qv =
+        extras.quorumValidatorsPercent !== undefined
+          ? ((BigInt(Math.round(extras.quorumValidatorsPercent * 1_000_000)) * PCT_25DEC) / 1_000_000n).toString()
+          : undefined;
+      deployParams = {
+        ...deployParams,
+        settingsParams: {
+          ...deployParams.settingsParams,
+          proposalSettings: deployParams.settingsParams.proposalSettings.map((ps) => ({
+            ...ps,
+            ...(extras.durationValidatorsSeconds !== undefined
+              ? { durationValidators: String(extras.durationValidatorsSeconds) }
+              : {}),
+            ...(qv !== undefined ? { quorumValidators: qv } : {}),
+          })),
         },
-        ctx,
-        rpc,
+        ...(extras.validatorsParams ? { validatorsParams: extras.validatorsParams } : {}),
+      };
+    }
+
+    // ---------- fast preflight (predict-independent, fail before RPC/IPFS) ----------
+    // F2: this list must include every confirm-stage check that needs no
+    // prediction/RPC — preview and confirm must fail IDENTICALLY on the
+    // first call, or the preview's "config looks coherent" claim is wrong.
+    const isTokenCreation = deployParams.tokenParams.name.length > 0;
+    try {
+      assertPreflight([
+        checkDeployCap(deployParams.tokenParams.cap, deployParams.tokenParams.mintedTotal, isTokenCreation),
+        checkUserKeeperAsset(
+          deployParams.userKeeperParams.tokenAddress,
+          deployParams.userKeeperParams.nftAddress,
+          isTokenCreation,
+        ),
+        checkTreasuryRemainder(deployParams.tokenParams.mintedTotal, deployParams.tokenParams.amounts, isTokenCreation),
+        checkLinearInitData(deployParams.votePowerParams.voteType, deployParams.votePowerParams.initData),
+        checkCustomVotePower(
+          deployParams.votePowerParams.voteType,
+          deployParams.votePowerParams.initData,
+          deployParams.votePowerParams.presetAddress,
+        ),
+      ]);
+    } catch (e) {
+      return err(safeErrorMessage(e));
+    }
+
+    // ---------- EVERY settings slot, not just [0] ----------
+    // deployGovPool takes five settings entries (default / internal /
+    // validators / distributionProposal / tokenSale). A slot whose quorum
+    // exceeds the votable supply, whose min-votes exceed every holder, or
+    // whose duration is 0 makes that entire class of proposal impossible —
+    // and it can never be repaired, because repairing it needs a proposal.
+    const slotVerdict = checkAllProposalSettings({
+      proposalSettings: deployParams.settingsParams.proposalSettings,
+      amounts: deployParams.tokenParams.amounts,
+      mintedTotal: deployParams.tokenParams.mintedTotal,
+      voteType: deployParams.votePowerParams.voteType,
+      isTokenCreation,
+      floorPct,
+    });
+    // Advisories (not the hard issues) honour the `off` opt-out, exactly as
+    // the quorum-floor advisory does in dexe_dao_build_deploy.
+    const settingsAdvisories = guardMode === "off" ? [] : slotVerdict.advisories;
+    const hardSlotIssues = slotVerdict.issues.filter((i) => i.check !== "deploy.quorum-margin");
+    if (hardSlotIssues.length > 0) {
+      return err(
+        `This DAO would be un-governable — ${hardSlotIssues.length} settings slot ` +
+          `${hardSlotIssues.length === 1 ? "issue" : "issues"} (of ` +
+          `${deployParams.settingsParams.proposalSettings.length} supplied; deployGovPool expands 1 → 5):\n` +
+          `${formatSettingsSlotIssues(hardSlotIssues)}`,
       );
-      if (!res.ok) return err(res.error);
-      for (const e of res.executorDescriptions) {
-        ipfsArtifacts.push({ field: `executorDescription[${e.label}]`, uri: e.uri, pinned: e.pinned, exact: e.exact });
-      }
+    }
 
-      // ---------- pre-sign simulation (the one on-chain check) ----------
-      // The deploy is a single independent payload, so eth_call against live
-      // state proves the exact calldata would not revert BEFORE the wallet
-      // signs. Genuine revert → refuse (fail-closed). RPC transport failure →
-      // proceed with a warning (fail-open) — an infra hiccup must not wedge a
-      // valid deploy. sendOrCollect's blanket B9 skip stays (composites are
-      // dependent sequences; this deploy is not).
-      let simSummary = "";
-      if (willBroadcast) {
-        const verdict = await simulateDeployGovPool({
-          to: res.payload.to,
-          data: res.payload.data,
-          deployer,
-          chainId,
-          config: ctx.config,
-        });
-        if (verdict.status === "reverted") {
-          return err(`Deploy refused — ${verdict.summary}`);
-        }
-        simSummary = verdict.summary;
-      }
+    // ---------- safety proof (reachability is the hard rule) ----------
+    const proof = computeSafetyProof(deployParams);
+    if (!proof.feasible) {
+      return err(
+        `This DAO would be governance-dead: ${proof.message} ` +
+          (synthesized
+            ? `Adjust so quorumPercent ≤ ${Math.floor(proof.reachablePct)} (the votable share) while staying ≥${floorPct}, ` +
+              `or lower treasuryPercent to ≤${proof.minVotablePct === 100 ? 0 : Math.floor(100 - proof.minVotablePct)}.`
+            : ""),
+      );
+    }
 
-      // ---------- send or collect ----------
-      let result;
-      try {
-        result = await sendOrCollect(signer, [res.payload], {
-          dryRun: input.dryRun,
+    // ---------- governance-safety gate: BEFORE the irreversible act ----------
+    // A DAO's quorum cannot be repaired after deploy — repairing it requires
+    // passing a proposal under the quorum being repaired. So both risks below
+    // are delivered BEFORE anything is signed, on EVERY path (preview,
+    // dryRun, and the one-call confirm:true path where no preview is shown).
+    // Default posture stays advisory: confirmRisky:true proceeds. Under
+    // DEXE_TREASURY_GUARD=block the gate refuses and confirmRisky is ignored.
+    const risks: string[] = [];
+    if (!proof.marginOk && proof.marginMessage) risks.push(proof.marginMessage);
+    if (!proof.floorOk) {
+      risks.push(
+        `quorum ${Number.isFinite(proof.quorumPct) ? `${proof.quorumPct}%` : "unparseable"} is below the ` +
+          `${floorPct}% treasury-safety floor — a low quorum lets a small group pass proposals, including ` +
+          `ones that drain the treasury. ${floorPct + 1}%+ recommended.`,
+      );
+    }
+    if (risks.length > 0) {
+      const gate = treasuryGate({
+        mode: guardMode,
+        stage: "deploy",
+        reasons: risks,
+        act: `DAO '${input.daoName}' on chain ${chainId}`,
+      });
+      if (gate.blocked) return err(gate.refusal ?? "refused by the treasury guard");
+      if (!input.confirmRisky && guardMode !== "off") {
+        return ok({
+          mode: "blocked-risky",
+          action: "acknowledge-then-re-run",
           chainId,
-          wc,
-          signerKey: input.signerKey,
-          // Attribution: a fleet that deploys DAOs under different personas must
-          // be answerable for which persona deployed which pool.
-          tool: "dexe_dao_create",
-          // A deploy has no approve/deposit/create/vote legs, so the shared
-          // proposal-flow resume text was four facts about steps that do not
-          // exist in this call.
-          resumeRechecks: DEPLOY_RESUME_RECHECKS,
-        });
-      } catch (e) {
-        // The deploy broadcast is a write: no gas / nonce clash / RPC stall all
-        // land here, and each has a different next step. Classify rather than
-        // handing back the ethers dump.
-        if (e instanceof ApprovalHaltError) throw e; // awaiting_approval / declined — rendered by the approval scope
-        return err(toActionableError(e, "dexe_dao_create deploy broadcast").message);
-      }
-      if (result.mode === "failed") {
-        // R3/R7: a mined-but-reverted (or timed-out) deploy must not read as
-        // success — and must never be recorded as a known DAO. Layer the deploy
-        // revert knowledge base over the raw failure so the caller gets
-        // cause + fix, not just an ethers dump.
-        const kb = mapDeployRevert(result.failure?.error);
-        return flowFailureResult(result, {
           daoName: input.daoName,
-          chainId,
-          ...(result.signer ? { signer: result.signer } : {}),
-          predictedGovPool: res.predictedGovPool ?? null,
-          ...(kb.known ? { knownCause: { slug: kb.slug, cause: kb.cause, fix: kb.fix } } : {}),
-        });
-      }
-
-      // Phase 3: record the deployed DAO so dexe_context surfaces it next
-      // session. Best-effort — never fail the deploy on a state-write error.
-      if (result.mode === "executed" && state && res.predictedGovPool) {
-        try {
-          const txHash = [...result.steps].reverse().find((s) => s.txHash)?.txHash;
-          state.recordDao({
-            name: input.daoName,
-            govPool: res.predictedGovPool,
-            chainId,
-            token: res.predicted.govToken,
-            // Not readable back from the pool — recorded so the OTC tools can
-            // default `tokenSaleProposal` for this DAO in a later session.
-            tokenSaleProposal: res.predicted.govTokenSale,
-            distributionProposal: res.predicted.distributionProposal,
-            txHash,
-            deployedAt: new Date().toISOString(),
-          });
-        } catch {
-          /* ignore */
-        }
-      }
-
-      // ---------- post-deploy readiness probe (best-effort) ----------
-      // Confirm the pool actually exists at the predicted address, and hand
-      // the caller the safe first-proposal path (bug #35: fresh pools reject
-      // the multicall(deposit,create) pattern — dexe_proposal_create already
-      // sends approve→deposit→createProposalAndVote as separate txs).
-      let readiness: { govPoolLive: boolean; note?: string } | undefined;
-      let nextSteps: string | undefined;
-      if (result.mode === "executed" && res.predictedGovPool) {
-        try {
-          const pr = rpc.tryProvider(chainId);
-          if (!("error" in pr)) {
-            // The probe can race the RPC node right after broadcast (receipt
-            // seen, state read still lags — public BSC testnet endpoints are
-            // load-balanced and can lag 10s+). Retry before reporting dead,
-            // and never claim "dead" outright — only "not confirmed yet".
-            for (let attempt = 0; attempt < 6; attempt++) {
-              const code = await pr.ok.getCode(res.predictedGovPool);
-              readiness = { govPoolLive: code !== "0x" };
-              if (readiness.govPoolLive) break;
-              await new Promise((r) => setTimeout(r, 3000));
-            }
-            if (readiness && !readiness.govPoolLive) {
-              readiness.note =
-                "code not visible yet on the RPC endpoint — on load-balanced public RPCs this is usually read-lag, " +
-                "not a failed deploy (the deploy tx DID land). Re-check in ~30s with dexe_dao_info.";
-            }
-          }
-        } catch {
-          /* best-effort — never fail a landed deploy on a read error */
-        }
-        nextSteps =
-          `DAO is live at ${res.predictedGovPool}. First proposal: use dexe_proposal_create — it runs ` +
-          "approve→deposit→createProposalAndVote as separate transactions (fresh pools reject the bundled " +
-          "multicall pattern). If the first create reverts 'low creating power', re-run the same call — " +
-          "the flow resumes from the deposit.";
-      }
-
-      return attachPairingQr(ok({
-        mode: result.mode,
-        daoName: input.daoName,
-        chainId,
-        deployer,
-        descriptionURL,
-        ...ipfsPreviewBlock(ipfsArtifacts),
-        predictedGovPool: res.predictedGovPool ?? null,
-        predicted: res.predicted,
-        note: simSummary ? `${res.note}\n${simSummary}` : res.note,
-        // What the tool decided for the caller, and what it warned about — the
-        // one-call path (confirm:true, no preview) shows no other copy of these.
-        ...(split.adjustments.length ? { adjustments: split.adjustments } : {}),
-        ...(settingsAdvisories.length ? { advisories: settingsAdvisories } : {}),
-        governance: {
-          quorumPercent: proof.quorumPct,
+          risks,
+          ...(settingsAdvisories.length ? { settingsAdvisories } : {}),
+          resolvedQuorumPercent: proof.quorumPct,
           votablePercent: proof.votablePct,
           requiredTurnoutPercent: proof.requiredTurnoutPct,
+          safeAlternatives: {
+            maxQuorumPercentForThisDistribution: proof.maxQuorumPct,
+            minVotablePercentForThisQuorum: proof.minVotablePct,
+            ...(synthesized
+              ? { suggestion: `omit treasuryPercent/quorumPercent to get a governable ${SAFE_DEFAULT_TREASURY_PCT}/${SAFE_DEFAULT_QUORUM_PCT} split` }
+              : {}),
+          },
+          next:
+            "NOTHING was broadcast. Read the risks to the user — a DAO cannot fix its own quorum, since fixing " +
+            "it requires passing a proposal under that quorum. To deploy anyway, re-run the SAME call with " +
+            "confirmRisky:true (plus confirm:true to broadcast).",
+        });
+      }
+    }
+
+    // ---------- confirm gate: preview before broadcasting ----------
+    const willBroadcast = !input.dryRun && signer.hasSigner(input.signerKey);
+    const needsConfirm = willBroadcast && !input.confirm && (synthesized || isMainnet);
+    if (needsConfirm) {
+      const t = deployParams.tokenParams;
+      let signerId: { signerKey: string; address: string } | undefined;
+      try {
+        if (signer.hasSigner(input.signerKey)) signerId = signer.describeSigner?.(input.signerKey);
+      } catch {
+        /* naming the payer must never fail a preview */
+      }
+      const payer = signerId?.address ?? deployer;
+      const cost = await probeDeployCost(rpc, chainId, payer);
+      const supplyTokens = formatUnits(t.mintedTotal || "0", 18);
+      const treasuryWei = BigInt(t.mintedTotal || "0") - t.amounts.reduce((a, b) => a + BigInt(b || "0"), 0n);
+      const warnings: string[] =
+        guardMode === "off" ? [] : [...risks.map((r) => `⚠️ ${r} [advisory]`), ...settingsAdvisories];
+      if (isMainnet) warnings.push("⚠️ MAINNET (chain " + chainId + ") — this will spend real BNB.");
+      return ok({
+        mode: "preview",
+        action: "review-then-confirm",
+        chainId,
+        mainnet: isMainnet,
+        daoName: input.daoName,
+        ...(extras.previewExtra ?? {}),
+        resolvedConfig: {
+          voteModel: deployParams.votePowerParams.voteType === "POLYNOMIAL_VOTES" ? "POLYNOMIAL" : "LINEAR",
+          symbol: t.symbol,
+          totalSupply: supplyTokens,
+          distribution: {
+            recipients: t.users.map((u, i) => ({
+              address: u,
+              tokens: formatUnits(t.amounts[i] ?? "0", 18),
+              percent: proof.supply !== "0" ? Number((BigInt(t.amounts[i] ?? "0") * 10000n) / BigInt(proof.supply)) / 100 : 0,
+              role:
+                u.toLowerCase() === payer.toLowerCase()
+                  ? "this signer (pays the gas)"
+                  : u.toLowerCase() === deployer.toLowerCase()
+                    ? "deployer"
+                    : "recipient",
+            })),
+            treasury: {
+              tokens: formatUnits(treasuryWei.toString(), 18),
+              percent: 100 - proof.votablePct,
+              note: "implicit remainder held by the DAO — cannot vote",
+            },
+          },
+          quorumPercent: proof.quorumPct,
+          durationSeconds: Number(deployParams.settingsParams.proposalSettings[0]?.duration ?? "0"),
+          executionDelaySeconds: Number(deployParams.settingsParams.proposalSettings[0]?.executionDelay ?? "0"),
+        },
+        safetyProof: {
+          votablePercent: proof.votablePct,
+          quorumPercent: proof.quorumPct,
+          quorumReachable: proof.reachable,
+          maxReachableQuorumPercent: proof.reachablePct,
+          treasuryFloorOk: proof.floorOk,
+          requiredTurnoutPercent: proof.requiredTurnoutPct,
+          turnoutMarginOk: proof.marginOk,
+          maxQuorumPercentWithMargin: proof.maxQuorumPct,
           settingsSlotsChecked: slotVerdict.slots.length,
           settingsSlots: settingsSlotsBlock(slotVerdict.slots.length),
         },
-        // The one-call path (confirm:true, no preview round-trip) is where most
-        // agents land, and it never saw any of this.
+        deployer,
+        ...(signerId ? { signer: signerId } : {}),
+        gasPaidBy: payer,
+        ...(cost ? { cost } : {
+          costNote:
+            "gas price unavailable (RPC unreachable or slow) — cost not estimated; the deploy itself is unaffected",
+        }),
         ...previewBlock({
           chainId,
           act:
             `Deploys the DAO "${input.daoName}" on chain ${chainId}: a new GovPool with its own ERC20 ` +
-            `(${deployParams.tokenParams.symbol}), UserKeeper, Settings and Validators contracts, ` +
+            `(${t.symbol}, ${supplyTokens} minted), UserKeeper, Settings and Validators contracts, ` +
             `quorum ${proof.quorumPct}% of the ${proof.votablePct}% votable supply.`,
-          ...(result.signer ? { who: result.signer } : {}),
+          ...(signerId ? { who: signerId } : {}),
           txCount: 1,
           irreversible: DEPLOY_PERMANENCE,
-          broadcast: result.mode === "executed",
+          broadcast: false,
         }),
         defaults: deployDefaults(deployParams, synthesized),
         permanence: DEPLOY_PERMANENCE,
-        steps: result.steps,
+        ...(split.adjustments.length ? { adjustments: split.adjustments } : {}),
+        ...(warnings.length ? { warnings } : {}),
+        next:
+          `${DEPLOY_PERMANENCE} Config looks coherent. Re-call ${tool} with the SAME arguments plus ` +
+          `confirm:true to broadcast` +
+          (isMainnet ? " on MAINNET (spends real BNB). To validate first, set chainId:97 (testnet)." : ".") +
+          (extras.previewNextExtra ? ` ${extras.previewNextExtra}` : ""),
+        ...flowChainFields(input.flowContext, state, { chainId }, { landed: false }),
+      });
+    }
+
+    // ---------- build + upload DAO profile metadata ----------
+    // The FIRST real pin happens below — which is why the Pinata key is
+    // demanded here and not at the top of the handler. Everything above
+    // (SIMPLE synthesis, the settings-slot guard, the safety proof, the
+    // quorum/treasury gate, the review preview) writes nothing, so a
+    // zero-config user gets all of it without an IPFS key.
+    const pin = pinataForWrites(
+      ctx.config.pinataJwt,
+      input.dryRun,
+      "to BROADCAST a DAO deploy — the preview and dryRun above need no Pinata key",
+    );
+    if ("error" in pin) return err(pin.error);
+    const pinata = pin.ok;
+
+    // dryRun must stay side-effect-free: compute the CIDs locally and pin
+    // nothing. The local CIDs are byte-identical to what a real pin returns
+    // (see pinataCidForJson), so the preview calldata is the real calldata —
+    // only the content is not on IPFS yet.
+    const ipfsArtifacts: IpfsArtifact[] = [];
+    let descriptionRef = "";
+    if (input.daoDescription && input.daoDescription.length > 0) {
+      const descSlate = markdownToSlate(input.daoDescription);
+      const r = await pinJsonOrPreview(descSlate, {
+        dryRun: input.dryRun,
+        pinata,
+        name: `dao-desc:${input.daoName.slice(0, 30)}`,
+      });
+      descriptionRef = r.uri;
+      ipfsArtifacts.push({ field: "daoDescription", uri: r.uri, pinned: r.pinned, exact: r.exact });
+    }
+    const daoMeta: Record<string, unknown> = {
+      daoName: input.daoName,
+      websiteUrl: input.websiteUrl,
+      description: descriptionRef,
+      socialLinks: input.socialLinks,
+      documents: input.documents,
+      ...(extras.metadataExtra ?? {}),
+    };
+    if (input.avatarPath && input.avatarCID) {
+      return err("Pass either `avatarCID` or `avatarPath`, not both.");
+    }
+    if (input.avatarPath) {
+      // One-call path: read + validate (magic bytes) + pin server-side.
+      //
+      // Under dryRun the read and the magic-byte gate STILL run — only the
+      // upload is skipped. Before 0.34.0 the preview skipped the whole step,
+      // so a missing path / oversized file / SVG impostor sailed through the
+      // preview and blew up on the broadcast call. No CID is synthesized:
+      // Pinata wraps the image in a directory, so any locally derived CID
+      // would yield an `avatarUrl` that can never resolve.
+      try {
+        if (input.dryRun || !pinata) {
+          const preview = await previewAvatarFromInput({ filePath: input.avatarPath });
+          daoMeta.avatarFileName = preview.avatarFileName;
+        } else {
+          const pinned = await pinAvatarFromInput({ filePath: input.avatarPath, pinata });
+          daoMeta.avatarCID = pinned.avatarCID;
+          daoMeta.avatarFileName = pinned.avatarFileName;
+          daoMeta.avatarUrl = pinned.avatarUrl;
+        }
+      } catch (e) {
+        return err(safeErrorMessage(e));
+      }
+    } else if (input.avatarCID) {
+      // avatarCID arrives by reference — the upload tools validate their own
+      // bytes, but nothing forces the caller to have used them. Best-effort
+      // fetch + sniff; hard-block only on confirmed non-raster bytes (an SVG
+      // here becomes a permanently broken avatar on app.dexe.io).
+      const avatarCidV1 = toCidV1(input.avatarCID);
+      const avatarCheck = await checkAvatarCidBytes(avatarCidV1, input.avatarFileName, resolveGateways(ctx));
+      if (!avatarCheck.ok) {
+        return err(avatarCheck.error ?? "avatarCID failed raster validation");
+      }
+      daoMeta.avatarCID = avatarCidV1;
+      daoMeta.avatarFileName = input.avatarFileName;
+      daoMeta.avatarUrl = buildAvatarUrl(avatarCidV1, input.avatarFileName);
+    }
+    let descriptionURL: string;
+    try {
+      const r = await pinJsonOrPreview(daoMeta, {
+        dryRun: input.dryRun,
+        pinata,
+        name: `dao-meta:${input.daoName.slice(0, 30)}`,
+      });
+      descriptionURL = r.uri;
+      ipfsArtifacts.push({ field: "descriptionURL", uri: r.uri, pinned: r.pinned, exact: r.exact });
+    } catch (e) {
+      return err(`Failed to upload DAO metadata to IPFS: ${safeErrorMessage(e)}`);
+    }
+
+    // ---------- build the deploy tx (shared with dexe_dao_build_deploy) ----------
+    const res = await buildDeployGovPool(
+      {
+        chainId: input.chainId,
+        poolFactory: input.poolFactory,
+        deployer,
+        params: { ...deployParams, descriptionURL, name: input.daoName },
+        dryRun: input.dryRun,
+      },
+      ctx,
+      rpc,
+    );
+    if (!res.ok) return err(res.error);
+    for (const e of res.executorDescriptions) {
+      ipfsArtifacts.push({ field: `executorDescription[${e.label}]`, uri: e.uri, pinned: e.pinned, exact: e.exact });
+    }
+
+    // ---------- pre-sign simulation (the one on-chain check) ----------
+    // The deploy is a single independent payload, so eth_call against live
+    // state proves the exact calldata would not revert BEFORE the wallet
+    // signs. Genuine revert → refuse (fail-closed). RPC transport failure →
+    // proceed with a warning (fail-open) — an infra hiccup must not wedge a
+    // valid deploy. sendOrCollect's blanket B9 skip stays (composites are
+    // dependent sequences; this deploy is not).
+    let simSummary = "";
+    if (willBroadcast) {
+      const verdict = await simulateDeployGovPool({
+        to: res.payload.to,
+        data: res.payload.data,
+        deployer,
+        chainId,
+        config: ctx.config,
+      });
+      if (verdict.status === "reverted") {
+        return err(`Deploy refused — ${verdict.summary}`);
+      }
+      simSummary = verdict.summary;
+    }
+
+    // ---------- send or collect ----------
+    let result;
+    try {
+      result = await sendOrCollect(signer, [res.payload], {
+        dryRun: input.dryRun,
+        chainId,
+        wc,
+        signerKey: input.signerKey,
+        // Attribution: a fleet that deploys DAOs under different personas must
+        // be answerable for which persona deployed which pool.
+        tool,
+        // A deploy has no approve/deposit/create/vote legs, so the shared
+        // proposal-flow resume text was four facts about steps that do not
+        // exist in this call.
+        resumeRechecks: DEPLOY_RESUME_RECHECKS,
+      });
+    } catch (e) {
+      // The deploy broadcast is a write: no gas / nonce clash / RPC stall all
+      // land here, and each has a different next step. Classify rather than
+      // handing back the ethers dump.
+      if (e instanceof ApprovalHaltError) throw e; // awaiting_approval / declined — rendered by the approval scope
+      return err(toActionableError(e, `${tool} deploy broadcast`).message);
+    }
+    if (result.mode === "failed") {
+      // R3/R7: a mined-but-reverted (or timed-out) deploy must not read as
+      // success — and must never be recorded as a known DAO. Layer the deploy
+      // revert knowledge base over the raw failure so the caller gets
+      // cause + fix, not just an ethers dump.
+      const kb = mapDeployRevert(result.failure?.error);
+      return flowFailureResult(result, {
+        daoName: input.daoName,
+        chainId,
         ...(result.signer ? { signer: result.signer } : {}),
-        ...(readiness ? { readiness } : {}),
-        ...(nextSteps ? { nextSteps } : {}),
-        ...flowChainFields(
-          input.flowContext,
-          state,
-          { chainId, ...(res.predictedGovPool ? { govPool: res.predictedGovPool } : {}) },
-          { landed: result.mode === "executed" },
-        ),
-        ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
-        ...(result.pairing ? { pairing: result.pairing } : {}),
-      }), result.pairingContent);
-    },
-  );
+        predictedGovPool: res.predictedGovPool ?? null,
+        ...(kb.known ? { knownCause: { slug: kb.slug, cause: kb.cause, fix: kb.fix } } : {}),
+      });
+    }
+
+    // Phase 3: record the deployed DAO so dexe_context surfaces it next
+    // session. Best-effort — never fail the deploy on a state-write error.
+    if (result.mode === "executed" && state && res.predictedGovPool) {
+      try {
+        const txHash = [...result.steps].reverse().find((s) => s.txHash)?.txHash;
+        state.recordDao({
+          name: input.daoName,
+          govPool: res.predictedGovPool,
+          chainId,
+          token: res.predicted.govToken,
+          // Not readable back from the pool — recorded so the OTC tools can
+          // default `tokenSaleProposal` for this DAO in a later session.
+          tokenSaleProposal: res.predicted.govTokenSale,
+          distributionProposal: res.predicted.distributionProposal,
+          txHash,
+          deployedAt: new Date().toISOString(),
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // ---------- post-deploy readiness probe (best-effort) ----------
+    // Confirm the pool actually exists at the predicted address, and hand
+    // the caller the safe first-proposal path (bug #35: fresh pools reject
+    // the multicall(deposit,create) pattern — dexe_proposal_create already
+    // sends approve→deposit→createProposalAndVote as separate txs).
+    let readiness: { govPoolLive: boolean; note?: string } | undefined;
+    let nextSteps: string | undefined;
+    if (result.mode === "executed" && res.predictedGovPool) {
+      try {
+        const pr = rpc.tryProvider(chainId);
+        if (!("error" in pr)) {
+          // The probe can race the RPC node right after broadcast (receipt
+          // seen, state read still lags — public BSC testnet endpoints are
+          // load-balanced and can lag 10s+). Retry before reporting dead,
+          // and never claim "dead" outright — only "not confirmed yet".
+          for (let attempt = 0; attempt < 6; attempt++) {
+            const code = await pr.ok.getCode(res.predictedGovPool);
+            readiness = { govPoolLive: code !== "0x" };
+            if (readiness.govPoolLive) break;
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+          if (readiness && !readiness.govPoolLive) {
+            readiness.note =
+              "code not visible yet on the RPC endpoint — on load-balanced public RPCs this is usually read-lag, " +
+              "not a failed deploy (the deploy tx DID land). Re-check in ~30s with dexe_dao_info.";
+          }
+        }
+      } catch {
+        /* best-effort — never fail a landed deploy on a read error */
+      }
+      nextSteps =
+        `DAO is live at ${res.predictedGovPool}. First proposal: use dexe_proposal_create — it runs ` +
+        "approve→deposit→createProposalAndVote as separate transactions (fresh pools reject the bundled " +
+        "multicall pattern). If the first create reverts 'low creating power', re-run the same call — " +
+        "the flow resumes from the deposit.";
+    }
+
+    return attachPairingQr(ok({
+      mode: result.mode,
+      daoName: input.daoName,
+      chainId,
+      deployer,
+      descriptionURL,
+      ...ipfsPreviewBlock(ipfsArtifacts),
+      predictedGovPool: res.predictedGovPool ?? null,
+      predicted: res.predicted,
+      note: simSummary ? `${res.note}\n${simSummary}` : res.note,
+      // What the tool decided for the caller, and what it warned about — the
+      // one-call path (confirm:true, no preview) shows no other copy of these.
+      ...(split.adjustments.length ? { adjustments: split.adjustments } : {}),
+      ...(settingsAdvisories.length ? { advisories: settingsAdvisories } : {}),
+      governance: {
+        quorumPercent: proof.quorumPct,
+        votablePercent: proof.votablePct,
+        requiredTurnoutPercent: proof.requiredTurnoutPct,
+        settingsSlotsChecked: slotVerdict.slots.length,
+        settingsSlots: settingsSlotsBlock(slotVerdict.slots.length),
+      },
+      // The one-call path (confirm:true, no preview round-trip) is where most
+      // agents land, and it never saw any of this.
+      ...previewBlock({
+        chainId,
+        act:
+          `Deploys the DAO "${input.daoName}" on chain ${chainId}: a new GovPool with its own ERC20 ` +
+          `(${deployParams.tokenParams.symbol}), UserKeeper, Settings and Validators contracts, ` +
+          `quorum ${proof.quorumPct}% of the ${proof.votablePct}% votable supply.`,
+        ...(result.signer ? { who: result.signer } : {}),
+        txCount: 1,
+        irreversible: DEPLOY_PERMANENCE,
+        broadcast: result.mode === "executed",
+      }),
+      defaults: deployDefaults(deployParams, synthesized),
+      permanence: DEPLOY_PERMANENCE,
+      steps: result.steps,
+      ...(result.signer ? { signer: result.signer } : {}),
+      ...(readiness ? { readiness } : {}),
+      ...(nextSteps ? { nextSteps } : {}),
+      ...flowChainFields(
+        input.flowContext,
+        state,
+        { chainId, ...(res.predictedGovPool ? { govPool: res.predictedGovPool } : {}) },
+        { landed: result.mode === "executed" },
+      ),
+      ...(extras.resultExtra
+        ? extras.resultExtra({ govToken: res.predicted?.govToken, govPool: res.predictedGovPool ?? null })
+        : {}),
+      ...(result.enableWrites ? { enableWrites: result.enableWrites } : {}),
+      ...(result.pairing ? { pairing: result.pairing } : {}),
+    }), result.pairingContent);
+  }
+
+  registerAgentTreasuryCreateTool(server, ctx, signer, runDaoCreate);
 }
