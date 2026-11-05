@@ -20,7 +20,7 @@ import {
   DEPLOY_RESUME_RECHECKS,
 } from "./flow.js";
 import { humanDuration } from "../lib/time.js";
-import { buildDeployGovPool, DeployParamsSchema, type DeployParams } from "./daoDeploy.js";
+import { buildDeployGovPool, DeployParamsSchema, type DeployParams, type ExtraExecutor } from "./daoDeploy.js";
 import type { StateStore } from "../lib/stateStore.js";
 import {
   checkDeployCap,
@@ -49,6 +49,7 @@ import { resolveGateways } from "./ipfsRead.js";
 import { safeErrorMessage } from "../lib/redact.js";
 import { toActionableError } from "../lib/writeErrors.js";
 import { registerAgentTreasuryCreateTool } from "./agentTreasuryCreate.js";
+import { registerAgentFastLanePayTool } from "./agentFastLanePay.js";
 
 /**
  * `dexe_dao_create` — the one-call DAO deploy composite. Two ways to call it:
@@ -564,15 +565,20 @@ function deployDefaults(params: DaoCreateParams, synthesized: boolean): Record<s
  * opposite of what the tool description promises. One slot SUPPLIED is expanded
  * by deployGovPool into all five, and all five are what the guard judges.
  */
-function settingsSlotsBlock(supplied: number): Record<string, unknown> {
+function settingsSlotsBlock(supplied: number, extra: ExtraExecutor[] = []): Record<string, unknown> {
+  const extraNote = extra.length
+    ? ` Plus ${extra.length} extra executor slot${extra.length === 1 ? "" : "s"} (${extra
+        .map((e, i) => `[${5 + i}] ${e.label}`)
+        .join(", ")}), checked by the same guards.`
+    : "";
   return {
     supplied,
-    expandedOnChain: 5,
+    expandedOnChain: 5 + extra.length,
     note:
-      supplied === 5
+      (supplied === 5
         ? "all 5 supplied slots were checked (default / internal / validators / distribution / tokenSale)."
         : `${supplied} slot supplied; deployGovPool expands it into all 5 (default / internal / validators / ` +
-          `distribution / tokenSale) — all 5 were checked.`,
+          `distribution / tokenSale) — all 5 were checked.`) + extraNote,
   };
 }
 
@@ -774,6 +780,12 @@ export interface DaoCreateExtras {
   previewNextExtra?: string;
   /** Extra top-level fields on the deploy result, given the predicted addresses. */
   resultExtra?: (predicted: { govToken?: string; govPool?: string | null }) => Record<string, unknown>;
+  /**
+   * Extra executor families (settings slot 5+), e.g. the agent fast lane. Each
+   * derives its settings from the resolved default slot; buildDeployGovPool
+   * runs the coherence guards over them and pins their executorDescription.
+   */
+  extraExecutors?: ExtraExecutor[];
 }
 
 export type DaoCreateRunner = (input: DaoCreateInput, extras?: DaoCreateExtras) => Promise<DaoCreateResult>;
@@ -1080,7 +1092,7 @@ export function registerDaoCreateTools(
           turnoutMarginOk: proof.marginOk,
           maxQuorumPercentWithMargin: proof.maxQuorumPct,
           settingsSlotsChecked: slotVerdict.slots.length,
-          settingsSlots: settingsSlotsBlock(slotVerdict.slots.length),
+          settingsSlots: settingsSlotsBlock(slotVerdict.slots.length, extras.extraExecutors),
         },
         deployer,
         ...(signerId ? { signer: signerId } : {}),
@@ -1211,6 +1223,7 @@ export function registerDaoCreateTools(
         deployer,
         params: { ...deployParams, descriptionURL, name: input.daoName },
         dryRun: input.dryRun,
+        ...(extras.extraExecutors?.length ? { extraExecutors: extras.extraExecutors } : {}),
       },
       ctx,
       rpc,
@@ -1358,7 +1371,7 @@ export function registerDaoCreateTools(
         votablePercent: proof.votablePct,
         requiredTurnoutPercent: proof.requiredTurnoutPct,
         settingsSlotsChecked: slotVerdict.slots.length,
-        settingsSlots: settingsSlotsBlock(slotVerdict.slots.length),
+        settingsSlots: settingsSlotsBlock(slotVerdict.slots.length, extras.extraExecutors),
       },
       // The one-call path (confirm:true, no preview round-trip) is where most
       // agents land, and it never saw any of this.
@@ -1394,4 +1407,5 @@ export function registerDaoCreateTools(
   }
 
   registerAgentTreasuryCreateTool(server, ctx, signer, runDaoCreate);
+  registerAgentFastLanePayTool(server, ctx, rpc);
 }

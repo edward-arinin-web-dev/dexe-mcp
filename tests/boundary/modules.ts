@@ -218,6 +218,11 @@ const WRITE = [
   "lib/agentLedger.ts",
   // agent-treasury preset share math (pure; only the preset tool uses it)
   "lib/agentTreasury.ts",
+  // the agent fast lane: compiled AgentFastLane.sol (ABI + bytecode), its pure
+  // helpers, and the read-only pay builder (all gated by the `agents` toolset)
+  "lib/abi/agentFastLane.generated.ts",
+  "lib/agentFastLane.ts",
+  "tools/agentFastLanePay.ts",
   // keystore-mode approvals: store, loopback server, page, review, browser opener,
   // per-call scope, the ordered-only ApprovedSigner (2c Phase A); message / SafeTx
   // signature approvals, the Safe review, the terminal channel + its rendezvous

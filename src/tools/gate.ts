@@ -275,6 +275,8 @@ const AGENTS = [
   "dexe_agent_treasury_create",
   // the council's voting packet: decoded actions + flags, proposer text fenced apart
   "dexe_proposal_review",
+  // its fast-lane pay builder (read-only; testnet 97)
+  "dexe_agent_fast_lane_build_pay",
 ];
 
 // ── vote: every direct vote/stake/delegate/execute/claim builder ────────────

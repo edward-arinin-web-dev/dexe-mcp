@@ -99,6 +99,7 @@ afterEach(() => {
 describe("the agent tools live in a toolset built for orchestration", () => {
   it("`agents` gates the whole trio — list, fund, reconcile — plus the agent-treasury preset and the council review", () => {
     expect([...TOOLSETS.agents!].sort()).toEqual([
+      "dexe_agent_fast_lane_build_pay",
       "dexe_agent_treasury_create",
       "dexe_agents_fund",
       "dexe_agents_ledger",

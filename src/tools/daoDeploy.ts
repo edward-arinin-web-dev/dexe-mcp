@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Interface, isAddress } from "ethers";
+import { Interface, getAddress, isAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import { buildPayload, type TxPayload } from "../lib/calldata.js";
@@ -314,11 +314,28 @@ export interface DeployBuildInput {
    * JSON pins to the user's Pinata account.
    */
   dryRun?: boolean;
+  /**
+   * Extra executor families appended AFTER the five standard slots (index 5+),
+   * each with its own settings — e.g. the agent fast lane. `settings` receives
+   * the resolved default slot (after the 1 → 5 expansion and the validator
+   * fallbacks) so a family can be "the default, but …". Every extra slot goes
+   * through the same coherence guards and gets its own executorDescription pin.
+   */
+  extraExecutors?: ExtraExecutor[];
+}
+
+export type ProposalSettingsEntry = DeployParams["settingsParams"]["proposalSettings"][number];
+
+export interface ExtraExecutor {
+  executor: string;
+  /** Short name: the executorDescription pin label and the slot name in reports. */
+  label: string;
+  settings: (defaultSlot: ProposalSettingsEntry) => ProposalSettingsEntry;
 }
 
 /** One settings JSON whose `ipfs://` ref was written into the deploy calldata. */
 export interface ExecutorDescriptionRef {
-  /** `default` (slots 0/1/2/4) or `distributionProposal` (slot 3). */
+  /** `default` (slots 0/1/2/4), `distributionProposal` (slot 3), or an extra executor's label (slot 5+). */
   label: string;
   uri: string;
   pinned: boolean;
@@ -357,7 +374,7 @@ export async function buildDeployGovPool(
   ctx: WriteToolContext,
   rpc: RpcProvider,
 ): Promise<DeployBuildResult> {
-  const { chainId, poolFactory, deployer, params, dryRun = false } = input;
+  const { chainId, poolFactory, deployer, params, dryRun = false, extraExecutors = [] } = input;
   const fail = (error: string): DeployBuildResult => ({ ok: false, error });
   const chain = resolveChain(ctx.config, chainId);
   const isTokenCreation = params.tokenParams.name.length > 0;
@@ -556,6 +573,22 @@ export async function buildDeployGovPool(
     return fail(`proposalSettings must be 1 (auto-expand to 5) or exactly 5. Got ${expandedSettings.length}.`);
   }
 
+  // ---------- extra executor families (slot 5+) ----------
+  // GovSettings maps additionalProposalExecutors[i] → settings slot i + 3, so
+  // an executor appended after distribution (3) and tokenSale (4) lands on
+  // slot 5 + i. The settings must be appended in the same order.
+  const extraSlots: Array<{ index: number; label: string }> = [];
+  for (const extra of extraExecutors) {
+    if (!isAddress(extra.executor)) return fail(`extraExecutors[${extra.label}]: invalid address ${extra.executor}`);
+    const executor = getAddress(extra.executor);
+    if (effectiveExecutors.some((e) => e.toLowerCase() === executor.toLowerCase())) {
+      return fail(`extraExecutors[${extra.label}]: ${executor} is already an executor of this DAO.`);
+    }
+    effectiveExecutors.push(executor);
+    expandedSettings = [...expandedSettings, extra.settings(expandedSettings[0]!)];
+    extraSlots.push({ index: expandedSettings.length - 1, label: extra.label });
+  }
+
   // ---------- governance coherence guards (frontend parity) ----------
   // Single chokepoint for BOTH dexe_dao_create and dexe_dao_build_deploy. Blocks
   // configs the frontend blocks: unreachable quorum, min-votes above every
@@ -657,6 +690,7 @@ export async function buildDeployGovPool(
     const settingsToUpload: Array<{ index: number; label: string }> = [
       { index: 0, label: "default" },
       { index: 3, label: "distributionProposal" },
+      ...extraSlots,
     ];
     for (const { index, label } of settingsToUpload) {
       const s = expandedSettings[index]!;
@@ -695,7 +729,7 @@ export async function buildDeployGovPool(
             expandedSettings[2] = { ...expandedSettings[2]!, executorDescription: cid };
             expandedSettings[4] = { ...expandedSettings[4]!, executorDescription: cid };
           } else {
-            expandedSettings[3] = { ...expandedSettings[3]!, executorDescription: cid };
+            expandedSettings[index] = { ...expandedSettings[index]!, executorDescription: cid };
           }
         } catch (err) {
           pinataWarning += `\n⚠️  Failed to upload ${label} executorDescription: ${safeErrorMessage(err)}`;

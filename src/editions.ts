@@ -109,13 +109,14 @@ export const READ_TOOLS: readonly string[] = [
   "dexe_gov_simulate_vote_impact",
 ];
 
-/** 118 tools for the write edition. */
+/** 119 tools for the write edition. */
 export const WRITE_TOOLS: readonly string[] = [
   // ── composites that sign and broadcast
   "dexe_proposal_create",
   "dexe_proposal_vote_and_execute",
   "dexe_dao_create",
   "dexe_agent_treasury_create",
+  "dexe_agent_fast_lane_build_pay",
   "dexe_otc_dao_open_sale",
   "dexe_otc_buyer_buy",
   "dexe_otc_buyer_claim_all",
