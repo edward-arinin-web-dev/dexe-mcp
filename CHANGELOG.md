@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 — unreleased
+## Unreleased
 
 ### Added — `dexe_agent_treasury_create`, the agent-treasury preset (171 tools)
 - One call deploys a DAO whose treasury 2..9 AI agents run **k-of-n**, with
