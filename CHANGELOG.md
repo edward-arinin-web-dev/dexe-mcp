@@ -2,7 +2,27 @@
 
 ## Unreleased
 
-### Added — `dexe_agent_treasury_create`, the agent-treasury preset (171 tools)
+### Added — agent council: `dexe_proposal_review` + `dexe-mcp council` (172 tools)
+- **`dexe_proposal_review`** (profile `agents`, read-only) returns the packet an
+  agent votes on. Each FOR/AGAINST action is decoded in plain words: token,
+  human amount, recipient label from `addressBook` (or `NOT IN ADDRESS BOOK`),
+  and % of the treasury balance. `flags[]` cover unknown/lookalike recipients,
+  moves above `maxTreasuryPct` (default 10), unlimited or large approvals,
+  unknown executors, settings/validator/expert/governance calls and native
+  value. Text flags cover HTML comments, zero-width/bidi characters, base64
+  blobs, instruction-like phrases, text addresses the actions do not pay, and
+  lookalike addresses. The proposer's text comes back separately, fenced as
+  UNTRUSTED; it never appears in the packet.
+- **`dexe-mcp council --config council.json [--once] [--dry-run]`** runs
+  agents as voting members of a DAO. Sample config: 21 lines
+  (`docs/examples/council.json`). Model adapters: `claude-cli`, `anthropic` (key
+  from a named env var) and `openai-compatible` (OpenAI / OpenRouter / Ollama).
+  Unparseable replies and model errors vote AGAINST. Votes go through
+  `dexe_proposal_vote_and_execute` with each agent's `signerKey`. The JSONL log
+  makes each decision and vote happen once per agent, across restarts. See
+  [docs/AGENT-COUNCIL.md](./docs/AGENT-COUNCIL.md).
+
+### Added — `dexe_agent_treasury_create`, the agent-treasury preset
 - One call deploys a DAO whose treasury 2..9 AI agents run **k-of-n**, with
   1..5 human validators seated at deploy as the veto (1 validator token each,
   `durationValidators` = `validatorVoteSeconds`). Each agent gets the same

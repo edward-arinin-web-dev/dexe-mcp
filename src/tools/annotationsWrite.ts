@@ -134,6 +134,7 @@ const WRITE_CLASSES: Record<string, ToolAnnotations> = {
   dexe_proposal_build_token_sale_whitelist: READ_ONLY,
   dexe_proposal_build_token_transfer: READ_ONLY,
   dexe_proposal_build_withdraw_treasury: READ_ONLY,
+  dexe_proposal_review: READ_ONLY,
   dexe_safe_info: READ_ONLY,
   dexe_sim_buy: READ_ONLY,
   dexe_sim_calldata: READ_ONLY,

@@ -111,6 +111,8 @@ const READ = [
   // shared input-param vocabulary; write-only params are lib/writeParams.ts
   "lib/params.ts",
   // pure quorum/treasury risk math; the gate and its advisories are lib/treasuryGate.ts
+  // dexe_proposal_review's pure half: action words, flags, text-injection checks
+  "lib/proposalReview.ts",
   "lib/quorumRisk.ts",
   "lib/redact.ts",
   // remote mode: configured hosts -> stable labels, peers/IPs masked
@@ -172,6 +174,14 @@ const READ = [
 
 const WRITE = [
   "bootstrap.ts",
+  // `dexe-mcp council` — an agent council voting on a DAO's proposals
+  "cli/council.ts",
+  "lib/council/adapters.ts",
+  "lib/council/config.ts",
+  "lib/council/prompt.ts",
+  "lib/council/runner.ts",
+  // dexe_proposal_review: gathers chain + IPFS facts (agents toolset, write edition)
+  "tools/proposalReview.ts",
   // `dexe-mcp approve` — decide keystore approvals in a terminal (2c Phase B)
   "cli/approve.ts",
   // `dexe-mcp key` — create / import / list / change-password / remove the encrypted keystore

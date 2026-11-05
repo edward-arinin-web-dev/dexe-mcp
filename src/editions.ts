@@ -109,7 +109,7 @@ export const READ_TOOLS: readonly string[] = [
   "dexe_gov_simulate_vote_impact",
 ];
 
-/** 117 tools for the write edition. */
+/** 118 tools for the write edition. */
 export const WRITE_TOOLS: readonly string[] = [
   // ── composites that sign and broadcast
   "dexe_proposal_create",
@@ -136,6 +136,8 @@ export const WRITE_TOOLS: readonly string[] = [
   "dexe_agents_list",
   "dexe_agents_fund",
   "dexe_agents_ledger",
+  // read-only voting packet for agents; lives with the agents surface
+  "dexe_proposal_review",
   // reports whether the configured signer is an owner
   "dexe_safe_info",
   "dexe_safe_propose_tx",

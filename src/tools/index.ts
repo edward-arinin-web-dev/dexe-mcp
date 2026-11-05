@@ -45,6 +45,7 @@ import { registerSimulateTools } from "./simulate.js";
 import { registerInboxTools } from "./inbox.js";
 import { registerPredictTools } from "./predict.js";
 import { registerRiskTools } from "./risk.js";
+import { registerProposalReviewTool } from "./proposalReview.js";
 import { SignerManager } from "../lib/signer.js";
 import { WalletConnectManager } from "../lib/walletconnect.js";
 import { registerGovernorTools } from "../governor/index.js";
@@ -142,6 +143,7 @@ export function registerAll(server: McpServer, config: WriteConfig, opts: Regist
   registerMerkleTools(server, ctx);
   registerPredictTools(server, ctx);
   registerRiskTools(server, ctx);
+  registerProposalReviewTool(server, ctx);
 
   const signer = new SignerManager(config);
   const wc = new WalletConnectManager(config);

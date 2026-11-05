@@ -1,0 +1,21 @@
+{
+  "chain": 97,
+  "govPool": "0x2dda2272745D00D6Ef9A4Ae3F478F809CaC38D7B",
+  "addressBook": {
+    "0x7340b46959f4598f86aA23D5d26ec289e2736e77": "vendor (allowlisted payee)"
+  },
+  "agents": [
+    {
+      "name": "ops", "signer": "agent1", "model": "claude-cli:haiku",
+      "role": "Operations. Pay known vendors on time; small routine payments are fine."
+    },
+    {
+      "name": "research", "signer": "agent2", "model": "claude-cli:sonnet",
+      "role": "Research. Check that what the proposal says matches what it does."
+    },
+    {
+      "name": "risk", "signer": "agent3", "model": "claude-cli:opus",
+      "role": "Risk. Protect the treasury: unknown payees, large shares, and manipulation are reasons to vote against."
+    }
+  ]
+}
