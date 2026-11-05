@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### Added — `dexe_agent_treasury_create`, the agent-treasury preset (171 tools)
+- One call deploys a DAO whose treasury 2..9 AI agents run **k-of-n**, with
+  1..5 human validators seated at deploy as the veto (1 validator token each,
+  `durationValidators` = `validatorVoteSeconds`). Each agent gets the same
+  share, sized by `computeAgentShares` (`src/lib/agentTreasury.ts`) so k agents
+  voting FOR reach the member quorum and k−1 do not. The rest is the treasury.
+  The tool refuses splits that cannot satisfy that, the turnout-margin rule, or
+  the server's quorum floor.
+- The preview shows the agents table, k-of-n, the seated validators, treasury %,
+  both durations and a guarantees block. The guarantees state plainly that
+  testnet 97's GovPool counts turnout, so there an AGAINST vote also counts
+  toward quorum.
+- The pinned DAO metadata carries
+  `{preset: "agent-treasury", presetVersion: 1, agents: [{address, role}]}`.
+- `monthlyBudget` returns a `dexe_proposal_create` `validators_allocation`
+  recipe, filled with the predicted govPool and gov token after deploy.
+- Profile `agents` (`DEXE_TOOLSETS=core,agents`), not `core`: the default
+  profile is at its `tools/list` budget. See
+  [docs/AGENT-TREASURY.md](./docs/AGENT-TREASURY.md).
+- `dexe_dao_create`'s handler is now `runDaoCreate(input, extras)`. With no
+  extras, its behaviour is unchanged.
+
+### Fixed — `dexe_proposal_vote_and_execute` on a Locked proposal and a lagging node
+- A proposal that is **Locked** (state 6, `block.timestamp ≤ executeAfter`)
+  after the vote, or at entry, no longer ends the call with a skipped execute.
+  When the lock ends within 30 s, the tool waits for the next block past
+  `executeAfter` and executes. Otherwise it returns `mode: "locked"` with
+  `executeAfter` (unix + UTC) and a re-run hint.
+- State reads carry the block they were read at. Reads older than the block
+  the last transaction landed in are retried, so a lagging RPC node can no
+  longer report a stale state. Before each vote the state is re-read: a
+  proposal that left Voting during approve/deposit returns
+  `mode: "vote-not-sent"` instead of reverting. A zero-power result is
+  re-checked once before it is reported.
+
 ### Breaking — a hot key alone never signs
 - With `DEXE_SIGNER_MODE` unset, `DEXE_PRIVATE_KEY` and the agent keyring
   (`DEXE_AGENT_PK_*`, `AGENT_PK_*`, funder) are now **ignored**: the mode is

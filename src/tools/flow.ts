@@ -1216,6 +1216,16 @@ export async function sendOrCollect(
      */
     postStep?: (payloadIndex: number, payload: TxPayload) => Promise<void>;
     /**
+     * Awaited before each payload is SENT (broadcast paths only). Returning a
+     * string halts the sequence there — nothing further is signed — and the
+     * result carries `halted: { beforeIndex, reason }` with mode "executed"
+     * for the steps that did land. Used to re-read state between dependent txs
+     * (e.g. approve → vote: a proposal that closed meanwhile must not get a
+     * doomed vote). `lastBlock` is the highest block a landed step mined in.
+     * A throwing hook never fails the flow (treated as "continue").
+     */
+    beforeStep?: (payloadIndex: number, payload: TxPayload, lastBlock: number | undefined) => Promise<string | undefined>;
+    /**
      * What a re-run of THIS flow actually re-derives, enumerated. Defaults to
      * {@link RESUME_RECHECKS}, which describes the proposal composites' legs —
      * correct for dexe_proposal_create / dexe_proposal_vote_and_execute, and
@@ -1228,6 +1238,10 @@ export async function sendOrCollect(
   mode: "executed" | "payloads" | "dryRun" | "failed";
   steps: FlowStep[];
   failure?: FlowFailure;
+  /** Highest block number a landed step mined in (when the receipt carries one). */
+  lastBlock?: number;
+  /** Set when `beforeStep` stopped the sequence; payloads from `beforeIndex` on were NOT sent. */
+  halted?: { beforeIndex: number; reason: string };
   enableWrites?: string;
   pairing?: FlowPairing;
   /** QR content blocks (ASCII + PNG) — pass to `attachPairingQr` so the QR renders inline. */
@@ -1317,7 +1331,18 @@ export async function sendOrCollect(
   // `withActionContext` (set by the tool handler) carries through.
   const who = describeBroadcaster(signer, wallet, opts?.signerKey);
   const tool = opts?.tool ?? currentActionContext()?.tool;
+  let lastBlock: number | undefined;
   for (const [i, p] of payloads.entries()) {
+    const halt = await runBeforeStep(opts?.beforeStep, i, p, lastBlock);
+    if (halt) {
+      return {
+        mode: "executed",
+        steps,
+        halted: { beforeIndex: i, reason: halt },
+        ...(lastBlock !== undefined ? { lastBlock } : {}),
+        signer: steps.some((st) => st.txHash) ? { ...who, safety: HOT_KEY_SAFETY } : who,
+      };
+    }
     // Any step failing mid-sequence: STOP (dependent steps must not run on top
     // of unchanged state — R3), report which steps already landed (gas spent),
     // and tell the caller how to resume (R7). What a re-run actually
@@ -1358,6 +1383,7 @@ export async function sendOrCollect(
       );
       const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
       assertReceiptSuccess(receipt, p.description);
+      lastBlock = maxBlock(lastBlock, receipt);
       steps.push({
         label: p.description,
         skipped: false,
@@ -1398,7 +1424,35 @@ export async function sendOrCollect(
       };
     }
   }
-  return { mode: "executed", steps, signer: { ...who, safety: HOT_KEY_SAFETY } };
+  return {
+    mode: "executed",
+    steps,
+    ...(lastBlock !== undefined ? { lastBlock } : {}),
+    signer: { ...who, safety: HOT_KEY_SAFETY },
+  };
+}
+
+/** The receipt's block number folded into a running max; receipts without one leave it unchanged. */
+function maxBlock(prev: number | undefined, receipt: unknown): number | undefined {
+  const bn = (receipt as { blockNumber?: unknown } | null | undefined)?.blockNumber;
+  const n = typeof bn === "number" ? bn : typeof bn === "bigint" ? Number(bn) : NaN;
+  if (!Number.isFinite(n) || n <= 0) return prev;
+  return prev === undefined ? n : Math.max(prev, n);
+}
+
+/** Runs a `beforeStep` hook fail-soft: a throwing hook means "continue". */
+async function runBeforeStep(
+  hook: SendOrCollectOpts["beforeStep"],
+  i: number,
+  p: TxPayload,
+  lastBlock: number | undefined,
+): Promise<string | undefined> {
+  if (!hook) return undefined;
+  try {
+    return (await hook(i, p, lastBlock)) || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 type SendOrCollectOpts = NonNullable<Parameters<typeof sendOrCollect>[2]>;
@@ -1473,7 +1527,23 @@ async function sendWithKeystoreApproval(
   );
 
   const steps: FlowStep[] = [];
+  let lastBlock: number | undefined;
   for (const [i, p] of payloads.entries()) {
+    const halt = await runBeforeStep(opts?.beforeStep, i, p, lastBlock);
+    if (halt) {
+      const landed = steps.filter((st) => st.txHash);
+      approved.revoke(
+        `halted before transaction ${i + 1}: ${halt.slice(0, 200)}`,
+        landed.map((st) => ({ label: st.label, txHash: st.txHash! })),
+      );
+      return {
+        mode: "executed",
+        steps,
+        halted: { beforeIndex: i, reason: halt },
+        ...(lastBlock !== undefined ? { lastBlock } : {}),
+        signer: landed.length > 0 ? { ...who, safety: KEYSTORE_SAFETY } : who,
+      };
+    }
     try {
       // Same send-time guards as the hot-key loop (B6/B7/B10/B11/B12); B9 ran on
       // step 1 before the page was shown, later steps depend on earlier ones.
@@ -1487,6 +1557,7 @@ async function sendWithKeystoreApproval(
       );
       const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
       assertReceiptSuccess(receipt, p.description);
+      lastBlock = maxBlock(lastBlock, receipt);
       const txHash = receipt?.hash ?? tx.hash;
       approved.landed(i, txHash);
       steps.push({ label: p.description, skipped: false, txHash });
@@ -1527,7 +1598,12 @@ async function sendWithKeystoreApproval(
   }
   approved.finish();
   approvals.store.clearResumeNote(tool, from, chainId);
-  return { mode: "executed", steps, signer: { ...who, safety: KEYSTORE_SAFETY } };
+  return {
+    mode: "executed",
+    steps,
+    ...(lastBlock !== undefined ? { lastBlock } : {}),
+    signer: { ...who, safety: KEYSTORE_SAFETY },
+  };
 }
 
 // ---------- exported runner ----------
@@ -2706,6 +2782,196 @@ async function runInternalProposalCreate(
   );
 }
 
+// ---------- fresh state reads (stale-RPC guard) + the post-quorum lock ----------
+
+/**
+ * Multicall3's own block views. Batched INTO the same aggregate3 as the state
+ * read, they say which block the answering node evaluated it at — the one
+ * honest way to tell a lagging load-balanced node from a real state.
+ */
+/** Canonical Multicall3 (same address on every chain this server targets). */
+const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
+const MC3_BLOCK_ABI = new Interface([
+  "function getBlockNumber() view returns (uint256)",
+  "function getCurrentBlockTimestamp() view returns (uint256)",
+]);
+
+/** Timing knobs for the fresh-read retries and the lock wait (mutable for tests). */
+export const FLOW_READ_TIMING = {
+  /** Extra attempts when the node is behind / errors / reports an impossible state. */
+  staleRetries: 4,
+  staleBackoffMs: 1500,
+  /** A lock ending within this many seconds is waited out in-call; longer ones are not. */
+  lockMaxDelaySec: 30,
+  lockMaxWaitMs: 45_000,
+  lockPollMs: 3000,
+};
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export interface StateRead {
+  /** ProposalState, or -1 when the read failed. */
+  state: number;
+  /** Block the answering node evaluated the read at; null when unknown. */
+  block: number | null;
+  /** That block's timestamp; null when unknown. */
+  timestamp: number | null;
+}
+
+const toNum = (v: unknown): number | null => {
+  if (typeof v === "bigint") return Number(v);
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return null;
+};
+
+/** One aggregate3: proposal state + the block (number, timestamp) it was read at. */
+async function readProposalStateAt(provider: JsonRpcProvider, govPool: string, proposalId: number): Promise<StateRead> {
+  const r = await multicall(provider, [
+    { target: govPool, iface: GOV_POOL_ABI, method: "getProposalState", args: [proposalId], allowFailure: true },
+    { target: MULTICALL3_ADDRESS, iface: MC3_BLOCK_ABI, method: "getBlockNumber", args: [], allowFailure: true },
+    { target: MULTICALL3_ADDRESS, iface: MC3_BLOCK_ABI, method: "getCurrentBlockTimestamp", args: [], allowFailure: true },
+  ]);
+  return {
+    state: r[0]?.success ? Number(r[0].value) : -1,
+    block: r[1]?.success ? toNum(r[1].value) : null,
+    timestamp: r[2]?.success ? toNum(r[2].value) : null,
+  };
+}
+
+/**
+ * Proposal state as of a block >= `minBlock` (the block a just-landed tx of
+ * this flow mined in). Public BSC RPCs are load-balanced: right after a
+ * receipt, the next read can hit a node that has not seen that block yet and
+ * answer with the pre-tx state ("Voting" for a proposal the vote just closed),
+ * or fail with "header not found". Retries with a short backoff while the node
+ * is behind, the read errors, or `isStale(state)` says the state is one the
+ * just-landed tx makes impossible. Never throws; returns the last read.
+ */
+export async function readProposalStateFresh(
+  provider: JsonRpcProvider,
+  govPool: string,
+  proposalId: number,
+  opts: { minBlock?: number | undefined; isStale?: (state: number) => boolean; retries?: number } = {},
+): Promise<StateRead> {
+  let last: StateRead = { state: -1, block: null, timestamp: null };
+  const retries = opts.retries ?? FLOW_READ_TIMING.staleRetries;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await sleep(FLOW_READ_TIMING.staleBackoffMs);
+    try {
+      last = await readProposalStateAt(provider, govPool, proposalId);
+    } catch {
+      continue; // "header not found" / transport hiccup on a lagging node
+    }
+    if (last.state < 0) continue;
+    if (opts.minBlock !== undefined && last.block !== null && last.block < opts.minBlock) continue;
+    if (opts.isStale?.(last.state)) continue;
+    return last;
+  }
+  return last;
+}
+
+export interface UnlockResult {
+  /** State after waiting (or as read, when no wait happened). */
+  state: number;
+  /** Unix seconds after which the lock ends; null when unread. */
+  executeAfter: number | null;
+  /** Caller-facing note when the proposal is still Locked; absent when it unlocked. */
+  note?: string;
+  /** True when the lock end could not be read — the caller keeps its old behaviour. */
+  unknown?: boolean;
+}
+
+/**
+ * GovPoolView reports `Locked` while `block.timestamp <= executeAfter` — and
+ * executeAfter is the quorum block's timestamp + executionDelay, so even with
+ * executionDelay 0 the proposal reads Locked IN THE BLOCK THAT REACHED QUORUM
+ * and only turns SucceededFor in a later block. GovPool.execute requires
+ * Succeeded*, so executing right away reverts. When the lock ends within
+ * FLOW_READ_TIMING.lockMaxDelaySec, wait (bounded) for a block whose timestamp
+ * is past executeAfter, then report the state read AT that block. A longer
+ * lock is never waited out: the note says when to re-run.
+ */
+export async function awaitUnlock(
+  provider: JsonRpcProvider,
+  govPool: string,
+  proposalId: number,
+  self: string,
+  minBlock?: number,
+): Promise<UnlockResult> {
+  let executeAfter: number | null = null;
+  let now: number | null = null;
+  let state = 6;
+  try {
+    const r = await multicall(provider, [
+      { target: govPool, iface: GOV_POOL_ABI, method: "getProposals", args: [proposalId - 1, 1], allowFailure: true },
+      { target: govPool, iface: GOV_POOL_ABI, method: "getProposalState", args: [proposalId], allowFailure: true },
+      { target: MULTICALL3_ADDRESS, iface: MC3_BLOCK_ABI, method: "getCurrentBlockTimestamp", args: [], allowFailure: true },
+      { target: MULTICALL3_ADDRESS, iface: MC3_BLOCK_ABI, method: "getBlockNumber", args: [], allowFailure: true },
+    ]);
+    const rows = r[0]?.success ? (r[0].value as unknown[]) : null;
+    if (Array.isArray(rows) && rows.length > 0) {
+      const view = rows[0] as unknown[];
+      // view = [proposal{core, ...}, validatorProposal{core}, state, ...]
+      // member core.executeAfter = proposal[0][2]; validator core.executeAfter = validatorProposal[0][3]
+      const member = toNum(((view?.[0] as unknown[])?.[0] as unknown[])?.[2]);
+      const validator = toNum(((view?.[1] as unknown[])?.[0] as unknown[])?.[3]);
+      const m = Math.max(member ?? 0, validator ?? 0);
+      executeAfter = m > 0 ? m : null;
+    }
+    const block = r[3]?.success ? toNum(r[3].value) : null;
+    // A node behind the flow's last tx answers about the past — keep "Locked".
+    const behind = minBlock !== undefined && block !== null && block < minBlock;
+    if (r[1]?.success && !behind) state = Number(r[1].value);
+    now = r[2]?.success ? toNum(r[2].value) : null;
+  } catch {
+    /* fall through to unknown */
+  }
+  if (state !== 6) return { state, executeAfter };
+  if (executeAfter === null || now === null) return { state, executeAfter, unknown: true };
+
+  const at = (t: number) => `${unixToUtc(BigInt(t))} (unix ${t})`;
+  const remaining = executeAfter - now;
+  if (remaining > FLOW_READ_TIMING.lockMaxDelaySec) {
+    return {
+      state,
+      executeAfter,
+      note:
+        `Passed, but Locked by the execution delay until ${at(executeAfter)} — about ${humanSeconds(remaining)} ` +
+        `from now; not waited out in this call. Re-run dexe_proposal_vote_and_execute ${self} after ` +
+        `${at(executeAfter + 1)} — it skips the vote and executes.`,
+    };
+  }
+  const deadline = Date.now() + FLOW_READ_TIMING.lockMaxWaitMs;
+  while (Date.now() < deadline) {
+    await sleep(FLOW_READ_TIMING.lockPollMs);
+    let read: StateRead;
+    try {
+      read = await readProposalStateAt(provider, govPool, proposalId);
+    } catch {
+      continue;
+    }
+    if (read.timestamp === null || read.timestamp <= executeAfter) continue;
+    if (minBlock !== undefined && read.block !== null && read.block < minBlock) continue;
+    // The state came from the same block as that timestamp, so it is post-lock.
+    if (read.state >= 0) state = read.state;
+    if (state !== 6) return { state, executeAfter };
+  }
+  return {
+    state,
+    executeAfter,
+    note:
+      `Still Locked after waiting ${Math.round(FLOW_READ_TIMING.lockMaxWaitMs / 1000)}s (lock ends ${at(executeAfter)}; ` +
+      `the RPC may be lagging). Re-run dexe_proposal_vote_and_execute ${self} — it skips the vote and executes.`,
+  };
+}
+
+function humanSeconds(s: number): string {
+  if (s < 120) return `${s}s`;
+  if (s < 7200) return `${Math.round(s / 60)} min`;
+  if (s < 172800) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86400)} days`;
+}
+
 /**
  * P1-a: drive a proposal through the VALIDATOR round after member voting.
  * DeXe proposals with validators need a second stage the member-vote path does
@@ -2730,31 +2996,27 @@ async function driveValidatorRound(args: {
   signerAddress: string;
   dryRun: boolean;
   signerKey?: string;
-}): Promise<{ steps: FlowStep[]; state: number; failure?: FlowFailure }> {
+  /** Highest block a tx of the calling flow landed in — every read here must reflect at least it. */
+  minBlock?: number;
+}): Promise<{ steps: FlowStep[]; state: number; failure?: FlowFailure; lastBlock?: number }> {
   const { provider, signer, wc, chainId, govPool, validators, proposalId, isVoteFor, signerAddress, dryRun, signerKey } = args;
   const steps: FlowStep[] = [];
-
-  const readState = async (): Promise<number> => {
-    const r = await multicall(provider, [
-      { target: govPool, iface: GOV_POOL_ABI, method: "getProposalState", args: [proposalId] },
-    ]);
-    return r[0]!.success ? Number(r[0]!.value) : -1;
-  };
+  let minBlock = args.minBlock;
 
   // A state-changing tx and the getProposalState read can land in the same block
   // on some RPCs, so an immediate single read lags (the just-cast validator vote
   // that meets quorum still reads as ValidatorVoting). Poll a few times until the
-  // state moves off `from`, so a single call can carry the proposal to execute.
-  const readStateSettled = async (from: number): Promise<number> => {
-    let s = await readState();
-    for (let i = 0; i < 4 && s === from; i++) {
-      await new Promise((r) => setTimeout(r, 1500));
-      s = await readState();
-    }
-    return s;
-  };
+  // state moves off `from` — and never accept a read from a node that has not
+  // seen the block this flow's last tx landed in.
+  const readStateSettled = async (from?: number): Promise<number> =>
+    (
+      await readProposalStateFresh(provider, govPool, proposalId, {
+        minBlock,
+        ...(from !== undefined ? { isStale: (st: number) => st === from } : {}),
+      })
+    ).state;
 
-  let state = await readState();
+  let state = await readStateSettled();
 
   // Stage 1 — move a member-passed proposal into the validator queue.
   if (state === 1) {
@@ -2766,6 +3028,7 @@ async function driveValidatorRound(args: {
     steps.push(...r.steps);
     if (r.mode === "failed") return { steps, state, failure: r.failure };
     if (r.mode !== "executed") return { steps, state }; // dryRun/payloads — can't progress
+    if (r.lastBlock !== undefined) minBlock = Math.max(minBlock ?? 0, r.lastBlock);
     state = await readStateSettled(1);
   }
 
@@ -2803,10 +3066,11 @@ async function driveValidatorRound(args: {
     steps.push(...r.steps);
     if (r.mode === "failed") return { steps, state, failure: r.failure };
     if (r.mode !== "executed") return { steps, state };
+    if (r.lastBlock !== undefined) minBlock = Math.max(minBlock ?? 0, r.lastBlock);
     state = await readStateSettled(2);
   }
 
-  return { steps, state };
+  return { steps, state, ...(minBlock !== undefined ? { lastBlock: minBlock } : {}) };
 }
 
 // ---------- register ----------
@@ -3006,18 +3270,23 @@ export function registerFlowTools(
         return err(`Invalid proposalId: ${String(input.proposalId)} — a positive integer (1-indexed), as a number or digits-only string.`);
       }
 
-      // Step 1: read proposal state
-      const stateCalls: Call[] = [
-        { target: govPool, iface: GOV_POOL_ABI, method: "getProposalState", args: [proposalId] },
-      ];
-      const stateRes = await multicall(provider, stateCalls);
-      if (!stateRes[0]!.success) return err(`Failed to read proposal state: ${stateRes[0]!.error}`);
+      // Step 1: read proposal state, together with the block the node read it
+      // at, so later reads can refuse an answer from a node that is behind.
+      const entry = await readProposalStateAt(provider, govPool, proposalId);
+      if (entry.state < 0) return err(`Failed to read proposal state: call reverted`);
 
       // Mode 9: canonical ProposalState ordering lives in preflight.ts (a
       // mis-ordered inline enum previously mislabeled Locked/SucceededFor).
-      const stateNum = Number(stateRes[0]!.value);
-      const stateName = proposalStateName(stateNum);
+      let stateNum = entry.state;
+      let stateName = proposalStateName(stateNum);
+      const self = `{"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}`;
 
+      // Everything that happens when the proposal is NOT in Voting. A closure,
+      // because a stale first read can say "Voting" for a proposal that has
+      // already moved on (load-balanced RPC); the zero-power re-read below
+      // routes back through here with the fresh state.
+      // Returns undefined when the state IS Voting (the vote path continues).
+      const routeNonVoting = async () => {
       // Already past voting — skip vote, go straight to execute. State 4 =
       // SucceededFor, 5 = SucceededAgainst, 6 = Locked (post-quorum, post-
       // validator window if any, executable once delay elapsed). When the
@@ -3030,6 +3299,33 @@ export function registerFlowTools(
           skipped: true,
           reason: `Proposal already in "${stateName}" — no vote needed`,
         };
+        // Locked: GovPool.execute needs Succeeded*, so executing now reverts.
+        // Wait out a lock that ends within seconds; report a longer one.
+        if (stateNum === 6 && !input.dryRun) {
+          const u = await awaitUnlock(provider, govPool, proposalId, self, entry.block ?? undefined);
+          if (!u.unknown && u.state === 6) {
+            return ok({
+              mode: "locked",
+              proposalId,
+              proposalStateBefore: stateName,
+              ...(u.executeAfter ? { executeAfter: u.executeAfter, executeAfterUtc: unixToUtc(BigInt(u.executeAfter)) } : {}),
+              steps: [voteSkipped, { label: "GovPool.execute", skipped: true, reason: u.note ?? "still Locked" }],
+              executed: false,
+              next: u.note,
+            });
+          }
+          if (!u.unknown && u.state !== 4 && u.state !== 5) {
+            return ok({
+              mode: "not-executable",
+              proposalId,
+              proposalStateBefore: stateName,
+              proposalStateAfter: proposalStateName(u.state),
+              steps: [voteSkipped],
+              executed: false,
+              next: postVoteNextStep(u.state, govPool, proposalId, chainId),
+            });
+          }
+        }
         const decision = await executeProposal({
           provider,
           signer,
@@ -3093,9 +3389,18 @@ export function registerFlowTools(
             provider, signer, wc, chainId, govPool, validators, proposalId,
             isVoteFor: input.isVoteFor, signerAddress: user, dryRun: false,
             signerKey: input.signerKey,
+            ...(entry.block !== null ? { minBlock: entry.block } : {}),
           });
           if (drive.failure) {
             return flowFailureResult({ steps: drive.steps, failure: drive.failure }, { proposalId, proposalStateBefore: stateName });
+          }
+          // The validator vote that reaches the validator quorum leaves the
+          // proposal Locked in that same block (validator executeAfter).
+          let lockNote: string | undefined;
+          if (drive.state === 6) {
+            const u = await awaitUnlock(provider, govPool, proposalId, self, drive.lastBlock);
+            if (!u.unknown) drive.state = u.state;
+            lockNote = u.note;
           }
           const execSteps: FlowStep[] = [];
           let executed = false;
@@ -3132,6 +3437,7 @@ export function registerFlowTools(
             proposalId,
             proposalStateBefore: stateName,
             proposalStateAfter: proposalStateName(drive.state),
+            ...(lockNote && !executed ? { next: lockNote } : {}),
             ...(decision ? executeAdvisoryFields(decision) : {}),
             steps: [
               voteSkipped,
@@ -3168,6 +3474,10 @@ export function registerFlowTools(
             (remedies[stateNum] ?? "Check dexe_proposal_state for details."),
         );
       }
+      return undefined;
+      };
+      const routed = await routeNonVoting();
+      if (routed) return routed;
 
       // Step 2: resolve prereqs — always needed now (auto-deposit detection +
       // minVotes threshold + human-unit rendering).
@@ -3211,6 +3521,22 @@ export function registerFlowTools(
       }
 
       if (voteAmt === 0n && !alreadyVoted) {
+        // A validator-only caller (no GovPool tokens) lands here when the first
+        // read was stale: the proposal may already be in the validator stage,
+        // which needs no member power. Re-read before failing.
+        if (!input.dryRun) {
+          const again = await readProposalStateFresh(provider, govPool, proposalId, {
+            ...(entry.block !== null ? { minBlock: entry.block } : {}),
+            isStale: (st) => st === 0,
+            retries: 2,
+          });
+          if (again.state > 0) {
+            stateNum = again.state;
+            stateName = proposalStateName(stateNum);
+            const rerouted = await routeNonVoting();
+            if (rerouted) return rerouted;
+          }
+        }
         return err(
           input.depositFirst === false
             ? `No deposited voting power (wallet holds ${formatAmount(prereqs.walletBalance, d, sym)}, deposited 0). ` +
@@ -3334,9 +3660,57 @@ export function registerFlowTools(
       // forward, which is the whole point: a re-run after a landed vote used to
       // revert here and never reach execute.
       const nothingToBroadcast = payloads.length === 0;
+      // Approve and vote are separate txs. Between them, re-read the state as
+      // of the approve's block: a proposal that closed meanwhile (or whose
+      // first read was stale) must not get a vote that can only revert.
+      let haltedState: number | undefined;
+      const beforeVote = async (i: number, _p: TxPayload, lastBlock: number | undefined) => {
+        if (i === 0) return undefined;
+        const fresh = await readProposalStateFresh(provider, govPool, proposalId, {
+          ...(lastBlock !== undefined ? { minBlock: lastBlock } : {}),
+        });
+        if (fresh.state <= 0) return undefined; // still Voting, or unreadable: proceed as before
+        haltedState = fresh.state;
+        return (
+          `Proposal #${proposalId} is now "${proposalStateName(fresh.state)}", no longer votable, so the vote ` +
+          `was NOT sent (it could only revert).`
+        );
+      };
       const result: Awaited<ReturnType<typeof sendOrCollect>> = nothingToBroadcast
         ? { mode: input.dryRun ? "dryRun" : "executed", steps: [] }
-        : await sendOrCollect(signer, payloads, { dryRun: input.dryRun, chainId, wc, signerKey: input.signerKey });
+        : await sendOrCollect(signer, payloads, {
+            dryRun: input.dryRun,
+            chainId,
+            wc,
+            signerKey: input.signerKey,
+            ...(payloads.length > 1 ? { beforeStep: beforeVote } : {}),
+          });
+      if (result.halted && haltedState !== undefined) {
+        const h = haltedState;
+        const rerun =
+          h === 1 || h === 2
+            ? " Re-run this same call: it skips the vote and drives the validator round."
+            : h === 4 || h === 5 || h === 6
+              ? " Re-run this same call: it skips the vote and executes."
+              : "";
+        return attachPairingQr(ok({
+          mode: "vote-not-sent",
+          proposalId,
+          proposalStateBefore: stateName,
+          proposalStateAfter: proposalStateName(h),
+          reason: result.halted.reason,
+          steps: [
+            ...skippedSteps,
+            ...result.steps,
+            { label: "GovPool.vote", skipped: true, reason: result.halted.reason },
+          ],
+          executed: false,
+          ...(result.signer ? { signer: result.signer } : {}),
+          ...hotKeySafetyFields(result.signer?.safety),
+          note: "The approve landed (an unused allowance to the UserKeeper, harmless)." + rerun,
+          next: postVoteNextStep(h, govPool, proposalId, chainId),
+        }), undefined);
+      }
       if (result.mode === "failed") {
         return flowFailureResult(result, {
           proposalId,
@@ -3354,11 +3728,13 @@ export function registerFlowTools(
       let postVoteNext: string | undefined;
       let tally: Record<string, unknown> | undefined;
       if (input.autoExecute && result.mode === "executed") {
-        // Re-read state after vote
-        const postRes = await multicall(provider, [
-          { target: govPool, iface: GOV_POOL_ABI, method: "getProposalState", args: [proposalId] },
-        ]);
-        let postState = Number(postRes[0]!.value);
+        // Re-read state after vote, as of a block that includes the vote (a
+        // load-balanced RPC can answer from a node one block behind).
+        let lastBlock = result.lastBlock ?? (entry.block ?? undefined);
+        const postRead = await readProposalStateFresh(provider, govPool, proposalId, {
+          ...(lastBlock !== undefined ? { minBlock: lastBlock } : {}),
+        });
+        let postState = postRead.state;
 
         // P1-a: if the member vote pushed the proposal into the validator stage,
         // drive it (move + validator vote when the signer is a validator) before
@@ -3373,13 +3749,24 @@ export function registerFlowTools(
               provider, signer, wc, chainId, govPool, validators, proposalId,
               isVoteFor: input.isVoteFor, signerAddress: user, dryRun: false,
               signerKey: input.signerKey,
+              ...(lastBlock !== undefined ? { minBlock: lastBlock } : {}),
             });
+            if (drive.lastBlock !== undefined) lastBlock = drive.lastBlock;
             result.steps.push(...drive.steps);
             if (drive.failure) {
               return flowFailureResult({ steps: result.steps, failure: drive.failure }, { proposalId, proposalStateBefore: stateName, voteLanded: true });
             }
             postState = drive.state;
           }
+        }
+        // The vote that reaches quorum leaves the proposal Locked IN THAT BLOCK
+        // (block.timestamp <= executeAfter), even with executionDelay 0. Wait
+        // for the next block when the lock is that short, then execute.
+        let lockNote: string | undefined;
+        if (postState === 6 && !input.dryRun) {
+          const u = await awaitUnlock(provider, govPool, proposalId, self, lastBlock);
+          if (!u.unknown) postState = u.state;
+          lockNote = u.note;
         }
         const postStateName = proposalStateName(postState);
 
@@ -3427,10 +3814,10 @@ export function registerFlowTools(
           skippedSteps.push({
             label: "GovPool.execute",
             skipped: true,
-            reason: `Proposal is "${postStateName}" after your vote — not executable yet.`,
+            reason: lockNote ?? `Proposal is "${postStateName}" after your vote — not executable yet.`,
           });
           proposalStateAfter = postStateName;
-          postVoteNext = postVoteNextStep(postState, govPool, proposalId, chainId);
+          postVoteNext = lockNote ?? postVoteNextStep(postState, govPool, proposalId, chainId);
           // The tally is what turns "not executable yet" into a number the
           // agent can report. Fail-soft: no row, no tally.
           try {

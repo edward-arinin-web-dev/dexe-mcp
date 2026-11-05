@@ -12,12 +12,12 @@ var __require = /* @__PURE__ */ ((x6) => typeof require !== "undefined" ? requir
   if (typeof require !== "undefined") return require.apply(this, arguments);
   throw Error('Dynamic require of "' + x6 + '" is not supported');
 });
-var __esm = (fn, res, err16) => function __init() {
-  if (err16) throw err16[0];
+var __esm = (fn, res, err17) => function __init() {
+  if (err17) throw err17[0];
   try {
     return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
   } catch (e2) {
-    throw err16 = [e2], e2;
+    throw err17 = [e2], e2;
   }
 };
 var __commonJS = (cb, mod4) => function __require2() {
@@ -1318,21 +1318,21 @@ var require_errors = __commonJS({
     function extendErrors({ gen: gen4, keyword, schemaValue, data: data4, errsCount, it: it4 }) {
       if (errsCount === void 0)
         throw new Error("ajv implementation error");
-      const err16 = gen4.name("err");
+      const err17 = gen4.name("err");
       gen4.forRange("i", errsCount, names_1.default.errors, (i3) => {
-        gen4.const(err16, (0, codegen_1._)`${names_1.default.vErrors}[${i3}]`);
-        gen4.if((0, codegen_1._)`${err16}.instancePath === undefined`, () => gen4.assign((0, codegen_1._)`${err16}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it4.errorPath)));
-        gen4.assign((0, codegen_1._)`${err16}.schemaPath`, (0, codegen_1.str)`${it4.errSchemaPath}/${keyword}`);
+        gen4.const(err17, (0, codegen_1._)`${names_1.default.vErrors}[${i3}]`);
+        gen4.if((0, codegen_1._)`${err17}.instancePath === undefined`, () => gen4.assign((0, codegen_1._)`${err17}.instancePath`, (0, codegen_1.strConcat)(names_1.default.instancePath, it4.errorPath)));
+        gen4.assign((0, codegen_1._)`${err17}.schemaPath`, (0, codegen_1.str)`${it4.errSchemaPath}/${keyword}`);
         if (it4.opts.verbose) {
-          gen4.assign((0, codegen_1._)`${err16}.schema`, schemaValue);
-          gen4.assign((0, codegen_1._)`${err16}.data`, data4);
+          gen4.assign((0, codegen_1._)`${err17}.schema`, schemaValue);
+          gen4.assign((0, codegen_1._)`${err17}.data`, data4);
         }
       });
     }
     exports.extendErrors = extendErrors;
     function addError(gen4, errObj) {
-      const err16 = gen4.const("err", errObj);
-      gen4.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen4.assign(names_1.default.vErrors, (0, codegen_1._)`[${err16}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err16})`);
+      const err17 = gen4.const("err", errObj);
+      gen4.if((0, codegen_1._)`${names_1.default.vErrors} === null`, () => gen4.assign(names_1.default.vErrors, (0, codegen_1._)`[${err17}]`), (0, codegen_1._)`${names_1.default.vErrors}.push(${err17})`);
       gen4.code((0, codegen_1._)`${names_1.default.errors}++`);
     }
     function returnErrors(it4, errs) {
@@ -7535,19 +7535,19 @@ function maskUrl(raw) {
 function redactUrlCredentials(text5) {
   return text5.replace(URL_RE, (m3) => maskUrl(m3));
 }
-function safeErrorMessage(err16) {
+function safeErrorMessage(err17) {
   let msg;
-  if (err16 && typeof err16 === "object") {
-    const e2 = err16;
+  if (err17 && typeof err17 === "object") {
+    const e2 = err17;
     if (typeof e2.shortMessage === "string" && e2.shortMessage.length > 0) {
       msg = e2.shortMessage;
     } else if (typeof e2.message === "string") {
       msg = e2.message;
     } else {
-      msg = String(err16);
+      msg = String(err17);
     }
   } else {
-    msg = String(err16);
+    msg = String(err17);
   }
   return redactUrlCredentials(msg);
 }
@@ -7559,20 +7559,20 @@ function trySet(obj, key, value) {
     return false;
   }
 }
-function redactErrorInPlace(err16) {
-  const safe = safeErrorMessage(err16);
-  if (err16 instanceof Error) {
-    const e2 = err16;
-    const messageStuck = trySet(err16, "message", safe);
+function redactErrorInPlace(err17) {
+  const safe = safeErrorMessage(err17);
+  if (err17 instanceof Error) {
+    const e2 = err17;
+    const messageStuck = trySet(err17, "message", safe);
     let shortMessageLeaks = false;
     if (typeof e2.shortMessage === "string") {
       const cleaned = redactUrlCredentials(e2.shortMessage);
-      if (cleaned !== e2.shortMessage && !trySet(err16, "shortMessage", cleaned)) {
+      if (cleaned !== e2.shortMessage && !trySet(err17, "shortMessage", cleaned)) {
         shortMessageLeaks = true;
       }
     }
     if (typeof e2.stack === "string")
-      trySet(err16, "stack", redactUrlCredentials(e2.stack));
+      trySet(err17, "stack", redactUrlCredentials(e2.stack));
     const info = e2.info;
     if (info && typeof info === "object") {
       const requestUrl = info.requestUrl;
@@ -7580,10 +7580,10 @@ function redactErrorInPlace(err16) {
         trySet(info, "requestUrl", maskUrl(requestUrl));
     }
     if (messageStuck && !shortMessageLeaks)
-      return err16;
+      return err17;
   }
   const copy4 = new Error(safe);
-  const src3 = err16;
+  const src3 = err17;
   const target = copy4;
   for (const key of CLASSIFYING_FIELDS) {
     const v7 = src3?.[key];
@@ -7615,17 +7615,17 @@ function clampDiagnostic(text5) {
     return text5;
   return `${text5.slice(0, MAX_DIAGNOSTIC_CHARS)}\u2026 [truncated, ${text5.length - MAX_DIAGNOSTIC_CHARS} more chars]`;
 }
-function formatDiagnostic(err16) {
+function formatDiagnostic(err17) {
   const parts = [];
-  if (err16 instanceof Error) {
-    parts.push(err16.stack || `${err16.name}: ${err16.message}`);
-    let cause = err16.cause;
+  if (err17 instanceof Error) {
+    parts.push(err17.stack || `${err17.name}: ${err17.message}`);
+    let cause = err17.cause;
     for (let depth = 0; cause !== void 0 && cause !== null && depth < 3; depth++) {
       parts.push(`  caused by: ${cause instanceof Error ? cause.stack || `${cause.name}: ${cause.message}` : safeErrorMessage(cause)}`);
       cause = cause instanceof Error ? cause.cause : void 0;
     }
   } else {
-    parts.push(describeUnknown(err16));
+    parts.push(describeUnknown(err17));
   }
   return clampDiagnostic(redactUrlCredentials(parts.join("\n")));
 }
@@ -7715,19 +7715,19 @@ function sleepSync(ms2) {
 }
 function renameWithRetry(tmp, target, hooks = {}) {
   const rand = hooks.rand ?? Math.random;
-  const sleep3 = hooks.sleep ?? sleepSync;
+  const sleep4 = hooks.sleep ?? sleepSync;
   for (let attempt = 0; ; attempt++) {
     try {
       renameSync(tmp, target);
       return;
-    } catch (err16) {
-      const code6 = err16.code;
+    } catch (err17) {
+      const code6 = err17.code;
       const transient = code6 === "EPERM" || code6 === "EACCES" || code6 === "EBUSY";
       if (!transient || attempt >= RENAME_ATTEMPTS - 1)
-        throw err16;
+        throw err17;
       const delay = renameBackoffMs(attempt, rand);
       debugLog("state", `rename contended (${String(code6)}); retry ${attempt + 1} in ${delay.toFixed(1)}ms`);
-      sleep3(delay);
+      sleep4(delay);
     }
   }
 }
@@ -7759,8 +7759,8 @@ function withWriteLock(target, fn) {
           closeSync(fd);
         }
         held = true;
-      } catch (err16) {
-        const code6 = err16.code;
+      } catch (err17) {
+        const code6 = err17.code;
         const contended = code6 === "EEXIST" || code6 === "EPERM" || code6 === "EACCES" || code6 === "EBUSY";
         if (!contended)
           break;
@@ -7914,10 +7914,10 @@ var init_stateStore = __esm({
               ...parsed.activeFlow && typeof parsed.activeFlow === "object" && typeof parsed.activeFlow.flow === "string" && typeof parsed.activeFlow.step === "string" && typeof parsed.activeFlow.chainId === "number" ? { activeFlow: parsed.activeFlow } : {}
             }
           };
-        } catch (err16) {
-          process.stderr.write(`[dexe-mcp] could not read state at ${this.path} (${safeErrorMessage(err16)}); using empty state.
+        } catch (err17) {
+          process.stderr.write(`[dexe-mcp] could not read state at ${this.path} (${safeErrorMessage(err17)}); using empty state.
 `);
-          debugLog("state", "read failed", err16);
+          debugLog("state", "read failed", err17);
           return { raw, state: emptyState() };
         }
       }
@@ -7950,15 +7950,15 @@ var init_stateStore = __esm({
           this.cacheStamp = this.diskStamp();
           debugLog("state", `persisted ${state.knownDaos.length} dao(s) to ${this.path}`);
           return "published";
-        } catch (err16) {
+        } catch (err17) {
           this.unpublished = true;
           try {
             rmSync(tmp, { force: true });
           } catch {
           }
-          process.stderr.write(`[dexe-mcp] could not persist state to ${this.path} (${safeErrorMessage(err16)}); this session's DAOs/proposals will not be remembered next time.
+          process.stderr.write(`[dexe-mcp] could not persist state to ${this.path} (${safeErrorMessage(err17)}); this session's DAOs/proposals will not be remembered next time.
 `);
-          debugLog("state", "persist failed", err16);
+          debugLog("state", "persist failed", err17);
           return "failed";
         }
       }
@@ -17621,8 +17621,8 @@ function split2(name2, nf, ef) {
         }
       }
       info.type = type;
-    } catch (err16) {
-      info.error = err16;
+    } catch (err17) {
+      info.error = err17;
     }
     return info;
   });
@@ -28881,9 +28881,9 @@ var require_permessage_deflate = __commonJS({
        */
       decompress(data4, fin, callback) {
         zlibLimiter.add((done) => {
-          this._decompress(data4, fin, (err16, result) => {
+          this._decompress(data4, fin, (err17, result) => {
             done();
-            callback(err16, result);
+            callback(err17, result);
           });
         });
       }
@@ -28897,9 +28897,9 @@ var require_permessage_deflate = __commonJS({
        */
       compress(data4, fin, callback) {
         zlibLimiter.add((done) => {
-          this._compress(data4, fin, (err16, result) => {
+          this._compress(data4, fin, (err17, result) => {
             done();
-            callback(err16, result);
+            callback(err17, result);
           });
         });
       }
@@ -28930,11 +28930,11 @@ var require_permessage_deflate = __commonJS({
         this._inflate.write(data4);
         if (fin) this._inflate.write(TRAILER);
         this._inflate.flush(() => {
-          const err16 = this._inflate[kError];
-          if (err16) {
+          const err17 = this._inflate[kError];
+          if (err17) {
             this._inflate.close();
             this._inflate = null;
-            callback(err16);
+            callback(err17);
             return;
           }
           const data5 = bufferUtil.concat(
@@ -29015,14 +29015,14 @@ var require_permessage_deflate = __commonJS({
       this.removeListener("data", inflateOnData);
       this.reset();
     }
-    function inflateOnError(err16) {
+    function inflateOnError(err17) {
       this[kPerMessageDeflate]._inflate = null;
       if (this[kError]) {
         this[kCallback](this[kError]);
         return;
       }
-      err16[kStatusCode] = 1007;
-      this[kCallback](err16);
+      err17[kStatusCode] = 1007;
+      this[kCallback](err17);
     }
   }
 });
@@ -29675,8 +29675,8 @@ var require_receiver = __commonJS({
        */
       decompress(data4, cb) {
         const perMessageDeflate = this._extensions[PerMessageDeflate2.extensionName];
-        perMessageDeflate.decompress(data4, this._fin, (err16, buf) => {
-          if (err16) return cb(err16);
+        perMessageDeflate.decompress(data4, this._fin, (err17, buf) => {
+          if (err17) return cb(err17);
           if (buf.length) {
             this._messageLength += buf.length;
             if (this._messageLength > this._maxPayload && this._maxPayload > 0) {
@@ -29838,13 +29838,13 @@ var require_receiver = __commonJS({
       createError(ErrorCtor, message, prefix, statusCode, errorCode) {
         this._loop = false;
         this._errored = true;
-        const err16 = new ErrorCtor(
+        const err17 = new ErrorCtor(
           prefix ? `Invalid WebSocket frame: ${message}` : message
         );
-        Error.captureStackTrace(err16, this.createError);
-        err16.code = errorCode;
-        err16[kStatusCode] = statusCode;
-        return err16;
+        Error.captureStackTrace(err17, this.createError);
+        err17.code = errorCode;
+        err17[kStatusCode] = statusCode;
+        return err17;
       }
     };
     module.exports = Receiver2;
@@ -30223,10 +30223,10 @@ var require_sender = __commonJS({
         this._state = GET_BLOB_DATA;
         blob.arrayBuffer().then((arrayBuffer) => {
           if (this._socket.destroyed) {
-            const err16 = new Error(
+            const err17 = new Error(
               "The socket was closed while the blob was being read"
             );
-            process.nextTick(callCallbacks, this, err16, cb);
+            process.nextTick(callCallbacks, this, err17, cb);
             return;
           }
           this._bufferedBytes -= options[kByteLength];
@@ -30238,8 +30238,8 @@ var require_sender = __commonJS({
           } else {
             this.dispatch(data4, compress, options, cb);
           }
-        }).catch((err16) => {
-          process.nextTick(onError, this, err16, cb);
+        }).catch((err17) => {
+          process.nextTick(onError, this, err17, cb);
         });
       }
       /**
@@ -30275,10 +30275,10 @@ var require_sender = __commonJS({
         this._state = DEFLATING;
         perMessageDeflate.compress(data4, options.fin, (_3, buf) => {
           if (this._socket.destroyed) {
-            const err16 = new Error(
+            const err17 = new Error(
               "The socket was closed while data was being compressed"
             );
-            callCallbacks(this, err16, cb);
+            callCallbacks(this, err17, cb);
             return;
           }
           this._bufferedBytes -= options[kByteLength];
@@ -30329,17 +30329,17 @@ var require_sender = __commonJS({
       }
     };
     module.exports = Sender2;
-    function callCallbacks(sender, err16, cb) {
-      if (typeof cb === "function") cb(err16);
+    function callCallbacks(sender, err17, cb) {
+      if (typeof cb === "function") cb(err17);
       for (let i3 = 0; i3 < sender._queue.length; i3++) {
         const params = sender._queue[i3];
         const callback = params[params.length - 1];
-        if (typeof callback === "function") callback(err16);
+        if (typeof callback === "function") callback(err17);
       }
     }
-    function onError(sender, err16, cb) {
-      callCallbacks(sender, err16, cb);
-      sender.onerror(err16);
+    function onError(sender, err17, cb) {
+      callCallbacks(sender, err17, cb);
+      sender.onerror(err17);
     }
   }
 });
@@ -30993,8 +30993,8 @@ var require_websocket = __commonJS({
           return;
         }
         this._readyState = _WebSocket.CLOSING;
-        this._sender.close(code6, data4, !this._isServer, (err16) => {
-          if (err16) return;
+        this._sender.close(code6, data4, !this._isServer, (err17) => {
+          if (err17) return;
           this._closeFrameSent = true;
           if (this._closeFrameReceived || this._receiver._writableState.errorEmitted) {
             this._socket.end();
@@ -31264,11 +31264,11 @@ var require_websocket = __commonJS({
         invalidUrlMessage = "The URL contains a fragment identifier";
       }
       if (invalidUrlMessage) {
-        const err16 = new SyntaxError(invalidUrlMessage);
+        const err17 = new SyntaxError(invalidUrlMessage);
         if (websocket._redirects === 0) {
-          throw err16;
+          throw err17;
         } else {
-          emitErrorAndClose(websocket, err16);
+          emitErrorAndClose(websocket, err17);
           return;
         }
       }
@@ -31363,10 +31363,10 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, req, "Opening handshake has timed out");
         });
       }
-      req.on("error", (err16) => {
+      req.on("error", (err17) => {
         if (req === null || req[kAborted]) return;
         req = websocket._req = null;
-        emitErrorAndClose(websocket, err16);
+        emitErrorAndClose(websocket, err17);
       });
       req.on("response", (res) => {
         const location = res.headers.location;
@@ -31381,8 +31381,8 @@ var require_websocket = __commonJS({
           try {
             addr = new URL2(location, address);
           } catch (e2) {
-            const err16 = new SyntaxError(`Invalid URL: ${location}`);
-            emitErrorAndClose(websocket, err16);
+            const err17 = new SyntaxError(`Invalid URL: ${location}`);
+            emitErrorAndClose(websocket, err17);
             return;
           }
           initAsClient(websocket, addr, protocols, options);
@@ -31434,7 +31434,7 @@ var require_websocket = __commonJS({
           let extensions;
           try {
             extensions = parse4(secWebSocketExtensions);
-          } catch (err16) {
+          } catch (err17) {
             const message = "Invalid Sec-WebSocket-Extensions header";
             abortHandshake(websocket, socket, message);
             return;
@@ -31447,7 +31447,7 @@ var require_websocket = __commonJS({
           }
           try {
             perMessageDeflate.accept(extensions[PerMessageDeflate2.extensionName]);
-          } catch (err16) {
+          } catch (err17) {
             const message = "Invalid Sec-WebSocket-Extensions header";
             abortHandshake(websocket, socket, message);
             return;
@@ -31469,10 +31469,10 @@ var require_websocket = __commonJS({
         req.end();
       }
     }
-    function emitErrorAndClose(websocket, err16) {
+    function emitErrorAndClose(websocket, err17) {
       websocket._readyState = WebSocket3.CLOSING;
       websocket._errorEmitted = true;
-      websocket.emit("error", err16);
+      websocket.emit("error", err17);
       websocket.emitClose();
     }
     function netConnect2(options) {
@@ -31488,17 +31488,17 @@ var require_websocket = __commonJS({
     }
     function abortHandshake(websocket, stream, message) {
       websocket._readyState = WebSocket3.CLOSING;
-      const err16 = new Error(message);
-      Error.captureStackTrace(err16, abortHandshake);
+      const err17 = new Error(message);
+      Error.captureStackTrace(err17, abortHandshake);
       if (stream.setHeader) {
         stream[kAborted] = true;
         stream.abort();
         if (stream.socket && !stream.socket.destroyed) {
           stream.socket.destroy();
         }
-        process.nextTick(emitErrorAndClose, websocket, err16);
+        process.nextTick(emitErrorAndClose, websocket, err17);
       } else {
-        stream.destroy(err16);
+        stream.destroy(err17);
         stream.once("error", websocket.emit.bind(websocket, "error"));
         stream.once("close", websocket.emitClose.bind(websocket));
       }
@@ -31510,10 +31510,10 @@ var require_websocket = __commonJS({
         else websocket._bufferedAmount += length3;
       }
       if (cb) {
-        const err16 = new Error(
+        const err17 = new Error(
           `WebSocket is not open: readyState ${websocket.readyState} (${readyStates[websocket.readyState]})`
         );
-        process.nextTick(cb, err16);
+        process.nextTick(cb, err17);
       }
     }
     function receiverOnConclude(code6, reason) {
@@ -31531,16 +31531,16 @@ var require_websocket = __commonJS({
       const websocket = this[kWebSocket];
       if (!websocket.isPaused) websocket._socket.resume();
     }
-    function receiverOnError(err16) {
+    function receiverOnError(err17) {
       const websocket = this[kWebSocket];
       if (websocket._socket[kWebSocket] !== void 0) {
         websocket._socket.removeListener("data", socketOnData);
         process.nextTick(resume, websocket._socket);
-        websocket.close(err16[kStatusCode]);
+        websocket.close(err17[kStatusCode]);
       }
       if (!websocket._errorEmitted) {
         websocket._errorEmitted = true;
-        websocket.emit("error", err16);
+        websocket.emit("error", err17);
       }
     }
     function receiverOnFinish() {
@@ -31560,7 +31560,7 @@ var require_websocket = __commonJS({
     function resume(stream) {
       stream.resume();
     }
-    function senderOnError(err16) {
+    function senderOnError(err17) {
       const websocket = this[kWebSocket];
       if (websocket.readyState === WebSocket3.CLOSED) return;
       if (websocket.readyState === WebSocket3.OPEN) {
@@ -31570,7 +31570,7 @@ var require_websocket = __commonJS({
       this._socket.end();
       if (!websocket._errorEmitted) {
         websocket._errorEmitted = true;
-        websocket.emit("error", err16);
+        websocket.emit("error", err17);
       }
     }
     function setCloseTimer(websocket) {
@@ -31636,11 +31636,11 @@ var require_stream = __commonJS({
         this.destroy();
       }
     }
-    function duplexOnError(err16) {
+    function duplexOnError(err17) {
       this.removeListener("error", duplexOnError);
       this.destroy();
       if (this.listenerCount("error") === 0) {
-        this.emit("error", err16);
+        this.emit("error", err17);
       }
     }
     function createWebSocketStream2(ws2, options) {
@@ -31656,28 +31656,28 @@ var require_stream = __commonJS({
         const data4 = !isBinary && duplex2._readableState.objectMode ? msg.toString() : msg;
         if (!duplex2.push(data4)) ws2.pause();
       });
-      ws2.once("error", function error62(err16) {
+      ws2.once("error", function error62(err17) {
         if (duplex2.destroyed) return;
         terminateOnDestroy = false;
-        duplex2.destroy(err16);
+        duplex2.destroy(err17);
       });
       ws2.once("close", function close() {
         if (duplex2.destroyed) return;
         duplex2.push(null);
       });
-      duplex2._destroy = function(err16, callback) {
+      duplex2._destroy = function(err17, callback) {
         if (ws2.readyState === ws2.CLOSED) {
-          callback(err16);
+          callback(err17);
           process.nextTick(emitClose, duplex2);
           return;
         }
         let called = false;
-        ws2.once("error", function error62(err17) {
+        ws2.once("error", function error62(err18) {
           called = true;
-          callback(err17);
+          callback(err18);
         });
         ws2.once("close", function close() {
-          if (!called) callback(err16);
+          if (!called) callback(err17);
           process.nextTick(emitClose, duplex2);
         });
         if (terminateOnDestroy) ws2.terminate();
@@ -32005,7 +32005,7 @@ var require_websocket_server = __commonJS({
         if (secWebSocketProtocol !== void 0) {
           try {
             protocols = subprotocol2.parse(secWebSocketProtocol);
-          } catch (err16) {
+          } catch (err17) {
             const message = "Invalid Sec-WebSocket-Protocol header";
             abortHandshakeOrEmitwsClientError(this, req, socket, 400, message);
             return;
@@ -32025,7 +32025,7 @@ var require_websocket_server = __commonJS({
               perMessageDeflate.accept(offers[PerMessageDeflate2.extensionName]);
               extensions[PerMessageDeflate2.extensionName] = perMessageDeflate;
             }
-          } catch (err16) {
+          } catch (err17) {
             const message = "Invalid or unacceptable Sec-WebSocket-Extensions header";
             abortHandshakeOrEmitwsClientError(this, req, socket, 400, message);
             return;
@@ -32156,9 +32156,9 @@ var require_websocket_server = __commonJS({
     }
     function abortHandshakeOrEmitwsClientError(server, req, socket, code6, message, headers) {
       if (server.listenerCount("wsClientError")) {
-        const err16 = new Error(message);
-        Error.captureStackTrace(err16, abortHandshakeOrEmitwsClientError);
-        server.emit("wsClientError", err16, socket, req);
+        const err17 = new Error(message);
+        Error.captureStackTrace(err17, abortHandshakeOrEmitwsClientError);
+        server.emit("wsClientError", err17, socket, req);
       } else {
         abortHandshake(socket, code6, message, headers);
       }
@@ -36862,9 +36862,9 @@ function ensureNativeScrypt() {
   if (nativeScryptRegistered)
     return;
   scrypt2.register((passwd, salt, N13, r2, p4, dkLen) => new Promise((resolveKey, reject) => {
-    nodeScrypt(passwd, salt, dkLen, { N: N13, r: r2, p: p4, maxmem: SCRYPT_MAXMEM }, (err16, key) => {
-      if (err16)
-        reject(err16);
+    nodeScrypt(passwd, salt, dkLen, { N: N13, r: r2, p: p4, maxmem: SCRYPT_MAXMEM }, (err17, key) => {
+      if (err17)
+        reject(err17);
       else
         resolveKey(new Uint8Array(key));
     });
@@ -36878,8 +36878,8 @@ async function encryptPrivateKey(privateKey, password, params = KEYSTORE_SCRYPT)
     scrypt: { N: params.N, r: params.r, p: params.p }
   });
 }
-function isWrongPasswordError(err16) {
-  const m3 = safeErrorMessage(err16);
+function isWrongPasswordError(err17) {
+  const m3 = safeErrorMessage(err17);
   return /incorrect password/i.test(m3);
 }
 async function decryptKeystore(json2, password, expectedAddress) {
@@ -36957,8 +36957,8 @@ function listKeystores(dir) {
     const file2 = join4(dir, n4);
     try {
       return { file: file2, meta: parseKeystoreMeta(readFileSync2(file2, "utf8")) };
-    } catch (err16) {
-      return { file: file2, error: safeErrorMessage(err16) };
+    } catch (err17) {
+      return { file: file2, error: safeErrorMessage(err17) };
     }
   });
 }
@@ -36980,8 +36980,8 @@ function selectKeystore(opts) {
         };
       }
       return { file: loc.file, address: meta3.address };
-    } catch (err16) {
-      return { error: `${loc.file} is not a usable keystore: ${safeErrorMessage(err16)}`, candidates: [] };
+    } catch (err17) {
+      return { error: `${loc.file} is not a usable keystore: ${safeErrorMessage(err17)}`, candidates: [] };
     }
   }
   const entries = listKeystores(loc.dir).filter((e2) => !!e2.meta);
@@ -37022,12 +37022,12 @@ function writeKeystoreFile(dir, json2, targetName) {
   }
   try {
     renameWithRetry(tmp, target);
-  } catch (err16) {
+  } catch (err17) {
     try {
       unlinkSync(tmp);
     } catch {
     }
-    throw err16;
+    throw err17;
   }
   if (process.platform !== "win32") {
     try {
@@ -37332,7 +37332,7 @@ var require_resolveCommand = __commonJS({
       if (shouldSwitchCwd) {
         try {
           process.chdir(parsed.options.cwd);
-        } catch (err16) {
+        } catch (err17) {
         }
       }
       let resolved;
@@ -37517,9 +37517,9 @@ var require_enoent = __commonJS({
       const originalEmit = cp.emit;
       cp.emit = function(name2, arg1) {
         if (name2 === "exit") {
-          const err16 = verifyENOENT(arg1, parsed);
-          if (err16) {
-            return originalEmit.call(cp, "error", err16);
+          const err17 = verifyENOENT(arg1, parsed);
+          if (err17) {
+            return originalEmit.call(cp, "error", err17);
           }
         }
         return originalEmit.apply(cp, arguments);
@@ -39786,16 +39786,16 @@ var require_decoder = __commonJS({
         if (decoder2.comments.length > 0) {
           image2["comments"] = decoder2.comments;
         }
-      } catch (err16) {
-        if (err16 instanceof RangeError) {
+      } catch (err17) {
+        if (err17 instanceof RangeError) {
           throw new Error("Could not allocate enough memory for the image. Required: " + bytesNeeded);
         }
-        if (err16 instanceof ReferenceError) {
-          if (err16.message === "Buffer is not defined") {
+        if (err17 instanceof ReferenceError) {
+          if (err17.message === "Buffer is not defined") {
             throw new Error("Buffer is not globally defined in this environment. Consider setting useTArray to true");
           }
         }
-        throw err16;
+        throw err17;
       }
       decoder2.copyToImageData(image2, opts.formatAsRGBA);
       return image2;
@@ -44006,8 +44006,8 @@ var require_parser_async = __commonJS({
       this._parser.start();
     };
     util2.inherits(ParserAsync, ChunkStream);
-    ParserAsync.prototype._handleError = function(err16) {
-      this.emit("error", err16);
+    ParserAsync.prototype._handleError = function(err17) {
+      this.emit("error", err17);
       this.writable = false;
       this.destroy();
       if (this._inflate && this._inflate.destroy) {
@@ -44034,11 +44034,11 @@ var require_parser_async = __commonJS({
           this._inflate = zlib.createInflate({ chunkSize });
           let leftToInflate = imageSize;
           let emitError = this.emit.bind(this, "error");
-          this._inflate.on("error", function(err16) {
+          this._inflate.on("error", function(err17) {
             if (!leftToInflate) {
               return;
             }
-            emitError(err16);
+            emitError(err17);
           });
           this._filter.on("complete", this._complete.bind(this));
           let filterWrite = this._filter.write.bind(this._filter);
@@ -44583,8 +44583,8 @@ var require_sync_inflate = __commonJS({
       let buffers = [];
       let nread = 0;
       let error62;
-      this.on("error", function(err16) {
-        error62 = err16;
+      this.on("error", function(err17) {
+        error62 = err17;
       });
       function handleChunk(availInAfter, availOutAfter) {
         if (self2._hadError) {
@@ -44756,9 +44756,9 @@ var require_parser_sync = __commonJS({
           "To use the sync capability of this library in old node versions, please pin pngjs to v2.3.0"
         );
       }
-      let err16;
+      let err17;
       function handleError(_err_) {
-        err16 = _err_;
+        err17 = _err_;
       }
       let metaData;
       function handleMetaData(_metaData_) {
@@ -44794,8 +44794,8 @@ var require_parser_sync = __commonJS({
       });
       parser.start();
       reader.process();
-      if (err16) {
-        throw err16;
+      if (err17) {
+        throw err17;
       }
       let inflateData = Buffer.concat(inflateDataList);
       inflateDataList.length = 0;
@@ -44946,9 +44946,9 @@ var require_png = __commonJS({
           this.data = parsedData2;
           callback(null, this);
         }.bind(this);
-        onError = function(err16) {
+        onError = function(err17) {
           this.removeListener("parsed", onParsed);
-          callback(err16, null);
+          callback(err17, null);
         }.bind(this);
         this.once("parsed", onParsed);
         this.once("error", onError);
@@ -45124,8 +45124,8 @@ var require_png2 = __commonJS({
         cb = options;
         options = void 0;
       }
-      exports.renderToBuffer(qrData, options, function(err16, output4) {
-        if (err16) cb(err16);
+      exports.renderToBuffer(qrData, options, function(err17, output4) {
+        if (err17) cb(err17);
         let url2 = "data:image/png;base64,";
         url2 += output4.toString("base64");
         cb(null, url2);
@@ -45594,8 +45594,8 @@ var require_server = __commonJS({
         return new Promise(function(resolve9, reject) {
           try {
             const data4 = QRCode.create(text5, params.opts);
-            return renderFunc(data4, params.opts, function(err16, data5) {
-              return err16 ? reject(err16) : resolve9(data5);
+            return renderFunc(data4, params.opts, function(err17, data5) {
+              return err17 ? reject(err17) : resolve9(data5);
             });
           } catch (e2) {
             reject(e2);
@@ -47415,11 +47415,11 @@ var require_utils5 = __commonJS({
       return keys.map((key) => normalizeKey(key)).filter(Boolean).join(":");
     }
     function createError(driver, message, opts) {
-      const err16 = new Error(`[unstorage] [${driver}] ${message}`, opts);
+      const err17 = new Error(`[unstorage] [${driver}] ${message}`, opts);
       if (Error.captureStackTrace) {
-        Error.captureStackTrace(err16, createError);
+        Error.captureStackTrace(err17, createError);
       }
-      return err16;
+      return err17;
     }
     function createRequiredError(driver, name2) {
       if (Array.isArray(name2)) {
@@ -47447,11 +47447,11 @@ var require_node_fs = __commonJS({
     exports.writeFile = writeFile;
     var _nodeFs = __require("node:fs");
     var _nodePath = __require("node:path");
-    function ignoreNotfound(err16) {
-      return err16.code === "ENOENT" || err16.code === "EISDIR" ? null : err16;
+    function ignoreNotfound(err17) {
+      return err17.code === "ENOENT" || err17.code === "EISDIR" ? null : err17;
     }
-    function ignoreExists(err16) {
-      return err16.code === "EEXIST" ? null : err16;
+    function ignoreExists(err17) {
+      return err17.code === "EEXIST" ? null : err17;
     }
     async function writeFile(path7, data4, encoding) {
       await ensuredir((0, _nodePath.dirname)(path7));
@@ -51569,12 +51569,12 @@ var init_errors2 = __esm({
 });
 
 // node_modules/ox/_esm/core/Errors.js
-function walk2(err16, fn) {
-  if (fn?.(err16))
-    return err16;
-  if (err16 && typeof err16 === "object" && "cause" in err16 && err16.cause)
-    return walk2(err16.cause, fn);
-  return fn ? null : err16;
+function walk2(err17, fn) {
+  if (fn?.(err17))
+    return err17;
+  if (err17 && typeof err17 === "object" && "cause" in err17 && err17.cause)
+    return walk2(err17.cause, fn);
+  return fn ? null : err17;
 }
 var BaseError;
 var init_Errors = __esm({
@@ -53905,11 +53905,11 @@ function calcOffsets(n4, window2, wOpts) {
   }
   const offsetStart = window2 * windowSize;
   const offset = offsetStart + Math.abs(wbits) - 1;
-  const isZero2 = wbits === 0;
+  const isZero3 = wbits === 0;
   const isNeg = wbits < 0;
   const isNegF = window2 % 2 !== 0;
   const offsetF = offsetStart;
-  return { nextN, offset, isZero: isZero2, isNeg, isNegF, offsetF };
+  return { nextN, offset, isZero: isZero3, isNeg, isNegF, offsetF };
 }
 function validateMSMPoints(points, c4) {
   if (!Array.isArray(points))
@@ -53987,9 +53987,9 @@ function wNAF2(c4, bits) {
       let f3 = c4.BASE;
       const wo2 = calcWOpts(W4, bits);
       for (let window2 = 0; window2 < wo2.windows; window2++) {
-        const { nextN, offset, isZero: isZero2, isNeg, isNegF, offsetF } = calcOffsets(n4, window2, wo2);
+        const { nextN, offset, isZero: isZero3, isNeg, isNegF, offsetF } = calcOffsets(n4, window2, wo2);
         n4 = nextN;
-        if (isZero2) {
+        if (isZero3) {
           f3 = f3.add(constTimeNegate(isNegF, precomputes[offsetF]));
         } else {
           p4 = p4.add(constTimeNegate(isNeg, precomputes[offset]));
@@ -54010,9 +54010,9 @@ function wNAF2(c4, bits) {
       for (let window2 = 0; window2 < wo2.windows; window2++) {
         if (n4 === _0n11)
           break;
-        const { nextN, offset, isZero: isZero2, isNeg } = calcOffsets(n4, window2, wo2);
+        const { nextN, offset, isZero: isZero3, isNeg } = calcOffsets(n4, window2, wo2);
         n4 = nextN;
-        if (isZero2) {
+        if (isZero3) {
           continue;
         } else {
           const item = precomputes[offset];
@@ -61350,11 +61350,11 @@ function calcOffsets2(n4, window2, wOpts) {
   }
   const offsetStart = window2 * windowSize;
   const offset = offsetStart + Math.abs(wbits) - 1;
-  const isZero2 = wbits === 0;
+  const isZero3 = wbits === 0;
   const isNeg = wbits < 0;
   const isNegF = window2 % 2 !== 0;
   const offsetF = offsetStart;
-  return { nextN, offset, isZero: isZero2, isNeg, isNegF, offsetF };
+  return { nextN, offset, isZero: isZero3, isNeg, isNegF, offsetF };
 }
 function validateMSMPoints2(points, c4) {
   if (!Array.isArray(points))
@@ -61533,9 +61533,9 @@ var init_curve3 = __esm({
         let f3 = this.BASE;
         const wo2 = calcWOpts2(W4, this.bits);
         for (let window2 = 0; window2 < wo2.windows; window2++) {
-          const { nextN, offset, isZero: isZero2, isNeg, isNegF, offsetF } = calcOffsets2(n4, window2, wo2);
+          const { nextN, offset, isZero: isZero3, isNeg, isNegF, offsetF } = calcOffsets2(n4, window2, wo2);
           n4 = nextN;
-          if (isZero2) {
+          if (isZero3) {
             f3 = f3.add(negateCt(isNegF, precomputes[offsetF]));
           } else {
             p4 = p4.add(negateCt(isNeg, precomputes[offset]));
@@ -61554,9 +61554,9 @@ var init_curve3 = __esm({
         for (let window2 = 0; window2 < wo2.windows; window2++) {
           if (n4 === _0n16)
             break;
-          const { nextN, offset, isZero: isZero2, isNeg } = calcOffsets2(n4, window2, wo2);
+          const { nextN, offset, isZero: isZero3, isNeg } = calcOffsets2(n4, window2, wo2);
           n4 = nextN;
-          if (isZero2) {
+          if (isZero3) {
             continue;
           } else {
             const item = precomputes[offset];
@@ -62640,8 +62640,8 @@ function weierstrassN(params, extraOpts = {}) {
       try {
         y6 = Fp3.sqrt(y22);
       } catch (sqrtError) {
-        const err16 = sqrtError instanceof Error ? ": " + sqrtError.message : "";
-        throw new Error("bad point: is not on curve, sqrt error" + err16);
+        const err17 = sqrtError instanceof Error ? ": " + sqrtError.message : "";
+        throw new Error("bad point: is not on curve, sqrt error" + err17);
       }
       assertCompressionIsSupported();
       const isYOdd = Fp3.isOdd(y6);
@@ -72798,8 +72798,8 @@ var require_lib4 = __commonJS({
       this.size = size3;
       this.timeout = timeout;
       if (body instanceof Stream) {
-        body.on("error", function(err16) {
-          const error62 = err16.name === "AbortError" ? err16 : new FetchError(`Invalid response body while trying to fetch ${_this.url}: ${err16.message}`, "system", err16);
+        body.on("error", function(err17) {
+          const error62 = err17.name === "AbortError" ? err17 : new FetchError(`Invalid response body while trying to fetch ${_this.url}: ${err17.message}`, "system", err17);
           _this[INTERNALS].error = error62;
         });
       }
@@ -72850,8 +72850,8 @@ var require_lib4 = __commonJS({
         return consumeBody.call(this).then(function(buffer) {
           try {
             return JSON.parse(buffer.toString());
-          } catch (err16) {
-            return Body.Promise.reject(new FetchError(`invalid json response body at ${_this2.url} reason: ${err16.message}`, "invalid-json"));
+          } catch (err17) {
+            return Body.Promise.reject(new FetchError(`invalid json response body at ${_this2.url} reason: ${err17.message}`, "invalid-json"));
           }
         });
       },
@@ -72935,12 +72935,12 @@ var require_lib4 = __commonJS({
             reject(new FetchError(`Response timeout while trying to fetch ${_this4.url} (over ${_this4.timeout}ms)`, "body-timeout"));
           }, _this4.timeout);
         }
-        body.on("error", function(err16) {
-          if (err16.name === "AbortError") {
+        body.on("error", function(err17) {
+          if (err17.name === "AbortError") {
             abort = true;
-            reject(err16);
+            reject(err17);
           } else {
-            reject(new FetchError(`Invalid response body while trying to fetch ${_this4.url}: ${err16.message}`, "system", err16));
+            reject(new FetchError(`Invalid response body while trying to fetch ${_this4.url}: ${err17.message}`, "system", err17));
           }
         });
         body.on("data", function(chunk) {
@@ -72962,8 +72962,8 @@ var require_lib4 = __commonJS({
           clearTimeout(resTimeout);
           try {
             resolve9(Buffer.concat(accum, accumBytes));
-          } catch (err16) {
-            reject(new FetchError(`Could not create Buffer from response body for ${_this4.url}: ${err16.message}`, "system", err16));
+          } catch (err17) {
+            reject(new FetchError(`Could not create Buffer from response body for ${_this4.url}: ${err17.message}`, "system", err17));
           }
         });
       });
@@ -73677,19 +73677,19 @@ var require_lib4 = __commonJS({
             }, request.timeout);
           });
         }
-        req.on("error", function(err16) {
-          reject(new FetchError(`request to ${request.url} failed, reason: ${err16.message}`, "system", err16));
+        req.on("error", function(err17) {
+          reject(new FetchError(`request to ${request.url} failed, reason: ${err17.message}`, "system", err17));
           if (response && response.body) {
-            destroyStream(response.body, err16);
+            destroyStream(response.body, err17);
           }
           finalize2();
         });
-        fixResponseChunkedTransferBadEnding(req, function(err16) {
+        fixResponseChunkedTransferBadEnding(req, function(err17) {
           if (signal && signal.aborted) {
             return;
           }
           if (response && response.body) {
-            destroyStream(response.body, err16);
+            destroyStream(response.body, err17);
           }
         });
         if (parseInt(process.version.substring(1)) < 14) {
@@ -73697,9 +73697,9 @@ var require_lib4 = __commonJS({
             s2.addListener("close", function(hadError) {
               const hasDataListener = s2.listenerCount("data") > 0;
               if (response && hasDataListener && !hadError && !(signal && signal.aborted)) {
-                const err16 = new Error("Premature close");
-                err16.code = "ERR_STREAM_PREMATURE_CLOSE";
-                response.body.emit("error", err16);
+                const err17 = new Error("Premature close");
+                err17.code = "ERR_STREAM_PREMATURE_CLOSE";
+                response.body.emit("error", err17);
               }
             });
           });
@@ -73712,7 +73712,7 @@ var require_lib4 = __commonJS({
             let locationURL = null;
             try {
               locationURL = location === null ? null : new URL$1(location, request.url).toString();
-            } catch (err16) {
+            } catch (err17) {
               if (request.redirect !== "manual") {
                 reject(new FetchError(`uri requested responds with an invalid redirect URL: ${location}`, "invalid-redirect"));
                 finalize2();
@@ -73728,8 +73728,8 @@ var require_lib4 = __commonJS({
                 if (locationURL !== null) {
                   try {
                     headers.set("Location", locationURL);
-                  } catch (err16) {
-                    reject(err16);
+                  } catch (err17) {
+                    reject(err17);
                   }
                 }
                 break;
@@ -73845,19 +73845,19 @@ var require_lib4 = __commonJS({
           response.once("close", function(hadError) {
             const hasDataListener = socket && socket.listenerCount("data") > 0;
             if (hasDataListener && !hadError) {
-              const err16 = new Error("Premature close");
-              err16.code = "ERR_STREAM_PREMATURE_CLOSE";
-              errorCallback(err16);
+              const err17 = new Error("Premature close");
+              err17.code = "ERR_STREAM_PREMATURE_CLOSE";
+              errorCallback(err17);
             }
           });
         }
       });
     }
-    function destroyStream(stream, err16) {
+    function destroyStream(stream, err17) {
       if (stream.destroy) {
-        stream.destroy(err16);
+        stream.destroy(err17);
       } else {
-        stream.emit("error", err16);
+        stream.emit("error", err17);
         stream.end();
       }
     }
@@ -74772,9 +74772,9 @@ async function run2() {
     let existingEnv = null;
     try {
       existingEnv = readFileSync16(envPath, "utf8");
-    } catch (err16) {
-      if (err16.code !== "ENOENT")
-        throw err16;
+    } catch (err17) {
+      if (err17.code !== "ENOENT")
+        throw err17;
     }
     let action = "write";
     if (existingEnv !== null) {
@@ -75102,12 +75102,12 @@ function writeFileAtomic(path7, content3) {
   }
   try {
     renameWithRetry(tmp, path7);
-  } catch (err16) {
+  } catch (err17) {
     try {
       unlinkSync4(tmp);
     } catch {
     }
-    throw err16;
+    throw err17;
   }
 }
 function flag(argv, name2) {
@@ -76447,8 +76447,8 @@ var ZodType = class {
         } : {
           issues: ctx.common.issues
         };
-      } catch (err16) {
-        if (err16?.message?.toLowerCase()?.includes("encountered")) {
+      } catch (err17) {
+        if (err17?.message?.toLowerCase()?.includes("encountered")) {
           this["~standard"].async = true;
         }
         ctx.common = {
@@ -80833,10 +80833,10 @@ function defineLazyInternal(inst, key, compute) {
           Object.defineProperty(this, key, { configurable: true, writable: true, value });
         broke = broke || outer;
         return value;
-      } catch (err16) {
+      } catch (err17) {
         delete this[key];
         broke = broke || outer;
-        throw err16;
+        throw err17;
       }
     },
     set(value) {
@@ -92376,9 +92376,9 @@ function compile(schema, options) {
     const clone3 = withParser(schema, parser);
     clone3._zod.bag.validator = compileValidator(schema, parser);
     return clone3;
-  } catch (err16) {
+  } catch (err17) {
     if (options?.strict)
-      throw err16;
+      throw err17;
     return schema;
   }
 }
@@ -92468,8 +92468,8 @@ ${code6}
   try {
     const factory = new F3(...constantNames, factoryCode);
     fn = factory(...constantValues);
-  } catch (err16) {
-    throw new ZodCompileUnsupportedError(`this schema (generated code failed to evaluate: ${err16.message})`);
+  } catch (err17) {
+    throw new ZodCompileUnsupportedError(`this schema (generated code failed to evaluate: ${err17.message})`);
   }
   if (options?.debug) {
     fn.code = fullCode;
@@ -92507,9 +92507,9 @@ function compileChild(doc, ctx, schema, accessor, needsValue = true) {
   const varCounter = ctx.varCounter;
   try {
     return generateCheck(doc, ctx, schema, accessor, needsValue);
-  } catch (err16) {
-    if (!(err16 instanceof ZodCompileUnsupportedError) || !err16.islandable)
-      throw err16;
+  } catch (err17) {
+    if (!(err17 instanceof ZodCompileUnsupportedError) || !err17.islandable)
+      throw err17;
     doc.content.length = contentLen;
     if (ctx.constants.size > constantCount) {
       const trailing = Array.from(ctx.constants.keys()).slice(constantCount);
@@ -105253,8 +105253,8 @@ function hasGit() {
   if (gitAvailable !== null)
     return Promise.resolve(gitAvailable);
   return new Promise((resolvePromise) => {
-    execFile("git", ["--version"], { windowsHide: true }, (err16) => {
-      gitAvailable = !err16;
+    execFile("git", ["--version"], { windowsHide: true }, (err17) => {
+      gitAvailable = !err17;
       resolvePromise(gitAvailable);
     });
   });
@@ -105360,8 +105360,8 @@ async function ensureBuildReady(protocolPath) {
         log("This only happens once. Subsequent calls will be instant.");
         try {
           await execFileAsync("git", buildCloneArgs(REPO_URL, CHECKOUT_DIR, process.env.DEXE_PROTOCOL_REF), { cwd: cacheDir, windowsHide: true });
-        } catch (err16) {
-          const msg = safeErrorMessage(err16);
+        } catch (err17) {
+          const msg = safeErrorMessage(err17);
           throw new Error(`Failed to clone DeXe-Protocol. Check internet access and git credentials.
 ${msg}`);
         }
@@ -105383,8 +105383,8 @@ ${msg}`);
             shell: npm.needsShell,
             env: envWithNodeBinDir(npm.binDir)
           });
-        } catch (err16) {
-          const msg = safeErrorMessage(err16);
+        } catch (err17) {
+          const msg = safeErrorMessage(err17);
           throw new Error(`\`npm install\` failed inside ${protocolPath}.
 If your Node install lacks a bundled npm (e.g. a stripped node.exe), install Node from https://nodejs.org or via nvm and retry.
 ${msg}`);
@@ -105493,12 +105493,12 @@ function votesShortOfQuorum(votesFor, votesAgainst, requiredQuorum) {
   const lead = votesFor > votesAgainst ? votesFor : votesAgainst;
   return lead >= requiredQuorum ? "0" : (requiredQuorum - lead).toString();
 }
-function judgeQuorum(pct, floorPct) {
-  if (!Number.isFinite(pct))
+function judgeQuorum(pct2, floorPct) {
+  if (!Number.isFinite(pct2))
     return "DANGER";
-  if (pct >= floorPct)
+  if (pct2 >= floorPct)
     return "SAFE";
-  if (pct >= 0.8 * floorPct)
+  if (pct2 >= 0.8 * floorPct)
     return "CAUTION";
   return "DANGER";
 }
@@ -105629,8 +105629,8 @@ function treasuryGuardMode(args) {
     return resolveTreasuryGuardMode(raw).mode;
   return resolveTreasuryGuardMode(args?.configured).mode;
 }
-function lowQuorumAdvisory(pct, floorPct) {
-  const shown2 = Number.isFinite(pct) ? `${pct}%` : "unparseable";
+function lowQuorumAdvisory(pct2, floorPct) {
+  const shown2 = Number.isFinite(pct2) ? `${pct2}%` : "unparseable";
   return `\u26A0 quorum=${shown2} is below the ${floorPct}% safe floor (DEXE_MIN_SAFE_QUORUM_PCT). Low quorum reduces the participation required to pass a proposal. For a DAO that holds treasury assets, set quorum \u226550% (51%+ recommended) and verify stakeholder participation before executing treasury-moving proposals; the safe value is DAO-specific. ${ADVISORY_TAG}`;
 }
 var TREASURY_RISK_ADVISORY = `\u26A0 This proposal moves treasury value (ERC20 approve/transfer/transferFrom or native value). Confirm the DAO's quorum is adequate (\u226550%) and that key stakeholders have participated before executing. Run dexe_proposal_risk_assess for a full readout. ${ADVISORY_TAG}`;
@@ -106789,8 +106789,8 @@ async function loadWriteConfig() {
         privateKey = (await decryptKeystore(readFileSync3(sel.file, "utf8"), password, sel.address)).privateKey;
         process.stderr.write(`[dexe-mcp] unattended primary key unlocked from keystore ${sel.address} (password file)
 `);
-      } catch (err16) {
-        degrade("DEXE_KEYSTORE_PASSWORD_FILE", `could not unlock ${sel.file} with DEXE_KEYSTORE_PASSWORD_FILE: ${safeErrorMessage(err16)}`, "no primary key loaded");
+      } catch (err17) {
+        degrade("DEXE_KEYSTORE_PASSWORD_FILE", `could not unlock ${sel.file} with DEXE_KEYSTORE_PASSWORD_FILE: ${safeErrorMessage(err17)}`, "no primary key loaded");
       }
     }
   } else if (signerMode !== "unattended" && passwordFile) {
@@ -106806,8 +106806,8 @@ async function loadWriteConfig() {
     let addr;
     try {
       addr = new Wallet2(privateKey).address;
-    } catch (err16) {
-      degrade("DEXE_PRIVATE_KEY", `DEXE_PRIVATE_KEY is not a usable private key: ${safeErrorMessage(err16)}`, "signing disabled (readonly) \u2014 fix the key and restart to re-enable");
+    } catch (err17) {
+      degrade("DEXE_PRIVATE_KEY", `DEXE_PRIVATE_KEY is not a usable private key: ${safeErrorMessage(err17)}`, "signing disabled (readonly) \u2014 fix the key and restart to re-enable");
       privateKey = void 0;
     }
     if (addr) {
@@ -106828,8 +106828,8 @@ async function loadWriteConfig() {
     for (const slot of Object.keys(agentKeys)) {
       try {
         labels.push(`${slot}=${new Wallet2(agentKeys[slot]).address.slice(0, 10)}\u2026`);
-      } catch (err16) {
-        degrade(`DEXE_AGENT_PK_* (${slot})`, `agent keyring slot "${slot}" is not a usable private key: ${safeErrorMessage(err16)}`, "that slot is dropped; the other slots still load");
+      } catch (err17) {
+        degrade(`DEXE_AGENT_PK_* (${slot})`, `agent keyring slot "${slot}" is not a usable private key: ${safeErrorMessage(err17)}`, "that slot is dropped; the other slots still load");
         delete agentKeys[slot];
       }
     }
@@ -107013,8 +107013,8 @@ function hotKeyEnvNames(env) {
 function keystoreWeakness(file2) {
   try {
     return weakKdfReason(parseKeystoreMeta(readFileSync3(file2, "utf8")));
-  } catch (err16) {
-    return `the keystore ${file2} could not be read: ${safeErrorMessage(err16)}`;
+  } catch (err17) {
+    return `the keystore ${file2} could not be read: ${safeErrorMessage(err17)}`;
   }
 }
 function boundedInt(raw, fallback, min, max) {
@@ -114298,15 +114298,15 @@ var SelectorIndex = class {
       };
       push(this.byEventTopic, ev.topicHash, hit);
     });
-    iface.forEachError((err16) => {
+    iface.forEachError((err17) => {
       const hit = {
         contract: record2.contractName,
         sourceName: record2.sourceName,
-        signature: err16.format("sighash"),
-        selector: err16.selector,
+        signature: err17.format("sighash"),
+        selector: err17.selector,
         kind: "error"
       };
-      push(this.byErrorSelector, err16.selector, hit);
+      push(this.byErrorSelector, err17.selector, hit);
     });
   }
   /** Look up a selector or event topic. Accepts function selector (4B), error selector (4B), or event topic (32B). */
@@ -114660,18 +114660,18 @@ function getOneArtifact(artifacts, contractName) {
   }
   return list3[0];
 }
-function compileFirstMessage(err16) {
-  return `Hardhat artifacts not found at ${err16.artifactsDir}. Run dexe_compile first to populate them.`;
+function compileFirstMessage(err17) {
+  return `Hardhat artifacts not found at ${err17.artifactsDir}. Run dexe_compile first to populate them.`;
 }
 async function guarded(ctx, fn) {
   try {
     ctx.artifacts.requireArtifactsExist();
     return { ok: true, value: await fn() };
-  } catch (err16) {
-    if (err16 instanceof ArtifactsMissingError) {
-      return { ok: false, error: compileFirstMessage(err16) };
+  } catch (err17) {
+    if (err17 instanceof ArtifactsMissingError) {
+      return { ok: false, error: compileFirstMessage(err17) };
     }
-    return { ok: false, error: safeErrorMessage(err16) };
+    return { ok: false, error: safeErrorMessage(err17) };
   }
 }
 function errorResult(message) {
@@ -116731,9 +116731,9 @@ var DecodeAbis = class {
     try {
       this.artifacts.requireArtifactsExist();
       return this.artifacts.list().length > 0;
-    } catch (err16) {
-      if (!(err16 instanceof ArtifactsMissingError)) {
-        debugLog("decode", "local artifacts unusable, decoding with the ABI snapshot", err16);
+    } catch (err17) {
+      if (!(err17 instanceof ArtifactsMissingError)) {
+        debugLog("decode", "local artifacts unusable, decoding with the ABI snapshot", err17);
       }
       return false;
     }
@@ -116814,16 +116814,16 @@ var GovAddressResolver = class {
 init_lib2();
 init_redact();
 var TRANSPORT_ERR_RE = /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|rate.?limit|\b429\b|\b50[234]\b|could not detect network|SERVER_ERROR|NETWORK_ERROR|TIMEOUT|failed to fetch|fetch failed/i;
-function isTransportError(err16) {
-  const code6 = err16?.code;
+function isTransportError(err17) {
+  const code6 = err17?.code;
   if (code6 === "TIMEOUT" || code6 === "SERVER_ERROR" || code6 === "NETWORK_ERROR")
     return true;
   if (code6 === "CALL_EXCEPTION")
     return false;
-  return TRANSPORT_ERR_RE.test(rawMessageForClassification(err16));
+  return TRANSPORT_ERR_RE.test(rawMessageForClassification(err17));
 }
-function rawMessageForClassification(err16) {
-  return err16 instanceof Error ? err16.message : String(err16);
+function rawMessageForClassification(err17) {
+  return err17 instanceof Error ? err17.message : String(err17);
 }
 var PUBLIC_RPC_HINT = "\n\n[hint] this call used the shared PUBLIC BSC RPC, which rate-limits and can be flaky. For reliability set your own endpoint in .env \u2014 DEXE_RPC_URL_MAINNET (chain 56) / DEXE_RPC_URL_TESTNET (chain 97), e.g. an Alchemy / QuickNode / Ankr URL \u2014 then restart (Claude Code: quit + relaunch); dexe_doctor then checks the new endpoint.";
 var RETRY_DELAYS_MS = [400, 1e3, 2500];
@@ -116866,8 +116866,8 @@ var ResilientRpcProvider = class extends JsonRpcProvider {
     if (method === "eth_sendRawTransaction") {
       try {
         return await super.send(method, params);
-      } catch (err16) {
-        throw this.#finalize(err16);
+      } catch (err17) {
+        throw this.#finalize(err17);
       }
     }
     let lastErr;
@@ -116879,17 +116879,17 @@ var ResilientRpcProvider = class extends JsonRpcProvider {
       const target = useFallback ? this.#fallbackAt((attempt - 1) % fallbackCount) : void 0;
       try {
         return target ? await target.send(method, params) : await super.send(method, params);
-      } catch (err16) {
-        if (!isTransportError(err16))
-          throw redactErrorInPlace(err16);
-        lastErr = err16;
+      } catch (err17) {
+        if (!isTransportError(err17))
+          throw redactErrorInPlace(err17);
+        lastErr = err17;
       }
     }
     throw this.#finalize(lastErr);
   }
-  #finalize(err16) {
-    const transport = isTransportError(err16);
-    const safe = redactErrorInPlace(err16);
+  #finalize(err17) {
+    const transport = isTransportError(err17);
+    const safe = redactErrorInPlace(err17);
     if (this.#annotatePublicHint && transport && !remoteAudience() && !safe.message.includes("[hint]")) {
       safe.message += PUBLIC_RPC_HINT;
     }
@@ -116914,8 +116914,8 @@ var RpcProvider = class {
         this.cache.set(chain2.chainId, provider);
       }
       return provider;
-    } catch (err16) {
-      throw redactErrorInPlace(err16);
+    } catch (err17) {
+      throw redactErrorInPlace(err17);
     }
   }
   /**
@@ -116927,9 +116927,9 @@ var RpcProvider = class {
   tryProvider(chainId) {
     try {
       return { ok: this.requireProvider(chainId) };
-    } catch (err16) {
+    } catch (err17) {
       return {
-        error: safeErrorMessage(err16),
+        error: safeErrorMessage(err17),
         remediation: remoteAudience() ? "This server serves the chains dexe_get_config lists; pass one of them as chainId." : "Set DEXE_RPC_URL_TESTNET / DEXE_RPC_URL_MAINNET / DEXE_RPC_URL_<chainId> in .env, then restart the MCP server (Claude Code: quit + relaunch). Run dexe_doctor to verify."
       };
     }
@@ -117164,8 +117164,8 @@ function registerKnownFailures(reg) {
 function knownFailures() {
   return activeTable;
 }
-function toActionableError(err16, step2, table = knownFailures()) {
-  const raw = safeErrorMessage(err16);
+function toActionableError(err17, step2, table = knownFailures()) {
+  const raw = safeErrorMessage(err17);
   const hit = table.find((k5) => k5.match.test(raw));
   const prefix = step2 ? `${step2} failed: ` : "";
   if (!hit)
@@ -117353,8 +117353,8 @@ ${pr2.remediation}`);
     let views;
     try {
       views = await pool.getFunction("getProposals")(proposalId - 1, 1);
-    } catch (err16) {
-      return errorResult2(toActionableError(err16, "dexe_decode_proposal getProposals").message);
+    } catch (err17) {
+      return errorResult2(toActionableError(err17, "dexe_decode_proposal getProposals").message);
     }
     if (!views || views.length === 0) {
       return errorResult2(`Proposal ${proposalId} not found at ${govPool}.`);
@@ -117514,8 +117514,8 @@ NFT contracts:
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult2(toActionableError(err16, "dexe_read_gov_state").message);
+    } catch (err17) {
+      return errorResult2(toActionableError(err17, "dexe_read_gov_state").message);
     }
   });
 }
@@ -117680,8 +117680,8 @@ async function multicall(provider, calls) {
   let results;
   try {
     results = await mc.getFunction("aggregate3").staticCall(payload);
-  } catch (err16) {
-    throw new Error(safeErrorMessage(err16));
+  } catch (err17) {
+    throw new Error(safeErrorMessage(err17));
   }
   return results.map((r2, i3) => {
     const c4 = calls[i3];
@@ -117692,12 +117692,12 @@ async function multicall(provider, calls) {
       const decoded2 = c4.iface.decodeFunctionResult(c4.method, r2.returnData);
       const value = decoded2.length === 1 ? decoded2[0] : decoded2;
       return { success: true, value, raw: r2.returnData };
-    } catch (err16) {
+    } catch (err17) {
       return {
         success: false,
         value: null,
         raw: r2.returnData,
-        error: safeErrorMessage(err16)
+        error: safeErrorMessage(err17)
       };
     }
   });
@@ -117790,8 +117790,8 @@ ${ab.remediation}`);
         content: [{ type: "text", text: text5 }],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult3(toActionableError(err16, "dexe_dao_predict_addresses").message);
+    } catch (err17) {
+      return errorResult3(toActionableError(err17, "dexe_dao_predict_addresses").message);
     }
   });
 }
@@ -117840,8 +117840,8 @@ ${ab.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult3(toActionableError(err16, "dexe_dao_registry_lookup").message);
+    } catch (err17) {
+      return errorResult3(toActionableError(err17, "dexe_dao_registry_lookup").message);
     }
   });
 }
@@ -117954,8 +117954,8 @@ NFT contracts:
         label: `descriptionURL of GovPool ${govPool} (set by whoever deployed the DAO)`,
         structured
       });
-    } catch (err16) {
-      return errorResult3(toActionableError(err16, "dexe_dao_info").message);
+    } catch (err17) {
+      return errorResult3(toActionableError(err17, "dexe_dao_info").message);
     }
   });
 }
@@ -118383,16 +118383,16 @@ function joinGqlErrors(errors) {
 }
 var MISSING_RELATION_RE = /Null value resolved for non-null field `(\w+)`/;
 var PREFETCH_FAULT_RE = /internal error resolving \w+\.(\w+): expected prefetched result/;
-function missingRelationField(err16) {
-  const msg = safeErrorMessage(err16);
+function missingRelationField(err17) {
+  const msg = safeErrorMessage(err17);
   return MISSING_RELATION_RE.exec(msg)?.[1] ?? PREFETCH_FAULT_RE.exec(msg)?.[1] ?? null;
 }
 async function withOrphanVoterFallback(run6) {
   try {
     return { data: await run6(true), degraded: false };
-  } catch (err16) {
-    if (missingRelationField(err16) !== "voter")
-      throw err16;
+  } catch (err17) {
+    if (missingRelationField(err17) !== "voter")
+      throw err17;
     return { data: await run6(false), degraded: true };
   }
 }
@@ -118413,9 +118413,9 @@ async function gqlAttempt(endpoint, headers, body, timeoutMs, apiKey) {
     let parsed;
     try {
       parsed = await readJsonCapped(res, UPSTREAM_JSON_MAX_BYTES);
-    } catch (err16) {
-      if (!(err16 instanceof BodyTooLargeError))
-        throw err16;
+    } catch (err17) {
+      if (!(err17 instanceof BodyTooLargeError))
+        throw err17;
       throw new SubgraphError(`Subgraph response from ${maskUrl(endpoint)} is over ${formatBytes(UPSTREAM_JSON_MAX_BYTES)} \u2014 the query asks for far more than one answer can use. Ask for fewer rows (smaller first:) or fewer nested fields, and page with skip.`, false);
     }
     if (parsed.errors?.length) {
@@ -118424,15 +118424,15 @@ async function gqlAttempt(endpoint, headers, body, timeoutMs, apiKey) {
     if (!parsed.data)
       throw new SubgraphError("Subgraph returned empty data", false);
     return parsed.data;
-  } catch (err16) {
-    if (err16 instanceof SubgraphError)
-      throw err16;
+  } catch (err17) {
+    if (err17 instanceof SubgraphError)
+      throw err17;
     if (deadline.cancelled())
       throw new RequestCancelledError("subgraph query");
     if (deadline.timedOut()) {
       throw new SubgraphError(`Subgraph request to ${maskUrl(endpoint)} timed out after ${timeoutMs}ms \u2014 transient, re-run the call.${defaultEndpointHint(endpoint)}`, true);
     }
-    throw new SubgraphError(`Subgraph request to ${maskUrl(endpoint)} failed: ${safeErrorMessage(err16)} \u2014 transient, re-run the call.${defaultEndpointHint(endpoint)}`, true);
+    throw new SubgraphError(`Subgraph request to ${maskUrl(endpoint)} failed: ${safeErrorMessage(err17)} \u2014 transient, re-run the call.${defaultEndpointHint(endpoint)}`, true);
   } finally {
     deadline.clear();
   }
@@ -118454,9 +118454,9 @@ async function gqlRequest(endpoint, query, variables, apiKey, opts) {
     throwIfCancelled();
     try {
       return await gqlAttempt(endpoint, headers, body, timeoutMs, key);
-    } catch (err16) {
-      lastErr = err16;
-      if (attempt === 1 || !(err16 instanceof SubgraphError) || !err16.transient)
+    } catch (err17) {
+      lastErr = err17;
+      if (attempt === 1 || !(err17 instanceof SubgraphError) || !err17.transient)
         break;
       retried = true;
       await sleep2(retryDelayMs);
@@ -118767,8 +118767,8 @@ ${pr2.remediation}`);
         votesAgainstFormatted: pow3(row2 ? row2.votesAgainst : null),
         ...q6
       };
-      const pct = (n4) => n4 === null ? "?" : String(n4);
-      const votesText = row2 ? `, votesFor=${row2.votesFor} (${pct(q6.quorumAttainmentForPct)}% of quorum), votesAgainst=${row2.votesAgainst} (${pct(q6.quorumAttainmentAgainstPct)}%), quorum ${q6.quorumReached ? "REACHED" : `not reached \u2014 leading side short by ${q6.votesShortOfQuorum ?? "?"}`}` : "";
+      const pct2 = (n4) => n4 === null ? "?" : String(n4);
+      const votesText = row2 ? `, votesFor=${row2.votesFor} (${pct2(q6.quorumAttainmentForPct)}% of quorum), votesAgainst=${row2.votesAgainst} (${pct2(q6.quorumAttainmentAgainstPct)}%), quorum ${q6.quorumReached ? "REACHED" : `not reached \u2014 leading side short by ${q6.votesShortOfQuorum ?? "?"}`}` : "";
       const zeroNote = requiredQuorum === "0" ? " \u2014 requiredQuorum 0 means this proposal does not exist or has not started (GovPool returns 0 for voteEnd==0)." : "";
       return {
         content: [
@@ -118779,8 +118779,8 @@ ${pr2.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult4(toActionableError(err16, "dexe_proposal_state").message);
+    } catch (err17) {
+      return errorResult4(toActionableError(err17, "dexe_proposal_state").message);
     }
   });
 }
@@ -118897,8 +118897,8 @@ ${pr2.remediation}`);
         label: "proposal descriptionURLs (proposer-authored)",
         structured
       });
-    } catch (err16) {
-      return errorResult4(toActionableError(err16, "dexe_proposal_list").message);
+    } catch (err17) {
+      return errorResult4(toActionableError(err17, "dexe_proposal_list").message);
     }
   });
 }
@@ -118946,8 +118946,8 @@ function registerProposalVoters(server, ctx) {
     let sg;
     try {
       sg = resolveSubgraphUrl(ctx.config, "pools", chainId);
-    } catch (err16) {
-      return errorResult4(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult4(safeErrorMessage(err17));
     }
     const id2 = BigInt(proposalId).toString();
     const num = Number(id2);
@@ -118999,8 +118999,8 @@ function registerProposalVoters(server, ctx) {
         label: `voter rows (chain ${sg.chainId})`,
         structured
       });
-    } catch (err16) {
-      return errorResult4(toActionableError(err16, "dexe_proposal_voters").message);
+    } catch (err17) {
+      return errorResult4(toActionableError(err17, "dexe_proposal_voters").message);
     }
   });
 }
@@ -119136,8 +119136,8 @@ Token amounts are 18-decimal-normalized voting power, not the gov token's own un
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult5(toActionableError(err16, "dexe_vote_user_power").message);
+    } catch (err17) {
+      return errorResult5(toActionableError(err17, "dexe_vote_user_power").message);
     }
   });
 }
@@ -119223,8 +119223,8 @@ ${pr2.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult5(toActionableError(err16, "dexe_vote_get_votes").message);
+    } catch (err17) {
+      return errorResult5(toActionableError(err17, "dexe_vote_get_votes").message);
     }
   });
 }
@@ -119371,8 +119371,8 @@ ${pr2.remediation}`);
         label: "decoded return values (contract-authored)",
         structured
       });
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_multicall").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_multicall").message);
     }
   });
 }
@@ -119397,13 +119397,13 @@ async function fetchBackendBalances(base3, chainId, holder) {
         throw new Error(`backend HTTP ${res.status}`);
       }
       json2 = await readJsonCapped(res, UPSTREAM_JSON_MAX_BYTES);
-    } catch (err16) {
+    } catch (err17) {
       if (deadline.cancelled())
         throw new RequestCancelledError("backend request");
       if (deadline.timedOut()) {
         throw new Error(`backend request timed out after 8000ms \u2014 usually transient, re-run the call`);
       }
-      throw err16;
+      throw err17;
     } finally {
       deadline.clear();
     }
@@ -119525,10 +119525,10 @@ function registerTreasury(server, rpc) {
           label: "token symbols/names (any address can airdrop a token)",
           structured
         });
-      } catch (err16) {
-        if (err16 instanceof RequestCancelledError)
-          throw err16;
-        backendError = safeErrorMessage(err16);
+      } catch (err17) {
+        if (err17 instanceof RequestCancelledError)
+          throw err17;
+        backendError = safeErrorMessage(err17);
       }
     }
     try {
@@ -119570,8 +119570,8 @@ ${pr2.remediation}`);
               }
             }
           }
-        } catch (err16) {
-          discoveryError = safeErrorMessage(err16);
+        } catch (err17) {
+          discoveryError = safeErrorMessage(err17);
         }
         if (tokens.length === 0) {
           const scopeNote = `
@@ -119622,8 +119622,8 @@ ${pr2.remediation}`);
         label: "token symbols (ERC20.symbol() is whatever the token returns)",
         structured
       });
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_treasury").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_treasury").message);
     }
   });
 }
@@ -119668,16 +119668,16 @@ async function backendGetJson(path7, timeoutMs = 8e3) {
       throw new Error(`backend HTTP ${res.status} for ${pathForError}`);
     }
     return await readJsonCapped(res, UPSTREAM_JSON_MAX_BYTES);
-  } catch (err16) {
+  } catch (err17) {
     if (deadline.cancelled())
       throw new RequestCancelledError("backend request");
     if (deadline.timedOut()) {
       throw new Error(`DeXe backend request timed out after ${timeoutMs}ms (${path7.split("?")[0]}) \u2014 usually transient, re-run the call. ` + (remoteAudience() ? `If it persists, the backend is not reachable from this server right now.` : `If it persists: check network access to the DeXe backend (${maskUrl(base3)}) or set DEXE_BACKEND_API_URL.`));
     }
-    if (err16 instanceof BodyTooLargeError) {
+    if (err17 instanceof BodyTooLargeError) {
       throw new Error(`DeXe backend answer for ${path7.split("?")[0]} is over ${formatBytes(UPSTREAM_JSON_MAX_BYTES)} \u2014 ask for a smaller page (pageSize) or a shorter period.`);
     }
-    throw err16;
+    throw err17;
   } finally {
     deadline.clear();
   }
@@ -119733,8 +119733,8 @@ function registerTokenHolders(server, rpc) {
   (${malformed} malformed backend row(s) skipped: not an address + decimal balance)` : "") + "\n" + holders.slice(0, 20).map((h3, i3) => `  ${String(i3 + 1).padStart(2)}. ${h3.holder}  ${h3.balance}`).join("\n") + (holders.length > 20 ? `
   \u2026 +${holders.length - 20} more on this page not shown above` : "");
       return { content: [{ type: "text", text: text5 }], structuredContent: structured };
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_token_holders").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_token_holders").message);
     }
   });
 }
@@ -119787,8 +119787,8 @@ function registerDaoStats(server, rpc) {
         label: "tracker rows (third-party index)",
         structured
       });
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_dao_stats").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_dao_stats").message);
     }
   });
 }
@@ -119870,8 +119870,8 @@ function registerProtocolStats(server) {
         label: "DAO names + tracker figures (DAO-authored)",
         structured
       });
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_protocol_stats").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_protocol_stats").message);
     }
   });
 }
@@ -119934,8 +119934,8 @@ function registerNftsByWallet(server, rpc) {
         label: "NFT metadata (any address can airdrop an NFT)",
         structured
       });
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_nfts").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_nfts").message);
     }
   });
 }
@@ -120026,8 +120026,8 @@ ${pr2.remediation}`);
   credit lines: ${creditInfo.map((c4) => `${c4.token} month=${c4.monthLimitFormatted ?? c4.monthLimit} available=${c4.currentWithdrawLimitFormatted ?? c4.currentWithdrawLimit} (18-dec normalized; raw ${c4.monthLimit}/${c4.currentWithdrawLimit})`).join("; ")}` : `
   credit lines: none funded (internal monthly_withdraw would revert \u2014 fund via validators_allocation)` : "");
       return { content: [{ type: "text", text: text5 }], structuredContent: structured };
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_validators").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_validators").message);
     }
   });
 }
@@ -120071,12 +120071,12 @@ function labelProposalSettings(v7) {
       }
     }
   }
-  for (const [raw, pct] of [
+  for (const [raw, pct2] of [
     ["quorum", "quorumPct"],
     ["quorumValidators", "quorumValidatorsPct"]
   ]) {
     try {
-      o3[pct] = Number(BigInt(String(o3[raw])) * 10000n / 10n ** 25n) / 1e4;
+      o3[pct2] = Number(BigInt(String(o3[raw])) * 10000n / 10n ** 25n) / 1e4;
     } catch {
     }
   }
@@ -120134,8 +120134,8 @@ ${pr2.remediation}`);
         structured,
         maxBodyChars: 6e3
       });
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_settings").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_settings").message);
     }
   });
 }
@@ -120192,8 +120192,8 @@ ${pr2.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_expert_status").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_expert_status").message);
     }
   });
 }
@@ -120243,8 +120243,8 @@ ${pr2.remediation}`);
         label: "tier metadata (sale-opener-authored)",
         structured
       });
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_token_sale_tiers").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_token_sale_tiers").message);
     }
   });
 }
@@ -120285,8 +120285,8 @@ ${pr2.remediation}`);
         content: [{ type: "text", text: `TokenSale user views for ${user}: ${tierIds.length} tier(s) queried` }],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_token_sale_user").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_token_sale_user").message);
     }
   });
 }
@@ -120336,8 +120336,8 @@ ${pr2.remediation}`);
 ${text5}` }],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_distribution_status").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_distribution_status").message);
     }
   });
 }
@@ -120428,8 +120428,8 @@ ${pr2.remediation}`);
         label: "staking tier metadata (DAO-authored)",
         structured
       });
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_staking_info").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_staking_info").message);
     }
   });
 }
@@ -120470,8 +120470,8 @@ ${pr2.remediation}`);
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult6(toActionableError(err16, "dexe_read_privacy_policy_status").message);
+    } catch (err17) {
+      return errorResult6(toActionableError(err17, "dexe_read_privacy_policy_status").message);
     }
   });
 }
@@ -121536,12 +121536,12 @@ async function fetchIpfs(cid, cfg) {
         attempts,
         verified: verdict === "verified"
       };
-    } catch (err16) {
-      if (err16 instanceof BodyTooLargeError)
-        throw new IpfsTooLargeError(cidStr, maxBytes, err16.declared);
+    } catch (err17) {
+      if (err17 instanceof BodyTooLargeError)
+        throw new IpfsTooLargeError(cidStr, maxBytes, err17.declared);
       if (deadline.cancelled())
         throw new RequestCancelledError("IPFS fetch");
-      errors.push(deadline.timedOut() ? `${label} \u2192 timed out after ${timeout}ms` : `${label} \u2192 ${safeErrorMessage(err16)}`);
+      errors.push(deadline.timedOut() ? `${label} \u2192 timed out after ${timeout}ms` : `${label} \u2192 ${safeErrorMessage(err17)}`);
     } finally {
       deadline.clear();
     }
@@ -121793,11 +121793,11 @@ function registerIpfsReadTools(server, ctx, opts = {}) {
 function errorResult7(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-function ipfsToolError(err16, step2, classify = toActionableError) {
-  const raw = safeErrorMessage(err16);
+function ipfsToolError(err17, step2, classify = toActionableError) {
+  const raw = safeErrorMessage(err17);
   if (/IPFS fetch failed|IPFS content too large|client cancelled/i.test(raw))
     return `${step2} failed: ${raw}`;
-  return classify(err16, step2).message;
+  return classify(err17, step2).message;
 }
 function gatewayContentUrl(gateway, cid) {
   try {
@@ -121916,8 +121916,8 @@ function registerFetch(server, defaultGateways, remote2) {
         // JSON cap instead of the generic per-string cap.
         limits: { maxStringChars: IPFS_FETCH_JSON_MAX_BYTES }
       });
-    } catch (err16) {
-      return errorResult7(ipfsToolError(err16, "dexe_ipfs_fetch"));
+    } catch (err17) {
+      return errorResult7(ipfsToolError(err17, "dexe_ipfs_fetch"));
     }
   });
 }
@@ -121956,8 +121956,8 @@ ${gatewayUrls.map((u4) => `  ${u4}`).join("\n")}`
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult7(ipfsToolError(err16, "dexe_ipfs_cid_info"));
+    } catch (err17) {
+      return errorResult7(ipfsToolError(err17, "dexe_ipfs_cid_info"));
     }
   });
 }
@@ -121985,11 +121985,11 @@ async function pinataFetch(url2, init2, timeoutMs, what) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url2, { ...init2, signal: controller.signal });
-  } catch (err16) {
+  } catch (err17) {
     if (controller.signal.aborted) {
       throw new Error(`Pinata ${what} timed out after ${timeoutMs}ms \u2014 IPFS upload timed out, no metadata was pinned. Re-run the same call: ERC20.approve / GovPool.deposit / createProposalAndVote / GovPool.vote that already landed are re-derived from chain state and skipped, so nothing is paid for twice. If it keeps timing out, check status.pinata.cloud or set a different pinning service.`);
     }
-    throw err16;
+    throw err17;
   } finally {
     clearTimeout(timer);
   }
@@ -134144,14 +134144,14 @@ async function checkAvatarCidBytes(cid, fileName, gateways, perRequestTimeoutMs 
       try {
         assertRasterAvatar(head);
         return { ok: true };
-      } catch (err16) {
+      } catch (err17) {
         return {
           ok: false,
-          error: `avatarCID ${cid}/${fileName} does not contain a usable avatar: ${safeErrorMessage(err16)}`
+          error: `avatarCID ${cid}/${fileName} does not contain a usable avatar: ${safeErrorMessage(err17)}`
         };
       }
-    } catch (err16) {
-      attempts.push(controller.signal.aborted ? `${base3} \u2192 timed out after ${perRequestTimeoutMs}ms` : `${base3} \u2192 ${safeErrorMessage(err16)}`);
+    } catch (err17) {
+      attempts.push(controller.signal.aborted ? `${base3} \u2192 timed out after ${perRequestTimeoutMs}ms` : `${base3} \u2192 ${safeErrorMessage(err17)}`);
     } finally {
       clearTimeout(t2);
     }
@@ -134303,8 +134303,8 @@ var WRITE_KNOWN_FAILURES = {
 };
 var COMBINED_KNOWN_FAILURES = mergeKnownFailures(READ_KNOWN_FAILURES, WRITE_KNOWN_FAILURES);
 registerKnownFailures(WRITE_KNOWN_FAILURES);
-function toActionableError2(err16, step2) {
-  return toActionableError(err16, step2, COMBINED_KNOWN_FAILURES);
+function toActionableError2(err17, step2) {
+  return toActionableError(err17, step2, COMBINED_KNOWN_FAILURES);
 }
 
 // dist/tools/ipfsWrite.js
@@ -134324,8 +134324,8 @@ function registerIpfsCidForJsonTool(server) {
 function errorResult8(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-function ipfsToolError2(err16, step2) {
-  return ipfsToolError(err16, step2, toActionableError2);
+function ipfsToolError2(err17, step2) {
+  return ipfsToolError(err17, step2, toActionableError2);
 }
 async function warmDexeIpfsCache(cidV0) {
   try {
@@ -134336,8 +134336,8 @@ async function warmDexeIpfsCache(cidV0) {
       body
     });
     return { ok: r2.ok, status: r2.status };
-  } catch (err16) {
-    return { ok: false, error: safeErrorMessage(err16) };
+  } catch (err17) {
+    return { ok: false, error: safeErrorMessage(err17) };
   }
 }
 function requirePinata(ctx) {
@@ -134385,8 +134385,8 @@ Use as descriptionURL.`
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_upload_proposal_metadata"));
+    } catch (err17) {
+      return errorResult8(ipfsToolError2(err17, "dexe_ipfs_upload_proposal_metadata"));
     }
   });
 }
@@ -134471,8 +134471,8 @@ function registerUploadDaoMetadata(server, ctx) {
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_upload_dao_metadata"));
+    } catch (err17) {
+      return errorResult8(ipfsToolError2(err17, "dexe_ipfs_upload_dao_metadata"));
     }
   });
 }
@@ -134545,8 +134545,8 @@ function registerUploadFile(server, ctx) {
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_upload_file"));
+    } catch (err17) {
+      return errorResult8(ipfsToolError2(err17, "dexe_ipfs_upload_file"));
     }
   });
 }
@@ -134579,8 +134579,8 @@ Nothing was pinned \u2014 these are local hashes.`
         ],
         structuredContent: { cid, codec: "json", pinataCid: pin.cid, pinataCidExact: pin.exact, pinned: false }
       };
-    } catch (err16) {
-      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_cid_for_json"));
+    } catch (err17) {
+      return errorResult8(ipfsToolError2(err17, "dexe_ipfs_cid_for_json"));
     }
   });
 }
@@ -134625,8 +134625,8 @@ function registerUploadAvatar(server, ctx) {
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_upload_avatar"));
+    } catch (err17) {
+      return errorResult8(ipfsToolError2(err17, "dexe_ipfs_upload_avatar"));
     }
   });
 }
@@ -134675,8 +134675,8 @@ function registerGenerateAvatar(server, ctx) {
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult8(ipfsToolError2(err16, "dexe_dao_generate_avatar"));
+    } catch (err17) {
+      return errorResult8(ipfsToolError2(err17, "dexe_dao_generate_avatar"));
     }
   });
 }
@@ -134806,8 +134806,8 @@ Pass "${metadataRes.cid}" to dexe_proposal_build_modify_dao_profile.newDescripti
         ],
         structuredContent: structured
       };
-    } catch (err16) {
-      return errorResult8(ipfsToolError2(err16, "dexe_ipfs_update_dao_metadata"));
+    } catch (err17) {
+      return errorResult8(ipfsToolError2(err17, "dexe_ipfs_update_dao_metadata"));
     }
   });
 }
@@ -134864,8 +134864,8 @@ async function checkBlacklist(config2, token2, account, chainId) {
     } else {
       provider = new RpcProvider(config2).requireProvider();
     }
-  } catch (err16) {
-    return { status: "skipped", reason: safeErrorMessage(err16) };
+  } catch (err17) {
+    return { status: "skipped", reason: safeErrorMessage(err17) };
   }
   try {
     const contract = new Contract(token2, ERC20_GOV_BLACKLIST_ABI, provider);
@@ -134878,10 +134878,10 @@ async function checkBlacklist(config2, token2, account, chainId) {
       }
     }
     return { status: "clean", token: token2, account };
-  } catch (err16) {
+  } catch (err17) {
     return {
       status: "skipped",
-      reason: `blacklist getters unavailable on ${token2} \u2014 not an ERC20Gov? (${safeErrorMessage(err16)})`
+      reason: `blacklist getters unavailable on ${token2} \u2014 not an ERC20Gov? (${safeErrorMessage(err17)})`
     };
   }
 }
@@ -135138,9 +135138,9 @@ function hasVestingLeg(vestingPercentage) {
 function findVestingTiers(tiers) {
   const out2 = [];
   tiers.forEach((t2, index2) => {
-    const pct = t2.vestingSettings?.vestingPercentage;
-    if (hasVestingLeg(pct)) {
-      out2.push({ index: index2, name: t2.name ?? `tier[${index2}]`, vestingPercentage: pct });
+    const pct2 = t2.vestingSettings?.vestingPercentage;
+    if (hasVestingLeg(pct2)) {
+      out2.push({ index: index2, name: t2.name ?? `tier[${index2}]`, vestingPercentage: pct2 });
     }
   });
   return out2;
@@ -135164,11 +135164,11 @@ function decodeCreateTiersVesting(data4) {
       const rawPct = vs2?.vestingPercentage ?? vs2?.[0];
       if (rawPct === void 0 || BigInt(rawPct) <= 0n)
         return;
-      const pct = BigInt(rawPct) / 10n ** 25n;
+      const pct2 = BigInt(rawPct) / 10n ** 25n;
       out2.push({
         index: index2,
         name: String(meta3?.name ?? meta3?.[0] ?? `tier[${index2}]`),
-        vestingPercentage: pct.toString()
+        vestingPercentage: pct2.toString()
       });
     });
     return out2;
@@ -135299,9 +135299,9 @@ var DURATION_VALIDATORS_SANITY_CAP = 2592000n;
 function settingsAdvisories(s2, floorPct = 50) {
   const out2 = [];
   if (s2.quorum !== void 0) {
-    const pct = quorumPctFromRaw(s2.quorum);
-    if (judgeQuorum(pct, floorPct) !== "SAFE") {
-      out2.push(lowQuorumAdvisory(pct, floorPct));
+    const pct2 = quorumPctFromRaw(s2.quorum);
+    if (judgeQuorum(pct2, floorPct) !== "SAFE") {
+      out2.push(lowQuorumAdvisory(pct2, floorPct));
     }
   }
   if (toBig(s2.executionDelay) === 0n) {
@@ -136645,8 +136645,8 @@ function registerBuildExternal(server, ctx) {
         });
       }
       return payloadResult(payload, treasuryAdvisory, warnings);
-    } catch (err16) {
-      return errorResult9(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult9(safeErrorMessage(err17));
     }
   });
 }
@@ -136682,8 +136682,8 @@ function registerBuildInternal(server, ctx) {
         description: `GovValidators.createInternalProposal(${label})`
       });
       return payloadResult(payload);
-    } catch (err16) {
-      return errorResult9(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult9(safeErrorMessage(err17));
     }
   });
 }
@@ -136746,8 +136746,8 @@ ${CUSTOM_ABI_DEFAULT_ROUTING_ADVISORY}` + (treasuryAdvisory ? `
 ${treasuryAdvisory}` : ""),
         structured: { action, preview }
       }, warnings);
-    } catch (err16) {
-      return errorResult9(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult9(safeErrorMessage(err17));
     }
   });
 }
@@ -136869,8 +136869,8 @@ ${nextStep}` + (treasuryAdvisory ? `
 ${treasuryAdvisory}` : ""),
         structured: { metadata, actions, nextStep }
       }, warnings);
-    } catch (err16) {
-      return errorResult9(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult9(safeErrorMessage(err17));
     }
   });
 }
@@ -137064,8 +137064,8 @@ Governance-safety advisories:
 ${advisories.join("\n")}` : ""),
         advisories
       });
-    } catch (err16) {
-      return errorResult10(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult10(safeErrorMessage(err17));
     }
   });
 }
@@ -137115,8 +137115,8 @@ function registerManageValidators(server, ctx) {
         detail: `Target: GovValidators(${govValidators}).changeBalances
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err16) {
-      return errorResult10(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult10(safeErrorMessage(err17));
     }
   });
 }
@@ -137161,8 +137161,8 @@ function registerAddExpert(server, ctx) {
         detail: `Target: ExpertNft(${expertNftContract}).mint
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err16) {
-      return errorResult10(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult10(safeErrorMessage(err17));
     }
   });
 }
@@ -137206,8 +137206,8 @@ function registerRemoveExpert(server, ctx) {
         detail: `Target: ExpertNft(${expertNftContract}).burn
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err16) {
-      return errorResult10(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult10(safeErrorMessage(err17));
     }
   });
 }
@@ -137300,8 +137300,8 @@ function registerWithdrawTreasury(server, ctx) {
 
 ${treasuryAdvisory}` : "")
       });
-    } catch (err16) {
-      return errorResult10(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult10(safeErrorMessage(err17));
     }
   });
 }
@@ -137351,8 +137351,8 @@ function registerDelegateToExpert(server, ctx) {
         detail: `Target: GovPool(${govPool}).delegateTreasury
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err16) {
-      return errorResult10(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult10(safeErrorMessage(err17));
     }
   });
 }
@@ -137401,8 +137401,8 @@ function registerRevokeFromExpert(server, ctx) {
         detail: `Target: GovPool(${govPool}).undelegateTreasury
 Calldata: ${data4.slice(0, 66)}\u2026`
       });
-    } catch (err16) {
-      return errorResult10(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult10(safeErrorMessage(err17));
     }
   });
 }
@@ -137824,8 +137824,8 @@ function registerTokenDistribution(server, ctx) {
         title: `Token Distribution \u2192 ${amount} of ${token2} via proposal #${proposalId}`,
         detail: `Target: DistributionProposal(${distributionProposal}).execute (${actions.length} actions)`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -137938,7 +137938,7 @@ function buildTierTuple(tier) {
       let scaled;
       try {
         scaled = parseUnits(r2, PRECISION_DECIMALS);
-      } catch (err16) {
+      } catch (err17) {
         throw new Error(`Tier "${tier.name}": purchaseRatios[${i3}] = "${r2}" is not a valid decimal.`);
       }
       if (scaled === 0n) {
@@ -138111,8 +138111,8 @@ function registerTokenSaleMulti(server, ctx) {
         title: `Token Sale tiers \u2192 ${built.tierNames}`,
         detail: `Target: TokenSaleProposal(${input3.tokenSaleProposal}).createTiers (${input3.tiers.length} tier${input3.tiers.length === 1 ? "" : "s"}${built.whitelistRequests.length > 0 ? ` + addToWhitelist(${built.whitelistRequests.length})` : ""})`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138172,8 +138172,8 @@ function registerTokenSale(server, ctx) {
         title: `Token Sale tier \u2192 ${tier.name}`,
         detail: `Target: TokenSaleProposal(${tokenSaleProposal}).createTiers (1 tier${built.whitelistUsers.length > 0 ? " + addToWhitelist" : ""})`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138229,8 +138229,8 @@ function registerTokenSaleWhitelist(server, ctx) {
         title: `addToWhitelist (${requests.length} request${requests.length === 1 ? "" : "s"})`,
         detail: `Target: TokenSaleProposal(${tokenSaleProposal}).addToWhitelist`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138270,8 +138270,8 @@ function registerTokenSaleRecover(server, ctx) {
         title: `Recover tiers [${tierIds.join(", ")}]`,
         detail: `Target: TokenSaleProposal(${tokenSaleProposal}).recover`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138339,8 +138339,8 @@ function registerCreateStakingTier(server, ctx) {
         title: `Create Staking \u2192 ${rewardAmount} of ${rewardToken}`,
         detail: `Target: StakingProposal(${stakingProposal}).createStaking`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138384,8 +138384,8 @@ function registerChangeMathModel(server, ctx) {
 
 ${CHANGE_VOTE_POWER_ADVISORY}`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138429,8 +138429,8 @@ function registerModifyDaoProfile(server, ctx) {
         title: `Modify DAO Profile \u2192 ${newDescriptionURL}`,
         detail: `Target: GovPool(${govPool}).editDescriptionURL`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138498,8 +138498,8 @@ function registerBlacklistManagement(server, ctx) {
         title: `Blacklist: +${addAddresses.length} / -${removeAddresses.length}`,
         detail: `Target: ERC20Gov(${erc20Gov}).blacklist (${actions.length} action${actions.length === 1 ? "" : "s"})`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138663,8 +138663,8 @@ function registerRewardMultiplier(server, ctx) {
         detail: `${actions.length} action${actions.length === 1 ? "" : "s"} encoded`,
         ...warnings.length ? { advisories: warnings } : {}
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138740,8 +138740,8 @@ function registerApplyToDao(server, ctx) {
 
 ${treasuryAdvisory}` : "")
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -138834,8 +138834,8 @@ function registerNewProposalType(server, ctx) {
         title: `New Proposal Type (settingsId=${newSettingId}, ${executors.length} executors)`,
         detail: `Target: GovSettings(${govSettings}).addSettings + changeExecutors (2 actions)`
       });
-    } catch (err16) {
-      return errorResult11(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult11(safeErrorMessage(err17));
     }
   });
 }
@@ -139104,8 +139104,8 @@ var AgentLedger = class {
     let entry;
     try {
       entry = normalizeAction(input3);
-    } catch (err16) {
-      debugLog("ledger", `could not normalize entry (${safeErrorMessage(err16)})`);
+    } catch (err17) {
+      debugLog("ledger", `could not normalize entry (${safeErrorMessage(err17)})`);
       return null;
     }
     const cap = maxLedgerEntries();
@@ -139163,8 +139163,8 @@ var AgentLedger = class {
       }
       const entries = Array.isArray(parsed.entries) ? parsed.entries.filter((e2) => !!e2 && typeof e2 === "object" && typeof e2.at === "string") : [];
       return { raw, entries };
-    } catch (err16) {
-      debugLog("ledger", `read failed at ${this.path}`, err16);
+    } catch (err17) {
+      debugLog("ledger", `read failed at ${this.path}`, err17);
       return { raw: null, entries: [] };
     }
   }
@@ -139193,8 +139193,8 @@ var AgentLedger = class {
         if (next)
           this.persist(next);
       });
-    } catch (err16) {
-      debugLog("ledger", `mutate failed (${safeErrorMessage(err16)})`);
+    } catch (err17) {
+      debugLog("ledger", `mutate failed (${safeErrorMessage(err17)})`);
     }
   }
   /** Atomic write: private temp file + rename, optionally compare-and-swapped. */
@@ -139212,12 +139212,12 @@ var AgentLedger = class {
       }
       renameWithRetry(tmp, this.path);
       return "published";
-    } catch (err16) {
+    } catch (err17) {
       try {
         rmSync2(tmp, { force: true });
       } catch {
       }
-      debugLog("ledger", `persist failed at ${this.path} (${safeErrorMessage(err16)})`);
+      debugLog("ledger", `persist failed at ${this.path} (${safeErrorMessage(err17)})`);
       return "failed";
     }
   }
@@ -139288,7 +139288,7 @@ function attachBroadcastRecorder(wallet, attribution, ledger = getAgentLedger())
     let sent;
     try {
       sent = await original(tx);
-    } catch (err16) {
+    } catch (err17) {
       try {
         ledger.record({
           signerKey: attribution.signerKey,
@@ -139298,12 +139298,12 @@ function attachBroadcastRecorder(wallet, attribution, ledger = getAgentLedger())
           action: ctx?.action ?? describeTx(req),
           outcome: "failed",
           valueWei: asBigInt(req.value),
-          note: safeErrorMessage(err16)
+          note: safeErrorMessage(err17)
         });
       } catch (logErr) {
         debugLog("ledger", `record(failed) threw (${safeErrorMessage(logErr)})`);
       }
-      throw err16;
+      throw err17;
     }
     const res = sent;
     let entryId;
@@ -139320,8 +139320,8 @@ function attachBroadcastRecorder(wallet, attribution, ledger = getAgentLedger())
         gasWei: estimatedFeeWei(res)
       });
       entryId = entry?.id;
-    } catch (err16) {
-      debugLog("ledger", `record(broadcast) threw (${safeErrorMessage(err16)})`);
+    } catch (err17) {
+      debugLog("ledger", `record(broadcast) threw (${safeErrorMessage(err17)})`);
     }
     if (entryId)
       attachSettlement(res, ledger, entryId);
@@ -139340,8 +139340,8 @@ function attachBroadcastRecorder(wallet, attribution, ledger = getAgentLedger())
       configurable: true,
       enumerable: false
     });
-  } catch (err16) {
-    debugLog("ledger", `could not attach recorder (${safeErrorMessage(err16)})`);
+  } catch (err17) {
+    debugLog("ledger", `could not attach recorder (${safeErrorMessage(err17)})`);
   }
   return wallet;
 }
@@ -139357,12 +139357,12 @@ function attachSettlement(res, ledger, entryId) {
           outcome: receipt && receipt.status === 0 ? "reverted" : "confirmed",
           gasWei: receiptFeeWei(receipt)
         });
-      } catch (err16) {
-        debugLog("ledger", `settle threw (${safeErrorMessage(err16)})`);
+      } catch (err17) {
+        debugLog("ledger", `settle threw (${safeErrorMessage(err17)})`);
       }
       return receipt;
-    } catch (err16) {
-      throw err16;
+    } catch (err17) {
+      throw err17;
     }
   };
   try {
@@ -139372,8 +139372,8 @@ function attachSettlement(res, ledger, entryId) {
       configurable: true,
       enumerable: false
     });
-  } catch (err16) {
-    debugLog("ledger", `could not wrap wait (${safeErrorMessage(err16)})`);
+  } catch (err17) {
+    debugLog("ledger", `could not wrap wait (${safeErrorMessage(err17)})`);
   }
 }
 function describeTx(tx) {
@@ -141747,14 +141747,14 @@ var SignerManager = class {
   trySigner(chainId, signerKey) {
     try {
       return { ok: this.requireSigner(chainId, signerKey) };
-    } catch (err16) {
+    } catch (err17) {
       return {
-        error: safeErrorMessage(err16),
+        error: safeErrorMessage(err17),
         // The no-key message already carries the full hintFor() remedy, so
         // repeating it here printed the same three sentences twice wherever a
         // caller joins `error` + `remediation` (sendOrCollect does). Every
         // OTHER cause (unknown signerKey, provider construction) still needs it.
-        remediation: err16 instanceof SignerModeRefusal ? err16.remediation : err16 instanceof NoSignerKeyError ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it." : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC)
+        remediation: err17 instanceof SignerModeRefusal ? err17.remediation : err17 instanceof NoSignerKeyError ? "Run dexe_doctor to confirm which .env this server loaded, then restart Claude Code after editing it." : hintFor(["DEXE_PRIVATE_KEY"], ENV_SPEC)
       };
     }
   }
@@ -141870,11 +141870,11 @@ async function authPost(url2, body, label, timeoutMs = AUTH_TIMEOUT_MS) {
       body: JSON.stringify(body),
       signal: ctrl.signal
     });
-  } catch (err16) {
-    if (err16 instanceof Error && err16.name === "AbortError") {
+  } catch (err17) {
+    if (err17 instanceof Error && err17.name === "AbortError") {
       throw new Error(`${label} timed out after ${timeoutMs}ms \u2014 the DeXe backend did not respond. You are NOT logged in and no access token was issued; nothing was changed, so it is safe to re-run dexe_auth_login. If it persists: check network access to the backend, or set DEXE_BACKEND_API_URL to a reachable host.`);
     }
-    throw err16;
+    throw err17;
   } finally {
     clearTimeout(timer);
   }
@@ -142025,8 +142025,8 @@ function registerAuthLoginComposite(server, signer, wc) {
       const message = nonce.message;
       const signature = eoa ? await signer.signMessage(message, void 0, BACKEND_AUTH_CHAIN_ID) : await wc.signMessage(message);
       return await postLogin(base3, signerAddress, signature, signerMode);
-    } catch (err16) {
-      return errorResult12(`Auth login failed: ${safeErrorMessage(err16)}${err16 instanceof SignerModeRefusal ? ` ${err16.remediation}` : ""}`);
+    } catch (err17) {
+      return errorResult12(`Auth login failed: ${safeErrorMessage(err17)}${err17 instanceof SignerModeRefusal ? ` ${err17.remediation}` : ""}`);
     }
   });
 }
@@ -142094,14 +142094,14 @@ async function keystoreLogin(base3, signer, address) {
     const approved = await approvals.requestSignature({ kind: "message", tool, chainId: BACKEND_AUTH_CHAIN_ID, from: from10, message, purpose, serverRisks }, { ...scope2?.signal ? { signal: scope2.signal } : {}, ...scope2 ? { progress: (m3) => scope2.progress(m3) } : {} });
     const signature = await approved.signMessage(message);
     return await postLogin(base3, from10, signature, "keystore", { safety: KEYSTORE_LOGIN_SAFETY });
-  } catch (err16) {
-    if (err16 instanceof ApprovalHaltError) {
-      const r2 = approvalHaltResult(err16.halt);
+  } catch (err17) {
+    if (err17 instanceof ApprovalHaltError) {
+      const r2 = approvalHaltResult(err17.halt);
       return { ...r2, structuredContent: JSON.parse(r2.content[0].text) };
     }
-    if (err16 instanceof SignatureRefusal)
-      return errorResult12(err16.message);
-    return errorResult12(`Auth login failed: ${safeErrorMessage(err16)}`);
+    if (err17 instanceof SignatureRefusal)
+      return errorResult12(err17.message);
+    return errorResult12(`Auth login failed: ${safeErrorMessage(err17)}`);
   }
 }
 var KEYSTORE_LOGIN_SAFETY = "Signed with the encrypted keystore after the owner approved this exact login message on the local approval page or with `dexe-mcp approve`.";
@@ -142473,8 +142473,8 @@ function registerChangeValidatorBalances(server) {
         data: data4,
         title: `Change Validator Balances (${changes2.length} changes)`
       });
-    } catch (err16) {
-      return errorResult13(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult13(safeErrorMessage(err17));
     }
   });
 }
@@ -142510,8 +142510,8 @@ function registerChangeValidatorSettings(server) {
         data: data4,
         title: `Change Validator Settings (duration=${duration3}s, delay=${executionDelay}s, quorum=${quorum})`
       });
-    } catch (err16) {
-      return errorResult13(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult13(safeErrorMessage(err17));
     }
   });
 }
@@ -142553,8 +142553,8 @@ function registerMonthlyWithdraw(server) {
         data: data4,
         title: `Monthly Withdraw (${withdrawals.length} tokens \u2192 ${destination})`
       });
-    } catch (err16) {
-      return errorResult13(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult13(safeErrorMessage(err17));
     }
   });
 }
@@ -142829,8 +142829,8 @@ function registerErc20Approve(server, ctx, rpc) {
         });
       }
       return payloadResultWith(payload, extra);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -142888,8 +142888,8 @@ function registerDeposit(server, ctx) {
         description: `GovPool.deposit(${amount} wei, ${nftIds.length} NFTs)${value !== "0" ? ` + ${value} native` : ""}`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -142922,8 +142922,8 @@ function registerWithdraw(server, ctx) {
         description: `GovPool.withdraw \u2192 ${receiver} (${amount} wei, ${nftIds.length} NFTs)`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -142961,8 +142961,8 @@ function registerDelegate(server, ctx) {
         description: `GovPool.multicall([delegate \u2192 ${delegatee} (${amount} wei, ${nftIds.length} NFTs)])`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143026,8 +143026,8 @@ function registerUndelegate(server, ctx, rpc) {
         votedProposals: await delegateeVotesOnRecord(rpc, { govPool, delegatee, chainId: payload.chainId })
       }) : null;
       return payloadResult2(payload, advisory);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143071,8 +143071,8 @@ function registerVote(server, ctx, rpc) {
         chainId: chainId ?? ctx.config.defaultChainId,
         fallback: DEPOSIT_LOCK_NOTE
       }));
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143101,8 +143101,8 @@ function registerCancelVote2(server, ctx) {
         description: `GovPool.cancelVote(#${proposalId})`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143135,8 +143135,8 @@ function registerValidatorVote(server, ctx) {
         description: `GovValidators.${method}(#${proposalId}, ${amount}, ${isVoteFor ? "FOR" : "AGAINST"})`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143167,8 +143167,8 @@ function registerValidatorCancelVote(server, ctx) {
         description: `GovValidators.${method}(#${proposalId})`
       });
       return payloadResult2(payload, VALIDATOR_CANCEL_VOTE_ADVISORY);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143197,8 +143197,8 @@ function registerMoveToValidators(server, ctx) {
         description: `GovPool.moveProposalToValidators(#${proposalId})`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143253,8 +143253,8 @@ function registerExecute(server, ctx, rpc) {
         description: `GovPool.execute(#${proposalId})`
       });
       return payloadResult2(payload, executeAddSettingsAdvisory(targetChain), lockAdvisory);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143286,8 +143286,8 @@ function registerClaimRewards(server, ctx) {
         description: `GovPool.claimRewards([${proposalIds.join(",")}], ${user})`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143322,8 +143322,8 @@ function registerClaimMicropoolRewards(server, ctx) {
         description: `GovPool.claimMicropoolRewards([${proposalIds.join(",")}], ${delegator} \u2192 ${delegatee})`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143351,8 +143351,8 @@ function registerNftMultiplierLock(server, ctx) {
         contractLabel: "ERC721Multiplier"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143379,8 +143379,8 @@ function registerNftMultiplierUnlock(server, ctx) {
         contractLabel: "ERC721Multiplier"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143421,8 +143421,8 @@ function registerTokenSaleBuy(server, ctx) {
         contractLabel: "TokenSaleProposal"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143450,8 +143450,8 @@ function registerTokenSaleClaim(server, ctx) {
         contractLabel: "TokenSaleProposal"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143479,8 +143479,8 @@ function registerTokenSaleVestingWithdraw(server, ctx) {
         contractLabel: "TokenSaleProposal"
       });
       return payloadResult2(payload, VESTING_WITHDRAW_ADVISORY);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143511,8 +143511,8 @@ function registerDistributionClaim(server, ctx) {
         contractLabel: "DistributionProposal"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143541,8 +143541,8 @@ function registerStakingStake(server, ctx) {
         contractLabel: "GovUserKeeper"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143570,8 +143570,8 @@ function registerStakingClaim(server, ctx) {
         contractLabel: "StakingProposal"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143598,8 +143598,8 @@ function registerStakingClaimAll(server, ctx) {
         contractLabel: "StakingProposal"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143627,8 +143627,8 @@ function registerStakingReclaim(server, ctx) {
         contractLabel: "StakingProposal"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143703,8 +143703,8 @@ function registerPrivacyPolicyAgree(server, ctx) {
         contractLabel: "UserRegistry"
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -143739,8 +143739,8 @@ function registerMulticall2(server, ctx) {
         description: `GovPool.multicall(${calls.length} calls)`
       });
       return payloadResult2(payload);
-    } catch (err16) {
-      return errorResult14(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult14(safeErrorMessage(err17));
     }
   });
 }
@@ -144003,9 +144003,9 @@ function checkAllProposalSettings(args) {
       floorOk
     });
   });
-  for (const pct of [...new Set(belowFloor.map((b7) => b7.quorumPct))]) {
-    const where = belowFloor.filter((b7) => b7.quorumPct === pct).map((b7) => `[${b7.index}] ${b7.slot}`);
-    advisories.push(`proposalSettings ${where.join(", ")} \u2014 ${lowQuorumAdvisory(pct, floorPct)}`);
+  for (const pct2 of [...new Set(belowFloor.map((b7) => b7.quorumPct))]) {
+    const where = belowFloor.filter((b7) => b7.quorumPct === pct2).map((b7) => `[${b7.index}] ${b7.slot}`);
+    advisories.push(`proposalSettings ${where.join(", ")} \u2014 ${lowQuorumAdvisory(pct2, floorPct)}`);
   }
   return { issues, advisories, slots, votablePct, votablePowerPct: votablePowerPct2 };
 }
@@ -144206,9 +144206,9 @@ function computeQuorumFloorAdvisory(settings, floor) {
   const showPct = (p4) => Number.isFinite(p4) ? `${p4}%` : "unparseable";
   const lowQuorum = [];
   settings.forEach((s2, i3) => {
-    const pct = quorumPctFromRaw(s2.quorum);
-    if (judgeQuorum(pct, floor) !== "SAFE")
-      lowQuorum.push(`proposalSettings[${i3}] quorum=${showPct(pct)}`);
+    const pct2 = quorumPctFromRaw(s2.quorum);
+    if (judgeQuorum(pct2, floor) !== "SAFE")
+      lowQuorum.push(`proposalSettings[${i3}] quorum=${showPct(pct2)}`);
   });
   if (lowQuorum.length === 0)
     return "";
@@ -144297,8 +144297,8 @@ async function buildDeployGovPool(input3, ctx, rpc) {
     } else {
       votePowerInitData = encodeVotePowerInitData(params.votePowerParams.voteType, params.votePowerParams.polynomialCoefficients);
     }
-  } catch (err16) {
-    return fail2(`Failed to encode vote power initData: ${safeErrorMessage(err16)}`);
+  } catch (err17) {
+    return fail2(`Failed to encode vote power initData: ${safeErrorMessage(err17)}`);
   }
   const VT_SUFFIX = "-VT";
   const rawValidatorsParams = params.validatorsParams ?? {
@@ -144369,8 +144369,8 @@ ${pr2.remediation}`);
         registryOverride: chain2.registryOverride ?? ctx.config.registryOverride
       });
       factoryAddress = await book.resolve(CONTRACT_NAMES.POOL_FACTORY);
-    } catch (err16) {
-      return fail2(`poolFactory address needed: pass it explicitly, or configure DEXE_RPC_URL so the ContractsRegistry lookup works. (${safeErrorMessage(err16)})`);
+    } catch (err17) {
+      return fail2(`poolFactory address needed: pass it explicitly, or configure DEXE_RPC_URL so the ContractsRegistry lookup works. (${safeErrorMessage(err17)})`);
     }
   }
   let predictedGovPool;
@@ -144403,8 +144403,8 @@ ${pr2.remediation}`);
         return fail2(`votePowerParams.presetAddress ${params.votePowerParams.presetAddress} has no contract code on chain ${chain2.chainId}. CUSTOM_VOTES requires a deployed vote-power contract; the factory calls its init and reverts "PoolFactory: power init failed" otherwise.`);
       }
     }
-  } catch (err16) {
-    return fail2(`Failed to predict gov addresses / run pre-deploy checks: ${safeErrorMessage(err16)}`);
+  } catch (err17) {
+    return fail2(`Failed to predict gov addresses / run pre-deploy checks: ${safeErrorMessage(err17)}`);
   }
   const ZERO3 = "0x0000000000000000000000000000000000000000";
   const effectiveTokenAddress = isTokenCreation && predictedGovToken ? predictedGovToken : params.userKeeperParams.tokenAddress;
@@ -144532,9 +144532,9 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
           } else {
             expandedSettings[3] = { ...expandedSettings[3], executorDescription: cid };
           }
-        } catch (err16) {
+        } catch (err17) {
           pinataWarning += `
-\u26A0\uFE0F  Failed to upload ${label} executorDescription: ${safeErrorMessage(err16)}`;
+\u26A0\uFE0F  Failed to upload ${label} executorDescription: ${safeErrorMessage(err17)}`;
         }
       }
     }
@@ -144625,12 +144625,12 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
       iface = new Interface(FALLBACK_POOL_FACTORY_ABI);
       ifaceSource = "fallback (artifacts not loaded \u2014 run dexe_compile for strict parity)";
     }
-  } catch (err16) {
-    if (err16 instanceof ArtifactsMissingError) {
+  } catch (err17) {
+    if (err17 instanceof ArtifactsMissingError) {
       iface = new Interface(FALLBACK_POOL_FACTORY_ABI);
       ifaceSource = "fallback (no artifacts \u2014 run dexe_compile for strict parity)";
     } else {
-      return fail2(`Failed to load PoolFactory ABI: ${safeErrorMessage(err16)}`);
+      return fail2(`Failed to load PoolFactory ABI: ${safeErrorMessage(err17)}`);
     }
   }
   let payload;
@@ -144644,8 +144644,8 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
       contractLabel: "PoolFactory",
       description: `PoolFactory.deployGovPool("${params.name}") via ${ifaceSource}`
     });
-  } catch (err16) {
-    return fail2(`deployGovPool encoding failed: ${safeErrorMessage(err16)}`);
+  } catch (err17) {
+    return fail2(`deployGovPool encoding failed: ${safeErrorMessage(err17)}`);
   }
   {
     const expected = {
@@ -144680,8 +144680,8 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
     let rt3;
     try {
       rt3 = roundTripDeployCalldata(payload.data, iface, expected);
-    } catch (err16) {
-      return fail2(`deployGovPool calldata self-check could not decode the built calldata (${safeErrorMessage(err16)}). This is an ABI/encoding mismatch \u2014 run dexe_compile to refresh the PoolFactory ABI. Refusing to emit un-decodable calldata.`);
+    } catch (err17) {
+      return fail2(`deployGovPool calldata self-check could not decode the built calldata (${safeErrorMessage(err17)}). This is an ABI/encoding mismatch \u2014 run dexe_compile to refresh the PoolFactory ABI. Refusing to emit un-decodable calldata.`);
     }
     if (!rt3.ok) {
       const detail = rt3.mismatches.slice(0, 8).map((m3) => `${m3.field}: expected "${m3.expected}" got "${m3.got}"`).join("; ");
@@ -144794,8 +144794,8 @@ function errorResult16(message) {
 function resolveEndpoint(ctx, kind, chainId) {
   try {
     return resolveSubgraphUrl(ctx.config, kind, chainId);
-  } catch (err16) {
-    return safeErrorMessage(err16);
+  } catch (err17) {
+    return safeErrorMessage(err17);
   }
 }
 function chainNote(ctx, kind) {
@@ -145153,8 +145153,8 @@ function registerGraphQuery(server, ctx) {
         label: `subgraph rows (${subgraph}, chain ${sg.chainId})`,
         structured: { subgraph, indexedChainId: sg.chainId, data: data4 }
       });
-    } catch (err16) {
-      return errorResult16(withSchemaRecoveryHint(toActionableError(err16, "dexe_graph_query").message, subgraph));
+    } catch (err17) {
+      return errorResult16(withSchemaRecoveryHint(toActionableError(err17, "dexe_graph_query").message, subgraph));
     }
   });
 }
@@ -145348,8 +145348,8 @@ function registerGraphSchema(server, ctx) {
         },
         maxBodyChars: 12e3
       });
-    } catch (err16) {
-      return errorResult16(toActionableError(err16, "dexe_graph_schema").message);
+    } catch (err17) {
+      return errorResult16(toActionableError(err17, "dexe_graph_schema").message);
     }
   });
 }
@@ -145387,8 +145387,8 @@ function registerDaoList(server, ctx) {
           daoPools: rows2
         }
       });
-    } catch (err16) {
-      return errorResult16(toActionableError(err16, "dexe_read_dao_list").message);
+    } catch (err17) {
+      return errorResult16(toActionableError(err17, "dexe_read_dao_list").message);
     }
   });
 }
@@ -145451,8 +145451,8 @@ function registerDaoMembers(server, ctx) {
           members: rows2
         }
       });
-    } catch (err16) {
-      return errorResult16(toActionableError(err16, "dexe_read_dao_members").message);
+    } catch (err17) {
+      return errorResult16(toActionableError(err17, "dexe_read_dao_members").message);
     }
   });
 }
@@ -145495,8 +145495,8 @@ function registerDelegationMap(server, ctx) {
           delegations: rows2
         }
       });
-    } catch (err16) {
-      return errorResult16(toActionableError(err16, "dexe_read_delegation_map").message);
+    } catch (err17) {
+      return errorResult16(toActionableError(err17, "dexe_read_delegation_map").message);
     }
   });
 }
@@ -145536,8 +145536,8 @@ function registerValidatorList(server, ctx) {
           validators: rows2
         }
       });
-    } catch (err16) {
-      return errorResult16(toActionableError(err16, "dexe_read_validator_list").message);
+    } catch (err17) {
+      return errorResult16(toActionableError(err17, "dexe_read_validator_list").message);
     }
   });
 }
@@ -145573,8 +145573,8 @@ function registerUserActivity(server, ctx) {
         label: `transaction rows (chain ${sg.chainId})`,
         structured: { user, ...meta3, indexedChainId: sg.chainId, transactions: txs }
       });
-    } catch (err16) {
-      return errorResult16(toActionableError(err16, "dexe_read_user_activity").message);
+    } catch (err17) {
+      return errorResult16(toActionableError(err17, "dexe_read_user_activity").message);
     }
   });
 }
@@ -145626,8 +145626,8 @@ function registerDaoExperts(server, ctx) {
           experts: rows2
         }
       });
-    } catch (err16) {
-      return errorResult16(toActionableError(err16, "dexe_read_dao_experts").message);
+    } catch (err17) {
+      return errorResult16(toActionableError(err17, "dexe_read_dao_experts").message);
     }
   });
 }
@@ -145853,6 +145853,7 @@ var WRITE_TOOLS = [
   "dexe_proposal_create",
   "dexe_proposal_vote_and_execute",
   "dexe_dao_create",
+  "dexe_agent_treasury_create",
   "dexe_otc_dao_open_sale",
   "dexe_otc_buyer_buy",
   "dexe_otc_buyer_claim_all",
@@ -146879,10 +146880,10 @@ function resolveSource(config2, kind, chainId) {
   try {
     const sg = resolveSubgraphUrl(config2, kind, chainId);
     return { url: sg.url, source: { available: true, indexedChainId: sg.chainId } };
-  } catch (err16) {
+  } catch (err17) {
     return {
       url: null,
-      source: { available: false, indexedChainId: null, reason: safeErrorMessage(err16) }
+      source: { available: false, indexedChainId: null, reason: safeErrorMessage(err17) }
     };
   }
 }
@@ -146975,8 +146976,8 @@ Pass an ISO timestamp or Unix seconds instead.`);
           sinceMode = "block";
           sinceUnix = Number(blk.timestamp);
           sinceNote = `Block ${parsed.block} \u2192 ${unixToUtc(sinceUnix)}.`;
-        } catch (err16) {
-          return errorResult17(toActionableError(err16, `dexe_dao_report since block lookup`).message);
+        } catch (err17) {
+          return errorResult17(toActionableError(err17, `dexe_dao_report since block lookup`).message);
         }
       }
     }
@@ -147111,8 +147112,8 @@ Pass an ISO timestamp or Unix seconds instead.`);
             };
           }
         }
-      } catch (err16) {
-        onchainError = toActionableError(err16, "dexe_dao_report on-chain reads").message;
+      } catch (err17) {
+        onchainError = toActionableError(err17, "dexe_dao_report on-chain reads").message;
       }
     }
     const personalItems = [];
@@ -147155,8 +147156,8 @@ Pass an ISO timestamp or Unix seconds instead.`);
           if (summary)
             personalItems.push({ kind: "claimableRewards", ...summary });
         }
-      } catch (err16) {
-        debugLog("report", "per-user deadline scan failed", err16);
+      } catch (err17) {
+        debugLog("report", "per-user deadline scan failed", err17);
       }
     }
     let poolsData = null;
@@ -147178,9 +147179,9 @@ Pass an ISO timestamp or Unix seconds instead.`);
           hydrateVoters(poolsData);
           poolsDegraded = orphanVoterNote(toolRef);
         }
-      } catch (err16) {
+      } catch (err17) {
         poolsSource.available = false;
-        poolsSource.reason = toActionableError(err16, "dexe_dao_report pools subgraph").message;
+        poolsSource.reason = toActionableError(err17, "dexe_dao_report pools subgraph").message;
       }
     }
     let validatorRows = null;
@@ -147189,9 +147190,9 @@ Pass an ISO timestamp or Unix seconds instead.`);
       try {
         const d3 = await gqlRequest(validatorsSg.url, VALIDATORS_REPORT_QUERY, { pool: daoLower, first: 100 });
         validatorRows = d3.validatorInPools;
-      } catch (err16) {
+      } catch (err17) {
         validatorsSource.available = false;
-        validatorsSource.reason = toActionableError(err16, "dexe_dao_report validators subgraph").message;
+        validatorsSource.reason = toActionableError(err17, "dexe_dao_report validators subgraph").message;
       }
     }
     let activityData = null;
@@ -147199,9 +147200,9 @@ Pass an ISO timestamp or Unix seconds instead.`);
     if (interactions.url && want("activity")) {
       try {
         activityData = await gqlRequest(interactions.url, INTERACTIONS_ACTIVITY_QUERY, { pool: daoLower, since: String(activitySince), first: DELTA_ROW_CAP });
-      } catch (err16) {
+      } catch (err17) {
         interactionsSource.available = false;
-        interactionsSource.reason = toActionableError(err16, "dexe_dao_report interactions subgraph").message;
+        interactionsSource.reason = toActionableError(err17, "dexe_dao_report interactions subgraph").message;
       }
     }
     let deltaData2 = null;
@@ -147220,8 +147221,8 @@ Pass an ISO timestamp or Unix seconds instead.`);
           if (!poolsDegraded)
             poolsDegraded = orphanVoterNote(toolRef);
         }
-      } catch (err16) {
-        deltaError = toActionableError(err16, "dexe_dao_report since-diff").message;
+      } catch (err17) {
+        deltaError = toActionableError(err17, "dexe_dao_report since-diff").message;
       }
     }
     const daoPool = poolsData?.daoPools?.[0] ?? null;
@@ -147826,8 +147827,8 @@ var FileReportStore = class {
         return { raw, state: empty5 };
       }
       return { raw, state: { version: REPORT_STORE_VERSION, snapshots: parsed.snapshots } };
-    } catch (err16) {
-      debugLog("report", `could not read snapshots at ${this.path}`, err16);
+    } catch (err17) {
+      debugLog("report", `could not read snapshots at ${this.path}`, err17);
       return { raw: null, state: empty5 };
     }
   }
@@ -147848,12 +147849,12 @@ var FileReportStore = class {
       }
       renameWithRetry(tmp, this.path);
       return "published";
-    } catch (err16) {
+    } catch (err17) {
       try {
         rmSync3(tmp, { force: true });
       } catch {
       }
-      process.stderr.write(`[dexe-mcp] could not persist report snapshot to ${this.path} (${safeErrorMessage(err16)}); the next \`since\` diff will have no baseline.
+      process.stderr.write(`[dexe-mcp] could not persist report snapshot to ${this.path} (${safeErrorMessage(err17)}); the next \`since\` diff will have no baseline.
 `);
       return "failed";
     }
@@ -147868,27 +147869,27 @@ var DEFAULT_TX_WAIT_TIMEOUT_MS = 18e4;
 function timeoutMessage(txHash, chainId, ms2) {
   return `Transaction ${txHash} was broadcast but not mined within ${Math.round(ms2 / 1e3)}s \u2014 it may still land. Do NOT re-send blindly (risk of double-execution). Check it with dexe_tx_status {"txHash":"${txHash}"` + (chainId !== void 0 ? `,"chainId":${chainId}` : "") + `} and re-run this call only after it reports not_found.`;
 }
-function isEthersTimeout(err16) {
-  return err16?.code === "TIMEOUT";
+function isEthersTimeout(err17) {
+  return err17?.code === "TIMEOUT";
 }
 async function waitWithTimeout(tx, opts) {
   const ms2 = opts?.timeoutMs ?? DEFAULT_TX_WAIT_TIMEOUT_MS;
   try {
     return await tx.wait(opts?.confirmations ?? 1, ms2);
-  } catch (err16) {
-    if (isEthersTimeout(err16))
+  } catch (err17) {
+    if (isEthersTimeout(err17))
       throw new Error(timeoutMessage(tx.hash, tx.chainId, ms2));
-    throw err16;
+    throw err17;
   }
 }
 async function waitForHashWithTimeout(provider, txHash, chainId, opts) {
   const ms2 = opts?.timeoutMs ?? DEFAULT_TX_WAIT_TIMEOUT_MS;
   try {
     return await provider.waitForTransaction(txHash, opts?.confirmations ?? 1, ms2);
-  } catch (err16) {
-    if (isEthersTimeout(err16))
+  } catch (err17) {
+    if (isEthersTimeout(err17))
       throw new Error(timeoutMessage(txHash, chainId, ms2));
-    throw err16;
+    throw err17;
   }
 }
 function assertReceiptSuccess(receipt, label) {
@@ -150497,9 +150498,9 @@ function attachPairingQr(res, pairingContent) {
 }
 var RESUME_RECHECKS = 'On re-run this flow re-reads chain state first and skips what is already true: ERC20.approve (allowance already covers the deposit), GovPool.deposit (deposited power already covers the vote), createProposalAndVote (a still-live proposal with the same metadata URL already exists \u2014 no duplicate is minted), and GovPool.vote (this wallet already voted on this proposal; GovPool reverts a second vote with "Gov: need cancel"). NOT auto-skipped: GovPool.execute and the validator round (moveProposalToValidators / validator vote) \u2014 if one of those was the failing step, check dexe_proposal_state first so the re-run does not repeat a step that landed.';
 var DEPLOY_RESUME_RECHECKS = 'A DAO deploy is a SINGLE transaction \u2014 there are no earlier steps to skip. Re-running the same call is safe against a duplicate DAO: the pool address is derived from your wallet plus the DAO name (CREATE2), and the build refuses up-front with "PoolFactory: pool name is already taken" if a pool already has code at that address, so a re-run after a deploy that actually landed fails BEFORE broadcasting anything. Keep the SAME daoName on a re-run \u2014 changing it deploys a second, separate DAO. To inspect the existing one: dexe_dao_info.';
-function broadcastTimeout(err16) {
-  const raw = safeErrorMessage(err16);
-  const code6 = err16?.code;
+function broadcastTimeout(err17) {
+  const raw = safeErrorMessage(err17);
+  const code6 = err17?.code;
   if (code6 !== "TIMEOUT" && !/was broadcast but not mined within/i.test(raw))
     return null;
   const hash3 = /0x[0-9a-fA-F]{64}/.exec(raw);
@@ -150641,7 +150642,18 @@ ${sg.remediation}`);
   const cfg = signer.getConfig();
   const who = describeBroadcaster(signer, wallet, opts?.signerKey);
   const tool = opts?.tool ?? currentActionContext()?.tool;
+  let lastBlock;
   for (const [i3, p4] of payloads.entries()) {
+    const halt = await runBeforeStep(opts?.beforeStep, i3, p4, lastBlock);
+    if (halt) {
+      return {
+        mode: "executed",
+        steps,
+        halted: { beforeIndex: i3, reason: halt },
+        ...lastBlock !== void 0 ? { lastBlock } : {},
+        signer: steps.some((st3) => st3.txHash) ? { ...who, safety: HOT_KEY_SAFETY } : who
+      };
+    }
     try {
       await runBroadcastGuards({
         to: p4.to,
@@ -150658,6 +150670,7 @@ ${sg.remediation}`);
       }), wallet.address));
       const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
       assertReceiptSuccess(receipt, p4.description);
+      lastBlock = maxBlock(lastBlock, receipt);
       steps.push({
         label: p4.description,
         skipped: false,
@@ -150689,7 +150702,28 @@ ${sg.remediation}`);
       };
     }
   }
-  return { mode: "executed", steps, signer: { ...who, safety: HOT_KEY_SAFETY } };
+  return {
+    mode: "executed",
+    steps,
+    ...lastBlock !== void 0 ? { lastBlock } : {},
+    signer: { ...who, safety: HOT_KEY_SAFETY }
+  };
+}
+function maxBlock(prev, receipt) {
+  const bn = receipt?.blockNumber;
+  const n4 = typeof bn === "number" ? bn : typeof bn === "bigint" ? Number(bn) : NaN;
+  if (!Number.isFinite(n4) || n4 <= 0)
+    return prev;
+  return prev === void 0 ? n4 : Math.max(prev, n4);
+}
+async function runBeforeStep(hook, i3, p4, lastBlock) {
+  if (!hook)
+    return void 0;
+  try {
+    return await hook(i3, p4, lastBlock) || void 0;
+  } catch {
+    return void 0;
+  }
 }
 function knownDaosFor(cfg) {
   try {
@@ -150733,12 +150767,26 @@ async function sendWithKeystoreApproval(signer, payloads, opts, rechecks) {
   }
   const approved = await approvals.request({ tool, chainId, from: from10, payloads, steps: review.steps, prechecks: review.prechecks }, { ...scope2?.signal ? { signal: scope2.signal } : {}, ...scope2 ? { progress: (m3) => scope2.progress(m3) } : {} });
   const steps = [];
+  let lastBlock;
   for (const [i3, p4] of payloads.entries()) {
+    const halt = await runBeforeStep(opts?.beforeStep, i3, p4, lastBlock);
+    if (halt) {
+      const landed = steps.filter((st3) => st3.txHash);
+      approved.revoke(`halted before transaction ${i3 + 1}: ${halt.slice(0, 200)}`, landed.map((st3) => ({ label: st3.label, txHash: st3.txHash })));
+      return {
+        mode: "executed",
+        steps,
+        halted: { beforeIndex: i3, reason: halt },
+        ...lastBlock !== void 0 ? { lastBlock } : {},
+        signer: landed.length > 0 ? { ...who, safety: KEYSTORE_SAFETY } : who
+      };
+    }
     try {
       await runBroadcastGuards({ to: p4.to, data: p4.data, value: p4.value, chainId, from: from10 }, cfg, { skipSimulation: true });
       const tx = await withActionContext({ ...tool ? { tool } : {}, action: p4.description }, () => approved.send({ to: p4.to, data: p4.data, value: p4.value, chainId }));
       const receipt = await waitWithTimeout(tx, { timeoutMs: txWaitTimeoutMs() });
       assertReceiptSuccess(receipt, p4.description);
+      lastBlock = maxBlock(lastBlock, receipt);
       const txHash = receipt?.hash ?? tx.hash;
       approved.landed(i3, txHash);
       steps.push({ label: p4.description, skipped: false, txHash });
@@ -150769,7 +150817,12 @@ async function sendWithKeystoreApproval(signer, payloads, opts, rechecks) {
   }
   approved.finish();
   approvals.store.clearResumeNote(tool, from10, chainId);
-  return { mode: "executed", steps, signer: { ...who, safety: KEYSTORE_SAFETY } };
+  return {
+    mode: "executed",
+    steps,
+    ...lastBlock !== void 0 ? { lastBlock } : {},
+    signer: { ...who, safety: KEYSTORE_SAFETY }
+  };
 }
 async function runProposalCreate(inputRaw, deps) {
   const input3 = {
@@ -151466,24 +151519,142 @@ ${pr2.remediation}`);
     ...result.pairing ? { pairing: result.pairing } : {}
   }), result.pairingContent);
 }
+var MULTICALL3_ADDRESS2 = "0xcA11bde05977b3631167028862bE2a173976CA11";
+var MC3_BLOCK_ABI = new Interface([
+  "function getBlockNumber() view returns (uint256)",
+  "function getCurrentBlockTimestamp() view returns (uint256)"
+]);
+var FLOW_READ_TIMING = {
+  /** Extra attempts when the node is behind / errors / reports an impossible state. */
+  staleRetries: 4,
+  staleBackoffMs: 1500,
+  /** A lock ending within this many seconds is waited out in-call; longer ones are not. */
+  lockMaxDelaySec: 30,
+  lockMaxWaitMs: 45e3,
+  lockPollMs: 3e3
+};
+var sleep3 = (ms2) => new Promise((r2) => setTimeout(r2, ms2));
+var toNum = (v7) => {
+  if (typeof v7 === "bigint")
+    return Number(v7);
+  if (typeof v7 === "number" && Number.isFinite(v7))
+    return v7;
+  return null;
+};
+async function readProposalStateAt(provider, govPool, proposalId) {
+  const r2 = await multicall(provider, [
+    { target: govPool, iface: GOV_POOL_ABI5, method: "getProposalState", args: [proposalId], allowFailure: true },
+    { target: MULTICALL3_ADDRESS2, iface: MC3_BLOCK_ABI, method: "getBlockNumber", args: [], allowFailure: true },
+    { target: MULTICALL3_ADDRESS2, iface: MC3_BLOCK_ABI, method: "getCurrentBlockTimestamp", args: [], allowFailure: true }
+  ]);
+  return {
+    state: r2[0]?.success ? Number(r2[0].value) : -1,
+    block: r2[1]?.success ? toNum(r2[1].value) : null,
+    timestamp: r2[2]?.success ? toNum(r2[2].value) : null
+  };
+}
+async function readProposalStateFresh(provider, govPool, proposalId, opts = {}) {
+  let last = { state: -1, block: null, timestamp: null };
+  const retries = opts.retries ?? FLOW_READ_TIMING.staleRetries;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0)
+      await sleep3(FLOW_READ_TIMING.staleBackoffMs);
+    try {
+      last = await readProposalStateAt(provider, govPool, proposalId);
+    } catch {
+      continue;
+    }
+    if (last.state < 0)
+      continue;
+    if (opts.minBlock !== void 0 && last.block !== null && last.block < opts.minBlock)
+      continue;
+    if (opts.isStale?.(last.state))
+      continue;
+    return last;
+  }
+  return last;
+}
+async function awaitUnlock(provider, govPool, proposalId, self2, minBlock) {
+  let executeAfter = null;
+  let now = null;
+  let state = 6;
+  try {
+    const r2 = await multicall(provider, [
+      { target: govPool, iface: GOV_POOL_ABI5, method: "getProposals", args: [proposalId - 1, 1], allowFailure: true },
+      { target: govPool, iface: GOV_POOL_ABI5, method: "getProposalState", args: [proposalId], allowFailure: true },
+      { target: MULTICALL3_ADDRESS2, iface: MC3_BLOCK_ABI, method: "getCurrentBlockTimestamp", args: [], allowFailure: true },
+      { target: MULTICALL3_ADDRESS2, iface: MC3_BLOCK_ABI, method: "getBlockNumber", args: [], allowFailure: true }
+    ]);
+    const rows2 = r2[0]?.success ? r2[0].value : null;
+    if (Array.isArray(rows2) && rows2.length > 0) {
+      const view = rows2[0];
+      const member = toNum(view?.[0]?.[0]?.[2]);
+      const validator = toNum(view?.[1]?.[0]?.[3]);
+      const m3 = Math.max(member ?? 0, validator ?? 0);
+      executeAfter = m3 > 0 ? m3 : null;
+    }
+    const block = r2[3]?.success ? toNum(r2[3].value) : null;
+    const behind = minBlock !== void 0 && block !== null && block < minBlock;
+    if (r2[1]?.success && !behind)
+      state = Number(r2[1].value);
+    now = r2[2]?.success ? toNum(r2[2].value) : null;
+  } catch {
+  }
+  if (state !== 6)
+    return { state, executeAfter };
+  if (executeAfter === null || now === null)
+    return { state, executeAfter, unknown: true };
+  const at3 = (t2) => `${unixToUtc(BigInt(t2))} (unix ${t2})`;
+  const remaining = executeAfter - now;
+  if (remaining > FLOW_READ_TIMING.lockMaxDelaySec) {
+    return {
+      state,
+      executeAfter,
+      note: `Passed, but Locked by the execution delay until ${at3(executeAfter)} \u2014 about ${humanSeconds(remaining)} from now; not waited out in this call. Re-run dexe_proposal_vote_and_execute ${self2} after ${at3(executeAfter + 1)} \u2014 it skips the vote and executes.`
+    };
+  }
+  const deadline = Date.now() + FLOW_READ_TIMING.lockMaxWaitMs;
+  while (Date.now() < deadline) {
+    await sleep3(FLOW_READ_TIMING.lockPollMs);
+    let read3;
+    try {
+      read3 = await readProposalStateAt(provider, govPool, proposalId);
+    } catch {
+      continue;
+    }
+    if (read3.timestamp === null || read3.timestamp <= executeAfter)
+      continue;
+    if (minBlock !== void 0 && read3.block !== null && read3.block < minBlock)
+      continue;
+    if (read3.state >= 0)
+      state = read3.state;
+    if (state !== 6)
+      return { state, executeAfter };
+  }
+  return {
+    state,
+    executeAfter,
+    note: `Still Locked after waiting ${Math.round(FLOW_READ_TIMING.lockMaxWaitMs / 1e3)}s (lock ends ${at3(executeAfter)}; the RPC may be lagging). Re-run dexe_proposal_vote_and_execute ${self2} \u2014 it skips the vote and executes.`
+  };
+}
+function humanSeconds(s2) {
+  if (s2 < 120)
+    return `${s2}s`;
+  if (s2 < 7200)
+    return `${Math.round(s2 / 60)} min`;
+  if (s2 < 172800)
+    return `${Math.round(s2 / 3600)} h`;
+  return `${Math.round(s2 / 86400)} days`;
+}
 async function driveValidatorRound(args) {
   const { provider, signer, wc, chainId, govPool, validators, proposalId, isVoteFor, signerAddress, dryRun, signerKey } = args;
   const steps = [];
-  const readState = async () => {
-    const r2 = await multicall(provider, [
-      { target: govPool, iface: GOV_POOL_ABI5, method: "getProposalState", args: [proposalId] }
-    ]);
-    return r2[0].success ? Number(r2[0].value) : -1;
-  };
-  const readStateSettled = async (from10) => {
-    let s2 = await readState();
-    for (let i3 = 0; i3 < 4 && s2 === from10; i3++) {
-      await new Promise((r2) => setTimeout(r2, 1500));
-      s2 = await readState();
-    }
-    return s2;
-  };
-  let state = await readState();
+  let minBlock = args.minBlock;
+  const readStateSettled = async (from10) => (await readProposalStateFresh(provider, govPool, proposalId, {
+    minBlock,
+    ...from10 !== void 0 ? { isStale: (st3) => st3 === from10 } : {}
+  })).state;
+  let state = await readStateSettled();
   if (state === 1) {
     const r2 = await sendOrCollect(signer, [makeTxPayload(govPool, GOV_POOL_ABI5, "moveProposalToValidators", [proposalId], chainId, `GovPool.moveProposalToValidators(${proposalId})`)], { dryRun, chainId, wc, signerKey });
     steps.push(...r2.steps);
@@ -151491,6 +151662,8 @@ async function driveValidatorRound(args) {
       return { steps, state, failure: r2.failure };
     if (r2.mode !== "executed")
       return { steps, state };
+    if (r2.lastBlock !== void 0)
+      minBlock = Math.max(minBlock ?? 0, r2.lastBlock);
     state = await readStateSettled(1);
   }
   if (state === 2) {
@@ -151522,9 +151695,11 @@ async function driveValidatorRound(args) {
       return { steps, state, failure: r2.failure };
     if (r2.mode !== "executed")
       return { steps, state };
+    if (r2.lastBlock !== void 0)
+      minBlock = Math.max(minBlock ?? 0, r2.lastBlock);
     state = await readStateSettled(2);
   }
-  return { steps, state };
+  return { steps, state, ...minBlock !== void 0 ? { lastBlock: minBlock } : {} };
 }
 function registerFlowTools(server, ctx, signer, wc, state) {
   const rpc = new RpcProvider(ctx.config);
@@ -151615,154 +151790,192 @@ ${pr2.remediation}`);
       if (!Number.isInteger(proposalId) || proposalId < 1) {
         return err2(`Invalid proposalId: ${String(input3.proposalId)} \u2014 a positive integer (1-indexed), as a number or digits-only string.`);
       }
-      const stateCalls = [
-        { target: govPool, iface: GOV_POOL_ABI5, method: "getProposalState", args: [proposalId] }
-      ];
-      const stateRes = await multicall(provider, stateCalls);
-      if (!stateRes[0].success)
-        return err2(`Failed to read proposal state: ${stateRes[0].error}`);
-      const stateNum = Number(stateRes[0].value);
-      const stateName2 = proposalStateName(stateNum);
-      if ((stateNum === 4 || stateNum === 5 || stateNum === 6) && input3.autoExecute) {
-        const voteSkipped = {
-          label: "GovPool.vote",
-          skipped: true,
-          reason: `Proposal already in "${stateName2}" \u2014 no vote needed`
-        };
-        const decision = await executeProposal({
-          provider,
-          signer,
-          wc,
-          cfg: ctx.config,
-          chainId,
-          govPool,
-          proposalId,
-          dryRun: input3.dryRun,
-          signerKey: input3.signerKey
-        });
-        if (decision.blocked) {
-          return executeBlockedResult(decision, [voteSkipped], {
-            proposalId,
-            proposalStateBefore: stateName2
-          });
-        }
-        const execResult = decision.result;
-        if (execResult.mode === "failed") {
-          return flowFailureResult({ steps: [...decision.preSteps, ...execResult.steps], failure: execResult.failure }, {
-            proposalId,
-            proposalStateBefore: stateName2,
-            ...executeAdvisoryFields(decision),
-            ...execResult.signer ? { signer: execResult.signer } : {},
-            ...hotKeySafetyFields(execResult.signer?.safety)
-          });
-        }
-        return attachPairingQr(ok4({
-          mode: execResult.mode,
-          proposalId,
-          proposalStateBefore: stateName2,
-          ...execResult.signer ? { signer: execResult.signer } : {},
-          ...hotKeySafetyFields(execResult.signer?.safety),
-          ...executeAdvisoryFields(decision),
-          steps: [
-            voteSkipped,
-            ...decision.preSteps,
-            ...execResult.steps
-          ],
-          executed: execResult.mode === "executed",
-          ...execResult.mode === "executed" ? flowChainFields(input3.flowContext, state, { chainId, govPool }) : {},
-          ...execResult.enableWrites ? { enableWrites: execResult.enableWrites } : {},
-          ...execResult.pairing ? { pairing: execResult.pairing } : {}
-        }), execResult.pairingContent);
-      }
-      if ((stateNum === 1 || stateNum === 2) && input3.autoExecute && input3.driveValidatorRound && !input3.dryRun) {
-        const helpers = await multicall(provider, [
-          { target: govPool, iface: GOV_POOL_ABI5, method: "getHelperContracts", args: [] }
-        ]);
-        const validators = helpers[0].success ? helpers[0].value[2] : void 0;
-        if (validators) {
-          const drive = await driveValidatorRound({
-            provider,
-            signer,
-            wc,
-            chainId,
-            govPool,
-            validators,
-            proposalId,
-            isVoteFor: input3.isVoteFor,
-            signerAddress: user,
-            dryRun: false,
-            signerKey: input3.signerKey
-          });
-          if (drive.failure) {
-            return flowFailureResult({ steps: drive.steps, failure: drive.failure }, { proposalId, proposalStateBefore: stateName2 });
-          }
-          const execSteps = [];
-          let executed2 = false;
-          let decision;
+      const entry = await readProposalStateAt(provider, govPool, proposalId);
+      if (entry.state < 0)
+        return err2(`Failed to read proposal state: call reverted`);
+      let stateNum = entry.state;
+      let stateName2 = proposalStateName(stateNum);
+      const self2 = `{"govPool":"${govPool}","proposalId":${proposalId},"chainId":${chainId}}`;
+      const routeNonVoting = async () => {
+        if ((stateNum === 4 || stateNum === 5 || stateNum === 6) && input3.autoExecute) {
           const voteSkipped = {
             label: "GovPool.vote",
             skipped: true,
-            reason: `Proposal already past member voting ("${stateName2}") \u2014 drove the validator round`
+            reason: `Proposal already in "${stateName2}" \u2014 no vote needed`
           };
-          if (drive.state === 4 || drive.state === 5) {
-            decision = await executeProposal({
+          if (stateNum === 6 && !input3.dryRun) {
+            const u4 = await awaitUnlock(provider, govPool, proposalId, self2, entry.block ?? void 0);
+            if (!u4.unknown && u4.state === 6) {
+              return ok4({
+                mode: "locked",
+                proposalId,
+                proposalStateBefore: stateName2,
+                ...u4.executeAfter ? { executeAfter: u4.executeAfter, executeAfterUtc: unixToUtc(BigInt(u4.executeAfter)) } : {},
+                steps: [voteSkipped, { label: "GovPool.execute", skipped: true, reason: u4.note ?? "still Locked" }],
+                executed: false,
+                next: u4.note
+              });
+            }
+            if (!u4.unknown && u4.state !== 4 && u4.state !== 5) {
+              return ok4({
+                mode: "not-executable",
+                proposalId,
+                proposalStateBefore: stateName2,
+                proposalStateAfter: proposalStateName(u4.state),
+                steps: [voteSkipped],
+                executed: false,
+                next: postVoteNextStep(u4.state, govPool, proposalId, chainId)
+              });
+            }
+          }
+          const decision = await executeProposal({
+            provider,
+            signer,
+            wc,
+            cfg: ctx.config,
+            chainId,
+            govPool,
+            proposalId,
+            dryRun: input3.dryRun,
+            signerKey: input3.signerKey
+          });
+          if (decision.blocked) {
+            return executeBlockedResult(decision, [voteSkipped], {
+              proposalId,
+              proposalStateBefore: stateName2
+            });
+          }
+          const execResult = decision.result;
+          if (execResult.mode === "failed") {
+            return flowFailureResult({ steps: [...decision.preSteps, ...execResult.steps], failure: execResult.failure }, {
+              proposalId,
+              proposalStateBefore: stateName2,
+              ...executeAdvisoryFields(decision),
+              ...execResult.signer ? { signer: execResult.signer } : {},
+              ...hotKeySafetyFields(execResult.signer?.safety)
+            });
+          }
+          return attachPairingQr(ok4({
+            mode: execResult.mode,
+            proposalId,
+            proposalStateBefore: stateName2,
+            ...execResult.signer ? { signer: execResult.signer } : {},
+            ...hotKeySafetyFields(execResult.signer?.safety),
+            ...executeAdvisoryFields(decision),
+            steps: [
+              voteSkipped,
+              ...decision.preSteps,
+              ...execResult.steps
+            ],
+            executed: execResult.mode === "executed",
+            ...execResult.mode === "executed" ? flowChainFields(input3.flowContext, state, { chainId, govPool }) : {},
+            ...execResult.enableWrites ? { enableWrites: execResult.enableWrites } : {},
+            ...execResult.pairing ? { pairing: execResult.pairing } : {}
+          }), execResult.pairingContent);
+        }
+        if ((stateNum === 1 || stateNum === 2) && input3.autoExecute && input3.driveValidatorRound && !input3.dryRun) {
+          const helpers = await multicall(provider, [
+            { target: govPool, iface: GOV_POOL_ABI5, method: "getHelperContracts", args: [] }
+          ]);
+          const validators = helpers[0].success ? helpers[0].value[2] : void 0;
+          if (validators) {
+            const drive = await driveValidatorRound({
               provider,
               signer,
               wc,
-              cfg: ctx.config,
               chainId,
               govPool,
+              validators,
               proposalId,
+              isVoteFor: input3.isVoteFor,
+              signerAddress: user,
               dryRun: false,
-              signerKey: input3.signerKey
+              signerKey: input3.signerKey,
+              ...entry.block !== null ? { minBlock: entry.block } : {}
             });
-            if (decision.blocked) {
-              return executeBlockedResult(decision, [voteSkipped, ...drive.steps], {
+            if (drive.failure) {
+              return flowFailureResult({ steps: drive.steps, failure: drive.failure }, { proposalId, proposalStateBefore: stateName2 });
+            }
+            let lockNote;
+            if (drive.state === 6) {
+              const u4 = await awaitUnlock(provider, govPool, proposalId, self2, drive.lastBlock);
+              if (!u4.unknown)
+                drive.state = u4.state;
+              lockNote = u4.note;
+            }
+            const execSteps = [];
+            let executed2 = false;
+            let decision;
+            const voteSkipped = {
+              label: "GovPool.vote",
+              skipped: true,
+              reason: `Proposal already past member voting ("${stateName2}") \u2014 drove the validator round`
+            };
+            if (drive.state === 4 || drive.state === 5) {
+              decision = await executeProposal({
+                provider,
+                signer,
+                wc,
+                cfg: ctx.config,
+                chainId,
+                govPool,
                 proposalId,
-                proposalStateBefore: stateName2,
-                proposalStateAfter: proposalStateName(drive.state)
+                dryRun: false,
+                signerKey: input3.signerKey
               });
+              if (decision.blocked) {
+                return executeBlockedResult(decision, [voteSkipped, ...drive.steps], {
+                  proposalId,
+                  proposalStateBefore: stateName2,
+                  proposalStateAfter: proposalStateName(drive.state)
+                });
+              }
+              const execResult = decision.result;
+              execSteps.push(...decision.preSteps, ...execResult.steps);
+              if (execResult.mode === "failed") {
+                return flowFailureResult({ steps: [...drive.steps, ...execSteps], failure: execResult.failure }, { proposalId, proposalStateBefore: stateName2, ...executeAdvisoryFields(decision) });
+              }
+              executed2 = true;
             }
-            const execResult = decision.result;
-            execSteps.push(...decision.preSteps, ...execResult.steps);
-            if (execResult.mode === "failed") {
-              return flowFailureResult({ steps: [...drive.steps, ...execSteps], failure: execResult.failure }, { proposalId, proposalStateBefore: stateName2, ...executeAdvisoryFields(decision) });
-            }
-            executed2 = true;
+            return attachPairingQr(ok4({
+              mode: "executed",
+              proposalId,
+              proposalStateBefore: stateName2,
+              proposalStateAfter: proposalStateName(drive.state),
+              ...lockNote && !executed2 ? { next: lockNote } : {},
+              ...decision ? executeAdvisoryFields(decision) : {},
+              steps: [
+                voteSkipped,
+                ...drive.steps,
+                ...execSteps
+              ],
+              executed: executed2,
+              // The validator-round branch runs up to three sendOrCollect calls
+              // and discards their `signer`, so this leg used to broadcast with a
+              // hot key and say nothing. A landed txHash is the proof.
+              ...hotKeySafetyFields([...drive.steps, ...execSteps].some((s2) => Boolean(s2.txHash)) ? safetyForMode(signer.mode) : false),
+              ...executed2 ? flowChainFields(input3.flowContext, state, { chainId, govPool }) : {}
+            }), void 0);
           }
-          return attachPairingQr(ok4({
-            mode: "executed",
-            proposalId,
-            proposalStateBefore: stateName2,
-            proposalStateAfter: proposalStateName(drive.state),
-            ...decision ? executeAdvisoryFields(decision) : {},
-            steps: [
-              voteSkipped,
-              ...drive.steps,
-              ...execSteps
-            ],
-            executed: executed2,
-            // The validator-round branch runs up to three sendOrCollect calls
-            // and discards their `signer`, so this leg used to broadcast with a
-            // hot key and say nothing. A landed txHash is the proof.
-            ...hotKeySafetyFields([...drive.steps, ...execSteps].some((s2) => Boolean(s2.txHash)) ? safetyForMode(signer.mode) : false),
-            ...executed2 ? flowChainFields(input3.flowContext, state, { chainId, govPool }) : {}
-          }), void 0);
         }
-      }
-      if (stateNum !== 0) {
-        const remedies = {
-          1: "It is waiting for the validator-voting transfer \u2014 re-run with driveValidatorRound:true (default) once past voting, or check dexe_proposal_state.",
-          2: "It is in validator voting \u2014 the DAO's validators must vote; if the configured signer is a validator, re-run with driveValidatorRound:true.",
-          3: "It was DEFEATED \u2014 voting is over. Create a new proposal if the change is still wanted.",
-          4: "It already PASSED \u2014 re-run this call with autoExecute:true (the default) to execute it, no vote needed.",
-          5: "It already passed AGAINST \u2014 re-run this call with autoExecute:true to execute the against-actions.",
-          6: "It is Locked (passed, execution delay running) \u2014 re-run this call with autoExecute:true once the delay elapses.",
-          7: "It was already EXECUTED (for) \u2014 nothing left to do.",
-          8: "It was already EXECUTED (against) \u2014 nothing left to do."
-        };
-        return err2(`Proposal #${proposalId} is in state "${stateName2}" \u2014 voting is only possible in "Voting". ` + (remedies[stateNum] ?? "Check dexe_proposal_state for details."));
-      }
+        if (stateNum !== 0) {
+          const remedies = {
+            1: "It is waiting for the validator-voting transfer \u2014 re-run with driveValidatorRound:true (default) once past voting, or check dexe_proposal_state.",
+            2: "It is in validator voting \u2014 the DAO's validators must vote; if the configured signer is a validator, re-run with driveValidatorRound:true.",
+            3: "It was DEFEATED \u2014 voting is over. Create a new proposal if the change is still wanted.",
+            4: "It already PASSED \u2014 re-run this call with autoExecute:true (the default) to execute it, no vote needed.",
+            5: "It already passed AGAINST \u2014 re-run this call with autoExecute:true to execute the against-actions.",
+            6: "It is Locked (passed, execution delay running) \u2014 re-run this call with autoExecute:true once the delay elapses.",
+            7: "It was already EXECUTED (for) \u2014 nothing left to do.",
+            8: "It was already EXECUTED (against) \u2014 nothing left to do."
+          };
+          return err2(`Proposal #${proposalId} is in state "${stateName2}" \u2014 voting is only possible in "Voting". ` + (remedies[stateNum] ?? "Check dexe_proposal_state for details."));
+        }
+        return void 0;
+      };
+      const routed = await routeNonVoting();
+      if (routed)
+        return routed;
       const prereqs = await resolvePrereqs(rpc, govPool, user, ctx.config, chainId);
       const d3 = prereqs.tokenDecimals;
       const sym = prereqs.tokenSymbol;
@@ -151777,6 +151990,20 @@ ${pr2.remediation}`);
         return err2(safeErrorMessage(e2));
       }
       if (voteAmt === 0n && !alreadyVoted) {
+        if (!input3.dryRun) {
+          const again = await readProposalStateFresh(provider, govPool, proposalId, {
+            ...entry.block !== null ? { minBlock: entry.block } : {},
+            isStale: (st3) => st3 === 0,
+            retries: 2
+          });
+          if (again.state > 0) {
+            stateNum = again.state;
+            stateName2 = proposalStateName(stateNum);
+            const rerouted = await routeNonVoting();
+            if (rerouted)
+              return rerouted;
+          }
+        }
         return err2(input3.depositFirst === false ? `No deposited voting power (wallet holds ${formatAmount(prereqs.walletBalance, d3, sym)}, deposited 0). Re-run with depositFirst:'auto' (the default) to deposit-and-vote in one call.` : `No voting power available \u2014 ${user} holds 0 ${sym || "gov tokens"} (wallet + deposited). Acquire the DAO's gov token (${prereqs.tokenAddress}) first.`);
       }
       if (!alreadyVoted && prereqs.minVotesForVoting > 0n && voteAmt < prereqs.minVotesForVoting) {
@@ -151824,7 +152051,46 @@ ${pr2.remediation}`);
         payloads.push(makeTxPayload(govPool, GOV_POOL_ABI5, "multicall", [govCalls], chainId, `GovPool.multicall([${depositAmount > 0n ? `deposit(${depositAmount}), ` : ""}vote(${proposalId}, ${input3.isVoteFor}, ${voteAmt})])`));
       }
       const nothingToBroadcast = payloads.length === 0;
-      const result = nothingToBroadcast ? { mode: input3.dryRun ? "dryRun" : "executed", steps: [] } : await sendOrCollect(signer, payloads, { dryRun: input3.dryRun, chainId, wc, signerKey: input3.signerKey });
+      let haltedState;
+      const beforeVote = async (i3, _p, lastBlock) => {
+        if (i3 === 0)
+          return void 0;
+        const fresh = await readProposalStateFresh(provider, govPool, proposalId, {
+          ...lastBlock !== void 0 ? { minBlock: lastBlock } : {}
+        });
+        if (fresh.state <= 0)
+          return void 0;
+        haltedState = fresh.state;
+        return `Proposal #${proposalId} is now "${proposalStateName(fresh.state)}", no longer votable, so the vote was NOT sent (it could only revert).`;
+      };
+      const result = nothingToBroadcast ? { mode: input3.dryRun ? "dryRun" : "executed", steps: [] } : await sendOrCollect(signer, payloads, {
+        dryRun: input3.dryRun,
+        chainId,
+        wc,
+        signerKey: input3.signerKey,
+        ...payloads.length > 1 ? { beforeStep: beforeVote } : {}
+      });
+      if (result.halted && haltedState !== void 0) {
+        const h3 = haltedState;
+        const rerun = h3 === 1 || h3 === 2 ? " Re-run this same call: it skips the vote and drives the validator round." : h3 === 4 || h3 === 5 || h3 === 6 ? " Re-run this same call: it skips the vote and executes." : "";
+        return attachPairingQr(ok4({
+          mode: "vote-not-sent",
+          proposalId,
+          proposalStateBefore: stateName2,
+          proposalStateAfter: proposalStateName(h3),
+          reason: result.halted.reason,
+          steps: [
+            ...skippedSteps,
+            ...result.steps,
+            { label: "GovPool.vote", skipped: true, reason: result.halted.reason }
+          ],
+          executed: false,
+          ...result.signer ? { signer: result.signer } : {},
+          ...hotKeySafetyFields(result.signer?.safety),
+          note: "The approve landed (an unused allowance to the UserKeeper, harmless)." + rerun,
+          next: postVoteNextStep(h3, govPool, proposalId, chainId)
+        }), void 0);
+      }
       if (result.mode === "failed") {
         return flowFailureResult(result, {
           proposalId,
@@ -151839,10 +152105,11 @@ ${pr2.remediation}`);
       let postVoteNext;
       let tally2;
       if (input3.autoExecute && result.mode === "executed") {
-        const postRes = await multicall(provider, [
-          { target: govPool, iface: GOV_POOL_ABI5, method: "getProposalState", args: [proposalId] }
-        ]);
-        let postState = Number(postRes[0].value);
+        let lastBlock = result.lastBlock ?? (entry.block ?? void 0);
+        const postRead = await readProposalStateFresh(provider, govPool, proposalId, {
+          ...lastBlock !== void 0 ? { minBlock: lastBlock } : {}
+        });
+        let postState = postRead.state;
         if ((postState === 1 || postState === 2) && input3.driveValidatorRound && !input3.dryRun) {
           const helpers = await multicall(provider, [
             { target: govPool, iface: GOV_POOL_ABI5, method: "getHelperContracts", args: [] }
@@ -151860,14 +152127,24 @@ ${pr2.remediation}`);
               isVoteFor: input3.isVoteFor,
               signerAddress: user,
               dryRun: false,
-              signerKey: input3.signerKey
+              signerKey: input3.signerKey,
+              ...lastBlock !== void 0 ? { minBlock: lastBlock } : {}
             });
+            if (drive.lastBlock !== void 0)
+              lastBlock = drive.lastBlock;
             result.steps.push(...drive.steps);
             if (drive.failure) {
               return flowFailureResult({ steps: result.steps, failure: drive.failure }, { proposalId, proposalStateBefore: stateName2, voteLanded: true });
             }
             postState = drive.state;
           }
+        }
+        let lockNote;
+        if (postState === 6 && !input3.dryRun) {
+          const u4 = await awaitUnlock(provider, govPool, proposalId, self2, lastBlock);
+          if (!u4.unknown)
+            postState = u4.state;
+          lockNote = u4.note;
         }
         const postStateName = proposalStateName(postState);
         if (postState === 4 || postState === 5) {
@@ -151900,10 +152177,10 @@ ${pr2.remediation}`);
           skippedSteps.push({
             label: "GovPool.execute",
             skipped: true,
-            reason: `Proposal is "${postStateName}" after your vote \u2014 not executable yet.`
+            reason: lockNote ?? `Proposal is "${postStateName}" after your vote \u2014 not executable yet.`
           });
           proposalStateAfter = postStateName;
-          postVoteNext = postVoteNextStep(postState, govPool, proposalId, chainId);
+          postVoteNext = lockNote ?? postVoteNextStep(postState, govPool, proposalId, chainId);
           try {
             const rowRes = await multicall(provider, [
               {
@@ -153110,11 +153387,11 @@ function loadEnvFile(envFilePath, prevEnvSnapshot, surface = READ_ENV_SURFACE) {
       if (missingTrailingNewline) {
         lastLineKey = ours(scan.assignments.find((a3) => a3.line === lines.length)?.key);
       }
-    } catch (err16) {
+    } catch (err17) {
       parseIssues.push({
         trap: "unreadable",
         severity: "fail",
-        message: `${envFilePath} could not be read: ${safeErrorMessage(err16)}`,
+        message: `${envFilePath} could not be read: ${safeErrorMessage(err17)}`,
         remediation: `Check the file's permissions and that it is a regular file, then restart Claude Code.`
       });
     }
@@ -153122,11 +153399,11 @@ function loadEnvFile(envFilePath, prevEnvSnapshot, surface = READ_ENV_SURFACE) {
     try {
       process.loadEnvFile(envFilePath);
       envFileLoaded = true;
-    } catch (err16) {
+    } catch (err17) {
       parseIssues.push({
         trap: "load-failed",
         severity: "fail",
-        message: `${envFilePath} was NOT loaded \u2014 process.loadEnvFile threw (Node < 21.7, or a syntax error): ${safeErrorMessage(err16)}`,
+        message: `${envFilePath} was NOT loaded \u2014 process.loadEnvFile threw (Node < 21.7, or a syntax error): ${safeErrorMessage(err17)}`,
         remediation: "Upgrade to Node 22 LTS, then check the file for lines that are not `KEY=value`. Restart Claude Code after fixing."
       });
     }
@@ -153881,10 +154158,10 @@ async function fetchJsonWithTimeout(url2, init2, timeoutMs) {
     } catch {
     }
     return { kind: "ok", status: r2.status, body };
-  } catch (err16) {
-    if (err16.name === "AbortError")
+  } catch (err17) {
+    if (err17.name === "AbortError")
       return { kind: "timeout" };
-    return { kind: "error", error: safeErrorMessage(err16) };
+    return { kind: "error", error: safeErrorMessage(err17) };
   } finally {
     clearTimeout(timer);
   }
@@ -154470,10 +154747,319 @@ function registerWalletConnectTools(server, config2, signer, wc) {
 // dist/tools/daoCreate.js
 init_lib2();
 init_redact();
-var ZERO2 = ZeroAddress;
+
+// dist/tools/agentTreasuryCreate.js
+init_lib2();
+init_redact();
+
+// dist/lib/agentTreasury.js
+var AGENT_SHARE_MARGIN_BPS = 50;
+var AGENT_MIN = 2;
+var AGENT_MAX = 9;
+var pct = (bps) => Math.round(bps) / 100;
+function defaultApprovals(n4) {
+  return Math.floor(n4 / 2) + 1;
+}
+function computeAgentShares(n4, k5, quorumPct) {
+  if (!Number.isInteger(n4) || n4 < AGENT_MIN || n4 > AGENT_MAX) {
+    return { ok: false, reason: `agents: need ${AGENT_MIN}..${AGENT_MAX} agents, got ${n4}.` };
+  }
+  if (!Number.isInteger(k5) || k5 < 2) {
+    return {
+      ok: false,
+      reason: `approvalsNeeded must be at least 2 (got ${k5}): with k=1 any single agent passes a proposal alone, which is not a k-of-n treasury.`
+    };
+  }
+  if (k5 > n4) {
+    return { ok: false, reason: `approvalsNeeded (${k5}) cannot exceed the number of agents (${n4}).` };
+  }
+  if (!Number.isFinite(quorumPct) || quorumPct <= 0 || quorumPct > 100) {
+    return { ok: false, reason: `quorumPercent must be in (0, 100], got ${quorumPct}.` };
+  }
+  const qBps = Math.round(quorumPct * 100);
+  const lo2 = Math.ceil(qBps / k5) + AGENT_SHARE_MARGIN_BPS;
+  const hi = Math.ceil(qBps / (k5 - 1)) - 1;
+  const fit = Math.floor(1e4 / n4);
+  const top = Math.min(hi, fit);
+  if (lo2 > top) {
+    const why = lo2 > fit ? `${k5} agents need at least ${pct(lo2)}% each to reach a ${quorumPct}% quorum, and ${n4} \xD7 ${pct(lo2)}% exceeds 100% of the supply` : `the share that lets ${k5} agents reach ${quorumPct}% (\u2265 ${pct(lo2)}% each) would also let ${k5 - 1} reach it (they must stay below ${pct(hi + 1)}% each)`;
+    return {
+      ok: false,
+      reason: `No equal share works for ${k5}-of-${n4} at a ${quorumPct}% quorum: ${why}. Lower quorumPercent, or change approvalsNeeded / the number of agents.`
+    };
+  }
+  for (let s2 = lo2; s2 <= top; s2++) {
+    const m3 = checkQuorumMargin({ quorumPct, votablePct: n4 * s2 / 100 });
+    if (!m3.ok)
+      continue;
+    return {
+      ok: true,
+      shares: {
+        n: n4,
+        k: k5,
+        quorumPct,
+        shareBps: s2,
+        sharePct: pct(s2),
+        agentsTotalBps: n4 * s2,
+        agentsTotalPct: pct(n4 * s2),
+        treasuryBps: 1e4 - n4 * s2,
+        treasuryPct: pct(1e4 - n4 * s2),
+        kForPct: pct(k5 * s2),
+        kMinusOneForPct: pct((k5 - 1) * s2),
+        requiredTurnoutPct: m3.requiredTurnoutPct,
+        bounds: { lo: lo2, hi: top },
+        raisedForTurnout: s2 > lo2
+      }
+    };
+  }
+  const needAgents = Math.ceil(quorumPct / QUORUM_TURNOUT_CEILING * 100) / 100;
+  return {
+    ok: false,
+    reason: `No equal share works for ${k5}-of-${n4} at a ${quorumPct}% quorum: the turnout-margin rule needs the agents to hold at least ${needAgents}% of the supply together (quorum \u2264 ${QUORUM_TURNOUT_CEILING * 100}% of votable power), which takes \u2265 ${pct(Math.ceil(needAgents * 100 / n4))}% each \u2014 but ${k5 - 1} agents must stay below the quorum, capping each at ${pct(top)}%. Lower quorumPercent, add agents, or raise approvalsNeeded.`
+  };
+}
+function agentTreasuryGuarantees(s2, validatorCount) {
+  return {
+    kForPasses: `${s2.k} agents voting FOR carry ${s2.kForPct}% of the supply \u2265 the ${s2.quorumPct}% quorum: they reach quorum on their own (after depositing their tokens into the DAO).`,
+    kMinusOneForDoesNot: `${s2.k - 1} agents voting FOR carry ${s2.kMinusOneForPct}% < ${s2.quorumPct}%: on their own they never reach quorum.`,
+    quorumFormula: `Protocol master counts each side alone (votesFor \u2265 quorum OR votesAgainst \u2265 quorum), so the two lines above hold exactly. The GovPool deployed on BSC testnet 97 still counts turnout ((for + against) / total \u2265 quorum): there an AGAINST vote also counts toward quorum, after which the majority decides \u2014 so ${s2.k - 1} FOR plus any AGAINST that brings turnout to ${s2.k} agents reaches quorum, and passes if FOR outweighs AGAINST.`,
+    humanVeto: `Every proposal that reaches member quorum then goes to the validator round: ${validatorCount} human validator(s) seated at deploy must vote it through before it can execute \u2014 under either quorum formula. Validators that vote AGAINST, or do not vote, stop it.`,
+    treasury: `${s2.treasuryPct}% of the supply stays in the DAO treasury and is never votable; it moves only through proposals that pass both rounds.`
+  };
+}
+
+// dist/tools/agentTreasuryCreate.js
 var PCT_25DEC = 10n ** 25n;
 var ONE_TOKEN = 10n ** 18n;
+var TOOL = "dexe_agent_treasury_create";
 function err4(message) {
+  return { content: [{ type: "text", text: message }], isError: true };
+}
+function agentTreasuryShape() {
+  return {
+    chainId: DAO_CREATE_SHAPE.chainId,
+    deployer: DAO_CREATE_SHAPE.deployer,
+    daoName: DAO_CREATE_SHAPE.daoName,
+    symbol: external_exports.string().min(1).describe("Gov token symbol (e.g. 'AGT'). The validator token becomes '<symbol>-VT'."),
+    totalSupply: external_exports.string().default("1000000").describe("Gov token supply in WHOLE tokens. Default '1000000'."),
+    daoDescription: DAO_CREATE_SHAPE.daoDescription,
+    agents: external_exports.array(external_exports.object({
+      address: external_exports.string().describe("Agent wallet; receives an equal share of the supply."),
+      role: external_exports.string().min(1).max(80).describe("What this agent does, e.g. 'treasurer'. Pinned in DAO metadata."),
+      scope: external_exports.string().max(200).optional().describe("Optional note on what the agent may propose.")
+    })).min(AGENT_MIN).max(AGENT_MAX).describe(`${AGENT_MIN}..${AGENT_MAX} AI agent wallets, distinct and non-zero.`),
+    approvalsNeeded: external_exports.number().int().optional().describe("k: agents voting FOR that pass a proposal alone; 2..n. Default floor(n/2)+1."),
+    humanValidators: external_exports.array(external_exports.object({ address: external_exports.string().describe("Human validator wallet.") })).min(1).max(5).describe("1..5 human wallets seated as validators at deploy (1 validator token each). They veto."),
+    quorumPercent: external_exports.number().gt(0).max(100).default(50).describe("Member quorum, % of supply. Default 50."),
+    validatorQuorumPercent: external_exports.number().gt(0).max(100).default(50).describe("Validator-round quorum, % of validator tokens. Default 50."),
+    agentVoteSeconds: external_exports.number().int().positive().default(3600).describe("Member (agent) voting window. Default 3600."),
+    validatorVoteSeconds: external_exports.number().int().positive().default(86400).describe("Validator-round window. Default 86400."),
+    executionDelaySeconds: external_exports.number().int().min(0).default(0).describe("Delay before execution. Default 0."),
+    monthlyBudget: external_exports.string().regex(/^\d+(\.\d+)?$/).optional().describe("Optional monthly credit, WHOLE gov tokens; returns the validators_allocation proposal recipe."),
+    confirmRisky: DAO_CREATE_SHAPE.confirmRisky,
+    confirm: DAO_CREATE_SHAPE.confirm,
+    dryRun: DAO_CREATE_SHAPE.dryRun,
+    signerKey: signerKeyParam,
+    flowContext: flowContextSchema
+  };
+}
+var isZero2 = (a3) => a3.toLowerCase() === ZeroAddress.toLowerCase();
+function checkAddresses(list3, label) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const [i3, a3] of list3.entries()) {
+    if (!isAddress(a3))
+      return `${label}[${i3}]: invalid address ${a3}`;
+    if (isZero2(a3))
+      return `${label}[${i3}]: the zero address cannot hold tokens`;
+    const key = a3.toLowerCase();
+    if (seen.has(key))
+      return `${label}[${i3}]: duplicate address ${a3}`;
+    seen.add(key);
+  }
+  return void 0;
+}
+function budgetRecipe(args) {
+  const amountWei = parseUnits(args.monthlyBudget, 18).toString();
+  return {
+    tool: "dexe_proposal_create",
+    args: {
+      govPool: args.govPool ?? "<predictedGovPool from the deploy result>",
+      chainId: args.chainId,
+      proposalType: "validators_allocation",
+      title: `Monthly budget: ${args.monthlyBudget} ${args.symbol}`,
+      params: {
+        credits: [{ token: args.govToken ?? "<predicted.govToken from the deploy result>", amount: amountWei }]
+      }
+    },
+    amountHuman: `${args.monthlyBudget} ${args.symbol} (${amountWei} wei)`,
+    notes: [
+      "Agents must deposit their tokens into the DAO before they can create or vote (dexe_proposal_create and dexe_proposal_vote_and_execute deposit for you).",
+      "This sets the treasury credit line that internal monthly_withdraw proposals draw against; it replaces the whole credit list on execute.",
+      "Like every member proposal it goes through the validator round: the human validators must vote it through before it can execute."
+    ]
+  };
+}
+function registerAgentTreasuryCreateTool(server, ctx, _signer, runDaoCreate) {
+  server.tool(TOOL, "Broadcasts when a signer is configured. Deploys a DAO whose treasury n AI agents run k-of-n, with human validators as a veto. Each agent gets an equal token share sized so k agents voting FOR reach quorum and k-1 do not; the rest stays in the treasury. Validators are seated at deploy, so every proposal also needs the validator round. Same guards and preview/confirm posture as dexe_dao_create.", agentTreasuryShape(), async (raw) => {
+    const input3 = raw;
+    const n4 = input3.agents.length;
+    const agentAddrs = input3.agents.map((a3) => a3.address);
+    const validatorAddrs = input3.humanValidators.map((v7) => v7.address);
+    const badAgent = checkAddresses(agentAddrs, "agents");
+    if (badAgent)
+      return err4(badAgent);
+    const badValidator = checkAddresses(validatorAddrs, "humanValidators");
+    if (badValidator)
+      return err4(badValidator);
+    const floorPct = ctx.config.minSafeQuorumPct;
+    if (input3.quorumPercent < floorPct) {
+      return err4(`quorumPercent ${input3.quorumPercent} is below this server's ${floorPct}% safety floor (DEXE_MIN_SAFE_QUORUM_PCT). Use \u2265 ${floorPct}.`);
+    }
+    const k5 = input3.approvalsNeeded ?? defaultApprovals(n4);
+    const sharesRes = computeAgentShares(n4, k5, input3.quorumPercent);
+    if (!sharesRes.ok)
+      return err4(sharesRes.reason);
+    const sh = sharesRes.shares;
+    let budgetWei;
+    if (input3.monthlyBudget !== void 0) {
+      try {
+        budgetWei = parseUnits(input3.monthlyBudget, 18);
+        if (budgetWei <= 0n)
+          return err4("monthlyBudget must be > 0.");
+      } catch (e2) {
+        return err4(`monthlyBudget: ${safeErrorMessage(e2)}`);
+      }
+    }
+    let supplyWei;
+    try {
+      supplyWei = parseUnits(input3.totalSupply, 18);
+    } catch (e2) {
+      return err4(`totalSupply: ${safeErrorMessage(e2)}`);
+    }
+    const shareWei = supplyWei * BigInt(sh.shareBps) / 10000n;
+    const treasuryWei = supplyWei - shareWei * BigInt(n4);
+    const tokens = (wei) => (wei / ONE_TOKEN).toString() + (wei % ONE_TOKEN === 0n ? "" : "+");
+    const overlap = agentAddrs.filter((a3) => validatorAddrs.some((v7) => v7.toLowerCase() === a3.toLowerCase()));
+    const warnings = [];
+    if (overlap.length) {
+      warnings.push(`${overlap.join(", ")} is both an agent and a validator: that wallet can approve its own proposals in the veto round. Use separate human wallets for the validators.`);
+    }
+    if (budgetWei !== void 0 && budgetWei > treasuryWei) {
+      warnings.push(`monthlyBudget ${input3.monthlyBudget} ${input3.symbol} exceeds the whole treasury (${tokens(treasuryWei)} ${input3.symbol}).`);
+    }
+    const m3 = validatorAddrs.length;
+    const chainId = resolveChain(ctx.config, input3.chainId).chainId;
+    const guarantees = agentTreasuryGuarantees(sh, m3);
+    const summary = {
+      preset: "agent-treasury",
+      kOfN: `${k5}-of-${n4}`,
+      agents: input3.agents.map((a3) => ({
+        address: a3.address,
+        role: a3.role,
+        ...a3.scope ? { scope: a3.scope } : {},
+        sharePercent: sh.sharePct,
+        tokens: tokens(shareWei)
+      })),
+      treasury: { percent: sh.treasuryPct, tokens: tokens(treasuryWei) },
+      quorum: {
+        memberPercent: input3.quorumPercent,
+        kForPercent: sh.kForPct,
+        kMinusOneForPercent: sh.kMinusOneForPct,
+        requiredTurnoutPercent: sh.requiredTurnoutPct,
+        ...sh.raisedForTurnout ? { note: `share raised above ${sh.bounds.lo / 100}% so the quorum passes the turnout-margin rule` } : {}
+      },
+      validators: {
+        seated: validatorAddrs,
+        tokenEach: "1",
+        validatorQuorumPercent: input3.validatorQuorumPercent,
+        validatorsNeededApprox: Math.max(1, Math.ceil(m3 * input3.validatorQuorumPercent / 100))
+      },
+      durations: {
+        agentVoteSeconds: input3.agentVoteSeconds,
+        validatorVoteSeconds: input3.validatorVoteSeconds,
+        executionDelaySeconds: input3.executionDelaySeconds
+      },
+      guarantees,
+      ...warnings.length ? { presetWarnings: warnings } : {}
+    };
+    let daoInput;
+    try {
+      daoInput = external_exports.object(DAO_CREATE_SHAPE).parse({
+        ...input3.chainId !== void 0 ? { chainId: input3.chainId } : {},
+        ...input3.deployer !== void 0 ? { deployer: input3.deployer } : {},
+        daoName: input3.daoName,
+        daoDescription: input3.daoDescription,
+        symbol: input3.symbol,
+        totalSupply: input3.totalSupply,
+        treasuryPercent: sh.treasuryBps / 100,
+        quorumPercent: input3.quorumPercent,
+        voteModel: "LINEAR",
+        durationSeconds: input3.agentVoteSeconds,
+        executionDelaySeconds: input3.executionDelaySeconds,
+        recipients: input3.agents.map((a3) => ({ address: a3.address, percent: sh.shareBps / 100 })),
+        confirmRisky: input3.confirmRisky,
+        confirm: input3.confirm,
+        dryRun: input3.dryRun,
+        ...input3.signerKey !== void 0 ? { signerKey: input3.signerKey } : {},
+        ...input3.flowContext !== void 0 ? { flowContext: input3.flowContext } : {}
+      });
+    } catch (e2) {
+      return err4(`Could not assemble the deploy: ${safeErrorMessage(e2)}`);
+    }
+    const validatorQuorumRaw = (BigInt(Math.round(input3.validatorQuorumPercent * 1e6)) * PCT_25DEC / 1000000n).toString();
+    const budgetHint = input3.monthlyBudget !== void 0 ? `After the deploy, set the monthly budget with the dexe_proposal_create call in agentTreasury.budgetRecipe (the deploy result fills in the real govPool and token).` : void 0;
+    return runDaoCreate(daoInput, {
+      tool: TOOL,
+      validatorsParams: {
+        name: input3.daoName,
+        symbol: input3.symbol,
+        proposalSettings: {
+          duration: String(input3.validatorVoteSeconds),
+          executionDelay: String(input3.executionDelaySeconds),
+          quorum: validatorQuorumRaw
+        },
+        validators: validatorAddrs,
+        balances: validatorAddrs.map(() => ONE_TOKEN.toString())
+      },
+      durationValidatorsSeconds: input3.validatorVoteSeconds,
+      quorumValidatorsPercent: input3.validatorQuorumPercent,
+      metadataExtra: {
+        preset: "agent-treasury",
+        presetVersion: 1,
+        agents: input3.agents.map((a3) => ({ address: a3.address, role: a3.role }))
+      },
+      previewExtra: {
+        agentTreasury: {
+          ...summary,
+          ...input3.monthlyBudget !== void 0 ? { budgetRecipe: budgetRecipe({ monthlyBudget: input3.monthlyBudget, chainId, symbol: input3.symbol }) } : {}
+        }
+      },
+      ...budgetHint ? { previewNextExtra: budgetHint } : {},
+      resultExtra: (predicted) => ({
+        agentTreasury: summary,
+        ...input3.monthlyBudget !== void 0 ? (() => {
+          const recipe = budgetRecipe({
+            monthlyBudget: input3.monthlyBudget,
+            chainId,
+            govPool: predicted.govPool,
+            ...predicted.govToken ? { govToken: predicted.govToken } : {},
+            symbol: input3.symbol
+          });
+          return {
+            budgetRecipe: recipe,
+            next: `Agents deposit their tokens, then create the monthly budget proposal: dexe_proposal_create ${JSON.stringify(recipe.args)}. It goes through the validator round like every proposal.`
+          };
+        })() : {}
+      })
+    });
+  });
+}
+
+// dist/tools/daoCreate.js
+var ZERO2 = ZeroAddress;
+var PCT_25DEC2 = 10n ** 25n;
+var ONE_TOKEN2 = 10n ** 18n;
+function err5(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function ok6(data4) {
@@ -154520,9 +155106,9 @@ function synthesizeParams(c4, deployer) {
       amounts[0] += distributable - allocated;
   }
   const maxAllocation = amounts.reduce((a3, b7) => b7 > a3 ? b7 : a3, 0n);
-  const quorumRaw = BigInt(Math.round(c4.quorumPercent * 1e6)) * PCT_25DEC / 1000000n;
+  const quorumRaw = BigInt(Math.round(c4.quorumPercent * 1e6)) * PCT_25DEC2 / 1000000n;
   const requestedMinVotes = parseUnits(c4.minVotesTokens, 18);
-  const minVotes = requestedMinVotes === ONE_TOKEN && maxAllocation < ONE_TOKEN ? maxAllocation : requestedMinVotes;
+  const minVotes = requestedMinVotes === ONE_TOKEN2 && maxAllocation < ONE_TOKEN2 ? maxAllocation : requestedMinVotes;
   const dur = String(c4.durationSeconds);
   const isPoly = c4.voteModel === "POLYNOMIAL";
   return {
@@ -154772,53 +155358,56 @@ async function probeDeployCost(rpc, chainId, payer) {
     return void 0;
   }
 }
+var DAO_CREATE_SHAPE = {
+  chainId: external_exports.number().int().positive().optional().describe("Target chain id. Defaults to the MCP's default chain. Use 97 (BSC testnet) to validate; 56 = BSC mainnet (real funds)."),
+  poolFactory: external_exports.string().optional().describe("PoolFactory override; defaults to ContractsRegistry lookup"),
+  deployer: external_exports.string().optional().describe("tx.origin that sends the deploy (needed for address prediction). Defaults to the signer address."),
+  daoName: external_exports.string().min(1).describe("DAO name (also the deployGovPool pool name)"),
+  daoDescription: external_exports.string().default("").describe("DAO description (markdown; uploaded to IPFS as slate)"),
+  websiteUrl: external_exports.string().default("").describe("DAO website URL shown on its profile."),
+  socialLinks: external_exports.array(external_exports.tuple([external_exports.string(), external_exports.string()])).default([]).describe("[[network, url], ...]"),
+  documents: external_exports.array(external_exports.object({
+    name: external_exports.string().describe("Link label shown on the DAO profile."),
+    url: external_exports.string().describe("Document URL.")
+  })).default([]).describe('External documents shown on the DAO profile, e.g. [{ name: "Whitepaper", url: "https://..." }]'),
+  avatarCID: external_exports.string().default("").describe("IPFS CID of an already-pinned JPEG avatar (dexe_ipfs_upload_avatar)"),
+  avatarFileName: external_exports.string().default("avatar.jpeg").describe("File name stored alongside avatarCID."),
+  avatarPath: external_exports.string().default("").describe("Local avatar image path (JPEG/PNG/WebP/GIF \u226410 MB) \u2014 server validates + pins it. Preferred over avatarCID."),
+  // ---- SIMPLE mode fields (used when `params` is omitted) ----
+  symbol: external_exports.string().optional().describe("SIMPLE mode: gov token symbol (e.g. 'GENA'). Required when `params` is omitted."),
+  totalSupply: external_exports.string().optional().describe("SIMPLE mode: total token supply in WHOLE tokens (e.g. '1000000'). Required when `params` is omitted."),
+  treasuryPercent: external_exports.number().min(0).max(100).optional().describe(`SIMPLE mode: treasury share, percent 0-100 (implicit remainder; it cannot vote). Omit and the tool picks one that leaves a real voting margin (default ${SAFE_DEFAULT_TREASURY_PCT}).`),
+  quorumPercent: external_exports.number().min(0).max(100).optional().describe(`SIMPLE mode: quorum, percent 0-100. Omit and the tool picks (default ${SAFE_DEFAULT_QUORUM_PCT}). Must be >=50 and clearable by at most ${QUORUM_TURNOUT_CEILING * 100}% turnout \u2014 a quorum equal to the votable share freezes the DAO forever.`),
+  voteModel: external_exports.enum(["LINEAR", "POLYNOMIAL"]).default("LINEAR").describe("SIMPLE mode: vote-power model. LINEAR = 1 token = 1 vote (default). POLYNOMIAL = meritocratic curve."),
+  durationSeconds: external_exports.number().int().positive().default(86400).describe("SIMPLE mode: voting duration. Default 86400 (1 day)."),
+  executionDelaySeconds: external_exports.number().int().min(0).default(0).describe("SIMPLE mode: delay before execution. Default 0."),
+  minVotesTokens: external_exports.string().default("1").describe("SIMPLE mode: min tokens to vote AND create proposals, WHOLE tokens. Default '1'. Must be \u2264 the largest holder's allocation."),
+  recipients: external_exports.array(external_exports.object({
+    address: external_exports.string().describe("Wallet receiving this slice of the supply."),
+    percent: external_exports.number().gt(0).max(100).describe("Share of TOTAL supply, percent 0-100.")
+  })).default([]).describe("SIMPLE mode: split the votable share across wallets (default: deployer only). Percents are of TOTAL supply and must sum to 100 \u2212 treasuryPercent."),
+  earlyCompletion: external_exports.boolean().default(true).describe("SIMPLE mode: end voting as soon as the quorum is reached. Default true."),
+  // Published OPAQUE on purpose. The fully-expanded GovPoolDeployParams
+  // struct serializes to ~5 KB — 5% of the whole default-profile
+  // tools/list — for the mode this tool's own first sentence tells callers
+  // not to use. Validation is unchanged: the same schema runs in the
+  // handler (see the safeParse below), so per-field errors still name the
+  // offending path. The typed surface lives on dexe_dao_build_deploy.
+  params: external_exports.record(external_exports.string(), external_exports.unknown()).optional().describe("ADVANCED mode: the full deployGovPool params struct. Prefer SIMPLE mode. Field-by-field schema: dexe_dao_build_deploy (needs DEXE_TOOLSETS=core,dev)."),
+  confirmRisky: external_exports.boolean().default(false).describe("Proceed despite a governance-safety refusal. Read the returned `risks` to the user FIRST \u2014 such a config cannot be repaired after deploy, because repairing it needs a proposal passed under it. Ignored when DEXE_TREASURY_GUARD=block."),
+  confirm: external_exports.boolean().default(false).describe("True to actually broadcast; without it SIMPLE mode and any mainnet deploy return a review-only preview. Pass it on the FIRST call when the user has already approved the deploy."),
+  dryRun: external_exports.boolean().default(false).describe("Preview: no broadcast, no IPFS pin, no Pinata key needed. CIDs are right but unpinned \u2014 do NOT broadcast this calldata."),
+  signerKey: signerKeyParam,
+  flowContext: flowContextSchema
+};
 function registerDaoCreateTools(server, ctx, signer, wc, state) {
   const rpc = new RpcProvider(ctx.config);
-  server.tool("dexe_dao_create", "Broadcasts when a signer is configured. Deploys a new DeXe DAO in ONE call. SIMPLE mode (recommended): pass `symbol` + `totalSupply` and the tool synthesizes a coherent, frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a quorum that passes on realistic turnout). ADVANCED mode: pass a full `params` struct. Returns a `preview` of the resolved config + a safety proof and broadcasts only with `confirm: true`. Runs the frontend's governance coherence guards over ALL FIVE settings slots (default / internal / validators / distribution / tokenSale) \u2014 one un-passable slot bricks that whole proposal class forever \u2014 plus a calldata round-trip self-check and a pre-sign eth_call: a provable revert is refused with a classified cause + fix BEFORE any gas is spent, while an RPC outage only downgrades to a warning. Mainnet (56) always needs `confirm: true` (real BNB); validate on testnet (97) first. `deployer` defaults to the signer. Unsure of the journey or params? Call dexe_guide (flow:'create_dao').", {
-    chainId: external_exports.number().int().positive().optional().describe("Target chain id. Defaults to the MCP's default chain. Use 97 (BSC testnet) to validate; 56 = BSC mainnet (real funds)."),
-    poolFactory: external_exports.string().optional().describe("PoolFactory override; defaults to ContractsRegistry lookup"),
-    deployer: external_exports.string().optional().describe("tx.origin that sends the deploy (needed for address prediction). Defaults to the signer address."),
-    daoName: external_exports.string().min(1).describe("DAO name (also the deployGovPool pool name)"),
-    daoDescription: external_exports.string().default("").describe("DAO description (markdown; uploaded to IPFS as slate)"),
-    websiteUrl: external_exports.string().default("").describe("DAO website URL shown on its profile."),
-    socialLinks: external_exports.array(external_exports.tuple([external_exports.string(), external_exports.string()])).default([]).describe("[[network, url], ...]"),
-    documents: external_exports.array(external_exports.object({
-      name: external_exports.string().describe("Link label shown on the DAO profile."),
-      url: external_exports.string().describe("Document URL.")
-    })).default([]).describe('External documents shown on the DAO profile, e.g. [{ name: "Whitepaper", url: "https://..." }]'),
-    avatarCID: external_exports.string().default("").describe("IPFS CID of an already-pinned JPEG avatar (dexe_ipfs_upload_avatar)"),
-    avatarFileName: external_exports.string().default("avatar.jpeg").describe("File name stored alongside avatarCID."),
-    avatarPath: external_exports.string().default("").describe("Local avatar image path (JPEG/PNG/WebP/GIF \u226410 MB) \u2014 server validates + pins it. Preferred over avatarCID."),
-    // ---- SIMPLE mode fields (used when `params` is omitted) ----
-    symbol: external_exports.string().optional().describe("SIMPLE mode: gov token symbol (e.g. 'GENA'). Required when `params` is omitted."),
-    totalSupply: external_exports.string().optional().describe("SIMPLE mode: total token supply in WHOLE tokens (e.g. '1000000'). Required when `params` is omitted."),
-    treasuryPercent: external_exports.number().min(0).max(100).optional().describe(`SIMPLE mode: treasury share, percent 0-100 (implicit remainder; it cannot vote). Omit and the tool picks one that leaves a real voting margin (default ${SAFE_DEFAULT_TREASURY_PCT}).`),
-    quorumPercent: external_exports.number().min(0).max(100).optional().describe(`SIMPLE mode: quorum, percent 0-100. Omit and the tool picks (default ${SAFE_DEFAULT_QUORUM_PCT}). Must be >=50 and clearable by at most ${QUORUM_TURNOUT_CEILING * 100}% turnout \u2014 a quorum equal to the votable share freezes the DAO forever.`),
-    voteModel: external_exports.enum(["LINEAR", "POLYNOMIAL"]).default("LINEAR").describe("SIMPLE mode: vote-power model. LINEAR = 1 token = 1 vote (default). POLYNOMIAL = meritocratic curve."),
-    durationSeconds: external_exports.number().int().positive().default(86400).describe("SIMPLE mode: voting duration. Default 86400 (1 day)."),
-    executionDelaySeconds: external_exports.number().int().min(0).default(0).describe("SIMPLE mode: delay before execution. Default 0."),
-    minVotesTokens: external_exports.string().default("1").describe("SIMPLE mode: min tokens to vote AND create proposals, WHOLE tokens. Default '1'. Must be \u2264 the largest holder's allocation."),
-    recipients: external_exports.array(external_exports.object({
-      address: external_exports.string().describe("Wallet receiving this slice of the supply."),
-      percent: external_exports.number().gt(0).max(100).describe("Share of TOTAL supply, percent 0-100.")
-    })).default([]).describe("SIMPLE mode: split the votable share across wallets (default: deployer only). Percents are of TOTAL supply and must sum to 100 \u2212 treasuryPercent."),
-    earlyCompletion: external_exports.boolean().default(true).describe("SIMPLE mode: end voting as soon as the quorum is reached. Default true."),
-    // Published OPAQUE on purpose. The fully-expanded GovPoolDeployParams
-    // struct serializes to ~5 KB — 5% of the whole default-profile
-    // tools/list — for the mode this tool's own first sentence tells callers
-    // not to use. Validation is unchanged: the same schema runs in the
-    // handler (see the safeParse below), so per-field errors still name the
-    // offending path. The typed surface lives on dexe_dao_build_deploy.
-    params: external_exports.record(external_exports.string(), external_exports.unknown()).optional().describe("ADVANCED mode: the full deployGovPool params struct. Prefer SIMPLE mode. Field-by-field schema: dexe_dao_build_deploy (needs DEXE_TOOLSETS=core,dev)."),
-    confirmRisky: external_exports.boolean().default(false).describe("Proceed despite a governance-safety refusal. Read the returned `risks` to the user FIRST \u2014 such a config cannot be repaired after deploy, because repairing it needs a proposal passed under it. Ignored when DEXE_TREASURY_GUARD=block."),
-    confirm: external_exports.boolean().default(false).describe("True to actually broadcast; without it SIMPLE mode and any mainnet deploy return a review-only preview. Pass it on the FIRST call when the user has already approved the deploy."),
-    dryRun: external_exports.boolean().default(false).describe("Preview: no broadcast, no IPFS pin, no Pinata key needed. CIDs are right but unpinned \u2014 do NOT broadcast this calldata."),
-    signerKey: signerKeyParam,
-    flowContext: flowContextSchema
-  }, async (input3) => {
+  server.tool("dexe_dao_create", "Broadcasts when a signer is configured. Deploys a new DeXe DAO in ONE call. SIMPLE mode (recommended): pass `symbol` + `totalSupply` and the tool synthesizes a coherent, frontend-equivalent config (LINEAR power, treasury as an implicit remainder, a quorum that passes on realistic turnout). ADVANCED mode: pass a full `params` struct. Returns a `preview` of the resolved config + a safety proof and broadcasts only with `confirm: true`. Runs the frontend's governance coherence guards over ALL FIVE settings slots (default / internal / validators / distribution / tokenSale) \u2014 one un-passable slot bricks that whole proposal class forever \u2014 plus a calldata round-trip self-check and a pre-sign eth_call: a provable revert is refused with a classified cause + fix BEFORE any gas is spent, while an RPC outage only downgrades to a warning. Mainnet (56) always needs `confirm: true` (real BNB); validate on testnet (97) first. `deployer` defaults to the signer. Unsure of the journey or params? Call dexe_guide (flow:'create_dao').", DAO_CREATE_SHAPE, (input3) => runDaoCreate(input3));
+  async function runDaoCreate(input3, extras = {}) {
+    const tool = extras.tool ?? "dexe_dao_create";
     const deployer = input3.deployer ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!deployer)
-      return err4("Provide 'deployer' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
+      return err5("Provide 'deployer' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).");
     const chain2 = resolveChain(ctx.config, input3.chainId);
     const chainId = chain2.chainId;
     const isMainnet2 = chainId === 56 || chainId === 1;
@@ -154830,12 +155419,12 @@ function registerDaoCreateTools(server, ctx, signer, wc, state) {
     if (input3.params) {
       const parsed = DaoCreateDeployParams.safeParse(input3.params);
       if (!parsed.success) {
-        return err4("ADVANCED `params` is not a valid GovPoolDeployParams struct: " + parsed.error.issues.map((i3) => `params.${i3.path.join(".") || "(root)"}: ${i3.message}`).join("; ") + ". Field-by-field schema: dexe_dao_build_deploy (set DEXE_TOOLSETS=core,dev). Or use SIMPLE mode: pass symbol + totalSupply and omit params.");
+        return err5("ADVANCED `params` is not a valid GovPoolDeployParams struct: " + parsed.error.issues.map((i3) => `params.${i3.path.join(".") || "(root)"}: ${i3.message}`).join("; ") + ". Field-by-field schema: dexe_dao_build_deploy (set DEXE_TOOLSETS=core,dev). Or use SIMPLE mode: pass symbol + totalSupply and omit params.");
       }
       deployParams = parsed.data;
     } else {
       if (!input3.symbol || !input3.totalSupply) {
-        return err4(`SIMPLE mode needs \`symbol\` and \`totalSupply\` (whole tokens), or pass a full \`params\` struct (ADVANCED mode). Example: { daoName, symbol: 'GENA', totalSupply: '1000000' } \u2192 deployer gets ${100 - SAFE_DEFAULT_TREASURY_PCT}%, treasury ${SAFE_DEFAULT_TREASURY_PCT}% (implicit), quorum ${SAFE_DEFAULT_QUORUM_PCT}%, LINEAR power.`);
+        return err5(`SIMPLE mode needs \`symbol\` and \`totalSupply\` (whole tokens), or pass a full \`params\` struct (ADVANCED mode). Example: { daoName, symbol: 'GENA', totalSupply: '1000000' } \u2192 deployer gets ${100 - SAFE_DEFAULT_TREASURY_PCT}%, treasury ${SAFE_DEFAULT_TREASURY_PCT}% (implicit), quorum ${SAFE_DEFAULT_QUORUM_PCT}%, LINEAR power.`);
       }
       split5 = resolveQuorumSplit({
         ...input3.treasuryPercent !== void 0 ? { treasuryPercent: input3.treasuryPercent } : {},
@@ -154844,7 +155433,7 @@ function registerDaoCreateTools(server, ctx, signer, wc, state) {
         voteModel: input3.voteModel
       });
       if (split5.error)
-        return err4(`Could not synthesize a governable DAO config: ${split5.error}`);
+        return err5(`Could not synthesize a governable DAO config: ${split5.error}`);
       try {
         deployParams = synthesizeParams({
           daoName: input3.daoName,
@@ -154860,8 +155449,23 @@ function registerDaoCreateTools(server, ctx, signer, wc, state) {
           ...input3.recipients.length > 0 ? { recipients: input3.recipients } : {}
         }, deployer);
       } catch (e2) {
-        return err4(`Could not synthesize DAO config: ${safeErrorMessage(e2)}`);
+        return err5(`Could not synthesize DAO config: ${safeErrorMessage(e2)}`);
       }
+    }
+    if (extras.validatorsParams || extras.durationValidatorsSeconds !== void 0 || extras.quorumValidatorsPercent !== void 0) {
+      const qv = extras.quorumValidatorsPercent !== void 0 ? (BigInt(Math.round(extras.quorumValidatorsPercent * 1e6)) * PCT_25DEC2 / 1000000n).toString() : void 0;
+      deployParams = {
+        ...deployParams,
+        settingsParams: {
+          ...deployParams.settingsParams,
+          proposalSettings: deployParams.settingsParams.proposalSettings.map((ps) => ({
+            ...ps,
+            ...extras.durationValidatorsSeconds !== void 0 ? { durationValidators: String(extras.durationValidatorsSeconds) } : {},
+            ...qv !== void 0 ? { quorumValidators: qv } : {}
+          }))
+        },
+        ...extras.validatorsParams ? { validatorsParams: extras.validatorsParams } : {}
+      };
     }
     const isTokenCreation = deployParams.tokenParams.name.length > 0;
     try {
@@ -154873,7 +155477,7 @@ function registerDaoCreateTools(server, ctx, signer, wc, state) {
         checkCustomVotePower(deployParams.votePowerParams.voteType, deployParams.votePowerParams.initData, deployParams.votePowerParams.presetAddress)
       ]);
     } catch (e2) {
-      return err4(safeErrorMessage(e2));
+      return err5(safeErrorMessage(e2));
     }
     const slotVerdict = checkAllProposalSettings({
       proposalSettings: deployParams.settingsParams.proposalSettings,
@@ -154886,12 +155490,12 @@ function registerDaoCreateTools(server, ctx, signer, wc, state) {
     const settingsAdvisories2 = guardMode === "off" ? [] : slotVerdict.advisories;
     const hardSlotIssues = slotVerdict.issues.filter((i3) => i3.check !== "deploy.quorum-margin");
     if (hardSlotIssues.length > 0) {
-      return err4(`This DAO would be un-governable \u2014 ${hardSlotIssues.length} settings slot ${hardSlotIssues.length === 1 ? "issue" : "issues"} (of ${deployParams.settingsParams.proposalSettings.length} supplied; deployGovPool expands 1 \u2192 5):
+      return err5(`This DAO would be un-governable \u2014 ${hardSlotIssues.length} settings slot ${hardSlotIssues.length === 1 ? "issue" : "issues"} (of ${deployParams.settingsParams.proposalSettings.length} supplied; deployGovPool expands 1 \u2192 5):
 ${formatSettingsSlotIssues(hardSlotIssues)}`);
     }
     const proof = computeSafetyProof(deployParams);
     if (!proof.feasible) {
-      return err4(`This DAO would be governance-dead: ${proof.message} ` + (synthesized ? `Adjust so quorumPercent \u2264 ${Math.floor(proof.reachablePct)} (the votable share) while staying \u2265${floorPct}, or lower treasuryPercent to \u2264${proof.minVotablePct === 100 ? 0 : Math.floor(100 - proof.minVotablePct)}.` : ""));
+      return err5(`This DAO would be governance-dead: ${proof.message} ` + (synthesized ? `Adjust so quorumPercent \u2264 ${Math.floor(proof.reachablePct)} (the votable share) while staying \u2265${floorPct}, or lower treasuryPercent to \u2264${proof.minVotablePct === 100 ? 0 : Math.floor(100 - proof.minVotablePct)}.` : ""));
     }
     const risks2 = [];
     if (!proof.marginOk && proof.marginMessage)
@@ -154907,7 +155511,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
         act: `DAO '${input3.daoName}' on chain ${chainId}`
       });
       if (gate.blocked)
-        return err4(gate.refusal ?? "refused by the treasury guard");
+        return err5(gate.refusal ?? "refused by the treasury guard");
       if (!input3.confirmRisky && guardMode !== "off") {
         return ok6({
           mode: "blocked-risky",
@@ -154951,6 +155555,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
         chainId,
         mainnet: isMainnet2,
         daoName: input3.daoName,
+        ...extras.previewExtra ?? {},
         resolvedConfig: {
           voteModel: deployParams.votePowerParams.voteType === "POLYNOMIAL_VOTES" ? "POLYNOMIAL" : "LINEAR",
           symbol: t2.symbol,
@@ -155002,13 +155607,13 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
         permanence: DEPLOY_PERMANENCE,
         ...split5.adjustments.length ? { adjustments: split5.adjustments } : {},
         ...warnings.length ? { warnings } : {},
-        next: `${DEPLOY_PERMANENCE} Config looks coherent. Re-call dexe_dao_create with the SAME arguments plus confirm:true to broadcast` + (isMainnet2 ? " on MAINNET (spends real BNB). To validate first, set chainId:97 (testnet)." : "."),
+        next: `${DEPLOY_PERMANENCE} Config looks coherent. Re-call ${tool} with the SAME arguments plus confirm:true to broadcast` + (isMainnet2 ? " on MAINNET (spends real BNB). To validate first, set chainId:97 (testnet)." : ".") + (extras.previewNextExtra ? ` ${extras.previewNextExtra}` : ""),
         ...flowChainFields(input3.flowContext, state, { chainId }, { landed: false })
       });
     }
     const pin = pinataForWrites(ctx.config.pinataJwt, input3.dryRun, "to BROADCAST a DAO deploy \u2014 the preview and dryRun above need no Pinata key");
     if ("error" in pin)
-      return err4(pin.error);
+      return err5(pin.error);
     const pinata = pin.ok;
     const ipfsArtifacts = [];
     let descriptionRef = "";
@@ -155027,10 +155632,11 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
       websiteUrl: input3.websiteUrl,
       description: descriptionRef,
       socialLinks: input3.socialLinks,
-      documents: input3.documents
+      documents: input3.documents,
+      ...extras.metadataExtra ?? {}
     };
     if (input3.avatarPath && input3.avatarCID) {
-      return err4("Pass either `avatarCID` or `avatarPath`, not both.");
+      return err5("Pass either `avatarCID` or `avatarPath`, not both.");
     }
     if (input3.avatarPath) {
       try {
@@ -155044,13 +155650,13 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
           daoMeta.avatarUrl = pinned.avatarUrl;
         }
       } catch (e2) {
-        return err4(safeErrorMessage(e2));
+        return err5(safeErrorMessage(e2));
       }
     } else if (input3.avatarCID) {
       const avatarCidV1 = toCidV1(input3.avatarCID);
       const avatarCheck = await checkAvatarCidBytes(avatarCidV1, input3.avatarFileName, resolveGateways(ctx));
       if (!avatarCheck.ok) {
-        return err4(avatarCheck.error ?? "avatarCID failed raster validation");
+        return err5(avatarCheck.error ?? "avatarCID failed raster validation");
       }
       daoMeta.avatarCID = avatarCidV1;
       daoMeta.avatarFileName = input3.avatarFileName;
@@ -155066,7 +155672,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
       descriptionURL = r2.uri;
       ipfsArtifacts.push({ field: "descriptionURL", uri: r2.uri, pinned: r2.pinned, exact: r2.exact });
     } catch (e2) {
-      return err4(`Failed to upload DAO metadata to IPFS: ${safeErrorMessage(e2)}`);
+      return err5(`Failed to upload DAO metadata to IPFS: ${safeErrorMessage(e2)}`);
     }
     const res = await buildDeployGovPool({
       chainId: input3.chainId,
@@ -155076,7 +155682,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
       dryRun: input3.dryRun
     }, ctx, rpc);
     if (!res.ok)
-      return err4(res.error);
+      return err5(res.error);
     for (const e2 of res.executorDescriptions) {
       ipfsArtifacts.push({ field: `executorDescription[${e2.label}]`, uri: e2.uri, pinned: e2.pinned, exact: e2.exact });
     }
@@ -155090,7 +155696,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
         config: ctx.config
       });
       if (verdict.status === "reverted") {
-        return err4(`Deploy refused \u2014 ${verdict.summary}`);
+        return err5(`Deploy refused \u2014 ${verdict.summary}`);
       }
       simSummary = verdict.summary;
     }
@@ -155103,7 +155709,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
         signerKey: input3.signerKey,
         // Attribution: a fleet that deploys DAOs under different personas must
         // be answerable for which persona deployed which pool.
-        tool: "dexe_dao_create",
+        tool,
         // A deploy has no approve/deposit/create/vote legs, so the shared
         // proposal-flow resume text was four facts about steps that do not
         // exist in this call.
@@ -155112,7 +155718,7 @@ ${formatSettingsSlotIssues(hardSlotIssues)}`);
     } catch (e2) {
       if (e2 instanceof ApprovalHaltError)
         throw e2;
-      return err4(toActionableError2(e2, "dexe_dao_create deploy broadcast").message);
+      return err5(toActionableError2(e2, `${tool} deploy broadcast`).message);
     }
     if (result.mode === "failed") {
       const kb = mapDeployRevert(result.failure?.error);
@@ -155202,10 +155808,12 @@ ${simSummary}` : res.note,
       ...readiness ? { readiness } : {},
       ...nextSteps2 ? { nextSteps: nextSteps2 } : {},
       ...flowChainFields(input3.flowContext, state, { chainId, ...res.predictedGovPool ? { govPool: res.predictedGovPool } : {} }, { landed: result.mode === "executed" }),
+      ...extras.resultExtra ? extras.resultExtra({ govToken: res.predicted?.govToken, govPool: res.predictedGovPool ?? null }) : {},
       ...result.enableWrites ? { enableWrites: result.enableWrites } : {},
       ...result.pairing ? { pairing: result.pairing } : {}
     }), result.pairingContent);
-  });
+  }
+  registerAgentTreasuryCreateTool(server, ctx, signer, runDaoCreate);
 }
 
 // dist/tools/operationalContext.js
@@ -156578,7 +157186,10 @@ var READ = [
 var AGENTS = [
   "dexe_agents_list",
   "dexe_agents_fund",
-  "dexe_agents_ledger"
+  "dexe_agents_ledger",
+  // the agent-treasury preset (k-of-n agents + human validators) — here, not in
+  // core: the default profile sits at its tools/list budget (tests/tools/gate.test.ts)
+  "dexe_agent_treasury_create"
 ];
 var VOTE = [
   // agent keyring (multi-persona/swarm signing surface) — also in `agents`
@@ -156807,8 +157418,8 @@ function registerMerkleTools(server, _ctx) {
         leafHashes: result.leafHashes,
         proofs: result.proofs
       });
-    } catch (err16) {
-      return errorResult18(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult18(safeErrorMessage(err17));
     }
   });
   server.registerTool("dexe_merkle_proof", {
@@ -156877,8 +157488,8 @@ function registerMerkleTools(server, _ctx) {
         proof,
         verified: verifyProof(proof, tree.root, leaf)
       });
-    } catch (err16) {
-      return errorResult18(safeErrorMessage(err16));
+    } catch (err17) {
+      return errorResult18(safeErrorMessage(err17));
     }
   });
 }
@@ -156926,7 +157537,7 @@ var TOKEN_SALE_ABI = new Interface([
   "function claim(uint256[] tierIds)",
   "function vestingWithdraw(uint256[] tierIds)"
 ]);
-function err5(message) {
+function err6(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function vestingTierGuard(tiers, acknowledged) {
@@ -157003,14 +157614,14 @@ function registerOtcSaleTools(server, ctx, signer, wc, state) {
       const tspChainId = rpc.resolveChainId(inputRaw.chainId);
       const tokenSaleProposal = inputRaw.tokenSaleProposal ?? findKnownDao(state, tspChainId, inputRaw.govPool)?.tokenSaleProposal;
       if (!tokenSaleProposal) {
-        return err5(`tokenSaleProposal is required: ${inputRaw.govPool} on chain ${tspChainId} was not deployed by this install, so its TokenSaleProposal address is not on record. Pass it explicitly \u2014 from the deploy receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`);
+        return err6(`tokenSaleProposal is required: ${inputRaw.govPool} on chain ${tspChainId} was not deployed by this install, so its TokenSaleProposal address is not on record. Pass it explicitly \u2014 from the deploy receipt (dexe_dao_create's predicted.govTokenSale) or dexe_dao_predict_addresses(deployer, daoName).`);
       }
       if (!isAddress(tokenSaleProposal))
-        return err5(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+        return err6(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
       const input3 = { ...inputRaw, tokenSaleProposal };
       const vesting = vestingTierGuard(input3.tiers, input3.acknowledgeVestingBlocked);
       if (vesting.refusal)
-        return err5(vesting.refusal);
+        return err6(vesting.refusal);
       let tiers = input3.tiers;
       let whitelistUploads = [];
       let whitelistWarnings = [];
@@ -157126,7 +157737,7 @@ function registerOtcSaleTools(server, ctx, signer, wc, state) {
     } catch (e2) {
       if (e2 instanceof ApprovalHaltError)
         throw e2;
-      return err5(safeErrorMessage(e2));
+      return err6(safeErrorMessage(e2));
     }
   });
 }
@@ -157146,19 +157757,19 @@ function registerOtcBuyerTools(server, ctx, signer, wc) {
     simulateFirst: external_exports.boolean().default(false).describe("eth_call-simulate buy() first; aborts with the revertReason if the sim fails.")
   }, async (input3) => {
     if (!isAddress(input3.tokenSaleProposal))
-      return err5(`Invalid tokenSaleProposal`);
+      return err6(`Invalid tokenSaleProposal`);
     if (!isAddress(input3.tokenToBuyWith))
-      return err5(`Invalid tokenToBuyWith`);
+      return err6(`Invalid tokenToBuyWith`);
     const userResolved = input3.user ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!userResolved)
-      return err5(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
+      return err6(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
     const userAddr = getAddress(userResolved);
     const tierIdBn = parseUintString(input3.tierId, "tierId");
     let amountBn;
     try {
       amountBn = parseAmount(input3.amount, 18);
     } catch (e2) {
-      return err5(safeErrorMessage(e2));
+      return err6(safeErrorMessage(e2));
     }
     const native = isNativeSentinel(input3.tokenToBuyWith);
     const tokenArg = native ? ETHEREUM_ADDRESS : getAddress(input3.tokenToBuyWith);
@@ -157172,7 +157783,7 @@ function registerOtcBuyerTools(server, ctx, signer, wc) {
       const tree = buildAddressMerkleTree(checksummed);
       const idx = checksummed.findIndex((a3) => a3.toLowerCase() === userAddr.toLowerCase());
       if (idx < 0)
-        return err5(`User ${userAddr} not in whitelist (${checksummed.length} entries).`);
+        return err6(`User ${userAddr} not in whitelist (${checksummed.length} entries).`);
       proof = tree.proofs[idx];
     }
     const chain2 = resolveChain(ctx.config, input3.chainId);
@@ -157214,10 +157825,10 @@ ${pr2.remediation}`);
       try {
         rawNeeded = from18(amountBn, payDecimals);
       } catch (e2) {
-        return err5(safeErrorMessage(e2));
+        return err6(safeErrorMessage(e2));
       }
       if (!input3.dryRun && balance < rawNeeded) {
-        return err5(`Insufficient payment-token balance: have ${formatAmount(balance, payDecimals, paySymbol)}, need ${formatAmount(rawNeeded, payDecimals, paySymbol)} (token ${tokenArg}).`);
+        return err6(`Insufficient payment-token balance: have ${formatAmount(balance, payDecimals, paySymbol)}, need ${formatAmount(rawNeeded, payDecimals, paySymbol)} (token ${tokenArg}).`);
       }
       if (allowance < rawNeeded) {
         payloads.push(buildExactApproval(tokenArg, input3.tokenSaleProposal, rawNeeded, chainId));
@@ -157255,7 +157866,7 @@ ${pr2.remediation}`);
       });
       simulation = sim;
       if (!sim.success) {
-        return err5(`Simulation failed before broadcast: ${sanitizeRevertReason(sim.revertReason, "unknown revert")}`);
+        return err6(`Simulation failed before broadcast: ${sanitizeRevertReason(sim.revertReason, "unknown revert")}`);
       }
     }
     const result = await sendOrCollect(signer, payloads, { dryRun: input3.dryRun, chainId, wc, signerKey: input3.signerKey });
@@ -157288,10 +157899,10 @@ ${pr2.remediation}`);
     includeVesting: external_exports.boolean().default(false).describe("Attempt `vestingWithdraw` too; it reverts on every current pool (upstream F15).")
   }, async (input3) => {
     if (!isAddress(input3.tokenSaleProposal))
-      return err5(`Invalid tokenSaleProposal`);
+      return err6(`Invalid tokenSaleProposal`);
     const userResolved = input3.user ?? (signer.hasSigner(input3.signerKey) ? signer.getAddress(input3.signerKey) : void 0);
     if (!userResolved)
-      return err5(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
+      return err6(`Provide 'user', or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).`);
     const userAddr = getAddress(userResolved);
     const tierIdBns = input3.tierIds.map((s2) => parseUintString(s2, "tierId"));
     const chain2 = resolveChain(ctx.config, input3.chainId);
@@ -157313,10 +157924,10 @@ ${pr2.remediation}`);
         }
       ]);
     } catch (e2) {
-      return err5(toActionableError2(e2, "dexe_otc_buyer_claim_all getUserViews").message);
+      return err6(toActionableError2(e2, "dexe_otc_buyer_claim_all getUserViews").message);
     }
     if (!res[0].success)
-      return err5(`getUserViews failed: ${res[0].error}`);
+      return err6(`getUserViews failed: ${res[0].error}`);
     const userViews = res[0].value;
     const claimable = [];
     const vestingReady = [];
@@ -157386,7 +157997,7 @@ ${pr2.remediation}`);
     } catch (e2) {
       if (e2 instanceof ApprovalHaltError)
         throw e2;
-      return err5(toActionableError2(e2, "dexe_otc_buyer_claim_all broadcast").message);
+      return err6(toActionableError2(e2, "dexe_otc_buyer_claim_all broadcast").message);
     }
     if (result.mode === "failed") {
       return flowFailureResult(result, { user: userAddr, tokenSaleProposal: input3.tokenSaleProposal });
@@ -157415,7 +158026,7 @@ init_lib2();
 function errorResult20(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
-function err6(message) {
+function err7(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var TOKEN_SALE_ABI2 = new Interface([GET_TIER_VIEWS_FRAGMENT, GET_USER_VIEWS_FRAGMENT]);
@@ -157444,9 +158055,9 @@ function registerTokenSaleReadTools(server, ctx) {
     }
   }, async ({ tokenSaleProposal, chainId, tierIds, user, whitelists }) => {
     if (!isAddress(tokenSaleProposal))
-      return err6(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
+      return err7(`Invalid tokenSaleProposal: ${tokenSaleProposal}`);
     if (!isAddress(user))
-      return err6(`Invalid user: ${user}`);
+      return err7(`Invalid user: ${user}`);
     const pr2 = rpc.tryProvider(chainId);
     if ("error" in pr2)
       return errorResult20(`${pr2.error}
@@ -157501,9 +158112,9 @@ ${pr2.remediation}`);
       ];
       const res = await multicall(provider, calls);
       if (!res[0].success)
-        return err6(`getTierViews failed: ${res[0].error}`);
+        return err7(`getTierViews failed: ${res[0].error}`);
       if (!res[1].success)
-        return err6(`getUserViews failed: ${res[1].error}`);
+        return err7(`getUserViews failed: ${res[1].error}`);
       const tierViewsRange = res[0].value;
       const userViews = res[1].value;
       const summaries = tierIds.map((tierIdStr, i3) => {
@@ -157576,7 +158187,7 @@ ${pr2.remediation}`);
       });
       return tokenSaleResult({ tokenSaleProposal, user: userAddr, tiers: summaries });
     } catch (e2) {
-      return err6(toActionableError(e2, "dexe_read_token_sale_position").message);
+      return err7(toActionableError(e2, "dexe_read_token_sale_position").message);
     }
   });
 }
@@ -157962,7 +158573,7 @@ init_signing();
 init_ethersProvider();
 init_redact();
 var KEYSTORE_SIGNATURE_SAFETY = "Signed with the encrypted keystore after the owner approved this exact SafeTx (Safe and owner checked on-chain) on the local approval page or with `dexe-mcp approve`. That stops prompt injection and mistakes; it does not stop an agent that can drive your browser or shell - for such agents WalletConnect is the recommended signer.";
-function err7(message) {
+function err8(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function stripUrlUserinfo(raw) {
@@ -158047,12 +158658,12 @@ function registerSafeTools(server, ctx, signer) {
     chainId: external_exports.number().int().positive().optional().describe("Chain to read the Safe on. Default: the MCP's default chain.")
   }, async ({ safe, chainId }) => {
     if (!isAddress(safe))
-      return err7(`Invalid safe address: ${safe}`);
+      return err8(`Invalid safe address: ${safe}`);
     try {
       const chain2 = resolveChain(ctx.config, chainId);
       const pr2 = rpc.tryProvider(chain2.chainId);
       if ("error" in pr2)
-        return err7(`${pr2.error}
+        return err8(`${pr2.error}
 ${pr2.remediation}`);
       const provider = pr2.ok;
       const state = await readSafeState(provider, safe);
@@ -158087,7 +158698,7 @@ ${pr2.remediation}`);
         }
       });
     } catch (e2) {
-      return err7(safeToolError(e2, "dexe_safe_info"));
+      return err8(safeToolError(e2, "dexe_safe_info"));
     }
   });
   server.tool("dexe_safe_propose_tx", "Broadcasts when a signer is configured. Queues a tx in the Safe Transaction Service for the owners to co-sign and execute. Takes a TxPayload, reads the Safe's next nonce on-chain (unless `nonce` is given), computes the EIP-712 `safeTxHash`. **dryRun defaults to true and is UNSIGNED** \u2014 payload, safeTxHash and POST target only, no signature. dryRun=false signs with the configured signer, which must be a Safe owner (keystore mode: after the owner approves the exact SafeTx \u2014 awaiting_approval until then; re-run the same call) and POSTs (api.safe.global needs DEXE_SAFE_API_KEY); sign=true returns the signed body without POSTing. operation=1 (DELEGATECALL) is refused unless allowDelegateCall=true.", {
@@ -158110,14 +158721,14 @@ ${pr2.remediation}`);
     sign: external_exports.boolean().default(false).describe("dryRun only: also produce the owner EIP-712 signature. Default false \u2014 a signature is queue-ready and irreversible until the Safe nonce is consumed, so a dry run does not create one. Use sign:true when you will POST the body yourself (e.g. no DEXE_SAFE_API_KEY).")
   }, async (input3) => {
     if (!isAddress(input3.safe))
-      return err7(`Invalid safe address: ${input3.safe}`);
+      return err8(`Invalid safe address: ${input3.safe}`);
     if (!isAddress(input3.to))
-      return err7(`Invalid 'to' address: ${input3.to}`);
+      return err8(`Invalid 'to' address: ${input3.to}`);
     try {
       assertSafeOperationAllowed(input3.operation, input3.to, input3.allowDelegateCall);
     } catch (e2) {
       if (e2 instanceof BroadcastGuardError)
-        return err7(`[${e2.guard}] ${e2.message}`);
+        return err8(`[${e2.guard}] ${e2.message}`);
       throw e2;
     }
     try {
@@ -158129,7 +158740,7 @@ ${pr2.remediation}`);
       if (nonce === void 0) {
         const pr2 = rpc.tryProvider(chainId);
         if ("error" in pr2)
-          return err7(`${pr2.error}
+          return err8(`${pr2.error}
 ${pr2.remediation}`);
         const provider = pr2.ok;
         const state = await readSafeState(provider, safe);
@@ -158159,7 +158770,7 @@ ${pr2.remediation}`);
         });
       } catch (e2) {
         if (e2 instanceof BroadcastGuardError)
-          return err7(`[${e2.guard}] ${e2.message}`);
+          return err8(`[${e2.guard}] ${e2.message}`);
         throw e2;
       }
       const safeTxHash = computeSafeTxHash(chainId, safe, tx);
@@ -158171,34 +158782,34 @@ ${pr2.remediation}`);
       if (signer.mode === "keystore" && produceSignature) {
         const approvals = signer.approvals;
         if (!approvals || !signer.hasSigner()) {
-          return err7("DEXE_SIGNER_MODE=keystore but no usable keystore was found \u2014 nothing was signed. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run; or re-run with dryRun:true and sign:false for the unsigned body + safeTxHash.");
+          return err8("DEXE_SIGNER_MODE=keystore but no usable keystore was found \u2014 nothing was signed. In a terminal (not through the AI) run `npx dexe-mcp key create` (or `key import`), restart Claude Code, then re-run; or re-run with dryRun:true and sign:false for the unsigned body + safeTxHash.");
         }
         const refund = safeTxRefundFields(tx);
         if (refund.length > 0) {
-          return err7(`Refused: in keystore mode a Safe transaction is signed only with gasPrice, baseGas, gasToken and refundReceiver all zero; got ${refund.join(", ")}. A refund makes the Safe pay its executor on execution \u2014 with gasPrice > 0 and the rest zero, (gas used + baseGas) \xD7 gasPrice in the native coin. Nothing was put up for approval. Drop those fields.`);
+          return err8(`Refused: in keystore mode a Safe transaction is signed only with gasPrice, baseGas, gasToken and refundReceiver all zero; got ${refund.join(", ")}. A refund makes the Safe pay its executor on execution \u2014 with gasPrice > 0 and the rest zero, (gas used + baseGas) \xD7 gasPrice in the native coin. Nothing was put up for approval. Drop those fields.`);
         }
         const from10 = getAddress(signer.getAddress());
         if (sender && sender !== from10) {
-          return err7(`sender ${sender} is not the keystore address ${from10}. In keystore mode the proposer is the key that signs \u2014 omit sender.`);
+          return err8(`sender ${sender} is not the keystore address ${from10}. In keystore mode the proposer is the key that signs \u2014 omit sender.`);
         }
         if (!input3.dryRun) {
           const { serviceUrl: serviceUrl2, apiKey: apiKey2 } = safeEnv();
           try {
             const ep2 = resolveSafeServiceEndpoint(chainId, serviceUrl2);
             if (ep2.hosted && !apiKey2) {
-              return err7("api.safe.global requires an API key. Set DEXE_SAFE_API_KEY, or point DEXE_SAFE_TX_SERVICE_URL at a service that doesn't require one \u2014 nothing was put up for approval.");
+              return err8("api.safe.global requires an API key. Set DEXE_SAFE_API_KEY, or point DEXE_SAFE_TX_SERVICE_URL at a service that doesn't require one \u2014 nothing was put up for approval.");
             }
           } catch (e2) {
-            return err7(`${safeErrorMessage(e2)} Nothing was put up for approval.`);
+            return err8(`${safeErrorMessage(e2)} Nothing was put up for approval.`);
           }
         }
         const pr2 = rpc.tryProvider(chainId);
         if ("error" in pr2)
-          return err7(`${pr2.error}
+          return err8(`${pr2.error}
 ${pr2.remediation}`);
         const review = await buildSafeTxReview({ chainId, from: from10, safe, tx, config: signer.getConfig(), provider: pr2.ok });
         if (!review.ok)
-          return err7(`${review.guard ? `[${review.guard}] ` : ""}${review.reason}`);
+          return err8(`${review.guard ? `[${review.guard}] ` : ""}${review.reason}`);
         const typed = {
           domain: safeTxDomain(chainId, safe),
           types: SAFE_TX_TYPES,
@@ -158219,7 +158830,7 @@ ${pr2.remediation}`);
           }, { ...scope2?.signal ? { signal: scope2.signal } : {}, ...scope2 ? { progress: (m3) => scope2.progress(m3) } : {} });
         } catch (e2) {
           if (e2 instanceof SignatureRefusal)
-            return err7(e2.message);
+            return err8(e2.message);
           throw e2;
         }
         signature = await approved.signTypedData(typed.domain, typed.types, typed.message);
@@ -158229,7 +158840,7 @@ ${pr2.remediation}`);
         if (produceSignature) {
           const sg = signer.trySigner(chainId);
           if ("error" in sg)
-            return err7(`${sg.error}
+            return err8(`${sg.error}
 ${sg.remediation}`);
           const wallet = sg.ok;
           signature = await wallet.signTypedData(safeTxDomain(chainId, safe), SAFE_TX_TYPES, tx);
@@ -158286,7 +158897,7 @@ ${sg.remediation}`);
         });
       }
       if (!signature || !sender) {
-        return err7("Live POST requires a signature. Use DEXE_SIGNER_MODE=keystore with a keystore that is a Safe owner (the owner approves the exact SafeTx), or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner), or run with dryRun=true.");
+        return err8("Live POST requires a signature. Use DEXE_SIGNER_MODE=keystore with a keystore that is a Safe owner (the owner approves the exact SafeTx), or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY (a Safe owner), or run with dryRun=true.");
       }
       const ep = resolveSafeServiceEndpoint(chainId, serviceUrl);
       const url2 = ep.multisigTransactions(safe);
@@ -158297,11 +158908,11 @@ ${sg.remediation}`);
       if (apiKey)
         headers.Authorization = `Bearer ${apiKey}`;
       else if (ep.hosted) {
-        return err7("api.safe.global requires an API key. Set DEXE_SAFE_API_KEY, or point DEXE_SAFE_TX_SERVICE_URL at a service that doesn't require one.");
+        return err8("api.safe.global requires an API key. Set DEXE_SAFE_API_KEY, or point DEXE_SAFE_TX_SERVICE_URL at a service that doesn't require one.");
       }
       const res = await postSafeTransaction(url2, headers, body);
       if (!res.ok) {
-        return err7(`Safe service POST failed (${res.status} ${res.statusText}): ${res.text}`);
+        return err8(`Safe service POST failed (${res.status} ${res.statusText}): ${res.text}`);
       }
       return ok7({
         mode: "posted",
@@ -158319,7 +158930,7 @@ ${sg.remediation}`);
     } catch (e2) {
       if (e2 instanceof ApprovalHaltError)
         throw e2;
-      return err7(safeToolError(e2, "dexe_safe_propose_tx"));
+      return err8(safeToolError(e2, "dexe_safe_propose_tx"));
     }
   });
 }
@@ -158359,7 +158970,7 @@ var PROPOSAL_STATES = [
   "ExecutedAgainst",
   "Undefined"
 ];
-function err8(message) {
+function err9(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function ok8(data4) {
@@ -158382,7 +158993,7 @@ function registerSimulateTools(server, ctx, signer) {
   }, async (input3) => {
     try {
       if (!isAddress(input3.to))
-        return err8(`Invalid to: ${input3.to}`);
+        return err9(`Invalid to: ${input3.to}`);
       const fromResolved = input3.from ?? (signer.hasSigner() ? signer.getAddress() : ZeroAddress);
       const result = await simulateCalldata(rpc, {
         to: getAddress(input3.to),
@@ -158394,7 +159005,7 @@ function registerSimulateTools(server, ctx, signer) {
       });
       return ok8({ ...result, from: fromResolved });
     } catch (e2) {
-      return err8(safeErrorMessage(e2));
+      return err9(safeErrorMessage(e2));
     }
   });
   server.tool("dexe_sim_proposal", "Read-only. Simulates GovPool.execute(proposalId) against live state; refuses unless the proposal is `SucceededFor` (idx 4). Finds a reverting action before you pay gas.", {
@@ -158405,7 +159016,7 @@ function registerSimulateTools(server, ctx, signer) {
   }, async (input3) => {
     try {
       if (!isAddress(input3.govPool))
-        return err8(`Invalid govPool: ${input3.govPool}`);
+        return err9(`Invalid govPool: ${input3.govPool}`);
       const pr0 = rpc.tryProvider(input3.chainId);
       if ("error" in pr0)
         return errorResult21(`${pr0.error}
@@ -158422,7 +159033,7 @@ ${pr0.remediation}`);
         stateIndex = Number(GOV_POOL_ABI6.decodeFunctionResult("getProposalState", ret)[0]);
       } catch (e2) {
         const decoded2 = decodeRevert(e2);
-        return err8(`getProposalState reverted: ${decoded2.revertReason}. Proposal may not exist on this GovPool.`);
+        return err9(`getProposalState reverted: ${decoded2.revertReason}. Proposal may not exist on this GovPool.`);
       }
       const proposalState = PROPOSAL_STATES[stateIndex] ?? `Unknown(${stateIndex})`;
       if (stateIndex !== 4) {
@@ -158448,7 +159059,7 @@ ${pr0.remediation}`);
         from: fromResolved
       });
     } catch (e2) {
-      return err8(safeErrorMessage(e2));
+      return err9(safeErrorMessage(e2));
     }
   });
   server.tool("dexe_sim_buy", "Read-only. Simulates TokenSaleProposal.buy(tierId, paymentToken, amount, proof). Native path (0x0) sets value = amount; ERC20 path reads allowance and flags `willNeedApprove` when it is below `amount`.", {
@@ -158462,9 +159073,9 @@ ${pr0.remediation}`);
   }, async (input3) => {
     try {
       if (!isAddress(input3.tokenSaleProposal))
-        return err8(`Invalid tokenSaleProposal`);
+        return err9(`Invalid tokenSaleProposal`);
       if (!isAddress(input3.tokenToBuyWith))
-        return err8(`Invalid tokenToBuyWith`);
+        return err9(`Invalid tokenToBuyWith`);
       const tspAddr = getAddress(input3.tokenSaleProposal);
       const paymentAddr = getAddress(input3.tokenToBuyWith);
       const native = paymentAddr.toLowerCase() === ZeroAddress.toLowerCase();
@@ -158512,7 +159123,7 @@ ${pr0.remediation}`);
         from: fromResolved
       });
     } catch (e2) {
-      return err8(safeErrorMessage(e2));
+      return err9(safeErrorMessage(e2));
     }
   });
 }
@@ -158555,7 +159166,7 @@ var RECENT_PROPOSALS_QUERY = (
   }
 `
 );
-function err9(message) {
+function err10(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function ok9(data4) {
@@ -158584,7 +159195,7 @@ function registerPredictTools(server, ctx) {
     }
   }, async ({ govPool, draft, forceRpcOnly = false, chainId }) => {
     if (!isAddress(govPool))
-      return err9(`Invalid govPool: ${govPool}`);
+      return err10(`Invalid govPool: ${govPool}`);
     const resolvedChainId = rpc.resolveChainId(chainId);
     let subgraph = null;
     let noSubgraphReason = null;
@@ -158607,7 +159218,7 @@ ${pr2.remediation}`);
       { target: govPool, iface: GOV_POOL_ABI7, method: "latestProposalId", args: [], allowFailure: true }
     ]);
     if (!helpersR?.success)
-      return err9("getHelperContracts reverted");
+      return err10("getHelperContracts reverted");
     const helpers = helpersR.value;
     const userKeeper = typeof helpers.userKeeper === "string" && isAddress(helpers.userKeeper) && helpers.userKeeper !== ZERO_ADDRESS ? helpers.userKeeper : null;
     const latestId = latestIdR?.success ? BigInt(latestIdR.value) : 0n;
@@ -158666,11 +159277,11 @@ ${pr2.remediation}`);
         subgraphHistory = sanitizeDeep(data4.proposals, { maxStringChars: 2e3 }).map((row2) => {
           const r2 = row2;
           const raw = r2.quorum;
-          const pct = raw == null ? NaN : quorumPctFromRaw(String(raw));
+          const pct2 = raw == null ? NaN : quorumPctFromRaw(String(raw));
           return {
             ...r2,
             quorumSettingRaw: raw == null ? null : String(raw),
-            quorumSettingPct: Number.isFinite(pct) ? pct : null
+            quorumSettingPct: Number.isFinite(pct2) ? pct2 : null
           };
         });
       } catch (queryErr) {
@@ -159051,8 +159662,8 @@ ${pr2.remediation}`);
         label: "treasury token symbols (chosen by each token's deployer)",
         structured
       });
-    } catch (err16) {
-      return errorResult23(toActionableError(err16, "dexe_proposal_risk_assess").message);
+    } catch (err17) {
+      return errorResult23(toActionableError(err17, "dexe_proposal_risk_assess").message);
     }
   });
 }
@@ -159759,7 +160370,7 @@ init_redact();
 function ok10(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err10(message) {
+function err11(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var PID_GOV = "Proposal id from hashProposal, decimal or 0x-hex.";
@@ -159790,7 +160401,7 @@ function registerListGovernors(server) {
       const all2 = [...loadGovernorConfigs().values()];
       return ok10(all2);
     } catch (e2) {
-      return err10(`failed to load governor configs: ${e2.message}`);
+      return err11(`failed to load governor configs: ${e2.message}`);
     }
   });
 }
@@ -159809,7 +160420,7 @@ function registerGetProposal(server, rpc) {
       cfg = resolveGovernor(governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err10(pr2.error);
+        return err11(pr2.error);
       usedFallback = pr2.fallback;
       const provider = pr2.ok;
       const c4 = governorContract(provider, cfg);
@@ -159827,7 +160438,7 @@ function registerGetProposal(server, rpc) {
     } catch (e2) {
       const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
       const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
-      return err10(`dexe_gov_get_proposal failed: ${detail}${hint}`);
+      return err11(`dexe_gov_get_proposal failed: ${detail}${hint}`);
     }
   });
 }
@@ -159847,7 +160458,7 @@ function registerGetVotingPower(server, rpc) {
       cfg = resolveGovernor(governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err10(pr2.error);
+        return err11(pr2.error);
       usedFallback = pr2.fallback;
       const provider = pr2.ok;
       const c4 = votesContract(provider, cfg);
@@ -159862,7 +160473,7 @@ function registerGetVotingPower(server, rpc) {
         ...rpcNote(pr2)
       });
     } catch (e2) {
-      return err10(`dexe_gov_get_voting_power failed: ${cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2)}`);
+      return err11(`dexe_gov_get_voting_power failed: ${cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2)}`);
     }
   });
 }
@@ -159881,7 +160492,7 @@ function registerGetQuorum(server, rpc) {
       cfg = resolveGovernor(governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err10(pr2.error);
+        return err11(pr2.error);
       usedFallback = pr2.fallback;
       const provider = pr2.ok;
       const c4 = governorContract(provider, cfg);
@@ -159901,7 +160512,7 @@ function registerGetQuorum(server, rpc) {
         ...rpcNote(pr2)
       });
     } catch (e2) {
-      return err10(`dexe_gov_get_quorum failed: ${cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2)}`);
+      return err11(`dexe_gov_get_quorum failed: ${cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2)}`);
     }
   });
 }
@@ -159919,7 +160530,7 @@ function registerGetProposalThreshold(server, rpc) {
       cfg = resolveGovernor(governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err10(pr2.error);
+        return err11(pr2.error);
       usedFallback = pr2.fallback;
       const provider = pr2.ok;
       const c4 = governorContract(provider, cfg);
@@ -159936,7 +160547,7 @@ function registerGetProposalThreshold(server, rpc) {
         ...rpcNote(pr2)
       });
     } catch (e2) {
-      return err10(`dexe_gov_get_proposal_threshold failed: ${cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2)}`);
+      return err11(`dexe_gov_get_proposal_threshold failed: ${cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2)}`);
     }
   });
 }
@@ -159946,7 +160557,7 @@ init_redact();
 function ok11(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err11(message) {
+function err12(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var PID_GOV2 = "Proposal id from hashProposal, decimal or 0x-hex.";
@@ -159971,7 +160582,7 @@ function registerSimulateVoteImpact(server, rpc) {
       cfg = resolveGovernor(governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err11(pr2.error);
+        return err12(pr2.error);
       usedFallback = pr2.fallback;
       const provider = pr2.ok;
       const c4 = governorContract(provider, cfg);
@@ -160014,7 +160625,7 @@ function registerSimulateVoteImpact(server, rpc) {
     } catch (e2) {
       const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
       const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
-      return err11(`dexe_gov_simulate_vote_impact failed: ${detail}${hint}`);
+      return err12(`dexe_gov_simulate_vote_impact failed: ${detail}${hint}`);
     }
   });
 }
@@ -160025,7 +160636,7 @@ init_redact();
 function ok12(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err12(message) {
+function err13(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var PID_GOV3 = "Proposal id from hashProposal, decimal or 0x-hex.";
@@ -160058,7 +160669,7 @@ function registerGetState(server, rpc) {
       cfg = resolveGovernor(governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err12(pr2.error);
+        return err13(pr2.error);
       usedFallback = pr2.fallback;
       const provider = pr2.ok;
       const c4 = governorContract(provider, cfg);
@@ -160073,7 +160684,7 @@ function registerGetState(server, rpc) {
     } catch (e2) {
       const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
       const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
-      return err12(`dexe_gov_get_state failed: ${detail}${hint}`);
+      return err13(`dexe_gov_get_state failed: ${detail}${hint}`);
     }
   });
 }
@@ -160093,7 +160704,7 @@ function registerHasVoted(server, rpc) {
       cfg = resolveGovernor(governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err12(pr2.error);
+        return err13(pr2.error);
       usedFallback = pr2.fallback;
       const provider = pr2.ok;
       const c4 = governorContract(provider, cfg);
@@ -160118,7 +160729,7 @@ function registerHasVoted(server, rpc) {
     } catch (e2) {
       const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
       const hint = cfg ? legacyIdHint(cfg, proposalId) : "";
-      return err12(`dexe_gov_has_voted failed: ${detail}${hint}`);
+      return err13(`dexe_gov_has_voted failed: ${detail}${hint}`);
     }
   });
 }
@@ -160396,7 +161007,7 @@ function decodeGovernorWrite(cfg, data4) {
 function ok13(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err13(message) {
+function err14(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var PID_GOV4 = "Proposal id from hashProposal, decimal or 0x-hex.";
@@ -160427,7 +161038,7 @@ function registerPropose(server) {
       const built = buildPropose(cfg, { targets, values, calldatas, description, signatures });
       return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err13(`dexe_gov_build_propose failed: ${e2.message}`);
+      return err14(`dexe_gov_build_propose failed: ${e2.message}`);
     }
   });
 }
@@ -160447,7 +161058,7 @@ function registerVoteCast(server) {
       const built = buildVoteCast(cfg, proposalId, support, reason);
       return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err13(`dexe_gov_build_vote_cast failed: ${e2.message}`);
+      return err14(`dexe_gov_build_vote_cast failed: ${e2.message}`);
     }
   });
 }
@@ -160470,7 +161081,7 @@ function registerQueue(server) {
       const built = buildQueue(cfg, args);
       return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err13(`dexe_gov_build_queue failed: ${e2.message}`);
+      return err14(`dexe_gov_build_queue failed: ${e2.message}`);
     }
   });
 }
@@ -160494,7 +161105,7 @@ function registerExecute2(server) {
       const built = buildExecute(cfg, args, args.msgValue);
       return ok13({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err13(`dexe_gov_build_execute failed: ${e2.message}`);
+      return err14(`dexe_gov_build_execute failed: ${e2.message}`);
     }
   });
 }
@@ -160512,7 +161123,7 @@ function registerDelegate2(server) {
       const built = buildDelegate(cfg, delegatee);
       return ok13({ governor: cfg.id, votingToken: cfg.votingToken, ...built });
     } catch (e2) {
-      return err13(`dexe_gov_build_delegate failed: ${e2.message}`);
+      return err14(`dexe_gov_build_delegate failed: ${e2.message}`);
     }
   });
 }
@@ -160525,7 +161136,7 @@ var PANIC_SELECTOR2 = "0x4e487b71";
 function ok14(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err14(message) {
+function err15(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 function decodeRevert2(data4) {
@@ -160592,7 +161203,7 @@ function registerSimulateProposal(server, rpc) {
       cfg = resolveGovernor(args.governor);
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err14(pr2.error);
+        return err15(pr2.error);
       usedFallback = pr2.fallback;
       const note = rpcNote(pr2);
       const provider = pr2.ok;
@@ -160646,7 +161257,7 @@ function registerSimulateProposal(server, rpc) {
     } catch (e2) {
       const detail = cfg ? governorReadError(e2, cfg, usedFallback) : safeErrorMessage(e2);
       const hint = cfg && args.proposalId ? legacyIdHint(cfg, args.proposalId) : "";
-      return err14(`dexe_gov_simulate_proposal failed: ${detail}${hint}`);
+      return err15(`dexe_gov_simulate_proposal failed: ${detail}${hint}`);
     }
   });
 }
@@ -160657,7 +161268,7 @@ init_redact();
 function ok15(data4) {
   return { content: [{ type: "text", text: JSON.stringify(data4, null, 2) }] };
 }
-function err15(message) {
+function err16(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 var uintLikeSchema3 = external_exports.union([external_exports.string(), external_exports.number()]);
@@ -160686,7 +161297,7 @@ function registerBuildCancel(server) {
       const built = buildCancel(cfg, args);
       return ok15({ governor: cfg.id, governorVersion: cfg.governorVersion, ...built });
     } catch (e2) {
-      return err15(`dexe_gov_build_cancel failed: ${e2.message}`);
+      return err16(`dexe_gov_build_cancel failed: ${e2.message}`);
     }
   });
 }
@@ -160711,7 +161322,7 @@ function registerDecodeCalldata2(server) {
         args: argsOut
       });
     } catch (e2) {
-      return err15(`dexe_gov_decode_calldata failed: ${e2.message}`);
+      return err16(`dexe_gov_decode_calldata failed: ${e2.message}`);
     }
   });
 }
@@ -160726,7 +161337,7 @@ function registerHashDescription(server) {
     try {
       return ok15({ description, descriptionHash: keccak256(toUtf8Bytes(description)) });
     } catch (e2) {
-      return err15(`dexe_gov_hash_description failed: ${e2.message}`);
+      return err16(`dexe_gov_hash_description failed: ${e2.message}`);
     }
   });
 }
@@ -160746,11 +161357,11 @@ function registerHashProposal(server, rpc) {
     try {
       const cfg = resolveGovernor(governor);
       if (isBravo(cfg)) {
-        return err15(`dexe_gov_hash_proposal: ${cfg.id} is Bravo (${cfg.governorVersion}); Bravo does not expose hashProposal. Use Bravo's on-chain proposalCount + propose-returned id instead.`);
+        return err16(`dexe_gov_hash_proposal: ${cfg.id} is Bravo (${cfg.governorVersion}); Bravo does not expose hashProposal. Use Bravo's on-chain proposalCount + propose-returned id instead.`);
       }
       const pr2 = governorProvider(rpc, cfg);
       if ("error" in pr2)
-        return err15(pr2.error);
+        return err16(pr2.error);
       const provider = pr2.ok;
       const c4 = governorContract(provider, cfg);
       const dh = descriptionHash ?? (description !== void 0 ? keccak256(toUtf8Bytes(description)) : void 0);
@@ -160766,7 +161377,7 @@ function registerHashProposal(server, rpc) {
         ...rpcNote(pr2)
       });
     } catch (e2) {
-      return err15(`dexe_gov_hash_proposal failed: ${safeErrorMessage(e2)}`);
+      return err16(`dexe_gov_hash_proposal failed: ${safeErrorMessage(e2)}`);
     }
   });
 }
@@ -160935,6 +161546,7 @@ var LOCAL_WRITE = {
 };
 var WRITE_CLASSES = {
   // ── BROADCAST — signs a transaction and sends it, or queues one others execute.
+  dexe_agent_treasury_create: BROADCAST,
   dexe_agents_fund: BROADCAST,
   dexe_dao_create: BROADCAST,
   dexe_otc_buyer_buy: BROADCAST,
@@ -161072,6 +161684,7 @@ var WRITE_CLASSES = {
   dexe_write_context: READ_ONLY
 };
 var WRITE_TITLES = {
+  dexe_agent_treasury_create: "Deploy a k-of-n AI-agent treasury DAO",
   dexe_dao_create: "Deploy a new DAO",
   dexe_otc_buyer_buy: "Buy from an OTC tier",
   dexe_otc_buyer_claim_all: "Claim all OTC purchases",
@@ -161327,10 +161940,10 @@ function guardReadHandler(cb, opts) {
     let result;
     try {
       result = await runWithRequestSignal(signal, () => cb(...args));
-    } catch (err16) {
-      if (err16 instanceof RequestCancelledError || signal?.aborted)
+    } catch (err17) {
+      if (err17 instanceof RequestCancelledError || signal?.aborted)
         return cancelledResult();
-      return finish(errorResult24(safeErrorMessage(err16)));
+      return finish(errorResult24(safeErrorMessage(err17)));
     }
     if (!result || typeof result !== "object")
       return result;
@@ -161598,14 +162211,14 @@ function isMainModule(moduleUrl, argv1 = process.argv[1]) {
     return false;
   }
 }
-function isTransportGoneError(err16) {
-  const code6 = err16?.code;
+function isTransportGoneError(err17) {
+  const code6 = err17?.code;
   return code6 === "EPIPE" || code6 === "ERR_STREAM_DESTROYED";
 }
-function formatCrashReport(kind, err16, fatal, label = "dexe-mcp") {
+function formatCrashReport(kind, err17, fatal, label = "dexe-mcp") {
   const verdict = fatal ? "the stdio channel is gone, so the server is shutting down" : "the server is STILL RUNNING \u2014 the call that triggered this already failed, so retry it";
   return `[${label}] ${kind} \u2014 ${verdict}.
-${formatDiagnostic(err16)}
+${formatDiagnostic(err17)}
 ` + debugHint();
 }
 var processGuardsInstalled = false;
@@ -161623,9 +162236,9 @@ function installProcessGuards(opts = {}) {
   emitter.on("unhandledRejection", ((reason) => {
     write(formatCrashReport("unhandled promise rejection", reason, false, label));
   }));
-  emitter.on("uncaughtException", ((err16) => {
-    const fatal = isTransportGoneError(err16);
-    write(formatCrashReport("uncaught exception", err16, fatal, label));
+  emitter.on("uncaughtException", ((err17) => {
+    const fatal = isTransportGoneError(err17);
+    write(formatCrashReport("uncaught exception", err17, fatal, label));
     if (fatal)
       exit3(0);
   }));
@@ -161637,9 +162250,9 @@ function installTransportGuards(transport, opts = {}) {
   const write = opts.write ?? ((line2) => void process.stderr.write(line2));
   const exit3 = opts.exit ?? ((code6) => process.exit(code6));
   const label = opts.label ?? "dexe-mcp";
-  transport.onerror = (err16) => {
+  transport.onerror = (err17) => {
     write(`[${label}] transport error (session continues):
-${formatDiagnostic(err16)}
+${formatDiagnostic(err17)}
 ${debugHint()}`);
   };
   transport.onclose = () => {
@@ -161770,8 +162383,8 @@ async function run(argv = [], extraChecks, loadConfig2 = loadReadConfig) {
 `);
     process.exit(2);
   }
-  const config2 = await loadConfig2().catch((err16) => {
-    process.stderr.write(`[dexe-mcp doctor] config load failed: ${safeErrorMessage(err16)}
+  const config2 = await loadConfig2().catch((err17) => {
+    process.stderr.write(`[dexe-mcp doctor] config load failed: ${safeErrorMessage(err17)}
 `);
     process.exit(2);
   });
@@ -161932,8 +162545,8 @@ async function runSubcommand(name2, envFiles = []) {
   await mod4.run(process.argv.slice(3));
   process.exit(0);
 }
-function createDegradedServer(err16, envFiles = []) {
-  const detail = err16 instanceof Error ? err16.stack || err16.message : String(err16);
+function createDegradedServer(err17, envFiles = []) {
+  const detail = err17 instanceof Error ? err17.stack || err17.message : String(err17);
   const searched = envFiles.length ? ` (searched, in order: ${envFiles.join(", ")})` : "";
   const report = `dexe-mcp failed to start. Its DAO tools are NOT registered in this session.
 
@@ -161957,9 +162570,9 @@ Runtime: Node ${process.versions.node} (dexe-mcp requires >=${MIN_NODE_VERSION})
   }, () => ({ content: [{ type: "text", text: report }] }));
   return server;
 }
-async function startDegraded(err16, envFiles) {
+async function startDegraded(err17, envFiles) {
   try {
-    const server = createDegradedServer(err16, envFiles);
+    const server = createDegradedServer(err17, envFiles);
     const transport = new StdioServerTransport();
     installTransportGuards(transport);
     await server.connect(transport);
@@ -162008,8 +162621,8 @@ async function delegateServeHttp(args) {
   process.on("SIGTERM", forward("SIGTERM"));
   process.on("SIGINT", forward("SIGINT"));
   process.exitCode = await new Promise((done) => {
-    child.once("error", (err16) => {
-      process.stderr.write(`[dexe-mcp] serve-http: could not start the read edition: ${safeErrorMessage(err16)}
+    child.once("error", (err17) => {
+      process.stderr.write(`[dexe-mcp] serve-http: could not start the read edition: ${safeErrorMessage(err17)}
 `);
       done(1);
     });
@@ -162045,8 +162658,8 @@ async function bootstrap() {
   let envCandidates = [];
   try {
     envCandidates = loadEnvironment();
-  } catch (err16) {
-    process.stderr.write(`[dexe-mcp] warn: .env loading failed (${safeErrorMessage(err16)}) \u2014 using process env only
+  } catch (err17) {
+    process.stderr.write(`[dexe-mcp] warn: .env loading failed (${safeErrorMessage(err17)}) \u2014 using process env only
 `);
   }
   if (intent.kind === "subcommand" && intent.name !== "serve-http") {
@@ -162056,11 +162669,11 @@ async function bootstrap() {
   installProcessGuards();
   try {
     await main();
-  } catch (err16) {
+  } catch (err17) {
     process.stderr.write(`[dexe-mcp] startup failed:
-${formatDiagnostic(err16)}
+${formatDiagnostic(err17)}
 ${debugHint()}`);
-    await startDegraded(err16, envCandidates);
+    await startDegraded(err17, envCandidates);
   }
 }
 if (isMainModule(import.meta.url)) {
