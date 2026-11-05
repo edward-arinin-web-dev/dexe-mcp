@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 — unreleased
+## Unreleased
 
 ### Breaking — a hot key alone never signs
 - With `DEXE_SIGNER_MODE` unset, `DEXE_PRIVATE_KEY` and the agent keyring

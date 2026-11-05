@@ -6,7 +6,7 @@ something on your side.
 
 ---
 
-## 0.37.1 → 1.0.0 — read this if you sign with DEXE_PRIVATE_KEY or the agent keyring
+## 0.37.1 → next release — read this if you sign with DEXE_PRIVATE_KEY or the agent keyring
 
 Tool count unchanged (**170 tools** / 19 groups); no emitted calldata changed.
 
