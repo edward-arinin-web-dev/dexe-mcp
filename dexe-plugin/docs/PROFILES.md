@@ -17,11 +17,11 @@ themselves; this one is about the shape of the surface.
 | `proposals` | 42 | Every single-purpose `dexe_proposal_build_*`, the off-chain/auth surface, the IPFS writes. |
 | `read` | 36 | The full analytics surface — per-DAO, per-user, per-sale reads. |
 | `vote` | 30 | Delegation, staking, NFT multiplier, claims, validator votes. |
-| `agents` | 3 | Multi-agent wallet pool. |
+| `agents` | 4 | Multi-agent wallet pool + the agent-treasury DAO preset. |
 | `governor` | 18 | External OpenZeppelin / Compound Bravo governors. |
 | `dev` | 23 | Hardhat + ABI introspection against a local DeXe-Protocol checkout. |
 
-`DEXE_TOOLSETS=full` is the union: **170 tools**. The sets overlap, so a
+`DEXE_TOOLSETS=full` is the union: **171 tools**. The sets overlap, so a
 combination is a union and not a sum.
 
 Measured sizes (real `McpServer` + `InMemoryTransport` `tools/list`, 0.37.0).
@@ -34,15 +34,15 @@ on top of each row, until the aliases are removed in a future major.
 | `DEXE_TOOLSETS` | Tools | `tools/list` bytes |
 | --- | ---: | ---: |
 | *(unset — `core`)* | 46 | 95,987 (~94 KB) |
-| `core,agents` | 49 | 100,239 |
+| `core,agents` | 50 | 105,076 |
 | `core,read` | 65 | 124,128 |
 | `core,vote` | 70 | 141,620 |
 | `core,proposals` | 85 | 191,101 (~187 KB) |
 | `core,read,vote` | 89 | 169,761 |
 | `core,proposals,read,vote` | 128 | 264,875 |
-| `core,proposals,read,vote,agents` | 129 | 266,253 |
-| `core,proposals,read,vote,agents,governor` | 147 | 285,100 |
-| `full` | 170 | 326,338 (~319 KB) |
+| `core,proposals,read,vote,agents` | 130 | 271,348 |
+| `core,proposals,read,vote,agents,governor` | 148 | 290,195 |
+| `full` | 171 | 331,373 (~324 KB) |
 
 The default profile is held under a hard 96,000-byte ceiling by
 `tests/tools/gate.test.ts`. That is a budget, not a debt line: anything that
@@ -61,7 +61,7 @@ they cannot crowd out tools. Every tool that was in `core` in 0.33 is still in `
 
 **VS Code / GitHub Copilot Chat rejects a chat request carrying more than
 128 enabled tools per request** — counting its own built-ins and every other
-MCP server you have connected, not just this one. `full` (170) is over that on its own, so a
+MCP server you have connected, not just this one. `full` (171) is over that on its own, so a
 Copilot user who follows an escalation hint to `full` breaks every request
 instead of gaining tools. Claude Code and Claude Desktop have no such cap.
 
@@ -88,7 +88,7 @@ carries, aliases included:
   other servers.
 
 `core,proposals,read,vote` (128 tools, **130 listed** with the 0.36.0
-aliases), `full` (170) and `core,proposals,read,vote,agents,governor` (147) are
+aliases), `full` (171) and `core,proposals,read,vote,agents,governor` (148) are
 over the cap. Use them on Claude Code / Claude Desktop only.
 
 No profile is ever removed or renamed: any `DEXE_TOOLSETS` value that worked

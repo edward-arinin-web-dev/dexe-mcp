@@ -54,6 +54,7 @@ async function listTools(toolsetsEnv: string | undefined): Promise<Tool[]> {
  * out so a tool that silently starts broadcasting fails this file.
  */
 const BROADCAST_TOOLS = [
+  "dexe_agent_treasury_create",
   "dexe_agents_fund",
   "dexe_dao_create",
   "dexe_otc_buyer_buy",

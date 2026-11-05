@@ -206,6 +206,8 @@ const WRITE = [
   "knowledge/write/index.ts",
   "knowledge/write/nextSteps.ts",
   "lib/agentLedger.ts",
+  // agent-treasury preset share math (pure; only the preset tool uses it)
+  "lib/agentTreasury.ts",
   // keystore-mode approvals: store, loopback server, page, review, browser opener,
   // per-call scope, the ordered-only ApprovedSigner (2c Phase A); message / SafeTx
   // signature approvals, the Safe review, the terminal channel + its rendezvous
@@ -275,6 +277,7 @@ const WRITE = [
   "tools/annotationsWrite.ts",
   "tools/build.ts",
   "tools/buildResult.ts",
+  "tools/agentTreasuryCreate.ts",
   "tools/daoCreate.ts",
   "tools/daoDeploy.ts",
   "tools/flow.ts",

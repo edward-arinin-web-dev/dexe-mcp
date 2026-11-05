@@ -33,6 +33,7 @@ const LOCAL_WRITE: ToolAnnotations = {
  */
 const WRITE_CLASSES: Record<string, ToolAnnotations> = {
   // ── BROADCAST — signs a transaction and sends it, or queues one others execute.
+  dexe_agent_treasury_create: BROADCAST,
   dexe_agents_fund: BROADCAST,
   dexe_dao_create: BROADCAST,
   dexe_otc_buyer_buy: BROADCAST,
@@ -176,6 +177,7 @@ const WRITE_CLASSES: Record<string, ToolAnnotations> = {
  * snake_case in a host's approval dialog.
  */
 const WRITE_TITLES: Record<string, string> = {
+  dexe_agent_treasury_create: "Deploy a k-of-n AI-agent treasury DAO",
   dexe_dao_create: "Deploy a new DAO",
   dexe_otc_buyer_buy: "Buy from an OTC tier",
   dexe_otc_buyer_claim_all: "Claim all OTC purchases",
