@@ -79,7 +79,7 @@
     "ethers": "^6.17.0",
     "execa": "^9.5.0",
     "jpeg-js": "^0.4.4",
-    "multiformats": "^13.4.2",
+    "multiformats": "^14.0.5",
     "p-limit": "^7.3.2",
     "qrcode": "^1.5.4",
     "remark-gfm": "^4.0.1",
