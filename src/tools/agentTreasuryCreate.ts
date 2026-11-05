@@ -1,9 +1,11 @@
 import { z } from "zod";
-import { isAddress, parseUnits, ZeroAddress } from "ethers";
+import { Contract, formatUnits, getAddress, getCreateAddress, isAddress, parseUnits, ZeroAddress } from "ethers";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WriteToolContext } from "./writeContext.js";
 import type { SignerManager } from "../lib/signer.js";
 import { resolveChain } from "../config.js";
+import { RpcProvider } from "../rpc.js";
+import { AddressBook, CONTRACT_NAMES } from "../lib/addresses.js";
 import { flowContextSchema } from "../lib/flowChain.js";
 import { signerKeyParam } from "../lib/writeParams.js";
 import { safeErrorMessage } from "../lib/redact.js";
@@ -14,11 +16,24 @@ import {
   computeAgentShares,
   defaultApprovals,
 } from "../lib/agentTreasury.js";
-import { DAO_CREATE_SHAPE, type DaoCreateRunner } from "./daoCreate.js";
+import {
+  encodeLaneDeploy,
+  FAST_LANE_ABI,
+  FAST_LANE_SOURCE_SHA256,
+  fastLaneChainRefusal,
+  fastLaneGuarantees,
+  fastLaneSettings,
+  FAST_LANE_WINDOW_DAYS,
+  payProposalRecipe,
+  resolveFastLaneConfig,
+  type FastLaneConfig,
+} from "../lib/agentFastLane.js";
+import { DAO_CREATE_SHAPE, type DaoCreateExtras, type DaoCreateRunner } from "./daoCreate.js";
 
 const PCT_25DEC = 10n ** 25n;
 const ONE_TOKEN = 10n ** 18n;
 const TOOL = "dexe_agent_treasury_create";
+const LANE_LABEL = "agentFastLane";
 
 function err(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
@@ -79,6 +94,51 @@ export function agentTreasuryShape() {
       .regex(/^\d+(\.\d+)?$/)
       .optional()
       .describe("Optional monthly credit, WHOLE gov tokens; returns the validators_allocation proposal recipe."),
+    fastLane: z
+      .object({
+        perPaymentCap: z
+          .string()
+          .regex(/^\d+(\.\d+)?$/)
+          .describe("Largest single fast-lane payment, WHOLE gov tokens."),
+        windowCap: z
+          .string()
+          .regex(/^\d+(\.\d+)?$/)
+          .describe(`Largest fast-lane total over any rolling ${FAST_LANE_WINDOW_DAYS} days, WHOLE gov tokens.`),
+        allowlist: z
+          .array(z.string())
+          .min(1)
+          .max(50)
+          .describe("Recipients the fast lane may pay. Adding more later is a validator-round proposal."),
+        floatPercent: z
+          .number()
+          .gt(0)
+          .max(50)
+          .default(1)
+          .describe(
+            "Share of the supply minted to the lane as its float, % with ≤2 decimals, taken OUT of the treasury. " +
+              "Default 1. The lane can never pay more than it holds.",
+          ),
+        voteSeconds: z
+          .number()
+          .int()
+          .positive()
+          .default(600)
+          .describe("Agent voting window of a fast-lane proposal (early completion is on). Default 600."),
+        existingLane: z
+          .string()
+          .optional()
+          .describe(
+            "An AgentFastLane already deployed for THIS deployer + daoName (its govPool() must equal the " +
+              "predicted govPool). Use it to resume after a failed DAO deploy, or when no hot key can deploy the lane.",
+          ),
+      })
+      .optional()
+      .describe(
+        "TESTNET ONLY (chain 97). Adds a capped petty-cash lane: small allowlisted payments pass on the agents' " +
+          "k-of-n vote alone, with no validator round. Deploys contracts/AgentFastLane.sol (unaudited) and binds it " +
+          "as an executor with its own fast settings at deploy — SphereX blocks changeExecutors on 97, so this " +
+          "cannot be added to an existing DAO. See docs/AGENT-TREASURY.md.",
+      ),
     confirmRisky: DAO_CREATE_SHAPE.confirmRisky,
     confirm: DAO_CREATE_SHAPE.confirm,
     dryRun: DAO_CREATE_SHAPE.dryRun,
@@ -135,18 +195,38 @@ export function budgetRecipe(args: {
   };
 }
 
+const PREDICT_ABI = [
+  "function predictGovAddresses(address deployer, string poolName) view returns (tuple(address govPool, address govTokenSale, address govToken, address distributionProposal, address expertNft, address nftMultiplier))",
+];
+
+interface LanePlan {
+  cfg: FastLaneConfig;
+  floatBps: number;
+  floatWei: bigint;
+  predicted: { govPool: string; govToken: string };
+  /** The lane address the deploy is assembled against. */
+  address: string;
+  /** How `address` was obtained. */
+  source: "existing" | "predicted-create" | "deployed";
+  warnings: string[];
+}
+
 export function registerAgentTreasuryCreateTool(
   server: McpServer,
   ctx: WriteToolContext,
-  _signer: SignerManager,
+  signer: SignerManager,
   runDaoCreate: DaoCreateRunner,
 ): void {
+  const rpc = new RpcProvider(ctx.config);
+
   server.tool(
     TOOL,
     "Broadcasts when a signer is configured. Deploys a DAO whose treasury n AI agents run k-of-n, with human " +
       "validators as a veto. Each agent gets an equal token share sized so k agents voting FOR reach quorum and " +
       "k-1 do not; the rest stays in the treasury. Validators are seated at deploy, so every proposal also needs " +
-      "the validator round. Same guards and preview/confirm posture as dexe_dao_create.",
+      "the validator round — except, with `fastLane` (TESTNET ONLY), small allowlisted payments through the " +
+      "capped AgentFastLane executor, which pass on the agents' vote alone. Same guards and preview/confirm " +
+      "posture as dexe_dao_create.",
     agentTreasuryShape(),
     async (raw) => {
       const input = raw as AgentTreasuryInput;
@@ -187,7 +267,6 @@ export function registerAgentTreasuryCreateTool(
         return err(`totalSupply: ${safeErrorMessage(e)}`);
       }
       const shareWei = (supplyWei * BigInt(sh.shareBps)) / 10000n;
-      const treasuryWei = supplyWei - shareWei * BigInt(n);
       const tokens = (wei: bigint) => (wei / ONE_TOKEN).toString() + (wei % ONE_TOKEN === 0n ? "" : "+");
 
       const overlap = agentAddrs.filter((a) => validatorAddrs.some((v) => v.toLowerCase() === a.toLowerCase()));
@@ -198,6 +277,102 @@ export function registerAgentTreasuryCreateTool(
             `the veto round. Use separate human wallets for the validators.`,
         );
       }
+
+      const m = validatorAddrs.length;
+      const chainId = resolveChain(ctx.config, input.chainId).chainId;
+      const deployer =
+        input.deployer ?? (signer.hasSigner(input.signerKey) ? signer.getAddress(input.signerKey) : undefined);
+
+      // ---------- fast lane: config, chain fence, address ----------
+      let lane: LanePlan | undefined;
+      if (input.fastLane) {
+        const refusal = fastLaneChainRefusal(chainId);
+        if (refusal) return err(refusal);
+        const fl = input.fastLane;
+        const cfgRes = resolveFastLaneConfig({
+          perPaymentCap: fl.perPaymentCap,
+          windowCap: fl.windowCap,
+          allowlist: fl.allowlist,
+          voteSeconds: fl.voteSeconds,
+        });
+        if (!cfgRes.ok) return err(cfgRes.reason);
+        const floatBps = Math.round(fl.floatPercent * 100);
+        if (Math.abs(fl.floatPercent * 100 - floatBps) > 1e-9 || floatBps <= 0) {
+          return err(`fastLane.floatPercent must be a positive percent with at most 2 decimals (got ${fl.floatPercent}).`);
+        }
+        if (floatBps >= sh.treasuryBps) {
+          return err(
+            `fastLane.floatPercent ${fl.floatPercent}% must stay below the treasury share ` +
+              `(${sh.treasuryPct}% after the agents' ${n} × ${sh.sharePct}%): the float comes out of the treasury.`,
+          );
+        }
+        const floatWei = (supplyWei * BigInt(floatBps)) / 10000n;
+        const laneWarnings: string[] = [];
+        if (cfgRes.config.windowCapWei > floatWei) {
+          laneWarnings.push(
+            `The ${FAST_LANE_WINDOW_DAYS}-day cap (${fl.windowCap} ${input.symbol}) exceeds the float ` +
+              `(${formatUnits(floatWei, 18)} ${input.symbol}); the float is the binding limit until a ` +
+              `validator-round proposal tops it up.`,
+          );
+        }
+        if (cfgRes.config.allowlist.some((a) => agentAddrs.some((g) => g.toLowerCase() === a.toLowerCase()))) {
+          laneWarnings.push(
+            "An agent wallet is on the fast-lane allowlist: the agents can pay themselves up to the caps with no " +
+              "human in the loop. Intentional only if the caps are the whole point.",
+          );
+        }
+        if (!deployer) {
+          return err(
+            "Provide 'deployer' address, or connect a signer (dexe_wc_connect, or DEXE_SIGNER_MODE=unattended + DEXE_PRIVATE_KEY).",
+          );
+        }
+
+        // The lane's constructor pins the GovPool, so the DAO's addresses are
+        // predicted first (create2 by deployer + name: nonce-independent).
+        const pr = rpc.tryProvider(chainId);
+        if ("error" in pr) return err(`${pr.error}\n${pr.remediation}`);
+        const provider = pr.ok;
+        let predicted: { govPool: string; govToken: string };
+        try {
+          const book = new AddressBook({ provider, chainId, registryOverride: ctx.config.registryOverride });
+          const factory = new Contract(await book.resolve(CONTRACT_NAMES.POOL_FACTORY), PREDICT_ABI, provider);
+          const res = await factory.getFunction("predictGovAddresses").staticCall(deployer, input.daoName);
+          predicted = { govPool: getAddress(res.govPool as string), govToken: getAddress(res.govToken as string) };
+        } catch (e) {
+          return err(`fastLane: could not predict the DAO addresses the lane binds to: ${safeErrorMessage(e)}`);
+        }
+
+        if (fl.existingLane !== undefined) {
+          if (!isAddress(fl.existingLane)) return err(`fastLane.existingLane: invalid address ${fl.existingLane}`);
+          const address = getAddress(fl.existingLane);
+          const check = await verifyExistingLane(provider, address, predicted, cfgRes.config);
+          if (check) return err(`fastLane.existingLane ${address}: ${check}`);
+          lane = { cfg: cfgRes.config, floatBps, floatWei, predicted, address, source: "existing", warnings: laneWarnings };
+        } else {
+          // Not deployed yet: the address is CREATE(signer, pending nonce). It
+          // holds only while the signer sends nothing else in between — the
+          // confirm path re-predicts right before deploying.
+          const hot = signer.hasSigner(input.signerKey) ? signer.trySigner(chainId, input.signerKey) : undefined;
+          if (!hot || "error" in hot) {
+            return err(
+              `fastLane needs a hot key to deploy AgentFastLane.sol (there is no calldata-only path for a contract ` +
+                `creation)${hot && "error" in hot ? `: ${hot.error}` : ""}. Either run with DEXE_SIGNER_MODE=unattended ` +
+                `on testnet 97, or deploy the lane yourself and pass fastLane.existingLane.`,
+            );
+          }
+          let address: string;
+          try {
+            const nonce = await hot.ok.provider!.getTransactionCount(hot.ok.address, "pending");
+            address = getCreateAddress({ from: hot.ok.address, nonce });
+          } catch (e) {
+            return err(`fastLane: could not predict the lane address (nonce read failed): ${safeErrorMessage(e)}`);
+          }
+          lane = { cfg: cfgRes.config, floatBps, floatWei, predicted, address, source: "predicted-create", warnings: laneWarnings };
+        }
+      }
+
+      const treasuryBps = sh.treasuryBps - (lane?.floatBps ?? 0);
+      const treasuryWei = supplyWei - shareWei * BigInt(n) - (lane?.floatWei ?? 0n);
       if (budgetWei !== undefined && budgetWei > treasuryWei) {
         warnings.push(
           `monthlyBudget ${input.monthlyBudget} ${input.symbol} exceeds the whole treasury ` +
@@ -205,9 +380,39 @@ export function registerAgentTreasuryCreateTool(
         );
       }
 
-      const m = validatorAddrs.length;
-      const chainId = resolveChain(ctx.config, input.chainId).chainId;
       const guarantees = agentTreasuryGuarantees(sh, m);
+      if (lane) {
+        // The float comes out of the treasury: say the share that actually stays.
+        guarantees.treasury =
+          `${treasuryBps / 100}% of the supply stays in the DAO treasury and is never votable; it moves only through ` +
+          `proposals that pass both rounds. The lane's ${lane.floatBps / 100}% float is outside the treasury and ` +
+          `capped by the lane.`;
+      }
+      const laneSummary = (l: LanePlan) => ({
+        address: l.address,
+        addressSource:
+          l.source === "existing"
+            ? "existing lane, verified on-chain"
+            : l.source === "deployed"
+              ? "deployed by this call"
+              : "predicted CREATE address (signer + pending nonce); final once the lane is deployed on confirm",
+        token: l.predicted.govToken,
+        govPool: l.predicted.govPool,
+        perPaymentCap: `${input.fastLane!.perPaymentCap} ${input.symbol}`,
+        windowCap: `${input.fastLane!.windowCap} ${input.symbol} per rolling ${FAST_LANE_WINDOW_DAYS} days`,
+        float: { percent: l.floatBps / 100, tokens: tokens(l.floatWei) },
+        allowlist: l.cfg.allowlist,
+        voteSeconds: l.cfg.voteSeconds,
+        settingsSlot: 5,
+        guarantees: fastLaneGuarantees({
+          perPaymentCap: input.fastLane!.perPaymentCap,
+          windowCap: input.fastLane!.windowCap,
+          symbol: input.symbol,
+          allowlistCount: l.cfg.allowlist.length,
+          voteSeconds: l.cfg.voteSeconds,
+        }),
+        ...(l.warnings.length ? { warnings: l.warnings } : {}),
+      });
       const summary = {
         preset: "agent-treasury",
         kOfN: `${k}-of-${n}`,
@@ -218,7 +423,7 @@ export function registerAgentTreasuryCreateTool(
           sharePercent: sh.sharePct,
           tokens: tokens(shareWei),
         })),
-        treasury: { percent: sh.treasuryPct, tokens: tokens(treasuryWei) },
+        treasury: { percent: treasuryBps / 100, tokens: tokens(treasuryWei) },
         quorum: {
           memberPercent: input.quorumPercent,
           kForPercent: sh.kForPct,
@@ -240,33 +445,33 @@ export function registerAgentTreasuryCreateTool(
           executionDelaySeconds: input.executionDelaySeconds,
         },
         guarantees,
+        ...(lane ? { fastLane: laneSummary(lane) } : {}),
         ...(warnings.length ? { presetWarnings: warnings } : {}),
       };
 
-      let daoInput;
-      try {
-        daoInput = z.object(DAO_CREATE_SHAPE).parse({
+      const assembleDaoInput = (laneAddress: string | undefined, over: { dryRun?: boolean; confirm?: boolean } = {}) =>
+        z.object(DAO_CREATE_SHAPE).parse({
           ...(input.chainId !== undefined ? { chainId: input.chainId } : {}),
           ...(input.deployer !== undefined ? { deployer: input.deployer } : {}),
           daoName: input.daoName,
           daoDescription: input.daoDescription,
           symbol: input.symbol,
           totalSupply: input.totalSupply,
-          treasuryPercent: sh.treasuryBps / 100,
+          treasuryPercent: treasuryBps / 100,
           quorumPercent: input.quorumPercent,
           voteModel: "LINEAR",
           durationSeconds: input.agentVoteSeconds,
           executionDelaySeconds: input.executionDelaySeconds,
-          recipients: input.agents.map((a) => ({ address: a.address, percent: sh.shareBps / 100 })),
+          recipients: [
+            ...input.agents.map((a) => ({ address: a.address, percent: sh.shareBps / 100 })),
+            ...(lane && laneAddress ? [{ address: laneAddress, percent: lane.floatBps / 100 }] : []),
+          ],
           confirmRisky: input.confirmRisky,
-          confirm: input.confirm,
-          dryRun: input.dryRun,
+          confirm: over.confirm ?? input.confirm,
+          dryRun: over.dryRun ?? input.dryRun,
           ...(input.signerKey !== undefined ? { signerKey: input.signerKey } : {}),
           ...(input.flowContext !== undefined ? { flowContext: input.flowContext } : {}),
         });
-      } catch (e) {
-        return err(`Could not assemble the deploy: ${safeErrorMessage(e)}`);
-      }
 
       const validatorQuorumRaw = (
         (BigInt(Math.round(input.validatorQuorumPercent * 1_000_000)) * PCT_25DEC) /
@@ -277,8 +482,13 @@ export function registerAgentTreasuryCreateTool(
           ? `After the deploy, set the monthly budget with the dexe_proposal_create call in agentTreasury.budgetRecipe ` +
             `(the deploy result fills in the real govPool and token).`
           : undefined;
+      const laneHint = lane
+        ? `Fast-lane payments: dexe_agent_fast_lane_build_pay checks a payment against the lane and returns the ` +
+          `dexe_proposal_create call (custom_abi, lane.pay) that needs only the agents' vote.`
+        : undefined;
+      const nextExtra = [budgetHint, laneHint].filter(Boolean).join(" ");
 
-      return runDaoCreate(daoInput, {
+      const extrasFor = (l: LanePlan | undefined): DaoCreateExtras => ({
         tool: TOOL,
         validatorsParams: {
           name: input.daoName,
@@ -297,18 +507,57 @@ export function registerAgentTreasuryCreateTool(
           preset: "agent-treasury",
           presetVersion: 1,
           agents: input.agents.map((a) => ({ address: a.address, role: a.role })),
+          ...(l
+            ? {
+                fastLane: {
+                  address: l.address,
+                  token: l.predicted.govToken,
+                  perPaymentCapWei: l.cfg.perPaymentCapWei.toString(),
+                  windowCapWei: l.cfg.windowCapWei.toString(),
+                  windowDays: FAST_LANE_WINDOW_DAYS,
+                  allowlist: l.cfg.allowlist,
+                  voteSeconds: l.cfg.voteSeconds,
+                  contract: "AgentFastLane.sol",
+                  sourceSha256: FAST_LANE_SOURCE_SHA256,
+                  testnetOnly: true,
+                },
+              }
+            : {}),
         },
+        ...(l
+          ? {
+              extraExecutors: [
+                { executor: l.address, label: LANE_LABEL, settings: (d) => fastLaneSettings(d, l.cfg.voteSeconds) },
+              ],
+            }
+          : {}),
         previewExtra: {
           agentTreasury: {
             ...summary,
+            ...(l ? { fastLane: laneSummary(l) } : {}),
             ...(input.monthlyBudget !== undefined
               ? { budgetRecipe: budgetRecipe({ monthlyBudget: input.monthlyBudget, chainId, symbol: input.symbol }) }
               : {}),
           },
         },
-        ...(budgetHint ? { previewNextExtra: budgetHint } : {}),
+        ...(nextExtra ? { previewNextExtra: nextExtra } : {}),
         resultExtra: (predicted) => ({
-          agentTreasury: summary,
+          agentTreasury: { ...summary, ...(l ? { fastLane: laneSummary(l) } : {}) },
+          ...(l
+            ? {
+                fastLane: {
+                  ...laneSummary(l),
+                  payRecipeExample: payProposalRecipe({
+                    govPool: predicted.govPool ?? l.predicted.govPool,
+                    chainId,
+                    lane: l.address,
+                    to: l.cfg.allowlist[0]!,
+                    amountWei: l.cfg.perPaymentCapWei,
+                    amountHuman: `${input.fastLane!.perPaymentCap} ${input.symbol}`,
+                  }),
+                },
+              }
+            : {}),
           ...(input.monthlyBudget !== undefined
             ? (() => {
                 const recipe = budgetRecipe({
@@ -322,12 +571,130 @@ export function registerAgentTreasuryCreateTool(
                   budgetRecipe: recipe,
                   next:
                     `Agents deposit their tokens, then create the monthly budget proposal: dexe_proposal_create ` +
-                    `${JSON.stringify(recipe.args)}. It goes through the validator round like every proposal.`,
+                    `${JSON.stringify(recipe.args)}. It goes through the validator round like every proposal.` +
+                    (laneHint ? ` ${laneHint}` : ""),
                 };
               })()
-            : {}),
+            : laneHint
+              ? { next: laneHint }
+              : {}),
         }),
       });
+
+      // ---------- no lane, or a lane that already exists: one deploy call ----------
+      const deployLaneNow =
+        lane !== undefined && lane.source === "predicted-create" && !input.dryRun && input.confirm === true;
+      if (!deployLaneNow) {
+        let daoInput;
+        try {
+          daoInput = assembleDaoInput(lane?.address);
+        } catch (e) {
+          return err(`Could not assemble the deploy: ${safeErrorMessage(e)}`);
+        }
+        return runDaoCreate(daoInput, extrasFor(lane));
+      }
+
+      // ---------- lane first, then the DAO ----------
+      // Order: a dry run of the DAO deploy (every guard, no pin, no broadcast)
+      // → deploy the lane → the real DAO deploy. The lane goes first because its
+      // address is baked into the deploy (float recipient + executor): if the
+      // DAO deploy then fails, the lane is reusable through `existingLane`; the
+      // other order would leave a DAO pointing at an address nothing can ever
+      // occupy (a failed CREATE still burns the nonce).
+      const l = lane!;
+      try {
+        const dry = await runDaoCreate(assembleDaoInput(l.address, { dryRun: true, confirm: false }), extrasFor(l));
+        if (dry.isError) return dry;
+      } catch (e) {
+        return err(`Could not assemble the deploy: ${safeErrorMessage(e)}`);
+      }
+
+      const hot = signer.trySigner(chainId, input.signerKey);
+      if ("error" in hot) return err(`${hot.error}\n${hot.remediation}`);
+      let laneTx: { hash: string; address: string };
+      try {
+        const nonce = await hot.ok.provider!.getTransactionCount(hot.ok.address, "pending");
+        const expected = getCreateAddress({ from: hot.ok.address, nonce });
+        const tx = await hot.ok.sendTransaction({
+          data: encodeLaneDeploy(l.predicted.govPool, l.predicted.govToken, l.cfg),
+          nonce,
+        });
+        const receipt = await tx.wait(1);
+        if (!receipt || receipt.status !== 1 || !receipt.contractAddress) {
+          return err(`AgentFastLane deploy tx ${tx.hash} failed (status ${receipt?.status ?? "unknown"}). Nothing else was sent.`);
+        }
+        laneTx = { hash: tx.hash, address: getAddress(receipt.contractAddress) };
+        if (laneTx.address.toLowerCase() !== expected.toLowerCase()) {
+          // Harmless: the deploy below is assembled against the real address.
+          l.warnings.push(`Lane landed at ${laneTx.address}, not the predicted ${expected} (nonce moved).`);
+        }
+      } catch (e) {
+        return err(`AgentFastLane deploy failed: ${safeErrorMessage(e)}. Nothing else was sent.`);
+      }
+      const deployed: LanePlan = { ...l, address: laneTx.address, source: "deployed" };
+
+      let daoInput;
+      try {
+        daoInput = assembleDaoInput(deployed.address);
+      } catch (e) {
+        return err(`Could not assemble the deploy: ${safeErrorMessage(e)}`);
+      }
+      const extras = extrasFor(deployed);
+      const prevResult = extras.resultExtra!;
+      extras.resultExtra = (p) => {
+        const base = prevResult(p);
+        const fl = base.fastLane as Record<string, unknown> | undefined;
+        return { ...base, fastLane: { ...(fl ?? {}), deployTxHash: laneTx.hash } };
+      };
+      const res = await runDaoCreate(daoInput, extras);
+      if (res.isError) {
+        const text = res.content.map((c) => ("text" in c ? c.text : "")).join("\n");
+        return err(
+          `${text}\n\nThe AgentFastLane IS deployed at ${laneTx.address} (tx ${laneTx.hash}) and bound to the ` +
+            `predicted govPool ${l.predicted.govPool}. Fix the cause and re-run the SAME call with ` +
+            `fastLane.existingLane: "${laneTx.address}" — do not deploy a second lane.`,
+        );
+      }
+      return res;
     },
   );
+}
+
+/**
+ * An `existingLane` must be the lane for THIS DAO: its govPool() is the
+ * predicted pool and its token() the predicted gov token, and its caps are the
+ * ones the call asked for (so the preview tells the truth).
+ */
+async function verifyExistingLane(
+  provider: { call: (tx: { to: string; data: string }) => Promise<string> },
+  address: string,
+  predicted: { govPool: string; govToken: string },
+  cfg: FastLaneConfig,
+): Promise<string | undefined> {
+  const c = new Contract(address, FAST_LANE_ABI as unknown as string[], provider as never);
+  try {
+    const [govPool, token, perPaymentCap, windowCap] = (await Promise.all([
+      c.getFunction("govPool").staticCall(),
+      c.getFunction("token").staticCall(),
+      c.getFunction("perPaymentCap").staticCall(),
+      c.getFunction("windowCap").staticCall(),
+    ])) as [string, string, bigint, bigint];
+    if (getAddress(govPool) !== predicted.govPool) {
+      return `its govPool() is ${govPool}, but this deployer + daoName predicts ${predicted.govPool}. A lane is bound to one DAO.`;
+    }
+    if (getAddress(token) !== predicted.govToken) return `its token() is ${token}, not the predicted gov token ${predicted.govToken}.`;
+    if (perPaymentCap !== cfg.perPaymentCapWei || windowCap !== cfg.windowCapWei) {
+      return (
+        `its caps are ${formatUnits(perPaymentCap, 18)} / ${formatUnits(windowCap, 18)} per payment / per window, ` +
+        `not the ${formatUnits(cfg.perPaymentCapWei, 18)} / ${formatUnits(cfg.windowCapWei, 18)} requested — pass the lane's own caps.`
+      );
+    }
+    for (const a of cfg.allowlist) {
+      const ok = (await c.getFunction("allowed").staticCall(a)) as boolean;
+      if (!ok) return `${a} is not on its allowlist (the allowlist is set at the lane's deploy).`;
+    }
+  } catch (e) {
+    return `could not read it as an AgentFastLane: ${safeErrorMessage(e)}`;
+  }
+  return undefined;
 }

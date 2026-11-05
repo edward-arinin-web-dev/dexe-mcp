@@ -8,10 +8,12 @@ something on your side.
 
 ## 0.37.1 → next release — read this if you sign with DEXE_PRIVATE_KEY or the agent keyring
 
-Tool count **172 tools** / 19 groups (was 170): new **`dexe_agent_treasury_create`**
-(profile `agents`, see [AGENT-TREASURY.md](./AGENT-TREASURY.md)) and the read-only
-**`dexe_proposal_review`** (profile `agents`, see [AGENT-COUNCIL.md](./AGENT-COUNCIL.md)),
-plus the `dexe-mcp council` subcommand. No emitted calldata of an existing tool changed.
+Tool count **173 tools** / 19 groups (was 170): new **`dexe_agent_treasury_create`**
+(profile `agents`, see [AGENT-TREASURY.md](./AGENT-TREASURY.md)), the read-only
+**`dexe_proposal_review`** (profile `agents`, see [AGENT-COUNCIL.md](./AGENT-COUNCIL.md))
+and the read-only **`dexe_agent_fast_lane_build_pay`** (profile `agents`, testnet 97,
+see [AGENT-TREASURY.md](./AGENT-TREASURY.md#the-fast-lane-testnet-only)), plus the `dexe-mcp council`
+subcommand. No emitted calldata of an existing tool changed.
 
 1. **A hot key alone no longer signs.** If your `.env` (or MCP host `env`
    block) sets `DEXE_PRIVATE_KEY` or `DEXE_AGENT_PK_*` / `AGENT_PK_*` and does

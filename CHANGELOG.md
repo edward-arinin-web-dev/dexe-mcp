@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Added — agent council: `dexe_proposal_review` + `dexe-mcp council` (172 tools)
+### Added — agent council: `dexe_proposal_review` + `dexe-mcp council` (172 tools; 173 with the fast lane)
 - **`dexe_proposal_review`** (profile `agents`, read-only) returns the packet an
   agent votes on. Each FOR/AGAINST action is decoded in plain words: token,
   human amount, recipient label from `addressBook` (or `NOT IN ADDRESS BOOK`),
@@ -43,6 +43,33 @@
   [docs/AGENT-TREASURY.md](./docs/AGENT-TREASURY.md).
 - `dexe_dao_create`'s handler is now `runDaoCreate(input, extras)`. With no
   extras, its behaviour is unchanged.
+
+### Added — the agent fast lane: `fastLane` on `dexe_agent_treasury_create` + `dexe_agent_fast_lane_build_pay` (173 tools, TESTNET ONLY)
+- `contracts/AgentFastLane.sol` (unaudited; compiled by
+  `scripts/compile-fast-lane.mjs` into `src/lib/abi/agentFastLane.generated.ts`,
+  solc 0.8.30, evm paris): a petty-cash executor the DAO binds AT DEPLOY to its
+  own settings slot (slot 5: the agents' quorum, a short vote, early
+  completion, **no validator round**). It holds a float of the gov token and
+  pays only allowlisted recipients, at most `perPaymentCap` per payment and
+  `windowCap` per rolling 30 days. Both caps are enforced twice: `validate()`
+  (the GovPool's creation-time hook — never reverts, ≤ 23k gas of the 30k
+  budget, refuses every bundle with a foreign executor including the
+  protocol's `approve` exemption, > 3 actions, value, malformed data) and
+  `pay()` at execution. Allowlist edits and float recalls go through a child
+  admin contract at another address, so they run under the default settings
+  with the validator round. 40 EVM unit tests (`tests/contracts/`, ethereumjs
+  in-process, no node binary).
+- `dexe_agent_treasury_create` `fastLane: {perPaymentCap, windowCap, allowlist,
+  floatPercent, voteSeconds, existingLane?}`: predicts the DAO's addresses,
+  deploys the lane bound to the predicted govPool (hot key; the lane goes first
+  so a failed DAO deploy is resumable via `existingLane`), mints it the float
+  out of the treasury and binds it as the 6th executor. Refuses every chain but
+  97 — SphereX blocks `changeExecutors` on 97, so a lane can only be bound at
+  deploy. `buildDeployGovPool` / `DaoCreateExtras` gained `extraExecutors`.
+- `dexe_agent_fast_lane_build_pay` (profile `agents`, read-only): checks a
+  payment with the lane's own `validate()` + state reads and returns the
+  `dexe_proposal_create` `custom_abi` call.
+- Proven on BSC testnet 97 (2026-11-05): GovPool `0x0Bd01A0AeF1b321639995C14eB5610F0D4bCD4d8`, lane `0x5E6f818313ef93675Eb385eAA80306cfE90BA401` — a 10 FLP payment executed in 2 txs after creation with no validator round; eight bypasses (over cap, stranger, `[transfer, pay]`, `[approve, pay]`, 4 actions, over the 30-day window, value, wrong selector) all reverted `Gov: validation failed`; a 1000 FLP treasury transfer still took the validator round. Table in `docs/AGENT-TREASURY.md`.
 
 ### Fixed — `dexe_proposal_vote_and_execute` on a Locked proposal and a lagging node
 - A proposal that is **Locked** (state 6, `block.timestamp ≤ executeAfter`)

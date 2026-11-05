@@ -90,6 +90,7 @@ const WRITE_CLASSES: Record<string, ToolAnnotations> = {
   // Calldata builders live here too: they return an unsigned payload and never
   // send it, but several DO read the chain while building (blacklist checks,
   // prerequisite resolution), so openWorldHint stays at its true default.
+  dexe_agent_fast_lane_build_pay: READ_ONLY,
   dexe_agents_ledger: READ_ONLY,
   dexe_agents_list: READ_ONLY,
   dexe_dao_build_deploy: READ_ONLY,
@@ -178,6 +179,7 @@ const WRITE_CLASSES: Record<string, ToolAnnotations> = {
  * snake_case in a host's approval dialog.
  */
 const WRITE_TITLES: Record<string, string> = {
+  dexe_agent_fast_lane_build_pay: "Build a fast-lane payment proposal",
   dexe_agent_treasury_create: "Deploy a k-of-n AI-agent treasury DAO",
   dexe_dao_create: "Deploy a new DAO",
   dexe_otc_buyer_buy: "Buy from an OTC tier",
