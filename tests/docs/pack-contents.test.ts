@@ -64,6 +64,7 @@ const PUBLIC_DOCS = [
   "DAO_CREATE_PARITY.md",
   "DOCTOR.md",
   "ENVIRONMENT.md",
+  "ERC-8183.md",
   "GOVERNOR.md",
   "GOVERNOR_LAUNCH.md",
   "GRAPH.md",
