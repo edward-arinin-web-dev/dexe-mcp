@@ -16,7 +16,7 @@
 // package.json `overrides.esbuild`); it is intentionally not a direct devDep
 // because that override rejects the direct add (EOVERRIDE).
 import { build } from "esbuild";
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, cpSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { rehostUpTreeLinks, repoBlobRoot } from "./lib/doc-bundle.mjs";
@@ -94,6 +94,11 @@ for (const doc of readdirSync(resolve(root, "docs")).filter((f) => f.endsWith(".
     resolve(pluginDir, "docs", doc),
     rehostUpTreeLinks(readFileSync(resolve(root, "docs", doc), "utf8"), blob),
   );
+}
+// docs/examples/ holds config samples the docs link to (council.json). Ship it
+// too, so those relative links resolve inside the plugin as well.
+if (existsSync(resolve(root, "docs", "examples"))) {
+  cpSync(resolve(root, "docs", "examples"), resolve(pluginDir, "docs", "examples"), { recursive: true });
 }
 
 // server.json is the MCP Registry manifest. It carries the version twice (the
