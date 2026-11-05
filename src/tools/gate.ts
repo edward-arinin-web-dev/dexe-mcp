@@ -273,6 +273,8 @@ const AGENTS = [
   // the agent-treasury preset (k-of-n agents + human validators) — here, not in
   // core: the default profile sits at its tools/list budget (tests/tools/gate.test.ts)
   "dexe_agent_treasury_create",
+  // the council's voting packet: decoded actions + flags, proposer text fenced apart
+  "dexe_proposal_review",
 ];
 
 // ── vote: every direct vote/stake/delegate/execute/claim builder ────────────

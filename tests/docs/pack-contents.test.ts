@@ -59,6 +59,7 @@ const CRITICAL = [
  * shipping quietly.
  */
 const PUBLIC_DOCS = [
+  "AGENT-COUNCIL.md",
   "AGENT-TREASURY.md",
   "AGENTS.md",
   "DAO_CREATE_PARITY.md",
